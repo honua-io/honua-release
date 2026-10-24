@@ -21,17 +21,21 @@ honua-server:
   - name: "Audit trusted impact-routing observations"
     why: >-
       The only job of honua-server's "Impact Routing Evidence Ledger" workflow (added by
-      honua-server#3331/#3336). Its steps — bind the impact-routing cohort, collect bounded workflow
-      and artifact catalogs, download indexed observation receipts, reconcile them with the
-      authoritative exact-head image outcomes, retain a report-only ledger, fail closed on receipt
-      integrity errors — audit honua-server's OWN CI telemetry. It restores nothing, compiles
-      nothing, runs no test and produces no shipped artifact; its verdict is about whether CI
-      observation receipts reconcile, not about whether the pinned source builds or passes.
-      It is RED at the pinned sha (5 receipt-integrity failures, 19 native authoritative outcome
-      failures — run 32038145537). That is a real problem in honua-server's CI evidence system and is
-      reported as such in the gate explanation; it is excluded here because reporting it as a
-      component BUILD failure is precisely the misattribution this file exists to prevent. Every
-      product build/test lane on this sha is green.
+      honua-server#3331/#3336). It audits that repository's own CI telemetry: it restores nothing,
+      compiles nothing, runs no product test, and produces no shipped artifact. The release
+      build-test gate does not depend on the ledger's two fail-closed gates — receipt integrity
+      violations, and measured receipt loss over the 5% budget. Cohort drift, superseded heads,
+      in-flight builds, and tombstoned evidence stay named non-failures, not component build
+      verdicts. The original exclusion reason no longer holds: run 32038145537 (5 integrity
+      failures and 19 native outcome failures) was reader defects fixed in honua-server#3521, not
+      the current promotion window. The ledger is still not promotion_gate_ready. Its own rule is
+      7 consecutive green days with receipt loss under 5%. The 2026-10-21 scheduled audit succeeded
+      with consecutive_green_days 2 of 7, 0 integrity failures and 0.28% receipt loss
+      (https://github.com/honua-io/honua-server/actions/runs/39651147494), after the 2026-10-20 run
+      at 1 of 7 (https://github.com/honua-io/honua-server/actions/runs/39471979464). The 2026-10-19
+      scheduled run failed closed on request-budget exhaustion, not reader defects
+      (https://github.com/honua-io/honua-server/actions/runs/39311450010). Review this exclusion on
+      or after 2026-10-27, and remove it only after that audit reports promotion_gate_ready.
   - name: "Post exact-head Claude review evidence"
     why: >-
       Claude Review's evidence job (`.github/workflows/claude-review.yml`, job `review`).

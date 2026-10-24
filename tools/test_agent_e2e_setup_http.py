@@ -37,7 +37,7 @@ def server():
                 self.send_header(key, value)
             self.end_headers()
             self.wfile.write(body)
-        do_GET = do_POST = do_PUT = handle_request
+        do_GET = do_POST = do_PUT = do_DELETE = handle_request
     httpd = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=lambda: httpd.serve_forever(poll_interval=0.01), daemon=True)
     thread.start()
@@ -293,3 +293,59 @@ def test_api_key_credential_is_header_only(wiring, server):
     assert headers['X-Api-Key'] == 'private-setup-token'
     assert 'Authorization' not in headers
     assert 'private-setup-token' not in json.dumps(list(wiring.records.values()))
+
+
+def anonymous_client(wiring, server):
+    return SetupHttp(server.url, None, credential_kind='anonymous', identity=IDENTITY,
+                     authorize=lambda: None, retain=wiring.retain, private_values=['private-setup-token'])
+
+
+def test_actual_anonymous_http_sends_no_identity_and_retains_native_denial(wiring, server):
+    server.respond = lambda *_: (401, {}, b'{"status":401}')
+    reply = anonymous_client(wiring, server).json('public-probe', 'GET', '/api/v1/studio/published/owned')
+    assert reply['observation']['httpStatus'] == 401
+    headers = {key.lower(): value for key, value in server.seen[0][2].items()}
+    assert not ({'authorization', 'x-api-key', 'cookie'} & set(headers))
+    assert wiring.records['intent', 'public-probe']['credentialKind'] == 'anonymous'
+
+
+@pytest.mark.parametrize('method', ['POST', 'PUT'])
+def test_anonymous_transport_cannot_mutate_before_intent_or_http(wiring, server, method):
+    with pytest.raises(PackError, match='only GET'):
+        anonymous_client(wiring, server).json('mutation', method, '/api/v1/operations/anything/submit', {})
+    assert not wiring.records and not server.seen
+
+
+def test_anonymous_transport_cannot_accept_a_credential_reference(wiring, server):
+    with pytest.raises(PackError, match='credential reference'):
+        wiring.client(credential_kind='anonymous')
+    assert not wiring.records and not server.seen
+
+
+@pytest.mark.parametrize('raw', [b'{"x":1,"x":2}', b'{"x":NaN}', b'{"secret":"private-setup-token"}'])
+def test_anonymous_response_keeps_strict_json_and_private_canary_checks(wiring, server, raw):
+    server.respond = lambda *_: (200, {}, raw)
+    with pytest.raises(PackError):
+        anonymous_client(wiring, server).json('public-probe', 'GET', '/read')
+    assert ('response', 'public-probe') not in wiring.records
+
+
+def test_task_read_binds_native_workspace_turn_in_before_request_custody(wiring, server):
+    context = {'workspaceId': 'native-workspace-17', 'turnId': 'native-turn-29'}
+    def respond(*_):
+        assert wiring.records['intent', 'task-version']['agentContext'] == context
+        return 200, {}, b'{"data":{"saved":true}}'
+    server.respond = respond
+    reply = wiring.client(agent_context=context).json('task-version', 'GET', '/api/v1/studio/content-items/exact/versions/exact')
+    assert reply['observation']['httpStatus'] == 200
+    headers = {key.lower(): value for key, value in server.seen[0][2].items()}
+    assert headers['x-honua-workspace'] == context['workspaceId'] and headers['x-honua-turn'] == context['turnId']
+    assert 'private-setup-token' not in json.dumps(list(wiring.records.values()))
+
+
+@pytest.mark.parametrize('context', [{'workspaceId': 'native', 'turnId': 'turn\r\nInjected:true'},
+    {'workspaceId': 'native'}, {'workspaceId': 'native', 'turnId': 'turn', 'Authorization': 'other'}])
+def test_task_context_cannot_inject_headers_or_omit_native_turn(wiring, server, context):
+    with pytest.raises(ValueError):
+        wiring.client(agent_context=context)
+    assert not wiring.records and not server.seen

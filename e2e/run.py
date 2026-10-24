@@ -31,6 +31,9 @@ from runner.report import Result, Status, assemble, write_report  # noqa: E402
 # Registry of canonical scenarios (decomposed SDK × scenario matrix runs here on local docker).
 SCENARIO_FILES = [
     E2E_DIR / "scenarios" / "geoservices_error_surfacing" / "scenario.py",
+    # Native GDAL-worker Batch proof. Missing receipt stays blocked; this entry
+    # does not provision a cell or pass --require-real (honua-release#85).
+    E2E_DIR / "scenarios" / "gp_batch_native" / "scenario.py",
 ]
 
 REPORT_PATH = E2E_DIR / "gate-report.json"

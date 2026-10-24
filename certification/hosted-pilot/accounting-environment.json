@@ -1,0 +1,9 @@
+{
+  "schema": "honua.hosted-pilot-accounting-environment/v1",
+  "repository": "honua-io/honua-release",
+  "environment": "hosted-pilot-accounting-initialize",
+  "branch": "trunk",
+  "reviewers": [{"type": "User", "id": 12301237, "login": "mikemcdougall"}],
+  "prevent_self_review": false,
+  "can_admins_bypass": false
+}

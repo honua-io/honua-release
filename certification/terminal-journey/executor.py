@@ -21,7 +21,7 @@ import probes
 import sdk
 import stages
 import discovery
-from transport import (ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
+from transport import (ActionRejected, ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
                        masked_fields, tool_error)
 
 ID_FIELDS = ("operationId", "operationInstanceId", "proposalId", "jobId", "correlationId", "auditId")
@@ -55,9 +55,15 @@ STAGE_TOOLS = {
 # key) publishes the service, styles it and runs GP. The Studio author is a
 # deliberately non-admin principal: an admin caller publishes immediately and never
 # produces the AwaitingApproval proposal stage 7 must observe. Targets that supply
-# no operator credential fall back to the proposer for every stage.
-STAGE_PRINCIPALS = {3: "operator", 4: "operator", 5: "operator", 6: "proposer", 7: "proposer", 8: "operator"}
+# no operator credential fall back to the proposer for every stage. Stages 1-2 (install/handoff and
+# credential preflight) verify the operator's own install: honua_list_capabilities needs Catalog Discover,
+# which the proposer's write:journey key does not carry (permission_denied, trunk run 39850688596).
+STAGE_PRINCIPALS = {1: "operator", 2: "operator", 3: "operator", 4: "operator", 5: "operator",
+                    6: "proposer", 7: "proposer", 8: "operator"}
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
+# A model may select the authored datasource without round-tripping credential
+# environment references, which the canary correctly redacts before prompting.
+DATASOURCE_REFERENCE = {"fixtureReference": "journey.datasource"}
 # Cross-replica read through a cloud cell's single endpoint (honua-server#5790): how many times the
 # saved map is re-read, the pause between sequential reads, and the bound on an instance id the server stamps
 # (printable ASCII, at most 128 characters, as ServerInstanceIdentity sanitizes it).
@@ -132,6 +138,39 @@ class JourneyExecutor:
     def resources(self):
         return self.evidence["resources"]
 
+    def semantic_arguments_proven(self, name, arguments):
+        """True when these values are the harness's authored fixture, not merely schema-valid.
+
+        Check every supplied value, including layer identity and optional rendering arguments.
+        Matching only dimensions or styleId cannot prove an unsupported encoding or foreign layer.
+        """
+        if not isinstance(arguments, dict):
+            return False
+        service_id = self.fixture.get("serviceId")
+        layer_id = self.resources.get("layerId")
+        if not isinstance(service_id, str) or not service_id or type(layer_id) is not int:
+            return False
+        layer = {"serviceId": service_id, "layerId": layer_id}
+        if name == "honua_apply_style_preset":
+            style_id = self.fixture.get("styleId")
+            return (isinstance(style_id, str) and bool(style_id)
+                    and arguments == {**layer, "styleId": style_id})
+        if name == "honua_render_map":
+            size = self.fixture.get("renderSize")
+            bbox = self.fixture.get("bbox")
+            if not isinstance(size, list) or len(size) != 2 or not isinstance(bbox, list) or len(bbox) != 4:
+                return False
+            required = {"layers": [layer], "bbox": bbox, "width": size[0], "height": size[1]}
+            supported = {**required, "bboxSrid": 4326, "transparent": True, "maxInlineBytes": 1024 * 1024}
+            return (all(arguments.get(key) == value for key, value in required.items())
+                    and all(key in supported and value == supported[key] for key, value in arguments.items()))
+        return False
+
+    def _attribute_request_validation(self, name, arguments, exc):
+        if (exc.problem.get("code") in {"invalid_argument", "invalid_input", "validation_failed"}
+                and self.semantic_arguments_proven(name, arguments)):
+            exc.problem["argumentsProven"] = True
+
     def view(self):
         found = self.observation.setup_discovery or {}
         if not self.observation.setup_view_present:
@@ -196,16 +235,16 @@ class JourneyExecutor:
         if kind == "terminal_command":
             return self.execute_sdk_command(number, action, view)
         if kind != "tool_call":
-            raise ExecutionError("model action", "only structured calls from the bounded server view may execute")
+            raise ActionRejected("model action", "only structured calls from the bounded server view may execute")
         name, arguments = action.get("tool"), action.get("arguments")
         descriptors = [t for t in view["tools"] if t["name"] == name]
         if name not in STAGE_TOOLS.get(number, set()) or len(descriptors) != 1 or not isinstance(arguments, dict):
-            raise ExecutionError("model action", "tool is outside the current stage and bounded view")
+            raise ActionRejected("model action", "tool is outside the current stage and bounded view")
         import jsonschema
         try:
             jsonschema.validate(arguments, descriptors[0]["inputSchema"])
         except jsonschema.ValidationError as exc:
-            raise ExecutionError(name, "arguments do not satisfy the observed tool schema") from exc
+            raise ActionRejected(name, "arguments do not satisfy the observed tool schema") from exc
         fault = self.state.get("armedError")
         injected = recovered = None
         send_arguments = arguments
@@ -219,7 +258,16 @@ class JourneyExecutor:
         if name == "honua_render_map":
             self.evidence.setdefault("proofs", {}).pop("pixel", None)
             self.evidence["checks"].setdefault("4", {}).pop("pixel", None)
-        result = self.transport.tool(name, send_arguments, view, self.principal(number))
+            self.evidence.pop("renderDimensions", None)
+        if name == "honua_studio_save_version":
+            self.prepare_map_save(arguments)
+        if name == "honua_studio_propose_publication":
+            self.prepare_publication(arguments)
+        try:
+            result = self.transport.tool(name, send_arguments, view, self.principal(number))
+        except ExecutionError as exc:
+            self._attribute_request_validation(name, send_arguments, exc)
+            raise
         if fault and fault["status"] == "submitted":
             error = result.get("structuredContent") or {}
             if result.get("isError") is not True or error.get("code") not in {"invalid_argument", "invalid_input"}:
@@ -228,16 +276,23 @@ class JourneyExecutor:
             injected = {"id": fault["id"], "recoverable": True}
             return {"status": "fail", "accepted": False, "injectedError": injected,
                     "recoveredError": None, "reason": "candidate refused the injected invalid render width"}
-        output = structured(result, name, credential_values(self.transport.credentials))
+        try:
+            output = structured(result, name, credential_values(self.transport.credentials))
+        except ExecutionError as exc:
+            self._attribute_request_validation(name, send_arguments, exc)
+            raise
         if name == "honua_apply_style_preset":
             if output.get("applied") is not True or output.get("styleId") != arguments.get("styleId"):
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
-        self._record(number, name, output)
         if name == "honua_publish_service":
             self.record_publication(output)
+        if number == 6 and name in {"honua_studio_create_draft", "honua_studio_update_draft",
+                                     *stages.STUDIO_COMPOSITION_TOOLS}:
+            self.record_map_draft(name, arguments, output)
+        self._record(number, name, output)
         if name == "honua_render_map":
-            self.check_render(output)
+            self.check_render(output, selected_arguments=arguments)
             if (fault and fault["status"] == "observed"
                     and self.evidence["checks"].get("4", {}).get("pixel", {}).get("status") == "pass"):
                 fault["status"] = "recovered"
@@ -246,6 +301,7 @@ class JourneyExecutor:
             self.record_job(output)
             self.check_job()
         if name == "honua_studio_save_version":
+            self.evidence["mapSaveInput"]["savedVersionId"] = self.resources["versionId"]
             self.check_map()
         if name == "honua_studio_reopen_version":
             self.check_reopened()
@@ -253,7 +309,64 @@ class JourneyExecutor:
             self.check_proposal()
         return {"status": "pass", "accepted": True, "injectedError": injected, "recoveredError": recovered,
                 "canonicalIds": self.evidence["canonicalIds"].get(str(number), {}),
-                "resources": dict(self.resources)}
+                "resources": dict(self.resources),
+                **({"mapReadbacks": list(self.evidence.get("mapReadbacks", []))}
+                   if name == "honua_studio_save_version" else {}),
+                **({"nativePublication": dict(self.evidence["nativePublication"])}
+                   if name == "honua_publish_service" else {})}
+
+    def terminal_surface(self, number):
+        """Describe the harness bridge grammar without choosing or executing an action."""
+        if number == 7:
+            return {"publicationContract": {
+                **self.expected_publication(),
+                "requirement": "Propose this exact saved version at the authored route with public visibility. "
+                               "The final map is independently read without credentials after separate human "
+                               "approval. The model selects the proposal; do not approve it yourself."}}
+        if number == 6:
+            try:
+                authored_body = self.expected_map_body()
+            except ExecutionError as exc:
+                if not exc.blocked:
+                    raise
+                return {"compositionContract": {"available": False,
+                    "blockedBy": "independently observed published layer identity"}}
+            return {"compositionContract": {
+                "family": "map", "bodyFormat": "honua_map_package.v1",
+                "schemaVersion": self.family_schema_version("map"),
+                "currentDraft": {key: value for key, value in (self.evidence.get("mapDraftReceipt") or {}).items()
+                                 if key in {"draftId", "generation", "packageKey"}},
+                "requirement": "Save the authored portable map package body exactly. Native catalog composition "
+                               "tools produce a different representation; a valid composition draft alone does not "
+                               "satisfy this case. Create or update the draft body with this portable package, "
+                               "using the candidate's advertised map schema version. The model selects every write.",
+                "authoredBody": authored_body,
+                "bodySource": "committed execution.mapBody with the independently published layerId bound",}}
+        if number != 3 or "honua_ingest_dataset" not in {tool["name"] for tool in self.view()["tools"]}:
+            return {}
+        return {
+            "sdkCommand": "honua-journey-sdk",
+            "sdkMethods": sorted(SDK_METHODS),
+            "sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY",
+            "sdkFixtureReferences": {"datasource": dict(DATASOURCE_REFERENCE)},
+            "sdkCommandExamples": {
+                "CreateConnectionAsync": "honua-journey-sdk CreateConnectionAsync " + json.dumps([DATASOURCE_REFERENCE]),
+                **({"TestConnectionAsync": "honua-journey-sdk TestConnectionAsync " + json.dumps([self.resources["connectionId"]])}
+                   if self.resources.get("connectionId") else {}),
+            },
+            "sdkArgumentSources": {
+                "CreateConnectionAsync": ["terminalSurface.sdkFixtureReferences.datasource (unchanged)"],
+                "TestConnectionAsync": ["currentState.connectionId"],
+            },
+            "uploadCommand": UPLOAD_COMMAND,
+            "uploadArguments": "None. Use this exact command; the bridge supplies the committed fixture file and options.",
+            "uploadResult": "currentState.importTable and currentState.importSchema identify the uploaded dataset.",
+            "publicationBindings": {"connectionId": "currentState.connectionId",
+                                    "table": "currentState.importTable", "schema": "currentState.importSchema"},
+            "scope": "This stage requires the committed file upload, not a URL ingestion. "
+                     "These terminal commands use kind=terminal_command; they are not MCP tool names. "
+                     "No shell, extra flags, or other SDK methods are accepted.",
+        }
 
     def execute_sdk_command(self, number, action, view):
         """Interpret one typed bridge command; never invoke a shell or model argv."""
@@ -261,29 +374,34 @@ class JourneyExecutor:
         if number == 3 and command == UPLOAD_COMMAND:
             # Fixed, fixture-bound upload: the model chooses the step, never its arguments.
             if "honua_ingest_dataset" not in {tool["name"] for tool in view["tools"]}:
-                raise ExecutionError(UPLOAD_COMMAND, "upload is outside the observed bounded ingest view")
+                raise ActionRejected(UPLOAD_COMMAND, "upload is outside the observed bounded ingest view")
             self.upload_dataset()
             return {"status": "pass", "accepted": True, "resources": dict(self.resources),
                     "injectedError": None, "recoveredError": None,
                     "canonicalIds": self.evidence["canonicalIds"].get("3", {})}
         pieces = command.split(" ", 2) if isinstance(command, str) else []
         if number != 3 or len(pieces) != 3 or pieces[0] != "honua-journey-sdk" or pieces[1] not in SDK_METHODS:
-            raise ExecutionError("model terminal command", "command is outside the typed published SDK bridge")
+            raise ActionRejected("model terminal command", "command is outside the typed published SDK bridge")
         method = pieces[1]
         if "honua_ingest_dataset" not in {tool["name"] for tool in view["tools"]}:
-            raise ExecutionError(method, "SDK operation is outside the observed bounded ingest/publication view")
+            raise ActionRejected(method, "SDK operation is outside the observed bounded ingest/publication view")
         try:
             arguments = discovery.parse(pieces[2].encode("utf-8"))
         except (discovery.DiscoveryError, UnicodeError) as exc:
-            raise ExecutionError(method, "SDK arguments must be a strict JSON array") from exc
+            raise ActionRejected(method, "SDK arguments must be a strict JSON array") from exc
         if not isinstance(arguments, list):
-            raise ExecutionError(method, "SDK arguments must be an array")
+            raise ActionRejected(method, "SDK arguments must be an array")
         expected = {
             "CreateConnectionAsync": [self.fixture["datasource"]],
             "TestConnectionAsync": [self.resources.get("connectionId")],
         }[method]
-        if arguments != expected or any(value is None for value in expected):
-            raise ExecutionError(method, "SDK arguments do not bind the authored fixture and observed resource identities")
+        fixture_reference = method == "CreateConnectionAsync" and arguments == [DATASOURCE_REFERENCE]
+        if (arguments != expected and not fixture_reference) or any(value is None for value in expected):
+            hint = ("use the exact CreateConnectionAsync command in terminalSurface.sdkCommandExamples; "
+                    "the bridge resolves the authored datasource privately"
+                    if method == "CreateConnectionAsync" else
+                    "create the connection first, then use currentState.connectionId in the TestConnectionAsync command")
+            raise ActionRejected(method, "SDK arguments do not bind the authored fixture and observed resource identities; " + hint)
         if method == "CreateConnectionAsync":
             arguments = [self.datasource_arguments()]
         output = self.sdk_call(method, arguments)
@@ -337,7 +455,7 @@ class JourneyExecutor:
 
     def upload_dataset(self):
         if self.resources.get("importTable"):
-            raise ExecutionError(UPLOAD_COMMAND, "fixture dataset has already been uploaded; publish its observed table")
+            raise ActionRejected(UPLOAD_COMMAND, "fixture dataset has already been uploaded; publish its observed table")
         spec, path = self.fixture_dataset()
         body = {"file": "@" + str(path), "TableName": spec["tableName"],
                 "TargetSrid": str(spec["targetSrid"]), "OverwriteExisting": "true"}
@@ -386,13 +504,15 @@ class JourneyExecutor:
         """service.publish must publish exactly the table this journey uploaded."""
         wanted = {"connectionId": self.resources.get("connectionId"), "table": self.resources.get("importTable"),
                   "schema": self.resources.get("importSchema")}
-        if any(value is None for value in wanted.values()):
-            raise ExecutionError("honua_publish_service", "uploaded dataset is unavailable", blocked=True)
+        missing = [key for key, value in wanted.items() if value is None]
+        if missing:
+            raise ActionRejected("honua_publish_service", "publication prerequisites are missing: "
+                                 + ", ".join(missing) + "; consult terminalSurface and currentState")
         if any(arguments.get(key) != value for key, value in wanted.items()):
-            raise ExecutionError("honua_publish_service", "publication does not bind the uploaded dataset and connection")
+            raise ActionRejected("honua_publish_service", "publication does not bind the uploaded dataset and connection")
 
     def record_publication(self, output):
-        if output.get("status") != "Completed" or output.get("requiresApproval"):
+        if output.get("status") != "Completed" or output.get("requiresApproval") is not False:
             # service.publish is synchronous on the candidate (the submit handle is terminal), so name
             # the terminal state it returned instead (masked; never the raw tool output).
             seen = masked_fields({name: output.get(name) for name in (
@@ -400,13 +520,42 @@ class JourneyExecutor:
                 credential_values(self.transport.credentials))
             raise ExecutionError("honua_publish_service", "service.publish did not complete for the operator"
                                  + (f" ({describe_fields(seen)})" if seen else ""))
+        # McpPublishServiceOutput projects these from the completed canonical
+        # handle. Requested serviceName and the fixture are not publication proof.
+        service = output.get("serviceName")
+        if (not isinstance(service, str) or not 0 < len(service) <= 200
+                or not service.isprintable() or service.strip() != service):
+            raise ExecutionError("honua_publish_service", "candidate omitted a bounded published service name")
+        try:
+            service_bytes = service.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ExecutionError("honua_publish_service", "candidate returned an invalid published service name") from exc
+        if any(secret and secret in service for secret in credential_values(self.transport.credentials)):
+            raise ExecutionError("honua_publish_service", "candidate returned credential material as a service identity")
+        uri = output.get("serviceUri")
+        if uri != "honua://published-services/" + urllib.parse.quote_from_bytes(service_bytes, safe=""):
+            raise ExecutionError("honua_publish_service", "candidate omitted or contradicted the published service URI")
         layer = output.get("layerId")
+        raw_layer = str(layer) if isinstance(layer, str) or type(layer) is int else None
+        if raw_layer is not None and any(secret and (secret == raw_layer or
+                secret.isdecimal() and raw_layer.isdecimal() and secret.lstrip("0") == raw_layer.lstrip("0"))
+                for secret in credential_values(self.transport.credentials)):
+            raise ExecutionError("honua_publish_service", "candidate returned credential material as a layer identity")
         if type(layer) is int and layer >= 0:
-            self.resources["layerId"] = layer
-        elif isinstance(layer, str) and layer.isdigit() and len(layer) <= 18:
-            self.resources["layerId"] = int(layer)
+            layer_id = layer
+        elif isinstance(layer, str) and re.fullmatch(r"[0-9]{1,18}", layer):
+            layer_id = int(layer)
         else:
             raise ExecutionError("honua_publish_service", "candidate omitted the published layer identity")
+        # Native map tools accept the published service name as serviceId.
+        # Keep the returned name too, so this normalization stays explicit.
+        self.resources.update(serviceName=service, serviceId=service, serviceUri=uri, layerId=layer_id)
+        self.evidence["nativePublication"] = {
+            "serviceNameSha256": hashlib.sha256(service_bytes).hexdigest(),
+            "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
+            "layerId": layer_id,
+            "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
+        }
         self.check_features()
 
     def record_job(self, output):
@@ -455,25 +604,77 @@ class JourneyExecutor:
             self.transport.get_json(self.fixture["featurePath"].format(**self.resources), principal=self.principal(3)),
             self.fixture["features"]))
 
-    def check_render(self, output):
+    def check_render(self, output, *, selected_arguments=None):
+        self.evidence.pop("renderDimensions", None)
+
+        def media_type_of(value):
+            if not isinstance(value, str):
+                return ""
+            return value.split(";", 1)[0].strip().lower()
+
         def prove():
             image = output["image"]
+            # honua-server's McpRenderedImage names the media type `format` (RenderMapTool.cs);
+            # `mimeType` is the MCP content-block spelling. Both, when present, must agree.
+            spellings = {media_type_of(image.get(key)) for key in ("format", "mimeType") if key in image}
+            if len(spellings) > 1:
+                raise oracles.ProofError("render image declares conflicting media types")
+            declared = spellings.pop() if spellings else ""
             if image.get("base64"):
                 raw = base64.b64decode(image["base64"], validate=True)
+                media_type = declared
             else:
                 raw, _ = self.transport.http("GET", image["uri"], principal=self.principal(4))
+                fetched = media_type_of(self.transport.last_response_headers.get("content-type", ""))
+                # A declared image/png must match the bytes the client actually fetched.
+                if not fetched or (declared and declared != fetched):
+                    raise oracles.ProofError("render response media type conflicts with the declared image type")
+                media_type = fetched
+            # Record only independently decoded dimensions, never image-declared
+            # width/height. This distinguishes a model-selected wrong size from
+            # a renderer returning different bytes than the model requested.
+            if media_type == "image/png":
+                try:
+                    width, height, _ = oracles.decode_png(raw)
+                except oracles.PngError as exc:
+                    raise oracles.ProofError(f"PNG decoder refused: {exc.code}") from exc
+                selected = [(selected_arguments or {}).get(key) for key in ("width", "height")]
+                self.evidence["renderDimensions"] = {
+                    "expected": list(self.fixture["renderSize"]),
+                    "requested": selected if all(type(v) is int and 0 < v <= 16384 for v in selected) else None,
+                    "decoded": [width, height], "sha256": hashlib.sha256(raw).hexdigest(),
+                    "requestedPixelVerified": False}
+                if (self.evidence["renderDimensions"]["requested"] == [width, height]
+                        and selected != self.fixture["renderSize"]):
+                    # Matching dimensions alone cannot exclude a renderer defect
+                    # that occurs only at the model's selected size. Independently
+                    # sample the authored point/colour in that actual frame too.
+                    oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
+                        size=selected, rgba=self.fixture["pixelRgba"], media_type=media_type)
+                    self.evidence["renderDimensions"]["requestedPixelVerified"] = True
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
-                size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"])
+                size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"], media_type=media_type)
             return proof
         row = self._check(4, "pixel", "honua_render_map + decode PNG", prove)
-        reported = {layer.get("styleId") for layer in output.get("layers") or [] if isinstance(layer, dict)}
-        if row.status == "fail" and self.fixture.get("styleId") in reported:
-            # The candidate reports the applied preset on the rendered layer yet the
-            # pixels differ: the known server gap, not an unexplained failure.
-            row.blocked_by = [stages.STYLE_RENDER]
-            row.detail += "; the render reports the applied preset but rasterizes the layer's stored style"
-            self.evidence["checks"]["4"]["pixel"] = row.as_receipt()
         return row
+
+    def repairable_render_selection(self, number, check):
+        """A correct render of a wrong selected size is unfinished model work.
+
+        The failed pixel assertion remains unchanged. Missing selection, invalid
+        PNG, wrong pixels, transport failures and a renderer ignoring the request
+        are never admitted through this narrow feedback path.
+        """
+        dimensions = self.evidence.get("renderDimensions") or {}
+        requested = dimensions.get("requested")
+        return (number == 4 and check.id == "4.pixel" and check.status == "fail"
+                and check.detail == "PNG dimensions differ from the authored render size"
+                and isinstance(requested, list) and len(requested) == 2
+                and all(type(v) is int and 0 < v <= 16384 for v in requested)
+                and requested == dimensions.get("decoded")
+                and dimensions.get("requestedPixelVerified") is True
+                and dimensions.get("expected") == self.fixture.get("renderSize")
+                and requested != dimensions["expected"])
 
     def check_job(self):
         def prove():
@@ -511,7 +712,12 @@ class JourneyExecutor:
         if len(matches) != 1 or not isinstance(matches[0].get("currentSchemaVersion"), str):
             raise ExecutionError("GET /api/v1/studio/package-families",
                                  f"candidate does not advertise one current {family} schema version")
-        return matches[0]["currentSchemaVersion"]
+        version = matches[0]["currentSchemaVersion"]
+        if (not 1 <= len(version) <= 50 or any(ord(c) < 32 for c in version) or
+                any(secret and secret in version for secret in credential_values(self.transport.credentials))):
+            raise ExecutionError("GET /api/v1/studio/package-families",
+                                 "candidate map schema version is not a bounded non-secret identity")
+        return version
 
     def map_path(self):
         return ("/api/v1/studio/content-items/" + identity(self.resources.get("itemId"), "read saved map")
@@ -535,10 +741,112 @@ class JourneyExecutor:
             return value
         return bind(self.fixture["mapBody"])
 
-    def _prove_map(self, transport, path, principal="proposer"):
-        return oracles.prove_map(transport.get_json(path, principal=principal), self.expected_map_body(),
-                                item_id=self.resources["itemId"], version_id=self.resources["versionId"],
-                                content_hash=self.resources["contentHash"])
+    def record_map_draft(self, command, arguments, output):
+        """Retain the actual last write receipt for a later independent HTTP read."""
+        try:
+            envelope = output["envelope"]
+            snapshot = {key: output[key] for key in
+                        ("draftId", "itemId", "generation", "ownerId", "packageKey", "family")}
+            # Unpaired drafts omit the nullable workspaceId in the published API.
+            snapshot["workspaceId"] = output.get("workspaceId")
+            if (type(snapshot["generation"]) is not int or snapshot["generation"] < 0
+                    or not isinstance(snapshot["family"], str) or snapshot["family"].lower() != "map"
+                    or not isinstance(envelope, dict) or str(envelope.get("family", "")).lower() != "map"):
+                raise ValueError()
+            previous = self.evidence.get("mapDraftReceipt")
+            if command != "honua_studio_create_draft" and isinstance(previous, dict):
+                if (arguments.get("draftId") != previous["draftId"] or
+                        any(snapshot[key] != previous[key] for key in
+                            ("draftId", "itemId", "ownerId", "workspaceId", "packageKey", "family"))):
+                    raise ExecutionError(command, "native draft write changed its original identity binding")
+            snapshot["bodyDigest"] = oracles.content_digest(envelope["body"])
+            if command in {"honua_studio_create_draft", "honua_studio_update_draft"} and "body" in arguments:
+                if envelope["body"] != arguments["body"]:
+                    raise ExecutionError(command, "native draft write body differs from the selected body")
+            package_key = snapshot["packageKey"]
+            if (not isinstance(package_key, str) or not 1 <= len(package_key) <= 200 or
+                    any(ord(c) < 32 for c in package_key) or
+                    any(secret and secret in package_key for secret in credential_values(self.transport.credentials))):
+                raise ExecutionError(command, "native draft omitted a bounded non-secret package identity")
+            self.evidence["mapDraftReceipt"] = snapshot
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ExecutionError(command, "native draft write omitted its content or canonical identity") from exc
+
+    def _map_readback(self, transport, path, slot, *, snapshot=None, principal="proposer"):
+        document = transport.get_json(path, principal=principal)
+        value = document.get("data", document) if isinstance(document, dict) else {}
+        value = value if isinstance(value, dict) else {}
+        envelope = value.get("envelope")
+        envelope = envelope if isinstance(envelope, dict) else {}
+        body = envelope.get("body")
+        # Only fixed field names, booleans and digests leave private state. Never
+        # retain candidate keys/values or use candidate content as an expectation.
+        fields = {"itemId": value.get("itemId") == self.resources.get("itemId"),
+                  "family": str(envelope.get("family", "")).lower() == "map",
+                  "body": "body" in envelope and body == self.expected_map_body()}
+        if snapshot is not None:
+            fields["family"] = fields["family"] and str(value.get("family", "")).lower() == "map"
+            fields.update({key: value.get(key) == snapshot.get(key) for key in
+                ("draftId", "generation", "ownerId", "workspaceId", "packageKey")})
+            fields["draftReceipt"] = all(fields[key] for key in
+                ("draftId", "itemId", "generation", "ownerId", "workspaceId", "packageKey")) and value.get("family") == snapshot.get("family")
+            fields["bodyMatchesDraft"] = "body" in envelope and oracles.content_digest(body) == snapshot["bodyDigest"]
+        elif slot != "pre-save":
+            fields["versionId"] = value.get("versionId") == self.resources.get("versionId")
+            fields["contentHash"] = value.get("contentHash") == self.resources.get("contentHash")
+            saved_input = self.evidence.get("mapSaveInput")
+            if isinstance(saved_input, dict):
+                # Public artifacts deliberately omit private draft provenance.
+                # Exact content/version remains joined to the independently read
+                # immutable version, whose private provenance was checked above.
+                if slot in {"saved-primary", "saved-replica"}:
+                    fields.update({key: value.get(key) == saved_input[key] for key in ("ownerId", "packageKey")})
+                    fields["sourceDraftId"] = value.get("sourceDraftId") == saved_input["draftId"]
+                    fields["draftReceipt"] = all(fields[key] for key in ("sourceDraftId", "ownerId", "packageKey"))
+                fields["bodyMatchesDraft"] = ("body" in envelope and
+                    oracles.content_digest(body) == saved_input["bodyDigest"] and
+                    saved_input.get("savedVersionId") == self.resources.get("versionId"))
+        diagnostic = {"slot": slot, "fieldMatches": fields,
+                      "bodyDigest": oracles.content_digest(body),
+                      "authoredBodyDigest": oracles.content_digest(self.expected_map_body())}
+        original = getattr(transport, "last_json_observation", None)
+        if isinstance(original, dict) and original.get("path") == path:
+            diagnostic.update({key: original[key] for key in ("responseSha256", "responseBytes")})
+        self.evidence.setdefault("mapReadbacks", []).append(diagnostic)
+        return document, fields
+
+    def prepare_map_save(self, arguments):
+        self.evidence["mapReadbacks"] = []
+        snapshot = self.evidence.get("mapDraftReceipt")
+        if not isinstance(snapshot, dict):
+            raise ExecutionError("save map", "original native draft write receipt is unavailable")
+        if (arguments.get("draftId") != snapshot["draftId"] or
+                type(arguments.get("generation")) is not int or
+                arguments.get("generation") != snapshot["generation"] or
+                self.resources.get("draftId") != snapshot["draftId"] or
+                self.resources.get("itemId") != snapshot["itemId"]):
+            raise ActionRejected("save map", "save must bind the latest observed draft and generation")
+        path = "/api/v1/studio/package-drafts/" + identity(snapshot["draftId"], "read draft before save")
+        _, fields = self._map_readback(self.transport, path, "pre-save", snapshot=snapshot,
+                                       principal=self.principal(6))
+        if not all(fields[key] for key in ("itemId", "family", "draftReceipt", "bodyMatchesDraft")):
+            raise ExecutionError("read draft before save", "native draft readback differs from its original write receipt")
+        if not fields["body"]:
+            raise ActionRejected("save map", "draft body differs from the authored portable map package; "
+                                 "consult terminalSurface.compositionContract and select a draft body update")
+        self.evidence["mapSaveInput"] = dict(snapshot)
+
+    def _prove_map(self, transport, path, principal="proposer", *, slot=None):
+        slot = slot or ("saved-primary" if transport is self.transport else "saved-replica")
+        document, fields = self._map_readback(transport, path, slot, principal=principal)
+        proof = oracles.prove_map(document, self.expected_map_body(),
+                                 item_id=self.resources["itemId"], version_id=self.resources["versionId"],
+                                 content_hash=self.resources["contentHash"])
+        if fields.get("draftReceipt") is False:
+            raise oracles.ProofError("saved map identity differs from its independently read pre-save draft")
+        if fields.get("bodyMatchesDraft") is False:
+            raise oracles.ProofError("saved map body differs from its independently read pre-save draft")
+        return proof
 
     def check_map(self):
         self._check(6, "saved-map", "GET saved immutable map version", lambda: self._prove_map(self.transport, self.map_path()))
@@ -619,7 +927,7 @@ class JourneyExecutor:
             for number in range(REPLICA_READS):
                 if number:
                     time.sleep(REPLICA_READ_DELAY_SECONDS)
-                self._prove_map(self.transport, self.map_path())
+                self._prove_map(self.transport, self.map_path(), slot="saved-replica")
                 observed.append(self._instance(self.transport))
                 if len({value for value in observed if value}) >= 2:
                     break
@@ -682,6 +990,41 @@ class JourneyExecutor:
             return {"contentDigest": oracles.content_digest(expected)}
         self._check(6, "reopened-map", "GET reopened map draft", prove)
 
+    def expected_publication(self):
+        expected = {key: identity(self.resources.get(key), "publication contract")
+                    for key in ("itemId", "versionId", "contentHash")}
+        route = self.fixture.get("route")
+        if not isinstance(route, str) or not route.startswith("/") or route.startswith("//"):
+            raise ExecutionError("publication contract", "authored publication route is unavailable", blocked=True)
+        return {**expected, "route": route, "visibility": "public"}
+
+    def prepare_publication(self, arguments):
+        expected = self.expected_publication()
+        if any(arguments.get(key) != value for key, value in expected.items()):
+            raise ActionRejected("publication proposal", "proposal must bind the saved item/version/hash, "
+                                 "authored route and public visibility; consult terminalSurface.publicationContract")
+        # Freeze the authored binding before candidate output can update resources.
+        # This records the selected intent; it never rewrites the model's action.
+        self.evidence["publicationIntent"] = expected
+        self.evidence.setdefault("proofs", {}).pop("durable-proposal", None)
+        self.evidence["checks"].setdefault("7", {}).pop("durable-proposal", None)
+
+    def require_publication_intent(self, proposal):
+        expected = self.evidence.get("publicationIntent")
+        if (not isinstance(expected, dict) or set(expected) !=
+                {"itemId", "versionId", "contentHash", "route", "visibility"}):
+            raise ExecutionError("GET publication proposal", "original publication intent is unavailable")
+        rows = proposal.get("diff") if isinstance(proposal, dict) else None
+        if (not isinstance(rows, list) or len(rows) > 32 or
+                any(not isinstance(row, str) or len(row) > 1024 for row in rows)):
+            raise ExecutionError("GET publication proposal", "publication proposal differs from the authored intent")
+        for key, value in expected.items():
+            selected = [row for row in rows if row.partition("=")[0] == key]
+            if selected != [f"{key}={value}"]:
+                raise ExecutionError("GET publication proposal", "publication proposal differs from the authored intent")
+        if any(self.resources.get(key) != expected[key] for key in ("itemId", "versionId", "contentHash")):
+            raise ExecutionError("GET publication proposal", "publication response changed its original content binding")
+
     def check_proposal(self):
         def prove():
             proposal_id = identity(self.resources.get("proposalId"), "GET publication proposal")
@@ -690,6 +1033,7 @@ class JourneyExecutor:
             proposal = self.transport.get_json("/api/v1/admin/proposals/" + proposal_id, principal=self.principal(8))
             if proposal.get("proposalId") != proposal_id or proposal.get("status") not in {"Pending", "AwaitingApproval"}:
                 raise ExecutionError("GET publication proposal", "publication did not persist awaiting separate approval")
+            self.require_publication_intent(proposal)
             return {"proposalId": proposal_id, "status": "AwaitingApproval"}
         return self._check(7, "durable-proposal", "GET publication proposal", prove)
 
@@ -703,10 +1047,15 @@ class JourneyExecutor:
         path = "/api/v1/admin/proposals/" + proposal_id
         reader = self.principal(8)
         before = self.transport.get_json(path, principal=reader)
+        if before.get("proposalId") != proposal_id or before.get("status") not in {"Pending", "AwaitingApproval"}:
+            raise ExecutionError("GET publication proposal", "publication did not persist awaiting separate approval")
+        self.require_publication_intent(before)
         code, _ = self.transport.cli_approve(proposal_id, "proposer")
         denied = self.transport.get_json(path, principal=reader)
-        if code == 0 or denied.get("status") != before.get("status") or denied.get("resolvedBy"):
+        if (code == 0 or denied.get("proposalId") != proposal_id or
+                denied.get("status") != before.get("status") or denied.get("resolvedBy")):
             raise ExecutionError("approveOperationProposal --profile proposer", "self-approval was not refused without mutation")
+        self.require_publication_intent(denied)
         # A CLI usage error is not a security denial. Independently exercise the
         # authenticated candidate endpoint and require its actual 403 response.
         self.transport.http("POST", path + "/approve", principal="proposer", expected=(403,))
@@ -716,8 +1065,10 @@ class JourneyExecutor:
         final = self.poll("GET approved proposal", lambda: self.transport.get_json(path, principal="approver"),
                           lambda r: r.get("status") in {"Succeeded", "Approved", "Applied", "Rejected", "Failed"})
         if (final.get("proposalId") != proposal_id or final.get("status") not in {"Succeeded", "Approved", "Applied"}
+                or final.get("requestedBy") != before.get("requestedBy")
                 or not final.get("resolvedBy") or final["resolvedBy"] == final.get("requestedBy")):
             raise ExecutionError("GET approved proposal", "candidate did not prove separate principal resolution")
+        self.require_publication_intent(final)
         self.evidence["approvalResolution"] = {"proposalId": proposal_id,
                                               "requestedBy": identity(final["requestedBy"], "GET approved proposal"),
                                               "resolvedBy": identity(final["resolvedBy"], "GET approved proposal")}
@@ -771,7 +1122,7 @@ class JourneyExecutor:
         def prove():
             if not self.evidence.get("approvalResolution"):
                 raise ExecutionError("GET final published map", "separate-principal approval has not completed", blocked=True)
-            return self._prove_map(self.transport, self.fixture["publishedPath"], principal=None)
+            return self._prove_map(self.transport, self.fixture["publishedPath"], principal=None, slot="published-route")
         return self._check(8, "final-map", "GET final published map content", prove)
 
     def verify_fake_success(self):
@@ -870,12 +1221,6 @@ class JourneyExecutor:
             if missing:
                 cause = [stages.JOURNEY_DRIVER]
                 why = "candidate has not returned the canonical " + ", ".join(missing) + " for this stage"
-                applied = self.evidence["checks"].get("4", {}).get("style-applied", {}).get("status") == "pass"
-                if number == 4 and applied:
-                    # The preset was applied through style.apply-preset, whose MCP output
-                    # drops the operation handle: a tracked server gap.
-                    cause = [stages.STYLE_RENDER]
-                    why += "; honua_apply_style_preset applied the preset but its output omits the operation handle"
                 checks.append(probes.blocked(f"{number}.canonical-evidence", "http", receipt, why, cause))
             else:
                 checks.append(probes.Check(f"{number}.canonical-evidence", "http", receipt, "pass",
@@ -890,7 +1235,10 @@ class JourneyExecutor:
                 setattr(result, stages.RECEIPT_ATTRS[key], job.get(key))
         result.policy_decision_id, result.actuator_id, result.verification_id = (
             ids.get("policyDecisionId"), ids.get("actuatorId"), ids.get("verificationId"))
-        result.approval_id = (self.evidence.get("approval") or {}).get("approvalId") if number == 8 else None
+        approval = self.evidence.get("approval") or {}
+        result.approval_id = approval.get("approvalId") if number == 8 else None
+        if number == 8:
+            result.resolved_by = approval.get("resolvedBy")
         result.topology_refusal = refusal
         return result
 

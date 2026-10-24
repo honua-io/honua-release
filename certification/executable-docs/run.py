@@ -992,7 +992,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             need = needs(block, current_defined | set(session.env))
             missing_env = [n for n in need["env"] if n not in session.env]
             missing_ph = [p for p in need["placeholders"] if p not in subst]
-            current_defined.update(assigned_names(block))
+            current_defined.update(assigned_names(block, current_defined | set(session.env)))
             if missing_env or missing_ph:
                 parts = []
                 if missing_env:

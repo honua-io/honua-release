@@ -71,6 +71,46 @@ def _save(path, value):
         json.dump(value, stream)
 
 
+def restore_datasource_environment(target):
+    """Restore the public isolated Compose fixture in every driver process.
+
+    Driver operations are separate subprocesses, so setup's environment does not
+    reach later SDK calls. Cloud references must still come from their sealed
+    handoff; never give a cloud target the local fixture default.
+    """
+    if target.get("kind") == "local-docker":
+        os.environ.setdefault("HONUA_JOURNEY_DATASOURCE_PASSWORD", "honua")
+
+
+def prepare_style_catalog(target, transport):
+    """Install the authored input preset, without applying it to any layer.
+
+    The model needs the same catalog input as the deterministic driver. It must
+    still discover, select and apply it, and prove the actual rendered pixels.
+    The deterministic driver keeps its unconditional create and HTTP 201 check:
+    a cloud retry must not pass by reusing a prior attempt's retained style.
+    Never replace a pre-existing catalog document with different content.
+    """
+    fixture = target.get("execution") or {}
+    style_id, style = fixture.get("styleId"), fixture.get("style")
+    if (not isinstance(style_id, str) or not KEY_ID.fullmatch(style_id)
+            or not isinstance(style, dict)):
+        raise ExecutionError("prepare style catalog", "authored style fixture is unavailable")
+    path = "/ogc/styles/" + style_id
+    headers = {"Accept": "application/vnd.mapbox.style+json"}
+    raw, status = transport.http("GET", path, principal="operator", expected=(200, 404), extra_headers=headers)
+    if status == 404:
+        transport.http("POST", "/ogc/styles", principal="operator", body=style, expected=(201,),
+                       extra_headers={"X-Style-Id": style_id})
+        raw, _ = transport.http("GET", path, principal="operator", extra_headers=headers)
+    try:
+        observed = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise ExecutionError("prepare style catalog", "candidate did not return a style document") from exc
+    if observed != style:
+        raise ExecutionError("prepare style catalog", "candidate style differs from the authored fixture")
+
+
 def compose_env(target, workdir):
     if target.get("kind") != "local-docker":
         return {}
@@ -78,8 +118,7 @@ def compose_env(target, workdir):
     if not path.exists():
         _save(path, {"signingKey": secrets.token_urlsafe(48), "keys": {}})
     secret = json.loads(path.read_text())["signingKey"]
-    # The authored datasource uses the isolated compose database only.
-    os.environ.setdefault("HONUA_JOURNEY_DATASOURCE_PASSWORD", "honua")
+    restore_datasource_environment(target)
     return {"HONUA_JOURNEY_SIGNING_KEY": secret,
             "HONUA_JOURNEY_REPLICA_PORT": str(replica_port(target))}
 
@@ -138,13 +177,23 @@ def _bootstrap(target):
     return probes.resolve_env_default(target["adminPassword"]["env"], target["adminPassword"].get("default", ""))
 
 
+# A validated bearer token is scope-governed: with no recognized honua.mcp.* scope the server refuses
+# every governed call as insufficient_scope (OperatorScopeAuthorizer), so the run-signed proposer could
+# never reach stage 6 (e2e-cloud-aws run 39746615094). These are exactly the proposer's operations:
+# read, studio.draft.create (create), save-version (update) and create-publication-request (publish).
+# Approval stays with the separate approver principal. The other-tenant token carries the same scopes
+# so its denial proves tenant isolation, not a missing scope.
+TENANT_TOKEN_SCOPE = "honua.mcp.read honua.mcp.create honua.mcp.update honua.mcp.publish"
+
+
 def _tenant_token(signing_key, *, subject, tenant, role):
     def encode(value):
         return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
     now = int(time.time())
     body = encode({"alg": "HS256", "typ": "JWT"}) + b"." + encode({
         "iss": ISSUER, "aud": AUDIENCE, "sub": subject, "tenant_id": tenant,
-        "role": role, "iat": now, "nbf": now, "exp": now + 300, "jti": secrets.token_hex(16)})
+        "role": role, "scope": TENANT_TOKEN_SCOPE,
+        "iat": now, "nbf": now, "exp": now + 300, "jti": secrets.token_hex(16)})
     signature = base64.urlsafe_b64encode(hmac.new(signing_key.encode(), body, hashlib.sha256).digest()).rstrip(b"=")
     return "Bearer " + (body + b"." + signature).decode()
 

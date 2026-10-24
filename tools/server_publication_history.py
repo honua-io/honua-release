@@ -2,14 +2,13 @@
 """Enumerate the server publisher's complete release history; never infer a missing floor.
 
 #233 needs, for every capability an SDK requires, the earliest server version that
-implements it. `honua-io/honua-server` has never published a version: no git tags and no
-GitHub releases exist. That is not a gap in the publisher's diligence, it is the shape of a
-first release — there is no earlier server to name, so the only correct introduction floor
+implements it. When `honua-io/honua-server` has no published version, there is no earlier
+server release to name. Non-versioned dispatch anchors may exist, but the introduction floor
 for every capability in the first release is that release itself.
 
 Asserting "no prior publication" needs evidence, so this tool records the *complete*
 enumeration of the publisher's tag and release namespaces at an observed default-branch SHA
-and refuses to accept a receipt that reports even one. A single tag or release means some
+and refuses to accept a receipt that reports a publication. A version tag or release means some
 capability may predate the candidate, and per-capability introduction evidence is required
 instead. The receipt is read-only input; it never certifies a pairing and never invents a
 number.
@@ -102,7 +101,15 @@ def collect(repository: str = REPOSITORY) -> dict[str, Any]:
             if endpoint == "tags" and isinstance(row.get("commit"), dict):
                 tag_commits[value] = str(row["commit"].get("sha", ""))
             # A release is a publication whatever tag it sits on, so it is never an anchor.
-            if endpoint == "releases" or not anchor_matches(value, tag_commits.get(value)):
+            # The producers create lightweight refs directly at the source
+            # commit. The independent namespace observation must agree with
+            # the tags listing; a moved ref or an unresolved annotated object
+            # cannot inherit an earlier observation's anchor classification.
+            reference = row.get("object") if endpoint == REF_NAMESPACE_ENDPOINT else None
+            reference_differs = endpoint == REF_NAMESPACE_ENDPOINT and (
+                not isinstance(reference, dict) or reference.get("type") != "commit"
+                or reference.get("sha") != tag_commits.get(value))
+            if endpoint == "releases" or reference_differs or not anchor_matches(value, tag_commits.get(value)):
                 names.append(value)
     anchors = sorted({name for name in tag_commits if anchor_matches(name, tag_commits[name])}
                      - set(names))

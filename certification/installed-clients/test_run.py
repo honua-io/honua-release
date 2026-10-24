@@ -156,14 +156,11 @@ class MatrixExpectationTests(unittest.TestCase):
                    for driver in ("npm-sdk", "pypi-sdk", "nuget-sdk")
                    for scenario in ("auth", "admin-lifecycle", "ogc-features", "ogc-processes", "stac")},
                 "npm-sdk-ogc-tiles": ("active", None),
-                "npm-sdk-geoservices": ("blocked", [
-                    "https://github.com/honua-io/honua-server/issues/5407",
-                ]),
-                "pypi-sdk-geoservices": ("blocked", [
-                    "https://github.com/honua-io/honua-server/issues/5407",
-                ]),
+                # honua-server#5407 is fixed in the 4709145 pin: the edit steps pass, so the cells are active.
+                "npm-sdk-geoservices": ("active", None),
+                "pypi-sdk-geoservices": ("active", None),
                 "pypi-sdk-ogc-tiles": ("active", None),
-                "nuget-sdk-geoservices": ("blocked", ["https://github.com/honua-io/honua-server/issues/5407"]),
+                "nuget-sdk-geoservices": ("active", None),
                 "nuget-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"]),
                 "npm-cli-workflow": ("active", None),
                 "pypi-cli-workflow": ("active", None),
@@ -199,7 +196,9 @@ class MatrixExpectationTests(unittest.TestCase):
         cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-tools-list")
         self.assertEqual(
             cell["executables"],
-            {"honua-mcp": "mcp-stdio", "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"},
+            # @honua/mcp-server 0.2.6 adds the honua-agent-gateway and honua-agent-mcp bins (help probes).
+            {"honua-agent-gateway": "help", "honua-agent-mcp": "help", "honua-mcp": "mcp-stdio",
+             "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"},
         )
 
     def test_validation_rejects_implicit_expectations(self):

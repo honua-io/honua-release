@@ -126,3 +126,27 @@ honua-server:
       checkout at 928507999, then CS0103 for BaseUrlResolver. c19f29d's own CI workflow
       is not this file. Build & Format Check and the full-matrix lanes stay core, and a
       prebuild check with no recorded workflow path stays core too.
+
+geospatial-grpc:
+  - name: "certify"
+    why: >-
+      Coordinator ruling 2026-10-22, recorded on honua-release#376 under the operator's "every gate
+      green once on trunk" instruction: geospatial-grpc stays pinned at tag v1.0.3 (00fca4de), the
+      commit the published Geospatial.Grpc / geospatial-grpc / @honua/geospatial-grpc 1.0.3 packages
+      were built from, and its `certify` lane (`.github/workflows/protocol-certification.yml`) is
+      advisory there because it is a harness defect, not a product verdict. At each tag the
+      workflow checks its conformance fixtures out from the PREVIOUS tag while the runners at that
+      tag read the newer fixtures, so the lane is red by construction. On v1.0.3, scheduled run
+      36619225117 failed with ENOENT for
+      conformance/fixtures/feature_apply_edits_missing_target_request.json (absent at the v1.0.2
+      fixture ref 2571c63, present at 00fca4de). The same mismatch on the next tag: dispatched run
+      39745208615 (v1.0.5, 2026-10-22) fails with FileNotFoundException on the negative fixtures that
+      its v1.0.3 fixture ref lacks. No later tag was published (nuget.org and PyPI stop at 1.0.3).
+      Passing certification evidence for the pinned packages: geospatial-grpc PR #148 (merged
+      2026-10-22 as e7419588), run 39705695180, certified the published 1.0.3 .NET, Python and
+      TypeScript clients against this manifest's honua-server candidate (source 0e03bdd, image
+      sha256:dcf3296f...): 42 of 42 governed observations, client_rollup "pass", no execution
+      failures. Every other grpc lane on 00fca4de stays core (Conformance Fixtures, Lint and
+      Validate Protobuf, Validate Protocol Schemas, Build Once and Smoke, Prove Clean Public
+      Consumption, the code generation and pack lanes). Re-evaluate whenever geospatial-grpc is
+      re-pinned.

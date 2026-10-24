@@ -1,6 +1,7 @@
 """Driver handoffs only; these tests do not qualify a live candidate journey."""
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -73,6 +74,33 @@ class RecoverableActionTransportTests(unittest.TestCase):
             self.assertEqual(live_driver.main(), 1)
 
 
+class DatasourceProcessEnvironmentTests(unittest.TestCase):
+    def engine(self, directory, kind):
+        target = {"kind": kind, "adminPassword": {"env": "TEST_BOOTSTRAP", "default": ""},
+                  "execution": {"datasource": {"passwordEnv": "HONUA_JOURNEY_DATASOURCE_PASSWORD"}}}
+        with mock.patch.object(live_driver.local_fixture, "credentials", return_value={}):
+            return live_driver._executor({"workdir": directory, "baseUrl": "http://localhost"},
+                                         target, stages.Observation())
+
+    def test_new_driver_process_resolves_local_datasource_without_setup_environment(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {}, clear=True):
+            engine = self.engine(directory, "local-docker")
+            self.assertEqual(engine.datasource_arguments(), {"password": "honua"})
+
+    def test_explicit_environment_is_preserved_and_missing_cloud_secret_stays_blocked(self):
+        for kind in ("local-docker", "aws-serverless", "aws-ecs", "aws-eks"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                with mock.patch.dict(os.environ, {"HONUA_JOURNEY_DATASOURCE_PASSWORD": "explicit-fixture"}, clear=True):
+                    self.assertEqual(self.engine(directory, kind).datasource_arguments(),
+                                     {"password": "explicit-fixture"})
+                if kind != "local-docker":
+                    with mock.patch.dict(os.environ, {}, clear=True):
+                        with self.assertRaises(live_driver.ExecutionError) as refused:
+                            self.engine(directory, kind).datasource_arguments()
+                        self.assertTrue(refused.exception.blocked)
+                        self.assertNotIn("HONUA_JOURNEY_DATASOURCE_PASSWORD", os.environ)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -126,6 +154,44 @@ def test_missing_unexecuted_assertions_remain_actionable_before_first_attempt():
     assert response["blockedBy"] == []
 
 
+def test_observe_exposes_the_actual_stage_terminal_bridge_contract():
+    import executor
+    engine = executor.JourneyExecutor({"workspaceId": "unit", "stackUp": True, "executionEnabled": True}, {},
+        stages.Observation(setup_view_present=True,
+            setup_discovery={"tools": [{"name": "honua_ingest_dataset"}], "metadata": {"view": "setup"}}),
+        mock.Mock(credentials={"proposer": "test-proposer"}))
+    stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][2]
+    status = {"number": 3, "id": stage["id"], "command": stage["command"], "checks": [], "status": "blocked"}
+    with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, {}, {}, engine.observation, None)), \
+         mock.patch.object(live_driver, "_executor", return_value=engine), \
+         mock.patch.object(live_driver, "_stage_status", return_value=status), mock.patch.object(live_driver, "_write_state"):
+        response = live_driver.op_observe({"stage": stage["id"]})
+    assert response["observation"]["terminalSurface"] == engine.terminal_surface(3)
+    assert response["stageStatus"]["status"] == "ready"
+    assert not engine.evidence["actions"]
+
+
+def test_next_stage_context_exposes_native_publication_identity_separately_from_fixture():
+    import executor
+    target = {"execution": {"serviceId": "journey"}}
+    engine = executor.JourneyExecutor({"workspaceId": "unit", "stackUp": True, "executionEnabled": True}, target,
+        stages.Observation(setup_view_present=True), mock.Mock(credentials={"proposer": "private-proposer"}))
+    with mock.patch.object(engine, "check_features"):
+        engine.record_publication({"status": "Completed", "requiresApproval": False, "layerId": "17",
+            "serviceName": "observed-published", "serviceUri": "honua://published-services/observed-published"})
+    stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][3]
+    status = {"number": 4, "id": stage["id"], "command": stage["command"], "checks": [], "status": "blocked"}
+    with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, target, {}, engine.observation, None)), \
+         mock.patch.object(live_driver, "_executor", return_value=engine), \
+         mock.patch.object(live_driver, "_stage_status", return_value=status), mock.patch.object(live_driver, "_write_state"):
+        response = live_driver.op_observe({"stage": stage["id"]})
+    actual = response["observation"]["resources"]
+    assert actual["serviceId"] == actual["serviceName"] == "observed-published" and actual["layerId"] == 17
+    assert actual["serviceUri"] == "honua://published-services/observed-published"
+    assert response["observation"]["fixture"] == {"serviceId": "journey"}
+    assert "private-proposer" not in json.dumps(response)
+
+
 def _cloud_target_file(path, cell="aws-ecs/redis-on"):
     import cloud_target
     target = cloud_target.build(json.loads(live_driver.DEFAULT_TARGET.read_text()),
@@ -147,7 +213,8 @@ def test_cloud_setup_observes_external_endpoint_and_never_manages_compose(tmp_pa
          mock.patch.object(live_driver.pins, "install_executables", return_value=(tmp_path / "bin", "", [])), \
          mock.patch.object(live_driver, "_compose_for", side_effect=AssertionError("cloud must never start local Docker")), \
          mock.patch.object(driver, "observe", return_value=observation) as observe, \
-         mock.patch.object(live_driver.local_fixture, "credentials", return_value={}) as credentials:
+         mock.patch.object(live_driver.local_fixture, "credentials", return_value={"operator": "unit"}) as credentials, \
+         mock.patch.object(live_driver.local_fixture, "prepare_style_catalog") as prepare_style:
         response = live_driver.op_setup({"target": str(target_path), "deploymentReceipt": deployment})
         assert response["status"] == "ready"
         assert response["baseUrl"] == target["replicaBaseUrl"]
@@ -157,6 +224,9 @@ def test_cloud_setup_observes_external_endpoint_and_never_manages_compose(tmp_pa
         assert "same-job deployment readback" in live_driver._read_state(response["workspaceId"])["deploymentDetail"]
 
         assert credentials.call_args.kwargs["mint"] is True
+        credentials.assert_called_once()
+        assert prepare_style.call_args.args[0] == target
+        assert prepare_style.call_args.args[1].credentials == {"operator": "unit"}
         state = live_driver._read_state(response["workspaceId"])
         assert state["external"] is True
 

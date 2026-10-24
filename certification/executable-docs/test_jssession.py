@@ -504,10 +504,14 @@ def test_refreshed_unref_timeout_is_disposed_before_pass(reader):
 
 
 def test_module_import_scheduled_unref_work_is_owned(reader):
-    Path(reader.cwd, 'scheduler.mjs').write_text("import {writeFileSync} from 'node:fs'; "
-        "setInterval(() => writeFileSync('import-stale', 'bad'), 20).unref(); export const value = 42;")
+    Path(reader.cwd, 'scheduler.mjs').write_text("import {existsSync, writeFileSync} from 'node:fs'; "
+        "setInterval(() => { if (existsSync('import-next-active')) "
+        "writeFileSync('import-stale', 'bad'); }, 20).unref(); export const value = 42;")
     first = run(reader, "import {value} from './scheduler.mjs'; console.log(value);")
     assert first.status == 'pass' and first.stdout == '42\n'
+    # Work during the importing block is allowed. Arm the stale-work observation
+    # only after that block's completion, regardless of runner scheduling speed.
+    Path(reader.cwd, 'import-next-active').write_text('next block')
     assert run(reader, "await new Promise(resolve => setTimeout(resolve, 80)); console.log(value);").stdout == '42\n'
     assert not Path(reader.cwd, 'import-stale').exists()
 
@@ -760,17 +764,104 @@ def test_unsupported_unref_watcher_forms_fail_even_when_caught(reader, source, k
     assert reader.js.broken
 
 
-def test_native_valid_dormant_udp_is_explicitly_unsupported_not_a_false_pass(reader):
-    source = "const inactive = require('node:dgram').createSocket('udp4');"
+def test_native_valid_dormant_udp_completes_without_close_or_type_filter(reader):
+    source = "const inactive = require('node:dgram').createSocket('udp4'); " \
+        "inactive.on('close', () => console.log('udp-close'));"
     native = Path(reader.cwd, 'native.cjs')
     native.write_text(source)
     oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
     assert oracle.returncode == 0 and oracle.stdout == '' and oracle.stderr == ''
-    # Temporary partial-support limitation, not native-equivalent execution.
     result = run(reader, source)
-    assert result.status == 'fail' and 'unsupported owned dormant resource: UDP' in result.stderr
+    assert result.status == 'pass' and result.stdout == oracle.stdout and result.stderr == '', result
+    assert not reader.js.broken and reader.js.proc.poll() is None
+    # The socket stays open in the persistent context, but it must not keep later blocks idle.
+    nxt = run(reader, "console.log('alive', typeof inactive);")
+    assert nxt.status == 'pass' and nxt.stdout == 'alive object\n', nxt
+
+
+def test_unbound_unref_udp_completes_like_native_without_close(reader):
+    source = "const inactive = require('node:dgram').createSocket('udp4'); inactive.unref(); " \
+        "inactive.on('close', () => console.log('udp-close'));"
+    native = Path(reader.cwd, 'native.cjs')
+    native.write_text(source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == '' and oracle.stderr == ''
+    result = run(reader, source)
+    assert result.status == 'pass' and result.stdout == '' and result.stderr == '', result
+    assert not reader.js.broken
+
+
+def test_bound_referenced_udp_is_not_idle(reader):
+    result = run(reader, "const udp = require('node:dgram').createSocket('udp4'); "
+        "await new Promise(resolve => udp.bind(0, '127.0.0.1', resolve));", timeout=0.5)
+    assert result.status == 'fail' and 'timed out' in result.detail, result
     assert reader.js.broken and reader.js.proc.poll() is not None
-    assert 'refusing to restart' in run(reader, "console.log('bad');").detail
+
+
+def test_bind_during_before_exit_keeps_referenced_udp_alive(reader):
+    referenced = run(reader, "const udp = require('node:dgram').createSocket('udp4'); "
+        "process.on('beforeExit', () => udp.bind(0, '127.0.0.1'));", timeout=0.5)
+    assert referenced.status == 'fail' and 'timed out' in referenced.detail, referenced
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_bind_during_before_exit_of_unref_udp_is_not_idle(reader):
+    unbound = run(reader, "const udp = require('node:dgram').createSocket('udp4'); udp.unref(); "
+        "process.on('beforeExit', () => udp.bind(0, '127.0.0.1'));")
+    assert unbound.status == 'fail' and 'unsupported owned unref resource: UDP' in unbound.stderr, unbound
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_later_ref_and_bind_of_dormant_udp_is_not_idle(reader):
+    first = run(reader, "let dormantUdp = require('node:dgram').createSocket('udp4');")
+    assert first.status == 'pass', first
+    rebound = run(reader, "dormantUdp.ref(); await new Promise(resolve => dormantUdp.bind(0, '127.0.0.1', resolve));",
+                  timeout=0.5)
+    assert rebound.status == 'fail' and 'timed out' in rebound.detail, rebound
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_later_bind_of_detached_dormant_udp_is_refused(reader):
+    first = run(reader, "let dormantUdp = require('node:dgram').createSocket('udp4');")
+    assert first.status == 'pass', first
+    unref_bind = run(reader, "await new Promise(resolve => dormantUdp.bind(0, '127.0.0.1', resolve));")
+    assert unref_bind.status == 'fail' and 'unsupported owned unref resource: UDP' in unref_bind.stderr, unref_bind
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+@pytest.mark.parametrize('join', [
+    "dormantUdp.addMembership('239.255.0.1');",
+    "dormantUdp.addSourceSpecificMembership('192.0.2.1', '239.255.0.1');",
+])
+def test_later_membership_bind_of_dormant_udp_is_refused(reader, join):
+    first = run(reader, "let dormantUdp = require('node:dgram').createSocket('udp4');")
+    assert first.status == 'pass', first
+    result = run(reader, join)
+    assert result.status == 'fail' and 'unsupported owned unref resource: UDP' in result.stderr, result
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_later_ref_and_membership_is_not_idle(reader):
+    first = run(reader, "let dormantUdp = require('node:dgram').createSocket('udp4');")
+    assert first.status == 'pass', first
+    # Membership binds. Native does not keep the loop alive for that join, but the
+    # reader must not pass a referenced bound socket or leave it for a later block.
+    result = run(reader, "dormantUdp.ref(); dormantUdp.addMembership('239.255.0.1');")
+    assert result.status == 'fail' and 'unsupported owned dormant resource: UDP' in result.stderr, result
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_before_exit_timer_bind_keeps_referenced_udp_alive(reader):
+    source = "const udp = require('node:dgram').createSocket('udp4'); " \
+        "process.on('beforeExit', () => setTimeout(() => udp.bind(0, '127.0.0.1'), 20));"
+    native = Path(reader.cwd, 'native.cjs')
+    native.write_text(source)
+    with pytest.raises(subprocess.TimeoutExpired):
+        subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=0.4)
+    result = run(reader, source, timeout=1.5)
+    assert result.status == 'fail' and 'timed out' in result.detail, result
+    assert 'unsupported owned unref resource: UDP' not in result.stderr + result.detail
+    assert reader.js.broken and reader.js.proc.poll() is not None
 
 
 @pytest.mark.parametrize('source,kind', [

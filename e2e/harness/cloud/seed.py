@@ -122,10 +122,16 @@ def seed(endpoint, key, target, out):
     demo = {}
     ids = {}
     for table, service, geometry, pk, write in fixtures:
-        result = request("POST", f"/api/v1/admin/connections/{cid}/layers", {
+        publication = {
             "schema": "honua_data", "table": table, "layerName": service,
             "serviceName": service, "geometryColumn": "geom", "geometryType": geometry,
-            "primaryKey": pk, "srid": 4326, "enabled": True})
+            "primaryKey": pk, "srid": 4326, "enabled": True}
+        if write:
+            publication.update(storageMode="managed", capabilities=["Query", "Create", "Update", "Delete"])
+        result = request("POST", f"/api/v1/admin/connections/{cid}/layers", publication)
+        if write and (result["data"].get("storageMode") != "managed" or
+                      not {"Create", "Update", "Delete"} <= set(result["data"].get("capabilities") or [])):
+            raise ValueError("editing fixture did not publish managed storage with explicit edit capabilities")
         layer = result["data"]["layerId"]
         ids[table] = layer
         if service != "e2e":

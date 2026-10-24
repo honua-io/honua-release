@@ -5,7 +5,7 @@
 2026.1 uses `Licensing__Mode=Disabled`: all catalog entitlements active; no edition gating,
 license enforcement or serving-unit metering. Maturity and safety limits still apply.
 
-Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:6122bc340c3f17849d5ebeea077f790446fc3b04a2579736f9344015cb2cfbc4`.
+Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:25494553ceedf734ba9051a0ebfcf54439e5fc8c25a37ec7871f2d265679f288`.
 
 Lock completeness: **unqualified — incomplete draft; not a certified release lock.**
 
@@ -16,9 +16,9 @@ SDK/server pairing. Certification requires an exact artifact-pair receipt in the
 
 | SDK / protocol | Locked artifact | Minimum server | Qualification |
 | --- | --- | --- | --- |
-| honua-sdk-js | @honua/sdk-js 0.2.3; @honua/mcp-server 0.2.3; @honua/sdk 0.2.2; @honua/sdk-esri-compat 0.2.2; @honua/react 0.2.2; @honua/geometry 0.2.2; @honua/app-platform 0.2.2; create-honua-app 0.2.2 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| honua-sdk-dotnet | Honua.Sdk 1.11.0 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| honua-sdk-python | honua-sdk 0.1.16; honua-admin 0.1.12 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| honua-sdk-js | @honua/sdk-js 0.2.6; @honua/mcp-server 0.2.6; @honua/sdk 0.2.6; @honua/sdk-esri-compat 0.2.6; @honua/react 0.2.6; @honua/geometry 0.2.6; @honua/app-platform 0.2.6; create-honua-app 0.2.3 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| honua-sdk-dotnet | Honua.Sdk 1.12.0 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| honua-sdk-python | honua-sdk 0.1.18; honua-admin 0.1.12 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
 | geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json 1.0.0+d5a09d13 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
 
 The JavaScript repository also owns `@honua/mcp-server`; its Honua attachment must

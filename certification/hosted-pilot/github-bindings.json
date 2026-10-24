@@ -1,0 +1,13 @@
+{
+  "schema": "honua.hosted-pilot-github-bindings/v1",
+  "repository": "honua-io/honua-release",
+  "environments": ["hosted-pilot-plan", "hosted-pilot-apply"],
+  "branch": "trunk",
+  "variables": [
+    "HOSTED_PILOT_REGION", "HOSTED_PILOT_ACCOUNT_ID", "HOSTED_PILOT_STATE_BUCKET",
+    "HOSTED_PILOT_STATE_KMS_ARN", "HOSTED_PILOT_STATE_KEY", "HOSTED_PILOT_BACKEND_ROLE_ARN",
+    "HOSTED_PILOT_PLAN_BUCKET", "HOSTED_PILOT_PLAN_KMS_ARN", "HOSTED_PILOT_PLAN_ROLE_ARN",
+    "HOSTED_PILOT_APPLY_ROLE_ARN", "HOSTED_PILOT_CONTROLLER_ECR_REPOSITORY",
+    "HOSTED_PILOT_WORKER_ECR_REPOSITORY"
+  ]
+}

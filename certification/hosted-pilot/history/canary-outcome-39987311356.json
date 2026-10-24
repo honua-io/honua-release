@@ -1,0 +1,93 @@
+{
+  "actualUsd": null,
+  "aggregateReservedUsd": "314",
+  "financialTreatment": "failed genuine execution remains unsettled; reservation is retained, never zeroed or treated as actual cost",
+  "models": [
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+  ],
+  "nativeRun": {
+    "conclusion": "failure",
+    "created_at": "2026-10-23T16:30:21Z",
+    "run_started_at": "2026-10-23T16:30:21Z",
+    "status": "completed",
+    "updated_at": "2026-10-23T16:40:06Z"
+  },
+  "observedAt": "2026-10-23T16:59:50.584837+00:00",
+  "originalArtifact": {
+    "id": 12516587083,
+    "name": "terminal-model-canary-local-docker-1",
+    "sha256": "sha256:771cb345ea264a18d684b63183000037a9e309c24acf2a69c297c66590783c5f"
+  },
+  "originalModelReceiptSha256": "sha256:ec2b8cc77639230c0c3af7269a7a73329973fc49d31034047a805cc8700d8c88",
+  "originalReservationUnchanged": true,
+  "profile": "full-workflow",
+  "providers": [
+    "bedrock"
+  ],
+  "qualification": false,
+  "rawTranscriptsPublished": false,
+  "receiptCompletedAt": "2026-10-23T16:40:01.947545Z",
+  "receiptStatus": "fail",
+  "reportedExecutionOutcome": "not-completed",
+  "reportedFailedChecks": [
+    "8.final-map=fail/assertion-refused"
+  ],
+  "reportedFailureAttribution": "infrastructure",
+  "repository": "honua-io/honua-release",
+  "retainedReservationUsd": "20",
+  "runAttempt": 1,
+  "runId": 39987311356,
+  "schema": "honua.hosted-pilot-observed-diagnostic-outcome/v1",
+  "sourceSha": "3b6afbadf0a4be24a006af6b422e1ad06570e114",
+  "stages": [
+    {
+      "id": "installed-client-handoff",
+      "number": 1,
+      "status": "pass"
+    },
+    {
+      "id": "credential-preflight",
+      "number": 2,
+      "status": "pass"
+    },
+    {
+      "id": "publish-service",
+      "number": 3,
+      "status": "pass"
+    },
+    {
+      "id": "style-render",
+      "number": 4,
+      "status": "pass"
+    },
+    {
+      "id": "bounded-gp",
+      "number": 5,
+      "status": "pass"
+    },
+    {
+      "id": "durable-compositions",
+      "number": 6,
+      "status": "pass"
+    },
+    {
+      "id": "publication-proposal",
+      "number": 7,
+      "status": "pass"
+    },
+    {
+      "id": "separate-principal-approval",
+      "number": 8,
+      "status": "fail"
+    }
+  ],
+  "usage": {
+    "completionTokens": 4128,
+    "elapsedMs": 180832,
+    "modelCalls": 31,
+    "promptTokens": 1116409,
+    "totalTokens": 1120537
+  },
+  "verifiedProviderCallCount": 31,
+  "workflow": ".github/workflows/terminal-model-canary.yml"
+}

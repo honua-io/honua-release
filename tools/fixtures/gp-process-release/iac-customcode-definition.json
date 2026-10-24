@@ -1,0 +1,61 @@
+{
+  "schema": "honua.synthetic-customcode-batch-definition/v1",
+  "source": {
+    "repository": "honua-io/honua-iac",
+    "revision": "99f9f68afaa3f8b8233656953ba3987f9505d861",
+    "path": "infrastructure/terraform/modules/aws-serverless/customcode-batch.tf",
+    "sha256": "5abd998c04710677863ff01491c0ea481ec892234a9316755e44251204e2e885"
+  },
+  "qualification": false,
+  "definition": {
+    "jobDefinitionArn": "arn:aws:batch:us-west-2:123456789012:job-definition/honua-test-customcode-python-s:7",
+    "jobDefinitionName": "honua-test-customcode-python-s",
+    "revision": 7,
+    "status": "ACTIVE",
+    "type": "container",
+    "platformCapabilities": [
+      "FARGATE"
+    ],
+    "containerProperties": {
+      "image": "ghcr.io/honua-io/honua-gp-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "user": "1001:1001",
+      "executionRoleArn": "arn:aws:iam::123456789012:role/honua-test-customcode-execution",
+      "resourceRequirements": [
+        {
+          "type": "VCPU",
+          "value": "1"
+        },
+        {
+          "type": "MEMORY",
+          "value": "2048"
+        }
+      ],
+      "networkConfiguration": {
+        "assignPublicIp": "DISABLED"
+      },
+      "fargatePlatformConfiguration": {
+        "platformVersion": "LATEST"
+      },
+      "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+      },
+      "environment": [],
+      "secrets": [],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/aws/batch/honua-test-customcode",
+          "awslogs-region": "us-west-2",
+          "awslogs-stream-prefix": "customcode-python"
+        }
+      }
+    },
+    "retryStrategy": {
+      "attempts": 1
+    },
+    "timeout": {
+      "attemptDurationSeconds": 3600
+    }
+  }
+}

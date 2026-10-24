@@ -73,9 +73,36 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise McpError('endpoint-redirect-refused')
 
 
+def validate_agent_context(value):
+    require(value is None or isinstance(value, dict) and set(value) == {'workspaceId', 'turnId'} and
+            all(isinstance(item, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', item) for item in value.values()),
+            'invalid-native-agent-context')
+    return None if value is None else dict(value)
+
+
+def validate_execution_context(value):
+    """Trusted transport binding, never part of model tool arguments."""
+    require(value is None or isinstance(value, dict) and
+            set(value) == {'executionId', 'claimGeneration', 'workerId', 'capability'} and
+            isinstance(value['executionId'], str) and re.fullmatch(r'execution-[0-9a-f]{32}', value['executionId']) and
+            type(value['claimGeneration']) is int and value['claimGeneration'] > 0 and
+            isinstance(value['workerId'], str) and 0 < len(value['workerId']) <= 512 and
+            all(33 <= ord(c) <= 126 for c in value['workerId']) and
+            isinstance(value['capability'], str) and 32 <= len(value['capability']) <= 8192 and
+            all(33 <= ord(c) <= 126 for c in value['capability']), 'invalid-native-execution-context')
+    return None if value is None else dict(value)
+
+
+def execution_headers(value):
+    value = validate_execution_context(value)
+    return {} if value is None else {'X-Honua-Execution': value['executionId'],
+        'X-Honua-Execution-Generation': str(value['claimGeneration']), 'X-Honua-Worker': value['workerId'],
+        'X-Honua-Execution-Capability': value['capability']}
+
+
 class Client:
     def __init__(self, endpoint, *, credential_env=None, credential_kind='bearer', workflow_view=None,
-                 timeout=60, clock=time.monotonic):
+                 timeout=60, clock=time.monotonic, agent_context=None, execution_context=None):
         require(isinstance(endpoint, str) and all(ord(c) > 0x20 for c in endpoint), 'invalid-endpoint')
         try:
             parsed = urllib.parse.urlsplit(endpoint)
@@ -89,6 +116,9 @@ class Client:
         require(credential_kind in ('bearer','api-key'), 'invalid-credential-kind')
         self._validate_view(workflow_view)
         self.workflow_view = workflow_view
+        self.agent_context = validate_agent_context(agent_context)
+        self.execution_context = validate_execution_context(execution_context)
+        require(self.execution_context is None or self.agent_context is not None, 'execution-requires-native-turn')
         require(type(timeout) in (int,float) and 0 < timeout <= 120, 'invalid-deadline')
         self.endpoint, self.clock, self.deadline = endpoint, clock, clock()+timeout
         self.secret = None
@@ -117,14 +147,18 @@ class Client:
                 and view == view.strip() and all(ord(c) > 0x20 for c in view)), 'invalid-workflow-view')
 
     def _check_secret(self, raw):
-        if not self.secret:
-            return
+        for secret in (self.secret, None if self.execution_context is None else self.execution_context['capability']):
+            if secret:
+                self._check_private_value(raw, secret)
+
+    @staticmethod
+    def _check_private_value(raw, secret):
         text = raw.decode('utf-8', errors='replace') if isinstance(raw, bytes) else raw
         escapes = {'"':'"', '\\':'\\', '/':'/', 'b':'\b', 'f':'\f', 'n':'\n', 'r':'\r', 't':'\t'}
         # Inspect all received bytes, including SSE comments/incomplete frames.
         # Parsing only complete JSON events misses escaped echoes in the tail.
         for _ in range(16):
-            require(self.secret not in text, 'credential-disclosed-by-server')
+            require(secret not in text, 'credential-disclosed-by-server')
             decoded = re.sub(r'\\(?:u([0-9a-fA-F]{4})|(["\\/bfnrt]))',
                 lambda match: chr(int(match[1], 16)) if match[1] else escapes[match[2]], text)
             if decoded == text:
@@ -139,6 +173,9 @@ class Client:
         require(body is None or len(body) <= MAX_BODY, 'request-too-large')
         headers = {'Accept':'application/json, text/event-stream', 'Content-Type':'application/json',
                    'MCP-Protocol-Version':VERSION}
+        if self.agent_context is not None:
+            headers.update({'X-Honua-Workspace': self.agent_context['workspaceId'], 'X-Honua-Turn': self.agent_context['turnId']})
+        headers.update(execution_headers(self.execution_context))
         if self.secret:
             headers['Authorization' if self.credential_kind == 'bearer' else 'X-API-Key'] = (
                 'Bearer '+self.secret if self.credential_kind == 'bearer' else self.secret)

@@ -1,0 +1,27 @@
+module "application" {
+  source                            = "./application"
+  region                            = var.region
+  name_prefix                       = var.name_prefix
+  owner                             = var.owner
+  expires_at                        = var.expires_at
+  candidate                         = var.candidate
+  server_domain                     = var.server_domain
+  allowed_operator_cidrs            = var.allowed_operator_cidrs
+  operation_certificate_secret_arn  = var.operation_certificate_secret_arn
+  audit_chain_secret_arn            = var.audit_chain_secret_arn
+  console_agent_secret_arn          = var.console_agent_secret_arn
+  console_agent_key_id              = var.console_agent_key_id
+  console_agent_secret_version_id   = var.console_agent_secret_version_id
+  secret_kms_key_arns               = var.secret_kms_key_arns
+  operation_certificate_kms_key_arn = var.operation_certificate_kms_key_arn
+  audit_chain_kms_key_arn           = var.audit_chain_kms_key_arn
+  identity_redirects                = var.identity_redirects
+  identity_secrets_kms_key_arn      = var.identity_secrets_kms_key_arn
+  edge_proxy_image                  = var.edge_proxy_image
+  route53_zone_id                   = var.route53_zone_id
+  deletion_protection               = var.deletion_protection
+  permissions_boundary_arn          = var.permissions_boundary_arn
+  destroy_artifact_data             = var.destroy_artifact_data
+  human_enrollment                  = var.human_enrollment
+  campaign_context                  = var.campaign_context
+}

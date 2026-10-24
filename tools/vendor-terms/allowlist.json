@@ -175,12 +175,13 @@
         "@honua/sdk-esri-compat",
         "honua-sdk-esri-compat",
         "sdk-esri-compat-0.2.2.tgz",
+        "sdk-esri-compat-0.2.6.tgz",
         "@honua/sdk-esri-compat@0.2.2",
         "40honua/sdk-esri-compat@0.2.2",
         "2Fsdk-esri-compat/0.2.2",
         "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.2.2.tgz"
       ],
-      "reason": "Exact SDK 0.2.2 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
+      "reason": "Exact SDK 0.2.2 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations; the 2026-10-22 rc re-pin adds the selected 0.2.6 tarball filename. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#181"
     },
@@ -453,12 +454,12 @@
     {
       "repo": "honua-release",
       "paths": [
-        "certification/executable-docs/fixtures/site-geoprocessing-7d733c0.md"
+        "certification/executable-docs/fixtures/site-geoprocessing-99dee72.md"
       ],
       "tokens": [
         "Esri"
       ],
-      "reason": "Verbatim immutable full 4504-byte honua-site docs/geoprocessing/index.md at protected 7d733c0f04822947c111c8bc9e43a977e5714f9f (SHA256 652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa). The fixture and full-document hash must preserve the actual upstream prose to test all six real executable blocks. Only this token in this exact historical fixture is covered; sibling paths, other terms, and current website prose remain checked. Revisit when the fixture is retired.",
+      "reason": "Verbatim immutable full 4504-byte honua-site docs/geoprocessing/index.md at protected 99dee72bb8d7d77bb01d1ba16807b499ba7fb853 (SHA256 b0be5ceeb94f8fc8433426dc17645dfe4d33d27acaec1c7ac63e6f3b854f87d2; honua-site#318 changed only the honua-sdk pin from the earlier 7d733c0 fixture). The fixture and full-document hash must preserve the actual upstream prose to test all six real executable blocks. Only this token in this exact historical fixture is covered; sibling paths, other terms, and current website prose remain checked. Revisit when the fixture is retired.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#721"
     }

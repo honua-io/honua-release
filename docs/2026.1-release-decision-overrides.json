@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "authority": "https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823",
-  "rules_date": "2026-10-03",
+  "rules_date": "2026-10-21",
   "rulings": {
     "R3": {
       "date": "2026-09-29",
@@ -535,6 +535,74 @@
       "authority": "https://github.com/honua-io/honua-release/issues/376",
       "ruling": "Owner-approved assisted pilot then GA. ECS and Lambda + Batch remain GA targets; Redis-on is recommended for full workflows, Redis-off is limited serving with typed refusals and never GP-executed evidence. EKS/Helm is Preview for 2026.1, superseding October 10 decisions 12/18. Studio is a usable self-hosted 2D Preview alongside full agent flows. Assisted supported-service migration and two existing JavaScript apps permit documented manual fixes. Clarification and at most one visible retry are allowed; silent wrong results, data loss, unauthorized actions and false success are unacceptable.",
       "effect": "Four required ECS/Lambda journey cells; EKS remains informational with qualification pending. Preserve required correctness/security/catalog-GP denominator, immutable-image resolver rules, gate freeze before first rc.3, separate topology proofs, two signed-lock update/rollback and 48h/seven-canary burn. #619 does not gate RC; #613\u2013#617 remains 2026.2. Weekly outcome board and three fresh-start pilot observations remain in canonical #376; date windows are decision checkpoints, not guarantees."
+    },
+    "enhancement-delivery-2026-10-23": {
+      "date": "2026-10-23",
+      "authority": "https://github.com/honua-io/honua-release/issues/883",
+      "ruling": "Owner-directed backlog grooming selects the linked single-user Studio design, GP installed authoring/diagnostics, onboarding and supported-surface correctness work for 2026.1 GA. Collaboration stays 2026.2. Common styling usability and authorized suggestions are separate from the full advanced Maputnik/Esri editor. The prior blanket GP deferral is superseded only for the selected child issues; release#613 remains the mixed-program umbrella with a 2026.2 remainder.",
+      "effect": "Selected feature additions use stage/ga and post-cut-hardening for delivery after the first candidate cut and before 2026.1 GA, not an automatic 2026.1.x deferral. Existing workflow correctness fixes retain must-fix-before-cut and exact-candidate evidence retains prove-against-candidate. No new blanket first-RC gate, qualification pass, deployment or gate waiver is introduced. The 2026.1.x proposal-store and legacy rollback-baseline rulings remain unchanged.",
+      "moved": [
+        "honua-server#5188",
+        "honua-server#3312",
+        "honua-server#4545",
+        "honua-server#3608",
+        "honua-server#6306",
+        "honua-server#6216",
+        "honua-server#6217",
+        "honua-server#6219",
+        "honua-samples#65",
+        "honua-release#615",
+        "honua-sdk-python#301",
+        "honua-console#429",
+        "honua-console#431",
+        "honua-console#454",
+        "honua-console#445",
+        "honua-studio#118",
+        "honua-sdk-js#2180",
+        "honua-sdk-js#2131",
+        "honua-sdk-js#2206",
+        "honua-migrate#204",
+        "honua-sdk-js#2146",
+        "honua-site#308",
+        "honua-release#85",
+        "honua-studio#129",
+        "honua-studio#130",
+        "honua-console#465",
+        "honua-migrate#210",
+        "honua-migrate#155",
+        "honua-release#883"
+      ],
+      "retained_2026_2": [
+        "honua-release#613",
+        "honua-release#614",
+        "honua-release#616",
+        "honua-release#617",
+        "honua-server#6218",
+        "honua-server#6220",
+        "honua-server#6221",
+        "honua-migrate#143",
+        "honua-studio#22",
+        "honua-studio#47",
+        "honua-studio#131",
+        "honua-server#3247",
+        "honua-server#2439",
+        "honua-server#1278"
+      ]
+    },
+    "additional-design-gp-pullins-2026-10-24": {
+      "date": "2026-10-24",
+      "authority": "https://github.com/honua-io/honua-release/issues/883",
+      "ruling": "Owner-selected additional 2026.1 GA work consists of the Studio data/interaction inspector, one Explore a dataset recipe, their Console shared-workspace integration, and the .NET bounded GP execution helper/example. The broader recipe umbrella retains Compare places and Track change over time in 2026.2. Collaboration, full layout/theme expansion and remote-failure reproduction remain 2026.2. This ruling adds only the named implementation tickets; the prior enhancement delivery record remains independently applicable.",
+      "effect": "Selected feature additions use stage/ga and post-cut-hardening for delivery after the first candidate cut and before 2026.1 GA, not an automatic 2026.1.x deferral. Existing workflow correctness fixes retain must-fix-before-cut and exact-candidate evidence retains prove-against-candidate. No new blanket first-RC gate, qualification pass, deployment or gate waiver is introduced. The 2026.1.x proposal-store and legacy rollback-baseline rulings remain unchanged.",
+      "moved": [
+        "honua-studio#131",
+        "honua-studio#135",
+        "honua-console#470",
+        "honua-sdk-dotnet#293"
+      ],
+      "retained_2026_2": [
+        "honua-server#2439"
+      ]
     }
   },
   "security_findings": [
@@ -1244,6 +1312,312 @@
     "honua-server#5618": {
       "bucket": "post-cut-hardening",
       "reason": "2026-10-12 release-list reconciliation: the sole must-fix finding SRV-DB-005 is implemented by merged server#5670 (6fe7c4313467366e2845b9599bc99698898d64bb). Every remaining finding is explicitly post-cut in the original issue scope. Keep the aggregate open for that remaining hardening; this records existing per-finding scope rather than deferring a new RC requirement. Candidate E2E gates remain unchanged."
+    },
+    "honua-release#693": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#699": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#705": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#708": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#710": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#716": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#717": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#722": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#727": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#728": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#729": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#745": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#685": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#751": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#721": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#652": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: qualification evidence for an existing MCP/agentic-interface promise under the 2026-10-15 gate freeze (no new required gate; rows already in the frozen 82-row canonical MCP catalog consumed by the certification gate)."
+    },
+    "honua-release#548": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: Decision 24 (2026-10-11) places J19/S10 in rc.3 as an evidence row proven on every Redis-on cell; the server-side S32 IAM source is 2026.1.x (honua-server#5888). Candidate-bound receipt, not a pre-cut code change."
+    },
+    "honua-release#415": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-21 grooming: #231 WI-3b lock field \u2014 the manifest must declare the metadata schema version before rc.3 mints (lock has no TBD/floating facts); an unprioritized chore the default rule would otherwise defer."
+    },
+    "honua-release#65": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-21 grooming: the capability sweep scenarios already run in every cloud cell; what remains is candidate-bound live AWS evidence, not implementation, and under the 2026-10-15 gate freeze it is not a new required gate."
+    },
+    "honua-server#5188": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#3312": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#4545": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#3608": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#6306": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#6216": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#6217": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#6219": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-samples#65": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-release#615": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-sdk-python#301": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-console#429": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-console#431": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-console#454": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-console#445": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-studio#118": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-sdk-js#2180": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-sdk-js#2131": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-sdk-js#2206": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-migrate#204": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-sdk-js#2146": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-site#308": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-release#85": {
+      "bucket": "prove-against-candidate",
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-studio#129": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-studio#130": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-console#465": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-migrate#210": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-migrate#155": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-release#883": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-release#613": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-release#614": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-release#616": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-release#617": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#6218": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#6220": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#6221": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-migrate#143": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-studio#22": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-studio#47": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-studio#131": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-server#3247": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-server#2439": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-24: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-server#1278": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "enhancement-delivery-2026-10-23"
+    },
+    "honua-studio#135": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-console#470": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-sdk-dotnet#293": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
     }
   },
   "admission_reviews": {
@@ -1473,9 +1847,9 @@
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' directly and is the certification gate for it \u2014 quality-contract Sec7.2/Sec14 (upgrade/rollback pass, signed promotion receipt) and Sec14's release-train/burn-in bullets already require exactly this real-candidate injected-failure recovery proof; this issue supplies the missing evidence for an already-committed GA gate, not a new claim."
     },
     "honua-release#323": {
-      "body_sha256": "501da2bea97130ff2e3d8d81c5ee5d35c98c73d59024443ca027159c3837382b",
+      "body_sha256": "80c7e590456a6dba0ea0258fcd882fae6610c08edc4834d04f93fa3a2b8a8785",
       "named_promise": false,
-      "reason": "Reviewed 2026-09-29: grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise. Body re-projected from Specifica; verdict unchanged."
+      "reason": "Reviewed 2026-09-29: grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise. Body re-projected from Specifica; verdict unchanged. Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-release#325": {
       "body_sha256": "0b022514f5d1f5bf32d2691b8748295e1768ff342ce708d6c2416716576321bd",
@@ -2618,9 +2992,9 @@
       "reason": "Reviewed 2026-09-29: optional Console sidecar in the standard deploy is new packaging scope; the body leaves the bucket to the operator and allows 2026.1.1. No named security floor, data-integrity defect or broken supported workflow."
     },
     "honua-iac#207": {
-      "body_sha256": "48f265f0e63c675a3106ff76656b765d124b921d4e030f1b8317c7b889d4da94",
+      "body_sha256": "7539306fb34086c005a29d1bfe115b23b3b69d0bc6d0d07985cac2a4261b3e6c",
       "named_promise": true,
-      "reason": "Reviewed 2026-09-29: Bedrock grant, N-1 digest inputs and OIDC are required inputs to the promise-journey gate on every GA cell (plan ruling R11, release#376); removes static AWS keys and scopes the model grant (security floor)."
+      "reason": "Reviewed 2026-09-29: Bedrock grant, N-1 digest inputs and OIDC are required inputs to the promise-journey gate on every GA cell (plan ruling R11, release#376); removes static AWS keys and scopes the model grant (security floor). Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-iac#209": {
       "body_sha256": "be247aedaf9974ed0c9880ab38e3e3e8db95b72c18cf2b542d8f182056242bdb",
@@ -2633,14 +3007,14 @@
       "reason": "Reviewed 2026-09-29: body targets 2026.1 exploratory learning and states qualification is a later gate; no named release promise."
     },
     "honua-release#376": {
-      "body_sha256": "ec3b04cffd862642051ef010d0bbc71e49516c29b804e41665285025507d433d",
+      "body_sha256": "547afc189900ee2330836df53991a1a423d4de31843916f5b9b64134fd488c12",
       "named_promise": false,
-      "reason": "Reviewed 2026-10-03: plan epic (Specifica 2026-1-release-plan-ai-cloud-to-maps), body re-projected after rulings R22-R31; its child issues are reviewed individually. An epic does not itself name a release promise. Verdict unchanged from 2026-09-29."
+      "reason": "Reviewed 2026-10-03: plan epic (Specifica 2026-1-release-plan-ai-cloud-to-maps), body re-projected after rulings R22-R31; its child issues are reviewed individually. An epic does not itself name a release promise. Verdict unchanged from 2026-09-29. Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-release#377": {
-      "body_sha256": "971aa64db5c9d6e6a69cd7b6a8561491649902072e38fdc45773e9d7f52b928a",
+      "body_sha256": "1ce94ea41ff0d94557098d003b3bacc9605c6849255a44698505c518cbd3f320",
       "named_promise": true,
-      "reason": "Reviewed 2026-09-29: the promise journey is a required release gate (plan ruling R11); its stages include no-self-approval, prompt-injection and incompatible-target refusal (security floors) and exactly-once rollback (integrity)."
+      "reason": "Reviewed 2026-09-29: the promise journey is a required release gate (plan ruling R11); its stages include no-self-approval, prompt-injection and incompatible-target refusal (security floors) and exactly-once rollback (integrity). Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-release#378": {
       "body_sha256": "26021cd17f3c441b328460533237b5dd7c8504c2c915834989fd62a47f50a419",
@@ -2658,29 +3032,29 @@
       "reason": "Reviewed 2026-09-29: patch readiness backs the published Sev1 mitigation promise of support policy 2026.1-r2; bucket is set by the 2026-09-29 plan exception (before GA)."
     },
     "honua-release#381": {
-      "body_sha256": "0394bd5a8ab95c5b3d200d063230128436de8eaf38399d514a46158a9779bf15",
+      "body_sha256": "b523b0c0b2cc0dfa45781bf39984215e29eae495122facbd71bcae64f6081f9f",
       "named_promise": true,
-      "reason": "Reviewed 2026-10-03: makes the promise journey a failable train and promotion gate (ruling R11, R19 pass rule); required gate machinery before the rc.3 lock. Body re-projected; verdict unchanged from 2026-09-29."
+      "reason": "Reviewed 2026-10-03: makes the promise journey a failable train and promotion gate (ruling R11, R19 pass rule); required gate machinery before the rc.3 lock. Body re-projected; verdict unchanged from 2026-09-29. Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-sdk-js#1704": {
-      "body_sha256": "66f695d1e021cee92322fa3c733d4fad72cb464b939e8e42b34cbf54b7a8fcf5",
+      "body_sha256": "c140ea546618b33e4953a6778d2fb1300c1f12c21ada3bcc12b17accf5fbe6b6",
       "named_promise": false,
-      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate. Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-sdk-js#1705": {
-      "body_sha256": "d15e5043a57c0c5a1a0469c4dd9dafd768e68621524ae5afb0346228f648c675",
+      "body_sha256": "0ca28583d7bdfbb6c87ee239848ae60b98cf0d1917c345b6c005a9530ed16d1d",
       "named_promise": false,
-      "reason": "Reviewed 2026-09-29: Esri dashboard conversion targets 2026.1 exploratory learning; the body states qualification is a later gate, and dashboards are not a 2026.1 claim (plan ruling R14)."
+      "reason": "Reviewed 2026-09-29: Esri dashboard conversion targets 2026.1 exploratory learning; the body states qualification is a later gate, and dashboards are not a 2026.1 claim (plan ruling R14). Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-sdk-js#1706": {
-      "body_sha256": "530c4856aa1f2069a63f7f9def3593e8b06b0f79972927717b179977d003ab92",
+      "body_sha256": "3e25e9af17c3724b4589753cec24774ec302f64e9b870f1614e2f410f74ccd71",
       "named_promise": false,
-      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate. Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-sdk-js#1707": {
-      "body_sha256": "e2926732c90e19341830ca26e6c1e5770ed6596f256abcbb33976698350c158e",
+      "body_sha256": "3c7ff2cdf67f771ce61f75bd08dbd296b6b0bd7383a709177cb095eb80a00127",
       "named_promise": false,
-      "reason": "Reviewed 2026-09-29: Esri editor conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+      "reason": "Reviewed 2026-09-29: Esri editor conversion targets 2026.1 exploratory learning; the body states qualification is a later gate. Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-server#5312": {
       "body_sha256": "3a082b967eeda0380e0003e9ab033706c11489505ced6a6ce0ce0d6ef43d36fe",
@@ -2748,9 +3122,9 @@
       "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
     },
     "honua-release#386": {
-      "body_sha256": "12bdabd1c610ae8bd93e7bd79e49cbf3006b6332f92fb378ca6eec2f0ec35a31",
+      "body_sha256": "568ce24c9f5b8db0999ba3d922bbe5ea41b60f15fe15afe1fc0b1905991551ae",
       "named_promise": true,
-      "reason": "Reviewed 2026-10-03: continuous certification on trunk (ruling R18, amended R19-R21): the nightly strict train that mints the signed rc.N lock. Without it no certified lock, and so no candidate, can exist; required release-integrity machinery."
+      "reason": "Reviewed 2026-10-03: continuous certification on trunk (ruling R18, amended R19-R21): the nightly strict train that mints the signed rc.N lock. Without it no certified lock, and so no candidate, can exist; required release-integrity machinery. Re-reviewed 2026-10-21: body changed (Specifica resync/status update), classification unchanged."
     },
     "honua-release#416": {
       "body_sha256": "2775af20c7558a07e54b7a11a5fc025ebddf2d31598e8b956bcb931ea6aee13d",
@@ -3061,6 +3435,286 @@
       "body_sha256": "124488a566334d68a0fe165972f3d2bd808c6f4ff684a7695ca4297db90dd485",
       "named_promise": true,
       "reason": "2026-10-12 completed intake review: The exact Smoke suite remains failed on main: run 36512731958 at 8a658c7f75887df8842fabb50cd2585be64ce48d. Later Live AWS Studio browser smoke successes are a different workflow and do not close this issue. Repair/revert the bounded dependency regression and preserve the existing browser/accessibility assertions, then obtain a real Smoke suite pass. This is an existing CI repair, not new Studio functionality or GA scope."
+    },
+    "honua-devops#218": {
+      "body_sha256": "021e87a8ed5d3f1ef05b16f67749a8d3c2b970b25d8945d1b8280cd5facefacc",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: the provision-approval issuer is the install half of the 2026.1 promise (agent provisions infrastructure under approval); retiring the ops loop is the scope cut that makes it shippable."
+    },
+    "honua-iac#223": {
+      "body_sha256": "a55d6d1caca4c531cd86af229202e02afb1588ff4c05418b1b242f6917ca5096",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: Lambda + Batch is a declared 2026.1 GA topology (plan R3(d), 2026-10-16 amendment); a reachable, migrated x86_64 cell is a prerequisite of its candidate proof."
+    },
+    "honua-release#480": {
+      "body_sha256": "ad3a264c25032194c78bc6ffad10c13028bd2fe3686aa95f8e1b99000e46ffb6",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: terminal journey bound to server-emitted ids with a committed local stages 1-8 pass is the deterministic gate the rc.3 fix plan (2026-10-08 rulings) requires before any cloud run counts."
+    },
+    "honua-release#481": {
+      "body_sha256": "76de030e0d69d76951df87ba0c9c80ae9ecf76fbc30e9d05572313585c9fa249",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: the genuine-model canary bound to the lock digest is the M2 acceptance of the promise journey (plan rulings R19/R20)."
+    },
+    "honua-release#482": {
+      "body_sha256": "65103a99a87034ac82b72226a0178a35e4151de90038017cbb6f48e389cfc124",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: the nightly resolver must select every component or no certified lock can mint (R18 continuous certification)."
+    },
+    "honua-release#548": {
+      "body_sha256": "89382ec4567cb3b91f5ea681b8b8759d9d9f039ebca05b54b3b1d25ed01ee2db",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: J19/S10 large-file cloud import is a named promise row (Decision 24, 2026-10-11) proven on every Redis-on cell; see exception for its bucket."
+    },
+    "honua-release#652": {
+      "body_sha256": "cfad1814c6473d5d4a54899dbe9c5e94629fd82178cadddd4996b1ab53962048",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: coverage audit of the promise surfaces (MCP, SDKs, journeys, gates); it is the program issue for the canonical-client rows below, see exception."
+    },
+    "honua-release#691": {
+      "body_sha256": "7fc7d4f643bd8f59863da7a7c00ac997c59f6ca7f69d8b632c89b8c120412c77",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: accepted group-sharing state is in-memory on current trunk and can vanish on restart or differ across replicas; silent loss of an accepted sharing decision is a correctness/isolation floor, not an evidence-only row."
+    },
+    "honua-release#695": {
+      "body_sha256": "8260cd95563f0858b2fe052586a5b46014fc1b3bb134f228865c0580022d1586",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: the MCP requirements generator labels every governed operation anonymous while calls require authentication; mislabelled receipts break claims == receipts (gate honesty), so the fix precedes qualification."
+    },
+    "honua-release#688": {
+      "body_sha256": "905ba4791185846d06247ff5de30d98ac5b718f1581d3e56e6d9bacb8a44dd17",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: the render-map oracle accepts malformed PNG containers, so the current render check can pass on a false positive; a non-discriminating gate check is gate honesty work."
+    },
+    "honua-sdk-dotnet#374": {
+      "body_sha256": "d0f4b190becbcb08565be838437c4e6d2596855e42bf2c69428299b1ef1d2656",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-21: exposes migration fidelity verdicts, construct accounting and scan manifest on Sdk.Admin models; SDK surface expansion for the Esri migration adoption outcome (#325, post-cut), not a security, data-corruption or broken-documented-workflow floor."
+    },
+    "honua-release#693": {
+      "body_sha256": "bede3568c752182d27ab43a67b21aceb21b3eed6787c6b9943b8c3d98165d314",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#699": {
+      "body_sha256": "e9f3c409732e7e01b003ee37acdd1a3117a6492da6c0172d870d334848879c06",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#705": {
+      "body_sha256": "e0f9d39db16783e65c4439dd00add7ba8e40bf2088145761506b142ea1b27506",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#708": {
+      "body_sha256": "8883d801bb0c6cb8202b1a9ed494996196bddf984242809fb30f2fbe99005c9f",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#710": {
+      "body_sha256": "9fad45c195c3d2e1448f9d763b3c884d39120cbf3d745d3387a0fb2dd5a09b4f",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#716": {
+      "body_sha256": "faa0499f80b837baf7914562c4c24c60fb71e94b18781c2e255c641701a118fd",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#717": {
+      "body_sha256": "2c9fb95186efc27fe0a70be8aed4a01eae174f92a8970e34bd2b4890f91b6f66",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#722": {
+      "body_sha256": "284b5acffb3ce07d9cb76adf5e3c9c112ba87c8d95f246624454888e1db161d5",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#727": {
+      "body_sha256": "66c0880290403e0947b2cf96a8d59f0f8beb9efd111cab62f120a6ca9c64cd2f",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#728": {
+      "body_sha256": "a4dc51e400f7469aabc521b604feede7625705c2c73408fd53b0d94401dfcf0e",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#729": {
+      "body_sha256": "9993f37335ac27ffc5a9287e197af2df51f3ed51d8e770eb3402175f9343783a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#745": {
+      "body_sha256": "8038fadf0f65560bc3f0ebecf2ed5a0635dc7307bfb55df4b23225a7f37f5b62",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#685": {
+      "body_sha256": "87085e3cabafa1014b1ffd7d83939ed0efab558e28966599fa1db0ec72924989",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#751": {
+      "body_sha256": "5da97abb65e5ce042a3e9faad7a5a4d89a330f926103e895884b7def5c7eaa7a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: authors the primary canonical-client execution and independent oracle for governed MCP rows that the 2026.1 agentic-interface promise already covers; see exception for its bucket."
+    },
+    "honua-release#721": {
+      "body_sha256": "fcfaa3439a5b728f7ed40f563e413912d606addfd866f494ebd7234c6cf12b78",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-21: executable getting-started docs are a GA docs gate (R28); binding the Python development-source blocks to immutable inputs is qualification plumbing for that gate; see exception for its bucket."
+    },
+    "honua-server#5188": {
+      "body_sha256": "cfbde6ade409eff8a091d55bea36577af9463133a774ae0d52f852fc57453304",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred."
+    },
+    "honua-server#3312": {
+      "body_sha256": "09b868a5082044e753b5e169a155b249bdc9da033f2817dee89fb71cd99b314f",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred."
+    },
+    "honua-server#4545": {
+      "body_sha256": "3234f6e98d0cfb3a96aad6b451e8915810260eae969c5cdda6c907a666bad721",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred."
+    },
+    "honua-server#3608": {
+      "body_sha256": "8b917de559aa8b1dbf42c6a624843ada3007dc0c517adbb5cf9a69437a0ac4b2",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred."
+    },
+    "honua-server#6306": {
+      "body_sha256": "e7aa978799e9c371b0b7ac4be2d251ce594295f1422c0c9e603d04bbdf84bf66",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-server#6216": {
+      "body_sha256": "99b4164de5e6d86e3db0e2a190c597abca4ee4f7e6ad964e6e8dd4ef8cfdb498",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-server#6217": {
+      "body_sha256": "da9ac332519a2f4dfc9bfb61638683ea38ad5730472f3255aa579e22fb4cd31d",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-server#6219": {
+      "body_sha256": "f601cc0b4422f81cd3bb049566c6b4159772eca593d67eae751ec0af1dc2da92",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-samples#65": {
+      "body_sha256": "b0f5d384a1e0b3ec75dad153d9520959756b195fb9149dd23ddc4d1780e7ba90",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-release#615": {
+      "body_sha256": "37047d8d74d4cad76eb3c8786c45e0cb2c66b54c3fdd32fb3adfb3c41df7509c",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-sdk-python#301": {
+      "body_sha256": "34e914e1c53d1f4caa7971fc66be23cd3bd2d494903a5b00314efb2d753a425c",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-console#429": {
+      "body_sha256": "da82fa8005423ef4e6f1305e04133fdd63002820981c2f49333cb857e91da694",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-console#431": {
+      "body_sha256": "c359d1a1825993df36f1b47687fdd71244a41f08e9e67b0630f71af5cb022111",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-console#454": {
+      "body_sha256": "d87753dc70777416363bc2f8ca306d189af81ff3cc50165b757747cefd2d81f8",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-console#445": {
+      "body_sha256": "8b8382c36f1d57978141a2859949f9ac704ca5c7f0c7579a07a283127ee9f657",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-studio#118": {
+      "body_sha256": "7fd3aca0f3d2fc8fc6128650d411f80d991794dae1e17da675bf7b0bf235dc4f",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-sdk-js#2180": {
+      "body_sha256": "dbbaec552666ec63d1c42fe4cc493139276b8308ea1e216216b5fbd221c28cb8",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-sdk-js#2131": {
+      "body_sha256": "58baeadd4ac4d5f1ab442a932895fc7a36e65be29b786e916df0ef37853b7f39",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-sdk-js#2206": {
+      "body_sha256": "b7c8d20cf1707f1e2d7a3fcf904cb711ea7058354dd839c026c332c20b8e4b82",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-migrate#204": {
+      "body_sha256": "00e294d9565d6094c8f2a40b84e028b4c5b0c486f51843ece99f943786af103b",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-sdk-js#2146": {
+      "body_sha256": "eb254fecd22936463a800b007d94b65575cad625564eb371a185262bdef52f7a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-site#308": {
+      "body_sha256": "718bc33c2a4faff72de7a56f13b46a4f907573749a6602018d558acfc1b8d8e1",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred."
+    },
+    "honua-release#85": {
+      "body_sha256": "c3ac3a0f729a98cf2f94a269507345feb027af401670cf8dcfe4e9855963dd73",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: complete installed/live acceptance against the selected immutable .1 artifacts; merged source does not establish qualification. See release#883. Preserve existing first-RC gate scope."
+    },
+    "honua-studio#129": {
+      "body_sha256": "27226e07d801e82307652ed1944eaf647628ff51cf540ffbeca02ff64e014142",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-studio#130": {
+      "body_sha256": "959542a7a20a8fc027d86db471e803cf4cd5cb99fbd05506d620119eafb8d55d",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-console#465": {
+      "body_sha256": "3b133051d642101d1b4b4b3b1b1119fe5413f2ebff67321decde6201eec20d58",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-migrate#210": {
+      "body_sha256": "389ad9d5601709217f9a364a703ff727203581818e727b3087e9841b52e2e858",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-23: existing supported workflow correctness, isolation or truthful outcomes; groomed acceptance and owning ticket are indexed by release#883. Retain required pre-cut repair; no completion inferred."
+    },
+    "honua-migrate#155": {
+      "body_sha256": "c07ad3d528bdc07bde99e00ae427b9c48393f9efe3e59e26fa6efc4a8438aa16",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-release#883": {
+      "body_sha256": "e62ceaf527ee50af30694d8c0531381a745b2d72020911b97e9ebebfc34278b8",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883."
+    },
+    "honua-studio#47": {
+      "body_sha256": "c1000452b444a43a770a8b8426c1d336c5445fff11c0bd9d904357ac94f42658",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883."
     }
   }
 }

@@ -7,5 +7,9 @@ logical process name to one release lock by path and digest and records the prev
 the rollback target. `gp-promote-process.yml` writes pins; a merged pin change on `trunk` starts
 `gp-deploy-process.yml`. See `docs/GP-PROCESS-RELEASES.md`.
 
+Live deployment reads binding versions from the server, verifies an IaC-provisioned credential-free
+Fargate revision from `deploymentTooling.releases[lockDigest]`, and requires a committed smoke fixture
+with independently expected output bytes. See the deployment runbook for credentials and rollback.
+
 `dev/` is a reference environment (`deploymentTooling.kind: reference`): it exercises the whole
 path without a cluster and never serves anything.

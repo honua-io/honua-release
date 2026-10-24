@@ -251,12 +251,22 @@ CID="$(jget '.data.connectionId // .connectionId // .data.id')"
 [ -z "$CID" ] && { echo "::error:: could not create connection (HTTP $HTTP_CODE): $HTTP_BODY"; exit 1; }
 echo "   connection: $CID"
 
-publish_layer() { # table layerName serviceName geomType [primaryKey]
+publish_layer() { # table layerName serviceName geomType [primaryKey] [editable]
   # No explicit `fields` list â€” let the server introspect the real columns so every attribute
   # (e.g. the string zone_code) is exposed for the three-protocol parity queries.
   api_post "/api/v1/admin/connections/$CID/layers" "$(jq -nc \
-    --arg t "$1" --arg ln "$2" --arg sn "$3" --arg gt "$4" --arg pk "${5:-gid}" \
-    '{schema:"honua_data",table:$t,layerName:$ln,serviceName:$sn,geometryColumn:"geom",geometryType:$gt,primaryKey:$pk,srid:4326,enabled:true}')"
+    --arg t "$1" --arg ln "$2" --arg sn "$3" --arg gt "$4" --arg pk "${5:-gid}" --argjson editable "${6:-false}" \
+    '{schema:"honua_data",table:$t,layerName:$ln,serviceName:$sn,geometryColumn:"geom",geometryType:$gt,primaryKey:$pk,srid:4326,enabled:true}
+     | if $editable then . + {storageMode:"managed",capabilities:["Query","Create","Update","Delete"]} else . end')"
+  if [ "${6:-false}" = true ]; then
+    # An anonymous-write policy does not turn a read-only source publication into
+    # editable storage. Require the candidate's actual publication acknowledgement.
+    if ! jq -e '.data.storageMode == "managed" and
+      (["Create","Update","Delete"] - (.data.capabilities // []) | length == 0)' <<<"$HTTP_BODY" >/dev/null; then
+      echo "::error:: editing fixture did not publish managed storage with explicit edit capabilities" >&2
+      return 1
+    fi
+  fi
   jget '.data.layerId'
 }
 
@@ -282,7 +292,7 @@ L_ROADS="$(publish_layer   maui_roads          maui-roads          maui-roads   
 L_FLOOD="$(publish_layer   maui_flood_hazard   maui-flood-hazard   maui-flood-hazard   Polygon)"
 L_SLR="$(publish_layer     maui_sea_level_rise maui-sea-level-rise maui-sea-level-rise Polygon)"
 L_PLACES="$(publish_layer  maui_place_names    maui-place-names    maui-place-names    Point)"
-L_INSPECT="$(publish_layer maui_inspections    maui-inspections    maui-inspections    Point id)"
+L_INSPECT="$(publish_layer maui_inspections    maui-inspections    maui-inspections    Point id true)"
 L_WORKBENCH="$(publish_layer workbench_assets  workbench-assets    honua-workbench     Point OBJECTID)"
 
 echo "== seed: publishing the Slice-1 source layer into service 'e2e' =="

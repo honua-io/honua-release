@@ -561,6 +561,7 @@ def test_serverless_rejects_broad_db_ingress(monkeypatch):
 
 
 def test_teardown_reconstructs_redis_mode_vars(monkeypatch):
+    import normal_cell_retirement
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
@@ -573,7 +574,7 @@ def test_teardown_reconstructs_redis_mode_vars(monkeypatch):
         calls.append(args)
         return subprocess.CompletedProcess(args, 0, "", "")
 
-    monkeypatch.setattr(target, "_tf", _record)
+    monkeypatch.setattr(normal_cell_retirement, "retire", lambda _target, root, variables, mode: _record(root, *variables))
     target.teardown(redis_enabled=True)
     values = _tf_vars(calls[0])
     assert values["redis_enabled"] == "true"
@@ -1562,7 +1563,12 @@ def test_cloud_workflow_requires_four_ga_cells_and_keeps_eks_preview():
     job = workflow["jobs"]["parity"]
     assert set(cj.GA_CELLS) == {f"{target}/redis-{mode}" for target in ("aws-ecs", "aws-serverless") for mode in ("off", "on")}
     assert cj.PREVIEW_TARGETS == ("aws-eks",)
-    assert "aws-eks" in job["strategy"]["matrix"]["target"]
+    # Operator ruling 2026-10-22: target=all is the GA targets only; aws-eks (Preview) runs only
+    # on an explicit target=aws-eks dispatch, and the report names it "not certified (preview)".
+    matrix = job["strategy"]["matrix"]["target"]
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in matrix
+    assert '"aws-eks"' not in matrix
+    assert "aws-eks" in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
@@ -2337,6 +2343,27 @@ def test_reset_deletes_attempt_ones_connection_and_style_so_attempt_two_can_crea
     assert "no journey_source connection was left" in empty[0]
 
 
+def test_a_retry_creates_its_own_connection_when_attempt_ones_is_still_in_use():
+    cj = run_cloud.cloud_journey
+    assert cj.attempt_datasource_name("journey_source", 1) == "journey_source"
+    assert cj.attempt_datasource_name("journey_source", 2) == "journey_source-attempt2"
+    cell = _CellHoldingAttempt1()
+    cell.in_use = True   # attempt 1 published a service on it: the cell refuses the delete (409)
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=cell)
+    assert "refused 409" in notice
+    # The retry no longer collides with the undeletable name.
+    assert cell.create_connection(cj.attempt_datasource_name("journey_source", 2)) == 201
+    # Attempt 3 resets attempt 2's per-attempt connection (and attempt 1's) by the authored base name.
+    cell.in_use = False
+    execution = {**_JOURNEY_EXECUTION, "datasource": {**_JOURNEY_EXECUTION["datasource"],
+                                                      "name": cj.attempt_datasource_name("journey_source", 3)}}
+    (again,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", execution, 3, request=cell)
+    assert f"journey_source connection {_ATTEMPT1_CONNECTION} deleted" in again
+    assert f"journey_source connection {_ATTEMPT2_CONNECTION} deleted" in again
+    assert cell.connections == {_OTHER_CONNECTION: "customer_db"}
+
+
 def test_reset_is_a_no_op_for_the_first_attempt():
     cj = run_cloud.cloud_journey
     cell = _CellHoldingAttempt1()
@@ -2584,7 +2611,8 @@ def _phase_env(monkeypatch, run_id="phase381"):
 @pytest.mark.parametrize("cleanup_raises", [False, True])
 @pytest.mark.parametrize("preview", [False, True])
 @pytest.mark.parametrize("tenant_fixture", [False, True])
-def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview, cleanup_raises):
+@pytest.mark.parametrize("retained_retirement", [False, True])
+def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview, cleanup_raises, retained_retirement):
     monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "true" if tenant_fixture else "false")
     cj = run_cloud.cloud_journey
     directory = _phase_env(monkeypatch)
@@ -2592,6 +2620,8 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
         monkeypatch.setattr(cj, "PREVIEW_TARGETS", ("aws-ecs",))
     with tempfile.TemporaryDirectory() as scratch:
         stub = _PhaseStub(Path(scratch))
+        if retained_retirement:
+            stub.retirement_receipt = {"originalStateKeyRetained": True, "costReconciled": False}
         monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
         monkeypatch.setattr(run_cloud, "REPORT_PATH", Path(scratch) / "report.json")
         monkeypatch.setattr(cj, "check_cost", lambda *a, **k: {"status": "pass"})
@@ -2626,8 +2656,10 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             assert json.loads(run_cloud.REPORT_PATH.read_text())["status"] == "fail"  # qualification is retained
             if cleanup_raises:
                 assert "journey-cleanup-failed" in json.loads(run_cloud.REPORT_PATH.read_text())["cleanupFailures"]
-            assert stub.torn_down == 1 and forgotten == [*expected_secrets,
-                                                         run_cloud.state_secret_name("aws-ecs/redis-off")]
+            assert stub.torn_down == 1 and forgotten == expected_secrets + (
+                [] if retained_retirement else [run_cloud.state_secret_name("aws-ecs/redis-off")])
+            if retained_retirement:
+                assert json.loads(run_cloud.REPORT_PATH.read_text())["retirement"] == stub.retirement_receipt
             # A handoff from another run attempt cannot be adopted.
             run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {**state, "runAttempt": "2"})
             run_cloud.main(argv)
@@ -2767,6 +2799,18 @@ def test_documented_blockers_name_tracked_limitations_and_refuse_everything_else
     failed["stages"][0]["status"] = "fail"
     assert cj.documented_blockers(failed) == []
     assert cj.documented_blockers(_ecs_receipt()) == []  # a pass is not blocked
+
+
+def test_documented_blockers_name_a_blocked_roster_and_refuse_an_unnamed_or_failed_one():
+    cj = run_cloud.cloud_journey
+    roster_issue = "https://github.com/honua-io/honua-server/issues/3363"
+    receipt = _blocked_receipt()
+    receipt["roster"] = {"status": "blocked", "reason": "exports unavailable", "blockedBy": roster_issue}
+    assert roster_issue in cj.documented_blockers(receipt)
+    receipt["roster"] = {"status": "blocked", "reason": "exports unavailable"}
+    assert cj.documented_blockers(receipt) == []
+    receipt["roster"] = {"status": "fail", "problems": ["x"]}
+    assert cj.documented_blockers(receipt) == []
 
 
 def _serverless_state(require_real):
@@ -3066,6 +3110,40 @@ def test_seed_failure_names_the_call_status_instance_and_a_masked_body():
                                       ("POST", f"/api/v1/admin/connections/{cid}/layers")]
 
 
+@pytest.mark.parametrize("acknowledgement", [
+    {"storageMode": "managed", "capabilities": ["Query", "Create", "Update", "Delete"]},
+    {},
+    {"storageMode": "source", "capabilities": ["Query", "Create", "Update", "Delete"]},
+    {"storageMode": "managed", "capabilities": ["Query", "Create", "Delete"]},
+])
+def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgement):
+    published = 0
+
+    def answers(method, path):
+        nonlocal published
+        if path == "/api/v1/admin/connections/":
+            return 201, b'{"data":{"connectionId":"c1"}}', "task-a"
+        if method == "POST":
+            published += 1
+            data = {"layerId": published}
+            if published == 7:
+                data.update(acknowledgement)
+            return 201, json.dumps({"data": data}).encode(), "task-a"
+        return 200, b'{}', "task-a"
+
+    error, calls, wrote = _seed_cell_against(answers)
+    accepted = acknowledgement.get("storageMode") == "managed" and "Update" in acknowledgement.get("capabilities", [])
+    assert wrote is accepted
+    assert (error is None) is accepted
+    layers = [call[2] for call in calls if call[0] == "POST" and call[1].endswith("/layers")]
+    editable = [layer for layer in layers if "storageMode" in layer]
+    assert len(editable) == 1 and editable[0]["serviceName"] == "maui-inspections"
+    assert editable[0]["storageMode"] == "managed"
+    assert editable[0]["capabilities"] == ["Query", "Create", "Update", "Delete"]
+    if not accepted:
+        assert not any(call[0] == "PUT" and "/maui-inspections/" in call[1] for call in calls)
+
+
 def test_seed_failure_on_a_non_json_body_is_bounded_and_unnamed_instances_are_said():
     def answers(method, path):
         if path == "/api/v1/admin/connections/":
@@ -3192,6 +3270,45 @@ def test_cloud_seed_uses_cell_secret_without_passphrase_in_process_args(monkeypa
     monkeypatch.setattr(subprocess, 'run', psql)
     result = target.seed_database('SELECT 1')
     assert result['host'] == 'cell-db' and result['password'] == 'private-password'
+
+
+def test_cloud_seed_registers_the_rds_proxy_host_when_the_cell_has_one(monkeypatch):
+    target = ecs(run_id='seed-proxy')
+    target._workdir = Path('/tmp/cell')
+    connection = 'Host=cell-db;Port=5432;Database=honua;Username=honua;Password=private-password;SSL Mode=Require'
+    state = {'values': {'root_module': {'child_modules': [{'resources': [{
+        'type': 'aws_secretsmanager_secret_version', 'name': 'db_connection',
+        'values': {'secret_string': connection}}]}]}}}
+    def tf(root, *args, check=True):
+        if args[:2] == ('output', '-json'):
+            return subprocess.CompletedProcess(args, 0, json.dumps('cell-proxy.proxy-abc.us-east-1.rds.amazonaws.com'))
+        return subprocess.CompletedProcess(args, 0, json.dumps(state))
+    monkeypatch.setattr(target, '_tf', tf)
+    seen = {}
+    def psql(command, **kwargs):
+        seen['host'] = kwargs['env']['PGHOST']
+        return subprocess.CompletedProcess(command, 0)
+    monkeypatch.setattr(subprocess, 'run', psql)
+    result = target.seed_database('SELECT 1')
+    # psql runs from the runner over the direct endpoint; the server's data source uses the proxy.
+    assert seen['host'] == 'cell-db'
+    assert result['host'] == 'cell-proxy.proxy-abc.us-east-1.rds.amazonaws.com'
+
+
+def test_cloud_seed_keeps_the_direct_host_without_a_proxy_output(monkeypatch):
+    target = ecs(run_id='seed-noproxy')
+    target._workdir = Path('/tmp/cell')
+    connection = 'Host=cell-db;Port=5432;Database=honua;Username=honua;Password=private-password;SSL Mode=Require'
+    state = {'values': {'root_module': {'child_modules': [{'resources': [{
+        'type': 'aws_secretsmanager_secret_version', 'name': 'db_connection',
+        'values': {'secret_string': connection}}]}]}}}
+    def tf(root, *args, check=True):
+        if args[:2] == ('output', '-json'):
+            return subprocess.CompletedProcess(args, 0, 'null')
+        return subprocess.CompletedProcess(args, 0, json.dumps(state))
+    monkeypatch.setattr(target, '_tf', tf)
+    monkeypatch.setattr(subprocess, 'run', lambda command, **kwargs: subprocess.CompletedProcess(command, 0))
+    assert target.seed_database('SELECT 1')['host'] == 'cell-db'
 
 if __name__ == "__main__":
     import traceback
@@ -3390,9 +3507,11 @@ _REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires
                      "listed, inspected, approved, or rejected.")
 
 
-def test_durable_control_plane_roster_is_the_23_redis_gated_admin_tools():
-    assert len(_FULL_ROSTER) == 129 and len(set(_FULL_ROSTER)) == 129
-    assert len(_DURABLE_ONLY) == 23 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+def test_durable_control_plane_roster_is_the_24_redis_gated_admin_tools():
+    # 4709145 re-pin: 132 tools (+honua_admin_import_upload_object, honua_diagnose_job, honua_job_evidence),
+    # 24 durable-control-plane names (+honua_admin_import_upload_object).
+    assert len(_FULL_ROSTER) == 132 and len(set(_FULL_ROSTER)) == 132
+    assert len(_DURABLE_ONLY) == 24 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
                                       "honua_admin_import_")) for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
@@ -3532,16 +3651,16 @@ def test_s2_redis_on_full_129_catalog_passes():
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
 
 
-def test_s2_redis_off_106_catalog_passes_with_topology_recorded():
+def test_s2_redis_off_108_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 106
+    assert len(catalog) == 108
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 23}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 24}
         assert "redis-off" in row["why"]
 
 
@@ -4778,6 +4897,8 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         assert argv[argv.index("--allow-http-cell") + 1] == "cell.example"
         assert argv[argv.index("--deterministic-receipt") + 1].endswith("receipt-1.json")
         assert env["TERMINAL_MODEL_API_KEY"] == "cell-key" and "cell-key" not in argv
+        # Never a bearer token: an OIDC-enabled cell routes bearers to the JWT handler (#795).
+        assert argv[argv.index("--api-key-header") + 1] == "x-api-key"
         row = report["cells"][0]
         assert report["status"] == row["status"] == "pass"
         assert row["cell"] == cell
@@ -5422,6 +5543,51 @@ def test_off_profile_native_after_observation_cannot_bypass_cost_or_teardown(mon
             assert 'native observation rejected' not in report.get('why', '')
         else:
             assert report['status'] == 'fail' and 'native observation rejected' in report['why']
+    finally:
+        shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_off_profile_teardown_admits_its_runner_and_reads_the_restored_root(monkeypatch, tmp_path):
+    """A fresh teardown runner reads both native observations: the restored Terraform root for the
+    image, and (on ECS) the cell endpoint behind an ALB that admits only listed /32s (run 39772292511)."""
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    monkeypatch.setenv('HONUA_AWS_RUNNER_CIDR', '203.0.113.7/32')
+    cell = 'aws-ecs/redis-off'; directory = cj.cell_dir(cell)
+    directory.mkdir(parents=True, exist_ok=True)
+    sha, image = _manifest_server()
+    stub = _ServingStub()
+    stub._workdir = None
+    admitted, seen_roots = [], []
+    monkeypatch.setattr(stub, 'teardown', lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(stub, '_iac_root', lambda: tmp_path, raising=False)
+    monkeypatch.setattr(stub, 'admit', lambda endpoint, cidr, **kw: admitted.append((endpoint, cidr)), raising=False)
+    monkeypatch.setattr(cj, 'cleanup', lambda cell: None)
+    monkeypatch.setattr(cj, 'check_cost', lambda *a, **k: {'status': 'pass'})
+    def observe(target, pinned):
+        seen_roots.append(target._workdir)
+        return image, 'native readback'
+    monkeypatch.setattr(cj, 'observe_ecs_image', observe)
+    def identity(endpoint):
+        # Only an admitted runner reads the identity.
+        return {'revision': sha, 'source': 'commit-sha'} if admitted else None
+    monkeypatch.setattr(cj, 'server_identity', identity)
+    try:
+        record = _artifact(directory, _ecs_receipt())
+        record['receipt'] = str((directory / 'receipt-1.json').relative_to(E2E_DIR))
+        state = {'cell': cell, 'target': 'aws-ecs', 'redis': 'redis-off', 'runId': 'offline-run', 'runAttempt': '2',
+            'candidateDigest': cj.candidate_digest(), 'endpoint': 'https://cell.invalid', 'startedAt': cj.now(),
+            'provisionAttempted': True, 'observedServer': {'revision': sha, 'source': 'commit-sha'}, 'runningImage': image,
+            'servingFixtureSha256': record['profileObservation']['seedManifestSha256'],
+            'report': {'cell': cell, 'endpoint': 'https://cell.invalid', 'readiness': {'ready': True},
+                       'checks': [], 'canaryProbes': [], 'journeyAttempts': []}}
+        report = run_cloud.teardown_phase(state, {'journeyAttempts': [record]}, stub,
+            reference_endpoint=None, cost_report=directory / 'meter.json')
+        assert admitted == [('https://cell.invalid', '203.0.113.7/32')]
+        assert seen_roots == [tmp_path]
+        assert record['profileObservation']['after'] == record['profileObservation']['before']
+        assert 'native observation rejected' not in report.get('why', '')
     finally:
         shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
 

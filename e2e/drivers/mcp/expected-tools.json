@@ -62,6 +62,7 @@
       "honua_admin_field_mask_policy_delete",
       "honua_admin_field_mask_policy_get",
       "honua_admin_field_mask_policy_list",
+      "honua_admin_import_upload_object",
       "honua_admin_import_upload_url",
       "honua_admin_layer_drawing_info_get",
       "honua_admin_layer_drawing_info_set",
@@ -131,6 +132,7 @@
       "honua_create_map_package",
       "honua_deploy_operations",
       "honua_describe_layer",
+      "honua_diagnose_job",
       "honua_dry_run_plan",
       "honua_execute_plan",
       "honua_geocode_address",
@@ -138,6 +140,7 @@
       "honua_get_style",
       "honua_ground_candidates",
       "honua_ingest_dataset",
+      "honua_job_evidence",
       "honua_list_capabilities",
       "honua_list_jobs",
       "honua_list_layers",
@@ -184,10 +187,11 @@
       "honua_validate_plan"
     ],
     "requiresDurableControlPlane": {
-      "_comment": "The `tools` roster above is the CANONICAL full catalog: the Redis-on topology, where every cell must advertise all of it. These 23 names are the subset that depends on the durable control plane. honua-server registers the operation proposal store, its gateway and the admin executors only inside `if (connectedRedis != null && redisCacheEntitled)` (src/Honua.Server/Program.cs:628, :687-700), and AddOperationsToolset (:947) projects the 23 AdminApiOperationCatalog executors into MCP only when that store exists (OperationsServiceCollectionExtensions.cs:137, `hasProposalStore`). So on a Redis-off install without S1 the full view is 129 - 23 = 106 tools at the 3ecd214 pin (124 - 20 = 104 was observed on the ECS Redis-off cell at the previous 87966c3 pin, e2e-cloud-aws run 37793903534; the three added durable names are honua_admin_connections_create, honua_admin_connections_test and honua_admin_import_upload_url). honua-server S1 (spec redis-off-topology-honest-control-plane) registers an unavailable proposal store outside the Redis block, after which these tools advertise on Redis-off too and refuse at call time. The S2 driver therefore accepts EITHER state for exactly these names -- all present or all absent, never a partial set -- and only when the cell declares Redis off (E2E_REDIS=off) AND the server confirms it (capability `operations.proposals`, else GET /api/v1/admin/proposals 503, else `jobs.runner` dependency-unavailable). Every other name stays exact in both directions. Redis-on cells get no relaxation.",
+      "_comment": "The `tools` roster above is the CANONICAL full catalog: the Redis-on topology, where every cell must advertise all of it. These 24 names (23 before the 2026-10-22 re-pin to 4709145, which added honua_admin_import_upload_object) are the subset that depends on the durable control plane. honua-server registers the operation proposal store, its gateway and the admin executors only inside `if (connectedRedis != null && redisCacheEntitled)` (src/Honua.Server/Program.cs:628, :687-700), and AddOperationsToolset (:947) projects the 23 AdminApiOperationCatalog executors into MCP only when that store exists (OperationsServiceCollectionExtensions.cs:137, `hasProposalStore`). So on a Redis-off install without S1 the full view is 129 - 23 = 106 tools at the 3ecd214 pin (124 - 20 = 104 was observed on the ECS Redis-off cell at the previous 87966c3 pin, e2e-cloud-aws run 37793903534; the three added durable names are honua_admin_connections_create, honua_admin_connections_test and honua_admin_import_upload_url). honua-server S1 (spec redis-off-topology-honest-control-plane) registers an unavailable proposal store outside the Redis block, after which these tools advertise on Redis-off too and refuse at call time. The S2 driver therefore accepts EITHER state for exactly these names -- all present or all absent, never a partial set -- and only when the cell declares Redis off (E2E_REDIS=off) AND the server confirms it (capability `operations.proposals`, else GET /api/v1/admin/proposals 503, else `jobs.runner` dependency-unavailable). Every other name stays exact in both directions. Redis-on cells get no relaxation.",
       "tools": [
         "honua_admin_connections_create",
         "honua_admin_connections_test",
+        "honua_admin_import_upload_object",
         "honua_admin_import_upload_url",
         "honua_admin_layer_drawing_info_get",
         "honua_admin_layer_drawing_info_set",

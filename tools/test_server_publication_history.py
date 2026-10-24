@@ -182,9 +182,9 @@ def test_collect_classifies_anchors_by_the_commit_each_tag_resolves_to(monkeypat
                  {"name": "nightly-candidate-1234567", "commit": {"sha": ANCHOR_COMMIT}},
                  {"name": "v2026.1.0", "commit": {"sha": ANCHOR_COMMIT}}],
         "releases": [],
-        "git/refs/tags": [{"ref": "refs/tags/nightly-candidate-0e03bdd"},
-                          {"ref": "refs/tags/nightly-candidate-1234567"},
-                          {"ref": "refs/tags/v2026.1.0"}],
+        "git/refs/tags": [{"ref": "refs/tags/" + ref,
+                           "object": {"type": "commit", "sha": ANCHOR_COMMIT}}
+                          for ref in ("nightly-candidate-0e03bdd", "nightly-candidate-1234567", "v2026.1.0")],
     }
     monkeypatch.setattr(history, "_api", lambda path, **_: (
         pages[path.split("honua-server/", 1)[1].split("?", 1)[0]], None))
@@ -197,6 +197,24 @@ def test_collect_classifies_anchors_by_the_commit_each_tag_resolves_to(monkeypat
     value = history.collect()
     assert value["dispatchAnchors"] == [{"ref": "nightly-candidate-0e03bdd", "commit": ANCHOR_COMMIT}]
     assert value["publishedRefs"] == ["nightly-candidate-1234567", "v2026.1.0"]
+    with pytest.raises(ValueError, match="prior publication ref"):
+        history.verify(value)
+
+
+@pytest.mark.parametrize("observed", [None, {}, {"type": "commit", "sha": "f" * 40},
+                                     {"type": "tag", "sha": ANCHOR_COMMIT}])
+def test_collect_refuses_an_anchor_when_the_two_namespaces_disagree(monkeypatch, observed):
+    ref = "nightly-candidate-0e03bdd"
+    pages = {"tags": [{"name": ref, "commit": {"sha": ANCHOR_COMMIT}}], "releases": [],
+             "git/refs/tags": [{"ref": "refs/tags/" + ref, "object": observed}]}
+    monkeypatch.setattr(history, "_api", lambda path, **_: (
+        pages[path.split("honua-server/", 1)[1].split("?", 1)[0]], None))
+    monkeypatch.setattr(history.subprocess, "run", lambda command, **_: type("Result", (), {
+        "stdout": json.dumps({"default_branch": "trunk"} if command[-1].endswith("honua-server")
+                             else {"commit": {"sha": "a" * 40}})})())
+    value = history.collect()
+    assert value["dispatchAnchors"] == []
+    assert value["publishedRefs"] == [ref]
     with pytest.raises(ValueError, match="prior publication ref"):
         history.verify(value)
 

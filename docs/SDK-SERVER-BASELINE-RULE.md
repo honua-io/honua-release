@@ -111,7 +111,10 @@ carries no version, so no capability can be introduced "in" it and no floor can 
 images those runs build are the same nightlies that already existed untagged. The receipt
 therefore lists each anchor in `dispatchAnchors` with the commit the tags API resolves it to, and
 `server_publication_history.verify` accepts an anchor only when its name is exactly one of those
-two forms and its hex is a prefix of that commit. Both tag namespaces must be fully accounted for
+two forms and its hex is a prefix of that commit. Collection also requires the independent
+git-ref observation to name the same lightweight commit; moved refs, missing targets and
+unresolved annotated objects cannot inherit a prior tags-listing classification.
+Both tag namespaces must be fully accounted for
 by the anchors, any GitHub release (even on an anchor) is a publication, and every other tag
 still withdraws the model. Without this, the program's own nightly would have silently withdrawn
 the premise every SDK floor rests on: on 2026-10-18 honua-server carried 14 anchors and nothing
@@ -226,37 +229,35 @@ with `release/sdk-capability-baseline.json`:
   is published before any candidate is cut, so it cannot name `rc.N`; `-0` is the SemVer floor
   of the whole line, not a guess at a candidate.
 
-Each SDK owns a drift test that reads its baseline file and fails when the runtime constant,
+Each prepared SDK branch includes a drift test that reads its baseline file and fails when the runtime constant,
 the public API snapshot or a published compatibility document disagrees with this mapping.
 `1.0.0` (JavaScript, Python) and `0.1.0` (.NET) were not derived from any capability. Each SDK
 replaces its constant with the mapped value in its own repository, on branch
 `fix/233-runtime-server-floor` of honua-sdk-js, honua-sdk-dotnet and honua-sdk-python (linked
 from #233). geospatial-mcp and `@honua/mcp-server` enforce no numeric server floor, so their
 baseline file is their only declaration. Builds from before honua-server#4693 gave the server a
-version identity report `1.0.0+<sha>`; they are not release identities, and the SDKs now refuse
-them.
+version identity report `1.0.0+<sha>`; they are not release identities. The prepared SDK changes
+refuse them, but that behavior is not shipped until the changes merge and verified packages are published.
 
-## Current state (2026-10-18)
+## Current state (2026-10-24)
 
 All four repositories commit `release/sdk-capability-baseline.json` with
 `minimumServerVersion: first-release` (honua-sdk-js#2016, honua-sdk-dotnet#427,
-honua-sdk-python#290, geospatial-mcp#99), and their published packages carry it. The nightly
-resolver binds them: candidate run 39136507018 (2026-10-18, platform `2026.1-rc.3`, honua-server
-`c19f29d1`, `releaseVersion` `2026.1.0-rc.3`) pins a consumed manifest and a declaration for every
-published revision of every SDK. Two facts still kept the strict check red on that candidate:
+honua-sdk-python#290, geospatial-mcp#99). The manifest pins the unchanged committed
+publication-history receipt (`sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1`)
+with `maxAgeDays: 90`; its 2026-09-26 observation expires on 2026-12-25. Every strict check also
+re-enumerates current publication history. A fresh 2026-10-24 enumeration found 24 dispatch
+anchors and no releases or other tags, with matching commit targets in both tag namespaces.
 
-1. no manifest pinned `components.honua-server.publicationHistory`, so every first-release
-   capability was unqualified. `platform-manifest.yaml` now pins the committed receipt whose
-   bytes every SDK baseline cites (`sha256:3069fde1…`), with `maxAgeDays: 90`;
-2. the live re-enumeration found the 14 nightly dispatch anchors and withdrew the model. The
-   anchor rule above classifies them.
+The runtime-floor changes remain on the three `fix/233-runtime-server-floor` branches.
+JavaScript trunk still declares `1.0.0` and .NET trunk `0.1.0`; prepared branches do not change
+published behavior. Integration, current verification and package publication remain required.
 
-With both, `generate_compatibility_table.py --check` passes on that candidate's lock: every SDK
-resolves to `2026.1.0-rc.3`, the declarations agree, and the pinned sources and the live
-publication history verify. The committed draft (`docs/platform-lock.v1.draft.yaml`) is
-generated from the committed manifest, whose SDK pins predate the baseline files, so the
-committed table stays explicitly unqualified for the SDK rows until the manifest is re-pinned
-to a candidate. That is the expected state of a draft, not a disagreement.
+The committed draft (`docs/platform-lock.v1.draft.yaml`) is regenerated from the current
+manifest and retains 35 unresolved release fields. Its SDK rows remain explicitly unqualified
+because the required consumed capability/protocol manifests are not pinned. Documentation
+freshness establishes only that the table matches that draft; candidate artifact-pair receipts
+and the strict compatibility gate must still establish release qualification.
 
 The upgrade-edge section of the table states the only edge the lock can establish: the first
 release is a fresh install, because the pinned and live-verified publication history proves no

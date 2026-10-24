@@ -333,10 +333,22 @@ def world_tarball() -> bytes:
     return _tarball(TARBALL_DEPS)
 
 
-def test_a_fixed_template_is_not_a_republish_blocker():
-    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": "6.9.0"})
+@pytest.mark.parametrize("maplibre_pin", ["6.4.1", "6.9.0", "6.10.0", "7.0.0"])
+def test_a_fixed_template_is_not_a_republish_blocker(maplibre_pin):
+    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": maplibre_pin})
     assert _channel(receipt, "npm:create-honua-app")["disposition"] == "published"
     assert not any(item["kind"] == "blocked-on-republish" for item in receipt["blockers"])
+
+
+@pytest.mark.parametrize("maplibre_pin", [
+    "5.12.0", "6.0.0", "6.1.0", "6.3.9", "6.4.0",
+    "6.4.1-rc.1", "^6.4.1", ">=6.0.0", "latest", "06.4.1",
+])
+def test_affected_or_unresolved_maplibre_template_pin_blocks_republish(maplibre_pin):
+    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": maplibre_pin})
+    create = _channel(receipt, "npm:create-honua-app")
+    assert create["disposition"] == "blocked-on-republish"
+    assert create["maplibre_pins"] == [maplibre_pin]
 
 
 def test_a_resolvable_off_manifest_template_sdk_pin_still_blocks_republish():
@@ -706,3 +718,142 @@ def test_public_nuget_pin_refuses_studio_bytes_that_are_not_the_named_package():
         _public_pin_receipt(_public_pin_world(bodies=wrong), _public_pin_manifest())
     with pytest.raises(preflight.PreflightError, match="not a valid .nupkg"):
         _public_pin_receipt(_public_pin_world(bodies={"Honua.Sdk.Studio": b"nupkg-bytes"}), _public_pin_manifest())
+
+
+RATE_LIMIT_BODY = b'{"message":"API rate limit exceeded for 0.0.0.0."}'
+ABUSE_BODY = b'{"message":"We have detected automated requests from this IP and have temporarily blocked it."}'
+PERMISSION_BODY = b'{"message":"Resource not accessible by integration"}'
+
+
+class _QgisTransport:
+    def __init__(self, api_results, page_status=404):
+        self.inner = World()
+        self.api_results = list(api_results)
+        self.page_status = page_status
+        self.seen = []
+
+    def get(self, url: str) -> preflight.Response:
+        self.seen.append(url)
+        if url == preflight.QGIS_REPO_URL:
+            status, body = self.api_results.pop(0)
+            return preflight.Response(status, body, url)
+        if url == preflight.QGIS_PUBLIC_REPO_URL:
+            return preflight.Response(self.page_status, b"html", url)
+        return self.inner.get(url)
+
+
+def _qgis_receipt(transport: _QgisTransport) -> dict:
+    return preflight.build_receipt(
+        transport,
+        _manifest(),
+        observed_at="2026-09-26T00:00:00Z",
+        retained={"grpc_sha256": _sha(transport.inner.grpc_body), "bsr_sha256": _sha(transport.inner.bsr_body)},
+    )
+
+
+def test_qgis_rate_limit_uses_the_public_404_and_does_not_record_the_denial(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([(403, RATE_LIMIT_BODY)])
+    channel = _channel(_qgis_receipt(transport), "qgis:honua-qgis-plugin")
+    assert channel == _channel(_receipt(), "qgis:honua-qgis-plugin")
+    assert channel["http_status"] == 404
+    assert slept == []
+    assert transport.api_results == []
+
+
+def test_qgis_permission_denial_is_not_evidence_the_repo_is_private(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([(403, PERMISSION_BODY)], page_status=404)
+    with pytest.raises(preflight.PreflightError, match="not evidence the repo is private"):
+        _qgis_receipt(transport)
+    assert slept == []
+    assert preflight.QGIS_PUBLIC_REPO_URL not in transport.seen
+
+
+def test_qgis_rate_limit_retries_until_the_api_answers(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([
+        (403, RATE_LIMIT_BODY),
+        (404, b'{"message":"Not Found"}'),
+    ], page_status=503)
+    channel = _channel(_qgis_receipt(transport), "qgis:honua-qgis-plugin")
+    assert channel["http_status"] == 404
+    assert channel["disposition"] == "blocked-on-operator"
+    assert slept == [10]
+
+
+def test_qgis_abuse_block_without_a_public_404_still_fails(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([(403, ABUSE_BODY)] * 6, page_status=403)
+    with pytest.raises(preflight.PreflightError, match="not evidence the repo is private"):
+        _qgis_receipt(transport)
+    assert slept == [10, 30, 60, 120, 80]
+
+
+def _scripted_urlopen(monkeypatch, outcomes):
+    """Replace urlopen with a script of HTTP statuses (int) or connection errors (Exception)."""
+    import urllib.error
+    calls = []
+
+    class _Body(io.BytesIO):
+        status = 200
+
+        def geturl(self):
+            return "https://registry.npmjs.org/x"
+
+    def urlopen(request, timeout):  # noqa: ARG001
+        calls.append(request.full_url)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        if outcome != 200:
+            raise urllib.error.HTTPError(request.full_url, outcome, "status", {}, io.BytesIO(b"{}"))
+        return _Body(b"{}")
+
+    monkeypatch.setattr(preflight.urllib.request, "urlopen", urlopen)
+    sleeps = []
+    monkeypatch.setattr(preflight, "_sleep", sleeps.append)
+    return calls, sleeps
+
+
+def test_transport_retries_a_registry_outage_then_reads(monkeypatch):
+    import urllib.error
+    calls, sleeps = _scripted_urlopen(monkeypatch, [502, urllib.error.URLError("reset"), 200])
+    response = preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+    assert response.status == 200 and len(calls) == 3 and sleeps == [5, 15]
+
+
+def test_transport_returns_the_outage_status_after_bounded_attempts(monkeypatch):
+    calls, _ = _scripted_urlopen(monkeypatch, [503] * len(preflight.REQUEST_DELAYS))
+    response = preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+    assert response.status == 503 and len(calls) == len(preflight.REQUEST_DELAYS)
+
+
+def test_transport_never_retries_a_not_found(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [404, 200])
+    assert preflight.UrllibTransport().get("https://registry.npmjs.org/x").status == 404
+    assert len(calls) == 1 and sleeps == []
+
+
+def test_transport_reports_a_persistent_connection_failure(monkeypatch):
+    import urllib.error
+    _scripted_urlopen(monkeypatch, [urllib.error.URLError("down")] * len(preflight.REQUEST_DELAYS))
+    with pytest.raises(preflight.PreflightError, match="registry probe failed"):
+        preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+
+
+def test_transport_retries_qgis_timeout_then_preserves_actual_not_found(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [522, 404])
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    assert response.status == 404 and len(calls) == 2 and sleeps == [5]
+
+
+def test_transport_preserves_persistent_qgis_timeout_as_failure(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [522] * len(preflight.REQUEST_DELAYS))
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    assert response.status == 522 and len(calls) == len(preflight.REQUEST_DELAYS)
+    assert sleeps == list(preflight.REQUEST_DELAYS[1:])

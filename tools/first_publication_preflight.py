@@ -14,7 +14,9 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import tarfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -36,7 +38,14 @@ GRPC_NUPKG_SHA256 = "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe84
 GRPC_NUPKG_URL = "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg"
 BSR_ZIP_SHA256 = "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef"
 BSR_ZIP_URL = "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip"
-MAPLIBRE_ADVISORY_PIN = "6.1.0"
+# Upstream GHSA-jrc7-96c5-q579 lists <=6.4.0 as affected and 6.4.1 as patched.
+MAPLIBRE_PATCHED_VERSION = (6, 4, 1)
+
+
+def _maplibre_pin_is_patched(pin: str) -> bool:
+    """Require an exact stable version with a known patched lower bound."""
+    match = re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", pin)
+    return match is not None and tuple(map(int, match.groups())) >= MAPLIBRE_PATCHED_VERSION
 
 SDK_PACKAGE_IDS = (
     "Honua.Sdk",
@@ -106,6 +115,12 @@ HELM_BOUNDARY = (
     "refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image "
     "before it will push a chart. This repo does not invent that server SemVer or an appVersion."
 )
+QGIS_REPO_URL = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
+QGIS_PUBLIC_REPO_URL = "https://github.com/honua-io/honua-qgis-plugin"
+QGIS_PLUGIN_URL = "https://plugins.qgis.org/plugins/honua/"
+# Anonymous api.github.com denials on shared CI addresses are rate-limit or abuse blocks.
+# Retry them, then give up. A 403 is never itself evidence the repository is private.
+QGIS_DENIAL_RETRY_DELAYS = (10, 30, 60, 120, 80)
 QGIS_BOUNDARY = (
     "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request "
     "(a private repository is not distinguishable from a missing one) and "
@@ -127,8 +142,33 @@ class Response:
         self.url = url
 
 
+# A registry 5xx/429 or a dropped connection is an outage, not an answer about the package.
+# Retry it with bounded backoff (npm answered 502 on pinned version documents for over an hour on
+# 2026-10-22 while the tarballs served). A persistent outage still fails; a 4xx is never retried.
+REQUEST_DELAYS = (0, 5, 15, 30)
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504, 522})
+_sleep = time.sleep
+
+
 class UrllibTransport:
     def get(self, url: str) -> Response:
+        last: Response | None = None
+        for delay in REQUEST_DELAYS:
+            if delay:
+                _sleep(delay)
+            try:
+                response = self._get_once(url)
+            except _TransientProbeFailure as exc:
+                if delay == REQUEST_DELAYS[-1]:
+                    raise PreflightError(f"registry probe failed for {url}: {exc.__cause__}") from exc.__cause__
+                continue
+            if response.status not in TRANSIENT_STATUSES:
+                return response
+            last = response
+        assert last is not None
+        return last
+
+    def _get_once(self, url: str) -> Response:
         _require_host(url)
         request = urllib.request.Request(url, headers=dict(ANONYMOUS_HEADERS))
         if request.has_header("Authorization"):
@@ -143,7 +183,11 @@ class UrllibTransport:
             _require_host(final)
             return Response(exc.code, exc.read(), final)
         except (urllib.error.URLError, TimeoutError) as exc:
-            raise PreflightError(f"registry probe failed for {url}: {exc}") from exc
+            raise _TransientProbeFailure() from exc
+
+
+class _TransientProbeFailure(Exception):
+    """A connection-level failure; UrllibTransport.get retries it and then reports the cause."""
 
 
 def _require_host(url: str) -> None:
@@ -169,6 +213,57 @@ def _parse_json(body: bytes, url: str) -> dict:
 
 def _sha512_sri(data: bytes) -> str:
     return "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode("ascii")
+
+
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def _inconclusive_github_denial(response: Response) -> bool:
+    """True when GitHub refused the request instead of answering whether the repo exists."""
+    if response.status not in {403, 429}:
+        return False
+    text = response.body.decode("utf-8", errors="replace").lower()
+    return any(
+        marker in text
+        for marker in (
+            "rate limit",
+            "secondary rate",
+            "too many requests",
+            "temporarily blocked",
+            "automated requests",
+            "abuse detection",
+        )
+    )
+
+
+def _probe_qgis_repo(transport) -> Response:
+    """Classify the QGIS repo without treating an API denial as privacy evidence.
+
+    A definitive API status is returned as-is. A rate-limit or abuse denial is
+    retried within a 300 second budget. While that denial persists, an anonymous
+    404 from the public repository page is the same non-visibility the receipt
+    records; the denied status is not stored. Any other denial is returned so
+    the caller can refuse it.
+    """
+    response = transport.get(QGIS_REPO_URL)
+    waited = 0
+    delays = iter(QGIS_DENIAL_RETRY_DELAYS)
+    while _inconclusive_github_denial(response):
+        page = transport.get(QGIS_PUBLIC_REPO_URL)
+        if page.status == 404:
+            return Response(404, page.body, QGIS_REPO_URL)
+        try:
+            delay = next(delays)
+        except StopIteration:
+            break
+        if waited >= 300:
+            break
+        delay = min(delay, 300 - waited)
+        _sleep(delay)
+        waited += delay
+        response = transport.get(QGIS_REPO_URL)
+    return response
 
 
 def _status_only(status: int, url: str, *, allowed: set[int]) -> int:
@@ -819,7 +914,7 @@ def build_receipt(
     # A template SDK pin that resolves on npm is still off-train unless it is the
     # manifest's @honua/sdk-js version; HTTP 200 alone does not clear the blocker.
     template_blocked = (
-        MAPLIBRE_ADVISORY_PIN in maplibre_pins
+        any(not _maplibre_pin_is_patched(pin) for pin in maplibre_pins)
         or any(status != 200 for status in sdk_pin_statuses.values())
         or any(sdk_pin != view["js_version"] for sdk_pin in sdk_pins)
         or not sdk_pins
@@ -854,11 +949,11 @@ def build_receipt(
         urls=[helm_url],
     ))
 
-    qgis_repo_url = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
-    qgis_plugin_url = "https://plugins.qgis.org/plugins/honua/"
-    qgis_repo = transport.get(qgis_repo_url)
+    qgis_repo_url = QGIS_REPO_URL
+    qgis_plugin_url = QGIS_PLUGIN_URL
+    qgis_repo = _probe_qgis_repo(transport)
     qgis_plugin = transport.get(qgis_plugin_url)
-    if qgis_repo.status == 403:
+    if qgis_repo.status in {403, 429}:
         raise PreflightError("GitHub API denied the QGIS repo probe; that is not evidence the repo is private")
     if qgis_repo.status not in {200, 404} or qgis_plugin.status not in {200, 404}:
         raise PreflightError(
@@ -1008,8 +1103,9 @@ def _blockers(channels: list[dict]) -> list[dict]:
                 f"The published tarball was downloaded, but its templates pin {templates}. "
                 f"npm version status for those @honua/sdk-js pins is {create['sdk_pin_statuses']}; "
                 f"the platform manifest pins @honua/sdk-js {create['manifest_sdk_pin']}. "
-                f"maplibre-gl {MAPLIBRE_ADVISORY_PIN} is the GHSA-jrc7-96c5-q579 pin named by "
-                "honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to "
+                "MapLibre pins must be exact stable versions at least 6.4.1, the patched version "
+                "for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. "
+                "A replacement create-honua-app release has to "
                 "come from honua-sdk-js. This repo cannot publish that tarball."
             ),
             ["npm:create-honua-app"],

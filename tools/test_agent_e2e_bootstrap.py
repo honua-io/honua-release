@@ -176,3 +176,55 @@ def test_production_cli_refuses_unbound_initialization_before_cloud_calls(tmp_pa
         args += ['--'+name,str(tmp_path/name)]
     assert controller.main(args+extra) == 1
     assert json.loads((tmp_path/'output').read_text())['errorType'] == 'ControllerError'
+
+
+@pytest.fixture
+def amended_bootstrap(bootstrap, tmp_path):
+    path, value = bootstrap
+    ledger = tmp_path/'amended-existing-operations.json'
+    ledger.write_text(json.dumps(value['artifact']['ledger']))
+    update(ledger, 'settle', candidate_key=KEY, reservation_id='bootstrap-infrastructure', amount='12.34')
+    update(ledger, 'amend-foss4g', candidate_key=KEY)
+    value['artifact']['ledger'] = json.loads(ledger.read_text())
+    path.write_text(json.dumps(value['artifact']))
+    value['artifactDigest'] = digest_bytes(path.read_bytes())
+    return path, value
+
+
+def test_named_owner_amendment_imports_actual_prior_v2_operation_history(amended_bootstrap, tmp_path):
+    path, value = amended_bootstrap
+    original = copy.deepcopy(value['artifact']['ledger'])
+    assert original['policyAmendment']['priorLedger']['schemaVersion'] == 2
+    assert original['policyAmendment']['priorLedger']['operations'][0]['actualUsd'] == '12.34'
+    assert validate_import(value, KEY) == original
+    assert verify_import(path, value['artifactDigest'], KEY, 'a'*40, 123, 2, invoke=verified_invoke(path)) == value
+    execution = DurableExecution(MemoryStore(), tmp_path/'imported-amended-ledger.json', initialize=True, bootstrap=value)
+    try:
+        assert execution.state['ledger'] == original
+        assert validate(execution.state['ledger'])['liabilityUsd'] == '22.34'
+    finally:
+        execution.close()
+
+
+@pytest.mark.parametrize('change', ['erase-prior', 'rewrite-charge', 'unknown-policy', 'wrong-ceiling', 'prior-v1', 'model-attempt', 'paid-admission'])
+def test_amended_bootstrap_cannot_reset_history_or_claim_model_execution(amended_bootstrap, change):
+    _, value = amended_bootstrap
+    ledger = value['artifact']['ledger']
+    if change == 'erase-prior': ledger['operations'].pop(0)
+    elif change == 'rewrite-charge': ledger['operations'][0]['actualUsd'] = '0'
+    elif change == 'unknown-policy': ledger['policyAmendment']['policyId'] = 'unreviewed-increase'
+    elif change == 'wrong-ceiling': ledger['ceilingUsd'] = '2001'
+    elif change == 'prior-v1':
+        from agent_e2e_budget import history_digest
+        prior = ledger['policyAmendment']['priorLedger']
+        prior['schemaVersion'] = 1
+        del prior['operations']
+        ledger['policyAmendment']['priorLedgerDigest'] = history_digest(prior)
+    elif change == 'model-attempt':
+        ledger['entries'].append({'id': 'unbound-attempt', 'campaignId': 'new-campaign', 'caseId': 'P10:A:aws-ecs-redis-on',
+            'attempt': 1, 'kind': 'model', 'amountUsd': '1', 'basisDigest': 'sha256:'+'d'*64, 'state': 'reserved', 'actualUsd': None})
+    else:
+        ledger['paidAdmissions'].append({'id': 'unbound-admission', 'campaignId': 'new-campaign', 'caseId': 'P10:A:aws-ecs-redis-on',
+            'attempt': 1, 'campaignMode': 'development', 'ownerToken': 'original-controller-owner-0001',
+            'createdEpoch': 1000, 'expiresEpoch': 1100, 'state': 'active', 'reservationIds': None, 'cleanupStatus': None})
+    with pytest.raises((PackError, BudgetError)): validate_import(value, KEY)

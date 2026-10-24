@@ -1,0 +1,7 @@
+{
+  "name": "honua-private-browser-observer",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {"node": "22.23.3"},
+  "dependencies": {"playwright-core": "1.61.1"}
+}

@@ -56,8 +56,15 @@ Every action is attributed as either:
 Model actions must reference the redacted assistant transcript entry that selected them. The harness
 injects one recoverable error through the driver, records the harness action that armed it, the model
 action whose driver result reports that exact error ID, and the later model action whose driver result
-reports recovery of that ID. Prompts, responses, requests, and results are recursively redacted;
-the receipt stores only their SHA-256, UTF-8 byte count and `digest-only` marker.
+reports recovery of that ID.
+
+Intermediate diagnostic actions may succeed without proving recovery. They consume
+the existing stage action budget; the stage cannot complete until a candidate
+result proves recovery of the exact injected error. Unrelated success, a different
+error ID, a false recovery claim or exhausted limits cannot pass this requirement.
+
+Prompts, responses, requests, and results are recursively redacted; the receipt
+stores only their SHA-256, UTF-8 byte count and `digest-only` marker.
 The schema rejects raw payloads and extra fields. Redacted model context stays in
 memory for subsequent turns and is never replayed from receipt digests. Each live run
 uses a cryptographically random nonce, signed provider-event bytes bind both SSE names and data, and
@@ -73,8 +80,13 @@ rc.3 plan). The schema requires:
 - `attempt` — `1` or `2` (`--attempt`); promotion allows one retry after an attributed failure.
 - `lockDigest` — `sha256:<hex>` of the exact `platform-lock.json` under certification
   (`--lock-digest`). With `--lock <path>` the harness hashes those bytes and fails the receipt if they
-  differ. A live run without a lock digest is refused (`blocked`): an unbound receipt counts for no
-  lock. A pass without one is rejected by both the harness and the schema.
+  differ.
+- `serverImage` — the honua-server `image@digest` the cell composes from `platform-manifest.yaml`
+  (the same reference the deterministic #123 receipt must name). Operator ruling 2026-10-22: rc
+  gates need a green trunk run against any build, so a run without a caller's lock binds this image
+  instead. It binds a pass only once the green deterministic receipt verified that candidate. A live
+  run bound to neither is refused (`blocked`), and a pass bound to neither is rejected by both the
+  harness and the schema. An image-bound receipt counts for no lock in promotion readiness.
 - `failureAttribution` — `null` exactly when the attempt passed; otherwise `model` or
   `infrastructure`. `model` means the model failed: no parseable or valid action, no stage progress
   within the bounded action budget, no recovery from the injected error, never reaching the approval
@@ -114,8 +126,8 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
   `StudioAiProxy` to Bedrock (`StudioAiProxy__Enabled`, `DefaultProvider=bedrock`,
   `Providers__bedrock__{Kind,Model,Region}`) only when the job sets `HONUA_CANARY_STUDIO_AI_ENABLED`.
   The session credentials reach the server container under non-ambient `HONUA_CANARY_AWS_*` names;
-  no `AWS_*` variable enters the job environment. Without a `lock_digest` input it binds the latest
-  minted `nightly-lock/*` tag and certifies that lock's manifest.
+  no `AWS_*` variable enters the job environment. Without a `lock_digest` input (the schedule) it binds the
+  manifest-pinned server image the job composes; it no longer needs a minted `nightly-lock/*` tag.
 - **dispatch or call `target=aws-ecs/redis-off`** — calls `e2e-cloud-aws.yml` for the ECS Redis-off
   cell with `genuine_model_bedrock: true`. The cell is provisioned with `enable_bedrock_ai=true` and
   `bedrock_ai_region=us-east-1` (`ECS_SPEC.opt_in_vars`, `HONUA_ENABLE_BEDROCK_AI`), and its credential-free journey job
@@ -180,13 +192,13 @@ published signing-manifest trust anchor. A public manifest hash does not supply 
 
 | Kind | Name | Purpose |
 |---|---|---|
-| variable | `HONUA_AWS_ROLE_ARN` | OIDC role the local-docker job assumes; it must allow `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the Sonnet 4.5 inference profile and its foundation-model ARNs (honua-iac `bootstrap/aws-release-cells` `runtime_bedrock_model_arns`). The cloud cell uses the same role to provision; Bedrock there is the ECS task role from `modules/aws-ecs/bedrock.tf`. |
+| variable | `HONUA_AWS_ROLE_ARN` | OIDC role the local-docker job assumes; it must allow `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the Sonnet 5.5 `us.` inference profile and its foundation-model ARNs (honua-iac `bootstrap/aws-release-cells` `runtime_bedrock_model_arns`). The cloud cell uses the same role to provision; Bedrock there is the ECS task role from `modules/aws-ecs/bedrock.tf`. |
 | secret | `TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED` | Base64 32-byte Ed25519 seed the local-docker candidate signs transcripts with (`StudioAiProxy:TranscriptSigning`, key id `terminal-model-canary`, reference `env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED`). |
 | variable | `TERMINAL_MODEL_SIGNING_MANIFEST_SHA256` | SHA-256 of the canonical signing manifest the candidate publishes for that key: the trust anchor. |
-| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. |
+| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `us.anthropic.claude-sonnet-5-5`. |
 | secret | `RELEASE_GH_TOKEN` | Already required by the journey for pinned client sources. |
 
-Bedrock model access for Claude Sonnet 4.5 must be enabled in the release account.
+Bedrock model access for Claude Sonnet 5.5 must be enabled in the release account.
 
 Until #123's live adapter drives the candidate to green, the honest terminal state is `skipped`,
 `blocked` or an attributed `fail`.
