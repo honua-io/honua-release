@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from types import SimpleNamespace
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT/'tools'), str(ROOT/'tools/hosted_pilot')]
@@ -104,10 +105,15 @@ def registered_runtime(durable, verified):
     for phase in ('before', 'after'):
         principals[phase] = {}
         for kind in keys:
+            # This is the public UUID identifying an issued principal, never its
+            # credential. Only that canonical identifier belongs in a retained
+            # request path and its byte-integrity digest.
+            principal_id = str(UUID(keys[kind]['apiKeyId']))
+            require(principal_id == keys[kind]['apiKeyId'], 'installed binding principal ID is not canonical')
             principals[phase][kind] = native_target(response(phase+'-'+kind+'-target', '/api/v1/agent/target'),
                                                      verified['targetId'])
             effective = response(phase+'-'+kind+'-effective',
-                                 '/api/v1/admin/api-keys/'+keys[kind]['apiKeyId']+'/effective-permissions')
+                                 '/api/v1/admin/api-keys/'+principal_id+'/effective-permissions')
             data = effective.get('data', {}) if isinstance(effective, dict) else {}
             require(isinstance(effective, dict) and effective.get('success') is True and
                     data.get('id') == keys[kind]['apiKeyId'] and data.get('status') == 'active' and
