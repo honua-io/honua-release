@@ -87,6 +87,9 @@ def _worker(events, native, registration, record):
     require(set(acknowledgement) == {'actorId', 'credentialVersion'} and
             all(acknowledgement[k] == principal[k] for k in acknowledgement),
             'worker context was not acknowledged by the actual registered task credential')
+    require(isinstance(binding.get('context'), dict) and binding['context'].get('workspaceId') == record['workspaceId'] and
+            canonical_digest(binding['context']) == binding.get('contextDigest'),
+            'task-authenticated native context bytes differ from their acknowledged digest')
     slot = [row for row in registration['slots'] if row['slotId'] == binding.get('slotId')]
     require(len(slot) == 1, 'worker acknowledgement has no original registered physical slot')
     slot = slot[0]
