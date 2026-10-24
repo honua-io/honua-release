@@ -405,6 +405,17 @@ def test_installed_inspector_accepts_only_actual_terraform_encoding(slot):
     assert not any(operation == 'start' for operation, _ in slot.states.calls)
 
 
+def test_installed_inspector_refuses_container_restart_policy(slot):
+    container = slot.ecs.definition['containerDefinitions'][0]
+    container['restartPolicy'] = {'enabled': False, 'ignoredExitCodes': [0]}
+    assert slot.worker.inspect()['taskDefinition']['taskDefinition']['containerDefinitions'][0]['restartPolicy']['enabled'] is False
+    for policy in ({'enabled': True}, {'enabled': True, 'restartAttemptPeriod': 60}, {}):
+        container['restartPolicy'] = policy
+        with pytest.raises(PackError, match='restartPolicy'):
+            slot.worker.inspect()
+    assert not any(operation == 'start' for operation, _ in slot.states.calls)
+
+
 def test_lost_installed_start_ack_recovers_same_e_task_and_never_relaunches(slot):
     slot.states.lost_reply = True
     with pytest.raises(TimeoutError): slot.worker.start(slot.journal, slot.launch)

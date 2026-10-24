@@ -23,7 +23,7 @@ import urllib.request
 
 from agent_e2e_execution_protocol import require, identifier, execution_id, digest, canonical_digest
 from agent_e2e_mcp import validate_agent_context, validate_execution_context, NoRedirect, parse, execution_headers
-from agent_e2e_worker import Worker, command_digest, encode
+from agent_e2e_worker import Worker, InstalledSqsBudget, command_digest, encode
 from agent_e2e_worker import MCP_PROTOCOL
 from agent_e2e_container import Executor
 
@@ -247,8 +247,11 @@ def serve_installed(sqs, configuration, *, journal='/journal/installed.sqlite', 
     started = clock()
     # An unbound physical task must not wait for the entire funding window.
     deadline = min(started+120, config['originalFundingExpiresEpoch'])
+    worker_id = task_reader()
+    sqs = InstalledSqsBudget(sqs, kind='worker', candidate_key=config['candidateKey'],
+        runtime_id=config['runtimeId'], identity=worker_id)
     binding = InstalledBinding(config, json.loads(os.environ.pop('HONUA_AGENT_MCP_CONFIG', '')), journal,
-        worker_id=task_reader(), clock=clock)
+        worker_id=worker_id, clock=clock)
     try:
         while binding.binding is None and clock() < deadline:
             response = sqs.receive_message(QueueUrl=config['commandQueueUrl'], MaxNumberOfMessages=1,
