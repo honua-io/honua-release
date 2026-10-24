@@ -56,7 +56,7 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install PyYAML jsonschema
@@ -80,7 +80,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: frozen-lock/platform-lock.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: manual-candidate-manifest
           path: |
@@ -103,14 +103,14 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install pytest PyYAML jsonschema
 
       # The train's candidate-manifest, or this run's manual_freeze output for a manual run.
       - name: Download the frozen candidate inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.candidate_lock_artifact || 'manual-candidate-manifest' }}
           path: _candidate
@@ -154,7 +154,7 @@ jobs:
       # Retain exact verified bytes before exercising the consumer path. A dry run only
       # publishes a run artifact; promotion already publishes the real lock as a release asset.
       - name: Retain the candidate rollback target
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: retained-rollback-target
           path: _rollback-target/platform-lock.json
@@ -162,7 +162,7 @@ jobs:
           if-no-files-found: error
 
       - name: Retrieve the retained rollback target
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: retained-rollback-target
           path: _retained
@@ -242,7 +242,7 @@ jobs:
 
       - name: Upload immutable rollback packet
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: one-operation-rollback-receipts
           path: out/rollback-certification
