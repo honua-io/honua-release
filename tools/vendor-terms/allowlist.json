@@ -446,6 +446,18 @@
       "reason": "Verbatim immutable full 4504-byte honua-site docs/geoprocessing/index.md at protected 99dee72bb8d7d77bb01d1ba16807b499ba7fb853 (SHA256 b0be5ceeb94f8fc8433426dc17645dfe4d33d27acaec1c7ac63e6f3b854f87d2; honua-site#318 changed only the honua-sdk pin from the earlier 7d733c0 fixture). The fixture and full-document hash must preserve the actual upstream prose to test all six real executable blocks. Only this token in this exact historical fixture is covered; sibling paths, other terms, and current website prose remain checked. Revisit when the fixture is retired.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#721"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/executable-docs/fixtures/site-geoprocessing-21f8fe5.md"
+      ],
+      "tokens": [
+        "Esri"
+      ],
+      "reason": "Verbatim immutable full 4504-byte honua-site docs/geoprocessing/index.md at protected 21f8fe5b5fffa385c5c8bf1b0c15b414651dfb0c (SHA256 5d0af325f397e2a41c6313552a087df666d0c7da77204c132e9285e76a921678). This snapshot retains the actual published Honua.Sdk 1.12.0 setup command and all six executable blocks. Its full-document integrity test must preserve the upstream prose. Only this token in this exact immutable fixture is covered; sibling paths, other terms, current website prose and confidential detail remain checked. Remove the exception when the snapshot is retired.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#851"
     }
   ]
 }
