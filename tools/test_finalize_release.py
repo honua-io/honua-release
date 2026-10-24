@@ -387,3 +387,66 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
+
+
+def test_release_notes_place_the_narrative_ahead_of_the_generated_record():
+    manifest, matrix = _real()
+    intro = "# Honua 2026.1\n\nHonua 2026.1 is the first release.\n\n## What ships\n\n- one server\n"
+    notes = fr.render_release_notes(manifest, matrix, "2026.1", _report("pass"), "", intro)
+    assert notes.count("# Honua 2026.1\n") == 1, "the narrative H1 must not duplicate the generated title"
+    assert notes.index("Honua 2026.1 is the first release.") < notes.index("## Release record for 2026.1")
+    assert notes.index("## Release record for 2026.1") < notes.index("## Components")
+    assert "Breaking changes & upgrade actions" in notes
+
+
+def test_release_notes_without_a_narrative_are_unchanged_in_shape():
+    manifest, matrix = _real()
+    notes = fr.render_release_notes(manifest, matrix, "2026.1", _report("pass"))
+    assert "Release record for" not in notes
+    assert notes.startswith("# Honua 2026.1")
+
+
+def test_committed_2026_1_narrative_carries_no_pins_and_renders():
+    narrative = (REPO_ROOT / "release-notes" / "2026.1.md").read_text(encoding="utf-8")
+    assert narrative.startswith("# Honua 2026.1")
+    for forbidden in ("sha256:", "nightly-", "open source", "open-source"):
+        assert forbidden not in narrative, f"narrative must not carry {forbidden!r}"
+    manifest, matrix = _real()
+    notes = fr.render_release_notes(manifest, matrix, "2026.1", _report("pass"), "", narrative)
+    assert "## Editions and licensing" in notes
+    assert "## Components" in notes
+
+
+def test_main_reads_the_narrative_when_present_and_skips_it_when_absent(tmp_path, capsys):
+    import yaml
+    manifest, matrix = _real()
+    report = _report("pass", label="2026.1")
+    report["dry_run"] = False
+    (tmp_path / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    (tmp_path / "matrix.yaml").write_text(yaml.safe_dump(matrix), encoding="utf-8")
+    (tmp_path / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    intro = tmp_path / "2026.1.md"
+    intro.write_text("# Honua 2026.1\n\nNarrative paragraph.\n", encoding="utf-8")
+    args = ["--label", "2026.1", "--gate-report", str(tmp_path / "report.json"),
+            "--manifest", str(tmp_path / "manifest.yaml"), "--matrix", str(tmp_path / "matrix.yaml"),
+            "--released-at", "2026-11-01T00:00:00Z", "--out-manifest", str(tmp_path / "out.yaml"),
+            "--out-notes", str(tmp_path / "notes.md")]
+    # Candidate binding is covered elsewhere; here only the notes-intro plumbing is exercised.
+    original = fr.verify_candidate_binding
+    fr.verify_candidate_binding = lambda *a, **k: (True, "stubbed")
+    try:
+        assert fr.main(args + ["--notes-intro", str(intro)] + _binding_args()) == 0
+        assert "Narrative paragraph." in (tmp_path / "notes.md").read_text(encoding="utf-8")
+        assert fr.main(args + ["--notes-intro", str(tmp_path / "missing.md")] + _binding_args()) == 0
+        out = (tmp_path / "notes.md").read_text(encoding="utf-8")
+        assert "Narrative paragraph." not in out and "## Components" in out
+        assert "absent; generated record only" in capsys.readouterr().out
+    finally:
+        fr.verify_candidate_binding = original
+
+
+def _binding_args():
+    return ["--source-repository", "honua-io/honua-release", "--source-sha", "a" * 40,
+            "--source-branch", "trunk", "--workflow-path", ".github/workflows/release-train.yml",
+            "--train-run-id", "1", "--train-run-attempt", "1", "--train-run-url", "https://example/run/1",
+            "--certification-mode", "live", "--certification-time", "2026-11-01T00:00:00Z"]

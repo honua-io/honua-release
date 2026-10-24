@@ -319,7 +319,8 @@ jobs:
             --certification-time "${{ steps.train.outputs.updated_at }}" \
             --released-at "$STAMP" \
             --out-manifest finalized-manifest.yaml \
-            --out-notes release-notes.md
+            --out-notes release-notes.md \
+            --notes-intro "release-notes/${BASE}.md"
           # Publish the BOM derived from the attested candidate lock at freeze.
           cp candidate/bom.cdx.json bom.cdx.json
 
