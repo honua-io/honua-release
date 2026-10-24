@@ -20,9 +20,9 @@ Exit codes: 0 valid / admissible, 1 invalid / refused, 2 usage. `preflight` alwa
 decision file (also on refusal) so the deploy workflow can record a receipt for a refused attempt.
 
 Contract boundary (honua-server#6221): the lock is produced by `honua-gp-devkit release` and the
-environment binding is activated through the server's binding API. Until those ship, the lock is a
-committed artifact and the binding version is read from the committed environment-state file; this
-tool neither invents a server endpoint nor pretends the binding changed (see `binding.status`).
+environment binding is activated through the server's binding API by gp_process_deploy.py, which
+reads live versions and checks actual output bytes. This module handles pure validation and receipts;
+committed environment state alone is not evidence of live activation.
 """
 from __future__ import annotations
 
@@ -106,8 +106,6 @@ def validate_lock(lock: dict, label: str = "lock") -> None:
     if len(kinds) != len(set(kinds)):
         findings.append("$.targets: a target kind may appear once")
     for index, target in enumerate(lock["targets"]):
-        if target["kind"] == "aws-batch" and "jobDefinitionName" not in target:
-            findings.append(f"$.targets[{index}]: aws-batch target needs jobDefinitionName")
         if target["kind"] == "kubernetes-job" and "chartVersion" not in target:
             findings.append(f"$.targets[{index}]: kubernetes-job target needs chartVersion")
     if findings:
@@ -140,6 +138,19 @@ def validate_pin(pin: dict, locks_root: Path, label: str = "pin") -> dict:
     if findings:
         raise GateError(f"{label} does not bind to its locks:\n  " + "\n  ".join(findings))
     return lock
+
+
+def validate_rollback_target(pin: dict, target: dict) -> dict:
+    """Check reviewed target identity only; the deployment reads live state later."""
+    validate_document(PIN_SCHEMA, pin, "pin")
+    validate_lock(target, "rollback target")
+    previous = pin.get("previous")
+    if previous is None:
+        raise GateError("ROLLBACK_TARGET_MISSING")
+    if digest(target) != previous["lockDigest"] or target["process"]["name"] != pin["process"]:
+        raise GateError("ROLLBACK_TARGET_MISMATCH")
+    return {"schema": "honua.gp-rollback-plan/v1", "process": pin["process"],
+            "lockDigest": digest(target), "livePreflightRequired": True}
 
 
 # ----------------------------------------------------------------------------- preflight
@@ -253,7 +264,7 @@ def build_receipt(decision: dict, *, operation: str, smoke: str, smoke_evidence:
     if operation != decision["operation"]:
         raise GateError(f"receipt operation {operation!r} disagrees with the decision's {decision['operation']!r}")
     if decision["admissible"]:
-        if smoke == "fail" or binding == "unchanged":
+        if binding in {"unchanged", "unknown"} or smoke == "fail" or (binding == "activated" and smoke != "pass"):
             outcome = "failed"
         elif binding == "activated":
             outcome = "activated"
@@ -276,7 +287,7 @@ def build_receipt(decision: dict, *, operation: str, smoke: str, smoke_evidence:
         "outcome": outcome,
         "refusalReasons": decision["refusalReasons"],
         "runningJobsRetainRelease": True,
-        "scheduleReconciliation": "pending-server-6221" if binding == "pending-server-6221" else ("reconciled" if outcome == "activated" else "not-required"),
+        "scheduleReconciliation": "pending-orchestration-integration" if binding == "activated" else ("pending-server-6221" if binding == "pending-server-6221" else "not-required"),
         "actor": actor,
         "run": {"repository": run_repository, "id": run_id, "attempt": run_attempt, "url": f"https://github.com/{run_repository}/actions/runs/{run_id}"},
         "startedAt": started_at,
@@ -301,13 +312,14 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("validate-lock"); p.add_argument("lock")
     p = sub.add_parser("lock-digest"); p.add_argument("lock")
     p = sub.add_parser("validate-pin"); p.add_argument("pin"); p.add_argument("--locks-root", default=str(REPO_ROOT))
+    p = sub.add_parser("validate-rollback"); p.add_argument("pin"); p.add_argument("target"); p.add_argument("--out", required=True)
     p = sub.add_parser("preflight")
     p.add_argument("--lock", required=True); p.add_argument("--pin", required=True); p.add_argument("--environment", required=True)
     p.add_argument("--artifact-index", required=True); p.add_argument("--rollback-to", default=None); p.add_argument("--out", required=True)
     p = sub.add_parser("receipt")
     p.add_argument("--decision", required=True); p.add_argument("--operation", required=True, choices=["deploy", "rollback"])
     p.add_argument("--smoke", required=True, choices=["pass", "fail", "skipped"]); p.add_argument("--smoke-evidence", default="")
-    p.add_argument("--binding", required=True, choices=["activated", "unchanged", "pending-server-6221"]); p.add_argument("--binding-detail", default="")
+    p.add_argument("--binding", required=True, choices=["activated", "unchanged", "unknown", "reference-only", "pending-server-6221"]); p.add_argument("--binding-detail", default="")
     p.add_argument("--actor", required=True); p.add_argument("--run-repository", required=True); p.add_argument("--run-id", required=True)
     p.add_argument("--run-attempt", type=int, default=1); p.add_argument("--started-at", default=None); p.add_argument("--out", required=True)
     p = sub.add_parser("validate-receipt"); p.add_argument("receipt")
@@ -322,6 +334,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate-pin":
             lock = validate_pin(load_json(args.pin), Path(args.locks_root), args.pin)
             print(f"ok: {args.pin} binds {lock['process']['name']} {lock['process']['version']} ({digest(lock)})")
+        elif args.command == "validate-rollback":
+            _write(args.out, validate_rollback_target(load_json(args.pin), load_json(args.target)))
+            print("ok: rollback target matches the reviewed previous release; live preflight still required")
         elif args.command == "preflight":
             lock, pin, state = load_json(args.lock), load_json(args.pin), load_json(args.environment)
             validate_lock(lock, args.lock)

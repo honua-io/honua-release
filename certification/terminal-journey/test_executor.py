@@ -1702,5 +1702,82 @@ def test_install_and_preflight_stages_act_as_the_operator_when_one_exists():
 
 def test_typed_client_side_tool_errors_are_candidate_refusals_and_server_faults_are_not():
     import live_driver
-    assert {"not_found", "invalid_argument"} <= live_driver.CANDIDATE_REFUSAL_CODES
-    assert not {"internal", "unavailable", "permission_denied"} & live_driver.CANDIDATE_REFUSAL_CODES
+    assert {"not_found", "failed_precondition"} <= live_driver.CANDIDATE_REFUSAL_CODES
+    assert not {"internal", "unavailable", "permission_denied", "invalid_argument"} & live_driver.CANDIDATE_REFUSAL_CODES
+    assert "invalid_argument" in live_driver.ADMITTED_CALL_DEFECT_CODES
+
+
+def test_a_stage_admitted_call_rejected_as_invalid_argument_is_a_candidate_defect():
+    """Fixture-proven inputs the candidate rejects are not model feedback.
+
+    A schema-valid unknown style is still a value the model can correct.
+    """
+    import live_driver
+    from transport import ActionRejected, ExecutionError
+
+    admitted = ExecutionError(
+        "honua_render_map", "candidate rejected supported inputs",
+        problem={"code": "invalid_argument", "argumentsProven": True})
+    unknown_style = ExecutionError(
+        "honua_apply_style_preset", "unknown style",
+        problem={"code": "invalid_argument"})
+    missing = ExecutionError(
+        "honua_render_map", "service is not published",
+        problem={"code": "not_found"})
+    invalid = ActionRejected("honua_render_map", "arguments do not satisfy the observed tool schema")
+
+    def classify(exc):
+        state = {"workspaceId": "workspace", "stackUp": True}
+        observation = stages.Observation(setup_view_present=True)
+        engine = mock.Mock()
+        engine.execute.side_effect = exc
+        with mock.patch.object(live_driver, "_rehydrate", return_value=(state, {}, {}, observation, mock.Mock())), \
+             mock.patch.object(live_driver, "_stage_status", return_value={"number": 4}), \
+             mock.patch.object(live_driver, "_tool_view", return_value={}), \
+             mock.patch.object(live_driver, "_executor", return_value=engine), \
+             mock.patch.object(live_driver, "_write_state"):
+            response = live_driver.op_execute({"action": {"kind": "tool_call", "tool": exc.command}})
+        engine.execute.assert_called_once()
+        assert response["status"] == "fail"
+        assert response["result"]["accepted"] is False
+        return response["refusal"]
+
+    assert classify(admitted) == "candidate-execution"
+    assert classify(unknown_style) == "candidate-refusal"
+    assert classify(missing) == "candidate-refusal"
+    assert classify(invalid) == "invalid-action"
+
+
+def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
+    transport = mock.Mock()
+    transport.credentials = {"proposer": "p", "operator": "o"}
+    observation = stages.Observation(setup_view_present=True, setup_discovery={
+        "tools": [
+            {"name": "honua_render_map", "inputSchema": {"type": "object"}},
+            {"name": "honua_apply_style_preset", "inputSchema": {"type": "object"}},
+        ],
+        "metadata": {"view": "setup"}})
+    engine = executor.JourneyExecutor(
+        {"workspaceId": "workspace"},
+        {"execution": {"serviceId": "journey", "styleId": "journey-solid-red", "renderSize": [128, 128], "bbox": [-2, -2, 2, 2]}},
+        observation, transport)
+    engine.resources["layerId"] = 7
+    transport.tool.return_value = {"isError": True, "structuredContent": {"code": "invalid_argument"}}
+
+    def rejected(tool, arguments):
+        with pytest.raises(ExecutionError) as caught:
+            engine.execute(4, {"kind": "tool_call", "tool": tool, "arguments": arguments})
+        return caught.value
+
+    layer = {"serviceId": "journey", "layerId": 7}
+    style = {**layer, "styleId": "journey-solid-red"}
+    render = {"layers": [layer], "width": 128, "height": 128, "bbox": [-2, -2, 2, 2]}
+    assert rejected("honua_apply_style_preset", {**style, "styleId": "unknown"}).problem.get("argumentsProven") is not True
+    assert rejected("honua_apply_style_preset", {**style, "layerId": 8}).problem.get("argumentsProven") is not True
+    assert rejected("honua_apply_style_preset", style).problem["argumentsProven"] is True
+    for changed in [{"width": 20}, {"bbox": [0, 0, 1, 1]}, {"layers": [{**layer, "layerId": 8}]},
+                    {"encoding": "unsupported"}, {"bboxSrid": 999999}]:
+        assert rejected("honua_render_map", {**render, **changed}).problem.get("argumentsProven") is not True
+    assert rejected("honua_render_map", render).problem["argumentsProven"] is True
+    assert rejected("honua_render_map", {**render, "bboxSrid": 4326, "transparent": True,
+                                         "maxInlineBytes": 1024 * 1024}).problem["argumentsProven"] is True

@@ -1,6 +1,7 @@
 // Linux read-only birth-bound observations for the owned native/executor tree.
-// No signal, command, retry, reclaim or process mutation is provided here.
-import { open } from 'node:fs/promises';
+// Raced read-only snapshots may be read afresh; native commands are never
+// retried, signalled, reclaimed or otherwise mutated here.
+import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 
 const fail = code => { throw Error(code); };
@@ -9,7 +10,7 @@ const pidValue = value => Number.isSafeInteger(value) && value > 0;
 const terminalWitnesses = new WeakMap();
 
 async function bounded(path, limit) {
-  const file = await open(path, 'r');
+  const file = await fs.open(path, 'r');
   try {
     const buffer = Buffer.alloc(limit + 1);
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
@@ -32,6 +33,14 @@ export function parseStat(raw, expectedPid) {
 
 export async function observeProcess(pid) {
   if (process.platform !== 'linux' || !pidValue(pid)) fail('process-observation-host-pid');
+  return observeAttempt(pid, 0);
+}
+
+async function observeAttempt(pid, attempt) {
+  // Every attempt reads a new boot/stat/cmdline/stat bracket. A partial read
+  // never becomes absence or a terminal witness. Callers still bind the final
+  // observation to the independently admitted process birth and parent edge.
+  const raced = () => attempt < 2 ? observeAttempt(pid, attempt + 1) : fail('process-observation-raced');
   const bootRaw = await bounded('/proc/sys/kernel/random/boot_id', 128);
   const bootId = bootRaw.toString('ascii').trim();
   if (!/^[a-f0-9-]{36}$/.test(bootId)) fail('process-observation-boot');
@@ -49,10 +58,13 @@ export async function observeProcess(pid) {
   try {
     command = await bounded('/proc/' + pid + '/cmdline', 2 * 1024 * 1024);
     last = await bounded('/proc/' + pid + '/stat', 65536);
-  } catch { fail('process-observation-raced'); }
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ESRCH') return raced();
+    fail('process-observation-unverified');
+  }
   const after = parseStat(last, pid);
   if (identity.startTicks !== after.startTicks || identity.parentPid !== after.parentPid)
-    fail('process-observation-raced');
+    return raced();
   return { schema: 'honua.owned-process-observation/v1', bootId, pid, status: 'observed',
     statBase64: last.toString('base64'), cmdlineBase64: command.toString('base64'),
     identity: { ...after, cmdlineSha256: sha(command) } };
@@ -158,17 +170,19 @@ export async function bindExecutorToNative(executorPid, nativeAdmission, expecte
               if (!pidValue(pid)) fail('process-tree-child-pid');
               const child = await observeProcess(pid);
               if (child.status === 'absent') continue; // This observed PID already ceased.
+              const childKey = key(child);
+              // A previously admitted birth keeps its original parent edge.
+              // Its own queued observation follows it through reparenting;
+              // only admission of a new birth needs a fresh parent bracket.
+              if (tree.has(childKey)) continue;
               const parentAfter = await observeProcess(observed.pid);
               if (parentAfter.status !== 'observed'
                   || parentAfter.identity.startTicks !== observed.identity.startTicks
                   || child.identity.parentPid !== observed.pid) fail('process-tree-parent-race');
-              const childKey = key(child);
-              if (!tree.has(childKey)) {
-                if (tree.size >= 512) fail('process-tree-bound');
-                const childEntry = { admission: child, parentBirth: {
-                  pid: observed.pid, startTicks: observed.identity.startTicks, bootId: observed.bootId }, terminal: null };
-                tree.set(childKey, childEntry); queue.push(childEntry);
-              }
+              if (tree.size >= 512) fail('process-tree-bound');
+              const childEntry = { admission: child, parentBirth: {
+                pid: observed.pid, startTicks: observed.identity.startTicks, bootId: observed.bootId }, terminal: null };
+              tree.set(childKey, childEntry); queue.push(childEntry);
             }
           }
           complete = [...tree.values()].every(entry => entry.terminal !== null);
