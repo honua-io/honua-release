@@ -78,6 +78,19 @@ honua-iac:
       Scheduled maintenance job (Terraform Validation IAM Sweeper) with the same role precondition
       as the reaper; cleanup only, never a verdict on the pinned sha.
 
+honua-server:
+  - name: "geometry-buffer"
+    why: >-
+      Live GP canary (`.github/workflows/gp-buffer-canary.yml`, "GP Candidate Canary", job
+      `geometry-buffer`, cron every 6 h, never on pull_request). It submits buffer/clip jobs to a
+      DEPLOYED server named by the repository variable GP_CANARY_URL with secret GP_CANARY_TOKEN,
+      and refuses before any request when they are absent. They are empty in honua-server: on the
+      pinned 0e03bdd scheduled run 38210471695 (2026-10-12) the receipt's finding is
+      "HONUA_GP_CANARY_URL must be a credential-free HTTPS deployment URL", and every scheduled run
+      since fails the same way. That is an unprovisioned deployment, not a verdict on the server
+      build. The job's own `harness-checks` sibling (the canary's numerical mutation tests) and the
+      full-matrix ci.yml lanes stay core.
+
 honua-sdk-python:
   - name: "staging-smoke"
     why: >-

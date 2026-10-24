@@ -22,11 +22,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / "certification/terminal-journey"
 EVIDENCE = ROOT / "e2e/cloud-evidence"
-# aws-eks is GA for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10).
-GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")
+# Owner amendment 2026-10-16 supersedes decisions 12/18: EKS is informational Preview.
+GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
                  for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-PREVIEW_TARGETS: tuple[str, ...] = ()
+PREVIEW_TARGETS: tuple[str, ...] = ("aws-eks",)
 
 
 def drivers():
@@ -93,9 +93,9 @@ HANDOFF_SCHEMA = "honua-cloud-journey-handoff-v1"
 DATASOURCE_FIELDS = ("host", "port", "databaseName", "username", "password")
 
 
-def pack_handoff(admin_key, datasource=None, *, tenant_signing_key=None):
+def pack_handoff(admin_key, datasource=None, *, tenant_signing_key=None, installed_clients=None):
     """The sealed journey handoff: the bare application key, or a JSON object with the datasource."""
-    if not datasource and tenant_signing_key is None:
+    if not datasource and tenant_signing_key is None and installed_clients is None:
         return admin_key
     document = {"schema": HANDOFF_SCHEMA, "appKey": admin_key}
     if datasource:
@@ -103,6 +103,8 @@ def pack_handoff(admin_key, datasource=None, *, tenant_signing_key=None):
     if tenant_signing_key is not None:
         _validate_tenant_signing_key(tenant_signing_key)
         document["tenantSigningKey"] = tenant_signing_key
+    if installed_clients is not None:
+        document["installedClients"] = installed_clients
     return json.dumps(document, separators=(",", ":"))
 
 
@@ -177,6 +179,25 @@ def unpack_handoff(value):
         raise ValueError("malformed cloud journey handoff")
     handoff_tenant_signing_key(value)
     return document["appKey"], datasource
+
+
+@contextmanager
+def tenant_application_key(value):
+    """Expose only the sealed application fixture key after stripping cloud/CI credentials."""
+    name = "HONUA_CANARY_TENANT_SIGNING_KEY"
+    previous = os.environ.get(name)
+    try:
+        if value is not None:
+            _validate_tenant_signing_key(value)
+            os.environ[name] = value
+        else:
+            os.environ.pop(name, None)
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
 
 
 @contextmanager
@@ -437,6 +458,17 @@ def documented_blockers(receipt):
     blockers = set()
     if any(notice.startswith(UNSUPPORTED_KIND_NOTICE) for notice in notices):
         blockers.add(UNSUPPORTED_KIND_ISSUE)
+    roster = receipt.get("roster") if isinstance(receipt.get("roster"), dict) else {}
+    if roster.get("status") == "fail":
+        return []
+    if roster.get("status") == "blocked":
+        # The candidate roster exports are a tracked upstream limitation, never a pass.
+        named = roster.get("blockedBy")
+        named = [named] if isinstance(named, str) else list(named or [])
+        named = [str(b) for b in named if str(b).strip()]
+        if not named:
+            return []
+        blockers.update(named)
     for stage in receipt.get("stages") or []:
         if stage.get("status") == "fail":
             return []
@@ -535,6 +567,23 @@ def _deleted(status):
                  "meet the existing object)"}.get(status, f"answered {status or 'nothing'}")
 
 
+ATTEMPT_SUFFIX = "-attempt"
+
+
+def attempt_datasource_name(base, number):
+    """Attempt 1 keeps the authored datasource name; a retry gets its own. Attempt 1's connection
+    usually cannot be deleted (the service it published still references it: 409), so a retry that
+    re-used the name failed at CreateConnectionAsync before any stage could recover (runs
+    39705901768, 39746615094, 39772292511)."""
+    base = str(base or "")
+    return base if number <= 1 or not base else f"{base}{ATTEMPT_SUFFIX}{number}"
+
+
+def _base_datasource_name(name):
+    head, sep, tail = str(name or "").rpartition(ATTEMPT_SUFFIX)
+    return head if sep and tail.isdigit() and head else str(name or "")
+
+
 def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None):
     """Delete attempt N-1's fixed-name journey objects before attempt N; returns the receipt notice.
 
@@ -545,7 +594,7 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
         return []
     request = request or admin_request
     base = (endpoint or "").rstrip("/")
-    name = str(((execution or {}).get("datasource") or {}).get("name") or "")
+    name = _base_datasource_name(((execution or {}).get("datasource") or {}).get("name"))
     style = str((execution or {}).get("styleId") or "")
     steps = []
     if name:
@@ -554,8 +603,10 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
         if status != 200 or not isinstance(rows, list):
             steps.append(f"listing connections answered {status or 'nothing'}, so no {name} connection was deleted")
         else:
+            # Every earlier attempt's connection: the authored name and its per-attempt variants.
             ids = [str(row.get("connectionId")) for row in rows
-                   if isinstance(row, dict) and row.get("name") == name]
+                   if isinstance(row, dict) and (row.get("name") == name
+                       or _base_datasource_name(row.get("name")) == name != row.get("name"))]
             if not ids:
                 steps.append(f"no {name} connection was left")
             for connection_id in ids:
@@ -613,7 +664,6 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     directory.mkdir(parents=True, exist_ok=True)
     workdir = directory / f"work-{number}"
     contract = driver.load(HERE / "journey.v1.json")
-    policy = driver.load(HERE / "control-plane-roster.v1.json")
     pinned = manifest()
     template = driver.load(adapter.DEFAULT_TARGET)
     targets = cloud_targets()
@@ -627,6 +677,9 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         target.update(id=cell, kind=kind or "none")
         target["adminPassword"] = {"env": "HONUA_CLOUD_JOURNEY_ADMIN", "default": ""}
         target["compose"]["notes"] = "Externally provisioned cloud cell; the cloud harness owns teardown."
+    datasource = (target.get("execution") or {}).get("datasource")
+    if kind is not None and isinstance(datasource, dict) and datasource.get("name"):
+        datasource["name"] = attempt_datasource_name(datasource["name"], number)
     target_path = directory / f"target-{number}.json"
     target_path.write_text(json.dumps(target) + "\n")
     notices = [f"Imported adapter protocol: {adapter.PROTOCOL}"]
@@ -648,6 +701,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     attribution = None
     if "discovery" in sys.modules:
         sys.modules["discovery"].reset_trace()
+        sys.modules["discovery"].reset_calls()
     try:
         if endpoint is not None:
             # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
@@ -685,9 +739,14 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     if build_only:
         target["kind"] = "none"
     receipt = driver.build_receipt(
-        manifest=pinned, journey=contract, roster=driver.roster_verdict(policy,
+        manifest=pinned, journey=contract, roster=driver.roster_verdict(
             driver.load(Path(os.environ["HONUA_CLOUD_REST_ROSTER"])) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
-            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None),
+            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+            sys.modules["discovery"].calls() if "discovery" in sys.modules else [],
+            source=driver.roster_source(
+                Path(os.environ["HONUA_CLOUD_REST_ROSTER"]) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
+                Path(os.environ["HONUA_CLOUD_MCP_ROSTER"]) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+                os.environ.get("HONUA_CLOUD_ROSTER_SOURCE_SHA"), pinned)),
         evidence_uri=evidence_uri,
         mode="build" if build_only else "live", target=target,
         target_path=target_path, target_base_url=endpoint, workspace=workspace,
@@ -708,11 +767,50 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
     path = directory / f"receipt-{number}.json"
     path.write_text(json.dumps(receipt, indent=2) + "\n")
-    return {"number": number, "runId": run_id, "runAttempt": run_attempt, "cell": cell,
+    record = {"number": number, "runId": run_id, "runAttempt": run_attempt, "cell": cell,
             "candidateDigest": candidate_digest(), "receipt": str(path.relative_to(ROOT / "e2e")),
             "receiptSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "failureAttribution": attribution or ("infrastructure" if receipt["status"] != "pass" else None),
             "observedServer": identity}
+    if cell in ("aws-ecs/redis-off", "aws-serverless/redis-off") and endpoint is not None:
+        import deterministic_refusal_profile as profile
+        try:
+            with (admin_credential(admin_key), driver.probes.allow_http_cell(http_cell_host(endpoint)),
+                  driver.pins.candidate_sandbox(), tenant_application_key(tenant_signing_key)):
+                proof = profile.produce(record, path, target_path, adapter=adapter,
+                    pinned=pinned, digest=candidate_digest(), cell=cell)
+        except Exception as exc:
+            proof = {"status": "fail", "why": "profile prerequisite failed: " + type(exc).__name__}
+        sidecar = directory / f"serving-refusal-{number}.json"
+        sidecar.write_text(json.dumps(proof, indent=2) + "\n")
+        record["servingRefusal"] = {"file": sidecar.name, "sha256": hashlib.sha256(sidecar.read_bytes()).hexdigest()}
+        if proof.get("status") != "pass" and record["failureAttribution"] is None:
+            record["failureAttribution"] = "infrastructure"
+    return record
+
+
+def profile_blocked(record, raw_path):
+    """A Redis-off attempt whose serving/refusal profile is a documented block (no admissible
+    prerequisite), as opposed to a profile that ran and failed."""
+    import deterministic_refusal_profile as profile
+    return profile.blocked_record(record, Path(raw_path))
+
+
+def qualify_attempt(record, receipt, cell, *, raw_path, run_id, run_attempt,
+                    at=None, pinned_manifest=None, pinned_manifest_digest=None, require_observation=True):
+    """Preserve raw full-workflow verdict; admit only the explicit bounded off profile."""
+    passed = validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt,
+        at=at, pinned_manifest=pinned_manifest, pinned_manifest_digest=pinned_manifest_digest)
+    if cell not in ("aws-ecs/redis-off", "aws-serverless/redis-off"):
+        return passed
+    import deterministic_refusal_profile as profile
+    if profile.failed_record(record, receipt, Path(raw_path)):
+        return False
+    profile.validate_record(record, receipt, Path(raw_path), cell=cell,
+        pinned=manifest() if pinned_manifest is None else pinned_manifest,
+        digest=candidate_digest() if pinned_manifest_digest is None else pinned_manifest_digest,
+        at=at, require_observation=require_observation)
+    return True
 
 
 def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None,
@@ -873,6 +971,22 @@ def prior_run_gate(prior_runs, *, run_id, run_attempt, final_cost):
     return failures, gaps
 
 
+def cleanup_failure(report):
+    """Cleanup is a safety obligation even when the journey is informational Preview."""
+    if not isinstance(report, dict):
+        return "cleanup report missing"
+    if report.get("cleanupFailures") or report.get("s10Cleanup", {}).get("status") == "failed":
+        return "run-owned resource cleanup failed"
+    teardown = report.get("teardown", {})
+    if report.get("provisionAttempted") is False:
+        return "inconsistent cleanup obligation" if teardown.get("attempted") is True else None
+    if report.get("provisionAttempted") is not True:
+        return "provisioning cleanup obligation unknown"
+    if teardown.get("attempted") is not True or teardown.get("completed") is not True:
+        return "provisioned infrastructure cleanup incomplete"
+    return None
+
+
 def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_attempt,
               final_cost=None, prior_runs=None):
     cells = []
@@ -901,6 +1015,8 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
         row = {**report, "evidenceTier": "Preview" if preview else "GA"}
         cells.append(row)
         by_cell.setdefault(cell, []).append(row)
+        if preview and (cleanup_problem := cleanup_failure(report)):
+            failures.append(f"{cell}: {cleanup_problem}")
         # Preview journey failures are informational. The run-wide spend ceiling remains
         # independent of topology maturity, including a later snapshot from a Preview cell.
         cost = report.get("cost", {})
@@ -938,8 +1054,13 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
                 if passed:
                     raise ValueError("attempt recorded after a passing journey")
                 receipt = json.loads(data)
-                passed = validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+                passed = qualify_attempt(record, receipt, cell, raw_path=path, run_id=run_id, run_attempt=run_attempt)
                 attempt_blockers.append(documented_blockers(receipt))
+            recorded_profiles = {(Path(report["artifactDirectory"]) / record["receipt"]).parent
+                / f"serving-refusal-{record['number']}.json" for record in attempts if record.get("servingRefusal")}
+            if any(path.resolve() not in {p.resolve() for p in recorded_profiles}
+                   for path in Path(report["artifactDirectory"]).rglob("serving-refusal-*.json")):
+                raise ValueError("produced serving/refusal sidecar omitted from attempt history")
             cost = report.get("cost", {})
             # Outside require_real a cell that is BLOCKED only by tracked, documented limitations
             # (journey receipts, scenarios, a missing run cost meter) is reported blocked, never

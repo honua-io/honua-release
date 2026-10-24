@@ -44,14 +44,50 @@ def _write(path, value):
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def _update_cell(cell):
+def _update_cell(cell, candidate_lock=None):
     actuator = {"aws-ecs/redis-off": "terraform-exact-apply", "aws-ecs/redis-on": "honua-aws-ecs-alb",
                 "aws-serverless/redis-off": "honua-gitops-aws-lambda", "aws-serverless/redis-on": "honua-gitops-aws-lambda"}[cell]
-    return {"cell": cell, "updateStatus": "pass", "rollbackStatus": "pass", "actuator": actuator,
+    result = {"cell": cell, "updateStatus": "pass", "rollbackStatus": "pass", "actuator": actuator,
             "fromDigest": "sha256:" + "a" * 64, "toDigest": LAMBDA_IMAGE if cell.startswith("aws-serverless/") else ECS_IMAGE,
-            "inFlightJob": {"jobId": "gp-flight-1", "initialState": "running", "terminalStates": ["succeeded"]},
             "schemaBoundary": {"status": "pass", "outcome": "serving", "schemaVersion": "128",
-                               "imageDigest": "sha256:" + "a" * 64}}
+                               "imageDigest": "sha256:" + "a" * 64},
+            "cleanup": {"status": "pass"}, "cost": {"status": "pass"}}
+    result["prior"] = {"manifestDigest": "sha256:" + "a" * 64, "lockDigest": OTHER_LOCK,
+                       "sourceRevision": "a" * 40, "schemaVersion": "128", "imageDigest": result["fromDigest"],
+                       "lambdaImageDigest": result["fromDigest"]}
+    result["candidate"] = {"manifestDigest": "sha256:" + "b" * 64, "lockDigest": candidate_lock,
+                           "sourceRevision": "b" * 40, "schemaVersion": "128", "imageDigest": ECS_IMAGE,
+                           "lambdaImageDigest": LAMBDA_IMAGE}
+    fixture = {"serviceId": "e2e", "layerId": 7, **dict.fromkeys(
+        ("seedManifestSha256", "seedScriptSha256", "seedSqlSha256", "expectedFeaturesSha256"), "1" * 64)}
+    result["observations"] = [{"phase": phase, "observedAt": i + 1, "sourceRevision": release["sourceRevision"],
+        "native": {"kind": "lambda-alias" if cell.startswith("aws-serverless/") else "ecs-native-routing",
+                   "imageDigest": image, "version": str(2 if phase == "candidate" else 1), "taskCount": 1},
+        "schemaJournal": {"method": "live-bidirectional-migration-plan", "pendingScripts": 0, "extraScripts": 0,
+                          "readyForCoordinatedDeploy": True, "candidateImageDigest": ECS_IMAGE},
+        "servingFixture": copy.deepcopy(fixture)} for i, (phase, release, image) in enumerate([
+            ("baseline", result["prior"], result["fromDigest"]), ("candidate", result["candidate"], result["toDigest"]),
+            ("rollback", result["prior"], result["fromDigest"])])]
+    if actuator == "terraform-exact-apply":
+        result["updateOperation"] = {"actuator": actuator, "status": "applied", "planSha256": "sha256:" + "3" * 64, "imageDigest": result["toDigest"]}
+        result["rollbackOperation"] = {"actuator": actuator, "status": "applied", "planSha256": "sha256:" + "4" * 64, "imageDigest": result["fromDigest"]}
+    else:
+        result["updateOperation"] = {"operationId": "op-1", "status": "Succeeded", "observedRevision": "2", "providerOperationIdSha256": "sha256:" + "3" * 64}
+        result["rollbackOperation"] = {"operationId": "op-1", "status": "RolledBack", "observedRevision": "1", "providerOperationIdSha256": "sha256:" + "4" * 64}
+    if cell.endswith("redis-off"):
+        result.update(executionOutcome="refused", functionalGpExecuted=False, refusals=[{
+            "status": "pass", "outcome": "refused", "functionalGpExecuted": False,
+            "code": "dependency-unavailable", "capability": "jobs.runner", "missingDependency": "redis"} for _ in range(3)])
+    else:
+        result.update(executionOutcome="succeeded", functionalGpExecuted=True, inFlightJob={
+            "jobId": "gp-flight-1", "initialState": "running", "terminalStates": ["succeeded"], "attemptCount": 1,
+            "executionEvents": {"started": 1, "completed": 1}, "output": {"sha256": "sha256:" + "1" * 64,
+                "fixtureSha256": "sha256:" + "2" * 64, "oracle": "independent-authored-output"}})
+        result["rollbackInFlightJob"] = copy.deepcopy(result["inFlightJob"])
+        result["rollbackInFlightJob"]["jobId"] = "gp-flight-2"
+        for name in ("jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"):
+            result[name] = {"jobId": "gp-flight-2" if "Rollback" in name else "gp-flight-1", "state": "running", "attemptCount": 1}
+    return result
 
 
 def _fixture(tmp_path, *, age=54, minted=None):
@@ -104,12 +140,16 @@ def _fixture(tmp_path, *, age=54, minted=None):
             mode, cells = JOURNEYS[name]
             receipt["cells"] = [{"cell": cell, "mode": mode, "attemptCount": 1,
                                  "attempts": [{"attempt": 1, "status": "pass", "lockDigest": digest,
-                                               "completedAt": row["completedAt"]}]} for cell in cells]
+                                               "completedAt": row["completedAt"],
+                                               **({"profile": "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow",
+                                                   "executionOutcome": "refused" if cell.endswith("/redis-off") else "completed",
+                                                   "functionalGpExecuted": not cell.endswith("/redis-off")} if mode == "genuine-model"
+                                                   or cell.endswith("/redis-off") else {})}]} for cell in cells]
         if name == "agent-e2e":
             from test_mint_nightly_lock import agent_summary
             receipt["agentPack"] = agent_summary(lock, row["completedAt"])
         if name == "update-rollback":
-            receipt.update(cells=[_update_cell(cell) for cell in GA_CELLS],
+            receipt.update(cells=[_update_cell(cell, digest) for cell in GA_CELLS],
                            fromLockDigest=OTHER_LOCK, toLockDigest=digest,
                            updateStatus="pass", rollbackStatus="pass")
         root = evidence / "evidence" / name / run_id
@@ -625,6 +665,13 @@ def test_update_rollback_requires_actuator_transition_job_and_schema_proof(tmp_p
     fixture = _fixture(tmp_path)
     def mutate(receipt):
         cell = next(row for row in receipt["cells"] if row["cell"] == cell_name)
+        if cell_name.endswith("redis-off") and mutation in {"missing-job", "empty-job", "not-in-flight", "nonterminal", "empty-terminal", "multiple-terminal"}:
+            # These historical controls tried to claim execution on a serving-only topology.
+            # Any such inFlightJob is now contradictory, including an empty/malformed record.
+            cell["inFlightJob"] = {"jobId": " " if mutation == "empty-job" else "wrong-execution",
+                                   "initialState": "succeeded" if mutation == "not-in-flight" else "running",
+                                   "terminalStates": [] if mutation == "empty-terminal" else ["succeeded"]}
+            return
         if mutation == "missing-actuator": del cell["actuator"]
         elif mutation == "wrong-actuator": cell["actuator"] = "fake-deploy"
         elif mutation == "same-image": cell["toDigest"] = cell["fromDigest"]
@@ -670,9 +717,10 @@ def test_update_rollback_receipt_schema_requires_every_structural_proof_field(tm
     validator = Draft202012Validator({"$ref": "#/$defs/updateRollbackReceipt", "$defs": schema["$defs"]})
     Draft202012Validator.check_schema(schema)
     assert validator.is_valid(receipt)
-    for field in ("actuator", "fromDigest", "toDigest", "inFlightJob", "schemaBoundary"):
+    for field in ("actuator", "fromDigest", "toDigest", "inFlightJob", "schemaBoundary", "prior", "candidate", "observations", "updateOperation", "rollbackOperation"):
         bad = copy.deepcopy(receipt)
-        del bad["cells"][0][field]
+        index = next(i for i, cell in enumerate(bad["cells"]) if field in cell)
+        del bad["cells"][index][field]
         assert not validator.is_valid(bad), field
     bad = copy.deepcopy(receipt)
     bad["cells"][0]["actuator"] = "honua-gitops-aws-lambda"
@@ -735,3 +783,85 @@ def test_update_rollback_schema_requires_shared_receipt_envelope(tmp_path, field
     assert validator.is_valid(receipt)
     del receipt[field]
     assert not validator.is_valid(receipt)
+
+
+@pytest.mark.parametrize("mutation", ["completed-gp", "missing-refusal", "wrong-dependency", "wrong-capability", "hidden-job", "empty-cost", "empty-cleanup"])
+def test_update_rollback_off_requires_actual_nonexecution_profile(tmp_path, mutation):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        cell = next(c for c in receipt["cells"] if c["cell"].endswith("redis-off"))
+        if mutation == "completed-gp": cell.update(executionOutcome="succeeded", functionalGpExecuted=True)
+        elif mutation == "missing-refusal": cell["refusals"].pop()
+        elif mutation == "wrong-dependency": cell["refusals"][1]["missingDependency"] = "database"
+        elif mutation == "wrong-capability": cell["refusals"][2]["capability"] = "studio.maps"
+        elif mutation == "hidden-job": cell["refusals"][0]["jobId"] = "accepted"
+        elif mutation == "empty-cost": cell["cost"] = {}
+        else: cell["cleanup"] = {}
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("mutation", ["before-completed", "after-completed", "different-job", "duplicate-start", "duplicate-terminal", "retry", "missing-oracle", "wrong-output"])
+def test_update_rollback_on_requires_real_switch_and_unique_output_proof(tmp_path, mutation):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        cell = next(c for c in receipt["cells"] if c["cell"].endswith("redis-on"))
+        if mutation == "before-completed": cell["jobBeforeUpdate"]["state"] = "succeeded"
+        elif mutation == "after-completed": cell["jobAfterRollback"]["state"] = "succeeded"
+        elif mutation == "different-job": cell["jobBeforeRollback"]["jobId"] = "other"
+        elif mutation == "duplicate-start": cell["inFlightJob"]["executionEvents"]["started"] = 2
+        elif mutation == "duplicate-terminal": cell["inFlightJob"]["executionEvents"]["completed"] = 2
+        elif mutation == "retry": cell["inFlightJob"]["attemptCount"] = 2
+        elif mutation == "missing-oracle": del cell["inFlightJob"]["output"]["oracle"]
+        else: cell["inFlightJob"]["output"]["sha256"] = "self-reported"
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "retry", "different-job", "bad-output"])
+def test_rollback_transition_needs_its_own_complete_execution_proof(mutation):
+    import check_promotion_readiness as checks
+    cells = [_update_cell(cell) for cell in checks.GA_CELLS]
+    cell = next(c for c in cells if c["cell"] == "aws-ecs/redis-on")
+    if mutation == "missing": del cell["rollbackInFlightJob"]
+    elif mutation == "duplicate": cell["rollbackInFlightJob"]["executionEvents"]["completed"] = 2
+    elif mutation == "retry": cell["rollbackInFlightJob"]["attemptCount"] = 2
+    elif mutation == "different-job": cell["jobAfterRollback"]["jobId"] = "different"
+    else: cell["rollbackInFlightJob"]["output"]["sha256"] = "declared"
+    assert not checks._update_rollback_cells(cells, {c["cell"]: c["toDigest"] for c in cells})
+
+
+@pytest.mark.parametrize('cell_name', GA_CELLS)
+@pytest.mark.parametrize('mutation', ['missing-observations', 'short-observations', 'reordered', 'same-time', 'wrong-source',
+    'wrong-image', 'wrong-fixture', 'missing-fixture-hash', 'wrong-journal', 'missing-update', 'missing-rollback',
+    'status-only-update', 'status-only-rollback', 'wrong-operation', 'same-revision', 'wrong-release', 'same-source', 'missing-journal-image', 'nonfinite-time'])
+def test_update_rollback_requires_retained_routing_and_concrete_actuator_proof(cell_name, mutation):
+    cells = [_update_cell(name) for name in GA_CELLS]
+    targets = {cell['cell']: cell['toDigest'] for cell in cells}
+    assert readiness._update_rollback_cells(cells, targets)
+    cell = next(c for c in cells if c['cell'] == cell_name)
+    if mutation == 'missing-observations': del cell['observations']
+    elif mutation == 'short-observations': cell['observations'].pop()
+    elif mutation == 'reordered': cell['observations'].reverse()
+    elif mutation == 'same-time': cell['observations'][1]['observedAt'] = cell['observations'][0]['observedAt']
+    elif mutation == 'wrong-source': cell['observations'][1]['sourceRevision'] = 'c' * 40
+    elif mutation == 'wrong-image': cell['observations'][1]['native']['imageDigest'] = cell['fromDigest']
+    elif mutation == 'wrong-fixture': cell['observations'][2]['servingFixture']['seedManifestSha256'] = '2' * 64
+    elif mutation == 'missing-fixture-hash': del cell['observations'][1]['servingFixture']['expectedFeaturesSha256']
+    elif mutation == 'wrong-journal': cell['observations'][2]['schemaJournal']['pendingScripts'] = 1
+    elif mutation == 'missing-update': del cell['updateOperation']
+    elif mutation == 'missing-rollback': del cell['rollbackOperation']
+    elif mutation == 'status-only-update': cell['updateOperation'] = {'status': 'Succeeded'}
+    elif mutation == 'status-only-rollback': cell['rollbackOperation'] = {'status': 'RolledBack'}
+    elif mutation == 'wrong-operation':
+        cell['rollbackOperation']['planSha256' if cell_name == 'aws-ecs/redis-off' else 'operationId'] = 'other'
+    elif mutation == 'same-revision':
+        if cell_name == 'aws-ecs/redis-off': cell['rollbackOperation']['planSha256'] = cell['updateOperation']['planSha256']
+        else: cell['rollbackOperation']['observedRevision'] = cell['updateOperation']['observedRevision']
+    elif mutation == 'nonfinite-time': cell['observations'][1]['observedAt'] = float('nan')
+    elif mutation == 'missing-journal-image':
+        cell['candidate']['imageDigest'] = None
+        for row in cell['observations']: row['schemaJournal']['candidateImageDigest'] = None
+    elif mutation == 'wrong-release': cell['candidate']['lambdaImageDigest' if cell_name.startswith('aws-serverless/') else 'imageDigest'] = cell['fromDigest']
+    else: cell['candidate']['sourceRevision'] = cell['prior']['sourceRevision']
+    assert not readiness._update_rollback_cells(cells, targets), (cell_name, mutation)

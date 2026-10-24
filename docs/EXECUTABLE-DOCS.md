@@ -69,6 +69,65 @@ A mismatch, or registry metadata without the hash, is a refusal. Closure package
 manifest hash, so only their version is checked. A doc that installs an old scope, a beta or an unpinned package
 fails at install, and the report lists the refusal under `guardRefusals`.
 
+**Mixed-language contexts.** A guide with independent language examples may declare
+`executionContexts` in `sources.json`. Each named context has one supported runtime
+(`node`, `python` or `dotnet`), a source citation, and the exact index/SHA256 of every
+setup and snippet block it owns. All executable blocks must be assigned exactly once;
+missing, changed, duplicate, reordered or language-incompatible bindings fail before
+execution. Runtime selection never guesses from the command text.
+
+Each context has its own persistent container, HOME, working directory, exported
+variables and PATH, plus Node/Python interpreter or .NET project state. A Python install
+and its later snippet therefore use the same Python environment. A .NET snippet
+must use the project its setup actually created. Contexts inherit
+the document's declared prerequisite tools, pinned images, registry guard and package
+audit. An unsuccessful context block fails its later blocks, while other contexts
+still run. Receipts retain the explicit context name/runtime for every assigned block.
+This bounded mechanism supports standalone documents; grouped document sessions,
+source-build admission, checkout and Docker orchestration combined with explicit
+contexts currently fail closed. Documents without explicit contexts keep one
+document-wide session. The GP guide's package versions and actual GP behavior
+remain independently checked; context routing does not make unavailable packages or
+failed operations pass.
+JavaScript/TypeScript keeps lexical declarations, imports and top-level `await` state
+in one Node reader interpreter per context. Each snippet executes once, even if it
+writes something before failing. Static imports link together in one native ESM
+bridge before any dependency evaluates; shared dependencies are not replayed. Imported
+values remain live across later blocks and retained closures. Snippet-body `import.meta`
+uses native metadata for the snippet file, including `url` and `resolve`. A single
+integrity-locked TypeScript compiler bootstrap supplies import analysis to isolated
+readers; its timeout and receipt are separate from block execution. Unsupported
+module syntax fails the affected block. The bounded reader does not establish full
+Node module support or waive a required execution. Uncaught errors, timeout or worker exit lose that
+context, stops its owned container and children, and fails subsequent snippets without
+restarting or replaying earlier code. This does not change Python ownership or C# replay.
+Node's event-loop idle signal establishes block completion after referenced asynchronous
+work drains, including unawaited promise callbacks. A late error still fails that block.
+Reader `beforeExit` listeners retain native order and current-block capture, including
+nested nextTick/Promise jobs and later idle events caused by their referenced work.
+An owned checkpoint checks public `process.getActiveResourcesInfo()` after those jobs;
+only the exact harness I/O and checkpoint handles are unreferenced. Resource types are
+never ignored, and cleanup bookkeeping does not create extra reader idle events.
+An owned UDP socket that is still unbound after `beforeExit` listeners completes the way
+native Node does, and only once no other referenced work remains. The public active-resource
+list can still report `UDPWrap` for that inactive handle; the runner drops that socket's own
+ref through `unref()` and does not subtract resource types. A bind, send, connect, or membership
+join marks the socket bound. A bound socket, referenced or unreferenced, is not treated as idle.
+The final native exit status also remains authoritative; nonzero `process.exitCode` fails
+and loses the context rather than passing because the interpreter stays alive.
+Top-level await that cannot settle at idle fails and stops the context; referenced work
+that never completes hits the caller's timeout. The oracle uses no guessed quiet interval.
+Before reporting completion, owned unreferenced timers/immediates are cancelled and owned
+unreferenced sockets, listening servers, message ports and `fs.watch` watchers are closed
+through public APIs. Close callbacks remain captured by their original block; errors or
+cleanup that exceeds that block's timeout fail the context. Idle SDK connections close
+without removing listeners, and a later query by the same client must reconnect. Unsupported
+owned unreferenced child/worker/stat-watcher/promise-watch resources, and a bound unreferenced
+UDP socket, fail before pass. This bounded cleanup can run close callbacks that native
+process exit would omit. That difference stays explicit in the native-oracle control
+`test_cleanup_callbacks_are_captured_before_pass_with_explicit_native_difference`. It is
+not full native exit fidelity. ESM limitations beyond the implemented reader also remain.
+
 ## Results
 
 Per block: `pass`, `fail` (with the stdout and stderr tails), `needs-input`, or `blocked`. Blocks that
@@ -80,9 +139,10 @@ are not meant to run are reported as `not-run` with their intent.
   asserted. The full output must match with whitespace normalized; numbers remain exact and
   only a documented `...` or `…` elides. JSON is compared recursively, including values, types,
   array lengths and the complete set of keys. Extra output fails.
-- **Continuations.** A C# or JS/TS block that fails only because it uses a name from an earlier
-  block (`CS0103`, `ReferenceError`, `TS2304`) is re-run appended to the document's earlier passing
-  blocks of that language, and the result is marked `+continues-earlier-blocks`.
+- **Continuations.** A C# block that fails because it uses a name from an earlier
+  block (`CS0103`) is re-run appended to the document's earlier passing C# blocks,
+  and the result is marked `+continues-earlier-blocks`. JavaScript/TypeScript uses
+  its persistent interpreter and never retries by concatenating prior snippets.
 - **Long-running commands.** `npm run dev`, `docker compose up` without `-d` and the like need
   readiness evidence stated in the document. A `doc-run: run ready-url="http://localhost:3000/"`
   marker requires a successful HTTP response while the command runs; `ready-log="Ready"` requires
@@ -179,6 +239,7 @@ report. The right fix is a document a reader can follow.
 pip install "pyyaml>=6.0" pytest
 python -m pytest certification/executable-docs -q            # offline self-tests
 python certification/executable-docs/docker_regressions.py  # live ownership and readiness regressions
+python -m pytest certification/executable-docs/install_healthcheck_docker.py -q  # live Compose healthcheck control
 
 # regenerate / check the committed inventory (reads the docs at their release revisions)
 GH_TOKEN=$(gh auth token) python certification/executable-docs/inventory.py --write

@@ -140,7 +140,7 @@ async function runAdmin(state) {
     const created = unwrap(await admin.call("createConnection", {
       body: {
         name: life.connectionName, host: db.host, port: db.port, databaseName: db.databaseName,
-        username: db.username, password: dbPassword, provider: db.provider, sslRequired: false, sslMode: "Disable",
+        username: db.username, password: dbPassword, provider: db.provider, sslRequired: db.sslRequired ?? false, sslMode: db.sslMode ?? "Disable",
       },
     }));
     state.connection = created.connectionId ?? created.id;

@@ -75,8 +75,11 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None, missing_post_gate=F
     for journey in journeys:
         for row in journey['cells']:
             for attempt in row['attempts']:
+                if attempt['driver'] == 'deterministic' and row['cell'].endswith('/redis-off'):
+                    attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused', functionalGpExecuted=False)
                 if attempt['driver'] == 'genuine-model':
                     attempt['lockDigest'] = 'sha256:' + _sha256(qualification_lock)
+                    attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused', functionalGpExecuted=False)
     report = nightly.declare_evidence(report, qualification_lock, journeys, agent_summary(qualification_lock, report['generatedAt']))
     nightly.snapshot(*real_paths, report, tmp_path / 'notes')
     return report, real_paths
@@ -753,7 +756,8 @@ def test_model_journey_attempt_bound_to_another_lock_cannot_be_retained(inputs, 
     journeys = [{'status': 'pass', 'runId': RUN, 'runAttempt': 1, 'candidateDigest': _sha256(paths[0]),
                  'cells': [{'cell': 'aws-ecs/redis-off', 'status': 'pass', 'attempts': [
                      {'number': 1, 'status': 'pass', 'driver': 'genuine-model', 'completedAt': stamp,
-                      'lockDigest': bound}]}]}]
+                      'lockDigest': bound, 'profile': 'redis-off-serving-refusal',
+                      'executionOutcome': 'refused', 'functionalGpExecuted': False}]}]}]
     declared = nightly.declare_evidence(report, lock, journeys)
     assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
     journeys[0]['cells'][0]['attempts'][0]['lockDigest'] = 'sha256:' + _sha256(lock)

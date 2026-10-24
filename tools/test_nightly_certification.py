@@ -171,7 +171,7 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
     assert writes == {
         'resolve': ['contents'],               # unadmitted capacity preparation only
         'lambda_deployment': ['contents'],       # unadmitted refs/prepared-deployments/<sha> only
-        'deployment_qualification': ['actions'], # completed child EKS producer, before admission
+        'deployment_qualification': [],          # validates Lambda proof; Preview EKS is not dispatched
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
@@ -231,10 +231,13 @@ def test_nightly_and_candidate_ref_are_call_only_inputs():
     assert 'nightly' not in dispatch and 'candidate_ref' not in dispatch
     assert called['nightly'] == {'required': False, 'type': 'boolean', 'default': False}
     assert called['candidate_ref'] == {'required': False, 'type': 'string', 'default': ''}
-    for inputs in (dispatch, called):
-        assert inputs['capacity_receipt_url']['required'] is True
-        assert inputs['dr_receipt_url']['required'] is True
-    # A manual dispatch therefore always takes the signed frozen-lock binding.
+    assert called['capacity_receipt_url']['required'] is True
+    assert called['dr_receipt_url']['required'] is True
+    # Preparation needs no qualification receipt yet. The executable preflight
+    # still requires both URLs for every full manual train, including dry runs.
+    assert dispatch['capacity_receipt_url']['required'] is False
+    assert dispatch['dr_receipt_url']['required'] is False
+    # A normal manual dispatch still takes the signed frozen-lock binding.
     bind = step(train['jobs']['freeze'], 'Bind the complete atomic platform lock')
     assert evaluate(bind['if'], {'inputs.dry_run': False})
 

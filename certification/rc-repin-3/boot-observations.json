@@ -1,0 +1,90 @@
+{
+  "schema": "honua.rc-repin-boot-observations/v1",
+  "qualification": "engineering boot/capability observations; not full RC or AI qualification",
+  "imageWorkflow": {
+    "repository": "honua-io/honua-server",
+    "runId": 39876804619,
+    "attempt": 2,
+    "conclusion": "success"
+  },
+  "registryIndexDigest": "sha256:2d7877c4d1cb3b30647fb225893d41b13728f0448997997cdf4bf40fe99be07d",
+  "platformDigests": {
+    "amd64": "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
+    "arm64": "sha256:cd5a7be39163f711861176dce58bdc915098bd12e5c91d10af7bc4702bdf8965"
+  },
+  "boots": [
+    {
+      "status": "pass",
+      "kind": "customer",
+      "image": "ghcr.io/honua-io/honua-server@sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
+      "imageId": "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
+      "deploymentRevision": "8cb074f77d01c0a00617ebe426460aa24c7d890b",
+      "deploymentRevisionSource": "commit-sha",
+      "fetchedAt": "2026-10-23T02:21:26.786506+00:00",
+      "databaseImage": "pgrouting/pgrouting:17-3.5-3.7.3@sha256:5e6767abbd1fd9ead84c9988aa31bac71ca292ef8a1fc2e4a5ee2b613ac6a7bb",
+      "environment": "Development",
+      "capabilities": 80,
+      "migrationRows": 152,
+      "adminLicenseDisabled": true,
+      "healthy": true,
+      "project": "honua-repin3-customer-9f8ec3"
+    },
+    {
+      "status": "pass",
+      "kind": "production",
+      "image": "ghcr.io/honua-io/honua-server@sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
+      "imageId": "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
+      "deploymentRevision": "8cb074f77d01c0a00617ebe426460aa24c7d890b",
+      "deploymentRevisionSource": "commit-sha",
+      "fetchedAt": "2026-10-23T02:21:46.009630+00:00",
+      "databaseImage": "postgis/postgis:16-3.4",
+      "environment": "Production",
+      "capabilities": 80,
+      "migrationRows": 152,
+      "adminLicenseDisabled": true,
+      "healthy": true,
+      "project": "honua-repin3-production-360e72"
+    }
+  ],
+  "lambdaMirror": {
+    "workflow": "e2e-cloud-aws.yml",
+    "runId": 39890789827,
+    "workflowSourceSha": "e0acb77526774211c5056d45fd95ffc22dfa29fa",
+    "preparedInputSha": "0e5a7c2ac41111532eff5b68a724628a83aec63f",
+    "sourceDigest": "sha256:a77ece8e57735e4ff97535e4f74e70eed197cc3aca6e1f17592fc9caea041160",
+    "ecrDigest": "sha256:a77ece8e57735e4ff97535e4f74e70eed197cc3aca6e1f17592fc9caea041160",
+    "region": "us-east-1",
+    "tag": "rc-2026.1-rc.2-lambda-aot-8cb074f-x86_64",
+    "sourceConfigAndLayersVerified": true,
+    "outcome": "expected pending-mirror sentinel failure; no provisioning; not cloud qualification"
+  },
+  "imageConfigObservations": [
+    {
+      "image": "server-amd64",
+      "architecture": "amd64",
+      "os": "linux",
+      "revision": "8cb074f77d01c0a00617ebe426460aa24c7d890b",
+      "entrypoint": [
+        "/app/Honua.Server"
+      ]
+    },
+    {
+      "image": "server-arm64",
+      "architecture": "arm64",
+      "os": "linux",
+      "revision": "8cb074f77d01c0a00617ebe426460aa24c7d890b",
+      "entrypoint": [
+        "/app/Honua.Server"
+      ]
+    },
+    {
+      "image": "lambda-amd64",
+      "architecture": "amd64",
+      "os": "linux",
+      "revision": "8cb074f77d01c0a00617ebe426460aa24c7d890b",
+      "entrypoint": [
+        "/var/task/Honua.Server"
+      ]
+    }
+  ]
+}

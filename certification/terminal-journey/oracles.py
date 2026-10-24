@@ -1,12 +1,32 @@
-"""Small mathematical oracles. No server, SDK, GIS or renderer imports."""
+"""Small mathematical oracles.
+
+PNG bytes go through the shared release decoder. That module uses the standard
+library only. This module does not import a server, SDK, GIS stack, or renderer.
+"""
 from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import json
 import math
 import struct
-import zlib
+from pathlib import Path
+
+def _load_render_png():
+    """Load the shared decoder by path so this package never shadows `run` or `pins`."""
+    path = Path(__file__).resolve().parents[1] / "installed-clients" / "render_png.py"
+    spec = importlib.util.spec_from_file_location("honua_installed_clients_render_png", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"shared PNG decoder is not loadable: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_render_png = _load_render_png()
+PngError = _render_png.PngError
+decode_png = _render_png.decode_png
 
 
 class ProofError(ValueError):
@@ -105,79 +125,25 @@ def prove_features(document, expected):
 
 
 def png_pixel(png, size, position):
-    """Decode bounded, non-interlaced 8-bit RGB/RGBA PNGs using the PNG specification."""
-    if not png.startswith(b"\x89PNG\r\n\x1a\n") or len(png) > 4 * 1024 * 1024:
-        raise ProofError("render is not a bounded PNG")
-    width, height = size
-    if not 1 <= width <= 4096 or not 1 <= height <= 4096:
-        raise ProofError("render dimensions exceed the bound")
-    offset, compressed, channels, ended = 8, bytearray(), None, False
-    while offset < len(png):
-        if offset + 12 > len(png):
-            raise ProofError("PNG chunk is truncated")
-        length, = struct.unpack_from(">I", png, offset)
-        tag = png[offset + 4:offset + 8]
-        end = offset + 12 + length
-        if end > len(png):
-            raise ProofError("PNG chunk is truncated")
-        body = png[offset + 8:offset + 8 + length]
-        checksum, = struct.unpack_from(">I", png, offset + 8 + length)
-        if zlib.crc32(tag + body) != checksum:
-            raise ProofError("PNG chunk CRC differs")
-        if tag == b"IHDR":
-            if offset != 8 or length != 13 or channels is not None:
-                raise ProofError("PNG header is invalid")
-            w, h, depth, colour, compression, filtering, interlace = struct.unpack(">IIBBBBB", body)
-            if (w, h) != (width, height) or depth != 8 or colour not in {2, 6} or any((compression, filtering, interlace)):
-                raise ProofError("PNG dimensions or encoding differ from supported render output")
-            channels = 4 if colour == 6 else 3
-        elif tag == b"IDAT":
-            if channels is None:
-                raise ProofError("PNG image precedes its header")
-            compressed.extend(body)
-        elif tag == b"IEND":
-            if body or end != len(png):
-                raise ProofError("PNG end or trailing bytes are invalid")
-            ended = True
-            break
-        offset = end
-    if channels is None or not compressed or not ended:
-        raise ProofError("PNG is incomplete")
-    stride = width * channels
-    bound = (stride + 1) * height
+    """Read one pixel with the shared PNG decoder, then check the authored size."""
+    if not isinstance(png, (bytes, bytearray)):
+        raise ProofError("PNG decoder refused: size")
     try:
-        decoder = zlib.decompressobj()
-        raw = decoder.decompress(bytes(compressed), bound + 1)
-    except zlib.error as exc:
-        raise ProofError("PNG compressed stream is invalid") from exc
-    if len(raw) != bound or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
-        raise ProofError("PNG decoded byte count differs")
-    previous = bytearray(stride)
-    pixel = None
-    for y in range(height):
-        start = y * (stride + 1)
-        kind, row = raw[start], bytearray(raw[start + 1:start + stride + 1])
-        if kind > 4:
-            raise ProofError("PNG row filter is invalid")
-        for i in range(stride):
-            left = row[i - channels] if i >= channels else 0
-            above = previous[i]
-            upper_left = previous[i - channels] if i >= channels else 0
-            predicted = left + above - upper_left
-            distances = [abs(predicted - v) for v in (left, above, upper_left)]
-            paeth = (left, above, upper_left)[distances.index(min(distances))]
-            addition = (0, left, above, (left + above) // 2, paeth)[kind]
-            row[i] = (row[i] + addition) & 255
-        if y == position[1]:
-            pixel = tuple(row[position[0] * channels:(position[0] + 1) * channels])
-        previous = row
-    if pixel is None or len(pixel) != channels:
-        raise ProofError("PNG pixel lies outside its bounds")
-    return pixel if channels == 4 else pixel + (255,)
+        width, height, pixel = decode_png(bytes(png))
+    except PngError as exc:
+        raise ProofError(f"PNG decoder refused: {exc.code}") from exc
+    if (width, height) != tuple(size):
+        raise ProofError("PNG dimensions differ from the authored render size")
+    try:
+        return pixel(position[0], position[1])
+    except PngError as exc:
+        raise ProofError(f"PNG decoder refused: {exc.code}") from exc
 
 
-def prove_pixel(png, *, bbox, point, size, rgba):
+def prove_pixel(png, *, bbox, point, size, rgba, media_type):
     """Compute the pixel position from the authored bbox, independently of rendering."""
+    if media_type != "image/png":
+        raise ProofError("render media type is not image/png")
     width, height = size
     px = math.floor((point[0] - bbox[0]) / (bbox[2] - bbox[0]) * width)
     py = math.floor((bbox[3] - point[1]) / (bbox[3] - bbox[1]) * height)

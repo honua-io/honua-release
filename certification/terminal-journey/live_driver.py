@@ -23,7 +23,9 @@ This adapter is deliberately honest about what the candidate can do:
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -137,7 +139,7 @@ def _tool_view(observation: stagelib.Observation) -> dict[str, Any]:
         "tools": discovery.get("tools", []) if observation.setup_view_present else [],
         "metadata": discovery.get("metadata") if observation.setup_view_present else None,
         "catalogToolCount": len(observation.tool_names),
-        "blockedBy": [] if observation.setup_view_present else [stagelib.SETUP_VIEW],
+        "blockedBy": [] if observation.setup_view_present else [stagelib.JOURNEY_DRIVER],
         "detail": (
             "the candidate negotiates a bounded server-authored setup view"
             if observation.setup_view_present
@@ -180,10 +182,71 @@ def _stage_status(journey: dict[str, Any], observation: stagelib.Observation, wo
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
+def _cloud_image(target, manifest, target_digest, proof, *, profile=None):
+    """Reuse the same-job deployment readback; never infer an external image from manifest pins."""
+    if not isinstance(proof, dict) or not proof.get("path") or not proof.get("sha256"):
+        raise DriverError("cloud setup requires the verified deterministic deployment receipt")
+    path = Path(proof["path"])
+    data = (path if path.is_absolute() else ROOT / path).read_bytes()
+    if hashlib.sha256(data).hexdigest() != proof["sha256"]:
+        raise DriverError("deterministic deployment receipt digest changed")
+    receipt = json.loads(data)
+    server = manifest["components"]["honua-server"]
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if target["kind"] == "aws-serverless"
+                               else ("image", "digest"))
+    if not server.get(image_name) or not server.get(digest_name):
+        raise DriverError("the declared cell has no pinned candidate image")
+    expected = {"sourceSha": server["sha"],
+                "image": f"{server[image_name].split('@', 1)[0]}@{server[digest_name]}"}
+    recorded = receipt.get("target") or {}
+    first = next((stage for stage in receipt.get("stages", []) if stage.get("number") == 1), {})
+    image = next((check for check in first.get("checks", []) if check.get("id") == "1.1-candidate-image"), {})
+    bounded_off = proof.get("prerequisiteProfile") == "redis-off-serving-refusal"
+    if bounded_off:
+        if profile != "redis-off-serving-refusal":
+            raise DriverError("bounded prerequisite requires the explicit Redis-off model profile")
+        from tools.terminal_model_canary import validate_deterministic_receipt, load_journey, CanaryError
+        try:
+            validated = validate_deterministic_receipt(path, manifest=manifest,
+                journey=load_journey(HERE / "journey.v1.json"), cell=target["id"],
+                prerequisite_profile="redis-off-serving-refusal")
+        except CanaryError as exc:
+            raise DriverError("invalid bounded Redis-off deployment prerequisite") from exc
+        if proof != validated:
+            raise DriverError("bounded prerequisite metadata changed")
+    if (receipt.get("status") not in ({"pass", "blocked"} if bounded_off else {"pass"}) or receipt.get("server") != expected
+            or recorded.get("id") != target["id"] or recorded.get("configSha256") != target_digest
+            or str(recorded.get("baseUrl", "")).rstrip("/") != target["replicaBaseUrl"].rstrip("/")
+            or first.get("status") != "pass" or image.get("status") != "pass"
+            or first.get("evidence", {}).get("source") != "live-" + target["kind"]
+            or first.get("evidence", {}).get("freshness") != "verified-current"):
+        raise DriverError("deployment receipt does not verify this cell, target and candidate image")
+    return receipt["server"]["image"], f"same-job deployment readback; receipt SHA-256 {proof['sha256']}"
+
+
 def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     target_path = Path(request.get("target") or DEFAULT_TARGET)
-    target = json.loads(target_path.read_text())
+    target_bytes = target_path.read_bytes()
+    target = json.loads(target_bytes)
+    cloud = target.get("kind") in local_fixture.CLOUD_KINDS
+    if cloud:
+        import cloud_target
+        cloud_target.validate(target, template=json.loads(DEFAULT_TARGET.read_text()))
     manifest = _load_yaml(ROOT / "platform-manifest.yaml")
+    deployment_image, deployment_detail = (None, None)
+    if cloud:
+        deployment_image, deployment_detail = _cloud_image(target, manifest,
+            hashlib.sha256(target_bytes).hexdigest(), request.get("deploymentReceipt"), profile=request.get("profile"))
+
+    serving_fixture = None
+    if request.get("profile") == "redis-off-serving-refusal":
+        import refusal_profile
+        fixture_proof = request.get("servingFixture") or {}
+        fixture_path = target_path.parent / "extended/seed-manifest.json"
+        if (not cloud or Path(fixture_proof.get("path", "")).resolve() != fixture_path.resolve()
+                or hashlib.sha256(fixture_path.read_bytes()).hexdigest() != fixture_proof.get("sha256")):
+            raise DriverError("model serving fixture is not this cell's retained hashed seed manifest")
+        serving_fixture = refusal_profile.fixture_binding(fixture_path)
 
     workspace_id = f"tj-{uuid.uuid4().hex[:12]}"
     workdir = STATE_ROOT.parent / workspace_id
@@ -195,9 +258,13 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         bindir, _detail, install_notes = pins.install_executables(workspace, workdir / "install")
         workspace.install_notes = install_notes
 
-    compose, base_url, image_ref = _compose_for(target, manifest, workdir)
-    up = compose.up()
-    stack_up = up.returncode == 0
+    compose = None
+    if cloud:
+        # The provisioner owns this endpoint. Never create or destroy local/cloud infrastructure.
+        base_url, image_ref, stack_up = target["replicaBaseUrl"], deployment_image, True
+    else:
+        compose, base_url, image_ref = _compose_for(target, manifest, workdir)
+        stack_up = compose.up().returncode == 0
 
     server_sha = manifest["components"]["honua-server"]["sha"]
     observation = stagelib.Observation(
@@ -209,13 +276,22 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         import run as driver  # noqa: PLC0415 - shared observation logic, one implementation
 
         observation = driver.observe(target, base_url, workspace, bindir, image_ref, server_sha)
+        if deployment_detail:
+            observation.image_detail = deployment_detail
 
     state = {
         "workspaceId": workspace_id,
         "targetPath": str(target_path),
+        "targetSha256": hashlib.sha256(target_bytes).hexdigest(),
+        "targetConfig": target,
+        "servingFixtureBinding": serving_fixture,
+        "servingFixturePath": str(fixture_path) if serving_fixture else None,
         "workdir": str(workdir),
         "baseUrl": base_url,
         "stackUp": stack_up,
+        "external": cloud,
+        "deploymentImage": deployment_image,
+        "deploymentDetail": deployment_detail,
         "armedError": None,
         "executionEnabled": bool(observation.setup_view_present and bindir is not None),
         "clientWorkspace": workspace.as_receipt(),
@@ -228,15 +304,21 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     if workspace.status != "pass" or bindir is None:
         blockers.append(stagelib.INSTALLED_CLIENTS)
     if not observation.setup_view_present:
-        blockers.append(stagelib.SETUP_VIEW)
+        blockers.append(stagelib.JOURNEY_DRIVER)
     if stack_up and observation.ready:
         try:
-            local_fixture.credentials(target, workdir, base_url, mint=True)
+            credentials = local_fixture.credentials(target, workdir, base_url, mint=True,
+                **({"tenant_signing_key": os.environ["HONUA_CANARY_TENANT_SIGNING_KEY"]}
+                   if cloud and os.environ.get("HONUA_CANARY_TENANT_SIGNING_KEY") else {}))
+            if serving_fixture is None:
+                local_fixture.prepare_style_catalog(target,
+                    Transport(base_url, None, None, workdir, credentials))
         except (ExecutionError, KeyError, ValueError, TypeError, AttributeError):
             blockers.append(stagelib.JOURNEY_DRIVER)
 
     if blockers and stack_up:
-        compose.down()
+        if compose is not None:
+            compose.down()
         stack_up = False
         state["stackUp"] = False
         _write_state(workspace_id, state)
@@ -244,6 +326,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "blocked" if blockers else "ready",
         "workspaceId": workspace_id,
+        "baseUrl": base_url,
         "observation": _observation_payload(observation),
         "toolView": _tool_view(observation),
         # Protocol prohibition 1: references only, never values.
@@ -265,7 +348,14 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
 
 def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], stagelib.Observation, pins.ClientWorkspace]:
     state = _read_state(str(request.get("workspaceId", "")))
-    target = json.loads(Path(state["targetPath"]).read_text())
+    target_bytes = Path(state["targetPath"]).read_bytes()
+    if state.get("targetSha256") and hashlib.sha256(target_bytes).hexdigest() != state["targetSha256"]:
+        raise DriverError("target config changed after setup")
+    if state.get("servingFixtureBinding"):
+        import refusal_profile
+        if refusal_profile.fixture_binding(Path(state["servingFixturePath"])) != state["servingFixtureBinding"]:
+            raise DriverError("serving fixture source or retained manifest changed after setup")
+    target = json.loads(target_bytes)
     manifest = _load_yaml(ROOT / "platform-manifest.yaml")
     workdir = Path(state["workdir"])
     workspace = pins.ClientWorkspace.from_receipt(state["clientWorkspace"], workdir / "clients")
@@ -273,7 +363,8 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
     import run as driver  # noqa: PLC0415
 
     server = manifest["components"]["honua-server"]
-    image_ref = f"{server['image']}@{server['digest']}" if state.get("stackUp") else None
+    image_ref = (state.get("deploymentImage") if state.get("external") else
+                 f"{server['image']}@{server['digest']}" if state.get("stackUp") else None)
     observation = driver.observe(
         target,
         state["baseUrl"],
@@ -282,10 +373,15 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
         image_ref,
         server["sha"],
     )
+    if state.get("deploymentDetail"):
+        observation.image_detail = state["deploymentDetail"]
     return state, target, manifest, observation, workspace
 
 
 def op_observe(request: dict[str, Any]) -> dict[str, Any]:
+    if request.get("profile") is not None:
+        import refusal_profile
+        return refusal_profile.observe(sys.modules[__name__], request)
     state, _target, _manifest, observation, workspace = _rehydrate(request)
     journey = json.loads((HERE / "journey.v1.json").read_text())
     stage_ref = request.get("stage") or request.get("stageId") or request.get("stageNumber")
@@ -312,7 +408,12 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         unfinished = result and any(c.detail == "required live assertion has not executed" for c in result.checks)
         if result and not unfinished:
             concrete = prerequisites + result.checks
-        failed = any(c.status == "fail" for c in concrete)
+        # Keep the failed oracle visible while a model can repair its own
+        # selected size within the unchanged action budget. Candidate defects
+        # and every other failed assertion remain terminal. Completion still
+        # requires engine.result() to pass the original pixel oracle.
+        repairable = {c.id for c in concrete if engine.repairable_render_selection(number, c)}
+        failed = any(c.status == "fail" and c.id not in repairable for c in concrete)
         blocked = any(c.status == "blocked" for c in concrete)
         blockers = list(dict.fromkeys(b for c in concrete if c.status == "blocked" for b in c.blocked_by))
         _write_state(state["workspaceId"], state)
@@ -326,11 +427,18 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                 "proposalId": proposal_id if pending else None,
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
-                                "terminalSurface": {"sdkCommand": "honua-journey-sdk",
-                                                    "sdkMethods": sorted(executor.SDK_METHODS),
-                                                    "uploadCommand": executor.UPLOAD_COMMAND} if number == 3 else {},
+                                "terminalSurface": engine.terminal_surface(number),
+                                "renderDimensions": engine.evidence.get("renderDimensions"),
+                                "mapReadbacks": engine.evidence.get("mapReadbacks", []),
+                                "repairableChecks": sorted(repairable),
                                 "evidence": checks},
-                "toolView": _tool_view(observation), "blockedBy": blockers}
+                "toolView": _tool_view(observation),
+                # The tool calls this stage admits (the executor refuses any other as an invalid action):
+                # the stage's set intersected with the server-authored view.
+                "stageTools": sorted(executor.STAGE_TOOLS.get(number, set())
+                                     & {t.get("name") for t in _tool_view(observation).get("tools", [])
+                                        if isinstance(t, dict)}),
+                "blockedBy": blockers}
     return {
         "status": "blocked" if status["status"] != "pass" else "pass",
         "stageStatus": status,
@@ -340,8 +448,23 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Typed MCP tool error codes that describe the request, not a candidate fault: a well-formed call the
+# candidate refused because of what was asked (missing resource, wrong state).
+# invalid_argument, invalid_input, and validation_failed stay in that model-feedback set when the
+# call was only schema-admitted. An unknown styleId, a bad bbox, or an unsupported encoding is a
+# value the model can correct. The same codes are candidate-execution only when the executor proved
+# the arguments against the authored fixture (problem["argumentsProven"]). Schema admission is not
+# that proof. Server faults, transport failures, and permission or proof failures stay
+# candidate-execution. ActionRejected, before any candidate write, stays invalid-action.
+CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "conflict", "already_exists", "failed_precondition"})
+ADMITTED_CALL_DEFECT_CODES = frozenset({"invalid_argument", "invalid_input", "validation_failed"})
+
+
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
     """Execute the selected bounded call and retain only observed identities."""
+    if request.get("profile") is not None:
+        import refusal_profile
+        return refusal_profile.execute(sys.modules[__name__], request)
     state, _target, _manifest, observation, workspace = _rehydrate(request)
     journey = json.loads((HERE / "journey.v1.json").read_text())
     stage_ref = request.get("stage") or request.get("stageId") or request.get("stageNumber")
@@ -355,9 +478,27 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
             result = engine.execute(status["number"], action)
         except ExecutionError as exc:
             _write_state(state["workspaceId"], state)
+            from transport import ActionRejected  # noqa: PLC0415 - same module path as the executor
+            code = exc.problem.get("code")
+            # invalid-action: refused before the candidate write (model feedback).
+            # candidate-refusal: a typed request error the model can correct, including a
+            # schema-valid invalid_argument whose values were not fixture-proven.
+            # candidate-execution: a fixture-proven call the candidate still rejected, or any
+            # other failure of a call that already passed admission (never model feedback).
+            if isinstance(exc, ActionRejected):
+                refusal = "invalid-action"
+            elif code in ADMITTED_CALL_DEFECT_CODES and exc.problem.get("argumentsProven") is True:
+                refusal = "candidate-execution"
+            elif code in CANDIDATE_REFUSAL_CODES or code in ADMITTED_CALL_DEFECT_CODES:
+                refusal = "candidate-refusal"
+            else:
+                refusal = "candidate-execution"
             return {"status": "blocked" if exc.blocked else "fail", "stageStatus": status,
+                    "refusal": refusal,
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
-                               "injectedError": None, "recoveredError": None},
+                               "injectedError": None, "recoveredError": None,
+                               **({"mapReadbacks": engine.evidence.get("mapReadbacks", [])}
+                                  if action.get("tool") == "honua_studio_save_version" else {})},
                     "canonicalIds": {k: None for k in executor.ID_FIELDS},
                     "blockedBy": [stagelib.JOURNEY_DRIVER] if exc.blocked else []}
         _write_state(state["workspaceId"], state)
@@ -456,6 +597,9 @@ def op_approve(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def op_verify(request: dict[str, Any]) -> dict[str, Any]:
+    if request.get("profile") is not None:
+        import refusal_profile
+        return refusal_profile.verify(sys.modules[__name__], request)
     from tools.terminal_model_canary import ASSERTION_NAMES
 
     state, target, _manifest, observation, workspace = _rehydrate(request)
@@ -510,7 +654,10 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
 def _executor(state, target, observation):
     workdir = Path(state["workdir"])
     bindir = workdir / "install" / "node_modules" / ".bin"
-    credentials = local_fixture.credentials(target, workdir, state["baseUrl"])
+    local_fixture.restore_datasource_environment(target)
+    credentials = local_fixture.credentials(target, workdir, state["baseUrl"],
+        **({"tenant_signing_key": os.environ["HONUA_CANARY_TENANT_SIGNING_KEY"]}
+           if state.get("external") and os.environ.get("HONUA_CANARY_TENANT_SIGNING_KEY") else {}))
     credentials.setdefault("proposer", probes.resolve_env_default(
         target["adminPassword"]["env"], target["adminPassword"]["default"]))
     transport = Transport(state["baseUrl"], bindir / "honua-mcp-proxy", bindir / "honua", workdir, credentials)
@@ -521,21 +668,26 @@ def _executor(state, target, observation):
 def op_teardown(request: dict[str, Any]) -> dict[str, Any]:
     workspace_id = str(request.get("workspaceId", ""))
     state = _read_state(workspace_id)
-    target = json.loads(Path(state["targetPath"]).read_text())
+    # Cleanup uses the reviewed setup snapshot even if the retained target file changed.
+    target = state.get("targetConfig") or json.loads(Path(state["targetPath"]).read_text())
     manifest = _load_yaml(ROOT / "platform-manifest.yaml")
-    compose, _base_url, _image = _compose_for(target, manifest, Path(state["workdir"]))
-    result = compose.down()
-    if result.returncode == 0:
+    if state.get("external"):
+        # Revoke only run-minted application principals. Cell teardown belongs to its provisioner.
+        _revoked, failed = local_fixture.revoke(target, Path(state["workdir"]), state["baseUrl"])
+        result_code = 1 if failed else 0
+        detail = ("one or more run-owned application principals could not be revoked" if failed
+                  else "run-owned application principals revoked; external cell retained")
+    else:
+        compose, _base_url, _image = _compose_for(target, manifest, Path(state["workdir"]))
+        result = compose.down()
+        result_code, detail = result.returncode, (result.stderr or result.stdout).strip()[:300]
+    if result_code == 0:
         local_fixture.cleanup(state["workdir"])
-    _state_path(workspace_id).unlink(missing_ok=True)
+        _state_path(workspace_id).unlink(missing_ok=True)
     return {
-        "status": "pass" if result.returncode == 0 else "fail",
+        "status": "pass" if result_code == 0 else "fail",
         "workspaceId": workspace_id,
-        "detail": (
-            "isolated namespace removed"
-            if result.returncode == 0
-            else (result.stderr or result.stdout).strip()[:300]
-        ),
+        "detail": detail or "isolated namespace removed",
     }
 
 
@@ -563,10 +715,10 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
     try:
         response = handler(request)
     except DriverError as exc:
-        return {"status": "fail", "operation": operation, "error": str(exc)}
+        return {"status": "fail", "operation": operation, "errorCategory": "DriverError", "error": str(exc)}
     except ExecutionError as exc:
         return {"status": "blocked" if exc.blocked else "fail", "operation": operation,
-                "error": f"{exc.command}: {exc.reason}"}
+                "errorCategory": "ExecutionError", "error": f"{exc.command}: {exc.reason}"}
     except Exception as exc:  # noqa: BLE001 - a driver crash must never read as pass
         return {"status": "fail", "operation": operation, "error": f"{type(exc).__name__}: {exc}"}
     response.setdefault("protocol", PROTOCOL)
@@ -581,7 +733,8 @@ def main() -> int:
         json.dump({"status": "fail", "error": f"invalid JSON request: {exc}"}, sys.stdout)
         sys.stdout.write("\n")
         return 1
-    response = handle(request if isinstance(request, dict) else {})
+    with probes.allow_http_cell(os.environ.get("HONUA_CANARY_HTTP_CELL_HOST")):
+        response = handle(request if isinstance(request, dict) else {})
     json.dump(response, sys.stdout)
     sys.stdout.write("\n")
     # A verified recoverable tool refusal is a domain failure carried in the

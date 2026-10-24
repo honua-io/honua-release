@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+
+
 import yaml
 from jsonschema import Draft202012Validator
 from cryptography.hazmat.primitives import serialization
@@ -22,6 +24,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import terminal_model_canary as canary  # noqa: E402
+
+
+@pytest.mark.parametrize('status', [401, 403, 404, 429, 500, 503])
+def test_final_publication_diagnostic_retains_only_bounded_http_status(status):
+    response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail',
+                                          'detail': f'HTTP {status}'}]},
+                'observation': {'mapReadbacks': []}}
+    assert canary.driver_failure_diagnostic(response) == f'; checks=8.final-map=fail/http-{status}; nativeMap=[]'
+
+
+@pytest.mark.parametrize('detail', ['HTTP 404 private-secret', 'HTTP 999', 'HTTP 40',
+                                  'HTTP 404\nprivate-secret', 'candidate private-secret'])
+def test_publication_diagnostic_never_copies_arbitrary_error_text(detail):
+    response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail', 'detail': detail}]}}
+    assert canary.driver_failure_diagnostic(response) == '; checks=8.final-map=fail/assertion-refused'
 
 
 @pytest.mark.parametrize("state", ["ready", "awaiting_approval"])
@@ -41,7 +58,8 @@ def test_owned_journey_execution_and_independent_proof_regressions_run_in_the_re
     import subprocess
     result = subprocess.run([sys.executable, "-m", "pytest", str(REPO_ROOT / "certification" /
                              "terminal-journey" / "test_executor.py"), str(REPO_ROOT / "certification" /
-                             "terminal-journey" / "test_live_driver.py"), "-q"],
+                             "terminal-journey" / "test_live_driver.py"),
+                             str(REPO_ROOT / "certification" / "terminal-journey" / "test_publication_intent.py"), "-q"],
                             cwd=REPO_ROOT, capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -391,9 +409,35 @@ def test_candidate_proxy_configuration_rejects_direct_provider_urls():
     assert "top-secret-key" not in json.dumps(hosted.evidence())
 
 
+def test_local_docker_presents_the_bootstrap_admin_key_as_x_api_key(monkeypatch):
+    """The local stack enables OIDC, so a bearer admin key is never admitted by the Studio AI proxy."""
+    monkeypatch.setenv("TERMINAL_MODEL_API_KEY", "per-run-admin-key")
+    config = canary.EndpointConfig.from_environment(
+        base_url="http://127.0.0.1:8137/api", model="us.anthropic.claude-sonnet-5-5", runtime="aws-bedrock",
+        quantization="provider-managed", require_api_key=True, api_key_header="x-api-key")
+    assert config.evidence()["authentication"] == {
+        "mode": "x-api-key-env", "credentialReference": "env:TERMINAL_MODEL_API_KEY", "required": True}
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    def opener(request, *, timeout):
+        seen.append(dict(request.header_items()))
+        raise Stop()
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(opener))
+    client = canary.CandidateProxyClient(config)
+    with pytest.raises(Stop):
+        client._manifest({"X-API-Key": config.api_key, "Accept": "text/event-stream"})
+    with pytest.raises(canary.CanaryError):
+        canary.EndpointConfig.from_environment(api_key_header="cookie")
+    assert "per-run-admin-key" not in json.dumps(config.evidence())
+
+
 @pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding", "adapter", "custom-model", "imported-model", "application-profile", "model-alias"])
 @pytest.mark.parametrize("model", ["anthropic.claude-sonnet-4-6",
-                                   "us.anthropic.claude-sonnet-4-6",
+                                   "us.anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-5-5",
                                    "global.anthropic.claude-sonnet-4-5-20250929-v1:0"])
 def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation, model):
     key = Ed25519PrivateKey.generate()
@@ -512,6 +556,50 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
     assert evidence["manifestDigest"] == manifest_digest
     assert evidence["reportedModel"] == endpoint.model
     assert evidence["provider"] == "bedrock"
+
+
+def test_a_provider_error_stream_names_the_proxy_error_and_stays_refused(monkeypatch):
+    manifest = {"requiredForCertification": True, "keys": []}
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8000/api", signing_manifest_sha256=digest,
+                       model="us.anthropic.claude-sonnet-5-5")
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, _limit):
+            return self.payload
+
+    sse = "\n\n".join([
+        'event: message_start\ndata: {"type": "MessageStart", "provider": "bedrock"}',
+        'event: error\ndata: {"type": "Error", "errorCode": "provider_access_denied", "errorMessage": "AccessDeniedException:\\n not authorized"}',
+        'event: transcript_provenance\ndata: {"type": "TranscriptProvenance", "provenance": {}}',
+    ]).encode()
+    capabilities = {"providers": [{"provider": "bedrock", "configured": True, "kind": "bedrock"}],
+                    "transcriptSigning": manifest}
+    responses = iter([Response(json.dumps(capabilities).encode()), Response(sse)])
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(lambda *args, **kwargs: next(responses)))
+    with pytest.raises(canary.CanaryError, match="provenance event.*proxy error provider_access_denied: AccessDeniedException"):
+        canary.CandidateProxyClient(endpoint).complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+
+    # Candidate text crossing into the receipt passes the Redactor boundary (credentials, bearer
+    # tokens, the configured key) and the code keeps identifier characters only.
+    leaky = "\n\n".join([
+        'event: message_start\ndata: {"type": "MessageStart", "provider": "bedrock"}',
+        'event: error\ndata: {"type": "Error", "errorCode": "bad <script>code", "errorMessage": "Authorization: Bearer abc.def.ghi failed for key top-secret-key"}',
+        'event: transcript_provenance\ndata: {"type": "TranscriptProvenance", "provenance": {}}',
+    ]).encode()
+    responses = iter([Response(json.dumps(capabilities).encode()), Response(leaky)])
+    keyed = replace(endpoint, api_key="top-secret-key")
+    with pytest.raises(canary.CanaryError) as refused:
+        canary.CandidateProxyClient(keyed).complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+    text = str(refused.value)
+    assert "abc.def.ghi" not in text and "top-secret-key" not in text and "<script>" not in text
+    assert "proxy error badscriptcode" in text
 
 
 def test_run_nonces_are_random_and_run_scoped():
@@ -642,10 +730,16 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     for flag in ("--deterministic-receipt artifacts/terminal-journey-receipt.json", "--lock-digest",
                  "--cell local-docker", "--attempt 1"):
         assert flag in canary_run
+    # The candidate's Studio AI proxy needs the per-run bootstrap admin key, as X-API-Key.
+    assert "--require-api-key" in canary_run and "--api-key-header x-api-key" in canary_run
+    assert "--no-api-key" not in canary_run
+    assert 'TERMINAL_MODEL_API_KEY="$HONUA_ADMIN_PASSWORD"' in canary_run
+    assert any("HONUA_ADMIN_PASSWORD=" in str(step.get("run", "")) and "add-mask" in str(step.get("run", ""))
+               for step in steps[:deterministic])
     env = local["env"]
     assert env["HONUA_CANARY_STUDIO_AI_ENABLED"] == "true"
     assert env["HONUA_CANARY_BEDROCK_REGION"] == "us-east-1"
-    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["HONUA_CANARY_BEDROCK_MODEL"]
+    assert "us.anthropic.claude-sonnet-5-5" in env["HONUA_CANARY_BEDROCK_MODEL"]
     assert env["HONUA_CANARY_TRANSCRIPT_SIGNING_SEED"] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
 
     cloud = workflow["jobs"]["aws-ecs"]
@@ -662,7 +756,7 @@ def test_compose_routes_studio_ai_to_bedrock_only_when_the_canary_enables_it():
     assert env["StudioAiProxy__Enabled"] == "${HONUA_CANARY_STUDIO_AI_ENABLED:-false}"
     assert env["StudioAiProxy__DefaultProvider"] == "bedrock"
     assert env["StudioAiProxy__Providers__bedrock__Kind"] == "bedrock"
-    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["StudioAiProxy__Providers__bedrock__Model"]
+    assert "us.anthropic.claude-sonnet-5-5" in env["StudioAiProxy__Providers__bedrock__Model"]
     assert "us-east-1" in env["StudioAiProxy__Providers__bedrock__Region"]
     # The seed travels only by reference and from a secret; no static AWS key is declared.
     assert env["StudioAiProxy__TranscriptSigning__PrivateKeyReference"] == "${HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE:-}"
@@ -738,6 +832,42 @@ def test_receipt_payload_allowlist_excludes_unknown_secrets_and_raw_output():
     assert list(Draft202012Validator(_schema()).iter_errors(forged))
 
 
+def test_native_publication_diagnostic_retains_only_bounded_hashes_and_original_action_link():
+    builder = _builder()
+    stage_id = builder.journey["stages"][2]["id"]
+    selected = builder.capture_transcript("assistant", "model action", stage_id=stage_id)
+    diagnostic = {"serviceNameSha256": hashlib.sha256(b'actual-native').hexdigest(),
+        "serviceUriSha256": hashlib.sha256(b'honua://published-services/actual-native').hexdigest(),
+        "layerId": 17, "fixtureServiceNameMatches": False}
+    result = {"status": "pass", "result": {"nativePublication": diagnostic,
+        "resources": {"serviceName": "opaque-private-name", "secret": "opaque-unclassified-value"}}}
+    sequence = builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind="tool_call",
+        status="pass", request={"kind": "tool_call"}, result=result, transcript_sequence=selected)
+    receipt = builder.validated_receipt(_schema())
+    notice = receipt["notices"][-1]
+    assert notice.startswith(f"action {sequence} native publication: ")
+    assert json.loads(notice.split(": ", 1)[1]) == diagnostic
+    assert "opaque-private-name" not in json.dumps(receipt) and "opaque-unclassified-value" not in json.dumps(receipt)
+    assert receipt["actions"][sequence - 1]["result"] == builder.summarize(result)
+
+
+@pytest.mark.parametrize("change", ["extra", "raw-name", "layer-bool", "match-string"])
+def test_native_publication_diagnostic_cannot_retain_raw_or_unbounded_candidate_fields(change):
+    builder = _builder()
+    stage_id = builder.journey["stages"][2]["id"]
+    selected = builder.capture_transcript("assistant", "model action", stage_id=stage_id)
+    diagnostic = {"serviceNameSha256": "a" * 64, "serviceUriSha256": "b" * 64,
+        "layerId": 17, "fixtureServiceNameMatches": False}
+    if change == "extra": diagnostic["serviceName"] = "opaque-unclassified-value"
+    elif change == "raw-name": diagnostic["serviceNameSha256"] = "opaque-unclassified-value"
+    elif change == "layer-bool": diagnostic["layerId"] = True
+    else: diagnostic["fixtureServiceNameMatches"] = "false"
+    with pytest.raises(canary.CanaryError, match="invalid native publication diagnostic"):
+        builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind="tool_call", status="pass",
+            request={}, result={"result": {"nativePublication": diagnostic}}, transcript_sequence=selected)
+    assert "opaque-unclassified-value" not in json.dumps(builder.receipt)
+
+
 def test_stage_evidence_binding_rejects_contradiction_and_wrong_stage():
     stage = canary.load_journey(JOURNEY)["stages"][0]
     evidence = {"id": stage["id"], "number": stage["number"], "command": stage["command"],
@@ -790,7 +920,9 @@ def test_failed_setup_still_tears_down_allocated_workspace(monkeypatch):
 
 
 @pytest.mark.parametrize("owned_verification", [False, True])
-def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification):
+@pytest.mark.parametrize("recovery_mode", ["direct", "inspect-then-repair", "final-slot-repair", "never-repair",
+                                          "premature-complete", "wrong-error", "not-recovered"])
+def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification, recovery_mode):
     """State-machine unit test only; it makes no candidate or genuine-model claim."""
     builder = _builder(_endpoint())
     stages = builder.journey["stages"]
@@ -818,7 +950,11 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
             if operation == "inject_error":
                 return {"status": "armed", "errorId": error_id, "recoverable": True}
             if operation == "observe":
-                if attempts[stage_id] < (2 if stage_id == injection_stage else 1):
+                required = 2 if recovery_mode in ("direct", "premature-complete") else 3
+                if recovery_mode == "final-slot-repair":
+                    required = 4
+                if ((stage_id == injection_stage and recovery_mode == "never-repair") or
+                        attempts[stage_id] < (required if stage_id == injection_stage else 1)):
                     return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
                 if stage_id in approval_stages and stage_id not in approved:
                     return {"status": "ready", "stageStatus": "awaiting_approval", "proposalId": stage_id}
@@ -832,7 +968,13 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
                     return {"status": "fail", "result": {"injectedError": {"id": error_id, "recoverable": True},
                             "detail": "test fault: inspect state before retry"}}
                 if stage_id == injection_stage:
-                    return {"status": "pass", "result": {"recoveredError": {"id": error_id, "recovered": True}}}
+                    if (recovery_mode in ("never-repair", "premature-complete") or
+                            (recovery_mode == "final-slot-repair" and attempts[stage_id] < 4) or
+                            (recovery_mode != "direct" and attempts[stage_id] == 2)):
+                        return {"status": "pass", "result": {"inspection": "current candidate state"}}
+                    return {"status": "pass", "result": {"recoveredError": {
+                        "id": "unrelated-error" if recovery_mode == "wrong-error" else error_id,
+                        "recovered": recovery_mode != "not-recovered"}}}
                 return {"status": "pass"}
             if operation == "approve":
                 approved.add(stage_id)
@@ -858,10 +1000,26 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
     monkeypatch.setattr(canary, "CandidateProxyClient", Model)
     receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
                                   max_actions_per_stage=4)
+    if recovery_mode not in ("direct", "inspect-then-repair", "final-slot-repair"):
+        assert receipt["status"] == "fail", receipt["notices"]
+        assert receipt["failureAttribution"] == "model"
+        assert receipt["errorInjection"]["recoveryModelActionSequence"] is None
+        assert not any(operation in ("verify", "approve") for operation, _ in calls)
+        assert attempts[injection_stage] <= 4
+        if recovery_mode == "never-repair":
+            assert attempts[injection_stage] == 4
+            assert any("bounded limit" in notice for notice in receipt["notices"])
+        if recovery_mode == "premature-complete":
+            assert any("completed without proving recovery" in notice for notice in receipt["notices"])
+        return
     assert receipt["status"] == "pass", receipt["notices"]
     assert approved == approval_stages
     assert [a["kind"] for a in receipt["actions"]].count("approval") == 2
     assert receipt["errorInjection"]["status"] == "recovered"
+    recovery_action = receipt["errorInjection"]["recoveryModelActionSequence"]
+    fault_action = receipt["errorInjection"]["triggeringModelActionSequence"]
+    assert recovery_action == fault_action + {"direct": 1, "inspect-then-repair": 2, "final-slot-repair": 3}[recovery_mode]
+    assert attempts[injection_stage] <= 4
     recovery_prompt = [messages for stage_id, messages in prompts if stage_id == injection_stage][1]
     assert "test fault: inspect state before retry" in json.dumps(recovery_prompt)
     assert any(m["role"] == "assistant" for m in recovery_prompt)
@@ -1119,15 +1277,18 @@ def test_receipt_carries_lock_mode_cell_attempt_and_attribution_and_schema_requi
         broken = copy.deepcopy(receipt)
         del broken[field]
         assert list(validator.iter_errors(broken)), field
-    for field, value in (("mode", "deterministic"), ("cell", "aws-ecs/redis-on"), ("attempt", 3),
+    for field, value in (("mode", "deterministic"), ("cell", "aws-eks/redis-on"), ("attempt", 3),
                          ("lockDigest", "sha256:short"), ("failureAttribution", None)):
         assert list(validator.iter_errors({**receipt, field: value})), field
     passing = {**receipt, "status": "pass", "failureAttribution": None}
-    assert list(validator.iter_errors({**passing, "lockDigest": None}))
+    assert list(validator.iter_errors({**passing, "lockDigest": None, "serverImage": None}))
+    # Operator ruling 2026-10-22: without a caller's lock, the composed server image binds a pass.
+    assert not list(validator.iter_errors({**passing, "lockDigest": None}))
+    assert list(validator.iter_errors({**passing, "serverImage": {**receipt["serverImage"], "digest": "sha256:x"}}))
     assert list(validator.iter_errors({**passing, "failureAttribution": "model"}))
 
 
-@pytest.mark.parametrize("kwargs", [{"lock_digest": "sha256:" + "D" * 64}, {"cell": "aws-serverless/redis-off"},
+@pytest.mark.parametrize("kwargs", [{"lock_digest": "sha256:" + "D" * 64}, {"cell": "aws-eks/redis-off"},
                                     {"attempt": 3}])
 def test_builder_refuses_malformed_lock_cell_or_attempt(kwargs):
     with pytest.raises(canary.CanaryError):
@@ -1145,6 +1306,29 @@ def test_pass_requires_a_lock_digest_and_no_attribution():
     builder.receipt["failureAttribution"] = "model"
     with pytest.raises(canary.CanaryError, match="failure attribution"):
         builder.validate_invariants()
+
+
+def test_receipt_records_the_manifest_server_image_it_composes():
+    manifest = canary.load_manifest(MANIFEST)
+    server = manifest["components"]["honua-server"]
+    receipt = _builder(_endpoint()).receipt
+    assert receipt["serverImage"] == {"reference": f"{server['image'].split('@', 1)[0]}@{server['digest']}",
+                                      "digest": server["digest"], "sourceSha": server["sha"]}
+    assert canary.server_image_binding({"components": {"honua-server": {"image": "x"}}}, "local-docker") is None
+
+
+def test_image_bound_pass_requires_the_verified_deterministic_receipt():
+    builder = _builder(_endpoint())
+    builder.receipt["lockDigest"] = None
+    assert builder.receipt["serverImage"]["digest"]
+    # The image is only what the job composed once the green #123 receipt verified that candidate.
+    assert not builder.bound()
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"candidateVerified": True}
+    assert builder.bound()
+    builder.receipt["serverImage"] = {**builder.receipt["serverImage"], "reference": "ghcr.io/x@sha256:" + "0" * 64}
+    assert not builder.bound()
+    builder.receipt["serverImage"] = None
+    assert not builder.bound()
 
 
 def test_cli_binds_the_lock_bytes_and_refuses_an_unbound_or_mismatched_run(tmp_path: Path, monkeypatch):
@@ -1190,7 +1374,7 @@ def test_live_run_without_lock_or_same_job_deterministic_receipt_is_refused():
     assert builder.receipt["failureAttribution"] == "infrastructure"
 
 
-def _attribution_run(monkeypatch, *, setup=None, model_reply="{}"):
+def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None, calls=None):
     class Driver:
         def __init__(self, *_):
             pass
@@ -1210,7 +1394,10 @@ def _attribution_run(monkeypatch, *, setup=None, model_reply="{}"):
             pass
 
         def complete(self, messages, certification):
-            return model_reply, {}, 0, {}
+            if calls is not None:
+                calls.append([dict(m) for m in messages])
+            reply = replies.pop(0) if replies else model_reply
+            return reply, {}, 0, {}
 
     monkeypatch.setattr(canary, "DriverAdapter", Driver)
     monkeypatch.setattr(canary, "CandidateProxyClient", Model)
@@ -1228,6 +1415,152 @@ def test_a_model_that_selects_no_valid_action_is_a_model_failure(monkeypatch):
     assert receipt["actions"][-1]["kind"] == "teardown"
 
 
+def test_prose_twice_is_a_model_failure_after_exactly_one_corrective_retry(monkeypatch):
+    calls = []
+    receipt = _attribution_run(monkeypatch, replies=["I would run honua status", "Sure: honua status"],
+                               calls=calls)
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
+    assert len(calls) == 2
+    corrective = calls[1][-1]
+    assert corrective["role"] == "user" and "not a single JSON action object" in corrective["content"]
+    assert any("one corrective retry was issued" in notice for notice in receipt["notices"])
+    # The refusal describes the reply's shape, never its content.
+    assert any("starts as prose" in notice for notice in receipt["notices"])
+    assert not any("honua status" in notice for notice in receipt["notices"])
+
+
+def test_a_corrected_reply_proceeds_and_the_system_contract_is_strict(monkeypatch):
+    action = json.dumps({"kind": "tool_call", "tool": "honua_read", "arguments": {}})
+    calls = []
+    _attribution_run(monkeypatch, replies=["Here is my plan.", action], calls=calls)
+    assert len(calls) >= 2 and calls[1][-1]["role"] == "user"
+    system = calls[0][0]
+    assert system["role"] == "system" and "exactly one JSON object and nothing else" in system["content"]
+    assert "no code fences" in system["content"]
+
+
+def test_user_turns_are_merged_so_the_conversation_strictly_alternates():
+    messages = [{"role": "system", "content": "s"}]
+    canary._append_user(messages, "observe-1")
+    messages.append({"role": "assistant", "content": "{}"})
+    canary._append_user(messages, "result-1")
+    canary._append_user(messages, "observe-2")
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert messages[-1]["content"] == "result-1\nobserve-2"
+
+
+def test_only_the_latest_stage_observation_stays_in_the_prompt():
+    observation = lambda n: json.dumps({"task": "advance exactly this imported #123 stage from observed state",
+                                        "n": n, "big": "x" * 1000}, separators=(",", ":"))
+    messages = [{"role": "system", "content": "s"}]
+    for n in range(3):
+        if n:
+            messages.append({"role": "assistant", "content": "{}"})
+            canary._append_user(messages, '{"untrustedActionResult":{}}')
+        canary._compact_observations(messages)
+        canary._append_user(messages, observation(n))
+    text = json.dumps(messages)
+    assert text.count('\\"big\\"') == 1 and '\\"n\\":2' in text
+    assert text.count("supersededObservation") == 2
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user", "assistant", "user"]
+
+
+def test_a_proxy_http_refusal_names_its_problem_fields_redacted(monkeypatch):
+    import io
+    import urllib.error
+    manifest = {"requiredForCertification": True, "keys": []}
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8000/api", signing_manifest_sha256=digest,
+                       model="us.anthropic.claude-sonnet-4-5-20250929-v1:0", api_key="top-secret-key")
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, _limit):
+            return self.payload
+
+    capabilities = {"providers": [{"provider": "bedrock", "configured": True, "kind": "bedrock"}],
+                    "transcriptSigning": manifest}
+    body = json.dumps({"code": "studio_ai/prompt_too_large", "title": "Prompt too large",
+                       "detail": "prompt has 270000 characters; key top-secret-key"}).encode()
+    calls = iter([Response(json.dumps(capabilities).encode()),
+                  urllib.error.HTTPError("http://x", 400, "Bad Request", {}, io.BytesIO(body))])
+
+    def opener(*_args, **_kwargs):
+        item = next(calls)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(opener))
+    with pytest.raises(canary.CanaryError) as refused:
+        canary.CandidateProxyClient(endpoint).complete([{"role": "user", "content": "x"}], {"runNonce": "n"})
+    assert "HTTP Error 400" in str(refused.value) and "studio_ai/prompt_too_large" in str(refused.value)
+    assert "top-secret-key" not in str(refused.value)
+
+
+def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(monkeypatch):
+    calls = []
+    terminal_surface = {"sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY",
+                        "uploadCommand": "honua admin import uploadImportFile"}
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "w", "toolView": {"v": 1}, "credentialReferences": [{"envVar": "K"}]}
+            if operation == "inject_error":
+                return {"status": "armed", "errorId": "recoverable-error-1", "recoverable": True}
+            if operation == "observe":
+                return {"status": "ready", "stageStatus": "ready", "observation": {"terminalSurface": terminal_surface},
+                        "toolView": {"tools": [{"name": "honua_list_capabilities"}, {"name": "honua_list_layers"}]},
+                        "stageTools": ["honua_list_capabilities", "honua_not_in_view"]}
+            return {"status": "pass"}
+
+    class Model:
+        def __init__(self, *_):
+            pass
+
+        def complete(self, messages, certification):
+            calls.append([dict(m) for m in messages])
+            return "prose", {}, 0, {}
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api")
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=None, lock_digest=LOCK)
+    canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER, max_actions_per_stage=2)
+    system = calls[0][0]["content"]
+    assert "Allowed tool_call names (the server-authored view for this stage): honua_list_capabilities." in system
+    assert "honua_list_layers" not in system and "honua_not_in_view" not in system
+    assert "terminalSurface" in system
+    prompt = json.loads(calls[0][-1]["content"])
+    assert prompt["terminalSurface"] == terminal_surface
+    assert all(a["role"] != b["role"] for call in calls for a, b in zip(call[1:], call[2:]))
+    assert "This stage admits no tool_call" in canary._system_contract([])
+
+
+def test_parser_accepts_one_fenced_json_block_and_names_the_shape_of_a_refusal():
+    action = {"kind": "terminal_command", "command": "honua status", "intent": "check"}
+    for wrapped in (f"```json\n{json.dumps(action)}\n```", f"```\n{json.dumps(action)}\n```",
+                    f"  {json.dumps(action)}\n"):
+        assert canary.parse_model_action(wrapped) == ("terminal_command", action)
+    for refused, shape in (("Sure! ```json\n{}\n```", "starts as prose"),
+                           ("```json\n{\"kind\": \"tool_call\"}\n```\nand also", "starts as code-fence"),
+                           ("", "starts as empty")):
+        with pytest.raises(canary.ModelFailure, match=shape):
+            canary.parse_model_action(refused)
+    assert canary._tool_names({"tools": [{"name": "b"}, {"name": "a"}, {"x": 1}]}) == ["a", "b"]
+    assert "Allowed tool_call names (the server-authored view for this stage): a, b." in canary._system_contract(["a", "b"])
+
+
 def test_a_model_that_never_finishes_a_stage_is_a_model_failure(monkeypatch):
     receipt = _attribution_run(monkeypatch, model_reply=json.dumps(
         {"kind": "tool_call", "tool": "honua_read", "arguments": {}}))
@@ -1235,9 +1568,97 @@ def test_a_model_that_never_finishes_a_stage_is_a_model_failure(monkeypatch):
     assert "bounded limit" in receipt["notices"][-1]
 
 
+def test_a_refused_model_action_is_returned_to_the_model_not_raised_as_a_driver_crash(monkeypatch, tmp_path):
+    script = tmp_path / "driver.py"
+    script.write_text(
+        "import json,sys\n"
+        "req=json.load(sys.stdin)\n"
+        "json.dump({'status':'fail','stageStatus':'ready','refusal':req.get('refusal','invalid-action'),"
+        "'result':{'accepted':False,'reason':'tool is outside the current stage and bounded view',"
+        "'injectedError':None,'recoveredError':None},'canonicalIds':{},'blockedBy':[]},sys.stdout)\n"
+        "sys.exit(1 if req['operation']=='execute' else 0)\n")
+    driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()), timeout_seconds=30)
+    refused = driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}})
+    assert refused["status"] == "fail" and refused["refusal"] == "invalid-action"
+    # A typed client-side candidate refusal of a well-formed call is model feedback too.
+    candidate = driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-refusal"})
+    assert candidate["refusal"] == "candidate-refusal"
+    # A valid action that failed in the candidate is infrastructure, never model feedback.
+    with pytest.raises(canary.CanaryError, match="execute failed with exit code 1: tool is outside"):
+        driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-execution"})
+    # Any other operation exiting non-zero is still an infrastructure failure.
+    with pytest.raises(canary.CanaryError, match="observe failed with exit code 1"):
+        script.write_text("import sys\nsys.stdout.write('{\"status\":\"fail\"}')\nsys.exit(1)\n")
+        driver.invoke("observe", {"workspaceId": "w", "stage": "s"})
+
+
 def test_driver_setup_failure_is_an_infrastructure_failure(monkeypatch):
     receipt = _attribution_run(monkeypatch, setup={"status": "blocked", "workspaceId": "w"})
     assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+
+
+@pytest.mark.parametrize("detail,code", [
+    ("PNG dimensions differ from the authored render size", "render-size-mismatch"),
+    ("render pixel at (10, 10) is rgba(0, 0, 0, 0), not the authored style colour rgba(255, 0, 0, 255)", "render-pixel-mismatch"),
+    ("PNG decoder refused: private-sentinel", "render-png-invalid"),
+    ("unexpected body with password=private-sentinel", "assertion-refused"),
+])
+def test_failed_observation_preserves_only_bounded_assertion_diagnostics(tmp_path, detail, code):
+    script = tmp_path / "driver.py"
+    response = {"status": "fail", "stageStatus": {"checks": [
+        {"id": "4.pixel", "status": "fail", "detail": detail, "invocation": "private-sentinel"},
+        {"id": "private-sentinel", "status": "fail", "detail": "private-sentinel"},
+        {"id": "4.malformed", "status": {}, "detail": "private-sentinel"},
+    ]}, "payload": "private-sentinel", "result": {"injectedError": {"recoverable": True}}}
+    script.write_text("import json,sys\njson.dump(" + repr(response) + ",sys.stdout)\nsys.exit(1)\n")
+    driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()))
+    with pytest.raises(canary.CanaryError) as failed:
+        driver.invoke("observe", {"workspaceId": "w", "stage": "style-render"})
+    assert str(failed.value) == "#123 driver observe failed with exit code 1; checks=4.pixel=fail/" + code
+    assert "private-sentinel" not in str(failed.value)
+
+
+@pytest.mark.parametrize("error,expected", [
+    ("TypeError: private-sentinel", "; driverError=TypeError"),
+    ("private-sentinel: arbitrary error", "; structuredFailure=true"),
+    ({"private-sentinel": True}, "; structuredFailure=true"),
+])
+def test_driver_exception_diagnostics_never_include_arbitrary_error_values(error, expected):
+    assert canary.driver_failure_diagnostic({"status": "fail", "error": error}) == expected
+
+
+def test_render_dimension_diagnostic_only_retains_bounded_integer_pairs():
+    response = {"stageStatus": {"checks": [{"id": "4.pixel", "status": "fail",
+        "detail": "PNG dimensions differ from the authored render size"}]},
+        "observation": {"renderDimensions": {"requested": [512, 512], "expected": [256, 256],
+            "decoded": [512, 512], "private": "private-sentinel"}}}
+    diagnostic = canary.driver_failure_diagnostic(response)
+    assert diagnostic == ("; checks=4.pixel=fail/render-size-mismatch; "
+                          "renderSize=requested=512x512,expected=256x256,decoded=512x512")
+    for value in (None, ["private-sentinel", 2], [True, 2], [0, 2], [16385, 2], [1, 2, 3]):
+        response["observation"]["renderDimensions"]["requested"] = value
+        assert canary.driver_failure_diagnostic(response) == "; checks=4.pixel=fail/render-size-mismatch"
+
+
+@pytest.mark.parametrize("category,exception", [
+    ("DriverError", "live_driver.DriverError('private-sentinel')"),
+    ("ExecutionError", "live_driver.ExecutionError('private-command', 'private-sentinel')"),
+])
+def test_real_driver_handled_exceptions_preserve_category_without_error_text(tmp_path, category, exception):
+    script = tmp_path / "driver.py"
+    script.write_text(
+        "import sys\n"
+        + "sys.path.insert(0," + repr(str(REPO_ROOT / 'certification' / 'terminal-journey')) + ")\n"
+        + "import live_driver\n"
+        + "def fail(request):\n    raise " + exception + "\n"
+        + "live_driver.OPERATIONS['observe'] = fail\n"
+        + "raise SystemExit(live_driver.main())\n")
+    driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()))
+    with pytest.raises(canary.CanaryError) as failed:
+        driver.invoke("observe", {"workspaceId": "w", "stage": "style-render"})
+    assert str(failed.value) == "#123 driver observe failed with exit code 1; driverError=" + category
+    assert "private-" not in str(failed.value)
+    assert canary.driver_failure_diagnostic({"status": "fail", "errorCategory": "private-sentinel"}) == "; structuredFailure=true"
 
 
 def test_driver_on_another_endpoint_than_the_model_proxy_cannot_certify_the_cell(monkeypatch):
@@ -1259,6 +1680,7 @@ def test_model_journey_report_counts_only_attempts_bound_to_the_lock(tmp_path: P
         path = tmp_path / f"model-canary-{len(written)}-{number}.json"
         path.write_text(json.dumps({"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": number,
                                     "lockDigest": lock, "status": status, "failureAttribution": attribution,
+                                    "profile": "redis-off-serving-refusal", "executionOutcome": "refused", "functionalGpExecuted": False,
                                     "completedAt": f"2026-10-08T12:0{number}:00Z"}), encoding="utf-8")
         return path
 
@@ -1285,6 +1707,7 @@ def test_model_journey_report_records_an_unbound_run_as_blocked_never_pass(tmp_p
     builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
                                            endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
                                            cell="aws-ecs/redis-off")
+    builder.receipt.update(profile="redis-off-serving-refusal", executionOutcome="refused", functionalGpExecuted=False)
     builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"status": "pass"}
     canary.unavailable_receipt(builder, endpoint, canary.DEFAULT_DRIVER)
     builder.receipt["completedAt"] = "2026-10-08T12:01:00Z"
@@ -1373,3 +1796,147 @@ def test_cli_passes_the_cell_host_into_the_receipt(tmp_path: Path, monkeypatch):
         "http-cell-allowed", CELL_HOST)
     assert canary.main(["--output", str(tmp_path / "refused.json"),
                         "--base-url", f"http://{CELL_HOST}/api"]) == 2
+
+
+@pytest.mark.parametrize("cell", ["aws-ecs/redis-on", "aws-ecs/redis-off",
+                                  "aws-serverless/redis-on", "aws-serverless/redis-off"])
+def test_all_ga_cells_have_schema_valid_honest_receipts_and_report_identity(tmp_path, cell):
+    import model_journey_report
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY,
+        protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=None, cell=cell, lock_digest=LOCK)
+    canary.unavailable_receipt(builder, _endpoint(), None)
+    receipt = builder.validated_receipt(_schema())
+    assert receipt["cell"] == cell and receipt["status"] != "pass"
+    path = tmp_path / "attempt.json"
+    path.write_text(json.dumps(receipt))
+    report = model_journey_report.build([path], cell=cell, lock_digest=LOCK,
+        candidate_digest="a" * 64, run_id="1", run_attempt="1")
+    assert report["cells"][0]["cell"] == cell
+    assert report["status"] == "fail", "topology support does not qualify an unexecuted model"
+    other_cell = "aws-ecs/redis-off" if cell != "aws-ecs/redis-off" else "aws-serverless/redis-off"
+    report = model_journey_report.build([path], cell=other_cell, lock_digest=LOCK,
+        candidate_digest="a" * 64, run_id="1", run_attempt="1")
+    assert report["status"] == "fail" and "another cell" in report["why"]
+
+
+@pytest.mark.parametrize("mutation", ["missing", "cell", "digest", "origin"])
+def test_cloud_model_refuses_unbound_target_before_driver_setup(tmp_path, monkeypatch, mutation):
+    cell = "aws-ecs/redis-on"
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY,
+        protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
+        cell=cell, lock_digest=LOCK)
+    config = tmp_path / "target.json"
+    config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "http://127.0.0.1:8000"}))
+    deterministic = tmp_path / "deterministic.json"
+    target = {"id": cell, "configSha256": hashlib.sha256(config.read_bytes()).hexdigest()}
+    if mutation == "cell":
+        target["id"] = "aws-serverless/redis-on"
+    if mutation == "digest":
+        target["configSha256"] = "f" * 64
+    if mutation == "origin":
+        config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "https://other.example"}))
+        target["configSha256"] = hashlib.sha256(config.read_bytes()).hexdigest()
+    deterministic.write_text(json.dumps({"target": target}))
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"path": str(deterministic)}
+    class Driver:
+        def __init__(self, *_):
+            pass
+        def invoke(self, *_):
+            raise AssertionError("a mismatched target must never invoke the driver")
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
+        max_actions_per_stage=1, target_path=None if mutation == "missing" else config)
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["totals"]["modelCalls"] == 0
+
+
+def test_cloud_canary_workflow_preserves_opt_in_and_distinct_cell_artifacts():
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/e2e-cloud-aws-cell.yml").read_text())
+    steps = workflow["jobs"]["journey"]["steps"]
+    step = next(step for step in steps if step.get("name", "").startswith("Run the genuine-model canary"))
+    assert step["if"] == "${{ always() && inputs.enable_bedrock }}"
+    for cell in canary.CELLS[1:]:
+        assert cell in step["run"]
+    upload = next(step for step in steps if step.get("name") == "Upload the nightly-model-journey row")
+    assert upload["with"]["name"] == "journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}"
+
+
+def test_cloud_target_reaches_driver_setup_without_claiming_unexecuted_model_success(tmp_path, monkeypatch):
+    cell = "aws-serverless/redis-on"
+    config = tmp_path / "target.json"
+    config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "http://127.0.0.1:8000"}))
+    deterministic = tmp_path / "deterministic.json"
+    deterministic.write_text(json.dumps({"target": {"id": cell,
+        "configSha256": hashlib.sha256(config.read_bytes()).hexdigest()}}))
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY,
+        protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, cell=cell, lock_digest=LOCK)
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"path": str(deterministic)}
+    seen = []
+    class Driver:
+        def __init__(self, *_):
+            pass
+        def invoke(self, operation, payload):
+            seen.append((operation, payload))
+            return {"status": "blocked", "workspaceId": "cloud"} if operation == "setup" else {"status": "pass"}
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
+        max_actions_per_stage=1, target_path=config)
+    assert seen[0][1]["target"] == str(config.resolve())
+    assert [operation for operation, _ in seen] == ["setup", "teardown"]
+    assert receipt["status"] == "fail" and receipt["totals"]["modelCalls"] == 0
+
+
+def map_diagnostic_fixture():
+    return {'slot': 'pre-save', 'fieldMatches': {'itemId': True, 'family': True, 'body': False,
+        'draftReceipt': True, 'bodyMatchesDraft': True}, 'bodyDigest': 'a' * 64,
+        'authoredBodyDigest': 'b' * 64, 'responseSha256': 'c' * 64, 'responseBytes': 157}
+
+
+def test_native_map_diagnostic_retains_original_response_binding_without_candidate_body():
+    builder = _builder()
+    stage_id = builder.journey['stages'][5]['id']
+    selected = builder.capture_transcript('assistant', 'model action', stage_id=stage_id)
+    row = map_diagnostic_fixture()
+    result = {'result': {'mapReadbacks': [row], 'private': {'body': 'opaque-unclassified-value'}}}
+    sequence = builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind='tool_call',
+        status='fail', request={}, result=result, transcript_sequence=selected)
+    receipt = builder.validated_receipt(_schema())
+    assert receipt['notices'][-1] == f'action {sequence} native map readbacks: ' + json.dumps([row], sort_keys=True, separators=(',', ':'))
+    assert 'opaque-unclassified-value' not in json.dumps(receipt)
+
+
+@pytest.mark.parametrize('change', ['raw', 'slot', 'field', 'boolean', 'digest', 'size', 'unpaired', 'excess'])
+def test_native_map_diagnostic_rejects_unreviewed_fields_and_unbounded_values(change):
+    row = map_diagnostic_fixture()
+    rows = [row]
+    if change == 'raw': row['body'] = 'opaque-unclassified-value'
+    elif change == 'slot': row['slot'] = 'opaque-unclassified-value'
+    elif change == 'field': row['fieldMatches']['opaque-unclassified-value'] = True
+    elif change == 'boolean': row['fieldMatches']['body'] = 'opaque-unclassified-value'
+    elif change == 'digest': row['bodyDigest'] = 'opaque-unclassified-value'
+    elif change == 'size': row['responseBytes'] = 4 * 1024 * 1024 + 1
+    elif change == 'unpaired': del row['responseBytes']
+    elif change == 'excess': rows *= 13
+    with pytest.raises(canary.CanaryError, match='invalid native map readback diagnostics'):
+        canary.map_readback_diagnostic(rows)
+
+
+def test_map_failure_retains_field_diagnostics_without_unrelated_prior_render_dimensions():
+    row = map_diagnostic_fixture()
+    response = {'stageStatus': {'checks': [{'id': '6.saved-map', 'status': 'fail',
+        'detail': 'map identity or actual map body differs'}]}, 'observation': {'mapReadbacks': [row],
+        'renderDimensions': {'requested': [128, 128], 'expected': [128, 128], 'decoded': [128, 128]}}}
+    diagnostic = canary.driver_failure_diagnostic(response)
+    assert '6.saved-map=fail/assertion-refused' in diagnostic
+    assert 'nativeMap=' + canary.map_readback_diagnostic([row]) in diagnostic
+    assert 'renderSize' not in diagnostic
+
+
+def test_map_diagnostics_allow_saved_version_replicas_and_both_public_verifications():
+    row = map_diagnostic_fixture()
+    rows = [{**row, 'slot': slot} for slot in ['pre-save', 'saved-primary',
+        *(['saved-replica'] * 8), 'published-route', 'published-route']]
+    assert len(json.loads(canary.map_readback_diagnostic(rows))) == 12
+    response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail',
+        'detail': 'map identity or actual map body differs'}]}, 'observation': {'mapReadbacks': rows}}
+    assert 'nativeMap=' in canary.driver_failure_diagnostic(response)

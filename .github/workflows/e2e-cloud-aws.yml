@@ -1,6 +1,6 @@
-# AWS promise journeys: six required GA cells, {aws-ecs, aws-serverless, aws-eks} x Redis off/on, where
+# AWS promise journeys: four required GA cells, {aws-ecs, aws-serverless} x Redis off/on, plus EKS Preview, where
 # aws-serverless is Lambda + AWS Batch geoprocessing and aws-eks is the Helm chart on EKS (bring-your-own
-# Kubernetes, honua-release#203; owner decisions 12/18 of 2026-10-10 made it GA for 2026.1). The mixed
+# Kubernetes, honua-release#203; the 2026-10-16 owner amendment supersedes decisions 12/18). The mixed
 # ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC root does not exist yet (restore it when
 # honua-iac#209 lands).
 # Every cell retains attempts, records its live cost estimate before teardown, and always runs its teardown job.
@@ -44,7 +44,7 @@ on:
         type: boolean
         default: true
       genuine_model_bedrock:
-        description: "Enable Bedrock on the aws-ecs/redis-off cell for the genuine-model journey (billed tokens)"
+        description: "Enable Bedrock on selected ECS/Lambda GA cells for the genuine-model journey (billed tokens)"
         type: boolean
         default: false
       lock_digest:
@@ -53,6 +53,9 @@ on:
         default: ""
   workflow_call:
     inputs:
+      update_rollback_run_id: { required: false, type: string, default: "" }
+      update_rollback_mode: { required: false, type: string, default: "rehearsal" }
+      update_rollback_prior_run_id: { required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
       prepared_ref: { required: false, type: string, default: "" }
       require_real:
@@ -79,6 +82,7 @@ on:
         type: string
         default: ""
     secrets:
+      UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
       RELEASE_GH_TOKEN:
         required: false
     outputs:
@@ -121,7 +125,7 @@ jobs:
         with:
           prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install -r e2e/requirements.txt
@@ -360,7 +364,10 @@ jobs:
       max-parallel: 1
       matrix:
         # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-        target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
+        # Operator ruling 2026-10-22: Preview deployment targets (aws-eks, per the 2026-10-16 amendment)
+        # do not run in the cloud gate and never block it; `all` is the GA cells only and the report
+        # names the EKS cells "not certified (preview)". An explicit target=aws-eks dispatch still runs it.
+        target: ${{ fromJSON(inputs.update_rollback_run_id != '' && '["aws-serverless","aws-ecs"]' || (inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs"]' || format('["{0}"]', inputs.target)) }}
         redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     permissions:
@@ -372,8 +379,8 @@ jobs:
       target: ${{ matrix.target }}
       redis: ${{ matrix.redis }}
       # A reusable-workflow call cannot carry continue-on-error; the cell's own jobs would, for a
-      # Preview cell. Every cell in this matrix is GA (aws-eks since honua-release#203), so none is.
-      preview: false
+      # Preview cell. EKS is informational under the explicit 2026-10-16 scope amendment.
+      preview: ${{ matrix.target == 'aws-eks' }}
       candidate_ref: ${{ inputs.candidate_ref }}
       prepared_ref: ${{ inputs.prepared_ref }}
       require_real: ${{ inputs.require_real || false }}
@@ -386,10 +393,14 @@ jobs:
       lambda_image: ${{ needs.candidate.outputs.lambda_image }}
       lambda_architecture: ${{ needs.candidate.outputs.lambda_architecture }}
       gp_batch_image: ${{ needs.candidate.outputs.gp_batch_image }}
-      # Bedrock is billed: only the genuine-model cell (ECS, Redis off), only when asked for.
-      enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && matrix.target == 'aws-ecs' && matrix.redis == 'off' }}
+      # Bedrock is billed: opt-in for the selected four GA cells; never EKS Preview.
+      enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && (matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}
       lock_digest: ${{ inputs.lock_digest || '' }}
+      update_rollback_run_id: ${{ inputs.update_rollback_run_id || '' }}
+      update_rollback_mode: ${{ inputs.update_rollback_mode || 'rehearsal' }}
+      update_rollback_prior_run_id: ${{ inputs.update_rollback_prior_run_id || '' }}
     secrets:
+      UPDATE_ROLLBACK_CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
       RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
@@ -454,16 +465,39 @@ jobs:
               fi
             fi
           fi
-          echo "iac-live -> $STATUS ($WHY)"
+          # Cleanup obligation (cloud_journey.cleanup_failure): read it from the honua-iac run's own
+          # AWS job, never assume it. Nothing dispatched, or the apply step never ran, provisions
+          # nothing; otherwise its always-run reap step must have succeeded. Unknown stays unknown.
+          PROVISIONED=unknown; TD_ATTEMPTED=false; TD_COMPLETED=false
+          if [ "${RUN_ID:-}" = "" ] || [ "${RUN_ID:-}" = "null" ]; then
+            [ "$STATUS" = "skipped" ] && PROVISIONED=false
+            [ "$STATUS" = "fail" ] && [ -z "${RUN_ID:-}" ] && PROVISIONED=false
+          elif gh api "repos/honua-io/honua-iac/actions/runs/$RUN_ID/jobs?per_page=100" > /tmp/iac-jobs.json 2>/dev/null; then
+            APPLY="$(jq -r '[.jobs[] | select(.name=="AWS Live Validation") | .steps[]?
+                      | select(.name=="Run AWS validation with the OIDC session") | .conclusion][0] // "absent"' /tmp/iac-jobs.json)"
+            REAP="$(jq -r '[.jobs[] | select(.name=="AWS Live Validation") | .steps[]?
+                      | select(.name | startswith("Reap this run")) | .conclusion][0] // "absent"' /tmp/iac-jobs.json)"
+            echo "honua-iac run $RUN_ID: apply step=$APPLY, reap step=$REAP"
+            case "$APPLY" in
+              skipped) PROVISIONED=false ;;
+              success|failure|cancelled) PROVISIONED=true
+                [ "$REAP" != "absent" ] && [ "$REAP" != "skipped" ] && TD_ATTEMPTED=true
+                [ "$REAP" = "success" ] && TD_COMPLETED=true ;;
+            esac
+          fi
+          echo "iac-live -> $STATUS ($WHY); provisionAttempted=$PROVISIONED teardown=$TD_ATTEMPTED/$TD_COMPLETED"
           mkdir -p out
-          jq -n --arg s "$STATUS" --arg w "$WHY" \
+          jq -n --arg s "$STATUS" --arg w "$WHY" --arg p "$PROVISIONED" \
+            --argjson ta "$TD_ATTEMPTED" --argjson tc "$TD_COMPLETED" \
             --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            '{gate:"cloud-iac-live", status:$s, why:$w, evidence_url:$run}' > out/gate-report-cloud.json
+            '{gate:"cloud-iac-live", status:$s, why:$w, evidence_url:$run}
+             + (if $p == "unknown" then {} else {provisionAttempted:($p == "true"),
+                  teardown:{attempted:$ta, completed:$tc}} end)' > out/gate-report-cloud.json
           cat out/gate-report-cloud.json
 
       - name: Upload iac-live report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-iac-live-report
           path: out/gate-report-cloud.json
@@ -495,12 +529,12 @@ jobs:
         with:
           prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install -r e2e/requirements.txt
       - name: Download all cloud reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: "*cloud*report*"
           path: reports
@@ -524,8 +558,9 @@ jobs:
           REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
         run: |
           set -euo pipefail
-          # Every cell the parity matrix dispatched (Preview included) must account for its cost.
-          TARGETS="aws-serverless aws-ecs aws-eks"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
+          # Every cell the parity matrix dispatched (an explicitly requested Preview included) must
+          # account for its cost. `all` dispatches the GA targets only (operator ruling 2026-10-22).
+          TARGETS="aws-serverless aws-ecs"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
           MODES="off on"; [ "$REQUESTED_REDIS" = both ] || MODES="$REQUESTED_REDIS"
           CELLS=""
           for t in $TARGETS; do for r in $MODES; do CELLS="${CELLS:+$CELLS,}$t/redis-$r"; done; done
@@ -562,12 +597,15 @@ jobs:
              --arg target "$REQUESTED_TARGET" --arg redis "$REQUESTED_REDIS" \
              --arg iac "$REQUESTED_IAC_LIVE" \
              '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
+                    notCertified:(if $target == "all" then
+                      [{cell:"aws-eks/redis-off", status:"not certified (preview)"},
+                       {cell:"aws-eks/redis-on", status:"not certified (preview)"}] else [] end),
                     certifying:false,
                     certifyingScope:($full == "true"),
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
               | if .status == "pass" and $full != "true" then
                   .status = "blocked"
-                  | .why = "focused dispatch is diagnostic only; all six GA target x Redis cells are required for certification"
+                  | .why = "focused dispatch is diagnostic only; all four GA target x Redis cells are required for certification"
                 else . end' \
              merged.json > out/gate-report-cloud.json
 
@@ -603,7 +641,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload aggregated cloud gate-report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-gate-report
           path: out/gate-report-cloud.json

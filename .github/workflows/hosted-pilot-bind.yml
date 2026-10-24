@@ -1,0 +1,59 @@
+name: Hosted pilot GitHub binding
+on:
+  workflow_dispatch:
+    inputs:
+      release_root_sha:
+        description: Exact reviewed release-root SHA used by the foundation producer
+        required: true
+        type: string
+      bootstrap_run_id:
+        description: Successful honua-iac foundation bootstrap deploy run
+        required: true
+        type: string
+      bindings_artifact_id:
+        description: Exact foundation-bindings artifact ID
+        required: true
+        type: string
+      bindings_sha256:
+        description: Bindings file digest from the foundation bootstrap summary
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: hosted-pilot-github-binding
+  cancel-in-progress: false
+jobs:
+  bind:
+    if: github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_root_sha }}
+          path: _pilot-bootstrap-source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ secrets.RELEASE_GH_TOKEN }}
+          repository: honua-io/honua-iac
+          run-id: ${{ inputs.bootstrap_run_id }}
+          artifact-ids: ${{ inputs.bindings_artifact_id }}
+          path: ${{ runner.temp }}/pilot-foundation-bindings
+      - name: Verify producing identity and reconcile checked-in GitHub desired state
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          PILOT_BOOTSTRAP_RUN_ID: ${{ inputs.bootstrap_run_id }}
+          PILOT_BOOTSTRAP_ROOT_SHA: ${{ inputs.release_root_sha }}
+          PILOT_BINDINGS_ARTIFACT_ID: ${{ inputs.bindings_artifact_id }}
+          PILOT_BINDINGS_SHA256: ${{ inputs.bindings_sha256 }}
+        run: python3 tools/hosted_pilot/bind_github.py
+      - name: Remove account bindings from executor
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/pilot-foundation-bindings"

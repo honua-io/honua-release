@@ -9,6 +9,7 @@ capabilities block execution rather than falling back to a local shell.
 from __future__ import annotations
 
 import argparse
+import base64
 from decimal import Decimal
 import hashlib
 import json
@@ -43,7 +44,8 @@ def validate_action(call):
         raise ModelFailure("invalid-tool-arguments")
     required = {"terminal": {"command"}, "mcp_list_tools": set(),
                 "mcp_call_tool": {"name", "arguments"}, "ask_user": {"question"}}
-    if name not in required or not required[name] <= set(args) or set(args) - required[name] - ({"timeoutSeconds"} if name == "terminal" else set()):
+    optional = {"terminal": {"timeoutSeconds"}, "mcp_list_tools": {"view"}}
+    if name not in required or not required[name] <= set(args) or set(args) - required[name] - optional.get(name, set()):
         raise ModelFailure("invalid-tool-arguments")
     for key in required[name] - {"arguments"}:
         if not isinstance(args[key], str) or not args[key].strip():
@@ -52,6 +54,9 @@ def validate_action(call):
         raise ModelFailure("invalid-tool-timeout")
     if name == "mcp_call_tool" and not isinstance(args["arguments"], dict):
         raise ModelFailure("invalid-mcp-arguments")
+    if name == "mcp_list_tools" and "view" in args and (not isinstance(args['view'], str)
+            or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', args['view'])):
+        raise ModelFailure("invalid-mcp-view")
 
 
 SYSTEM = """Complete the user's Honua task using the actual environment and public documentation.
@@ -66,8 +71,8 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"},
         "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 300}},
         "required": ["command"], "additionalProperties": False}},
-    {"name": "mcp_list_tools", "description": "Discover the current server-authored MCP setup view and canonical tool descriptors.",
-     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "mcp_list_tools", "description": "Discover canonical native tools. Omit view for the installed default, or select a server-published workflow view such as workspace, setup, configure, analyze, operate or processes. The explicit full view exports the paginated catalog. Discovery never grants authority.",
+     "input_schema": {"type": "object", "properties": {"view": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}}, "additionalProperties": False}},
     {"name": "mcp_call_tool", "description": "Call a tool discovered from the server using your current identity.",
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"},
         "arguments": {"type": "object"}}, "required": ["name", "arguments"], "additionalProperties": False}},
@@ -129,11 +134,18 @@ class BedrockModel:
         for field in ("modelId", "returnedModelId", "pricingDigest"):
             if not config.get(field):
                 raise ControllerError(f"missing pinned model {field}")
+        if not isinstance(config.get('tokenCountingModelArn'), str) or not re.fullmatch(
+                r'arn:aws:bedrock:'+re.escape(config['region'])+r'::foundation-model/[A-Za-z0-9.:-]+', config['tokenCountingModelArn']):
+            raise ControllerError('missing exact regional token-counting model')
         for field in ("inputUsdPerMillion", "outputUsdPerMillion"):
             if money(config[field]) <= 0:
                 raise ControllerError("reviewed positive model pricing is required")
         if type(config.get("maxOutputTokens")) is not int or not 1 <= config["maxOutputTokens"] <= 8192:
             raise ControllerError("invalid output token ceiling")
+        scope = config.get('pricingScope')
+        if scope is not None and scope != {'currency': 'USD', 'serviceTier': 'standard',
+                'inference': 'US geographic cross-region', 'inputTokenLimit': 200000, 'promptCaching': False, 'batch': False}:
+            raise ControllerError('unsupported reviewed model pricing scope')
 
     def request(self, messages):
         return {"anthropic_version": "bedrock-2023-05-31", "max_tokens": self.config["maxOutputTokens"],
@@ -142,23 +154,34 @@ class BedrockModel:
     def quote(self, request):
         # CountTokens is a provider observation, not a character/token guess.
         body = json.dumps(request, separators=(",", ":"), ensure_ascii=False).encode()
-        result = self.client.count_tokens(modelId=self.config["modelId"], input={"invokeModel": {"body": body}})
+        result = self.client.count_tokens(modelId=self.config["tokenCountingModelArn"], input={"invokeModel": {"body": body}})
         count = result["inputTokens"]
         if type(count) is not int or count <= 0:
             raise ControllerError("provider did not return an input token count")
+        if count > 200000:
+            raise ControllerError('provider input exceeds reviewed standard token limit; no long-context pricing fallback')
         return body, (Decimal(count) * money(self.config["inputUsdPerMillion"]) +
                       Decimal(request["max_tokens"]) * money(self.config["outputUsdPerMillion"])) / 1000000
 
-    def invoke(self, body):
+    def invoke(self, body, *, observe_response=None):
         response = self.client.invoke_model(modelId=self.config["modelId"], body=body,
                                            contentType="application/json", accept="application/json")
-        message = json.loads(response["body"].read())
+        raw = response["body"].read()
+        if not isinstance(raw, bytes) or len(raw) > 1024 * 1024:
+            raise ControllerError('provider response exceeds bounded retention')
+        if observe_response is not None:
+            observe_response({'rawBodyBase64': base64.b64encode(raw).decode('ascii'), 'responseDigest': digest_bytes(raw),
+                'providerRequestId': response.get('ResponseMetadata', {}).get('RequestId'),
+                'requestedModelId': self.config['modelId'], 'requestDigest': digest_bytes(body)})
+        message = json.loads(raw)
         if message.get("model") != self.config["returnedModelId"]:
             raise ControllerError("actual returned model identity changed")
         usage = message["usage"]
         for field in ("input_tokens", "output_tokens"):
             if type(usage.get(field)) is not int or usage[field] < 0:
                 raise ControllerError("provider usage missing or invalid")
+        if usage['input_tokens'] > 200000:
+            raise ControllerError('actual provider usage exceeds reviewed pricing; retain unresolved original liability')
         if usage.get("cache_creation_input_tokens", 0) or usage.get("cache_read_input_tokens", 0):
             raise ControllerError("unpriced cache usage is not permitted")
         cost = (Decimal(usage["input_tokens"]) * money(self.config["inputUsdPerMillion"]) +
@@ -193,6 +216,11 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
     observed_actions = 0
     trace, result, cleaned = [], {}, {"status": "not-started"}
     reason, prepared_started, reserved = "controller-error", False, set()
+    admission = None
+    def check_admission():
+        if admission is not None:
+            budget_update(ledger, 'check-paid-attempt', candidate_key=candidate,
+                admission_id=admission['id'], owner_token=admission['ownerToken'])
     limits = scenario["limits"]
     def remaining():
         seconds = limits["timeoutSeconds"] - (time.monotonic() - started)
@@ -204,6 +232,15 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
         journal.emit("context", campaignMode=mode, knowledge=campaign["knowledge"],
                      conceptIds=scenario["conceptIds"], workflowIds=scenario["workflowIds"])
         budget_update(ledger, "check", candidate_key=candidate)
+        # The named funding amendment changes no case, prompt, oracle or target.
+        from agent_e2e_campaign_budget import bind_ledger
+        current_ledger = load_json(ledger)
+        if current_ledger['schemaVersion'] == 3:
+            original_pack = Path(__file__).resolve().parents[1]/'certification/agent-e2e/pack.v2.json'
+            if (campaign.get('packDigest') != digest_bytes(original_pack.read_bytes()) or
+                    canonical_digest(pack) != canonical_digest(load_json(original_pack))):
+                raise ControllerError('amended funding cannot change the original full campaign scope')
+        bind_ledger(campaign, current_ledger, Path(ledger).parent)
         preflight = backend.preflight(context)
         if preflight.get("target") != case["target"]:
             raise ControllerError("backend target differs from frozen case")
@@ -214,6 +251,17 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             retry = backend.call("authorize_retry", context)
             if retry.get("authorized") is not True or retry.get("previousFailureAttribution") != "infrastructure" or not retry.get("previousAttemptDigest"):
                 raise ControllerError("retry lacks independent first-attempt evidence")
+        if current_ledger['schemaVersion'] == 3:
+            policy = preflight.get('paidAttempt')
+            if (not isinstance(policy, dict) or set(policy) != {'id', 'expiresEpoch'} or
+                    not isinstance(policy['id'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', policy['id']) or
+                    type(policy['expiresEpoch']) is not int):
+                raise ControllerError('missing exact source worker paid-admission policy')
+            owner = uuid.uuid4().hex
+            budget_update(ledger, 'acquire-paid-attempt', candidate_key=candidate, admission_id=policy['id'],
+                owner_token=owner, expires_epoch=policy['expiresEpoch'], campaign_id=campaign['campaignId'],
+                case_id=case_id, attempt=attempt, campaign_mode=mode)
+            admission = {'id': policy['id'], 'ownerToken': owner}
         reserve_args = {"candidate_key": candidate, "campaign_id": campaign["campaignId"],
                         "case_id": case_id, "attempt": attempt, "campaign_mode": mode,
                         "basis_digest": preflight["liabilityBasisDigest"]}
@@ -223,6 +271,7 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
         budget_update(ledger, "reserve", reservation_id=cleanup_id, kind="cleanup",
                amount=preflight["maximumCleanupUsd"], **reserve_args)
         reserved.add(cleanup_id)
+        check_admission()
         prepared_started = True
         prepared = backend.call("prepare", {**context, "scenario": scenario, "target": case["target"]}, timeout=remaining())
         if knowledge_binding(prepared["workerKnowledgeManifest"]) != campaign["knowledge"]:
@@ -235,12 +284,14 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
         used_call_ids = set()
         while turns < limits["maxTurns"] and time.monotonic() - started < limits["timeoutSeconds"]:
             remaining()
+            check_admission()
             body, maximum = model.quote(model.request(messages))
             rid = str(uuid.uuid4())
             budget_update(ledger, "reserve", candidate_key=candidate, reservation_id=rid,
                    campaign_id=campaign["campaignId"], case_id=case_id, attempt=attempt, campaign_mode=mode,
                    kind="model", amount=maximum, basis_digest=model.config["pricingDigest"])
             turn_start = time.monotonic()
+            check_admission()
             message, cost, provider_request = model.invoke(body)
             budget_update(ledger, "settle", candidate_key=candidate, reservation_id=rid, amount=cost)
             turns += 1
@@ -261,6 +312,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             if not calls:
                 if message.get("stop_reason") != "end_turn":
                     raise ModelFailure("incomplete-model-response")
+                if prepared.get('consoleConversation') is True:
+                    check_admission()
+                    backend.call('conversation_response', {**context, 'response': {
+                        'message': message, 'providerRequestId': provider_request, 'turn': turns}}, timeout=remaining())
                 result = backend.call("verify", context, timeout=remaining())
                 # Incorrect state alone does not establish the cause. Only an
                 # independent diagnosis can establish a retryable outage.
@@ -288,6 +343,7 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 break
             replies = []
             for call in calls:
+                check_admission()
                 if actions >= limits["maxActions"] or time.monotonic() - started >= limits["timeoutSeconds"]:
                     raise ModelFailure("action-or-time-limit")
                 validate_action(call)
@@ -301,7 +357,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 # can reach the worker. A missing reply leaves an unresolved
                 # action, not evidence that nothing executed or may be retried.
                 journal.emit("action-intent", action=actions, kind=call["name"], requestDigest=request_digest)
-                observed = backend.call("agent_action", {**context, "action": call},
+                dispatch = {'ordinal':actions, 'requestDigest':request_digest, 'intentDigest':journal.previous,
+                    'actionId':canonical_digest({**{key:context[key] for key in
+                        ('campaignId','caseId','attempt','componentBindingDigest')}, 'ordinal':actions})[7:]}
+                observed = backend.call("agent_action", {**context, "action": call, 'dispatch':dispatch},
                                         timeout=min(remaining(), call["input"].get("timeoutSeconds", 300) + 10))
                 # Adapter is responsible for returning only bounded, redacted
                 # worker outputs; full privileged responses never go to model.
@@ -359,6 +418,13 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                         settlement_errors.append(type(exc).__name__)
             if settlement_errors or (prepared_started and cleaned.get("status") != "pass"):
                 status, attribution, reason = "blocked", attribution or "undetermined", "cleanup-or-accounting-failure"
+            elif admission is not None and prepared_started and cleaned.get('status') == 'pass':
+                try:
+                    budget_update(ledger, 'release-paid-attempt', candidate_key=candidate,
+                        admission_id=admission['id'], owner_token=admission['ownerToken'], cleanup_status='pass',
+                        reservation_ids={'infrastructure': infra_id, 'cleanup': cleanup_id})
+                except Exception:
+                    status, attribution, reason = 'blocked', attribution or 'undetermined', 'paid-admission-release-failure'
         except Exception as exc:
             cleaned = {"status": "blocked", "errorType": type(exc).__name__}
             status, attribution, reason = "blocked", attribution or "undetermined", "cleanup-failure"
@@ -380,6 +446,11 @@ def main(argv=None):
     p.add_argument("--attempt", type=int, choices=[1, 2], default=1)
     p.add_argument("--state-config", required=True, type=Path)
     p.add_argument("--initialize-state", action="store_true")
+    p.add_argument('--bootstrap-artifact', type=Path)
+    p.add_argument('--bootstrap-digest')
+    p.add_argument('--bootstrap-source-sha')
+    p.add_argument('--bootstrap-run-id', type=int)
+    p.add_argument('--bootstrap-run-attempt', type=int)
     args = p.parse_args(argv)
     durable = None
     try:
@@ -390,8 +461,19 @@ def main(argv=None):
         corpus = load_json(corpus_path)
         verify_corpus(corpus_path.parent, corpus)
         from agent_e2e_state import open_store, DurableExecution
+        bootstrap_args = (args.bootstrap_artifact, args.bootstrap_digest, args.bootstrap_source_sha,
+                          args.bootstrap_run_id, args.bootstrap_run_attempt)
+        bootstrap = None
+        if args.initialize_state:
+            if any(value is None for value in bootstrap_args):
+                raise ControllerError('initialization requires authenticated bootstrap accounting')
+            from agent_e2e_bootstrap import verify_import
+            bootstrap = verify_import(args.bootstrap_artifact, args.bootstrap_digest,
+                campaign['componentBindingDigest'], args.bootstrap_source_sha, args.bootstrap_run_id, args.bootstrap_run_attempt)
+        elif any(value is not None for value in bootstrap_args):
+            raise ControllerError('bootstrap import is only allowed during first initialization')
         store = open_store(load_json(args.state_config), campaign['componentBindingDigest'])
-        durable = DurableExecution(store, args.ledger, initialize=args.initialize_state)
+        durable = DurableExecution(store, args.ledger, initialize=args.initialize_state, bootstrap=bootstrap)
         durable.restore_journals(args.journal_root)
         result = run_goal(pack=pack, corpus=corpus, case_id=args.case_id,
             campaign=campaign, backend=Backend(load_json(args.backend)),

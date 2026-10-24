@@ -1,0 +1,71 @@
+name: Python source input witness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: python-source-input-witness
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    # The cross-repository reader credential never reaches arbitrary PR/ref code.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/trunk' && github.repository == 'honua-io/honua-release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Fetch only the selected protected producer witness
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: >-
+          python certification/executable-docs/fetch_python_source_inputs.py
+          --output "$RUNNER_TEMP/python-source-fetch"
+      - name: Prepare exact public verifier and subject checkouts without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          sys.path.insert(0, 'certification/executable-docs')
+          from python_source_inputs import selected_inputs
+          selection, _ = selected_inputs()
+          for name, revision in [('implementation', selection['producer']['sourceSha']), ('subject', selection['subject']['sourceSha'])]:
+              target = Path(os.environ['RUNNER_TEMP']) / ('python-source-' + name)
+              subprocess.run(['git', 'clone', '--no-checkout', 'https://github.com/honua-io/honua-sdk-python.git', str(target)], check=True)
+              subprocess.run(['git', '-C', str(target), 'checkout', '--detach', revision], check=True)
+          image = 'python:3.12-bookworm@' + selection['image']['indexDigest']
+          subprocess.run(['docker', 'pull', '--platform', 'linux/amd64', image], check=True)
+          PY
+      - name: Verify original outer and full inner without credentials or generation
+        run: >-
+          python certification/executable-docs/verify_python_source_witness.py
+          --fetch "$RUNNER_TEMP/python-source-fetch"
+          --implementation "$RUNNER_TEMP/python-source-implementation"
+          --subject "$RUNNER_TEMP/python-source-subject"
+          --output "$RUNNER_TEMP/python-source-verification"
+      - name: Retain verification and refusal records
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-source-witness-verification
+          path: |
+            ${{ runner.temp }}/python-source-fetch/*.json
+            ${{ runner.temp }}/python-source-verification/*.json
+            ${{ runner.temp }}/python-source-verification/*.stdout
+            ${{ runner.temp }}/python-source-verification/*.stderr
+          if-no-files-found: error
+          retention-days: 14

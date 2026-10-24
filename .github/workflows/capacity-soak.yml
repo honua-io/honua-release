@@ -7,7 +7,18 @@ on:
         description: HTTPS URL of the attested candidate soak evidence ZIP
         required: true
         type: string
+      prepared_ref:
+        description: >-
+          Optional full SHA published at refs/prepared-deployments/<sha>: the unadmitted
+          data-only snapshot the producer read its lock and candidate from. Empty = the trunk pin.
+        required: false
+        default: ""
+        type: string
   workflow_call:
+    secrets:
+      RELEASE_RUNNER_READ_TOKEN:
+        description: Read-only Actions metadata and organization runner-group access for dedicated runner verification
+        required: false
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
       evidence_bundle_url:
@@ -18,6 +29,7 @@ on:
 permissions:
   contents: read
   attestations: read
+  actions: read
 
 jobs:
   frozen-slo:
@@ -29,7 +41,41 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # Standalone dispatch for any recent build (operator ruling 2026-10-22): the candidate is
+      # read from the same published release preparation the producer verified, with the same
+      # admission shape (honua-release#604): one commit whose parent is on this trunk checkout,
+      # changing only the prepared data files. The capacity lock and every tool stay this
+      # checkout's bytes, so the frozen thresholds cannot move with the candidate.
+      - name: Adopt the published release preparation
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.prepared_ref != '' }}
+        env:
+          PREPARED_REF: ${{ inputs.prepared_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$PREPARED_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "prepared_ref must be a full commit SHA"; exit 1; }
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then git fetch --no-tags --unshallow origin; fi
+          git fetch --no-tags origin "+refs/prepared-deployments/${PREPARED_REF}:refs/prepared/${PREPARED_REF}"
+          test "$(git rev-parse "refs/prepared/${PREPARED_REF}")" = "$PREPARED_REF" \
+            || { echo "refs/prepared-deployments/${PREPARED_REF} does not name that commit"; exit 1; }
+          parents="$(git rev-list --parents -n1 "$PREPARED_REF" | cut -d' ' -f2-)"
+          [ "$(wc -w <<<"$parents")" -eq 1 ] || { echo "release preparation must have exactly one parent"; exit 1; }
+          git merge-base --is-ancestor "$parents" "$GITHUB_SHA" \
+            || { echo "release preparation parent $parents is not on this checkout's history"; exit 1; }
+          changed="$(git diff --name-only "$parents" "$PREPARED_REF")"
+          [ -n "$changed" ] || { echo "release preparation changes nothing"; exit 1; }
+          while IFS= read -r file; do
+            case "$file" in
+              platform-manifest.yaml|compatibility-matrix.yaml|deployment-preparation.json) ;;
+              *) echo "release preparation changes reviewed release code: $file"; exit 1 ;;
+            esac
+          done <<<"$changed"
+          git show "${PREPARED_REF}:platform-manifest.yaml" > platform-manifest.yaml
+          {
+            echo "### Candidate from release preparation"
+            echo "Evaluated against the unadmitted preparation \`${PREPARED_REF}\` (parent \`${parents}\`),"
+            echo "not the trunk pin. Lock and checker are this checkout's bytes."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
@@ -61,7 +107,6 @@ jobs:
             --repo honua-io/honua-server \
             --signer-workflow github.com/honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml \
             --source-digest "${{ steps.candidate.outputs.revision }}" \
-            --deny-self-hosted-runners \
             --predicate-type https://slsa.dev/provenance/v1 \
             --format json > "$RUNNER_TEMP/attestation-verification.json"
       - name: Extract bounded evidence files
@@ -70,6 +115,8 @@ jobs:
           --bundle "$RUNNER_TEMP/capacity-evidence.zip"
           --output "$RUNNER_TEMP/capacity-evidence"
       - name: Evaluate 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced signals and the producer attestation
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_RUNNER_READ_TOKEN || github.token }}
         run: >-
           python3 tools/check_capacity_soak.py
           --lock certification/capacity-envelope.v1.json
@@ -79,13 +126,16 @@ jobs:
           --expected-image-digest "${{ steps.candidate.outputs.digest }}"
           --bundle "$RUNNER_TEMP/capacity-evidence.zip"
           --attestation "$RUNNER_TEMP/attestation-verification.json"
+          --runner-report "$RUNNER_TEMP/runner-admission.json"
       - name: Preserve immutable evidence bundle and verification
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: capacity-slo-receipt-${{ steps.lock.outputs.sha256 }}
           path: |
             ${{ runner.temp }}/capacity-evidence.zip
             ${{ runner.temp }}/capacity-evidence/
             ${{ runner.temp }}/attestation-verification.json
+            ${{ runner.temp }}/runner-admission*.json
           if-no-files-found: error
           retention-days: 90

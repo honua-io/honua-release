@@ -8,14 +8,26 @@ on:
       - "tools/fixtures/dr/**"
       - ".github/workflows/gate-dr.yml"
       - ".github/workflows/release-train.yml"
+  # The gate runs when the trunk producer (dr-drill-local-docker: weekly, on manifest pushes, or
+  # dispatched) finishes, so the 24-hour freshness bound is measured against a receipt minted
+  # minutes earlier. A fixed cron of its own had no receipt to read: vars.HONUA_DR_RECEIPT_URL was
+  # never set, so every scheduled run since September failed at the fetch step.
+  workflow_run:
+    workflows: [dr-drill-local-docker]
+    types: [completed]
+    branches: [trunk]
+  # Backstop a few hours after the producer's own Monday/Thursday slots, inside the 24-hour bound.
   schedule:
-    - cron: "47 9 * * 1"
+    - cron: "47 12 * * 1,4"
   workflow_dispatch:
     inputs:
       receipt_url:
-        description: HTTPS URL of the candidate-bound full-platform DR receipt
-        required: true
+        description: >-
+          HTTPS URL of the candidate-bound full-platform DR receipt. Empty resolves the receipt the
+          newest successful trunk run of dr-drill-local-docker published.
+        required: false
         type: string
+        default: ""
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
@@ -30,6 +42,7 @@ on:
 permissions:
   contents: read
   attestations: read
+  actions: read                 # resolve the trunk producer run's receipt-location artifact
 
 jobs:
   contract:
@@ -41,7 +54,7 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" pytest
@@ -68,7 +81,7 @@ jobs:
       - name: Upload the fixture revision record
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fixture-revisions-gate-dr-contract
           path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
@@ -90,19 +103,58 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
       - name: Download the frozen candidate configuration
         if: inputs.candidate_bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: candidate-manifest
           path: candidate-input
+      # An explicit URL (dispatch input, train input or repository variable) wins. Otherwise the URL
+      # comes from the receipt-location artifact of the trunk producer run: the one that triggered
+      # this run, or the newest successful non-PR trunk run. Only the location is taken from the
+      # artifact; the bytes it points at are still attestation-verified below against the producer
+      # workflow identity and refs/heads/trunk, and freshness-checked by validate_dr_receipt.py.
+      - name: Resolve the full-platform receipt location
+        id: receipt_source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_URL: ${{ inputs.receipt_url || vars.HONUA_DR_RECEIPT_URL }}
+          PRODUCER_RUN: ${{ github.event.workflow_run.id }}
+          PRODUCER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          PRODUCER_EVENT: ${{ github.event.workflow_run.event }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_URL" ]; then
+            echo "receipt source: explicit URL"
+            echo "receipt_url=$INPUT_URL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$PRODUCER_RUN" ]; then
+            if [ "$PRODUCER_EVENT" = "pull_request" ] || [ "$PRODUCER_CONCLUSION" != "success" ]; then
+              echo "::error::trunk DR producer run $PRODUCER_RUN ($PRODUCER_EVENT) concluded $PRODUCER_CONCLUSION; it published no receipt"
+              exit 1
+            fi
+            run="$PRODUCER_RUN"
+          else
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/dr-drill-local-docker.yml/runs?branch=trunk&status=success&per_page=30" \
+              --jq '[.workflow_runs[] | select(.event != "pull_request")][0].id // empty')"
+            [ -n "$run" ] || { echo "::error::no successful trunk dr-drill-local-docker run has published a receipt"; exit 1; }
+          fi
+          name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select(.name | startswith("dr-receipt-location-")) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty')"
+          [ -n "$name" ] || { echo "::error::producer run $run has no unexpired dr-receipt-location artifact"; exit 1; }
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name "$name" --dir "$RUNNER_TEMP/receipt-location"
+          url="$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["receipt_url"])' "$RUNNER_TEMP/receipt-location/receipt-location.json")"
+          echo "receipt source: producer run https://github.com/$GITHUB_REPOSITORY/actions/runs/$run ($name)"
+          echo "receipt_url=$url" >> "$GITHUB_OUTPUT"
       - name: Fetch full-platform receipt
         env:
-          RECEIPT_URL: ${{ inputs.receipt_url || vars.HONUA_DR_RECEIPT_URL }}
+          RECEIPT_URL: ${{ steps.receipt_source.outputs.receipt_url }}
         shell: pwsh
         run: |
           $receiptUri = $null
@@ -164,7 +216,7 @@ jobs:
       - name: Upload the fixture revision record
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fixture-revisions-gate-dr-receipt
           path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
@@ -182,7 +234,7 @@ jobs:
             --output "$env:RUNNER_TEMP/gp-validated.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve validated receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: full-platform-dr-receipt
           path: ${{ runner.temp }}/dr-receipt.json

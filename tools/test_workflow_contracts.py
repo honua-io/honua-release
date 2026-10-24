@@ -51,9 +51,30 @@ def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
     assert '--attestation "$RUNNER_TEMP/attestation-verification.json"' in commands
     assert '--bundle "$RUNNER_TEMP/capacity-evidence.zip"' in commands
     assert "--source-digest" in commands
-    assert "--deny-self-hosted-runners" in commands
+    # Dedicated producers require live runner-group/job admission in check_capacity_soak;
+    # removal of gh's blanket rejection is never itself an admission.
+    assert "--runner-report" in commands
+    assert "RELEASE_RUNNER_READ_TOKEN" in str(job)
     assert "--predicate-type https://slsa.dev/provenance/v1" in commands
     assert "continue-on-error" not in str(job)
+
+
+def test_capacity_soak_standalone_dispatch_adopts_only_prepared_data():
+    workflow = _workflow("capacity-soak.yml")
+    assert "prepared_ref" in _triggers(workflow)["workflow_dispatch"]["inputs"]
+    assert "prepared_ref" not in _triggers(workflow)["workflow_call"]["inputs"]
+    steps = workflow["jobs"]["frozen-slo"]["steps"]
+    adopt = next(step for step in steps if step.get("name") == "Adopt the published release preparation")
+    text = _step_text(adopt)
+    assert "refs/prepared-deployments/" in text
+    assert "merge-base --is-ancestor" in text
+    assert "platform-manifest.yaml|compatibility-matrix.yaml|deployment-preparation.json) ;;" in text
+    # Only the manifest is adopted; the frozen lock and the checker stay this checkout's bytes.
+    assert "capacity-envelope" not in text
+    assert 'git show "${PREPARED_REF}:platform-manifest.yaml" > platform-manifest.yaml' in text
+    # The candidate is read after adoption, so attestation and digest bind the prepared build.
+    names = [step.get("name") for step in steps]
+    assert names.index("Adopt the published release preparation") < names.index("Read manifest-pinned server revision")
 
 
 def test_real_release_cut_verifies_published_bytes_and_producer_trust():
@@ -802,11 +823,19 @@ def test_upgrade_gate_nightly_schedule_exercises_the_failed_rollback_scenario():
     exercised in the targeted nightly lane, not merely reachable via a manual workflow_dispatch game
     day that an operator has to remember to run."""
     workflow = _workflow("gate-upgrade.yml")
-    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["scenario"]
+    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["include"]
     assert "'schedule'" in matrix_scenario
-    assert '"rollback-failure"' in matrix_scenario
-    for scenario in ("normal", "post-migration-readiness", "bad-config", "migration-boundary"):
-        assert f'"{scenario}"' in matrix_scenario
+    assert '{"scenario":"rollback-failure","pair":"trunk-candidate"}' in matrix_scenario
+    for scenario in ("post-migration-readiness", "bad-config", "migration-boundary"):
+        assert '{"scenario":"%s","pair":"trunk-candidate"}' % scenario in matrix_scenario
+    # Coordinator ruling 2026-10-22 (release#376 issuecomment-6335886760): the trunk-candidate pair is
+    # the required rc path and the default for dispatch and the train; the published-release pair
+    # still runs nightly but is advisory until a real release exists.
+    assert '{"scenario":"normal","pair":"published-release"}' in matrix_scenario
+    assert '{"scenario":"normal","pair":"trunk-candidate"}' in matrix_scenario
+    assert "inputs.upgrade_pair || 'trunk-candidate'" in matrix_scenario
+    assert _triggers(workflow)["workflow_call"]["inputs"]["upgrade_pair"]["default"] == "trunk-candidate"
+    assert _triggers(workflow)["workflow_dispatch"]["inputs"]["upgrade_pair"]["default"] == "trunk-candidate"
 
 
 def test_upgrade_gate_treats_correctly_classified_rollback_failure_as_a_passing_negative():
@@ -1329,32 +1358,37 @@ def test_contract_live_request_timeout_still_tears_down_and_records_failure(tmp_
 
 def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
     # rc.3 fix units C2/C6: aws-mixed has no IaC root (honua-iac#209), so it is not dispatched; the
-    # Lambda+Batch cell gets the manifest's amd64 server child; Bedrock is opt-in and ECS/Redis-off only.
-    # honua-release#203 (owner decisions 12/18 of 2026-10-10): aws-eks is GA, so no cell is Preview.
+    # Lambda+Batch cell gets the manifest's amd64 server child; Bedrock is opt-in across the four ECS/Lambda GA cells.
+    # October 16 amendment: EKS is Preview; required ECS/Lambda cells retain their bill.
     workflow = _workflow("e2e-cloud-aws.yml")
     text = (REPO_ROOT / ".github" / "workflows" / "e2e-cloud-aws.yml").read_text(encoding="utf-8")
     cell = _workflow("e2e-cloud-aws-cell.yml")
     triggers = _triggers(workflow)
     assert triggers["workflow_dispatch"]["inputs"]["target"]["options"] == [
         "all", "aws-serverless", "aws-ecs", "aws-eks"]
-    assert "'[\"aws-serverless\",\"aws-ecs\",\"aws-eks\"]'" in text
+    # Operator ruling 2026-10-22: `all` dispatches the GA targets only; aws-eks (Preview) runs
+    # only on an explicit target=aws-eks dispatch and is reported "not certified (preview)".
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in text
+    assert "'[\"aws-serverless\",\"aws-ecs\",\"aws-eks\"]'" not in text
+    assert 'status:"not certified (preview)"' in text
     assert "aws-mixed\"" not in text and "'aws-mixed'" not in text
     parity = workflow["jobs"]["parity"]["with"]
-    assert parity["preview"] is False
+    assert parity["preview"] == "${{ matrix.target == 'aws-eks' }}"
     assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
-    assert "matrix.target == 'aws-ecs' && matrix.redis == 'off'" in parity["enable_bedrock"]
+    assert "(matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless')" in parity["enable_bedrock"]
+    assert "matrix.redis" not in parity["enable_bedrock"]
     for trigger in ("workflow_dispatch", "workflow_call"):
         assert triggers[trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
     assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
     assert cell["env"]["HONUA_MIGRATE_IMAGE"] == "${{ inputs.gp_batch_image }}"
-    # The receipt checker and the cloud journey agree with the matrix: EKS is GA, no aws-mixed row.
+    # The receipt checker and the cloud journey agree with the matrix: EKS is Preview, no aws-mixed row.
     # Read as text: this suite also runs where the checkers' own dependencies are not installed.
     receipts = (REPO_ROOT / "tools" / "check_journey_receipts.py").read_text(encoding="utf-8")
     journey = (REPO_ROOT / "e2e" / "cloud_journey.py").read_text(encoding="utf-8")
-    ga = 'GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")'
+    ga = 'GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")'
     assert ga in receipts and ga in journey
-    assert "PREVIEW_CELLS: tuple[str, ...] = ()" in receipts
-    assert "PREVIEW_TARGETS: tuple[str, ...] = ()" in journey
+    assert 'PREVIEW_CELLS: tuple[str, ...] = ("aws-eks/redis-off", "aws-eks/redis-on")' in receipts
+    assert 'PREVIEW_TARGETS: tuple[str, ...] = ("aws-eks",)' in journey
     assert '"aws-mixed"' not in receipts and '"aws-mixed"' not in journey
     teardown = [step.get("name") for step in cell["jobs"]["teardown"]["steps"]]
     assert teardown.index("Capture cell readiness diagnostics") < next(
@@ -1377,3 +1411,17 @@ def test_manifest_validate_verifies_all_required_npm_artifacts_after_anonymous_p
     assert preflight < verifier
     assert not _neutralised(job)
     assert not _neutralised(step)
+
+
+def test_update_rollback_authentication_admits_both_builds_before_cloud_identity_or_provision():
+    workflow = _workflow("aws-update-rollback.yml")
+    admit = workflow["jobs"]["admit"]
+    assert admit["if"] == "github.ref == 'refs/heads/trunk'"
+    assert admit["permissions"] == {"contents": "read", "actions": "read", "packages": "read", "attestations": "read"}
+    assert not any("configure-aws-credentials" in step.get("uses", "") for step in admit["steps"])
+    guard = next(step for step in admit["steps"] if step.get("name", "").startswith("Authenticate both builds"))
+    assert 'prior=load_release(root/"rollback-prior",mode)' in guard["run"]
+    assert 'candidate=load_release(root/"rollback-candidate",mode)' in guard["run"]
+    assert "for cell in CELLS:" in guard["run"] and "preflight(prior,candidate,cell,mode)" in guard["run"]
+    cloud = workflow["jobs"]["cloud"]
+    assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "both"

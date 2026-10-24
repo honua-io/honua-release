@@ -114,3 +114,47 @@ def test_an_unpublished_client_identity_fails_generation(mutation, message):
     with pytest.raises(ValueError, match=message):
         for lane in ("grpc-dotnet", "grpc-python", "grpc-typescript"):
             generator.grpc_client_version(clients, lane)
+
+
+def test_every_governed_grpc_row_retains_exact_published_archive_digest():
+    rows = [row for row in REQUIREMENTS["requirements"] if row["client_lane"].startswith("grpc-")]
+    assert len(rows) == 42
+    for row in rows:
+        assert row["client_package_digest"] == generator.grpc_client_digest(INVENTORY["published_clients"], row["client_lane"])
+
+
+@pytest.mark.parametrize("lane,field,value", [
+    ("grpc-dotnet", "digest", "sha256:bad"),
+    ("grpc-python", "digest", "sha256:" + "A" * 64),
+    ("grpc-typescript", "integrity", "sha512-bad"),
+    ("grpc-typescript", "integrity", "sha256:" + "a" * 64),
+])
+def test_malformed_or_wrong_algorithm_published_identity_is_refused(lane, field, value):
+    clients = copy.deepcopy(INVENTORY["published_clients"])
+    clients[lane][field] = value
+    with pytest.raises(ValueError, match="published artifact digest"):
+        generator.grpc_client_digest(clients, lane)
+
+
+def test_validator_refuses_a_grpc_row_whose_digest_is_not_the_published_package(tmp_path):
+    import shutil
+    import subprocess
+    import sys
+
+    certification = tmp_path / "certification"
+    shutil.copytree(ROOT / "certification", certification, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy2(ROOT / "platform-manifest.yaml", tmp_path / "platform-manifest.yaml")
+    catalog_path = certification / "protocol-certification-requirements.v1.json"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    row = next(item for item in catalog["requirements"] if item["client_lane"] == "grpc-dotnet")
+    published = generator.grpc_client_digest(INVENTORY["published_clients"], "grpc-dotnet")
+    assert row["client_package_digest"] == published
+    row["client_package_digest"] = "sha256:" + "ab" * 32
+    catalog_path.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(certification / "validate-protocol-requirements.py")],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode != 0
+    assert "digest differs from the published package" in result.stderr
+    assert "grpc-dotnet" in result.stderr

@@ -124,25 +124,28 @@ def test_exact_candidate_pending_ga_target_rejected(candidate):
 
 
 def eks_row(matrix):
-    # Owner decisions 12/18 of 2026-10-10 (honua-release#203): the chart on EKS is a second GA target.
+    # October 16 amendment: EKS remains Preview with honest qualification pending.
     return matrix["deploy"]["honua-helm"]["awsEks"]["architectures"]["x86_64"]
 
 
-def test_exact_candidate_pending_eks_ga_target_rejected(candidate):
+def test_exact_candidate_pending_eks_preview_is_never_reported_as_supported(candidate):
     manifest, matrix, row = candidate
     qualify(manifest, row)
-    assert eks_row(matrix)["status"] == "ga-target" and eks_row(matrix)["qualification"] == "pending"
+    assert eks_row(matrix)["status"] == "preview" and eks_row(matrix)["qualification"] == "pending"
     result = vp.Findings()
     vp.check_deploy_qualification(manifest, matrix, result, exact_candidate=True)
-    assert result.errors == ["exact-candidate: deploy.honua-helm.awsEks.architectures.x86_64: GA target, "
-                             "qualification pending; requires supported + passed + candidate-bound "
-                             "qualificationReceipt"]
+    assert result.ok, result.errors
+    assert "qualificationReceipt" not in eks_row(matrix)
+    # Merely flipping scope back to GA must restore the complete-proof requirement.
+    eks_row(matrix).update(status="ga-target", releaseScope="ga-target")
+    result = vp.Findings()
+    vp.check_deploy_qualification(manifest, matrix, result, exact_candidate=True)
+    assert len(result.errors) == 1 and "GA target, qualification pending" in result.errors[0]
 
 
 def test_exact_candidate_passed_ga_target_clears_qualification_gate(candidate):
     manifest, matrix, row = candidate
     qualify(manifest, row)
-    qualify(manifest, eks_row(matrix))
     result = vp.Findings()
     vp.check_deploy_qualification(manifest, matrix, result, exact_candidate=True)
     assert result.ok, result.errors

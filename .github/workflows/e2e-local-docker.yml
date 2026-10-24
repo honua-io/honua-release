@@ -87,13 +87,13 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
       # Toolchains for the SDK probes. They are present so that, once the SDK pins are real, the
       # probes actually install + run; while pins are placeholders the probes self-report SKIP.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.23.3"
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -154,12 +154,29 @@ jobs:
       - name: Upload the fixture revision record
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fixture-revisions-e2e-local-docker-seam
           path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
           if-no-files-found: error
           overwrite: true
+
+      # Honua.Sdk 1.12.0's global.json pins SDK 10.0.401 with rollForward disable and a
+      # workloadVersion. The runner image ships a different patch and no 10.0.401 workload set, so
+      # install exactly the pinned SDK and drop only the workload-set pin; the seam probes use no workload.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: _e2e-sdk-dotnet/global.json
+      - name: Drop the pinned .NET SDK's workload-set pin
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          path = "_e2e-sdk-dotnet/global.json"
+          data = json.load(open(path))
+          data.get("sdk", {}).pop("workloadVersion", None)
+          json.dump(data, open(path, "w"), indent=2)
+          PY
 
       - name: Install the frozen SDK artifacts for the seam probes
         env:
@@ -198,7 +215,7 @@ jobs:
 
       - name: Upload gate-report.json
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-local-docker-gate-report
           path: e2e/gate-report.json
@@ -216,7 +233,7 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -272,7 +289,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Set up Node (console live suite)
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -284,7 +301,7 @@ jobs:
       - name: Resolve the pinned honua-console revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="c652ef22612d83277f8d39384be61411915dda1d"
+          TRUSTED_SHA="a0c04a684cf1721ac87027c8090bfb0a8ba1bc95"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -306,7 +323,7 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: c652ef22612d83277f8d39384be61411915dda1d
+          ref: a0c04a684cf1721ac87027c8090bfb0a8ba1bc95
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -362,7 +379,7 @@ jobs:
       - name: Upload the fixture revision record
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fixture-revisions-e2e-local-docker-slice1
           path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
@@ -404,7 +421,7 @@ jobs:
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: c652ef22612d83277f8d39384be61411915dda1d
+          E2E_CONSOLE_SHA: a0c04a684cf1721ac87027c8090bfb0a8ba1bc95
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
@@ -434,7 +451,7 @@ jobs:
 
       - name: Upload Slice-1 gate-report.json
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-slice1-gate-report
           path: e2e/gate-report.json
@@ -447,7 +464,7 @@ jobs:
       # have to download a Playwright trace bundle to read one JSON file.
       - name: Upload S4 console live-suite log + Playwright traces
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-slice1-console-live
           path: |
@@ -475,7 +492,7 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -510,7 +527,7 @@ jobs:
 
       - name: Upload Slice-1 Redis-off gate-report.json
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-slice1-redis-off-gate-report
           path: e2e/gate-report.json
@@ -526,10 +543,10 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.23.3"
       - name: Install replay prerequisites
@@ -573,7 +590,7 @@ jobs:
         run: python certification/control-plane-parity/cleanup.py
       - name: Retain sanitized engineering receipts
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: control-plane-parity
           path: ${{ runner.temp }}/control-plane-parity-public
@@ -585,10 +602,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.23.3"
       - name: Install proof prerequisites
@@ -622,7 +639,7 @@ jobs:
         run: python certification/operate-joined/run.py --cleanup
       - name: Retain sanitized joined proof
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: operate-joined
           path: ${{ runner.temp }}/operate-joined-public

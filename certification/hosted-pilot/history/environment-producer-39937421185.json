@@ -1,0 +1,89 @@
+{
+  "awsCredentialStepPresent": false,
+  "awsInfrastructureMutationObserved": false,
+  "candidateIndependent": true,
+  "classification": "github-foundation-environment-configuration-only",
+  "initializationAdmission": false,
+  "jobs": {
+    "jobs": [
+      {
+        "completed_at": "2026-10-23T10:12:30Z",
+        "conclusion": "success",
+        "head_sha": "7342099da90f715f44a181f9d025c5740149b15a",
+        "id": 120360277979,
+        "name": "configure",
+        "started_at": "2026-10-23T10:12:22Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completed_at": "2026-10-23T10:12:23Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "started_at": "2026-10-23T10:12:22Z",
+            "status": "completed"
+          },
+          {
+            "completed_at": "2026-10-23T10:12:25Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "started_at": "2026-10-23T10:12:23Z",
+            "status": "completed"
+          },
+          {
+            "completed_at": "2026-10-23T10:12:28Z",
+            "conclusion": "success",
+            "name": "Reconcile only the checked-in foundation environment",
+            "number": 3,
+            "started_at": "2026-10-23T10:12:25Z",
+            "status": "completed"
+          },
+          {
+            "completed_at": "2026-10-23T10:12:28Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 6,
+            "started_at": "2026-10-23T10:12:28Z",
+            "status": "completed"
+          },
+          {
+            "completed_at": "2026-10-23T10:12:28Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 7,
+            "started_at": "2026-10-23T10:12:28Z",
+            "status": "completed"
+          }
+        ]
+      }
+    ],
+    "total_count": 1
+  },
+  "jobsProjectionSha256": "sha256:e9003d1c0a7432556e929d9a060239ac5676b5e251b0e6bbd7977f87aa837d6c",
+  "oidcPermissionPresent": false,
+  "repository": "honua-io/honua-release",
+  "run": {
+    "conclusion": "success",
+    "created_at": "2026-10-23T10:12:17Z",
+    "event": "workflow_dispatch",
+    "head_branch": "trunk",
+    "head_sha": "7342099da90f715f44a181f9d025c5740149b15a",
+    "id": 39937421185,
+    "path": ".github/workflows/hosted-pilot-foundation-environment.yml",
+    "run_attempt": 1,
+    "run_started_at": "2026-10-23T10:12:17Z",
+    "status": "completed",
+    "updated_at": "2026-10-23T10:12:31Z"
+  },
+  "runProjectionSha256": "sha256:fcc3627cb32a79adc92cbe48014a7e37919365182ab71a48ab602c19fc25a87c",
+  "schema": "honua.hosted-pilot-observed-environment-producer/v1",
+  "scope": "Actual single configure job ran pinned checkout and source-defined GitHub environment reconciliation only; this does not claim zero GitHub Actions or account cost",
+  "sourceFileSha256": {
+    ".github/workflows/hosted-pilot-foundation-environment.yml": "sha256:9a86a948f8702a939d00e8ac2c6bae9e4f13ca4bb087a4573cf91b44c74e90d2",
+    "certification/hosted-pilot/foundation-environment.json": "sha256:a2aa5e4a94dc5a9fc6168aea18e213fb1f28e416f025ff8a66f8932bf875087b",
+    "tools/hosted_pilot/bind_github.py": "sha256:a548c91b113d488a5b0eff9db4a56ea22a53e129250053fadd694086ade19e4c",
+    "tools/hosted_pilot/deploy.py": "sha256:875b556054f5e104277f56486077d29a78c66a05ab2a3692b253d90b0a35726f",
+    "tools/hosted_pilot/foundation_environment.py": "sha256:5b3a4225b8eb5d738d05ee6a19907a341aaa3088645274fd325c553e32bbe89f"
+  }
+}

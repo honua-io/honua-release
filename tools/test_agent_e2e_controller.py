@@ -8,7 +8,7 @@ import pytest
 
 from agent_e2e_budget import update
 from agent_e2e_controller import ControllerError, ModelFailure, run_goal, validate_action
-from agent_e2e_pack import load_json
+from agent_e2e_pack import load_json, canonical_digest
 from agent_e2e_telemetry import read_events, summarize
 from test_agent_e2e_knowledge import sample_manifest
 from agent_e2e_knowledge import binding
@@ -74,6 +74,7 @@ def environment(tmp_path):
     adapter.manifest = sample_manifest(tmp_path/'knowledge', pack)
     return {"pack": pack, "corpus": corpus, "case_id": "P10:A:local-docker",
             "campaign": {"campaignId": "campaign", "componentBindingDigest": KEY,
+                         "totalBudgetUsd": 500,
                          "campaignMode": "qualification", "knowledge": binding(adapter.manifest),
                          "qualificationLockDigest": BASIS, "modelId": "requested", "returnedModelId": "returned"},
             "ledger": ledger, "journal_root": tmp_path / "journals", "backend": adapter, "model": Model()}
@@ -87,6 +88,28 @@ def test_hidden_prepare_payload_not_in_model_input_and_no_qualification_claim(en
     assert "assertions" not in text and "expectedOutcome" not in text
     assert summarize(read_events(result["journal"]))["agentEncounteredCorpus"] is True
     assert summarize(read_events(result["journal"]))['providerRequests'] == [{'turn':1, 'requestId':'request-id'}]
+
+
+def test_adopted_console_turn_receives_only_original_final_provider_response(environment):
+    adapter = environment['backend']
+    original_call = adapter.call
+    def call(operation, payload, **kwargs):
+        if operation == 'conversation_response':
+            adapter.operations.append((operation, copy.deepcopy(payload)))
+            return {'status': 'delivered', 'evidenceKind': 'conversation'}
+        result = original_call(operation, payload, **kwargs)
+        if operation == 'prepare':
+            result['consoleConversation'] = True
+        return result
+    adapter.call = call
+    result = run_goal(**environment)
+    assert result['status'] == 'pass'
+    operations = [name for name, _ in adapter.operations]
+    assert operations.index('conversation_response') < operations.index('verify')
+    response = next(value['response'] for name, value in adapter.operations if name == 'conversation_response')
+    assert response['providerRequestId'] == 'request-id'
+    assert response['message']['content'] == [{'type': 'text', 'text': 'Done.'}]
+    assert response['turn'] == 1
 
 
 @pytest.mark.parametrize('observed_action', [1, 2])
@@ -153,6 +176,31 @@ def test_failed_intent_persistence_prevents_backend_dispatch(environment):
     assert [op for op, _ in environment['backend'].operations] == ['prepare', 'cleanup']
     assert summarize(read_events(result['journal']))['actionsUnresolved'] == 1
     assert result['usage']['executedActions'] == 0
+
+
+def test_backend_receives_controller_action_identity_after_durable_intent(environment):
+    calls = [{'type':'tool_use', 'id':'model-supplied-'+str(index), 'name':'mcp_list_tools', 'input':{}}
+             for index in range(2)]
+    environment['model'] = Model(calls)
+    retained, dispatched = [], []
+    original = environment['backend'].call
+    def call(operation, payload, **kwargs):
+        if operation == 'agent_action':
+            dispatch = payload['dispatch']
+            intent = retained[-1]
+            assert intent['event'] == 'action-intent'
+            assert dispatch['intentDigest'] == canonical_digest(intent)
+            assert dispatch['requestDigest'] == intent['requestDigest']
+            assert dispatch['ordinal'] == intent['action']
+            assert dispatch['actionId'] == canonical_digest({**{key:payload[key] for key in
+                ('campaignId','caseId','attempt','componentBindingDigest')}, 'ordinal':dispatch['ordinal']})[7:]
+            assert payload['action'] == calls[dispatch['ordinal']-1]
+            dispatched.append(dispatch)
+        return original(operation, payload, **kwargs)
+    environment['backend'].call = call
+    run_goal(**environment, journal_sink=lambda row: retained.append(copy.deepcopy(row)))
+    assert [value['ordinal'] for value in dispatched] == [1, 2]
+    assert len({value['actionId'] for value in dispatched}) == 2
 
 
 def test_failed_result_persistence_is_not_a_durably_observed_action(environment):
@@ -224,3 +272,13 @@ def test_worker_documentation_mismatch_blocks_model_and_cleans_up(environment):
 def test_invalid_terminal_arguments_never_reach_backend(args):
     with pytest.raises(ModelFailure):
         validate_action({"type": "tool_use", "id": "one", "name": "terminal", "input": args})
+
+
+def test_legacy_dispatcher_refuses_amended_pilot_ledger_before_any_paid_work(environment):
+    update(environment['ledger'],'amend-foss4g',candidate_key=KEY)
+    result=run_goal(**environment)
+    assert result['status']=='blocked' and result['qualification'] is False
+    assert environment['backend'].operations==[]
+    assert environment['model'].inputs==[]
+    ledger=load_json(environment['ledger'])
+    assert ledger['entries']==[] and ledger['paidAdmissions']==[]

@@ -20,7 +20,7 @@
     {"repo": "honua-io/honua-sdk-js", "path": "docs/quickstart.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-js", "path": "mcp/README.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-mcp-server"}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-js", "path": "packages/create-honua-app/README.md", "revision": {"npmPublished": "create-honua-app"}, "runtime": "node"},
-    {"repo": "honua-io/honua-sdk-python", "path": "README.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
+    {"repo": "honua-io/honua-sdk-python", "path": "README.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python", "prerequisites": {"node": "README.md:279-281 — \"the test suite needs Node.js with `node` on `PATH`\""}},
     {"repo": "honua-io/honua-sdk-python", "path": "INSTALL.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
     {"repo": "honua-io/honua-sdk-python", "path": "docs/quickstart.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
     {"repo": "honua-io/honua-sdk-python", "path": "packages/honua-sdk/README.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
@@ -46,10 +46,64 @@
     {"repo": "honua-io/honua-samples", "path": "samples/stac-search-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/stac-search-rest"}},
     {"repo": "honua-io/honua-samples", "path": "samples/wms-getmap-check/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "samples/wms-getmap-check/README.md:10 — \"Bash, `curl`, `jq`, and `od`\""}},
     {"repo": "honua-io/honua-site", "path": "docs.html", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "format": "html"},
-    {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true},
-    {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "prerequisites": {"node": "docs/playbooks/install-with-docker/index.md:18 — \"Node.js 22.12.0 or later with `npm`\""}},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "prerequisites": {"node": "docs/playbooks/publish-a-service/index.md:27 — \"Node.js 20.19.0 or later with `npm`\"", "jq": "docs/playbooks/publish-a-service/index.md:27 — \"`jq` 1.6 or later\""}},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
-    {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "revision": {"defaultBranch": true}, "runtime": "node"}
+    {
+      "repo": "honua-io/honua-site",
+      "path": "docs/geoprocessing/index.md",
+      "revision": {
+        "defaultBranch": true
+      },
+      "runtime": "node",
+      "executionContexts": [
+        {
+          "name": "javascript",
+          "runtime": "node",
+          "documentedAt": "docs/geoprocessing/index.md:40-64 \u2014 JavaScript installation and example",
+          "blocks": [
+            {
+              "index": 0,
+              "sha256": "ccf4d54ff8309eeeebd7b454c23ce149c7920a9e7108a9a0c113c10649f668e6"
+            },
+            {
+              "index": 1,
+              "sha256": "346524f59dd63dcfc7ae5e23778a78697e4e3c752a1c8355ecd7749505346a5d"
+            }
+          ]
+        },
+        {
+          "name": "python",
+          "runtime": "python",
+          "documentedAt": "docs/geoprocessing/index.md:66-84 \u2014 Python installation and example",
+          "blocks": [
+            {
+              "index": 2,
+              "sha256": "809fb7617cb2b6f02580816ce865ba5c90e55d3e545985b7faae5d0b50489e19"
+            },
+            {
+              "index": 3,
+              "sha256": "85cc85b51f5e9933fee19d503d9dbf3fcc80b1bc38f21745bc9967f1ce540e6d"
+            }
+          ]
+        },
+        {
+          "name": "dotnet",
+          "runtime": "dotnet",
+          "documentedAt": "docs/geoprocessing/index.md:86-119 \u2014 .NET console project, package and example",
+          "blocks": [
+            {
+              "index": 4,
+              "sha256": "0284ca61a125b19c0f64c92c92fbf9aa283ddba484f0f4383346823e00eca8d6"
+            },
+            {
+              "index": 5,
+              "sha256": "366928ee4f5a115705aa92bb69b695499e32e3258db1cd384cf47164d8bf29ff"
+            }
+          ]
+        }
+      ]
+    }
   ],
   "outOfScope": [
     {"repo": "honua-io/honua-server", "path": "docs/get-started/linux-packages.md", "reason": "installs a native .deb/.rpm as a systemd service; a container has no init system, so this lane cannot be the clean machine. The native-package lane owns it."},

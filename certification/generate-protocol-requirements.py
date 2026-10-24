@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fnmatch
+import base64
 import json
 import re
 from pathlib import Path
@@ -41,6 +42,38 @@ PRO = DESKTOP["clients"]["pro"]
 DESKTOP_DRIVERS = DESKTOP["drivers"]
 MUST_FIX = DESKTOP["buckets"]["must_fix"]
 PROVE = DESKTOP["buckets"]["prove"]
+
+
+def python_wheel_identity(manifest: dict, version: str, source_sha: str) -> dict:
+    """Only independently selected published bytes can govern a Python receipt."""
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ValueError("selected manifest requires an exact Python source SHA")
+    component = manifest.get("components", {}).get("honua-sdk-python", {})
+    artifact = manifest.get("clientArtifacts", {}).get("honua-sdk-python-wheel", {})
+    if (component.get("sha") != source_sha or component.get("version") != version
+            or artifact.get("sourceSha") != source_sha or artifact.get("version") != version
+            or artifact.get("repository") != "honua-io/honua-sdk-python"
+            or artifact.get("package") != "honua-sdk" or artifact.get("ecosystem") != "pypi"
+            or artifact.get("publicationState") != "published"
+            or artifact.get("filename") != f"honua_sdk-{version}-py3-none-any.whl"
+            or not isinstance(artifact.get("digest"), str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", artifact["digest"])):
+        raise ValueError("selected manifest does not bind a coherent published Python SDK wheel")
+    return {"filename": artifact["filename"], "sha256": artifact["digest"][7:], "source": "pypi"}
+
+
+def selected_python_wheel(revisions: dict) -> dict | None:
+    # Historical mixed cohorts remain unchanged and cannot qualify executed
+    # Python rows. The existing rebind refuses their component/artifact split.
+    # Only a coherent future selection adds governed bytes during regeneration.
+    import yaml
+    manifest = yaml.safe_load((ROOT.parent / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    source = revisions["sdk-python"]["commit"]
+    component = manifest.get("components", {}).get("honua-sdk-python", {})
+    artifact = manifest.get("clientArtifacts", {}).get("honua-sdk-python-wheel", {})
+    if component.get("sha") != source or artifact.get("sourceSha") != source:
+        return None
+    return python_wheel_identity(manifest, source_sdk_version("sdk-python"), source)
 
 
 def source_sdk_version(source: str) -> str:
@@ -83,6 +116,104 @@ def sdk_js_version() -> str:
     if contract.get("canonicalClient") != "@honua/sdk-js" or contract.get("clientVersion") != version:
         raise ValueError("pinned sdk-js coverage and protocol contract must declare the same client and version")
     return version
+def mcp_clients() -> list[tuple[str, str, str]]:
+    """Read literal manifests fetched from the selected producer; never execute it.
+
+    Names/lanes remain release policy. Versions must agree across the producer's
+    exact direct dependency declaration, lock root, and installed package entry.
+    Nightly staging refreshes both snapshots at the same selected source SHA.
+    """
+    package = load(SOURCES / "geospatial-mcp" / "package.json")
+    lock = load(SOURCES / "geospatial-mcp" / "package-lock.json")
+    name = "geospatial-mcp-protocol-certification"
+    if (package.get("name") != name or lock.get("name") != name
+            or lock.get("lockfileVersion") != 3):
+        raise ValueError("pinned MCP certification package/lock identity is invalid")
+    packages = lock.get("packages") or {}
+    root = packages.get("") or {}
+    if root.get("name") != name:
+        raise ValueError("pinned MCP lock root identity is invalid")
+    clients = []
+    for client, lane, dependency in (
+        ("Official MCP TypeScript SDK", "mcp-typescript-sdk", "@modelcontextprotocol/sdk"),
+        ("MCP Inspector", "mcp-inspector", "@modelcontextprotocol/inspector"),
+    ):
+        version = (package.get("dependencies") or {}).get(dependency)
+        numeric = r"(?:0|[1-9][0-9]*)"
+        identifier = rf"(?:{numeric}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+        semver = rf"{numeric}\.{numeric}\.{numeric}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+        entry = packages.get("node_modules/" + dependency) or {}
+        if (not isinstance(version, str) or not re.fullmatch(semver, version)
+                or (root.get("dependencies") or {}).get(dependency) != version
+                or entry.get("version") != version
+                or entry.get("resolved") != f"https://registry.npmjs.org/{dependency}/-/{dependency.rsplit('/', 1)[1]}-{version}.tgz"):
+            raise ValueError(f"pinned MCP {dependency} must have matching exact package/lock versions and registry identity")
+        integrity = entry.get("integrity")
+        try:
+            digest = (base64.b64decode(integrity.removeprefix("sha512-"), validate=True)
+                      if isinstance(integrity, str) and integrity.startswith("sha512-") else b"")
+        except ValueError:
+            digest = b""
+        if len(digest) != 64:
+            raise ValueError(f"pinned MCP {dependency} requires SHA512 package integrity")
+        clients.append((client, lane, version))
+    return clients
+
+
+def mcp_operation_auth(inventory: dict) -> dict[str, str]:
+    """Require an explicit authorization decision for every selected MCP operation.
+
+    This is release-owned policy, not a change to the producer snapshots. The
+    selected producer must actually implement the new auth facet before its
+    receipts can satisfy the regenerated requirements.
+    """
+    policy = load(SOURCES / "mcp-operation-auth-policy.v1.json")
+    if (policy.get("schema") != "honua.mcp-operation-auth-policy/v1"
+            or policy.get("revision") != "mcp-operation-auth-v1"):
+        raise ValueError("MCP authorization policy schema/revision is invalid")
+    expected_profiles = {
+        "anonymous-public-v1": ["anonymous-success", "fresh-anonymous-session", "no-credentials"],
+        "mcp-protected-operation-v1": [
+            "authenticated-success", "fresh-anonymous-refusal", "no-credential-forwarding",
+            "no-authenticated-session-reuse", "caller-session-binding",
+        ],
+    }
+    if policy.get("required_observations") != expected_profiles:
+        raise ValueError("MCP authorization policy must preserve all required observations")
+    operations = {}
+    for entry in inventory["operations"]:
+        operation, kind = entry["operation"], entry["kind"]
+        valid_kind = (
+            kind == "transport" and operation in {"initialize", "ping", "tools/list", "resources/templates/list"}
+            or kind == "tool" and isinstance(operation, str) and operation.startswith("tools/call:")
+            or kind == "resource" and isinstance(operation, str) and operation.startswith("resources/read:")
+        )
+        if not valid_kind:
+            raise ValueError(f"MCP authorization policy has unknown operation kind or method: {kind}/{operation}")
+        if operation in operations and operations[operation] != kind:
+            raise ValueError(f"MCP authorization inventory has conflicting kinds: {operation}")
+        operations[operation] = kind
+    decisions = policy.get("operations")
+    if not isinstance(decisions, list) or not decisions:
+        raise ValueError("MCP authorization policy requires explicit operation decisions")
+    selected = {}
+    for decision in decisions:
+        if not isinstance(decision, dict) or set(decision) != {"operation", "kind", "auth_policy_revision", "rationale"}:
+            raise ValueError("MCP authorization decision has unknown or missing fields")
+        operation = decision["operation"]
+        if not isinstance(operation, str) or operation not in operations or operation in selected:
+            raise ValueError(f"MCP authorization decision is unknown or duplicated: {operation}")
+        kind = operations[operation]
+        expected = "anonymous-public-v1" if kind == "transport" else "mcp-protected-operation-v1"
+        if (decision["kind"] != kind or decision["auth_policy_revision"] != expected
+                or not isinstance(decision["rationale"], str) or not decision["rationale"].strip()):
+            raise ValueError(f"MCP authorization decision contradicts the server contract: {operation}")
+        selected[operation] = expected
+    if set(selected) != set(operations):
+        raise ValueError(f"MCP authorization decisions are missing: {sorted(set(operations) - set(selected))}")
+    return selected
+
+
 def protocol_clients() -> list[tuple]:
     """Authoritative protocol client declarations, shared by generation and validation."""
     return [
@@ -289,10 +420,26 @@ def grpc_client_version(published: dict[str, Any], lane: str) -> str:
     version = client.get("version")
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError(f"geospatial-grpc published_clients[{lane}] needs a released version, not {version!r}")
-    if not any(isinstance(client.get(field), str) and client[field].startswith(("sha256:", "sha512-"))
-               for field in ("digest", "integrity")):
-        raise ValueError(f"geospatial-grpc published_clients[{lane}] needs the published artifact digest")
+    grpc_client_digest(published, lane)
     return version
+
+
+def grpc_client_digest(published: dict[str, Any], lane: str) -> str:
+    """Exact public archive identity, preserving npm's canonical SHA-512 SRI."""
+    client = published.get(lane, {})
+    value = client.get("integrity") if lane == "grpc-typescript" else client.get("digest")
+    if lane == "grpc-typescript":
+        import base64
+        try:
+            raw = base64.b64decode(value.removeprefix("sha512-"), validate=True) if isinstance(value, str) and value.startswith("sha512-") else b""
+        except ValueError:
+            raw = b""
+        valid = len(raw) == 64 and value == "sha512-" + base64.b64encode(raw).decode()
+    else:
+        valid = isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+    if not valid:
+        raise ValueError(f"geospatial-grpc published_clients[{lane}] needs the exact published artifact digest")
+    return value
 
 
 PRODUCTION_PLACEHOLDERS = ("{server_image}", "{server_sha}", "{cut_at}")
@@ -353,8 +500,104 @@ def production(requirements: list[dict[str, Any]], revisions: dict[str, Any]) ->
     }
 
 
+def pinned_python_fixture(contract: dict) -> str:
+    """Coverage and certification rows for this client share one pinned fixture."""
+    fixture = contract.get("fixtureRevision")
+    if not isinstance(fixture, str) or not fixture.strip():
+        raise ValueError("pinned sdk-python protocol contract is missing fixtureRevision")
+    return fixture
+
+
+def server_seed_fixture(fixtures: dict, revisions: dict) -> str:
+    """The applied server seed is pinned with the server-certification source, never apart from it."""
+    seed = fixtures.get("server_seed")
+    if not isinstance(seed, dict):
+        raise ValueError("canonical-client-fixtures is missing server_seed")
+    source = seed.get("source")
+    if source != "server-certification" or seed.get("path") != "tests/seed/base-schema.sql":
+        raise ValueError("server_seed must name server-certification tests/seed/base-schema.sql")
+    if seed.get("repository") != revisions[source]["repository"]:
+        raise ValueError("server_seed repository differs from the server-certification source")
+    if seed.get("commit") != revisions[source]["commit"]:
+        raise ValueError(
+            f"server_seed is pinned at {seed.get('commit')!r}, but server-certification is "
+            f"{revisions[source]['commit']!r}; re-pin the seed digest in the same rebind"
+        )
+    digest = seed.get("sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValueError("server_seed sha256 must be sha256:<64 lowercase hex>")
+    return digest
+
+
+def dotnet_release_profile(contract: dict) -> dict[str, int]:
+    """releaseProfile.excluded and each operation's releaseDenominator are one decision."""
+    profile = contract.get("releaseProfile")
+    if not isinstance(profile, dict):
+        raise ValueError("sdk-dotnet certification is missing releaseProfile")
+    denominator = profile.get("denominator")
+    excluded = profile.get("excluded")
+    if isinstance(denominator, bool) or not isinstance(denominator, int) or denominator < 0:
+        raise ValueError("sdk-dotnet releaseProfile.denominator must be a non-negative integer")
+    if not isinstance(excluded, list):
+        raise ValueError("sdk-dotnet releaseProfile.excluded must be a list")
+    operations = contract.get("operations")
+    if not isinstance(operations, list) or not operations:
+        raise ValueError("sdk-dotnet certification has no operations")
+    by_id: dict[str, dict] = {}
+    for operation in operations:
+        operation_id = operation.get("id")
+        if not isinstance(operation_id, str) or not operation_id or operation_id in by_id:
+            raise ValueError(f"sdk-dotnet certification repeats or omits operation id {operation_id!r}")
+        by_id[operation_id] = operation
+    excluded_ids: list[str] = []
+    for entry in excluded:
+        if not isinstance(entry, dict):
+            raise ValueError("sdk-dotnet releaseProfile exclusion must name an operation")
+        operation_id = entry.get("operationId")
+        if not isinstance(operation_id, str) or not operation_id:
+            raise ValueError("sdk-dotnet releaseProfile exclusion is missing operationId")
+        if not isinstance(entry.get("ownerIssue"), str) or not entry["ownerIssue"].strip():
+            raise ValueError(f"sdk-dotnet release exclusion {operation_id} is missing ownerIssue")
+        if not isinstance(entry.get("reason"), str) or not entry["reason"].strip():
+            raise ValueError(f"sdk-dotnet release exclusion {operation_id} is missing reason")
+        excluded_ids.append(operation_id)
+    if len(excluded_ids) != len(set(excluded_ids)):
+        raise ValueError("sdk-dotnet releaseProfile.excluded repeats an operationId")
+    unknown = sorted(set(excluded_ids) - set(by_id))
+    if unknown:
+        raise ValueError(f"sdk-dotnet releaseProfile excludes unknown operations: {unknown}")
+    excluded_set = set(excluded_ids)
+    included = non_addressable = 0
+    for operation in operations:
+        operation_id = operation["id"]
+        denom = operation.get("releaseDenominator")
+        if denom not in {"included", "excluded", "non-addressable"}:
+            raise ValueError(f"sdk-dotnet operation {operation_id} has releaseDenominator {denom!r}")
+        if (operation_id in excluded_set) != (denom == "excluded"):
+            raise ValueError(
+                f"sdk-dotnet operation {operation_id} releaseDenominator {denom!r} "
+                "disagrees with releaseProfile.excluded"
+            )
+        status = operation.get("status")
+        if (status == "non-addressable") != (denom == "non-addressable"):
+            raise ValueError(
+                f"sdk-dotnet operation {operation_id} status {status!r} "
+                f"disagrees with releaseDenominator {denom!r}"
+            )
+        if denom == "included":
+            included += 1
+        elif denom == "non-addressable":
+            non_addressable += 1
+    if included != denominator:
+        raise ValueError(
+            f"sdk-dotnet releaseProfile.denominator is {denominator}, but {included} operations are included"
+        )
+    return {"denominator": denominator, "excluded": len(excluded_ids), "non_addressable": non_addressable}
+
+
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
+    python_wheel = selected_python_wheel(revisions)
     bounded_roster = load(SOURCES / "bounded-client-roster.v1.json")
     bounded_cells = {
         (cell["canonical_client"], cell["surface"], cell["operation"]): cell
@@ -435,9 +678,13 @@ def main() -> None:
     format_source = json.loads(
         (ROOT / "sources" / "cloud-native-format-requirements.v1.json").read_text(encoding="utf-8")
     )
-    fixture_pins = json.loads(
+    fixture_doc = json.loads(
         (ROOT / "sources" / "canonical-client-fixtures.v1.json").read_text(encoding="utf-8")
-    )["fixtures"]
+    )
+    fixture_pins = fixture_doc["fixtures"]
+    # The .NET certification producer binds the seed it applied to the candidate
+    # (honua-sdk-dotnet sdk-certification.yml), so the row carries that digest.
+    dotnet_certification_fixture = server_seed_fixture(fixture_doc, revisions)
     requirements = [
         bound
         for row in format_source["requirements"]
@@ -458,7 +705,13 @@ def main() -> None:
             addressability_reason: str | None = None,
             test_ids: list[str] | None = None,
             release_bucket: str | None = None,
-            client_driver: str | None = None) -> None:
+            client_driver: str | None = None,
+            client_package_digest: str | None = None) -> None:
+        # Every row is stamped maturity "supported". A capability the pinned matrix has not
+        # implemented must not enter the release denominator, on any lane.
+        recorded = server_by_key.get(capability)
+        if recorded is not None and not recorded.get("maturity", {}).get("implemented"):
+            return
         # The preview-surfaces ruling (release#351) covers every client driver (R40), not only
         # the bounded roster: an addressable driver row on a Preview capability would be a
         # supported requirement the release gate demands. PyQGIS keeps its not-applicable grid row.
@@ -488,6 +741,10 @@ def main() -> None:
             "fixture_revision": fixture,
             "budget_expectations": None,
         }
+        if client_package_digest is not None:
+            row["client_package_digest"] = client_package_digest
+        if lane == "sdk-python-certification" and python_wheel is not None:
+            row["client_package"] = dict(python_wheel)
         if test_ids is not None:
             row["test_ids"] = test_ids
         if release_bucket is not None:
@@ -498,9 +755,12 @@ def main() -> None:
         if bound is not None:
             requirements.append(bound)
 
+    server = load(SOURCES / "server" / "capability-matrix.v1.json")
+    server_by_key = {capability["key"]: capability for capability in server["capabilities"]}
+    python_fixture = pinned_python_fixture(load(SOURCES / "sdk-python" / "protocol-certification.v1.json"))
     dotnet_version = source_sdk_version("sdk-dotnet")
     sdk_sources = [
-        ("sdk-python", "capabilities", "Honua SDK Python", source_sdk_version("sdk-python"), "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
+        ("sdk-python", "capabilities", "Honua SDK Python", source_sdk_version("sdk-python"), "sdk-python", python_fixture),
         ("sdk-js", "capabilities", "@honua/sdk-js", sdk_js_version(), "sdk-js", fixture_pins["sdk-js"]),
         ("sdk-dotnet", "coverage", "Honua SDK .NET", dotnet_version, "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
     ]
@@ -567,7 +827,7 @@ def main() -> None:
                 fixture=(
                     fixture_pins["sdk-js"]
                     if source_name == "sdk-js"
-                    else contract["fixtureRevision"]
+                    else pinned_python_fixture(contract)
                 ),
                 facets=operation["scenario_facets"],
                 licensed=policy.get("licensed", operation.get("licensed", False)),
@@ -593,16 +853,19 @@ def main() -> None:
         )
 
     dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
-    dotnet_addressable_operations = sum(
-        operation["status"] != "non-addressable" for operation in dotnet["operations"]
-    )
+    dotnet_profile = dotnet_release_profile(dotnet)
     tier_order = ("pr", "nightly", "release")
+    dotnet_rows_before = len(requirements)
     for operation in dotnet["operations"]:
+        if operation["releaseDenominator"] != "included":
+            continue
         required_tier = next(
             (tier for tier in tier_order if tier in operation["requiredTiers"]), None
         )
-        if operation["status"] == "non-addressable" or required_tier is None:
-            continue
+        if required_tier is None:
+            raise ValueError(
+                f"sdk-dotnet release operation {operation['id']} has no pr, nightly, or release tier"
+            )
         facets = list(dict.fromkeys(
             "positive" if facet == "read-only" else facet
             for facet in operation["scenarioFacets"]
@@ -612,8 +875,14 @@ def main() -> None:
             operation=operation["id"], client="Honua SDK .NET", lane="sdk-dotnet-certification",
             version=dotnet_version, contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
             auth_policy="api-key-protected-v1",
-            fixture="sha256:1165029a4c750c38a9b180f79f560dea41b84d8f0725618c9d96d3864be2d419",
+            fixture=dotnet_certification_fixture,
             facets=facets, required_tier=required_tier,
+        )
+    dotnet_emitted = len(requirements) - dotnet_rows_before
+    if dotnet_emitted != dotnet_profile["denominator"]:
+        raise ValueError(
+            f"sdk-dotnet release profile denominator is {dotnet_profile['denominator']}, "
+            f"but {dotnet_emitted} certification rows were emitted"
         )
 
     grpc = load(SOURCES / "geospatial-grpc" / "operations.v1.json")
@@ -633,26 +902,24 @@ def main() -> None:
             add(
                 capability=f"grpc.{slug(rpc['service'])}", surface="grpc", operation=operation,
                 client=client, lane=lane, version=grpc_client_version(grpc_published, lane),
+                client_package_digest=grpc_client_digest(grpc_published, lane),
                 contract=f"geospatial-grpc@{grpc['source_sha']}", auth_policy="anonymous-public-v1",
                 fixture=grpc_fixture,
                 facets=["positive", "negative", "media-schema"],
             )
 
     mcp = load(SOURCES / "geospatial-mcp" / "operations.v1.json")
-    mcp_clients = (
-        ("Official MCP TypeScript SDK", "mcp-typescript-sdk", "1.30.0"),
-        ("MCP Inspector", "mcp-inspector", "2.3.0"),
-    )
+    selected_mcp_clients = mcp_clients()
+    selected_mcp_auth = mcp_operation_auth(mcp)
     for entry in mcp["operations"]:
-        for client, lane, version in mcp_clients:
+        for client, lane, version in selected_mcp_clients:
             add(
                 capability=f"mcp.{entry['kind']}", surface="mcp", operation=entry["operation"],
                 client=client, lane=lane, version=version,
-                contract=f"geospatial-mcp@{mcp['source_sha']}", auth_policy="anonymous-public-v1",
-                fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema"],
+                contract=f"geospatial-mcp@{mcp['source_sha']}", auth_policy=selected_mcp_auth[entry["operation"]],
+                fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema", "auth"],
             )
 
-    server = load(SOURCES / "server" / "capability-matrix.v1.json")
     lane_clients = {
         "desktop-qgis": ("QGIS", QGIS_VERSION),
         "desktop-arcgis": (PRO["name"], PRO["version"]),
@@ -691,7 +958,6 @@ def main() -> None:
             )
 
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
-    server_by_key = {capability["key"]: capability for capability in server["capabilities"]}
     for assignment in assignments["assignments"]:
         capability = server_by_key.get(assignment["capability_key"])
         if not capability or not capability.get("maturity", {}).get("implemented"):
@@ -995,7 +1261,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-08-complete.23",
+        "revision": "2026-10-19-complete.25",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,
@@ -1018,19 +1284,20 @@ def main() -> None:
             f"{len(preview_cells)} bounded cells on Preview surfaces are excluded by the preview-surfaces "
             f"roster ruling and {len(not_addressable_cells)} cells no released client can exercise remain "
             "non-addressable rows (release#351, release#359). "
-            f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
-            "18 explicitly non-addressable public abstractions "
+            f"The .NET release profile contributes {dotnet_profile['denominator']} operations "
+            f"and excludes {dotnet_profile['excluded']} candidate-fixture operations; "
+            f"{dotnet_profile['non_addressable']} explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
             f"Desktop clients are certified against release lines (R38): QGIS {QGIS_VERSION} and "
             f"{PRO['name']} {PRO['version']}; a receipt records the exact patch it observed. "
             "R40 splits those clients by driver. Scripting rows are must-fix-before-cut on every "
-            "applicable GeoServices and OGC cell. PyQGIS is every server-declared surface crossed with "
+            "applicable GeoServices and OGC cell. PyQGIS is every implemented server-declared surface crossed with "
             "every function that client can perform (connect/discover, add, render, identify, "
             "query/filter, edit, raster read, save/reopen, and the auth modes). A function PyQGIS "
             "has no client for is not-applicable, and the reason is declared on the row. "
             "pro-ui and qgis-ui are must-fix-before-cut only on "
-            "the core set recorded in the desktop source (FeatureServer, MapServer, ImageServer render, "
-            "connect, add layer, render, identify, query, FeatureServer edit, and the auth modes; "
+            "the core set recorded in the desktop source for capabilities the pinned matrix has implemented "
+            "(FeatureServer, MapServer, connect, add layer, render, identify, query, FeatureServer edit, and the auth modes; "
             "QGIS UI also WMS, WFS, WCS and WFS-T edit). Every other UI cell is "
             "prove-against-candidate. Counts per bucket per driver are in desktop_driver_summary. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."

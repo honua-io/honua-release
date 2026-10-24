@@ -1,0 +1,13 @@
+# Import qualification uses the supported default administrative import path. The separate
+# SDK-regression approval-policy and synthetic bearer scenarios are not import prerequisites.
+# Probe TCP readiness so PostgreSQL's temporary initialization socket cannot race migrations.
+services:
+  server:
+    environment:
+      # Register this disposable target through the supported operational-schema policy.
+      Database__OperationalSchemas__0: import_fidelity
+      # Runtime-only source token; never persist plaintext in import requests or receipts.
+      IMPORT_FIDELITY_SOURCE_TOKEN: ${IMPORT_FIDELITY_SOURCE_TOKEN:-}
+  db:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]

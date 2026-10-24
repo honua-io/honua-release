@@ -29,6 +29,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
 from blocks import extract  # noqa: E402
+from execution_contexts import ContextError, compile_plan  # noqa: E402
 from inputs import assigned_names, doc_id, needs  # noqa: E402
 
 DEFAULT_SOURCES = HERE / "sources.json"
@@ -119,15 +120,21 @@ def document_record(document: dict[str, Any], revision: str, text: str,
                     defined_before: set[str] | None = None) -> tuple[dict[str, Any], set[str]]:
     fmt = document.get("format", "markdown")
     blocks = extract(text, "html" if fmt == "html" else "markdown")
+    try:
+        plan = compile_plan(document, blocks)
+    except ContextError as exc:
+        raise InventoryError(str(exc)) from exc
     defined = set(defined_before or ())
+    context_defined: dict[str, set[str]] = {}
     rows = []
     for block in blocks:
         row = block.record()
+        current_defined = context_defined.setdefault(plan[block.index]["name"], set()) if block.index in plan else defined
         if block.intent in {"run", "compile", "file"}:
-            need = needs(block, defined)
+            need = needs(block, current_defined)
             if any(need.values()):
                 row["needs"] = {k: v for k, v in need.items() if v}
-        defined |= assigned_names(block)
+        current_defined.update(assigned_names(block, current_defined))
         rows.append(row)
     host = "github.com"
     record = {

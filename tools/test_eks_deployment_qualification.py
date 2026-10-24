@@ -155,7 +155,7 @@ def test_supported_projection_requires_both_complete_cells(cell):
     matrix = vp._load_yaml(vp.MATRIX_PATH)
     with pytest.raises(dq.QualificationError, match='full verified EKS'):
         dq.project_verified_matrix(matrix, {'awsEks': dq.VerifiedEksQualification({'redis-off': proof})})
-    assert matrix['deploy']['honua-helm']['awsEks']['architectures']['x86_64']['status'] == 'ga-target'
+    assert matrix['deploy']['honua-helm']['awsEks']['architectures']['x86_64']['status'] == 'preview'
 
 
 @pytest.mark.parametrize('change', ['iac-source', 'helm-source', 'missing-values', 'floating-reference',
@@ -232,6 +232,12 @@ def test_complete_verified_pair_promotes_only_reviewed_eks_architecture(cell):
     proof = complete_pair(cell)
     manifest = cell[0]
     matrix = vp._load_yaml(vp.MATRIX_PATH)
+    # A real proof cannot silently promote the current Preview policy.
+    with pytest.raises(dq.QualificationError, match='outside the reviewed GA scope'):
+        dq.project_verified_matrix(matrix, {'awsEks': proof})
+    # Retain validation coverage for a future explicitly reviewed GA scope.
+    matrix['deploy']['honua-helm']['awsEks']['architectures']['x86_64'].update(
+        status='ga-target', releaseScope='ga-target')
     original = copy.deepcopy(matrix)
     updated = dq.project_verified_matrix(matrix, {'awsEks': proof})
     assert matrix == original

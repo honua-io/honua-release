@@ -1,0 +1,53 @@
+name: Hosted pilot original setup-key retirement
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-e2e-campaign
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject retirement outside protected release trunk
+        run: |
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$GITHUB_REPOSITORY" = honua-io/honua-release
+  retire:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Require reviewed actual retirement task and original fixture references
+        run: git ls-files --error-unmatch certification/agent-e2e/setup-key-retirement-handoff.json
+      - name: Install bounded private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+          allowed-account-ids: '585192672263'
+          role-session-name: pilot-retire-${{ github.run_id }}
+      - name: Retire only original setup authority in separate private task and observe it stopped
+        run: |
+          set -euo pipefail
+          umask 077
+          python tools/hosted_pilot/setup_key_retirement_dispatch.py \
+            --output "$RUNNER_TEMP/setup-retirement-outcome.json"
+      - name: Retain actual value-free retirement outcome metadata
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hosted-pilot-setup-retirement-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/setup-retirement-outcome.json
+          if-no-files-found: error
+          retention-days: 90

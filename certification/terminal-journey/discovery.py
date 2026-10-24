@@ -68,6 +68,25 @@ def excerpt(raw: bytes | None) -> str:
     return text if len(text) <= EXCERPT_CHARS else text[:EXCERPT_CHARS] + "...(truncated)"
 
 
+# Every control-plane operation the journey issues, for the data-driven roster (honua-release#785).
+CALLS: list[dict[str, str]] = []
+
+
+def record_call(surface: str, name: str) -> None:
+    """surface: rest ("METHOD /path"), cli (OpenAPI operationId) or mcp (tool name)."""
+    row = {"surface": surface, "name": name}
+    if row not in CALLS:
+        CALLS.append(row)
+
+
+def calls() -> list[dict[str, str]]:
+    return [dict(row) for row in CALLS]
+
+
+def reset_calls() -> None:
+    CALLS.clear()
+
+
 def record_http(method: str, url: str, status: int | None, raw: bytes | None, rpc: str | None = None) -> None:
     TRACE["http"] = {"method": method, "path": urllib.parse.urlsplit(url).path or "/", "rpc": rpc,
                      "status": status, "body": excerpt(raw)}

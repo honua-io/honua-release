@@ -1,0 +1,58 @@
+name: DevOps native source controls
+on:
+  pull_request:
+    paths:
+      - 'tools/devops*'
+      - 'tools/test_devops*'
+      - 'tools/judge_devops_cleanup.py'
+      - 'tools/test_judge_devops_cleanup.py'
+      - 'tools/fixtures/devops-cleanup-inputs/**'
+      - '.github/workflows/devops-native-source-controls.yml'
+  push:
+    branches: [trunk]
+    paths:
+      - 'tools/devops*'
+      - 'tools/test_devops*'
+      - 'tools/judge_devops_cleanup.py'
+      - 'tools/test_judge_devops_cleanup.py'
+      - 'tools/fixtures/devops-cleanup-inputs/**'
+      - '.github/workflows/devops-native-source-controls.yml'
+permissions:
+  contents: read
+concurrency:
+  group: devops-native-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: tools
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install unchanged locked official MCP client without scripts
+        working-directory: certification/sources/geospatial-mcp
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Exercise actual local process and typed adapter controls
+        # No published product executable, cloud calls or six-cell qualification.
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/devops-source-controls
+          node --test tools/devops*.test.mjs 2>&1 | tee artifacts/devops-source-controls/node.tap
+      - name: Retain actual source control results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devops-native-source-controls-${{ github.run_attempt }}
+          path: artifacts/devops-source-controls/
+          if-no-files-found: error

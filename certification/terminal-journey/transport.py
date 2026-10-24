@@ -1,6 +1,7 @@
 """Credential-safe live transports; responses stay private to the executor."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -24,6 +25,13 @@ class ExecutionError(RuntimeError):
         self.blocked_by = list(blocked_by or [])
         self.problem = dict(problem or {})
         super().__init__(f"{command}: {reason}")
+
+
+class ActionRejected(ExecutionError):
+    """The selected action itself was refused before its candidate write: outside the stage's bounded
+    view, not a typed call, or arguments that fail the observed schema or fixture bindings. Only this
+    class is model feedback; independent read-only preconditions may precede refusal. Every other
+    ExecutionError is a candidate or execution failure."""
 
 
 # The typed fields of an MCP tool error (honua-server McpToolHelpers.ErrorResult mirrors the problem
@@ -80,6 +88,22 @@ def masked_fields(values, secrets=()):
 
 def describe_fields(fields):
     return "; ".join(f"{name}={json.dumps(value) if name == 'message' else value}" for name, value in fields.items())
+
+
+def has_execution_evidence(value):
+    """Inspect private wire data before allowlisted error fields are masked for receipts."""
+    if isinstance(value, dict):
+        return any(key in {"jobId", "operationId", "operationInstanceId", "jobStatus", "resourceUri", "jobCreatedAt"}
+                   and item or has_execution_evidence(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(has_execution_evidence(item) for item in value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return False
+        return isinstance(parsed, (dict, list)) and has_execution_evidence(parsed)
+    return False
 
 
 def tool_error(result, secrets=()):
@@ -143,6 +167,7 @@ class Transport:
         if data is not None:
             headers["Content-Type"] = "application/json"
         label = f"{method} {urllib.parse.urlsplit(url).path}"
+        discovery.record_call("rest", label)
         discovery.record_http(method, url, None, None)
         self.last_response_headers = {}
         try:
@@ -168,9 +193,13 @@ class Transport:
         return value if isinstance(value, str) else None
 
     def get_json(self, path, **kwargs):
+        self.last_json_observation = None
         raw, _ = self.http("GET", path, **kwargs)
         try:
-            return discovery.parse(raw)
+            value = discovery.parse(raw)
+            self.last_json_observation = {"path": path, "responseSha256": hashlib.sha256(raw).hexdigest(),
+                                          "responseBytes": len(raw)}
+            return value
         except discovery.DiscoveryError as exc:
             raise ExecutionError("GET " + path, "candidate did not return valid bounded JSON") from exc
 
@@ -195,16 +224,24 @@ class Transport:
                 raise ExecutionError(name, "bounded authority changed since observation")
             if name not in {tool["name"] for tool in result["tools"]}:
                 raise ExecutionError(name, "tool is outside the initialize-bound view")
+            discovery.record_call("mcp", name)
             response = session.request("tools/call", {"name": name, "arguments": arguments})
             result = response.get("result")
             if "error" in response or not isinstance(result, dict):
                 # A JSON-RPC error carries the same typed problem in error.data; name it (masked).
                 error = response.get("error") if isinstance(response.get("error"), dict) else {}
                 data = error.get("data") if isinstance(error.get("data"), dict) else {}
+                if has_execution_evidence(response):
+                    # Fixed diagnostic only: private identities/output never enter the receipt.
+                    raise ExecutionError(name, "candidate error carries contradictory execution evidence")
                 fields = tool_error({"structuredContent": {"message": error.get("message"), **data}},
                                     self.secret_values())
                 raise ExecutionError(name, "candidate tool call refused"
                                      + (f" ({describe_fields(fields)})" if fields else ""), problem=fields)
+            if "isError" in result and type(result["isError"]) is not bool:
+                raise ExecutionError(name, "candidate tool result has a nonboolean error marker")
+            if result.get("isError") is True and has_execution_evidence(result):
+                raise ExecutionError(name, "candidate error carries contradictory execution evidence")
             return result
 
     def secret_values(self):
@@ -225,6 +262,7 @@ class Transport:
         label = label or f"honua admin {group} {operation}"
         if not self.honua or not self.honua.is_file():
             raise ExecutionError(label, "verified installed honua CLI is unavailable", blocked=True)
+        discovery.record_call("cli", operation)
         args = [str(self.honua), "admin", group, operation, "--base-url", self.base_url, "--json"]
         for name, value in (path or {}).items():
             args += ["--path", f"{name}={value}"]

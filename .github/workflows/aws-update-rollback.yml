@@ -1,0 +1,181 @@
+name: AWS update and rollback proof
+run-name: AWS update rollback ${{ inputs.mode }} to run ${{ inputs.candidate_run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Reviewed full prepared-deployment SHA (rehearsal) or nightly-candidate SHA (qualification) for baseline A
+        required: true
+        type: string
+      candidate_run_id:
+        description: Trusted nightly-certification run retaining prepared-deployment B or certified-candidate B
+        required: true
+        type: string
+      baseline_run_id:
+        description: Certified baseline nightly run; required only for signed-lock qualification
+        required: false
+        type: string
+        default: ""
+      mode:
+        type: choice
+        options: [rehearsal, qualification]
+        default: rehearsal
+      cost_ceiling_usd:
+        type: string
+        default: "20"
+permissions:
+  contents: read
+  actions: write
+  packages: read
+  attestations: write
+  id-token: write
+jobs:
+  admit:
+    if: github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      attestations: read
+    steps:
+      - name: Refuse unapproved execution inputs before provisioning
+        env:
+          ENABLED: ${{ vars.HONUA_AWS_UPDATE_ROLLBACK_ENABLED }}
+          BASELINE: ${{ inputs.baseline_ref }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          BASELINE_RUN: ${{ inputs.baseline_run_id }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          test "$ENABLED" = true
+          python3 - <<'PY'
+          import os,re
+          assert re.fullmatch(r'[0-9a-f]{40}',os.environ['BASELINE'])
+          assert re.fullmatch(r'[1-9][0-9]*',os.environ['CANDIDATE_RUN'])
+          assert os.environ['MODE'] in ('rehearsal','qualification')
+          if os.environ['MODE'] == 'qualification':
+              assert re.fullmatch(r'[1-9][0-9]*',os.environ['BASELINE_RUN'])
+              assert os.environ['BASELINE_RUN'] != os.environ['CANDIDATE_RUN']
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt
+      - name: Select the exact retained baseline inputs
+        if: inputs.mode == 'qualification'
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.baseline_ref }}
+      - name: Select the reviewed unadmitted baseline inputs
+        if: inputs.mode == 'rehearsal'
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.baseline_ref }}
+      - name: Authenticate both builds and refuse incompatible declarations before cloud mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          PRIOR_RUN: ${{ inputs.baseline_run_id }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rollback-prior" "$RUNNER_TEMP/rollback-candidate"
+          if [ "$MODE" = qualification ]; then
+            gh run download "$PRIOR_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-prior"
+            gh run download "$CANDIDATE_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-candidate"
+            cmp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/platform-manifest.yaml"
+          else
+            cp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/"
+            gh run download "$CANDIDATE_RUN" --repo "$GITHUB_REPOSITORY" --name prepared-deployment --dir "$RUNNER_TEMP/rollback-candidate"
+          fi
+          python - <<'PYTHON'
+          import os,sys
+          from pathlib import Path
+          sys.path.insert(0,"e2e")
+          from runner.update_rollback import CELLS,load_release,preflight
+          root=Path(os.environ["RUNNER_TEMP"])
+          mode=os.environ["MODE"]
+          prior=load_release(root/"rollback-prior",mode)
+          candidate=load_release(root/"rollback-candidate",mode)
+          for cell in CELLS:
+              preflight(prior,candidate,cell,mode)
+          PYTHON
+  cloud:
+    needs: admit
+    uses: ./.github/workflows/e2e-cloud-aws.yml
+    with:
+      candidate_ref: ${{ inputs.mode == 'qualification' && inputs.baseline_ref || '' }}
+      prepared_ref: ${{ inputs.mode == 'rehearsal' && inputs.baseline_ref || '' }}
+      require_real: true
+      target: all
+      redis_mode: both
+      run_iac_live: false
+      cost_ceiling_usd: ${{ inputs.cost_ceiling_usd }}
+      update_rollback_run_id: ${{ inputs.candidate_run_id }}
+      update_rollback_prior_run_id: ${{ inputs.baseline_run_id }}
+      update_rollback_mode: ${{ inputs.mode }}
+    secrets:
+      RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+      UPDATE_ROLLBACK_CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
+  collect:
+    needs: cloud
+    if: always() && github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: e2e-cloud-aws-gate-report-*
+          path: reports
+      - name: Retain exact source bundles and assemble proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          PRIOR_RUN: ${{ inputs.baseline_run_id }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          CLOUD_RESULT: ${{ needs.cloud.result }}
+        run: |
+          set -euo pipefail
+          test "$CLOUD_RESULT" = success
+          mkdir -p out prior candidate
+          if [ "$MODE" = qualification ]; then
+            gh run download "$PRIOR_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir prior
+            gh run download "$CANDIDATE_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir candidate
+          else
+            git fetch --no-tags origin "refs/prepared-deployments/$BASELINE_REF"
+            git show "$BASELINE_REF:platform-manifest.yaml" > prior/platform-manifest.yaml
+            gh run download "$CANDIDATE_RUN" --repo "$GITHUB_REPOSITORY" --name prepared-deployment --dir candidate
+          fi
+          python tools/collect_update_rollback.py --reports reports --prior-inputs prior --transition-inputs candidate \
+            --mode "$MODE" --output out/receipt.json
+      - name: Attest qualifying receipt from actual four-cell successful execution
+        if: success() && inputs.mode == 'qualification'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/receipt.json
+      - name: Publish qualifying evidence
+        if: success() && inputs.mode == 'qualification'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: promotion-receipt-update-rollback
+          path: out/receipt.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Preserve diagnostic rehearsal and failure history
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aws-update-rollback-diagnostics
+          path: |
+            reports/**/update-rollback-cell.json
+            reports/**/gate-report-cloud.json
+            out/receipt.json
+          if-no-files-found: warn
+          retention-days: 90

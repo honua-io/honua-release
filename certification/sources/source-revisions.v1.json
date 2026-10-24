@@ -3,27 +3,27 @@
   "sources": {
     "server": {
       "repository": "honua-io/honua-server",
-      "commit": "ac30266fbd153363bebdbed13130accc8ab0c94a"
+      "commit": "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
     },
     "server-certification": {
       "repository": "honua-io/honua-server",
-      "commit": "ac30266fbd153363bebdbed13130accc8ab0c94a"
+      "commit": "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
-      "commit": "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"
+      "commit": "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
-      "commit": "516c727dc03cae3b6b312595a9f4bfcee5f34cad"
+      "commit": "361978e86e816a35d93ee527b029a0c8f6e97efa"
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "c99e71197dd940ed952aecb024c6de273456f2ae"
+      "commit": "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
-      "commit": "ece4c3a2f68557fe8329e9932de36193d0732894"
+      "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
     },
     "cloud-native-guide": {
       "repository": "cloudnativegeo/cloud-optimized-geospatial-formats-guide",
@@ -31,11 +31,11 @@
     },
     "geospatial-grpc": {
       "repository": "honua-io/geospatial-grpc",
-      "commit": "d20abf2f1a0069e333c8bdf13b0096e915accbab"
+      "commit": "00fca4de0334c6e2304354df7b367faeec5780d6"
     },
     "geospatial-mcp": {
       "repository": "honua-io/geospatial-mcp",
-      "commit": "d5a09d13c4ad541c05702e598c3679c0f42db7af"
+      "commit": "c669cad590fff3469875ddbcdcd2f94706b05e42"
     }
   }
 }

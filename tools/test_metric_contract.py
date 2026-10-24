@@ -246,3 +246,24 @@ def test_cli_fails_on_real_drift(tmp_path):
     (devops / "rules.yml").write_text("expr: sum(rate(honua_request_error_total[5m]))", encoding="utf-8")
 
     assert mc.main(["--repos-root", str(tmp_path), "--self", str(tmp_path / "nonexistent")]) == 1
+
+
+def test_terraform_output_named_in_docs_is_not_a_metric():
+    """honua-helm's README maps the honua-iac output `honua_server_environment` to a chart value."""
+    row = "| `honua_server_environment` | The complete environment: `chart_config_env` plus refs. |\n"
+    problems, notes = mc.check_sources(CONTRACT, {"honua-helm/honua/README.md": row})
+    assert problems == [], problems
+    assert any("honua_server_environment" in n and "not a metric" in n for n in notes), notes
+
+
+def test_non_metric_identifier_used_as_a_series_still_fails():
+    for rule in ('sum(rate(honua_server_environment{job="honua"}[5m]))',
+                 "sum(rate(honua_server_environment[5m]))"):
+        problems, _ = mc.check_sources(CONTRACT, {"a": rule})
+        assert any("honua_server_environment" in p for p in problems), (rule, problems)
+
+
+def test_unknown_honua_identifier_in_docs_still_fails():
+    row = "| `honua_server_enviroment` | typo of a Terraform output |\n"
+    problems, _ = mc.check_sources(CONTRACT, {"honua-helm/honua/README.md": row})
+    assert any("honua_server_enviroment" in p for p in problems), problems

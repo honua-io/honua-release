@@ -1,0 +1,132 @@
+# rc release — admission by rolling gate window (release#376 owner amendment, 2026-10-22).
+#
+# rc.N is tagged when every release-train gate has one green trunk run inside the window, against any
+# build. This workflow does not run the gates; it reads their trunk history (tools/rc_gate_window.py),
+# fails closed when any gate is red or never ran, renders honest notes (components, gate record, known
+# gaps, not-certified list) and publishes a GitHub pre-release tag on trunk. Dry run by default.
+name: rc-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      rc_label:
+        description: Tag to create, e.g. 2026.1-rc.1
+        required: true
+        default: 2026.1-rc.1
+      server_image_tag:
+        description: honua-server image tag the candidate ships (e.g. nightly-6302c5e)
+        required: true
+      window_days:
+        description: Rolling window (days) a gate's green trunk run must fall inside
+        required: false
+        default: "7"
+      dry_run:
+        description: "true: compute and upload the notes only; false: create the pre-release tag"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc-release
+  cancel-in-progress: false
+
+jobs:
+  gate-window:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      admissible: ${{ steps.window.outputs.admissible }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+      - name: Self-test the window logic (it must be able to fail)
+        run: python -m pytest tools/test_rc_gate_window.py -q
+      - name: Evaluate every train gate against the window
+        id: window
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOW_DAYS: ${{ inputs.window_days }}
+        run: |
+          set -euo pipefail
+          rc=0
+          python tools/rc_gate_window.py --window-days "$WINDOW_DAYS" \
+            --out gate-window.json --markdown gate-window.md --enforce || rc=$?
+          echo "admissible=$([ "$rc" = 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          cat gate-window.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: Resolve the server image digest
+        if: always()
+        env:
+          IMAGE: ghcr.io/honua-io/honua-server:${{ inputs.server_image_tag }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])' > server-digest.txt
+          echo "server digest: $(cat server-digest.txt)"
+      - name: Collect known gaps (open must-fix issues across the org)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # --paginate emits one object per line with this --jq; collect them into one array.
+          gh api -X GET search/issues --paginate \
+            -f q='org:honua-io is:issue is:open label:bucket/must-fix-before-cut' -f per_page=100 \
+            --jq '.items[] | {repo: (.repository_url|split("/")|last), number: .number, title: .title, url: .html_url}' \
+            | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin if l.strip()], indent=1))' > known-gaps.json
+          echo "known gaps: $(python3 -c 'import json; print(len(json.load(open("known-gaps.json"))))')"
+      - name: Render the rc notes
+        if: always()
+        env:
+          LABEL: ${{ inputs.rc_label }}
+          IMAGE: ghcr.io/honua-io/honua-server:${{ inputs.server_image_tag }}
+        run: |
+          set -euo pipefail
+          python tools/rc_release_notes.py --manifest platform-manifest.yaml --gate-markdown gate-window.md \
+            --label "$LABEL" --server-image "$IMAGE" --server-digest "$(cat server-digest.txt)" \
+            --gaps-json known-gaps.json --out rc-notes.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: rc-release-${{ inputs.rc_label }}
+          path: |
+            gate-window.json
+            gate-window.md
+            known-gaps.json
+            rc-notes.md
+            server-digest.txt
+            platform-manifest.yaml
+          if-no-files-found: error
+
+  publish:
+    needs: gate-window
+    if: ${{ inputs.dry_run == 'false' && needs.gate-window.outputs.admissible == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rc-release-${{ inputs.rc_label }}
+          path: out
+      - name: Refuse to tag anything but trunk
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/trunk" ] || { echo "::error::rc tags are cut from trunk only (got $GITHUB_REF)"; exit 1; }
+      - name: Create the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ inputs.rc_label }}
+        run: |
+          set -euo pipefail
+          gh release create "$LABEL" --prerelease --target "$GITHUB_SHA" \
+            --title "Honua ${LABEL/-/ }" --notes-file out/rc-notes.md \
+            out/gate-window.json out/gate-window.md out/known-gaps.json out/platform-manifest.yaml

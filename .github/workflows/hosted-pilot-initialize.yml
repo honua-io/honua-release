@@ -1,0 +1,97 @@
+name: Hosted pilot retained accounting initialization
+on:
+  workflow_dispatch:
+    inputs:
+      recover:
+        description: Recover a lost receipt from the matching committed generation without creating or replacing state
+        type: boolean
+        required: false
+        default: false
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+concurrency:
+  group: agent-e2e-campaign
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject initialization outside protected release trunk
+        run: |
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$GITHUB_REPOSITORY" = honua-io/honua-release
+  initialize:
+    needs: preflight
+    environment: hosted-pilot-accounting-initialize
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Read reviewed actual initialization and completed producer bindings
+        id: source
+        run: |
+          set -euo pipefail
+          git ls-files --error-unmatch certification/agent-e2e/initialize.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          value = json.loads(Path('certification/agent-e2e/initialize.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('run_id='+str(value['bootstrap']['runId'])+'\n')
+              output.write('run_attempt='+str(value['bootstrap']['runAttempt'])+'\n')
+              output.write('role_arn='+value['initializerRoleArn']+'\n')
+          PY
+      - name: Verify dedicated human approval and exact trunk environment before obtaining AWS credentials
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: python3 tools/hosted_pilot/foundation_environment.py check --policy accounting
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          name: agent-e2e-budget-bootstrap-${{ steps.source.outputs.run_attempt }}
+          path: bootstrap-import
+      - name: Install bounded state SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.source.outputs.role_arn }}
+          aws-region: us-east-1
+          allowed-account-ids: '585192672263'
+          role-session-name: pilot-initialize-${{ github.run_id }}
+      - name: Authenticate original producer and initialize or recover the committed receipt
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          RECOVER_ACCOUNTING_RECEIPT: ${{ inputs.recover }}
+        run: |
+          set -euo pipefail
+          umask 077
+          recovery_args=()
+          if [ "$RECOVER_ACCOUNTING_RECEIPT" = true ]; then
+            recovery_args=(--recover)
+          fi
+          python tools/hosted_pilot/initialize_accounting.py \
+            "${recovery_args[@]}" \
+            --configuration certification/agent-e2e/initialize.json \
+            --artifact bootstrap-import/bootstrap-accounting.json \
+            --ledger "$RUNNER_TEMP/initial-accounting-ledger.json" \
+            --output "$RUNNER_TEMP/initial-accounting-receipt.json"
+      - name: Retain actual immutable generation metadata for source review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hosted-pilot-accounting-initialization-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/initial-accounting-receipt.json
+          if-no-files-found: error
+          retention-days: 90

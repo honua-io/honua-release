@@ -292,7 +292,9 @@ def seed_state(stack: Stack) -> None:
         "schema": imported.get("schema", "honua_data"), "table": physical_table,
         "layerName": SERVICE, "serviceName": SERVICE,
         "geometryType": "Point", "srid": 4326, "enabled": True,
-        "storageMode": "managed", "capabilities": CAPABILITIES})["data"]
+        # The drill adds an attachment: since honua-server#6135 (#6202) attachment routes refuse a
+        # layer that does not declare attachment support.
+        "storageMode": "managed", "capabilities": CAPABILITIES, "supportsAttachments": True})["data"]
     if published.get("storageMode") != "managed" or "Create" not in (published.get("capabilities") or []):
         raise RuntimeError(f"the dr-sentinel publication did not declare Create on managed storage: {published}")
     layer_id = int(published["layerId"])

@@ -522,6 +522,9 @@ def declare_evidence(report: dict, lock: Path, journeys: list[dict], agent_summa
                     cells.append({'cell': row['cell'], 'mode': mode, 'attemptCount': len(attempts),
                                   'attempts': [{'attempt': a['number'], 'status': a['status'],
                                                 'failureAttribution': a.get('failureAttribution'),
+                                                **({key: a.get(key) for key in ('profile', 'executionOutcome',
+                                                    'functionalGpExecuted')} if mode == 'genuine-model'
+                                                    or row['cell'].endswith('/redis-off') else {}),
                                                 'completedAt': a.get('completedAt'),
                                                 'lockDigest': a.get('lockDigest') if mode == 'genuine-model'
                                                 else digest} for a in attempts]})

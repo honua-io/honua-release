@@ -32,6 +32,123 @@ def open_store(config, candidate_key):
         bucket=config['bucket'], table=config['table'], candidate_key=candidate_key)
 
 
+def validate_retained_import_transfer(state, context, request, candidate):
+    """Replay exact native task/job originals for the controller and private handoff."""
+    from agent_e2e_import_database import PROFILE
+    from agent_e2e_budget import validate as validate_budget
+    validate_budget(state['ledger'])
+    if state['ledger']['candidateKey'] != candidate or context.get('componentBindingDigest', candidate) != candidate:
+        raise PackError('model import revalidation belongs to another candidate')
+    scoped = [row for row in state['ledger']['entries'] if row['state'] == 'reserved' and
+              all(row.get(field) == context[field] for field in ('campaignId', 'caseId', 'attempt')) and
+              row.get('campaignMode', 'qualification') == context['campaignMode']]
+    if not {'infrastructure', 'cleanup'} <= {row['kind'] for row in scoped}:
+        raise PackError('model import revalidation lacks original live attempt liabilities')
+    key = canonical_digest({field: context[field] for field in ('campaignId', 'caseId', 'attempt')})
+    baseline = state.get('fixtureBaselines', {}).get(key)
+    fields = {'schemaVersion', 'profile', 'candidateKey', 'database', 'baselineDigest',
+              'expectedCleanupRole', 'tables', 'nativeImports'}
+    if (set(request) != fields or request['schemaVersion'] != 1 or request['profile'] != PROFILE or
+            request['candidateKey'] != candidate or baseline is None or
+            request['baselineDigest'] != canonical_digest(baseline) or request['database'] != baseline['database'] or
+            not isinstance(request['expectedCleanupRole'], str) or
+            not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', request['expectedCleanupRole']) or
+            not isinstance(request['tables'], list) or not 1 <= len(request['tables']) <= 16 or
+            not isinstance(request['nativeImports'], list) or len(request['nativeImports']) != len(request['tables'])):
+        raise PackError('model import transfer differs from original candidate/baseline/native output scope')
+    before = {row['oid'] for row in baseline['snapshot']['relations']}
+    tables = {}
+    for table in request['tables']:
+        if (set(table) != {'oid', 'schema', 'name', 'owner'} or type(table['oid']) is not int or table['oid'] <= 0 or
+                table['oid'] in before or table['oid'] in tables or table['schema'] != 'honua_data' or
+                any(not isinstance(table[field], str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table[field])
+                    for field in ('name', 'owner'))):
+            raise PackError('model import transfer has preexisting/duplicate/ambiguous physical OIDs')
+        tables[table['oid']] = table
+    attempts = [attempt for attempt, launch in state.get('workerLaunches', {}).items()
+                if all(launch.get('context', {}).get(field) == context[field]
+                       for field in ('campaignId', 'caseId', 'attempt', 'campaignMode'))]
+    originals = state.get('scenarioOperations', {})
+    def read(reference):
+        if not isinstance(reference, dict) or set(reference) != {'key', 'sha256'}:
+            raise PackError('model import transfer requires original retained native GET references')
+        response = originals.get(reference['key'])
+        if not isinstance(response, dict) or canonical_digest(response) != reference['sha256']:
+            raise PackError('model import native GET response is absent or changed')
+        intent_ref = response.get('intentReference', {})
+        intent = originals.get(intent_ref.get('key'))
+        if (not isinstance(intent, dict) or canonical_digest(intent) != intent_ref.get('sha256') or
+                intent.get('method') != 'GET' or intent.get('candidateKey') != candidate or
+                intent.get('credentialKind') not in ('api-key', 'bearer') or
+                response.get('candidateKey') != candidate or
+                response.get('intentDigest') != canonical_digest(intent) or
+                not any(intent.get('attemptId', '').startswith(attempt+'-') for attempt in attempts) or
+                response.get('attemptId') != intent.get('attemptId') or
+                response.get('response', {}).get('httpStatus') != 200):
+            raise PackError('model import original is not an authenticated same-attempt native GET')
+        raw = response['response'].get('body')
+        if not isinstance(raw, dict) or raw.get('success', True) is False:
+            raise PackError('model import original native body is unsuccessful')
+        return raw.get('data', raw), intent
+    used_oids, used_jobs = set(), set()
+    for native in request['nativeImports']:
+        if set(native) != {'taskId', 'taskRevision', 'taskContentHash', 'jobId', 'leaseId', 'tableOid',
+                           'taskReference', 'submissionReference'} or native['tableOid'] not in tables:
+            raise PackError('model import handoff lacks an exact task/job/relation mapping')
+        task, task_intent = read(native['taskReference'])
+        receipt, receipt_intent = read(native['submissionReference'])
+        if (not isinstance(task, dict) or not isinstance(receipt, dict) or not isinstance(receipt.get('job'), dict) or
+                not isinstance(receipt['job'].get('output'), dict) or type(native['taskRevision']) is not int or native['taskRevision'] < 1 or
+                not isinstance(native['taskContentHash'], str) or not re.fullmatch(r'[0-9a-f]{64}', native['taskContentHash'])):
+            raise PackError('model import original has no successful actual task/job/output binding')
+        from urllib.parse import urlencode
+        path = '/api/v1/agent/workspaces/'+str(task.get('workspaceId'))+'/dataset-import-tasks/'+str(native['taskId'])+'/versions/'+str(native['taskRevision'])
+        job, physical = receipt.get('job', {}), receipt.get('job', {}).get('output', {})
+        table = tables[native['tableOid']]
+        if (task.get('taskId') != native['taskId'] or task.get('revision') != native['taskRevision'] or
+                task.get('contentHash') != native['taskContentHash'] or receipt.get('taskId') != native['taskId'] or
+                receipt.get('taskRevision') != native['taskRevision'] or receipt.get('taskContentHash') != native['taskContentHash'] or
+                receipt.get('state') != 'accepted' or receipt.get('operationId') != native['jobId'] or
+                job.get('jobId') != native['jobId'] or job.get('leaseId') != native['leaseId'] or
+                job.get('status') != 'succeeded' or job.get('outcomePending') is not False or
+                physical.get('schema') != table['schema'] or physical.get('physicalTableName') != table['name'] or
+                task_intent.get('path') != path or receipt_intent.get('path') != path+'/submission?'+urlencode({'contentHash': native['taskContentHash']}) or
+                task_intent.get('endpoint') != receipt_intent.get('endpoint') or
+                task_intent.get('agentContext', {}).get('workspaceId') != task.get('workspaceId') or
+                receipt_intent.get('agentContext') != task_intent.get('agentContext') or
+                native['tableOid'] in used_oids or native['jobId'] in used_jobs):
+            raise PackError('model import original task/job GETs do not corroborate exact actual physical output')
+        used_oids.add(native['tableOid']); used_jobs.add(native['jobId'])
+    for retained_key, previous in state.get('importTransferRequests', {}).items():
+        if retained_key != key and not retained_key.startswith(key+'/'):
+            continue
+        if previous == request:
+            continue  # Private read-only revalidation of the exact retained request.
+        if ({row['oid'] for row in previous['tables']} & set(tables) or
+                any({row[field] for row in previous['nativeImports']} & {row[field] for row in request['nativeImports']}
+                    for field in ('jobId', 'leaseId')) or
+                {(row['taskId'], row['taskRevision'], row['taskContentHash']) for row in previous['nativeImports']} &
+                {(row['taskId'], row['taskRevision'], row['taskContentHash']) for row in request['nativeImports']}):
+            raise PackError('another retained import transfer already owns this table/job/lease/task effect')
+    return key
+
+
+def fixture_cleanup_key(durable, context):
+    base = durable._fixture_identity(context)
+    number = context.get('importCleanupPass')
+    if number is None:
+        return base
+    if type(number) is not int or not 1 <= number <= 240:
+        raise PackError('invalid bounded import cleanup pass')
+    key = base+'/import-cleanup-'+str(number)
+    row = durable.state.get('importCleanupPasses', {}).get(key)
+    if (not isinstance(row, dict) or row.get('candidateKey') != durable.store.candidate or
+            row.get('identity') != {field: context[field] for field in ('campaignId', 'caseId', 'attempt', 'campaignMode')} or
+            row.get('passNumber') != number):
+        raise PackError('cleanup pass lacks its original retained declaration')
+    return key
+
+
 class StateStore:
     def __init__(self, *, s3, dynamodb, bucket, table, candidate_key, owner=None, clock=time.time):
         self.s3, self.db, self.bucket, self.table = s3, dynamodb, bucket, table
@@ -180,6 +297,36 @@ def preserve_history(previous, current):
     """A new campaign cannot delete spending or reclassify retained attempts."""
     if previous is None:
         return
+    if 'interactiveFunding' in previous and current.get('interactiveFunding') != previous['interactiveFunding']:
+        raise PackError('cannot rewrite or erase original interactive funding source')
+    if 'bootstrapImport' in current and 'interactiveAccounting' in current.get('ledger', {}):
+        from agent_e2e_interactive_budget import validate_retained_funding
+        validate_retained_funding(current)
+    for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
+                  'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings',
+                  'studioBootstrapOperations', 'studioBootstrapFixtures', 'importTransferRequests',
+                  'importCleanupPasses', 'importCleanupOutcomes', 'nativeRuntimeHttp'):
+        for key, value in previous.get(field, {}).items():
+            if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
+                raise PackError('cannot rewrite or erase retained campaign evidence')
+    for execution, old in previous.get('interactiveExecutions', {}).items():
+        from agent_e2e_console_runtime import validate_execution_history
+        new = current.get('interactiveExecutions', {}).get(execution)
+        validate_execution_history(old)
+        validate_execution_history(new)
+        if ({k: v for k, v in old.items() if k != 'events'} != {k: v for k, v in new.items() if k != 'events'} or
+                len(new['events']) < len(old['events']) or new['events'][:len(old['events'])] != old['events']):
+            raise PackError('cannot rewrite or erase original execution events')
+    for key, record in previous.get('workerLaunches', {}).items():
+        if canonical_digest(current.get('workerLaunches', {}).get(key)) != canonical_digest(record):
+            raise PackError('cannot rewrite or erase retained worker launch intent')
+    for key, record in previous.get('workerActions', {}).items():
+        if canonical_digest(current.get('workerActions', {}).get(key)) != canonical_digest(record):
+            raise PackError('cannot rewrite or erase retained worker action evidence')
+    if 'bootstrapImport' in current and 'bootstrapImport' not in previous:
+        raise PackError('bootstrap import must be the first state, never a retrofit')
+    if 'bootstrapImport' in previous and canonical_digest(previous['bootstrapImport']) != canonical_digest(current.get('bootstrapImport')):
+        raise PackError('cannot rewrite or erase bootstrap import history')
     for key, old_rows in previous.get('journals', {}).items():
         new_rows = current.get('journals', {}).get(key, [])
         if len(new_rows) < len(old_rows) or canonical_digest(new_rows[:len(old_rows)]) != canonical_digest(old_rows):
@@ -189,45 +336,89 @@ def preserve_history(previous, current):
             continue
         if key not in current:
             raise PackError('cannot erase durable candidate history')
-        field = 'entries' if key == 'ledger' else 'attempts'
-        if canonical_digest({k:v for k,v in previous[key].items() if k != field}) != canonical_digest(
-                {k:v for k,v in current[key].items() if k != field}):
-            raise PackError('cannot change durable candidate identity or budget policy')
-        old_rows, new_rows = previous[key][field], current[key][field]
-        if len(new_rows) < len(old_rows):
-            raise PackError('cannot truncate durable candidate history')
-        for old, new in zip(old_rows, new_rows):
-            if key == 'registry' or old.get('state') == 'settled':
-                if canonical_digest(old) != canonical_digest(new):
-                    raise PackError('retained outcome or charge cannot change')
-            else:
-                immutable = set(old) - {'state', 'actualUsd'}
-                if set(new) != set(old) or any(old[k] != new[k] for k in immutable):
-                    raise PackError('reservation identity or ceiling changed')
-                if new['state'] not in ('reserved', 'settled'):
-                    raise PackError('invalid reservation transition')
+        fields = ('entries', 'operations', 'paidAdmissions', 'interactiveEntries', 'interactivePaidAdmissions', 'interactiveAccounting') if key == 'ledger' else ('attempts',)
+        if canonical_digest({k:v for k,v in previous[key].items() if k not in fields}) != canonical_digest(
+                {k:v for k,v in current[key].items() if k not in fields}):
+            # The only accepted policy change is the fixed owner amendment,
+            # whose embedded prior snapshot must be this exact retained ledger.
+            from agent_e2e_budget import validate as validate_budget
+            amendment = current[key].get('policyAmendment', {}) if key == 'ledger' else {}
+            if (key != 'ledger' or previous[key].get('schemaVersion') not in (1, 2)
+                    or current[key].get('schemaVersion') != 3
+                    or canonical_digest(amendment.get('priorLedger')) != canonical_digest(previous[key])):
+                raise PackError('cannot change durable candidate identity or budget policy')
+            validate_budget(current[key])
+        for field in fields:
+            if field == 'interactiveAccounting':
+                if field in previous[key] and current[key].get(field) != previous[key][field]:
+                    raise PackError('cannot replace or extend original interactive funding binding')
+                continue
+            old_rows, new_rows = previous[key].get(field, []), current[key].get(field, [])
+            if len(new_rows) < len(old_rows):
+                raise PackError('cannot truncate durable candidate history')
+            for old, new in zip(old_rows, new_rows):
+                if field in ('paidAdmissions', 'interactivePaidAdmissions'):
+                    if old['state'] == 'released':
+                        if old != new: raise PackError('released admission history cannot change')
+                    else:
+                        immutable = set(old) - {'state', 'reservationIds', 'cleanupStatus'}
+                        if (set(old) != set(new) or any(old[k] != new[k] for k in immutable)
+                                or new['state'] not in ('active', 'released')
+                                or new['state'] == 'active' and (new['reservationIds'] is not None or new['cleanupStatus'] is not None)):
+                            raise PackError('paid admission cannot be reset, replaced or extended')
+                    continue
+                if key == 'registry' or old.get('state') == 'settled':
+                    if canonical_digest(old) != canonical_digest(new):
+                        raise PackError('retained outcome or charge cannot change')
+                else:
+                    immutable = set(old) - {'state', 'actualUsd'}
+                    if set(new) != set(old) or any(old[k] != new[k] for k in immutable):
+                        raise PackError('reservation identity or ceiling changed')
+                    if new['state'] not in ('reserved', 'settled'):
+                        raise PackError('invalid reservation transition')
+
+    if current.get('ledger', {}).get('schemaVersion') == 3:
+        from agent_e2e_budget import validate as validate_budget
+        validate_budget(current['ledger'], allow_overrun=True)
 
 
 class DurableExecution:
     """Synchronously persist each liability and journal event before continuing."""
-    def __init__(self, store, ledger_path, *, initialize=False):
+    def __init__(self, store, ledger_path, *, initialize=False, bootstrap=None):
         from agent_e2e_budget import update
         from agent_e2e_telemetry import atomic_write
         self.store, self.path = store, Path(ledger_path)
+        if bootstrap is not None and not initialize:
+            raise PackError('bootstrap import requires explicit initialization')
+        if bootstrap is not None:
+            from agent_e2e_bootstrap import validate_import
+            imported_ledger = validate_import(bootstrap, store.candidate)
         state = store.acquire()
         try:
+            if state is not None and bootstrap is not None:
+                raise PackError('candidate history already exists; bootstrap cannot replace it')
             if state is None:
                 if not initialize:
                     raise PackError('new candidate state requires explicit initialization')
                 if self.path.exists():
                     raise PackError('cannot initialize durable state from an existing local ledger')
-                update(self.path, 'init', candidate_key=store.candidate)
-                state = {'ledger':load_json(self.path), 'journals':{}}
+                if bootstrap is None:
+                    # Offline callers can exercise a fresh store. Production
+                    # CLI initialization requires authenticated bootstrap input.
+                    update(self.path, 'init', candidate_key=store.candidate)
+                    state = {'ledger':load_json(self.path), 'journals':{}}
+                else:
+                    state = {'ledger':imported_ledger, 'journals':{}, 'bootstrapImport':copy.deepcopy(bootstrap)}
                 store.commit(state)
             if self.path.exists():
                 # A failed remote settlement may leave a newer local charge.
                 # Never overwrite it with an older snapshot and lose the cost.
                 preserve_history({'ledger':load_json(self.path)}, {'ledger':state['ledger']})
+            if any(field in state['ledger'] for field in ('interactiveAccounting', 'interactiveEntries', 'interactivePaidAdmissions')):
+                from agent_e2e_interactive_budget import validate_retained_funding
+                from agent_e2e_budget import validate as validate_budget
+                validate_retained_funding(state)
+                validate_budget(state['ledger'], allow_overrun=True)
             atomic_write(self.path, json.dumps(state['ledger'], allow_nan=False).encode())
         except Exception:
             try:
@@ -299,6 +490,33 @@ class DurableExecution:
                 self._persist()
         return result
 
+    def enable_interactive_accounting(self, *, source_reader=None, now_epoch=None):
+        """Checked installer only: bind exact original Git source before activation.
+
+        No runtime placeholder or current-source fallback is supported. The
+        installed private runtime later replays the retained immutable source.
+        """
+        from agent_e2e_interactive_budget import funding_binding, validate_retained_funding
+        self._require_live_lease()
+        if self.state.get('ledger', {}).get('interactiveAccounting') is not None:
+            validate_retained_funding(self.state)
+            return copy.deepcopy(self.state['ledger']['interactiveAccounting'])
+        if 'bootstrapImport' not in self.state:
+            raise PackError('interactive execution requires actual original authenticated bootstrap import')
+        if self.state['ledger']['schemaVersion'] != 3:
+            raise PackError('interactive execution requires the actual named original-history amendment')
+        options = {'now_epoch': now_epoch}
+        if source_reader is not None: options['source_reader'] = source_reader
+        binding, raw = funding_binding(self.state['bootstrapImport'], **options)
+        self.state['interactiveFunding'] = {'binding': copy.deepcopy(binding), 'configuration': raw.decode('utf-8')}
+        try:
+            self.update(self.path, 'enable-interactive-accounting', candidate_key=self.store.candidate,
+                        binding=binding, **({'now_epoch': now_epoch} if now_epoch is not None else {}))
+        finally:
+            if 'interactiveAccounting' not in self.state['ledger']:
+                self.state.pop('interactiveFunding', None)
+        return binding
+
     def event(self, row):
         key = canonical_digest({k:row[k] for k in ('campaignId','caseId','attempt')})
         rows = self.state['journals'].setdefault(key, [])
@@ -309,6 +527,195 @@ class DurableExecution:
         if rows and rows[-1]['event'] == 'end':
             raise PackError('durable attempt is already complete')
         rows.append(row)
+        self._persist()
+
+    def retain_worker_launch(self, record):
+        """Commit prepaid launch identity before the one allowed runtime start."""
+        from agent_e2e_worker_lifecycle import validate_reservations
+        self._require_live_lease()
+        validate_reservations(record, self.state['ledger'])
+        launches = self.state.setdefault('workerLaunches', {})
+        if record['attemptId'] in launches:
+            raise PackError('worker launch already retained; observe without restarting')
+        reserved_ids = set(record['reservationIds'].values())
+        if any(reserved_ids & set(old['reservationIds'].values()) for old in launches.values()):
+            raise PackError('worker reservation already funds a retained launch')
+        launches[record['attemptId']] = copy.deepcopy(record)
+        # A failed acknowledgement leaves the intent in memory. A fresh process
+        # must recover the durable head; neither path can assume no start occurred.
+        self._persist()
+
+    def require_worker_launch(self, record, *, launching=False):
+        self._require_live_lease()
+        retained = self.state.get('workerLaunches', {}).get(record['attemptId'])
+        if canonical_digest(retained) != canonical_digest(record):
+            raise PackError('worker launch differs from retained intent')
+        if launching:
+            from agent_e2e_worker_lifecycle import validate_reservations
+            validate_reservations(record, self.state['ledger'])
+
+    def _require_live_lease(self):
+        if self.stop.is_set() or self.heartbeat_error:
+            raise PackError('durable controller lease is unavailable')
+        self.store.renew()
+
+    def _fixture_identity(self, context):
+        from agent_e2e_budget import validate
+        self._require_live_lease()
+        validate(self.state['ledger'])
+        if (context.get('componentBindingDigest') != self.store.candidate or
+                type(context.get('attempt')) is not int or context['attempt'] not in (1, 2) or
+                context.get('campaignMode') not in ('development', 'qualification')):
+            raise PackError('fixture belongs to another candidate or invalid attempt')
+        identity = {key: context[key] for key in ('campaignId', 'caseId', 'attempt')}
+        rows = [row for row in self.state['ledger']['entries'] if row['state'] == 'reserved' and
+                all(row.get(key) == value for key, value in identity.items()) and
+                row.get('campaignMode', 'qualification') == context['campaignMode']]
+        if not {'infrastructure', 'cleanup'} <= {row['kind'] for row in rows}:
+            raise PackError('fixture effects lack retained infrastructure and cleanup liability')
+        return canonical_digest(identity)
+
+    def retain_fixture_baseline(self, context, baseline):
+        """Persist independent identity/baseline before any fixture creation."""
+        key = self._fixture_identity(context)
+        if baseline.get('candidateKey') != self.store.candidate:
+            raise PackError('fixture baseline belongs to another candidate')
+        baselines = self.state.setdefault('fixtureBaselines', {})
+        if key in baselines:
+            raise PackError('fixture baseline already retained; reconcile without repeating setup')
+        baselines[key] = copy.deepcopy(baseline)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(baseline)}
+
+    def retain_fixture_ownership(self, context, record):
+        """Bind actual created OIDs/revisions to the independently retained baseline."""
+        base = self._fixture_identity(context)
+        key = fixture_cleanup_key(self, context)
+        if (record.get('candidateKey') != self.store.candidate or
+                base not in self.state.get('fixtureBaselines', {}) or
+                canonical_digest(record.get('baseline')) != canonical_digest(self.state['fixtureBaselines'][base]) or
+                key != base and record.get('profile') != 'honua.model-import-owned-tables/v1'):
+            raise PackError('fixture ownership differs from retained independent baseline')
+        owned = self.state.setdefault('fixtureOwnership', {})
+        if key in owned:
+            raise PackError('fixture ownership already retained; do not rebind resources')
+        owned[key] = copy.deepcopy(record)
+        self._persist()
+
+    def retain_fixture_transfer_request(self, context, request):
+        """Bind one exact observed owner handoff before the private provisioner."""
+        key = self._fixture_identity(context)
+        baseline = self.state.get('fixtureBaselines', {}).get(key)
+        tables = request.get('tables')
+        if (set(request) != {'schemaVersion', 'candidateKey', 'database', 'baselineDigest', 'expectedCleanupRole', 'tables'} or
+                request.get('schemaVersion') != 1 or request.get('candidateKey') != self.store.candidate or
+                baseline is None or request.get('baselineDigest') != canonical_digest(baseline) or
+                request.get('database') != baseline.get('database') or
+                not isinstance(request.get('expectedCleanupRole'), str) or
+                not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', request['expectedCleanupRole']) or
+                not isinstance(tables, list) or len(tables) != 3):
+            raise PackError('fixture transfer differs from exact independently retained baseline')
+        before = {row['oid'] for row in baseline['snapshot']['relations']}
+        for table in tables:
+            if (not isinstance(table, dict) or set(table) != {'oid', 'schema', 'name', 'owner'} or
+                    type(table['oid']) is not int or table['oid'] <= 0 or table['oid'] in before or
+                    table['schema'] != 'honua_data' or
+                    any(not isinstance(table[field], str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table[field])
+                        for field in ('name', 'owner'))):
+                raise PackError('fixture transfer table identity is ambiguous or preexisting')
+        if len({table['oid'] for table in tables}) != 3 or len({table['name'] for table in tables}) != 3:
+            raise PackError('fixture transfer contains duplicate relations')
+        requests = self.state.setdefault('fixtureTransferRequests', {})
+        if key in requests:
+            raise PackError('fixture transfer already retained; observe without redispatch')
+        requests[key] = copy.deepcopy(request)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(request)}
+
+    def retain_import_transfer_request(self, context, request):
+        """Admit bounded exact native import outputs, preserving legacy P10 three."""
+        base = self._fixture_identity(context)
+        if validate_retained_import_transfer(self.state, context, request, self.store.candidate) != base:
+            raise PackError('model import request identity changed during revalidation')
+        requests = self.state.setdefault('importTransferRequests', {})
+        if any(previous == request for key, previous in requests.items() if key == base or key.startswith(base+'/')):
+            raise PackError('model import transfer already retained; observe without redispatch')
+        key = base+'/'+canonical_digest(request)
+        requests[key] = copy.deepcopy(request)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(request)}
+
+    def require_fixture_ownership(self, context, record):
+        key = fixture_cleanup_key(self, context)
+        retained = self.state.get('fixtureOwnership', {}).get(key)
+        if retained is None or canonical_digest(retained) != canonical_digest(record):
+            raise PackError('cleanup differs from exact retained fixture ownership')
+
+    def retain_fixture_cleanup(self, context, kind, value):
+        key = fixture_cleanup_key(self, context)
+        record = self.state.get('fixtureOwnership', {}).get(key)
+        if (kind not in ('intent', 'observation') or record is None or
+                value.get('ownershipDigest') != canonical_digest(record) or
+                value.get('candidateKey') != self.store.candidate):
+            raise PackError('cleanup evidence differs from retained fixture ownership')
+        self.require_fixture_ownership(context, record)
+        references = self.state.setdefault('fixtureCleanup', {})
+        if kind == 'observation' and key+'/intent' not in references:
+            raise PackError('cleanup observation lacks retained before-effect intent')
+        key += '/'+kind
+        if key in references:
+            raise PackError('fixture cleanup stage already retained; reconcile without repeating effects')
+        references[key] = copy.deepcopy(value)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(value)}
+
+    def begin_import_cleanup(self, context):
+        base = self._fixture_identity(context)
+        passes = self.state.setdefault('importCleanupPasses', {})
+        prior = sorted(((row['passNumber'], key, row) for key, row in passes.items()
+                        if key.startswith(base+'/import-cleanup-')), key=lambda row: row[0])
+        previous = None
+        if prior:
+            previous = self.state.get('importCleanupOutcomes', {}).get(prior[-1][1])
+            if previous is not None and previous['result']['status'] != 'blocked':
+                raise PackError('previous import cleanup is already complete; reconcile without replay')
+        number = len(prior)+1
+        if number > 240 or [row[0] for row in prior] != list(range(1, number)):
+            raise PackError('cleanup pass history is missing or exceeds its bound')
+        row = {'schemaVersion': 1, 'candidateKey': self.store.candidate,
+            'identity': {field: context[field] for field in ('campaignId', 'caseId', 'attempt', 'campaignMode')},
+            'passNumber': number, 'previousOutcomeDigest': None if previous is None else canonical_digest(previous)}
+        if prior and previous is None:
+            # A new fenced read/reconciliation pass preserves the unfinished
+            # declaration and all of its effects; absence of an outcome is not
+            # permission to discard or repeat a retained mutation blindly.
+            row['unfinishedPreviousPassDigest'] = canonical_digest(prior[-1][2])
+        key = base+'/import-cleanup-'+str(number)
+        passes[key] = copy.deepcopy(row)
+        self._persist()
+        return number
+
+    def finish_import_cleanup(self, context, result):
+        key = fixture_cleanup_key(self, context)
+        outcomes = self.state.setdefault('importCleanupOutcomes', {})
+        if key in outcomes or result.get('status') not in ('pass', 'blocked'):
+            raise PackError('import cleanup outcome cannot be rebound')
+        outcomes[key] = {'schemaVersion': 1, 'candidateKey': self.store.candidate,
+            'passDigest': canonical_digest(self.state['importCleanupPasses'][key]), 'result': copy.deepcopy(result)}
+        self._persist()
+
+    def retain_worker_action(self, record, launch):
+        """Publish reply references before returning any public action result."""
+        self.require_worker_launch(launch)
+        if record.get('launchDigest') != canonical_digest(launch):
+            raise PackError('worker action evidence has another launch identity')
+        action_id = record.get('actionId')
+        if not isinstance(action_id, str) or not re.fullmatch(r'[0-9a-f]{64}', action_id):
+            raise PackError('worker action lacks controller dispatch identity')
+        actions = self.state.setdefault('workerActions', {})
+        if action_id in actions:
+            raise PackError('worker action evidence already retained; reconcile without redispatch')
+        actions[action_id] = copy.deepcopy(record)
         self._persist()
 
     def close(self):

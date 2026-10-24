@@ -37,11 +37,14 @@ import sdk_baselines
 from semver import parse as parse_semver
 import upgrade_lock_binding
 import validate_platform
-from verify_client_artifacts import verify_manifest
+from verify_client_artifacts import RegistryUnavailable, verify_manifest
 
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 DELAYS = (0, 10, 30, 60, 120, 60)
+# Exit status for a registry outage that outlasted the verifier's bounded retries (EX_TEMPFAIL).
+# Distinct from 1 (REFUSED): an unhealthy registry is not evidence against any pin.
+TRANSIENT_EXIT = 75
 # A keyed listing whose total_count moves while it is being paged (a check run was added under the
 # reader, which happens for minutes after a merge while workflow_run consumers report) is re-read
 # from page 1 this many times before it refuses.
@@ -120,7 +123,7 @@ class GitHub:
         except json.JSONDecodeError as exc:
             raise ResolutionError(f'gh api {path} returned non-JSON ({exc})') from exc
 
-    def pages(self, path, key=None):
+    def pages(self, path, key=None, *, page_size=100):
         """Every row, or a refusal. Keyed pages must add up to their declared total_count.
 
         A keyed listing is read in full before any row is yielded, so a total_count that moves
@@ -130,7 +133,7 @@ class GitHub:
         for attempt in range(1, PAGING_ATTEMPTS + 1):
             page, seen, total, collected, moved = 1, 0, None, [], None
             while True:
-                result = self.json(f'{path}{separator}per_page=100&page={page}')
+                result = self.json(f'{path}{separator}per_page={page_size}&page={page}')
                 if key:
                     rows = result.get(key) if isinstance(result, dict) else None
                     count = result.get('total_count') if isinstance(result, dict) else None
@@ -148,7 +151,7 @@ class GitHub:
                     raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
                 seen += len(rows)
                 collected.extend(rows)
-                if len(rows) < 100:
+                if len(rows) < page_size:
                     break
                 page += 1
             if moved is None:
@@ -180,10 +183,29 @@ class GitHub:
         runs = list(self.pages(f'repos/{repository}/actions/runs?head_sha={sha}', 'workflow_runs'))
         payload = ci._enrich_action_workflow_ids({'check_runs': checks}, {'workflow_runs': runs})
         payload['_workflow_runs'] = runs
+        policies = ci.load_full_matrix()
+        policy = policies.get(name)
+        if policy:
+            import full_matrix_evidence as matrix
+            def api_path(url):
+                prefix = 'https://api.github.com/'
+                if not url.startswith(prefix):
+                    raise ResolutionError('matrix evidence escaped the GitHub API origin')
+                return url[len(prefix):]
+            def collection(url, headers, key, *, page_size=100):
+                return {key: list(self.pages(api_path(url), key, page_size=page_size))}
+            try:
+                selected = matrix.selected_run(payload, policy, sha)
+                payload['_matrix_execution'] = matrix.collect(repository, sha, selected, policy, {}, collection,
+                                                              lambda url, headers: self.json(api_path(url)))
+            except (ValueError, ResolutionError):
+                # The same evaluator must refuse absent producer observations, including historical
+                # captured runs. Never manufacture jobs/selection to preserve a prior green result.
+                pass
         result = ci.evaluate({'components': {name: {'sha': sha}}}, lambda *_: payload,
                              enforcement='strict', env_gated=ci.load_env_gated(),
                              rollup=ci.load_rollup(), security=ci.load_security(),
-                             governance=ci.load_governance(), full_matrix=ci.load_full_matrix(),
+                             governance=ci.load_governance(), full_matrix=policies,
                              advisory=ci.load_advisory())
         row = result['components'][0]
         return row['decided'] == 'pass', row['why']
@@ -297,7 +319,11 @@ class Registry:
                 raise ResolutionError(f'duplicate linux/{arch} manifest')
             child_digest = descriptor['digest']
             child = self.document(repository, child_digest, manifest=True)
-            config = self.document(repository, child['config']['digest'])
+            config_digest = (child.get('config') or {}).get('digest') if isinstance(child, dict) else None
+            if not isinstance(config_digest, str):
+                # Run 37501454457 crashed here with KeyError('config') instead of refusing.
+                raise ResolutionError(f'linux/{arch} manifest {child_digest} has no config descriptor')
+            config = self.document(repository, config_digest)
             revision = config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision')
             if revision != sha or config.get('architecture') != arch or config.get('os') != 'linux':
                 raise ResolutionError(f'linux/{arch} config is not bound to {sha}')
@@ -1112,6 +1138,15 @@ def main(argv=None):
         else:
             print(f'PASS: exact trunk candidate in {args.out_dir}; dry_run={args.dry_run}')
         return 0
+    except RegistryUnavailable as exc:
+        # Not a provenance refusal: nothing about the published bytes was learned. The night still
+        # mints nothing, but it reports the outage under its own outcome instead of REFUSED.
+        print(f'TRANSIENT-REGISTRY-UNAVAILABLE: {exc}', file=sys.stderr)
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        (args.out_dir / 'resolution-outcome.json').write_text(json.dumps(
+            {'outcome': RegistryUnavailable.outcome, 'provenanceRefusal': False, 'detail': str(exc)},
+            indent=2) + '\n')
+        return TRANSIENT_EXIT
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f'REFUSED: {exc}', file=sys.stderr)
         return 1

@@ -1,0 +1,171 @@
+# Produces a candidate once; publication must consume these same bytes and receipts.
+# This workflow does not advance the platform/customer manifest or claim a GIS journey.
+name: gp-devkit-candidate
+run-name: "GP devkit candidate ${{ inputs.version }} from ${{ inputs.server_sha }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_sha:
+        description: "Exact merged honua-server commit containing the installed workspace toolchain"
+        required: true
+        type: string
+      version:
+        description: "Exact candidate package version, including prerelease suffix"
+        required: true
+        type: string
+      python_image:
+        description: "Reviewed python@sha256 base image for Linux x64"
+        required: true
+        type: string
+      sdk_version:
+        description: "Exact complete .NET 10 SDK archive from Microsoft release metadata"
+        required: true
+        default: "10.0.302"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gp-devkit-candidate-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      package_sha256: ${{ steps.identity.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate exact candidate inputs
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+          PYTHON_IMAGE: ${{ inputs.python_image }}
+          SDK_VERSION: ${{ inputs.sdk_version }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          patterns = {"SERVER_SHA": r"[0-9a-f]{40}", "PACKAGE_VERSION": r"[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+",
+                      "PYTHON_IMAGE": r"(?:docker.io/library/)?python@sha256:[0-9a-f]{64}", "SDK_VERSION": r"10\.0\.[0-9]+"}
+          for name, pattern in patterns.items():
+              if not re.fullmatch(pattern, os.environ[name]): raise SystemExit("Invalid immutable candidate input: " + name)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: ${{ inputs.server_sha }}
+          path: server
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      - name: Require the exact source to be on the protected server branch
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C server rev-parse HEAD)" = "$SERVER_SHA"
+          git -C server merge-base --is-ancestor "$SERVER_SHA" refs/remotes/origin/trunk
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ inputs.sdk_version }}
+      - name: Pack the actual CLI with source provenance
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+          MSBUILDDISABLENODEREUSE: "1"
+        run: |
+          set -euo pipefail
+          dotnet pack server/src/Honua.Geoprocessing.Cli/Honua.Geoprocessing.Cli.csproj \
+            --configuration Release --output "$GITHUB_WORKSPACE/package" \
+            -p:UseSharedCompilation=false -p:Version="$PACKAGE_VERSION" -p:PackageVersion="$PACKAGE_VERSION" \
+            -p:RepositoryUrl=https://github.com/honua-io/honua-server -p:RepositoryCommit="$SERVER_SHA" \
+            -p:SourceRevisionId="$SERVER_SHA" -p:ContinuousIntegrationBuild=true
+      - name: Verify package provenance and retain its exact hash
+        id: identity
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, "tools")
+          import gp_devkit_artifacts as gate
+          packages = list(Path("package").glob("*.nupkg"))
+          if len(packages) != 1: raise SystemExit("Exactly one CLI package required")
+          version, _ = gate.package_identity(packages[0], os.environ["SERVER_SHA"])
+          if version != os.environ["PACKAGE_VERSION"]: raise SystemExit("Package version differs from candidate")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output: output.write("sha256=" + gate.sha256(packages[0]) + "\n")
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gp-devkit-package
+          path: package/*.nupkg
+          if-no-files-found: error
+          retention-days: 30
+
+  installed-qualification:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # Only release coordination code is checked out here. No honua-server source.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gp-devkit-package
+          path: package
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Verify the gate can reject incomplete and substituted evidence
+        run: |
+          python3 -m pip install pytest
+          python3 -m pytest tools/test_gp_devkit_artifacts.py tools/test_gp_fetch_sdk.py -q
+      - name: Acquire a complete SDK using Microsoft's independent SHA-512
+        env:
+          SDK_VERSION: ${{ inputs.sdk_version }}
+        run: python3 tools/gp_fetch_sdk.py --version "$SDK_VERSION" --output sdk-input
+      - name: Install, bootstrap, assemble and exercise both languages without a source checkout
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          PACKAGE_SHA256: ${{ needs.package.outputs.package_sha256 }}
+          PYTHON_IMAGE: ${{ inputs.python_image }}
+        run: python3 tools/gp_devkit_candidate.py --package-directory package --sdk-directory sdk-input --source-sha "$SERVER_SHA" --package-sha256 "$PACKAGE_SHA256" --python-image "$PYTHON_IMAGE" --output candidate
+      - name: Preserve the exact qualified image for publication without rebuilding
+        run: |
+          set -euo pipefail
+          image="$(python3 -c 'import json; print(json.load(open("candidate/devkit-candidate.json"))["imageConfigDigest"])')"
+          docker save "$image" | gzip -1 > candidate/qualified-image.tar.gz
+          sha256sum candidate/qualified-image.tar.gz > candidate/qualified-image.tar.gz.sha256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gp-devkit-qualified-candidate
+          path: candidate/export
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gp-devkit-qualified-image
+          path: |
+            candidate/qualified-image.tar.gz
+            candidate/qualified-image.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            candidate/export/*.nupkg
+            candidate/export/devkit-candidate.json
+            candidate/qualified-image.tar.gz

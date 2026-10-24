@@ -1,0 +1,616 @@
+name: agent-e2e-campaign
+# Trusted producer for #619/#627. Qualification requires the full scenario
+# backend; development requires an explicit implemented A/B case. Reviewed
+# source configuration is required before any model/runtime call.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Completed trusted trunk release-train/nightly candidate-manifest run
+        required: true
+        type: string
+      candidate_run_attempt:
+        description: Exact candidate freeze run attempt; old artifacts from another attempt are refused
+        required: true
+        type: string
+      mode:
+        description: Development keeps C held out; qualification requires all 252 including EKS
+        required: true
+        default: development
+        type: choice
+        options: [development, qualification, bootstrap]
+      development_case:
+        description: One implemented A/B case for nonqualifying development (target comes from case ID)
+        required: false
+        default: P10:A:aws-ecs-redis-on
+        type: string
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+# One candidate-wide store/ledger is also protected by the durable fenced lease.
+concurrency:
+  group: agent-e2e-campaign
+  cancel-in-progress: false
+env:
+  TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
+  PYTHONDONTWRITEBYTECODE: '1'
+jobs:
+  freeze:
+    if: inputs.mode != 'bootstrap'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      campaign_digest: ${{ steps.freeze.outputs.campaign_digest }}
+    steps:
+      - name: Require trusted trunk and configured private dispatch role
+        env:
+          ROLE: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$GITHUB_REPOSITORY" = honua-io/honua-release
+          test -n "$ROLE"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install candidate binding dependencies
+        run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run_id }}
+          name: candidate-manifest
+          path: candidate-input
+      - name: Authenticate candidate artifact before freezing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANDIDATE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          python tools/agent_e2e_candidate.py --candidate-root candidate-input \
+            --run-id "$CANDIDATE_RUN" --run-attempt "$CANDIDATE_ATTEMPT" \
+            --output candidate-input/candidate-provenance.json
+      - name: Read exact original funding producer for a named amendment
+        id: funding
+        run: |
+          set -euo pipefail
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          config = json.loads(Path('certification/agent-e2e/campaign-inputs.json').read_text())
+          if 'budgetPolicy' in config:
+              original = config['bootstrap']
+              assert set(original) == {'artifactDigest', 'sourceSha', 'runId', 'runAttempt'}
+              assert type(original['runId']) is int and original['runId'] > 0
+              assert type(original['runAttempt']) is int and original['runAttempt'] > 0
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                  output.write('run_id='+str(original['runId'])+'\n')
+                  output.write('run_attempt='+str(original['runAttempt'])+'\n')
+          PYTHON
+      - name: Download the original funding artifact without AWS authority
+        if: steps.funding.outputs.run_id != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.funding.outputs.run_id }}
+          name: agent-e2e-budget-bootstrap-${{ steps.funding.outputs.run_attempt }}
+          path: bootstrap-import
+      - name: Freeze reviewed campaign before paid execution
+        id: freeze
+        env:
+          MODE: ${{ inputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+          FUNDING_RUN: ${{ steps.funding.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          funding_args=()
+          if [ -n "$FUNDING_RUN" ]; then
+            funding_args=(--bootstrap-artifact bootstrap-import/bootstrap-accounting.json)
+          fi
+          python tools/agent_e2e_campaign.py freeze --mode "$MODE" \
+            --lock candidate-input/frozen-lock/platform-lock.json \
+            --candidate-provenance candidate-input/candidate-provenance.json \
+            "${funding_args[@]}" \
+            --bundle campaign | tee freeze-result.json
+          python - <<'PYTHON'
+          import json, os, pathlib
+          result = json.loads(pathlib.Path('freeze-result.json').read_text())
+          assert result['status'] == 'frozen'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('campaign_digest='+result['campaignDigest']+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+              stream.write('Frozen pre-execution campaign digest: `'+result['campaignDigest']+'`\n')
+          PYTHON
+      - name: Retain immutable pre-execution inputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign/
+          if-no-files-found: error
+          retention-days: 90
+  develop:
+    needs: freeze
+    if: inputs.mode == 'development'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Execute explicit implemented A/B development case
+        env:
+          DEVELOPMENT_CASE: ${{ inputs.development_case }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/agent-e2e-private/development"
+          python3 tools/hosted_pilot/controller_handoff.py \
+            --configuration certification/agent-e2e/controller-handoff.json \
+            --bundle campaign --operation execute --case-id "$DEVELOPMENT_CASE" \
+            --timeout 7200 --output "$RUNNER_TEMP/agent-e2e-private/development/outcome.json" \
+            --evidence-directory "$RUNNER_TEMP/agent-e2e-private/development/evidence"
+      - name: Retain native dispatch outcome receipts including first failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-development-${{ github.run_attempt }}
+          # Raw evidence and controller logs stay in private native custody.
+          path: ${{ runner.temp }}/agent-e2e-private/development/outcome.json
+          if-no-files-found: warn
+          retention-days: 90
+  docker:
+    if: inputs.mode == 'qualification'
+    needs: freeze
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Execute bounded real local-docker shards serially
+        # Fixed private lifecycle only; no controller code or SQL credentials run on this runner.
+        run: |
+          set -euo pipefail
+          umask 077
+          for shard in 0 1 2 3 4 5; do
+            mkdir -p "$RUNNER_TEMP/agent-e2e-private/shard-$shard"
+            python3 tools/hosted_pilot/controller_handoff.py \
+              --configuration certification/agent-e2e/controller-handoff.json \
+              --bundle campaign --operation execute --target local-docker --shard "$shard" --shards 6 \
+              --timeout 7200 --output "$RUNNER_TEMP/agent-e2e-private/shard-$shard/outcome.json" \
+              --evidence-directory "$RUNNER_TEMP/agent-e2e-private/shard-$shard/evidence"
+          done
+      - name: Retain native dispatch outcome receipts including first failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-diagnostics-docker-${{ github.run_attempt }}
+          # Raw evidence and controller logs stay in private native custody.
+          path: ${{ runner.temp }}/agent-e2e-private/shard-*/outcome.json
+          if-no-files-found: warn
+          retention-days: 90
+  ecs:
+    if: inputs.mode == 'qualification'
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Execute bounded real aws-ecs-redis-on shards serially
+        # Fixed private lifecycle only; no controller code or SQL credentials run on this runner.
+        run: |
+          set -euo pipefail
+          umask 077
+          for shard in 0 1 2 3 4 5; do
+            mkdir -p "$RUNNER_TEMP/agent-e2e-private/shard-$shard"
+            python3 tools/hosted_pilot/controller_handoff.py \
+              --configuration certification/agent-e2e/controller-handoff.json \
+              --bundle campaign --operation execute --target aws-ecs-redis-on --shard "$shard" --shards 6 \
+              --timeout 7200 --output "$RUNNER_TEMP/agent-e2e-private/shard-$shard/outcome.json" \
+              --evidence-directory "$RUNNER_TEMP/agent-e2e-private/shard-$shard/evidence"
+          done
+      - name: Retain native dispatch outcome receipts including first failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-diagnostics-ecs-${{ github.run_attempt }}
+          # Raw evidence and controller logs stay in private native custody.
+          path: ${{ runner.temp }}/agent-e2e-private/shard-*/outcome.json
+          if-no-files-found: warn
+          retention-days: 90
+  eks:
+    if: inputs.mode == 'qualification'
+    needs: ecs
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Execute bounded real aws-eks shards serially
+        # Fixed private lifecycle only; no controller code or SQL credentials run on this runner.
+        run: |
+          set -euo pipefail
+          umask 077
+          for shard in 0 1 2 3 4 5; do
+            mkdir -p "$RUNNER_TEMP/agent-e2e-private/shard-$shard"
+            python3 tools/hosted_pilot/controller_handoff.py \
+              --configuration certification/agent-e2e/controller-handoff.json \
+              --bundle campaign --operation execute --target aws-eks --shard "$shard" --shards 6 \
+              --timeout 7200 --output "$RUNNER_TEMP/agent-e2e-private/shard-$shard/outcome.json" \
+              --evidence-directory "$RUNNER_TEMP/agent-e2e-private/shard-$shard/evidence"
+          done
+      - name: Retain native dispatch outcome receipts including first failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-diagnostics-eks-${{ github.run_attempt }}
+          # Raw evidence and controller logs stay in private native custody.
+          path: ${{ runner.temp }}/agent-e2e-private/shard-*/outcome.json
+          if-no-files-found: warn
+          retention-days: 90
+  lambda:
+    if: inputs.mode == 'qualification'
+    needs: eks
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Execute bounded real aws-lambda shards serially
+        # Fixed private lifecycle only; no controller code or SQL credentials run on this runner.
+        run: |
+          set -euo pipefail
+          umask 077
+          for shard in 0 1 2 3 4 5; do
+            mkdir -p "$RUNNER_TEMP/agent-e2e-private/shard-$shard"
+            python3 tools/hosted_pilot/controller_handoff.py \
+              --configuration certification/agent-e2e/controller-handoff.json \
+              --bundle campaign --operation execute --target aws-lambda --shard "$shard" --shards 6 \
+              --timeout 7200 --output "$RUNNER_TEMP/agent-e2e-private/shard-$shard/outcome.json" \
+              --evidence-directory "$RUNNER_TEMP/agent-e2e-private/shard-$shard/evidence"
+          done
+      - name: Retain native dispatch outcome receipts including first failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-diagnostics-lambda-${{ github.run_attempt }}
+          # Raw evidence and controller logs stay in private native custody.
+          path: ${{ runner.temp }}/agent-e2e-private/shard-*/outcome.json
+          if-no-files-found: warn
+          retention-days: 90
+  batch:
+    if: inputs.mode == 'qualification'
+    needs: lambda
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Execute bounded real aws-batch shards serially
+        # Fixed private lifecycle only; no controller code or SQL credentials run on this runner.
+        run: |
+          set -euo pipefail
+          umask 077
+          for shard in 0 1 2 3 4 5; do
+            mkdir -p "$RUNNER_TEMP/agent-e2e-private/shard-$shard"
+            python3 tools/hosted_pilot/controller_handoff.py \
+              --configuration certification/agent-e2e/controller-handoff.json \
+              --bundle campaign --operation execute --target aws-batch --shard "$shard" --shards 6 \
+              --timeout 7200 --output "$RUNNER_TEMP/agent-e2e-private/shard-$shard/outcome.json" \
+              --evidence-directory "$RUNNER_TEMP/agent-e2e-private/shard-$shard/evidence"
+          done
+      - name: Retain native dispatch outcome receipts including first failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-diagnostics-batch-${{ github.run_attempt }}
+          # Raw evidence and controller logs stay in private native custody.
+          path: ${{ runner.temp }}/agent-e2e-private/shard-*/outcome.json
+          if-no-files-found: warn
+          retention-days: 90
+  finalize:
+    needs: batch
+    if: inputs.mode == 'qualification'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed private controller handoff
+        # No fallback to a GitHub-hosted controller with private SQL credentials.
+        run: |
+          set -euo pipefail
+          for source in tools/hosted_pilot/controller_handoff.py certification/agent-e2e/controller-handoff.json; do
+            git ls-files --error-unmatch -- "$source" >/dev/null
+            test -s "$source"
+            test ! -L "$source"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install private dispatch SDK
+        run: python -m pip install 'boto3>=1.40,<2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-e2e-frozen-${{ github.run_attempt }}
+          path: campaign
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Validate all real cases, semantics, cleanup and candidate spending
+        # The helper restores only authenticated finalized bundle outputs after
+        # native success; its nonzero native exit prevents attestation below.
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/agent-e2e-private/finalize"
+          python3 tools/hosted_pilot/controller_handoff.py \
+            --configuration certification/agent-e2e/controller-handoff.json \
+            --bundle campaign --operation finalize \
+            --timeout 1500 --output "$RUNNER_TEMP/agent-e2e-private/finalize/outcome.json" \
+            --evidence-directory "$RUNNER_TEMP/agent-e2e-private/finalize/evidence"
+      - name: Attest only complete successful qualification
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            campaign/campaign.json
+            campaign/trusted-inventory.json
+      - name: Publish consumer-compatible qualification bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-campaign-${{ github.run_attempt }}
+          path: |
+            campaign/campaign.json
+            campaign/trusted-inventory.json
+            campaign/qualification-lock.json
+            campaign/expectations.json
+            campaign/budget-ledger.json
+            campaign/budget-bootstrap-original.json
+            campaign/attempt-registry.json
+            campaign/qualification-summary.json
+            campaign/candidate-provenance.json
+            campaign/receipts/
+            campaign/evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+  bootstrap:
+    if: inputs.mode == 'bootstrap'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Reject bootstrap sealing outside protected release trunk
+        run: |
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$GITHUB_REPOSITORY" = honua-io/honua-release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install candidate binding dependencies
+        run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run_id }}
+          name: candidate-manifest
+          path: candidate-input
+      - name: Authenticate original candidate and seal reviewed nonzero accounting
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+        run: |
+          set -euo pipefail
+          python tools/agent_e2e_candidate.py --candidate-root candidate-input \
+            --run-id "$CANDIDATE_RUN" --run-attempt "$CANDIDATE_ATTEMPT" \
+            --output candidate-input/candidate-provenance.json
+          mkdir -p budget-bootstrap
+          python tools/hosted_pilot/budget_bootstrap.py \
+            --configuration certification/agent-e2e/bootstrap.json \
+            --lock candidate-input/frozen-lock/platform-lock.json \
+            --provenance candidate-input/candidate-provenance.json \
+            --output budget-bootstrap/bootstrap-accounting.json
+      - name: Attest original accounting without running a model or creating cloud resources
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: budget-bootstrap/bootstrap-accounting.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-budget-bootstrap-${{ github.run_attempt }}
+          path: budget-bootstrap/bootstrap-accounting.json
+          if-no-files-found: error
+          retention-days: 90

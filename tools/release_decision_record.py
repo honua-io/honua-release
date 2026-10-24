@@ -166,13 +166,18 @@ def normalize(item, previous=None):
 
 
 def org_repos():
-    """Every org repository the caller can read; the release dashboard scans the same list."""
+    """Every readable org repository. Coverage scans this list, including issue-less forks."""
     return pages('orgs/honua-io/repos?per_page=100')
+
+
+def issue_repos():
+    """Repositories with issues enabled. Advisory forks answer 404 on /issues and abort refresh."""
+    return [r for r in org_repos() if r.get('has_issues', True)]
 
 
 def refresh(data):
     previous = {issue_key(i): i for i in data['issues']}
-    repos = org_repos()
+    repos = issue_repos()
     def fetch(repo):
         return pages(f"repos/honua-io/{repo['name']}/issues?state=open&labels=release%2F2026.1&per_page=100")
     with ThreadPoolExecutor(max_workers=5) as pool:
@@ -385,6 +390,8 @@ def verify_security(data, rows, rules, record_text):
         errors.append(f'record does not carry the computed decision: {line}')
     if any(f['status'] == 'open' for f in security_findings(rules)) and verdict != 'HOLD':
         errors.append('an open GA-blocking security finding requires Decision: HOLD')
+    if any(f['status'] == 'open' for f in security_findings(rules)):
+        errors.append('GA-blocking security findings remain open')
     if errors:
         raise ValueError('Security findings gate failed:\n' + '\n'.join(errors))
     return verdict
@@ -545,8 +552,8 @@ def render(data, rows, rules):
         '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
         '**Release-label drift (recorded bucket kept, not silently reconciled):** ' + (', '.join(f'{link(key)} — {why}' for key, why in label_drift(rows)) or 'None.'), '',
         '| Supported scope | Denominator / accepted limitations | Accountable owner |', '|---|---|---|',
-        f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. AWS Lambda x86_64: GA target, qualification pending; promoted from Preview by the 2026-09-06 contract amendment (ruling A), carrying the full ECS bill — live deploy, serving smoke, upgrade, rollback, destroy on the real serverless substrate; the release cannot be cut with Lambda below that bill. Operating limits: [serverless envelope](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits). Helm chart on Amazon EKS x86_64: GA target, qualification pending (owner decisions 12/18, 2026-10-10, superseding R31 for EKS), carrying the aws-eks cells\' live deploy, smoke, journey and destroy bill; promotion readiness does not yet require it. | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")}, {link("honua-release#282")}, {link("honua-release#203")} |',
-        f'| Preview | Studio; realtime; alerting; offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Helm on Kubernetes other than EKS; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
+        f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. AWS Lambda x86_64: GA target, qualification pending; promoted from Preview by the 2026-09-06 contract amendment (ruling A), carrying the full ECS bill — live deploy, serving smoke, upgrade, rollback, destroy on the real serverless substrate; the release cannot be cut with Lambda below that bill. Operating limits: [serverless envelope](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits). | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")}, {link("honua-release#282")} |',
+        f'| Preview | Studio; realtime; alerting; offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Helm on EKS and other Kubernetes distributions (2026-10-16 owner amendment supersedes decisions 12/18; qualification pending); support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#203")}, {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
         f'| Internal (ruling R29) | Multi-tenancy runs only on Honua\'s own demo stack, its only deployment. It is not offered for customer deployment and not GA, Preview or Experimental; it has no availability, performance or support claim and is outside every GA denominator. | {link("honua-release#376")} |',
         f'| Excluded from GA | 3D/I3S/terrain/point-cloud/BIM and warehouses remain Experimental, opt-in; this does not demote GA pcloud.translate. ARM64/Fargate, Azure, air-gap, broad deployment variants excluded; broad MCP/OKF Experimental. Branch-versioning expansion and marketplace/billing automation: 2026.2. | {link("honua-server#3249")}, {link("honua-server#3250")}, {link("honua-release#98")} |', '',
         'Operator ruling A (2026-09-13) excludes `activeSubscriptions` and `alertEvaluationsPerSecond` from the 2026.1 capacity envelope. Realtime subscriptions and customer alerting are **Preview**; Preview features carry no capacity promise. The eight GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`, `maximumFeaturePayloadBytes`, `concurrentVirtualUsers`, `gpWorkers`, and `gpQueueDepth`. The eight required SLO signals remain availability, error rate, p95/p99 latency, throughput, queue age, saturation, and recovery. See [the capacity ruling](CAPACITY-ENVELOPE-2026.1.md#scope).', '',

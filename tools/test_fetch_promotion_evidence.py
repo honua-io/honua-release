@@ -396,6 +396,18 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
             for attempt in row['attempts']:
                 if attempt.get('driver') == 'genuine-model':
                     attempt['lockDigest'] = 'sha256:' + nightly._sha256(lock)
+    # The historical upload also predates topology profiles. Lock binding alone must not
+    # certify an old row as modern serving/refusal evidence. Keep recorded bytes unchanged;
+    # these synthetic in-memory fields exercise bundle layout, never live qualification.
+    legacy = nightly.declare_evidence(report, lock, journeys)
+    assert legacy['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
+    assert legacy['evidenceReceipts']['deterministic-journey']['status'] == 'fail'
+    for journey in journeys:
+        for row in journey['cells']:
+            for attempt in row['attempts']:
+                if attempt.get('driver') == 'genuine-model' or row['cell'].endswith('/redis-off'):
+                    attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused',
+                                   functionalGpExecuted=False)
     from test_mint_nightly_lock import agent_summary
     report = nightly.declare_evidence(report, lock, journeys, agent_summary(lock, report['generatedAt']))
     assert report['evidenceReceipts']['nightly-model-journey']['status'] == 'pass'

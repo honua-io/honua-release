@@ -238,7 +238,14 @@ class ContractTests(unittest.TestCase):
                     run.validate_release_inputs(manifest, matrix)
 
     def test_suite_cell_validation(self):
-        cell = next(c for c in MATRIX["cells"] if c["id"] == "pypi-sdk-geoservices")
+        # The committed cell is active since honua-server#5407 was fixed (4709145 pin); the validation
+        # cases still need a blocked suite cell, so rebuild the shape it carried before that flip.
+        active = next(c for c in MATRIX["cells"] if c["id"] == "pypi-sdk-geoservices")
+        issue = "https://github.com/honua-io/honua-server/issues/5407"
+        cell = {**active, "status": "blocked", "blockedBy": [issue], "blockedSteps": {
+            "apply-edits-update": {"blockedBy": issue, "signature": "\\(status 500\\)$"},
+            "edits-state": {"blockedBy": issue, "signature": "differ from fixture"}}}
+        regression.validate_suite_cell(copy.deepcopy(cell), SCENARIOS, run.BLOCKER)
         cases = [
             (lambda c: c.update(scenario="sdk-unknown"), "unknown scenario"),
             (lambda c: c.update(driver="npm-sdk"), "does not drive"),
@@ -295,6 +302,7 @@ class OracleTests(unittest.TestCase):
         everywhere = png(256, 256, lambda x, y: True)
         self.assertFalse(oracles.oracle_raster_tile({"bytes": base64.b64encode(everywhere).decode()}, FIXTURE)[0])
         self.assertFalse(oracles.oracle_raster_tile({"bytes": base64.b64encode(b"not a png").decode()}, FIXTURE)[0])
+        self.assertFalse(oracles.oracle_raster_tile({"bytes": "invalid@"}, FIXTURE)[0])
 
     def test_vector_tile_oracle(self):
         want = [round(v) for v in oracles._envelope_in_tile(FIXTURE["area"]["features"][0]["envelope"], FIXTURE["area"]["tiles"]["painted"], 4096)]
@@ -877,12 +885,109 @@ class WorkflowTests(unittest.TestCase):
         samples = oracles.render_expectations(FIXTURE)
         self.assertEqual(sum(1 for *_, inside in samples if inside), 3)
         self.assertEqual(len(samples), 8)
-        encode = lambda data: {"png": base64.b64encode(data).decode()}  # noqa: E731
+        encode = lambda data: {"png": base64.b64encode(data).decode(), "mimeType": "image/png"}  # noqa: E731
         self.assertTrue(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: 40 <= x < 220 and 40 <= y < 280)), FIXTURE)[0])
         self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: False)), FIXTURE)[0])
         self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: True)), FIXTURE)[0])
+        self.assertEqual(oracles.oracle_map_render(encode(png(spec["width"], spec["height"],
+            lambda x, y: 0 <= x < 180 and 40 <= y < 280)), FIXTURE)[1].split(":")[0], "alpha-mismatch")
         self.assertFalse(oracles.oracle_map_render(encode(png(64, 64, lambda x, y: True)), FIXTURE)[0])
-        self.assertFalse(oracles.oracle_map_render({"png": "not-base64!"}, FIXTURE)[0])
+        self.assertEqual(oracles.oracle_map_render(encode(b"not a PNG"), FIXTURE)[1], "invalid-png:signature")
+        self.assertEqual(oracles.oracle_map_render({"png": "not-base64!", "mimeType": "image/png"}, FIXTURE)[1],
+                         "invalid-png:base64")
+        self.assertEqual(oracles.oracle_map_render({**encode(png(1, 1, lambda x, y: True)),
+                                                    "mimeType": "application/octet-stream"}, FIXTURE)[1],
+                         "invalid-media-type: expected image/png")
+
+    def test_png_container_and_inflate_refusals_are_typed(self):
+        def chunk(kind, payload):
+            return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+        def image(raw, width=1, height=1, color=6, before_idat=b""):
+            return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color, 0, 0, 0)) + \
+                   before_idat + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+        valid = image(b"\x00\0\0\xff\xff")
+        width, height, pixel = oracles.decode_png(valid)
+        self.assertEqual((width, height, pixel(0, 0)), (1, 1, (0, 0, 255, 255)))
+        rgb_transparent = image(b"\x00\0\0\xff", color=2,
+                                before_idat=chunk(b"tRNS", struct.pack(">HHH", 0, 0, 255)))
+        self.assertEqual(oracles.decode_png(rgb_transparent)[2](0, 0), (0, 0, 255, 0))
+        rgb_high_bits = image(b"\x00\0\0\xff", color=2,
+                              before_idat=chunk(b"tRNS", struct.pack(">HHH", 256, 0, 255)))
+        self.assertEqual(oracles.decode_png(rgb_high_bits)[2](0, 0), (0, 0, 255, 0))
+        gray_high_bits = image(b"\x00\x00", color=0,
+                               before_idat=chunk(b"tRNS", struct.pack(">H", 256)))
+        self.assertEqual(oracles.decode_png(gray_high_bits)[2](0, 0), (0, 0, 0, 0))
+        indexed = image(b"\x00\x00", color=3,
+                        before_idat=chunk(b"PLTE", b"\xff\0\0") + chunk(b"tRNS", b"\x80"))
+        self.assertEqual(oracles.decode_png(indexed)[2](0, 0), (255, 0, 0, 128))
+        compressed = zlib.compress(b"\x00\0\0\xff\xff")
+        idat_padding = (valid[:33] + chunk(b"IDAT", compressed + b"\x00\x00")
+                        + chunk(b"IEND", b""))
+        self.assertEqual(oracles.decode_png(idat_padding)[2](0, 0), (0, 0, 255, 255))
+        bad_crc = bytearray(valid)
+        bad_crc[-17] ^= 1
+        cases = {
+            "crc": bytes(bad_crc),
+            "missing-iend": valid[:-12],
+            "trailing-data": valid + b"x",
+            "idat-padding-order": valid[:33] + chunk(b"IDAT", compressed + b"\x00")
+                                  + chunk(b"IDAT", b"") + chunk(b"IEND", b""),
+            "truncated-chunk": valid[:-2],
+            "filter": image(b"\x05\0\0\xff\xff"),
+            "inflate-limit": image(b"\x00\0\0\xff\xff" + b"x" * 1024),
+            "inflate-length": image(b"\x00\0\0\xff"),
+            "dimensions": image(b"\x00\0\0\xff\xff", width=5000),
+            "critical-chunk": valid[:33] + chunk(b"ABCD", b"x") + valid[33:],
+        }
+        for expected, payload in cases.items():
+            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, f"^{expected}$"):
+                oracles.decode_png(payload)
+
+    def test_png_filters_reconstruct_authored_multiline_rgba(self):
+        def chunk(kind, payload):
+            return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+        def image(width, height, color, filtered_rows):
+            return (b"\x89PNG\r\n\x1a\n"
+                    + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color, 0, 0, 0))
+                    + chunk(b"IDAT", zlib.compress(filtered_rows)) + chunk(b"IEND", b""))
+
+        gray = lambda value: (value, value, value, 255)  # noqa: E731
+        cases = [
+            ("Sub gray", 3, 1, 0, bytes((1, 10, 10, 10)), [[gray(10), gray(20), gray(30)]]),
+            ("Up gray", 3, 2, 0, bytes((0, 10, 20, 30, 2, 1, 2, 3)),
+             [[gray(10), gray(20), gray(30)], [gray(11), gray(22), gray(33)]]),
+            ("Average gray", 3, 2, 0, bytes((0, 10, 20, 30, 3, 5, 7, 9)),
+             [[gray(10), gray(20), gray(30)], [gray(10), gray(22), gray(35)]]),
+            # Each Paeth vector names the selected predictor for the bottom-right pixel.
+            ("Paeth left", 2, 2, 0, bytes((0, 10, 20, 4, 90, 1)),
+             [[gray(10), gray(20)], [gray(100), gray(101)]]),
+            ("Paeth up", 2, 2, 0, bytes((0, 20, 100, 4, 246, 1)),
+             [[gray(20), gray(100)], [gray(10), gray(101)]]),
+            ("Paeth corner", 2, 2, 0, bytes((0, 50, 100, 4, 206, 1)),
+             [[gray(50), gray(100)], [gray(0), gray(51)]]),
+            ("Paeth left-corner tie", 2, 2, 0, bytes((0, 20, 30, 4, 236, 1)),
+             [[gray(20), gray(30)], [gray(0), gray(1)]]),
+            ("Paeth up-corner tie", 2, 2, 0, bytes((0, 20, 0, 4, 10, 1)),
+             [[gray(20), gray(0)], [gray(30), gray(1)]]),
+            ("Sub RGB", 2, 1, 2, bytes((1, 10, 20, 30, 5, 6, 7)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)]]),
+            ("Up RGB", 2, 2, 2, bytes((0, 10, 20, 30, 15, 26, 37, 2, 1, 2, 3, 4, 5, 6)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)], [(11, 22, 33, 255), (19, 31, 43, 255)]]),
+            ("Average RGB", 2, 2, 2, bytes((0, 10, 20, 30, 15, 26, 37, 3, 1, 2, 3, 4, 5, 6)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)], [(6, 12, 18, 255), (14, 24, 33, 255)]]),
+            ("Paeth RGB", 2, 2, 2, bytes((0, 10, 20, 30, 15, 26, 37, 4, 1, 2, 3, 4, 5, 6)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)], [(11, 22, 33, 255), (19, 31, 43, 255)]]),
+            ("Sub RGBA", 2, 1, 6, bytes((1, 10, 20, 30, 40, 1, 2, 3, 4)),
+             [[(10, 20, 30, 40), (11, 22, 33, 44)]]),
+        ]
+        for name, width, height, color, filtered_rows, expected in cases:
+            with self.subTest(name=name):
+                actual_width, actual_height, pixel = oracles.decode_png(image(width, height, color, filtered_rows))
+                self.assertEqual((actual_width, actual_height), (width, height))
+                self.assertEqual([[pixel(x, y) for x in range(width)] for y in range(height)], expected)
 
     def test_mcp_job_oracles(self):
         self.assertTrue(oracles.oracle_mcp_job_accepted({"jobId": "gp-1", "status": "Queued"})[0])

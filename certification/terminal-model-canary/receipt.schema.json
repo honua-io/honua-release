@@ -12,6 +12,9 @@
     "completedAt",
     "status",
     "mode",
+    "profile",
+    "executionOutcome",
+    "functionalGpExecuted",
     "cell",
     "attempt",
     "lockDigest",
@@ -43,11 +46,31 @@
     },
     "status": {"enum": ["pass", "fail", "blocked", "skipped"]},
     "mode": {"const": "genuine-model"},
-    "cell": {"enum": ["local-docker", "aws-ecs/redis-off"]},
+    "profile": {"const": "full-workflow"},
+    "executionOutcome": {"enum": ["not-completed", "completed"]},
+    "functionalGpExecuted": {"enum": [true, null]},
+    "cell": {"enum": ["local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
+                      "aws-serverless/redis-off", "aws-serverless/redis-on"]},
     "attempt": {"enum": [1, 2]},
     "lockDigest": {
-      "description": "sha256 of the exact platform-lock.json bytes under certification; a pass requires it.",
+      "description": "sha256 of the exact platform-lock.json bytes a caller certifies; a pass requires it or serverImage.",
       "anyOf": [{"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, {"type": "null"}]
+    },
+    "serverImage": {
+      "description": "The honua-server image@digest the cell composed and the green deterministic receipt verified; binds a pass without a lock (operator ruling 2026-10-22).",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reference", "digest", "sourceSha"],
+          "properties": {
+            "reference": {"type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$"},
+            "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "sourceSha": {"anyOf": [{"type": "string", "pattern": "^[0-9a-f]{40}$"}, {"type": "null"}]}
+          }
+        },
+        {"type": "null"}
+      ]
     },
     "failureAttribution": {
       "description": "Where an attempt that did not pass failed; null exactly when it passed.",
@@ -112,7 +135,7 @@
           "additionalProperties": false,
           "required": ["mode", "credentialReference", "required"],
           "properties": {
-            "mode": {"enum": ["bearer-env", "none"]},
+            "mode": {"enum": ["bearer-env", "x-api-key-env", "none"]},
             "credentialReference": {"type": ["string", "null"]},
             "required": {"type": "boolean"}
           }
@@ -327,7 +350,13 @@
     }
   },
   "if": {"required": ["status"], "properties": {"status": {"const": "pass"}}},
-  "then": {"properties": {"lockDigest": {"type": "string"}, "failureAttribution": {"const": null}}},
+  "then": {
+    "properties": {"failureAttribution": {"const": null}},
+    "anyOf": [
+      {"properties": {"lockDigest": {"type": "string"}}},
+      {"required": ["serverImage"], "properties": {"serverImage": {"type": "object"}}}
+    ]
+  },
   "else": {"properties": {"failureAttribution": {"enum": ["model", "infrastructure"]}}},
   "$defs": {
     "payloadSummary": {

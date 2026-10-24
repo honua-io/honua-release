@@ -1,0 +1,213 @@
+{
+  "Comment": "One registration operation. No retry/redrive or allowance renewal; independent reaper retains the same claim deadline.",
+  "QueryLanguage": "JSONata",
+  "StartAt": "Installation",
+  "TimeoutSeconds": 630,
+  "States": {
+    "Installation": {
+      "Type": "Pass",
+      "Output": {
+        "input": "{% $states.input %}",
+        "installation": ${installation_json}
+      },
+      "Next": "ValidateInput"
+    },
+    "ValidateInput": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $count($keys($states.input.input))=4 and $states.input.input.schemaVersion=1 and $states.input.input.configurationDigest=$states.input.installation.configurationDigest and $type($states.input.input.admissionDigest)=\"string\" and $length($states.input.input.admissionDigest)=71 and $type($states.input.input.deadlineEpoch)=\"number\" and $floor($states.input.input.deadlineEpoch)=$states.input.input.deadlineEpoch and $states.input.input.deadlineEpoch>$floor($toMillis($now())/1000) and $states.input.input.deadlineEpoch<=$states.input.installation.originalFundingExpiresEpoch %}",
+          "Next": "ReadPermanentClaim"
+        }
+      ],
+      "Default": "Refuse"
+    },
+    "ReadPermanentClaim": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:getItem",
+      "Arguments": {
+        "TableName": "{% $states.input.installation.claimTable %}",
+        "Key": {
+          "claimKey": {
+            "S": "{% $states.input.installation.claimKey %}"
+          }
+        },
+        "ConsistentRead": true
+      },
+      "Next": "VerifyPermanentClaim",
+      "Output": "{% $merge([$states.input, {'claim':$states.result}]) %}"
+    },
+    "VerifyPermanentClaim": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $exists($states.input.claim.Item.claimKey.S) and $states.input.claim.Item.claimKey.S=$states.input.installation.claimKey and $states.input.claim.Item.configurationDigest.S=$states.input.installation.configurationDigest and $states.input.claim.Item.admissionDigest.S=$states.input.input.admissionDigest and $number($states.input.claim.Item.deadlineEpoch.N)=$states.input.input.deadlineEpoch and $states.input.claim.Item.executionArn.S=$states.context.Execution.Id and $number($states.input.claim.Item.admittedEpoch.N)<=$floor($toMillis($now())/1000) and $states.input.input.deadlineEpoch>$floor($toMillis($now())/1000) and $number($states.input.claim.Item.deadlineEpoch.N)-$number($states.input.claim.Item.admittedEpoch.N)>0 and $number($states.input.claim.Item.deadlineEpoch.N)-$number($states.input.claim.Item.admittedEpoch.N)<=$states.input.installation.maxExecutionSeconds %}",
+          "Next": "RunRegistrar"
+        }
+      ],
+      "Default": "Refuse"
+    },
+    "RunRegistrar": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ecs:runTask",
+      "Arguments": {
+        "Cluster": "{% $states.input.installation.clusterArn %}",
+        "TaskDefinition": "{% $states.input.installation.taskDefinitionArn %}",
+        "LaunchType": "FARGATE",
+        "Count": 1,
+        "EnableExecuteCommand": false,
+        "ClientToken": "{% $substring($states.input.installation.configurationDigest,7) %}",
+        "StartedBy": "{% $states.input.installation.startedBy %}",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": "{% $states.input.installation.subnetIds %}",
+            "SecurityGroups": "{% $states.input.installation.securityGroupIds %}",
+            "AssignPublicIp": "DISABLED"
+          }
+        },
+        "Tags": [
+          {
+            "Key": "honua-registration",
+            "Value": "{% $states.input.installation.configurationDigest %}"
+          },
+          {
+            "Key": "honua-registration-admission",
+            "Value": "{% $states.input.input.admissionDigest %}"
+          },
+          {
+            "Key": "honua-registration-candidate",
+            "Value": "{% $states.input.installation.candidateKey %}"
+          }
+        ]
+      },
+      "Next": "VerifyLaunch",
+      "Output": "{% $merge([$states.input, {'launched':$states.result}]) %}"
+    },
+    "VerifyLaunch": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $count($states.input.launched.Tasks)=1 and $count($states.input.launched.Failures)=0 and $states.input.launched.Tasks[0].TaskDefinitionArn=$states.input.installation.taskDefinitionArn and $states.input.launched.Tasks[0].ClusterArn=$states.input.installation.clusterArn %}",
+          "Next": "BindTask"
+        }
+      ],
+      "Default": "UnknownEffects"
+    },
+    "BindTask": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "{% $states.input.installation.claimTable %}",
+        "Key": {
+          "claimKey": {
+            "S": "{% $states.input.installation.claimKey %}"
+          }
+        },
+        "ConditionExpression": "configurationDigest = :config AND admissionDigest = :admission AND executionArn = :execution AND attribute_not_exists(taskArn)",
+        "UpdateExpression": "SET taskArn = :task",
+        "ExpressionAttributeValues": {
+          ":config": {
+            "S": "{% $states.input.installation.configurationDigest %}"
+          },
+          ":admission": {
+            "S": "{% $states.input.input.admissionDigest %}"
+          },
+          ":execution": {
+            "S": "{% $states.context.Execution.Id %}"
+          },
+          ":task": {
+            "S": "{% $states.input.launched.Tasks[0].TaskArn %}"
+          }
+        }
+      },
+      "Next": "ObserveRegistrar",
+      "Output": "{% $states.input %}"
+    },
+    "ObserveRegistrar": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ecs:describeTasks",
+      "Arguments": {
+        "Cluster": "{% $states.input.installation.clusterArn %}",
+        "Tasks": [
+          "{% $states.input.launched.Tasks[0].TaskArn %}"
+        ]
+      },
+      "Next": "InspectRegistrar",
+      "Output": "{% $merge([$states.input, {'observed':$states.result}]) %}"
+    },
+    "InspectRegistrar": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $count($states.input.observed.Tasks)=1 and $count($states.input.observed.Failures)=0 and $states.input.observed.Tasks[0].TaskArn=$states.input.launched.Tasks[0].TaskArn and $states.input.observed.Tasks[0].TaskDefinitionArn=$states.input.installation.taskDefinitionArn and $states.input.observed.Tasks[0].ClusterArn=$states.input.installation.clusterArn %}",
+          "Next": "RegistrarState"
+        }
+      ],
+      "Default": "UnknownEffects"
+    },
+    "RegistrarState": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.observed.Tasks[0].LastStatus=\"STOPPED\" %}",
+          "Next": "RegistrarExit"
+        },
+        {
+          "Condition": "{% $floor($toMillis($now())/1000)>=$states.input.input.deadlineEpoch %}",
+          "Next": "StopAtOriginalDeadline"
+        }
+      ],
+      "Default": "WaitRegistrar"
+    },
+    "WaitRegistrar": {
+      "Type": "Wait",
+      "Seconds": 3,
+      "Next": "ObserveRegistrar"
+    },
+    "RegistrarExit": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $count($states.input.observed.Tasks[0].Containers)=1 and $states.input.observed.Tasks[0].Containers[0].ExitCode=0 %}",
+          "Next": "CompletedObservation"
+        }
+      ],
+      "Default": "UnknownEffects"
+    },
+    "StopAtOriginalDeadline": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ecs:stopTask",
+      "Arguments": {
+        "Cluster": "{% $states.input.installation.clusterArn %}",
+        "Task": "{% $states.input.launched.Tasks[0].TaskArn %}",
+        "Reason": "Original registration admission deadline exhausted; retain liabilities"
+      },
+      "Next": "Expired",
+      "Output": "{% $merge([$states.input, {'stopRequested':$states.result}]) %}"
+    },
+    "CompletedObservation": {
+      "Type": "Succeed",
+      "Output": {
+        "status": "stopped-zero-exit-observed",
+        "qualification": false,
+        "activation": false,
+        "task": "{% $states.input.observed.Tasks[0] %}"
+      }
+    },
+    "Expired": {
+      "Type": "Fail",
+      "Error": "OriginalRegistrationDeadline",
+      "Cause": "Stop was requested; observe actual task and preserve all original liabilities."
+    },
+    "Refuse": {
+      "Type": "Fail",
+      "Error": "RegistrationAuthorityRefused",
+      "Cause": "Original source, permanent claim or immutable deadline differs."
+    },
+    "UnknownEffects": {
+      "Type": "Fail",
+      "Error": "RegistrationEffectsUnknown",
+      "Cause": "Retain original task, claim, native observations and costs; never relaunch."
+    }
+  }
+}

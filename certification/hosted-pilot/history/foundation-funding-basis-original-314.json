@@ -1,0 +1,99 @@
+{
+  "accountId": "585192672263",
+  "accountZeroSpend": false,
+  "additionalReservedLiabilities": [
+    {
+      "amountUsd": "20",
+      "id": "legacy-39911551529-off",
+      "status": "unresolved-original-cell-ceiling"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-39911551529-on",
+      "status": "unresolved-original-cell-ceiling"
+    },
+    {
+      "amountUsd": "25",
+      "id": "foundation-infrastructure",
+      "status": "reserved-before-creation"
+    },
+    {
+      "amountUsd": "10",
+      "id": "foundation-cleanup",
+      "status": "reserved-before-creation"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-model-39954064982",
+      "status": "unsettled-genuine-model-original-receipt-retained"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-model-39964245470",
+      "status": "unsettled-genuine-model-original-receipt-retained"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-model-39946356426",
+      "status": "unsettled-genuine-model-original-receipt-retained"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-model-39987311356",
+      "status": "failed-unsettled-original-reservation-retained"
+    }
+  ],
+  "candidateIndependent": true,
+  "legacyBudgetUsd": "500",
+  "legacyModelObservation": {
+    "path": "certification/hosted-pilot/history/legacy-model-liabilities-20261023.json",
+    "sha256": "sha256:b204562c7e3971d848ef608941ca07dafaf7128f42036c8b749f9a831e33ea22"
+  },
+  "legacyObservation": {
+    "path": "certification/hosted-pilot/history/legacy-lambda-liabilities-20261023.json",
+    "sha256": "sha256:b5249f3d7355aa907afcff4bbc5dc4ec489b397405e2ce8e8e3aef9335b980ac"
+  },
+  "legacyProtectedCleanupUsd": "50",
+  "maximumConcurrentPaidAttempts": 4,
+  "newStateCreated": false,
+  "nextPublicationReservationId": "foundation-image-preparation-001",
+  "nextPublicationReservationUsd": "5",
+  "numericSpentFieldMeaning": "No attributable pilot settlement has been authenticated; all gross usage and original live liabilities remain nonzero reserved obligations, never zero-cost evidence",
+  "originalHistoryMayBeReset": false,
+  "postCutoffModelObservations": [
+    {
+      "path": "certification/hosted-pilot/history/canary-reservation-39987311356.json",
+      "sha256": "sha256:41192a53249ead1768d9be9558113bceb40c00318e9c05c6d58d68ffc66399e9"
+    },
+    {
+      "path": "certification/hosted-pilot/history/canary-outcome-39987311356.json",
+      "sha256": "sha256:80e681d228a6fd9b799eaa2f4462d6012e8d84010619acdfcf58ae168cc6e82b"
+    }
+  ],
+  "priorFundingBasis": {
+    "path": "certification/hosted-pilot/history/foundation-funding-basis-original-294.json",
+    "sha256": "sha256:0d38f926c259c7fd65f76a6114dece8751b5036700a96aea5cac01865f02a3e7"
+  },
+  "priorUnknownUsageHold": {
+    "amountUsd": "151",
+    "source": {
+      "path": "certification/hosted-pilot/history/20261023T084000Z.json",
+      "sha256": "sha256:e8c5e8cf9f9ddf23b4014d58e08ef3e34871caad862e43f62e81776d5d477a86"
+    }
+  },
+  "protectedCleanupUsd": "200",
+  "region": "us-east-1",
+  "reservedUsd": "314",
+  "schema": "honua.hosted-pilot-foundation-funding-basis/v1",
+  "settledAttributablePilotUsd": null,
+  "totalBudgetUsd": "2000",
+  "usageHoldExtension": {
+    "amountUsd": "8",
+    "basis": "ceil gross account usage157.0291032026 plus1 diagnostic/lag allowance; credits ignored",
+    "minimumCombinedUsd": "159",
+    "source": {
+      "path": "certification/hosted-pilot/history/20261023T134500Z.json",
+      "sha256": "sha256:df693d8f62c141cc6018827c9ede185136c905885081dd4021b9e7f5ad919c25"
+    }
+  }
+}

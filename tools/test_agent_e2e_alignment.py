@@ -51,7 +51,7 @@ def test_development_failure_retains_cost_without_becoming_qualification_history
     result = validate(campaign)
     assert result['casesPassed'] == 252
     assert result['totalCostUsd'] == '7.56'
-    assert result['candidateLiabilityUsd'] == '9.56'
+    assert result['candidateLiabilityUsd'] == '9.58'  # Includes retained bootstrap costs as well as development.
 
 
 @pytest.mark.parametrize('replace', ['configuration', 'rawResponses', 'observation'])

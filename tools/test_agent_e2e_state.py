@@ -322,3 +322,29 @@ def test_candidate_ceiling_cannot_be_reset_in_snapshot():
     changed['ledger']['ceilingUsd'] = '1000'
     with pytest.raises(PackError, match='budget policy'):
         preserve_history(previous, changed)
+
+
+def test_paid_admission_history_survives_fenced_state_restore_and_cannot_reset(tmp_path):
+    from agent_e2e_budget import BudgetError
+    store=MemoryStore();ledger=tmp_path/'ledger.json'
+    execution=DurableExecution(store,ledger,initialize=True)
+    try:
+        execution.update(ledger,'amend-foss4g',candidate_key=store.candidate)
+        for n in range(4):
+            execution.update(ledger,'acquire-paid-attempt',candidate_key=store.candidate,
+                admission_id=f'paid-{n}',owner_token=f'controller-owner-token-{n:04}',
+                campaign_id=f'campaign-{n}',case_id='pilot-case',attempt=1,expires_epoch=1100,now_epoch=1000)
+    finally:execution.close()
+    restored=tmp_path/'restored/ledger.json';recovered=DurableExecution(store,restored)
+    try:
+        with pytest.raises(BudgetError,match='four concurrent'):
+            recovered.update(restored,'acquire-paid-attempt',candidate_key=store.candidate,
+                admission_id='paid-5',owner_token='controller-owner-token-0005',campaign_id='campaign-5',
+                case_id='pilot-case',attempt=1,expires_epoch=1300,now_epoch=1200)
+        assert len(store.state['ledger']['paidAdmissions'])==4
+        for mutate in (lambda state:state['ledger'].update(paidAdmissions=[]),
+                       lambda state:state['ledger']['paidAdmissions'][0].update(expiresEpoch=9999),
+                       lambda state:state['ledger']['paidAdmissions'][0].update(ownerToken='another-owner-token-0000')):
+            changed=copy.deepcopy(store.state);mutate(changed)
+            with pytest.raises(PackError):preserve_history(store.state,changed)
+    finally:recovered.close()

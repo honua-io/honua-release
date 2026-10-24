@@ -54,6 +54,7 @@ COMMAND_START = re.compile(
 TEARDOWN_LINE = re.compile(r"^\s*(?:#.*|docker\s+compose\s+(?:-f\s+\S+\s+)*(?:down|stop|rm)\b.*|docker\s+(?:stop|rm)\b.*|)$")
 EXPECT_FAILURE = re.compile(r"\bdeliberately (?:broken|invalid|bad|wrong)\b|\bto see it (?:catch|fail|reject|refuse)", re.I)
 DOC_RUN = re.compile(r"<!--\s*doc-run:\s*(.*?)\s*-->", re.S)
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 ISSUE_REF = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+|\b[\w.-]+/[\w.-]+#\d+")
 ATTR = re.compile(r'([\w-]+)(?:=(?:"([^"]*)"|\'([^\']*)\'|(\S+)))?')
 
@@ -226,7 +227,9 @@ def classify(blocks: list[Block]) -> list[Block]:
         marker = _markers(block.preceding_text)
         block.marker = marker
         info = block.info_attrs
-        paragraph = _last_paragraph(re.sub(DOC_RUN, "", block.preceding_text))
+        # Readers never see HTML comments (doc-run or another tool's markers such as the server's
+        # `<!-- docs-validation:... -->`), so they are not the paragraph a reader reads before the block.
+        paragraph = _last_paragraph(re.sub(HTML_COMMENT, "", block.preceding_text))
         block.expect_failure = bool((marker and "expect-fail" in marker) or EXPECT_FAILURE.search(paragraph))
         # 1. explicit author declarations win
         if marker is not None:

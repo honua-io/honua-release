@@ -37,6 +37,7 @@ import argparse
 import copy
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from candidate_binding import CERTIFICATION_MODES, verify_candidate_binding
@@ -184,9 +185,19 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: 
 
     lines.append("## Breaking changes & upgrade actions")
     lines.append("")
-    lines.append("_None recorded for this release._  Per-component breaking changes are generated from "
-                 "change metadata (conventional-commit + change-class labels) once that pipeline lands "
-                 "(PLAN §8); until then, consult each component's own release notes.")
+    # honua-2026.1 predates the schema-reader guard (honua-server#6484).
+    # No release-named immutable tag exists until honua-release#776.
+    lines.append("`honua-2026.1` is not a safe rollback target across any migration, and the only "
+                 "safe way back to 2026.1 is restoring the backup taken before the upgrade. "
+                 "Roll back only to images that include the schema-reader guard: schema 135 or later "
+                 "for additive migrations, and never across a contract-phase migration without a restore. "
+                 "There is no release-named immutable tag for the 2026.1 image yet (honua-release#776); "
+                 "do not substitute the nightly tag that release named, which has moved. "
+                 "The customer procedure is `docs/UPGRADE-RUNBOOK.md`.")
+    lines.append("")
+    lines.append("_No other breaking changes are recorded for this release._  Per-component breaking "
+                 "changes are generated from change metadata (conventional-commit + change-class labels) "
+                 "once that pipeline lands (PLAN §8); until then, consult each component's own release notes.")
     lines.append("")
 
     lines.append("## Verification & provenance")
@@ -233,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--train-run-attempt", required=True, type=int, help="certifying run attempt")
     ap.add_argument("--train-run-url", required=True, help="certifying release-train Actions run URL")
     ap.add_argument("--certification-mode", required=True, choices=sorted(CERTIFICATION_MODES))
+    ap.add_argument("--certification-time", required=True,
+                    help="timezone-aware completion time of the certifying train")
     ap.add_argument("--out-manifest", required=True)
     ap.add_argument("--out-notes", required=True)
     args = ap.parse_args(argv)
@@ -250,6 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         train_run_attempt=args.train_run_attempt,
         train_run_url=args.train_run_url,
         certification_mode=args.certification_mode,
+        certification_time=datetime.fromisoformat(args.certification_time.replace("Z", "+00:00")),
     )
     if not candidate_ok:
         print(f"REFUSED: {candidate_why}", file=sys.stderr)

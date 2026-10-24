@@ -1,0 +1,22 @@
+{
+  "schema": "honua.hosted-pilot-producer-reconciliation/v1",
+  "kind": "github-environment-only",
+  "producer": {
+    "repository": "honua-io/honua-release",
+    "runId": 39937421185,
+    "runAttempt": 1,
+    "sourceSha": "7342099da90f715f44a181f9d025c5740149b15a",
+    "workflow": ".github/workflows/hosted-pilot-foundation-environment.yml"
+  },
+  "fundingBasis": {
+    "path": "certification/hosted-pilot/history/20261023T084000Z.json",
+    "sha256": "sha256:e8c5e8cf9f9ddf23b4014d58e08ef3e34871caad862e43f62e81776d5d477a86"
+  },
+  "fundingReservationIds": [
+    "initialization-history-usage"
+  ],
+  "ownerLedger": null,
+  "artifact": null,
+  "planArtifact": null,
+  "cloudEvents": []
+}

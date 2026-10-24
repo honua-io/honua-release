@@ -1,0 +1,8 @@
+{
+  "schema": "honua.hosted-pilot-foundation-environment/v1",
+  "repository": "honua-io/honua-iac",
+  "environment": "terraform-live-approval",
+  "branch": "trunk",
+  "reviewers": [{"type": "User", "id": 12301237, "login": "mikemcdougall"}],
+  "prevent_self_review": false
+}
