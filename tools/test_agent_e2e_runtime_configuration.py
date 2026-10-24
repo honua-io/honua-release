@@ -91,6 +91,7 @@ def declaration(interactive, tmp_path):
     issued_ref = {'key': prefix+'/key-agent', 'sha256': canonical_digest(records[prefix+'/key-agent'])}
     verified = {'descriptor': {'schema': 'honua.installed-worker-slot/v1', 'candidateKey': KEY, 'runtimeId': 'runtime-original',
             'slotId': 'slot-original', 'originalFundingExpiresEpoch': binding['originalExpiresEpoch'],
+            'clusterArn': f'arn:aws:ecs:{region}:{account}:cluster/worker-slot-original',
             'taskDefinitionArn': f'arn:aws:ecs:{region}:{account}:task-definition/worker-slot-original:1',
             'taskRoleArn': f'arn:aws:iam::{account}:role/honua-agent-slot-original', 'image': 'actual-digest-fixture',
             'mcpSecret': {'secretArn': 'actual-immutable-fixture-secret', 'versionId': 'fixture-version'}},
@@ -123,6 +124,7 @@ def test_verified_declaration_derives_native_request_from_original_keys_and_work
     assert result['registrationRequest']['taskApiKeyId'] == '22222222-2222-4222-8222-222222222222'
     assert result['keys']['task']['reference'] == declaration.verified['issuedAgentKey']
     assert result['registrationRequest']['slots'][0]['taskDefinitionArn'] == declaration.verified['descriptor']['taskDefinitionArn']
+    assert result['registrationRequest']['slots'][0]['clusterArn'] == declaration.verified['descriptor']['clusterArn']
     assert declaration.calls[0][1]['runtime_id'] == 'runtime-original'
     assert 'registrationReceipt' not in declaration.value and 'registrationDigest' not in result
 

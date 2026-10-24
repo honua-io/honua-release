@@ -200,7 +200,7 @@ def load_declaration(reference, *, durable, s3, ecs, states, guard,
         require(descriptor['schema'] == 'honua.installed-worker-slot/v1' and descriptor['candidateKey'] == durable.store.candidate and
                 descriptor['runtimeId'] == runtime and descriptor['originalFundingExpiresEpoch'] == expiry,
                 'actual worker descriptor differs from original installed runtime/funding')
-        slots.append({'slotId': descriptor['slotId'], 'taskDefinitionArn': descriptor['taskDefinitionArn'],
+        slots.append({'slotId': descriptor['slotId'], 'clusterArn': descriptor['clusterArn'], 'taskDefinitionArn': descriptor['taskDefinitionArn'],
             'taskRoleArn': descriptor['taskRoleArn'], 'image': descriptor['image'],
             'mcpSecretArn': descriptor['mcpSecret']['secretArn'], 'mcpSecretVersionId': descriptor['mcpSecret']['versionId']})
         workers.append(copy.deepcopy(verified))
