@@ -1,4 +1,8 @@
 version: 2
+# Backlog hygiene (2026-10-21): every bump lands as one grouped PR per ecosystem and
+# directory, so dependency automation stays inside the five-open-PR limit per repo.
+# Vendored certification source snapshots are never bumped by Dependabot: they must
+# match the upstream revision the certification catalog pins.
 updates:
   - package-ecosystem: github-actions
     directory: "/"
@@ -7,8 +11,48 @@ updates:
       day: monday
       time: "16:00"
       timezone: Pacific/Honolulu
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 1
     commit-message:
       prefix: ci
     rebase-strategy: auto
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
+  - package-ecosystem: npm
+    directories:
+      - "/e2e/agent-map"
+      - "/e2e/agent-map/app"
+      - "/certification/executable-docs/compiler"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "16:00"
+      timezone: Pacific/Honolulu
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore
+      include: scope
+    rebase-strategy: auto
+    groups:
+      npm:
+        patterns:
+          - "*"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # Vendored upstream snapshots used by certification: ignore every dependency so
+  # neither version nor security updates rewrite pinned source.
+  - package-ecosystem: npm
+    directories:
+      - "/certification/sources/geospatial-mcp"
+      - "/certification/sdk-publication-replay/sdk-022/default-react-ts"
+      - "/certification/sdk-publication-replay/sdk-022/default-vanilla-ts"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
