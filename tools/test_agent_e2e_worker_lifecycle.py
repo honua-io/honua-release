@@ -42,7 +42,7 @@ def test_original_terraform_emission_uses_resource_digest_without_changing_campa
     assert terraform_definition_digest(json.dumps(json.loads(raw), indent=2)) == terraform_definition_digest(raw)
 
 
-@pytest.mark.parametrize('raw', ['{"a":1,"a":2}', '{"é":1,"e\\u0301":2}', '{"a":NaN}',
+@pytest.mark.parametrize('raw', ['{"a":1,"a":2}', '{"é":1,"e\\u0301":2}', '{"e\\u0301":1}', '{"a":NaN}',
     '{"a":1e1025}', '{"a":1e-1025}', '{"a":0.'+'1'*129+'}', '[]', '{"a":"\\ud800"}'])
 def test_definition_digest_refuses_ambiguous_or_unsupported_input(raw):
     with pytest.raises(PackError):
