@@ -47,7 +47,7 @@ what moved (honua-release#104):
   subpath at either pin (it is exported from `src/connect.ts`, which `package.json` does not
   publish), so it was never part of the consumer contract.
 
-## 2026.1-rc.1 re-pin review (2026-10-22)
+## 2026.1-rc.2 re-pin review (2026-10-22)
 
 The scheduled gate had been red since the manifest moved past the 2026-09-26 capture
 (run 39596554904: every component "surface changed"). All four components were re-extracted at

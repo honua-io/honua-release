@@ -504,10 +504,14 @@ def test_refreshed_unref_timeout_is_disposed_before_pass(reader):
 
 
 def test_module_import_scheduled_unref_work_is_owned(reader):
-    Path(reader.cwd, 'scheduler.mjs').write_text("import {writeFileSync} from 'node:fs'; "
-        "setInterval(() => writeFileSync('import-stale', 'bad'), 20).unref(); export const value = 42;")
+    Path(reader.cwd, 'scheduler.mjs').write_text("import {existsSync, writeFileSync} from 'node:fs'; "
+        "setInterval(() => { if (existsSync('import-next-active')) "
+        "writeFileSync('import-stale', 'bad'); }, 20).unref(); export const value = 42;")
     first = run(reader, "import {value} from './scheduler.mjs'; console.log(value);")
     assert first.status == 'pass' and first.stdout == '42\n'
+    # Work during the importing block is allowed. Arm the stale-work observation
+    # only after that block's completion, regardless of runner scheduling speed.
+    Path(reader.cwd, 'import-next-active').write_text('next block')
     assert run(reader, "await new Promise(resolve => setTimeout(resolve, 80)); console.log(value);").stdout == '42\n'
     assert not Path(reader.cwd, 'import-stale').exists()
 
