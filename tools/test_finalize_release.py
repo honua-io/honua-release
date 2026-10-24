@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -167,6 +167,7 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
         "--train-run-attempt", str(identity["train_run_attempt"]),
         "--train-run-url", identity["train_run_url"],
         "--certification-mode", identity["certification_mode"],
+        "--certification-time", report["generatedAt"],
         "--out-manifest", str(out_manifest),
         "--out-notes", str(out_notes),
     ])
@@ -247,11 +248,53 @@ def test_driver_refuses_an_incoherent_ga_stamp_before_writing_release_files(tmp_
         "--train-run-attempt", str(identity["train_run_attempt"]),
         "--train-run-url", identity["train_run_url"],
         "--certification-mode", identity["certification_mode"],
+        "--certification-time", report["generatedAt"],
         "--out-manifest", str(out_manifest),
         "--out-notes", str(out_notes),
     ])
     assert rc == 1
     assert not out_manifest.exists() and not out_notes.exists()
+
+
+@pytest.mark.parametrize("finding_status,receipt_age,expected", [
+    ("pass", 0, 0), ("fail", 0, 1), ("blocked", 0, 1), ("pass", 25, 1),
+])
+def test_finalize_after_sixty_hour_burn_preserves_freshness_and_findings_policy(
+        tmp_path, finding_status, receipt_age, expected):
+    import yaml
+    minted = datetime.now(timezone.utc) - timedelta(hours=60)
+    manifest = tmp_path / cb.PLATFORM_MANIFEST
+    matrix = tmp_path / cb.COMPATIBILITY_MATRIX
+    manifest.write_text(yaml.safe_dump(_promotable()))
+    matrix.write_text("matrixVersion: 1\n")
+    identity = {
+        "source_repository": "honua-io/honua-release", "source_sha": "a" * 40,
+        "source_branch": "trunk", "workflow_path": ".github/workflows/release-train.yml",
+        "train_run_id": "28720697360", "train_run_attempt": 1,
+        "train_run_url": "https://github.com/honua-io/honua-release/actions/runs/28720697360",
+        "certification_mode": "live",
+    }
+    report = cb.bind_gate_report({**_report("pass"),
+        "gates": [{"gate": gate, "status": "pass"}
+                  for gate in sorted(cb.REQUIRED_RELEASE_GATES)]}, manifest, matrix, **identity)
+    # Binding enforces wall-clock freshness at minting. Simulate retained bytes after the burn,
+    # with negative cases for a report stale at minting and a corrupted findings receipt.
+    report["generatedAt"] = (minted - timedelta(hours=receipt_age)).isoformat()
+    next(row for row in report["gates"] if row["gate"] == "security-findings")["status"] = finding_status
+    report_path = tmp_path / "gate-report.json"
+    report_path.write_text(json.dumps(report))
+    out_manifest, out_notes = tmp_path / "finalized.yaml", tmp_path / "notes.md"
+    arguments = ["--label", "2026.1", "--gate-report", str(report_path),
+                 "--released-at", datetime.now(timezone.utc).isoformat(),
+                 "--manifest", str(manifest), "--matrix", str(matrix),
+                 "--certification-time", minted.isoformat(),
+                 "--out-manifest", str(out_manifest), "--out-notes", str(out_notes)]
+    for key, value in identity.items():
+        arguments.extend(["--" + key.replace("_", "-"), str(value)])
+    assert fr.main(arguments) == expected
+    assert out_manifest.exists() == out_notes.exists() == (expected == 0)
+    if expected == 0:
+        assert yaml.safe_load(out_manifest.read_text())["status"] == "released"
 
 
 def test_release_notes_render_the_stamped_artifact_version():
@@ -291,6 +334,28 @@ def test_release_notes_name_allowed_skipped_gate_without_claiming_every_gate_pas
     assert "- manifest: passed" in notes
     assert "- cloud-parity: skipped (creds-gated; never executed)" in notes
     assert "Every wired release gate passed" not in notes
+
+
+def test_release_notes_say_2026_1_is_not_a_safe_rollback_target():
+    manifest, matrix = _real()
+    notes = fr.render_release_notes(manifest, matrix, "2026.1.0", _report("pass"))
+    assert "not a safe rollback target across any migration" in notes
+    assert "the only safe way back to 2026.1 is restoring the backup taken before the upgrade" in notes
+    assert "schema 135 or later for additive migrations" in notes
+    assert "never across a contract-phase migration without a restore" in notes
+    assert "honua-release#776" in notes
+    assert "no release-named immutable tag" in notes
+
+
+def test_upgrade_runbook_does_not_treat_2026_1_as_a_refusing_reader():
+    text = " ".join((Path(__file__).resolve().parents[1] / "docs" / "UPGRADE-RUNBOOK.md").read_text(encoding="utf-8").split())
+    assert "not a safe rollback target across any migration" in text
+    assert "the only safe way back to 2026.1 is restoring the backup taken before the upgrade" in text
+    assert "schema 135 or later for additive migrations" in text
+    assert "never across a contract-phase migration without a restore" in text
+    assert "this includes 2026.1" not in text
+    assert "honua-release#776" in text
+    assert "rollback-target-ineligible" in text
 
 
 def test_release_notes_do_not_claim_all_passed_for_empty_or_red_gate_rows():

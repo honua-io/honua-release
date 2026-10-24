@@ -24,6 +24,7 @@ from typing import Any
 
 import agent_e2e_budget
 import agent_e2e_knowledge as knowledge
+import agent_e2e_native_bindings as native_bindings
 
 _ORACLE_PATH = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/oracle.py'
 _ORACLE_SPEC = importlib.util.spec_from_file_location('agent_e2e_independent_oracle', _ORACLE_PATH)
@@ -172,7 +173,8 @@ RECEIPT_FIELDS = set(('schemaVersion receiptSchema campaignId caseId scenarioId 
 
 def validate_operation_reports(ledger, refs, evidence_root):
     """Bind non-case infrastructure liability without adding passing cases."""
-    require(ledger['schemaVersion'] == 2, 'qualification requires operation-aware candidate accounting')
+    require(ledger['schemaVersion'] in (2, 3), 'qualification requires operation-aware candidate accounting')
+    agent_e2e_budget.validate(ledger)
     require(isinstance(refs, list) and refs, 'missing candidate operation reports')
     operations = defaultdict(list)
     for row in ledger['operations']:
@@ -213,7 +215,8 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(pack_path.read_bytes() == FROZEN_PACK_BYTES, 'pack differs from reviewed source inventory')
     exact_keys(campaign, set(('schemaVersion campaignId packDigest corpusDigest qualificationLockDigest '
                              'componentBindingDigest modelId returnedModelId controller startedAt expiresAt '
-                             'totalBudgetUsd expectationsDigest knowledge campaignMode').split()), 'expected campaign')
+                             'totalBudgetUsd expectationsDigest knowledge campaignMode').split()) |
+               ({'budgetPolicy'} if 'budgetPolicy' in campaign else set()), 'expected campaign')
     require(type(campaign['schemaVersion']) is int and campaign['schemaVersion'] == 2,
             'unsupported campaign')
     require(campaign['campaignMode'] == 'qualification', 'development cannot qualify')
@@ -256,13 +259,14 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(isinstance(expectations['cases'], dict) and set(expectations['cases']) == set(cases),
             'expectations must cover exact frozen inventory')
     for cid, value in expectations['cases'].items():
-        exact_keys(value, {'assertions', 'cleanup'}, f'{cid}: frozen expectations')
+        native_bindings.validate_case(value)
         require(isinstance(value['assertions'], dict) and set(value['assertions']) == cases[cid]['assertions'],
                 f'{cid}: expectation assertions differ from pack')
     current = now or datetime.now(timezone.utc)
     require(start <= current <= expiry, 'campaign is stale or has not started')
-    require(amount(campaign['totalBudgetUsd']) == 500 and amount(pack['totalBudgetUsd']) == 500,
-            'campaign budget must remain $500')
+    from agent_e2e_campaign_budget import manifest_policy, bind_ledger
+    manifest_policy(campaign)
+    require(amount(pack['totalBudgetUsd']) == 500, 'original pack budget default must remain $500')
     exact_keys(trusted, {'schemaVersion', 'campaignId', 'campaignDigest', 'controller', 'receipts', 'budgetLedgerDigest',
                          'attemptRegistryDigest', 'knowledgeManifest', 'semanticReport', 'operationReports'},
                'trusted inventory')
@@ -283,7 +287,16 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(digest(budget_path.read_bytes()) == trusted['budgetLedgerDigest'], 'wrong candidate budget ledger')
     ledger = read_json(budget_path)
     require(ledger['candidateKey'] == campaign['componentBindingDigest'], 'budget belongs to another candidate')
-    budget_summary = agent_e2e_budget.validate(ledger)
+    budget_summary = bind_ledger(campaign, ledger, campaign_path.parent)
+    # Ordinary human turns have financial identity, never synthetic RC case IDs.
+    # Their eventual independent retirement reports need a dedicated consumer;
+    # until wired, do not silently ignore that candidate-wide history here.
+    require(not ledger.get('interactiveEntries') and not ledger.get('interactivePaidAdmissions'),
+            'candidate interactive execution history requires independent financial reconciliation')
+    admissions = ledger.get('paidAdmissions', [])
+    if ledger['schemaVersion'] == 3:
+        require(all(row['state'] == 'released' for row in admissions),
+                'candidate retains an unresolved paid attempt; expiry is not retirement')
     validate_operation_reports(ledger, trusted['operationReports'], evidence_root)
     require(digest(registry_path.read_bytes()) == trusted['attemptRegistryDigest'], 'wrong candidate attempt registry')
     registry = read_json(registry_path)
@@ -338,6 +351,10 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
                 receipt['receiptSchema'] == 'agent-e2e-receipt.v2', 'unsupported receipt schema')
         require(receipt['caseId'] in cases, 'unknown case')
         require(receipt['campaignMode'] == 'qualification', 'development receipt cannot qualify')
+        if ledger['schemaVersion'] == 3:
+            require(len([row for row in admissions if row['state'] == 'released' and
+                    all(row[name] == receipt[name] for name in ('campaignId', 'caseId', 'attempt', 'campaignMode'))]) == 1,
+                    'amended campaign receipt lacks its original released paid admission')
         require(receipt['knowledge'] == campaign['knowledge'], 'wrong receipt knowledge binding')
         worker_manifest = read_json(evidence(evidence_root, receipt['workerKnowledge']))
         require(knowledge.binding(worker_manifest) == campaign['knowledge'], 'wrong worker knowledge manifest')
@@ -411,12 +428,21 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
             require(receipt['failureAttribution'] is None and receipt['failureEvidence'] is None,
                     f'{cid}: pass carries failure')
             report = read_json(evidence(evidence_root, receipt['oracle']))
-            exact_keys(report, {'campaignId', 'caseId', 'attempt', 'componentBindingDigest', 'producer', 'assertions'},
+            declarations = expectations['cases'][cid].get('nativeBindings', {})
+            report_fields = {'campaignId', 'caseId', 'attempt', 'componentBindingDigest', 'producer', 'assertions'}
+            if declarations:
+                report_fields.add('nativeBindings')
+            exact_keys(report, report_fields,
                        'oracle report')
             for key in ('campaignId', 'caseId', 'attempt', 'componentBindingDigest'):
                 require(canonical_digest(report[key]) == canonical_digest(receipt[key]),
                         f'{cid}: oracle bound to different attempt')
             require(report['producer'] == 'independent-oracle', f'{cid}: model self-report cannot qualify')
+            bound_reports = report.get('nativeBindings', {})
+            require(isinstance(bound_reports, dict) and set(bound_reports) == set(declarations),
+                    f'{cid}: native binding reports differ from frozen declarations')
+            bound_reports = {name: read_json(evidence(evidence_root, reference))
+                             for name, reference in bound_reports.items()}
             observed = set()
             require(isinstance(report['assertions'], list), f'{cid}: missing assertions')
             for assertion in report['assertions']:
@@ -427,7 +453,9 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
                 observed.add(aid)
                 require(assertion['status'] == 'pass', f'{cid}: failed assertion {aid}')
                 observation = read_json(evidence(evidence_root, assertion['evidence']))
-                oracle_predicates.verify(aid, observation, expectations['cases'][cid]['assertions'][aid])
+                resolved_expectation = native_bindings.resolve(aid, expectations['cases'][cid]['assertions'][aid],
+                    declarations, bound_reports, {**receipt, 'modelActions': transcript['actions']})
+                oracle_predicates.verify(aid, observation, resolved_expectation)
             require(observed == expected['assertions'], f'{cid}: missing independent assertions')
         else:
             require(receipt['failureAttribution'] in ('infrastructure', 'model', 'product', 'undetermined'),
@@ -460,7 +488,7 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
                     f'{cid}: model/product failures cannot be retried to green')
             require(timestamp(first['completedAt']) <= timestamp(second['startedAt']),
                     f'{cid}: retry precedes original completion')
-    require(total <= amount(campaign['totalBudgetUsd']), 'total campaign cost exceeds $500')
+    require(total <= amount(campaign['totalBudgetUsd']), 'total campaign cost exceeds its frozen approved ceiling')
     require(not settled, 'ledger includes missing/cherry-picked campaign attempts')
     return {'schemaVersion': 1, 'status': 'pass', 'campaignId': campaign['campaignId'],
             'packDigest': campaign['packDigest'], 'componentBindingDigest': campaign['componentBindingDigest'],

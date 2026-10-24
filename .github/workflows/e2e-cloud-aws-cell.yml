@@ -40,7 +40,6 @@ on:
       lock_digest: { required: false, type: string, default: "" }
     secrets:
       UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
-      UPDATE_ROLLBACK_APPROVAL_KEY: { required: false }
       RELEASE_GH_TOKEN:
         required: false
 
@@ -345,6 +344,19 @@ jobs:
       # ubuntu24.04 chromium + font set (--with-deps, less headed-only xvfb), so a runner image move
       # fails this step loudly instead of letting Playwright pick packages. npm skips lifecycle
       # scripts; the browser download runs as the runner user. This job holds no cloud credential.
+      # Browser bytes are keyed on the exact Playwright version and runner image, so one CDN outage
+      # does not decide a cell (run 39603816191 logged getaddrinfo ENOTFOUND
+      # playwright.download.prss.microsoft.com). A cache hit still runs `playwright install`, which
+      # finds the pinned revisions present and downloads nothing.
+      # restore + an explicit save right after the install: the combined actions/cache only saves
+      # in its post step on a successful job, and journey jobs that fail on a scenario (run
+      # 39705901768) would then never populate the cache.
+      - name: Restore the pinned Playwright browsers
+        id: pw_cache
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.61.1-chromium-ubuntu-24.04-${{ runner.arch }}
       - name: Install pinned extended driver clients
         env:
           E2E_PW_HOME: ${{ runner.temp }}/cloud-playwright
@@ -364,11 +376,30 @@ jobs:
           mkdir -p "$E2E_PW_HOME"
           npm install --prefix "$E2E_PW_HOME" --ignore-scripts --no-audit --no-fund \
             --save-exact playwright@1.61.1
-          node "$E2E_PW_HOME/node_modules/playwright/cli.js" install chromium
+          # Bounded retry. After the first miss, pin the download host to cdn.playwright.dev (the
+          # mirror that served every byte when the default host's DNS failed) rather than rotating
+          # through a host that does not resolve.
+          for attempt in 1 2 3; do
+            if node "$E2E_PW_HOME/node_modules/playwright/cli.js" install chromium; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error ::chromium download failed on 3 attempts (default hosts, then PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev)"
+              exit 1
+            fi
+            export PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev
+            sleep $((attempt * 20))
+          done
           echo "E2E_PW_HOME=$E2E_PW_HOME" >> "$GITHUB_ENV"
           echo "E2E_PLAYWRIGHT_VERSION=1.61.1" >> "$GITHUB_ENV"
           echo "E2E_SITE_DIR=$GITHUB_WORKSPACE/_site" >> "$GITHUB_ENV"
           echo "E2E_SITE_SHA=b024902e2c4bc41bf7a5ce39d159bf65e35c9675" >> "$GITHUB_ENV"
+      - name: Save the pinned Playwright browsers
+        if: steps.pw_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.61.1-chromium-ubuntu-24.04-${{ runner.arch }}
 
       - name: Download the provision handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -381,12 +412,30 @@ jobs:
       - name: Wait for the sealed application key
         env:
           NAME: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+          CELL: ${{ inputs.target }} / redis-${{ inputs.redis }}
         run: |
           set -uo pipefail
-          for _ in $(seq 1 45); do
-            count="$(curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
-              | jq -r '.total_count' 2>/dev/null || echo 0)"
-            [ "$count" = 1 ] && exit 0
+          key_count() {
+            curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
+              | jq -r '.total_count' 2>/dev/null || echo 0
+          }
+          for i in $(seq 1 45); do
+            [ "$(key_count)" = 1 ] && exit 0
+            # Every third poll (anonymous reads are rate-limited), look at the admit job itself: one
+            # that already ended unsuccessfully will never deliver, so report its real cause now
+            # instead of after 15 minutes of waiting.
+            if [ $((i % 3)) = 0 ]; then
+              peer="$(curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+                | jq -r --arg cell "$CELL" '[.jobs[] | select(.name | endswith("admit")) | select(.name | contains($cell))][0]
+                    | select(.status == "completed" and .conclusion != "success")
+                    | "\(.conclusion) at step \([.steps[]? | select(.conclusion == "failure") | .name][0] // "(none recorded: runner lost?)")"' \
+                2>/dev/null || true)"
+              if [ -n "$peer" ]; then
+                [ "$(key_count)" = 1 ] && exit 0
+                echo "::error::the admit job ended ($peer) without delivering the cell's sealed application key"
+                exit 1
+              fi
+            fi
             sleep 20
           done
           echo "::error::the admit job never delivered the cell's sealed application key"
@@ -400,7 +449,16 @@ jobs:
       # The seam drivers, then the imported journey (run_live installs the pinned clients with
       # --ignore-scripts), against the endpoint the handoff names. The handoff's run, attempt and
       # candidate digest must be this run's.
+      # Data-driven control-plane roster (operator ruling on honua-release#785): the server's Admin
+      # parity exports at the source sha of the candidate this cell deployed.
+      - name: Fetch the server parity exports at the candidate's source sha
+        id: roster
+        run: python certification/terminal-journey/fetch_roster.py --out "$RUNNER_TEMP/roster" --github-output "$GITHUB_OUTPUT"
       - name: "Run the ${{ inputs.target }} / redis-${{ inputs.redis }} journey"
+        env:
+          HONUA_CLOUD_REST_ROSTER: ${{ steps.roster.outputs.rest }}
+          HONUA_CLOUD_MCP_ROSTER: ${{ steps.roster.outputs.mcp }}
+          HONUA_CLOUD_ROSTER_SOURCE_SHA: ${{ steps.roster.outputs.sha }}
         run: |
           python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
             --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem"
@@ -413,7 +471,7 @@ jobs:
         if: ${{ always() && inputs.enable_bedrock }}
         env:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
-          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
+          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
           TERMINAL_MODEL_RUNTIME: aws-bedrock
           TERMINAL_MODEL_QUANTIZATION: provider-managed
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
@@ -501,14 +559,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           NAME: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
+          CELL: ${{ inputs.target }} / redis-${{ inputs.redis }}
         run: |
           set -euo pipefail
-          for _ in $(seq 1 120); do
+          hello() {
             found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
               --jq '.total_count' 2>/dev/null || echo 0)"
-            if [ "$found" = 1 ]; then
-              gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$RUNNER_TEMP/journey-hello"
-              exit 0
+            [ "$found" = 1 ] || return 1
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$RUNNER_TEMP/journey-hello"
+          }
+          # A journey job that already ended (failed, cancelled, or its runner process died) will
+          # never introduce itself: fail now with its conclusion and failed step, not after 20 min.
+          peer_filter='[.jobs[] | select(.name | endswith("journey")) | select(.name | contains($cell))][0]
+            | select(.status == "completed" and .conclusion != "success")
+            | "\(.conclusion) at step \([.steps[]? | select(.conclusion == "failure") | .name][0] // "(none recorded: runner lost?)")"'
+          for _ in $(seq 1 120); do
+            hello && exit 0
+            peer="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" 2>/dev/null \
+              | jq -r --arg cell "$CELL" "$peer_filter" 2>/dev/null || true)"
+            if [ -n "$peer" ]; then
+              hello && exit 0
+              echo "::error::the journey runner ended ($peer) before introducing itself"
+              exit 1
             fi
             sleep 10
           done
@@ -569,11 +641,24 @@ jobs:
           path: _honua-iac
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true
+      - name: Checkout the reviewed complete-cell retirement helper
+        if: inputs.target == 'aws-serverless'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: 1587c8ae47ee754202994049f06fbc33ead1c5d3
+          path: _retirement-tools
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      - name: Require retirement helper trunk ancestry
+        if: inputs.target == 'aws-serverless'
+        run: git -C _retirement-tools merge-base --is-ancestor HEAD origin/trunk
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
+          terraform_version: 1.17.0
           terraform_wrapper: false
       - run: python -m pip install -r e2e/requirements.txt
       - name: Configure AWS credentials (OIDC)
@@ -666,7 +751,6 @@ jobs:
           CELL_TARGET: ${{ inputs.target }}
           CELL_REDIS: ${{ inputs.redis }}
           PROOF_MODE: ${{ inputs.update_rollback_mode }}
-          HONUA_UPDATE_ROLLBACK_APPROVAL_KEY: ${{ secrets.UPDATE_ROLLBACK_APPROVAL_KEY }}
           HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN: ${{ vars.HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN }}
           HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY: ${{ vars.HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY }}
         run: |
@@ -728,6 +812,7 @@ jobs:
         # The runner separates Preview qualification from mandatory cleanup; no error is swallowed.
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_SERVERLESS_RETIREMENT_HELPER: ${{ github.workspace }}/_retirement-tools/infrastructure/terraform/validation/scripts/aws/serverless_cell_retirement.py
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
           # honua-iac#216: the Redis-on ECS cell needs the operator-owned key-ring certificate secret
           # (owner step in e2e/README.md). Empty when the repository variables are unset.
@@ -783,6 +868,8 @@ jobs:
           name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}
           path: |
             e2e/gate-report-cloud.json
+            e2e/cloud-evidence/**/cell-retirement.json
+            e2e/cloud-evidence/**/state-retirement.enc
             e2e/cloud-evidence/**/update-rollback-cell.json
             e2e/cloud-evidence/**/extended/gate-report.json
             e2e/cloud-evidence/**/receipt-*.json

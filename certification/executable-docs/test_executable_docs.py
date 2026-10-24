@@ -193,6 +193,27 @@ def test_needs_ignores_assigned_defaulted_and_quoted_heredoc_names():
     assert need["env"] == [] and need["optionalEnv"] == ["C"]
 
 
+def test_names_written_to_a_sourced_env_file_are_defined_only_where_it_is_sourced():
+    from inputs import assigned_names
+    py = extract('```python\npath = "publish.env"\ntext = f"SERVICE_NAME={s}\\nLAYER_ID={i}\\n"\n'
+                 'open(path, "w", encoding="utf-8").write(text)\n```\n', "markdown")[0]
+    defined = assigned_names(py, set())
+    assert "SERVICE_NAME" not in defined and "LAYER_ID" not in defined
+    sourced = extract('```bash\n. ./publish.env\necho "$SERVICE_NAME/$LAYER_ID $OTHER"\n```\n', "markdown")[0]
+    assert needs(sourced, defined)["env"] == ["OTHER"]
+    assert {"SERVICE_NAME", "LAYER_ID"} <= assigned_names(sourced, defined)
+    later = extract('```bash\necho "$SERVICE_NAME"\n```\n', "markdown")[0]
+    assert needs(later, defined | assigned_names(sourced, defined))["env"] == []
+    # Without the source line, or sourcing a different file, the names are still needed.
+    unsourced = extract('```bash\necho "$SERVICE_NAME/$LAYER_ID"\n```\n', "markdown")[0]
+    assert needs(unsourced, defined)["env"] == ["LAYER_ID", "SERVICE_NAME"]
+    other = extract('```bash\n. ./other.env\necho "$SERVICE_NAME"\n```\n', "markdown")[0]
+    assert needs(other, defined)["env"] == ["SERVICE_NAME"]
+    # A block that never writes the file defines nothing.
+    reader = extract('```python\nprint("publish.env", "SERVICE_NAME=x")\n```\n', "markdown")[0]
+    assert needs(sourced, assigned_names(reader, set()))["env"] == ["LAYER_ID", "OTHER", "SERVICE_NAME"]
+
+
 def test_needs_in_python_js_and_csharp():
     py = extract('```python\nimport os\nk = os.environ["HONUA_API_KEY"]\nu = os.getenv("U", "d")\n```\n', "markdown")[0]
     assert needs(py, set())["env"] == ["HONUA_API_KEY"] and needs(py, set())["optionalEnv"] == ["U"]
@@ -1164,7 +1185,7 @@ def test_public_feature_sample_binds_its_exact_documented_service_token():
     document = next(d for d in inventory["documents"] if d["id"] == ident)
     code = "export HONUA_BASE_URL=http://localhost:8080\nexport HONUA_SAMPLE_SERVICE=your-feature-service\n"
     block = extract("```bash\n" + code + "```\n", "markdown")[0]
-    assert document["revision"] == "65253c959a97ad4ed39cc2a45c85a14a5a34cfac"
+    assert document["revision"] == "8f6f020d09d23453abded3287452bdca01897d68"  # Verified unchanged README blob 900e416031983354a9a2deff96f779b74f9144aa.
     assert block.sha256 == document["blocks"][0]["sha256"]
     variables = load_vars(HERE / "vars", ident)
     assert set(variables["substitute"]) == {"your-feature-service"}
@@ -1175,3 +1196,12 @@ def test_public_feature_sample_binds_its_exact_documented_service_token():
     assert substitute(code, table) == code.replace("your-feature-service", "maui-zoning")
     # The former bracketed key left the actual reader input untouched.
     assert substitute(code, {"<your-feature-service>": "maui-zoning"}) == code
+
+
+def test_another_tools_html_comment_does_not_hide_the_file_cue():
+    text = ("Make a directory and put this in it as `compose.yaml`:\n\n"
+            "<!-- docs-validation:install.compose mode=run -->\n```yaml\nservices: {}\n```\n")
+    block = extract(text, "markdown")[0]
+    assert (block.intent, block.file) == ("file", "compose.yaml")
+    plain = extract("Some prose.\n\n<!-- a comment -->\n```yaml\nservices: {}\n```\n", "markdown")[0]
+    assert plain.intent != "file"

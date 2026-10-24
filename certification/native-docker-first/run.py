@@ -32,6 +32,9 @@ SCHEMA = 'honua.native-docker-first/v1'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^[a-f0-9]{64}$')
 IMAGE = re.compile(r'^ghcr\.io/honua-io/[a-z0-9-]+:[a-zA-Z0-9._-]+@sha256:[a-f0-9]{64}$')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agent_map  # noqa: E402
+
 SERVICE_PROMPT = 'Create a service from this imported dataset.'
 MAP_PROMPT = 'Create and style a map from the service I just published.'
 
@@ -419,13 +422,34 @@ def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
             'destination': created.get('destination'), 'ownerActorId': created['ownerActorId']}
 
 
+def require_map_workflow(args, state):
+    """Keep the two map authority/approval contracts in separate original attempts."""
+    workflow = state.get('mapWorkflow')
+    requested = getattr(args, 'map_workflow', None)
+    if requested and requested != workflow:
+        raise Blocked('requested map workflow differs from the persisted attempt')
+    human_phases = {'agent-observe-map', 'agent-publication', 'agent-audience'}
+    visual_phases = {'agent-map-visual', 'agent-map-finish', 'agent-map-share-request',
+                     'agent-map-share', 'agent-map-audience'}
+    if args.phase not in human_phases | visual_phases | {'agent-map'}:
+        return
+    if workflow not in ('human-draft', 'external-visual'):
+        raise Blocked('map workflow was not frozen at attempt creation; use a fresh attempt')
+    if ((args.phase in human_phases and workflow != 'human-draft') or
+            (args.phase in visual_phases and workflow != 'external-visual')):
+        raise Blocked('map stage belongs to a different authority and approval workflow')
+
+
 def phase_start(args, manifest, binding, harness, attempt):
+    if getattr(args, 'map_workflow', None) == 'external-visual' and args.conversation_mode != 'external-agent':
+        raise Blocked('external visual map workflow requires the external-only installation mode')
     if attempt.exists() or args.install_dir.exists() or args.install_dir.is_symlink():
         raise Blocked('fresh attempt and install directories are required')
     attempt.mkdir(mode=0o700, parents=True)
     state = {'schemaVersion': SCHEMA, 'candidate': binding, 'harness': harness,
              'installDirectory': str(args.install_dir),
              'conversationMode': args.conversation_mode or 'joined-native',
+             'mapWorkflow': getattr(args, 'map_workflow', None) or 'human-draft',
              'stages': {'prepare': 'started'}}
     private_json(attempt / 'receipt.json', state, new=True)
     try:
@@ -2069,6 +2093,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'agent-submit',
                                          'agent-observe-import', 'agent-service', 'agent-map',
+                                         'agent-observe-map', 'agent-publication', 'agent-audience',
                                          'agent-map-visual', 'agent-map-finish',
                                          'agent-map-share-request', 'agent-map-share', 'agent-map-audience',
                                          'browser', 'witness'))
@@ -2094,6 +2119,9 @@ def main():
     parser.add_argument('--workspace-id')
     parser.add_argument('--turn-id')
     parser.add_argument('--conversation-mode', choices=('external-agent', 'joined-native'))
+    parser.add_argument('--proposal-id')
+    parser.add_argument('--human-browser-cdp')
+    parser.add_argument('--map-workflow', choices=('human-draft', 'external-visual'))
     args = parser.parse_args()
     try:
         args.attempt = args.attempt.resolve()
@@ -2113,6 +2141,7 @@ def main():
         else:
             state = read_json(args.attempt / 'receipt.json')
             check_state(state, binding, harness)
+            require_map_workflow(args, state)
             if args.conversation_mode and args.conversation_mode != state.get('conversationMode'):
                 raise Blocked('requested conversation mode differs from the persisted install mode')
             if args.phase.startswith('agent-') and state.get('conversationMode') != 'external-agent':
@@ -2128,7 +2157,16 @@ def main():
             elif args.phase == 'agent-service':
                 phase_agent_service(args, state, binding, args.attempt)
             elif args.phase == 'agent-map':
-                phase_agent_map(args, state, binding, args.attempt)
+                if state['mapWorkflow'] == 'external-visual':
+                    phase_agent_map(args, state, binding, args.attempt)
+                else:
+                    agent_map.phase_map(sys.modules[__name__], args, state, binding, args.attempt)
+            elif args.phase == 'agent-observe-map':
+                agent_map.phase_observe_map(sys.modules[__name__], args, state, binding, args.attempt)
+            elif args.phase == 'agent-publication':
+                agent_map.phase_publication(sys.modules[__name__], args, state, binding, args.attempt)
+            elif args.phase == 'agent-audience':
+                agent_map.phase_audience(sys.modules[__name__], args, state, binding, args.attempt)
             elif args.phase == 'agent-map-visual':
                 phase_agent_map_visual(args, state, binding, args.attempt)
             elif args.phase == 'agent-map-finish':

@@ -116,6 +116,7 @@ jobs:
       sdk_dotnet_sha: ${{ steps.pins.outputs.sdk_dotnet_sha }}
       sdk_dotnet_package: ${{ steps.pins.outputs.sdk_dotnet_package }}
       sdk_dotnet_digest: ${{ steps.pins.outputs.sdk_dotnet_digest }}
+      sdk_dotnet_registry: ${{ steps.pins.outputs.sdk_dotnet_registry }}
       sdk_python_version: ${{ steps.pins.outputs.sdk_python_version }}
       sdk_python_sha: ${{ steps.pins.outputs.sdk_python_sha }}
       sdk_python_package: ${{ steps.pins.outputs.sdk_python_package }}
@@ -208,6 +209,13 @@ jobs:
                   if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
                       raise SystemExit(f"{artifact_name} does not have a sha256 digest pin")
                   values[f"{prefix}_digest"] = digest
+              if ecosystem == "nuget":
+                  # The digest pins the bytes of one registry: nuget.org repository-signs every
+                  # package, so its .nupkg differs from the GitHub Packages copy of the same version.
+                  registry = str(artifact.get("registry") or "github-packages")
+                  if registry not in ("nuget.org", "github-packages"):
+                      raise SystemExit(f"{artifact_name} names an unknown NuGet registry {registry!r}")
+                  values[f"{prefix}_registry"] = registry
               if ecosystem == "pypi":
                   filename = str(artifact.get("filename", ""))
                   if not filename:
@@ -418,7 +426,9 @@ jobs:
           candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: "8.0.x"
+          # Honua.Sdk targets net10.0 (clientArtifacts.honua-sdk-dotnet.targets); a net8.0
+          # consumer cannot restore it.
+          dotnet-version: "10.0.x"
 
       - name: Consume Honua.Sdk (NuGet)
         id: consume
@@ -428,6 +438,7 @@ jobs:
           SDK_DOTNET_SHA: ${{ needs.resolve_pins.outputs.sdk_dotnet_sha }}
           SDK_DOTNET_PACKAGE: ${{ needs.resolve_pins.outputs.sdk_dotnet_package }}
           SDK_DOTNET_DIGEST: ${{ needs.resolve_pins.outputs.sdk_dotnet_digest }}
+          SDK_DOTNET_REGISTRY: ${{ needs.resolve_pins.outputs.sdk_dotnet_registry }}
         run: |
           set -uo pipefail
           GATE=nuget; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -444,8 +455,18 @@ jobs:
           dotnet nuget add source "$STAGING_NUGET_SOURCE" -n honua-staging \
             -u honua -p "$GH_TOKEN" --store-password-in-clear-text >/tmp/nuget-src.log 2>&1 || true
           NUPKG="$WORK/${SDK_DOTNET_PACKAGE}.${SDK_DOTNET_VERSION}.nupkg"
-          NUGET_URL="https://nuget.pkg.github.com/honua-io/download/${SDK_DOTNET_PACKAGE}/${SDK_DOTNET_VERSION}/${SDK_DOTNET_PACKAGE}.${SDK_DOTNET_VERSION}.nupkg"
-          if ! curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$NUGET_URL" -o "$NUPKG" 2>/tmp/nuget-download.log; then
+          # Fetch the exact bytes from the registry the pin names (the digest is registry-specific).
+          if [ "$SDK_DOTNET_REGISTRY" = "nuget.org" ]; then
+            LOWER_ID="$(printf '%s' "$SDK_DOTNET_PACKAGE" | tr '[:upper:]' '[:lower:]')"
+            LOWER_VERSION="$(printf '%s' "$SDK_DOTNET_VERSION" | tr '[:upper:]' '[:lower:]')"
+            NUGET_URL="https://api.nuget.org/v3-flatcontainer/${LOWER_ID}/${LOWER_VERSION}/${LOWER_ID}.${LOWER_VERSION}.nupkg"
+            NUGET_AUTH=()
+          else
+            NUGET_URL="https://nuget.pkg.github.com/honua-io/download/${SDK_DOTNET_PACKAGE}/${SDK_DOTNET_VERSION}/${SDK_DOTNET_PACKAGE}.${SDK_DOTNET_VERSION}.nupkg"
+            NUGET_AUTH=(-H "Authorization: Bearer $GH_TOKEN")
+          fi
+          echo "fetching ${SDK_DOTNET_PACKAGE}@${SDK_DOTNET_VERSION} from ${SDK_DOTNET_REGISTRY}"
+          if ! curl -fsSL "${NUGET_AUTH[@]}" "$NUGET_URL" -o "$NUPKG" 2>/tmp/nuget-download.log; then
             echo "published package is absent:"; tail -n 5 /tmp/nuget-download.log || true
           elif [ "sha256:$(sha256sum "$NUPKG" | cut -d' ' -f1)" != "$SDK_DOTNET_DIGEST" ]; then
             STATUS=fail; WHY="published ${SDK_DOTNET_PACKAGE}@${SDK_DOTNET_VERSION} digest does not match clientArtifacts"
@@ -703,9 +724,19 @@ jobs:
             echo "::group::LOCAL fallback — build honua-iac customer tarball from source"
             if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-iac "$IAC_SHA" src >/tmp/tf-clone.log 2>&1; then
               ( cd src && make dist >/tmp/tf-dist.log 2>&1 ) || true
-              DIST_TGZ="$(find src -name 'honua-iac-*.tar.gz' | head -n1)"
+              DIST_TGZ="$(find src -name 'honua-iac-*.tar.gz' | sort | head -n1)"
               if [ -n "$DIST_TGZ" ]; then
                 cp "$DIST_TGZ" "$WORK/" && SOURCE=local && STATUS=have-tarball
+              elif [ -f src/scripts/package-customer-dist.sh ]; then
+                # honua-iac's own customer packaging (modules/, examples/<stack>/, bootstrap/, ...),
+                # the exact layout an operator extracts. Tarring one arbitrary .tf directory instead
+                # dropped ../../modules and failed init nondeterministically (find order; trunk run
+                # 39744957421 vs branch run 39733651258).
+                if bash src/scripts/package-customer-dist.sh "$WORK/honua-iac-local.tar.gz" >/tmp/tf-dist.log 2>&1; then
+                  SOURCE=local; STATUS=have-tarball
+                else
+                  STATUS=fail; WHY="honua-iac scripts/package-customer-dist.sh failed"; tail -n 20 /tmp/tf-dist.log || true
+                fi
               else
                 # No packaging target — emulate the customer artifact by tarring the terraform root.
                 TFROOT="$(dirname "$(find src -name '*.tf' -not -path '*/.*' | head -n1)")"
@@ -727,7 +758,15 @@ jobs:
             mkdir -p "$WORK/extract" && tar xzf "$TARBALL" -C "$WORK/extract"
             # The customer's first command is `terraform init`. backend=false avoids needing real
             # cloud creds; it still resolves every module + provider, which is what iac#81 broke.
-            INITDIR="$(dirname "$(find "$WORK/extract" -maxdepth 3 -name '*.tf' | head -n1)")"
+            # The GA customer quickstart root (examples/aws, ECS) when the tarball has the customer
+            # layout; otherwise the first root in a stable order.
+            if [ -f "$WORK/extract/examples/aws/main.tf" ]; then
+              INITDIR="$WORK/extract/examples/aws"
+            else
+              FIRST_TF="$(find "$WORK/extract" -maxdepth 3 -name '*.tf' | sort | head -n1)"
+              INITDIR="${FIRST_TF:+$(dirname "$FIRST_TF")}"
+            fi
+            echo "terraform init root: ${INITDIR#"$WORK/extract/"}"
             if [ -z "$INITDIR" ]; then
               STATUS=fail; WHY="tarball from ${SOURCE} contains no .tf files"
             elif ( cd "$INITDIR" && terraform init -backend=false -input=false >/tmp/tf-init.log 2>&1 && terraform validate -no-color >>/tmp/tf-init.log 2>&1 ); then
@@ -940,8 +979,11 @@ jobs:
             # string, HONUA_ADMIN_PASSWORD and a connection-encryption master key — the documented
             # customer minimum. Run it exactly as a customer quickstart would: DB sidecar + that env.
             docker network create honua-gate-net >/dev/null 2>&1 || true
+            # The server refuses repository placeholder secrets at startup (Production config
+            # validation), as it must for a customer: use a per-run database password.
+            DB_PASSWORD="gate$(openssl rand -hex 16)"
             docker run -d --name honua-gate-db --network honua-gate-net \
-              -e POSTGRES_USER=honua -e POSTGRES_PASSWORD=honua -e POSTGRES_DB=honua \
+              -e POSTGRES_USER=honua -e POSTGRES_PASSWORD="$DB_PASSWORD" -e POSTGRES_DB=honua \
               postgis/postgis:16-3.4 >/tmp/docker-db.log 2>&1 || { STATUS=fail; WHY="postgres sidecar failed to start"; }
             if [ "$STATUS" != "fail" ]; then
               for _ in $(seq 1 40); do
@@ -951,7 +993,7 @@ jobs:
               # server's one-shot migration connection is accepted.
               sleep 5
               docker run -d --name honua-gate --network honua-gate-net -p "${SERVER_PORT}:${SERVER_PORT}" \
-                -e ConnectionStrings__DefaultConnection="Host=honua-gate-db;Port=5432;Database=honua;Username=honua;Password=honua" \
+                -e ConnectionStrings__DefaultConnection="Host=honua-gate-db;Port=5432;Database=honua;Username=honua;Password=${DB_PASSWORD}" \
                 -e HONUA_ADMIN_PASSWORD="Gate-Aa1!$(openssl rand -hex 12)" \
                 -e Security__ConnectionEncryption__MasterKey="$(openssl rand -hex 32)" \
                 -e HostValidation__AllowedHosts="*" -e AllowedHosts="*" \

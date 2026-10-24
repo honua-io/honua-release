@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Source-bound private prefreeze setup; never creates campaign expectations.
+
+Observed IDs/hashes stay in durable candidate state and private native custody.
+Review their exact references into source before the ordinary campaign freeze.
+This entry cannot initialize accounting, mint API keys, approve, or run a model.
+"""
+from __future__ import annotations
+import argparse
+from datetime import datetime, timedelta, timezone
+import json
+import os
+from pathlib import Path
+import re
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from agent_e2e_pack import canonical_digest, load_json
+from agent_e2e_state import DurableExecution, open_store
+from agent_e2e_studio_backend import BootstrapHttp, prepare_initial_fixture
+from agent_e2e_scenario_operations import body
+from worker_mcp_configuration import verify_injected_secret
+from controller_archive import canonical, digest, portable, require
+from controller_handoff import ROOT, PREPARE_WORKFLOW, PREPARATIONS, bundle_identity, git
+
+
+def source_configuration(reference):
+    require(set(reference) == {'path', 'sha256'}, 'private preparation source reference missing')
+    portable(reference['path'])
+    require(reference['path'].startswith('certification/agent-e2e/') and reference['path'].endswith('.json'), 'preparation configuration escaped reviewed namespace')
+    path = ROOT/reference['path']
+    require(path.is_file() and not path.is_symlink() and digest(path.read_bytes()) == reference['sha256'], 'preparation source configuration bytes differ')
+    git('ls-files', '--error-unmatch', '--', reference['path'])
+    config = load_json(path)
+    require(set(config) == {'schemaVersion', 'action', 'candidateKey', 'state', 'bootstrapArtifactDigest', 'configuration'} and
+            config['schemaVersion'] == 1 and config['action'] in PREPARATIONS and
+            re.fullmatch(r'sha256:[a-f0-9]{64}', config['candidateKey']) and
+            re.fullmatch(r'sha256:[a-f0-9]{64}', config['bootstrapArtifactDigest']), 'invalid reviewed private preparation configuration')
+    return config
+
+
+def native_context(durable, config):
+    fields = {'candidateKey', 'operation', 'nativeBootstrapOperationId', 'endpoint', 'requesterCredentialEnv', 'viewId', 'turnId', 'humanCreator'}
+    require(fields <= set(config) <= fields | {'mcpConfiguration', 'consoleTurn'} and
+            config['candidateKey'] == durable.store.candidate and config['requesterCredentialEnv'] == 'HONUA_AGENT_REQUESTER_KEY' and
+            (config['viewId'] == 'studio-native' or 'consoleTurn' in config and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config['viewId'])) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config['turnId']), 'native context setup must use its actual issued agent key and reviewed turn')
+    if 'consoleTurn' in config:
+        from console_turn import declaration
+        declaration(config['consoleTurn'])
+    human = config['humanCreator']
+    require(set(human) == {'credentialEnv', 'secretArn', 'versionId'} and
+            human['credentialEnv'] == 'HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN' and
+            re.fullmatch(r'arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:honua-pilot-[a-z0-9-]+/human-session/[A-Za-z0-9/_-]+-[A-Za-z0-9]{6}', human['secretArn']) and
+            re.fullmatch(r'[A-Za-z0-9-]{32,64}', human['versionId']), 'actual human session must use reviewed immutable private custody')
+    verify_injected_secret(human, human['credentialEnv'], 'us-east-1')
+    native_key = canonical_digest({'kind': 'native-bootstrap', 'candidateKey': config['candidateKey'], 'operationId': config['nativeBootstrapOperationId']})
+    issued = durable.state.get('scenarioOperations', {}).get(native_key+'/key-agent', {})
+    require(issued.get('producer') == 'private-native-bootstrap' and issued.get('candidateKey') == config['candidateKey'], 'native context lacks actual retained agent key issuance')
+    key_record = issued['value']
+    require('agent:workspace' in key_record['permissions'] and isinstance(key_record['apiKeyId'], str), 'native context key lacks observed workspace grant')
+    # One original operation owns this namespace even if a caller substitutes a
+    # different issued key. Exact public key identity remains in retained custody.
+    phase_identity = {'kind': 'native-agent-context', 'candidateKey': config['candidateKey'], 'operation': config['operation'], 'nativeBootstrapOperationId': config['nativeBootstrapOperationId'], 'humanCreator': human}
+    if 'consoleTurn' in config:
+        phase_identity['consoleTurn'] = config['consoleTurn']
+    phase = canonical_digest(phase_identity)
+    stages = durable.state.setdefault('studioBootstrapOperations', {})
+    require(phase+'/start' not in stages, 'native context setup already started; reconcile original observations without replay')
+    def transport(credential_env, credential_kind, agent_context=None):
+        return BootstrapHttp(operation=config['operation'], durable=durable, context={'componentBindingDigest': config['candidateKey']},
+            endpoint=config['endpoint'], credential_env=credential_env, credential_kind=credential_kind,
+            attempt_id='native-context-'+phase[7:31], timeout=300, agent_context=agent_context)
+    client = transport(human['credentialEnv'], 'bearer')
+    agent = transport(config['requesterCredentialEnv'], 'api-key')
+    def retain(stage, value):
+        client.authorize()
+        require(phase+'/'+stage not in stages, 'native context stage already retained')
+        stages[phase+'/'+stage] = value
+        durable._persist()
+    retain('start', {'configurationDigest': canonical_digest(config), 'issuedKey': key_record,
+        'producerTaskArn': os.environ['PILOT_CONTROLLER_TASK_ARN']})
+    target_answer = client.json('native-target', 'GET', '/api/v1/agent/target')
+    target = body(target_answer)
+    human_principal = target.get('principal', {})
+    require(isinstance(target.get('targetId'), str) and target['targetId'] and
+            human_principal.get('isHumanSession') is True and
+            human_principal.get('authenticationKind') in ('operator-bearer', 'interactive') and
+            isinstance(human_principal.get('actorId'), str) and human_principal['actorId'],
+            'native workspace creator must be a server-observed actual human session')
+    agent_target_answer = agent.json('native-agent-target', 'GET', '/api/v1/agent/target')
+    agent_target = body(agent_target_answer)
+    agent_principal = agent_target.get('principal', {})
+    require(agent_target.get('targetId') == target['targetId'] and agent_principal.get('isHumanSession') is False and
+            agent_principal.get('authenticationKind') == 'api-key' and
+            agent_principal.get('actorId') == 'apikey:api-key:'+key_record['apiKeyId'] and
+            agent_principal.get('studioOwnerId') == key_record['apiKeyId'] and
+            human_principal['actorId'] != agent_principal['actorId'] and
+            human_principal.get('tenantId') == agent_principal.get('tenantId'),
+            'native agent principal, Studio owner or human/agent tenant binding differs')
+    console_observation = None
+    if 'consoleTurn' in config:
+        from console_turn import observe_session, validate_turn
+        adopted = config['consoleTurn']
+        console_observation = observe_session(durable, adopted['sessionCustody'], config['endpoint'], human_principal)
+        require(console_observation['nativeTarget'] == target, 'Console and native bearer target differ')
+        workspace_path = '/api/v1/agent/workspaces/'+adopted['workspaceId']
+        turn_answer = client.json('native-human-turn-read', 'GET', workspace_path+'/turns/'+config['turnId'])
+        turn = body(turn_answer)
+        # Native GETworkspace initializes an unknown view. Establish the actual
+        # original turn's existing view first so adoption cannot initialize one.
+        require(turn.get('context', {}).get('viewId') == config['viewId'] and
+            turn.get('context', {}).get('workspaceId') == adopted['workspaceId'] and
+            turn.get('originatingActorId') == human_principal['actorId'],
+            'Console adoption cannot initialize a view or select another original author')
+        workspace_answer = client.json('native-human-workspace-read', 'GET', workspace_path+'?viewId='+config['viewId'])
+        workspace = body(workspace_answer)
+        require(workspace.get('viewId') == config['viewId'] and workspace.get('targetId') == target['targetId'],
+            'Console workspace selected a different view or native target')
+        validate_turn(adopted, turn=turn, workspace=workspace, turn_id=config['turnId'], human=human_principal)
+    else:
+        workspace_answer = client.json('native-workspace-create', 'POST', '/api/v1/agent/workspaces',
+            {'viewId': config['viewId'], 'targetId': target['targetId']})
+        workspace = body(workspace_answer, (200, 201))
+        require(isinstance(workspace.get('workspaceId'), str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', workspace['workspaceId']) and
+                workspace.get('viewId') == config['viewId'] and workspace.get('targetId') == target['targetId'] and
+                type(workspace.get('revision')) is int and workspace['revision'] == 0 and
+                workspace.get('selectedResources') == [] and workspace.get('task') is None,
+                'native initial context is not its exact actual empty workspace')
+        turn_answer = client.json('native-turn-capture', 'POST', '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns',
+            {'turnId': config['turnId'], 'viewId': config['viewId'], 'contextRevision': workspace['revision'],
+             'prompt': 'Prepare this isolated fixture context; do not execute a campaign task.'})
+        turn = body(turn_answer)
+        require(turn.get('turnId') == config['turnId'] and turn.get('context') == workspace, 'native server did not capture the requested actual context/turn')
+    agent = transport(config['requesterCredentialEnv'], 'api-key', {'workspaceId': workspace['workspaceId'], 'turnId': turn['turnId']})
+    workspace_read_answer = agent.json('native-workspace-readback', 'GET',
+        '/api/v1/agent/workspaces/'+workspace['workspaceId']+'?viewId='+config['viewId'])
+    turn_read_answer = agent.json('native-turn-readback', 'GET',
+        '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns/'+turn['turnId'])
+    workspace_read, turn_read = body(workspace_read_answer), body(turn_read_answer)
+    require(workspace_read == workspace and turn_read.get('turnId') == turn['turnId'] and
+            turn_read.get('context') == workspace and turn_read.get('status') == turn.get('status'),
+            'actual issued agent cannot read back its installed workspace membership and captured turn')
+    if 'consoleTurn' in config:
+        require(turn_read == turn, 'issued agent cannot read the exact original human turn/source')
+    value = {'schema': 'honua.native-agent-context/v1', 'candidateKey': config['candidateKey'],
+        'issuedAgentKey': key_record, 'studioOwnerPrincipalId': agent_principal['studioOwnerId'],
+        'workspaceAgentPrincipalId': agent_principal['actorId'], 'agentPrincipal': agent_principal, 'humanCreatorPrincipal': human_principal, 'humanCredentialBinding': human,
+        'nativeBootstrapReference': {'key': native_key+'/key-agent', 'sha256': canonical_digest(issued)},
+        'agentContext': {'workspaceId': workspace['workspaceId'], 'turnId': turn['turnId']},
+        'target': target, 'workspace': workspace, 'turn': turn,
+        'nativeOriginals': {'target': target_answer, 'agentTarget': agent_target_answer, 'workspace': workspace_answer, 'turn': turn_answer,
+            'workspaceReadback': workspace_read_answer, 'turnReadback': turn_read_answer},
+        'producerTaskArn': os.environ['PILOT_CONTROLLER_TASK_ARN'], 'qualification': False}
+    if 'consoleTurn' in config:
+        value['consoleTurn'] = {'configuration': config['consoleTurn'], 'sessionObservation': console_observation}
+    retain('completed', value)
+    result = {'key': phase+'/completed', 'sha256': canonical_digest(value), 'value': value, 'qualification': False}
+    if 'mcpConfiguration' in config:
+        from worker_mcp_configuration import provision
+        result['mcpConfiguration'] = provision(durable, {key: result[key] for key in ('key', 'sha256')}, config['operation'], config['mcpConfiguration'])
+    return result
+
+
+def execute(bundle, output):
+    document = load_json(Path(bundle)/'preparation.json')
+    manifest, identity, state = bundle_identity(bundle, operation=document['operation'], case_id=None, target=None, shard=0, shards=6)
+    config = source_configuration(manifest['configuration'])
+    require(config['action'] == identity['operation'] and config['candidateKey'] == identity['candidateKey'] and state == config['state'], 'private preparation manifest differs from source/accounting')
+    require(datetime.fromisoformat(manifest['expiresAt'].replace('Z', '+00:00')) > datetime.now(timezone.utc), 'private preparation manifest expired')
+    durable = DurableExecution(open_store(state, config['candidateKey']), Path(bundle)/'budget-ledger.json')
+    try:
+        require(durable.state.get('bootstrapImport', {}).get('artifactDigest') == config['bootstrapArtifactDigest'], 'private preparation cannot substitute authenticated history')
+        if config['action'] == 'prepare-native-context':
+            result = native_context(durable, config['configuration'])
+        elif config['action'] == 'capture-console-session':
+            from browser_session import capture
+            result = capture(durable=durable, configuration=config['configuration'])
+        else:
+            result = prepare_initial_fixture(durable=durable, configuration=config['configuration'])
+            require(result.get('qualification') is False, 'fixture preparation cannot qualify a campaign')
+        result = {'schema': 'honua.private-controller-preparation-result/v1', 'operation': config['action'],
+            'candidateKey': config['candidateKey'], 'sourceConfiguration': manifest['configuration'],
+            'producerTaskArn': os.environ['PILOT_CONTROLLER_TASK_ARN'], 'result': result,
+            'requiresSourceReviewBeforeFreeze': True, 'qualification': False}
+        Path(output).write_bytes(canonical(result)+b'\n')
+    finally:
+        durable.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=['bundle', 'execute'])
+    parser.add_argument('--configuration')
+    parser.add_argument('--bundle', type=Path, required=True)
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args()
+    if args.action == 'execute':
+        require(args.output is not None and args.configuration is None, 'private preparation execution needs only fixed bundle/output')
+        execute(args.bundle, args.output)
+        return
+    require(os.environ.get('GITHUB_REF') == 'refs/heads/trunk' and os.environ.get('GITHUB_REPOSITORY') == 'honua-io/honua-release' and
+            os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' and git('rev-parse', 'HEAD').decode().strip() == os.environ['GITHUB_SHA'], 'preparation requires the original checked trunk workflow')
+    require(args.configuration is not None, 'reviewed preparation configuration required')
+    path = ROOT/args.configuration
+    reference = {'path': args.configuration, 'sha256': digest(path.read_bytes())}
+    config = source_configuration(reference)
+    require(path.read_bytes() == git('show', os.environ['GITHUB_SHA']+':'+args.configuration), 'preparation source differs from original workflow commit')
+    manifest = {'schema': 'honua.private-controller-preparation/v1', 'componentBindingDigest': config['candidateKey'],
+        'controller': {'repository': 'honua-io/honua-release', 'workflow': PREPARE_WORKFLOW, 'sourceSha': os.environ['GITHUB_SHA'],
+            'runId': int(os.environ['GITHUB_RUN_ID']), 'runAttempt': int(os.environ['GITHUB_RUN_ATTEMPT'])},
+        'expiresAt': (datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(), 'operation': config['action'],
+        'state': config['state'], 'configuration': reference}
+    args.bundle.mkdir(mode=0o700, parents=True, exist_ok=False)
+    (args.bundle/'preparation.json').write_bytes(canonical(manifest)+b'\n')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        print('private preparation refused; retain original state/effects and reconcile without replay', file=sys.stderr)
+        sys.exit(1)

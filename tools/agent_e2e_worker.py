@@ -48,7 +48,9 @@ def validate_command(value, attempt_id, expires, now):
         if not isinstance(action, dict) or set(action) != {'name','input'} or not isinstance(action['input'], dict):
             raise PackError('invalid MCP action')
         if action['name'] == 'mcp_list_tools':
-            valid = action['input'] == {}
+            args = action['input']
+            valid = (not args or set(args) == {'view'} and isinstance(args['view'], str)
+                     and re.fullmatch(r'[a-z][a-z0-9-]{0,63}', args['view']) is not None)
         elif action['name'] == 'mcp_call_tool':
             args = action['input']
             valid = (set(args) == {'name','arguments'} and isinstance(args['name'], str)

@@ -1,0 +1,78 @@
+name: Hosted pilot private prefreeze preparation
+on:
+  workflow_dispatch:
+    inputs:
+      configuration_path:
+        description: Exact reviewed certification/agent-e2e/*.json preparation configuration
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: agent-e2e-campaign
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install dispatch dependencies; no application or SQL credentials reach this runner
+        run: python -m pip install 'boto3>=1.40,<2'
+      - name: Bind the distinct preparation manifest to reviewed immutable source
+        id: source
+        env:
+          PREPARATION_CONFIG: ${{ inputs.configuration_path }}
+        run: |
+          set -euo pipefail
+          python tools/hosted_pilot/prepare.py bundle --configuration "$PREPARATION_CONFIG" --bundle "$RUNNER_TEMP/preparation"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          manifest = json.loads((Path(os.environ['RUNNER_TEMP'])/'preparation/preparation.json').read_text())
+          assert manifest['operation'] in ('prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('operation='+manifest['operation']+'\n')
+          PY
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AGENT_E2E_DISPATCH_ROLE_ARN }}
+          aws-region: ${{ vars.HOSTED_PILOT_REGION }}
+          allowed-account-ids: ${{ vars.HOSTED_PILOT_ACCOUNT_ID }}
+          role-session-name: pilot-prepare-${{ github.run_id }}
+      - name: Execute one exact private preparation under retained original liabilities
+        env:
+          PREPARATION_OPERATION: ${{ steps.source.outputs.operation }}
+        run: |
+          set -euo pipefail
+          python tools/hosted_pilot/controller_handoff.py \
+            --configuration certification/agent-e2e/controller-handoff.json \
+            --bundle "$RUNNER_TEMP/preparation" --operation "$PREPARATION_OPERATION" \
+            --output "$RUNNER_TEMP/preparation-outcome.json" \
+            --evidence-directory "$RUNNER_TEMP/preparation-private-evidence"
+      - name: Project only actual nonsecret IDs and original custody references for source review
+        run: |
+          python tools/hosted_pilot/preparation_review.py \
+            --result "$RUNNER_TEMP/preparation-private-evidence/private-evidence/preparation-result.json" \
+            --outcome "$RUNNER_TEMP/preparation-outcome.json" \
+            --output "$RUNNER_TEMP/preparation-source-review.json"
+      - name: Retain native outcome and actual setup references; raw originals remain private
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-preparation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/preparation-outcome.json
+            ${{ runner.temp }}/preparation-source-review.json
+          if-no-files-found: warn
+          retention-days: 90

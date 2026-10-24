@@ -166,13 +166,18 @@ def normalize(item, previous=None):
 
 
 def org_repos():
-    """Every org repository the caller can read; the release dashboard scans the same list."""
+    """Every readable org repository. Coverage scans this list, including issue-less forks."""
     return pages('orgs/honua-io/repos?per_page=100')
+
+
+def issue_repos():
+    """Repositories with issues enabled. Advisory forks answer 404 on /issues and abort refresh."""
+    return [r for r in org_repos() if r.get('has_issues', True)]
 
 
 def refresh(data):
     previous = {issue_key(i): i for i in data['issues']}
-    repos = org_repos()
+    repos = issue_repos()
     def fetch(repo):
         return pages(f"repos/honua-io/{repo['name']}/issues?state=open&labels=release%2F2026.1&per_page=100")
     with ThreadPoolExecutor(max_workers=5) as pool:
@@ -385,6 +390,8 @@ def verify_security(data, rows, rules, record_text):
         errors.append(f'record does not carry the computed decision: {line}')
     if any(f['status'] == 'open' for f in security_findings(rules)) and verdict != 'HOLD':
         errors.append('an open GA-blocking security finding requires Decision: HOLD')
+    if any(f['status'] == 'open' for f in security_findings(rules)):
+        errors.append('GA-blocking security findings remain open')
     if errors:
         raise ValueError('Security findings gate failed:\n' + '\n'.join(errors))
     return verdict

@@ -1,0 +1,25 @@
+name: Hosted pilot accounting approval environment
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hosted-pilot-accounting-environment
+  cancel-in-progress: false
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reject environment administration outside protected release trunk
+        run: |
+          test "$GITHUB_REPOSITORY" = honua-io/honua-release
+          test "$GITHUB_REF" = refs/heads/trunk
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reconcile only the source-defined accounting credential approval environment
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: python3 tools/hosted_pilot/foundation_environment.py create --policy accounting

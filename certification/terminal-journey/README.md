@@ -188,12 +188,12 @@ python certification/terminal-journey/test_run.py -v
 
 ## Control-plane roster gate
 
-Once server#3363 publishes the authoritative Admin OpenAPI/CLI and MCP projection
-exports, pass both files to `--rest-roster` and `--mcp-roster`; the gate requires an
-exact 396 = 385 + 11 partition, unique IDs, and no overlap. Secret/session exclusions
-stay REST/CLI-only and use a private secret sink. Anonymous MCP discovery never implies
-call authorization. Until those exports exist the roster verdict is `blocked`, never
-`pass`.
+Pass `admin-openapi-operation-ids.json` and `admin-mcp-projection-manifest.json`
+to `--rest-roster` and `--mcp-roster` when the candidate publishes them. The gate
+requires an exact 396 = 385 + 11 partition, unique IDs, and no overlap.
+Secret/session exclusions stay REST/CLI-only and use a private secret sink.
+Anonymous MCP discovery never implies call authorization. Until those two files
+exist the roster verdict is `blocked`, never `pass`.
 
 ## What the live lane proves today
 
@@ -318,8 +318,32 @@ datasource connection (`CreateConnectionAsync`, `TestConnectionAsync`), or the
 fixed `honua admin import uploadImportFile` step. The bridge invokes the built SDK
 with stdin JSON; it never executes that command string. Arguments bind the
 authored fixture and previously returned resource identities. The model observes
-the fixture, available method names and action results, rather than a forced
-sequence. An upload cannot be repeated within a session.
+the fixture, available method names, command grammar, argument sources and action
+results. The stage observation exposes these as `terminalSurface`, also included
+at the top of the model prompt. The model chooses each action; the bridge never
+supplies a sequence or executes a missing prerequisite automatically. Publication
+before an observed connection and uploaded table returns an `invalid-action`
+response naming the missing bindings, without contacting the candidate. An upload
+cannot be repeated within a session.
+
+Stage 6 requires the unchanged authored portable `honua_map_package.v1` body,
+including its source bindings, initial view and complete map specification. The
+public `terminalSurface.compositionContract` makes this requirement explicit and
+binds only the already observed publication layer ID into the committed fixture.
+Catalog composition tools author a different representation; validation of that
+representation does not satisfy the portable package requirement. The model must
+select every create, update and save within the existing action limit.
+
+Before a selected save, an independent draft GET must agree with the actual last
+native write receipt's draft, item, owner, workspace, package, generation, family
+and body. A different authored body receives actionable feedback before the save
+write. A disagreement with the native write receipt remains an execution failure.
+Primary and replica immutable-version reads still satisfy the original full-body
+oracle, and also compare to that pre-save draft. Receipts retain only fixed field
+match flags, body digests and original HTTP response digests/byte counts; arbitrary
+candidate bodies and credentials stay out of public diagnostics. Earlier failed
+runs retain their original outcomes and cannot be diagnosed retroactively from
+these new observations.
 
 Stage 3 imports by file upload, not by GeoServices URL. The pinned CLI sends the
 committed `fixtures/journey-source.geojson` (pinned by SHA-256 in the target and

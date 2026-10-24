@@ -1,0 +1,205 @@
+"""Candidate-independent funding is compiled from exact reviewed source bytes."""
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import bootstrap
+
+
+class FoundationConfiguration(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.relative = 'certification/hosted-pilot/deployments/foss4g-image-preparation.tfvars.json'
+        self.path = self.root/self.relative
+        self.path.parent.mkdir(parents=True)
+        source_root = Path(__file__).resolve().parents[2]
+        self.raw = (source_root/self.relative).read_bytes()
+        self.path.write_bytes(self.raw)
+        self.cfg = json.loads((source_root/'certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json').read_text())
+        self.reviewed_cfg = copy.deepcopy(self.cfg)
+        self.basis = (source_root/'certification/hosted-pilot/foundation-funding-basis.json').read_bytes()
+        self.sha = 'a'*40
+
+    def resolve(self):
+        def git(argv, **kwargs):
+            self.assertEqual(argv[:2], ['git','show'])
+            self.assertTrue(argv[2].startswith(self.sha+':'))
+            if argv[2] == self.sha+':'+self.relative:
+                return self.raw
+            if argv[2] == self.sha+':certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json':
+                return json.dumps(self.reviewed_cfg).encode()
+            return self.basis
+        with patch('bootstrap.run', side_effect=git):
+            return bootstrap.resolve_image_funding(self.cfg, self.root, self.sha,
+                config_path='certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json')
+
+    def test_actual_source_and_config_identity_replace_only_explicit_unresolved_fields(self):
+        before = copy.deepcopy(self.cfg)
+        resolved = self.resolve()
+        self.assertEqual(self.cfg, before)
+        self.assertNotIn('image_preparation_funding', resolved)
+        self.assertEqual(resolved['budget_ledger']['source_sha'], self.sha)
+        self.assertEqual(resolved['budget_ledger']['config_sha256'], hashlib.sha256(self.raw).hexdigest())
+        for key in ('spent_usd','reserved_usd','deployment_reservation_usd','cleanup_reserve_usd','total_budget_usd'):
+            self.assertEqual(resolved['budget_ledger'][key], before['budget_ledger'][key])
+        self.assertGreaterEqual(resolved['budget_ledger']['reserved_usd'], 234)
+
+    def test_partial_or_prefilled_binding_cannot_be_replaced(self):
+        for field in ('source_sha','config_sha256'):
+            before = copy.deepcopy(self.cfg)
+            self.cfg['budget_ledger'][field] = 'b'*64
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'cannot replace an existing'):
+                self.resolve()
+            self.cfg = before
+
+    def test_new_twenty_dollar_liability_cannot_reuse_the_older_294_reserve(self):
+        self.assertEqual(self.resolve()['budget_ledger']['reserved_usd'],334)
+        self.cfg['budget_ledger']['reserved_usd']=294
+        self.reviewed_cfg=copy.deepcopy(self.cfg)
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):
+            self.resolve()
+        self.cfg['budget_ledger']['reserved_usd']=334
+        self.reviewed_cfg=copy.deepcopy(self.cfg)
+        basis=json.loads(self.basis)
+        basis['additionalReservedLiabilities']=[row for row in basis['additionalReservedLiabilities'] if row['id']!='legacy-model-39987311356']
+        self.basis=json.dumps(basis).encode()
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):
+            self.resolve()
+
+    def test_original_basis_and_new_failed_outcome_remain_separate_immutable_evidence(self):
+        root=Path(__file__).resolve().parents[2];basis=json.loads(self.basis)
+        def source(reference):
+            raw=(root/reference['path']).read_bytes()
+            self.assertEqual('sha256:'+hashlib.sha256(raw).hexdigest(),reference['sha256'])
+            return json.loads(raw)
+        latest=source(basis['priorFundingBasis'])
+        self.assertEqual(latest['reservedUsd'],'314')
+        self.assertEqual(basis['additionalReservedLiabilities'][:-1],latest['additionalReservedLiabilities'])
+        prior=source(latest['priorFundingBasis'])
+        self.assertEqual(prior['reservedUsd'],'294')
+        self.assertEqual(latest['additionalReservedLiabilities'][:-1],prior['additionalReservedLiabilities'])
+        self.assertEqual(basis['postCutoffModelObservations'][:2],latest['postCutoffModelObservations'])
+        reservation,outcome=map(source,basis['postCutoffModelObservations'][:2])
+        self.assertEqual(reservation['state'],'dispatched-unsettled')
+        self.assertEqual(reservation['additionalReservedUsd'],'20')
+        self.assertEqual(outcome['nativeRun']['conclusion'],'failure')
+        self.assertEqual(outcome['usage']['modelCalls'],31)
+        self.assertEqual(outcome['usage']['totalTokens'],1120537)
+        self.assertIsNone(outcome['actualUsd'])
+        self.assertEqual(outcome['retainedReservationUsd'],'20')
+
+    def test_latest_pre_dispatch_reservation_adds_twenty_without_reset_or_renewal(self):
+        root=Path(__file__).resolve().parents[2];basis=json.loads(self.basis)
+        prior=json.loads((root/basis['priorFundingBasis']['path']).read_bytes())
+        for field in prior:
+            if field not in ('additionalReservedLiabilities','postCutoffModelObservations','priorFundingBasis','reservedUsd'):
+                self.assertEqual(basis[field],prior[field])
+        reservation,dispatch=[json.loads((root/ref['path']).read_bytes()) for ref in basis['postCutoffModelObservations'][2:]]
+        for ref in basis['postCutoffModelObservations'][2:]:
+            self.assertEqual(ref['sha256'],'sha256:'+hashlib.sha256((root/ref['path']).read_bytes()).hexdigest())
+        self.assertEqual(reservation['state'],'reserved-before-dispatch')
+        self.assertIsNone(reservation['runId']);self.assertIsNone(reservation['actualUsd'])
+        self.assertEqual(reservation['priorReservedUsd'],'314');self.assertEqual(reservation['aggregateReservedUsd'],'334')
+        self.assertEqual(dispatch['runId'],40001824669);self.assertEqual(dispatch['reservationSha256'],basis['postCutoffModelObservations'][2]['sha256'])
+        self.assertLess(reservation['createdAt'],dispatch['createdAt'])
+        self.assertEqual(self.cfg['budget_ledger']['expires_at'],'2026-10-24T13:45:00Z')
+        self.assertEqual(self.cfg['budget_ledger']['reservation_id'],'foundation-image-preparation-001')
+        for amount in (294,314,333):
+            self.cfg['budget_ledger']['reserved_usd']=amount;self.reviewed_cfg=copy.deepcopy(self.cfg)
+            with self.subTest(amount=amount),self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):self.resolve()
+        self.cfg['budget_ledger']['reserved_usd']=334;self.reviewed_cfg=copy.deepcopy(self.cfg)
+        basis['additionalReservedLiabilities']=prior['additionalReservedLiabilities']
+        self.basis=json.dumps(basis).encode()
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):self.resolve()
+
+    def test_changed_untracked_bytes_or_another_foundation_identity_refuse(self):
+        self.path.write_bytes(self.raw+b' ')
+        with self.assertRaisesRegex(ValueError, 'exact workflow source'):
+            self.resolve()
+        self.path.write_bytes(self.raw)
+        self.cfg['name_prefix'] += '-foreign'
+        with self.assertRaisesRegex(ValueError, 'complete bootstrap input differs'):
+            self.resolve()
+
+    def test_reduced_original_hold_cleanup_or_expanded_publication_allowance_refuse(self):
+        for key,value in (('reserved_usd',0),('reserved_usd',233),('cleanup_reserve_usd',50),('deployment_reservation_usd',6)):
+            before = copy.deepcopy(self.cfg)
+            self.cfg['budget_ledger'][key] = value
+            self.reviewed_cfg = copy.deepcopy(self.cfg)
+            with self.subTest(key=key,value=value), self.assertRaisesRegex(ValueError, 'cannot discard original nonzero'):
+                self.resolve()
+            self.cfg = before
+            self.reviewed_cfg = copy.deepcopy(before)
+
+    def test_every_copied_top_level_and_budget_field_must_match_reviewed_source(self):
+        original = copy.deepcopy(self.cfg)
+        for field in original:
+            if field in ('image_preparation_funding', 'budget_ledger'):
+                continue
+            self.cfg = copy.deepcopy(original)
+            value = self.cfg[field]
+            self.cfg[field] = not value if isinstance(value, bool) else value+['unreviewed'] if isinstance(value, list) else value+'-unreviewed'
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'complete bootstrap input differs'):
+                self.resolve()
+        for field in original['budget_ledger']:
+            if field in ('source_sha', 'config_sha256'):
+                continue  # Independently refused before source lookup above.
+            self.cfg = copy.deepcopy(original)
+            value = self.cfg['budget_ledger'][field]
+            self.cfg['budget_ledger'][field] = value+1 if isinstance(value, (int, float)) else value+'-unreviewed'
+            with self.subTest(budgetField=field), self.assertRaisesRegex(ValueError, 'complete bootstrap input differs'):
+                self.resolve()
+        self.cfg = copy.deepcopy(original)
+        self.cfg['unexpected_input'] = 'unreviewed'
+        with self.assertRaisesRegex(ValueError, 'complete bootstrap input differs'):
+            self.resolve()
+
+    def test_compiler_flag_and_json_boolean_numeric_substitution_cannot_change_identity(self):
+        original = copy.deepcopy(self.cfg)
+        for flag in (False, 1, 'true'):
+            self.cfg = copy.deepcopy(original)
+            self.cfg['image_preparation_funding'] = flag
+            with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, 'reviewed funding compiler mode'):
+                self.resolve()
+        for value in (False, 0.0):
+            self.cfg = copy.deepcopy(original)
+            self.cfg['budget_ledger']['spent_usd'] = value
+            with self.subTest(spent=value), self.assertRaisesRegex(ValueError, 'complete bootstrap input differs'):
+                self.resolve()
+
+    def test_existing_explicit_source_budget_is_not_rebound(self):
+        self.cfg.pop('image_preparation_funding')
+        self.cfg['budget_ledger'].update(source_sha='b'*40,config_sha256='c'*64)
+        with patch('bootstrap.run') as process:
+            self.assertEqual(bootstrap.resolve_image_funding(self.cfg,self.root,self.sha,
+                config_path='certification/hosted-pilot/bootstrap/deployments/other-reviewed.tfvars.json'),self.cfg)
+        process.assert_not_called()
+
+    def test_main_real_fixed_path_cannot_remove_mode_and_prefill_hashes_before_aws_or_plan(self):
+        foundation = self.root/'iac'
+        relative='certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json'
+        path=foundation/relative;path.parent.mkdir(parents=True)
+        changed=copy.deepcopy(self.cfg);changed.pop('image_preparation_funding')
+        changed['budget_ledger'].update(source_sha='b'*40,config_sha256='c'*64)
+        path.write_text(json.dumps(changed))
+        env={'GITHUB_REPOSITORY':'honua-io/honua-iac','GITHUB_REF':'refs/heads/trunk','GITHUB_SHA':'d'*40,
+            'PILOT_RELEASE_ROOT_SHA':self.sha,'PILOT_FOUNDATION_SOURCE_ROOT':str(foundation),'RUNNER_TEMP':str(self.root)}
+        def git(argv,**kwargs):
+            if argv[:2]==['git','rev-parse']:return self.sha.encode()
+            if argv[:4]==['git','-C',str(foundation),'rev-parse']:return ('d'*40).encode()
+            if argv[:4]==['git','-C',str(foundation),'ls-files']:return b''
+            raise AssertionError('unreviewed command before input admission')
+        for selected in (relative, relative.replace('/foss4g-images','/./foss4g-images')):
+            with self.subTest(selected=selected),patch.dict(os.environ,env,clear=True),patch('sys.argv',['bootstrap.py','plan','--config',selected]),\
+                    patch('bootstrap.run',side_effect=git),patch('bootstrap.aws',side_effect=AssertionError('AWS before admission')) as aws,\
+                    patch('bootstrap.plan') as plan,patch('bootstrap.private_json') as private:
+                with self.assertRaisesRegex(ValueError,'fixed image input requires'):
+                    bootstrap.main()
+                aws.assert_not_called();plan.assert_not_called();private.assert_not_called()

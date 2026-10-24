@@ -246,11 +246,13 @@ class DockerRegressions(unittest.TestCase):
             if "Immediate" not in schedule:
                 self.assertEqual(before, b"")
             controls.append(["timeout", "interval", "immediate", "promiseTimer"][index] + "NoAfterPassEffects")
-        refreshed = healthy.run_js("let fires = 0; const reusable = setTimeout(() => fires++, 5); "
-            "await new Promise(resolve => setTimeout(resolve, 10)); console.log(fires);", "javascript", 20)
+        # The refreshed timer must outlive the refreshing block's own completion and cleanup on a loaded
+        # runner; with 5 ms it could fire before cleanup (trunk run 39747049567: "2" != "1").
+        refreshed = healthy.run_js("let fires = 0; const reusable = setTimeout(() => fires++, 250); "
+            "await new Promise(resolve => setTimeout(resolve, 500)); console.log(fires);", "javascript", 20)
         self.assertEqual(refreshed.stdout, "1\n")
         self.assertEqual(healthy.run_js("reusable.refresh().unref();", "javascript", 20).status, "pass")
-        self.assertEqual(healthy.run_js("await new Promise(resolve => setTimeout(resolve, 40)); "
+        self.assertEqual(healthy.run_js("await new Promise(resolve => setTimeout(resolve, 600)); "
             "console.log(fires);", "javascript", 20).stdout, "1\n")
         controls.append("refreshedTimeoutFreshOwnership")
         healthy.put("node", Path(healthy.cwd, "scheduler.mjs"), "import {writeFileSync} from 'node:fs'; "
@@ -419,13 +421,18 @@ class DockerRegressions(unittest.TestCase):
         self.assertIn("unsupported owned unref resource: UDP", udp.stderr)
         self.assertNotEqual(run.docker("inspect", refused.containers["node"]).returncode, 0)
         controls.append("unsupportedOwnedUnrefRefused")
-        dormant = self.session.execution_context("unsupported-dormant-udp", "node")
-        result = dormant.run_js("const dormantUdp = require('node:dgram').createSocket('udp4');",
+        dormant = self.session.execution_context("dormant-udp", "node")
+        result = dormant.run_js("const dormantUdp = require('node:dgram').createSocket('udp4'); "
+            "dormantUdp.on('close', () => console.log('udp-close'));",
             "javascript", 20)
-        self.assertEqual(result.status, "fail", result)
-        self.assertIn("unsupported owned dormant resource: UDP", result.stderr)
-        self.assertNotEqual(run.docker("inspect", dormant.containers["node"]).returncode, 0)
-        controls.append("nativeValidDormantUdpExplicitlyUnsupported")
+        self.assertEqual(result.status, "pass", result)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(run.docker("inspect", dormant.containers["node"]).returncode, 0)
+        follow = dormant.run_js("console.log('alive');", "javascript", 20)
+        self.assertEqual(follow.status, "pass", follow)
+        self.assertEqual(follow.stdout, "alive\n")
+        controls.append("nativeValidDormantUdpCompletes")
         for index, (source, kind) in enumerate([
                 ("require('node:fs').watchFile('watched', {persistent:false}, () => {});", "StatWatcher"),
                 ("require('node:fs/promises').watch('watched', {persistent:false});", "FSWatchIterator"),

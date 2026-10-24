@@ -96,6 +96,24 @@ _LABEL_NAME = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:=~|!~|!=|=)")
 _BARE_MATCHER_TERM = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*(=~|!~)\s*\\?"([^"]*)')
 
 
+# Identifiers that share the `honua_` prefix but are NOT Prometheus series, keyed by name with the
+# place that defines them. The consumer docs are prose, and prose names other things too: the helm
+# README maps every honua-iac `aws-eks` Terraform output onto a chart value, one of which is
+# `honua_server_environment` (honua-helm#99, 2026-10-11). Read as a series, that row turned
+# gate-observability red every night from 10-12 with a "drift" no PromQL expression contains.
+# Each entry must name its definition; a name used INSIDE PromQL (with a label matcher) is still a
+# reference and is still checked, so this list can never hide a real absent-series rule.
+NON_METRIC_IDENTIFIERS: dict[str, str] = {
+    "honua_server_environment": "honua-iac infrastructure/terraform/modules/aws-eks/outputs.tf output",
+}
+
+
+def _used_as_promql(name: str, text: str) -> bool:
+    """True when `name` appears in PromQL position: `(name`, `name{` or `name[`."""
+    escaped = re.escape(name)
+    return re.search(rf"\(\s*{escaped}\b|\b{escaped}\s*[{{\[]", text) is not None
+
+
 def load_contract(path: str) -> dict:
     """Read the contract honua-server owns. Raises FileNotFoundError when the checkout is absent."""
     with open(path, encoding="utf-8") as handle:
@@ -198,6 +216,11 @@ def check_sources(contract: dict, sources: dict[str, str]) -> tuple[list[str], l
 
         for name in sorted(series):
             if name in emitted:
+                continue
+            if name in NON_METRIC_IDENTIFIERS and not _used_as_promql(name, code):
+                notes.append(
+                    f"{label}: '{name}' is not a metric ({NON_METRIC_IDENTIFIERS[name]})"
+                )
                 continue
             if name in waived:
                 notes.append(f"{label}: '{name}' is a declared not_emitted waiver (no server instrument)")

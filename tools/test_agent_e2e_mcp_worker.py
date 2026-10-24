@@ -12,6 +12,62 @@ from test_agent_e2e_worker import CONFIG
 from test_agent_e2e_mcp import server, standard, result
 
 
+@pytest.mark.parametrize('view', ['workspace', 'analyze', 'setup', 'full'])
+def test_model_selected_view_crosses_worker_and_each_native_catalog_page(server, tmp_path, view):
+    from agent_e2e_controller import validate_action
+    action = {'name': 'mcp_list_tools', 'input': {'view': view}}
+    validate_action({'type': 'tool_use', 'id': 'provider-call', **action})
+    command = {**request(), 'action': action}
+    validate_command(command, CONFIG['attemptId'], CONFIG['expiresEpoch'], 1000)
+    def respond(request):
+        if request and request.get('method') == 'tools/list':
+            assert request['params']['view'] == view
+            page = {'tools': [{'name': 'first' if 'cursor' not in request['params'] else 'second',
+                                'inputSchema': {'type': 'object'}}]}
+            if view != 'full':
+                page['_meta'] = {'view': view}
+            if 'cursor' not in request['params']:
+                page['nextCursor'] = 'native-next-page'
+            return result(request, page)
+        return standard(request)
+    server.respond = respond
+    config = {'endpoint': server.url, 'credential': 'private-agent-key', 'credentialKind': 'api-key',
+              'workflowView': 'default'}
+    executor = Executor(CONFIG, tmp_path/'journal.sqlite', tmp_path, clock=lambda: 1000,
+        execute_mcp=lambda value, seconds, _: {'status': 'completed', 'payload': run(value, config, seconds)})
+    observed = Worker(Exchange(executor), CONFIG, clock=lambda: 1000).execute_mcp(action, 'selected-view',
+        retain_chunk=lambda _: None, retain_dispatch=lambda _: None)
+    assert observed['payload']['error'] is None
+    assert [tool['name'] for tool in observed['payload']['result']['tools']] == ['first', 'second']
+    assert config['workflowView'] == 'default'
+    assert len([row for row in server.seen if row[3] and row[3].get('method') == 'tools/list']) == 2
+
+
+@pytest.mark.parametrize('view', [None, 1, '', 'workspace/other', 'a'*65, ' workspace'])
+def test_invalid_model_selected_view_never_reaches_transport(view):
+    from agent_e2e_controller import ModelFailure, validate_action
+    action = {'name': 'mcp_list_tools', 'input': {'view': view}}
+    with pytest.raises(ModelFailure):
+        validate_action({'type': 'tool_use', 'id': 'provider-call', **action})
+    with pytest.raises(PackError):
+        validate_command({**request(), 'action': action}, CONFIG['attemptId'], CONFIG['expiresEpoch'], 1000)
+
+
+def test_worker_mcp_carries_issued_native_workspace_turn_through_session_lifecycle(server):
+    context = {'workspaceId': 'native-workspace-17', 'turnId': 'native-turn-29'}
+    actor = {'endpoint': server.url, 'credentialKind': 'api-key', 'credential': 'private-issued-agent-key',
+             'workflowView': None, 'agentContext': context}
+    observed = run({'name': 'mcp_call_tool', 'input': {'name': 'query', 'arguments': {}}}, actor, 30)
+    assert observed['error'] is None and observed['sessionCleanup']['status'] == 'pass'
+    assert server.seen
+    for _, _, headers, _ in server.seen:
+        normalized = {key.lower(): value for key, value in headers.items()}
+        assert normalized['x-honua-workspace'] == context['workspaceId']
+        assert normalized['x-honua-turn'] == context['turnId']
+        assert normalized['x-api-key'] == actor['credential']
+    assert actor['credential'] not in json.dumps(observed)
+
+
 def request():
     return {'protocol':MCP_PROTOCOL, 'attemptId':'attempt-1', 'actionId':'action-1',
             'deadlineEpoch':1120, 'timeoutSeconds':120, 'action':{'name':'mcp_list_tools','input':{}}}

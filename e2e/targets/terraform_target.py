@@ -759,6 +759,13 @@ class TerraformTarget(DeployTarget):
             return
         mode = False if redis_enabled is None else redis_enabled
         self._last_vars = self._last_vars or self._read_transition_vars(root, mode)
+        if self.name == "aws-serverless":
+            from normal_cell_retirement import retire
+            try:
+                retire(self, root, self._last_vars or self._vars(mode, destroy=True), mode)
+            except Exception as error:
+                raise ProvisionError(f"{self.name} reviewed retirement failed: {type(error).__name__}") from error
+            return
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
                                *(self._last_vars or self._vars(mode, destroy=True)), check=False)
@@ -861,7 +868,33 @@ class TerraformTarget(DeployTarget):
                                 env=env, capture_output=True, timeout=120)
         if result.returncode:
             raise ProvisionError("cloud fixture SQL failed")
+        # The runner seeds over the direct instance endpoint (the proxy is VPC-only), but the data
+        # source the server registers is queried from inside the VPC by every Lambda instance. On a
+        # proxied cell it must go through the proxy, or each scaled-out instance opens its own pool
+        # straight to the db.t3.micro and the demo/journey reads hit 53300 (run 39603816191: ~45
+        # direct connections beside the proxy's 25 while S9 ran; honua-iac rds-proxy.tf routing).
+        # AwsEksTarget reuses this seed unbound and declares no proxy output.
+        lookup = getattr(self, "_rds_proxy_endpoint", None)
+        proxy = lookup() if callable(lookup) else None
+        if proxy:
+            connection["host"] = proxy
         return connection
+
+    def _rds_proxy_endpoint(self) -> str | None:
+        """The cell root's `rds_proxy_endpoint` output when the root declares one and it is set."""
+        try:
+            out = self._tf(self._workdir, "output", "-json", "rds_proxy_endpoint", check=False)
+        except (OSError, subprocess.SubprocessError, TypeError):
+            return None
+        if getattr(out, "returncode", 1) != 0:
+            return None
+        try:
+            value = json.loads(out.stdout or "null")
+        except ValueError:
+            return None
+        if isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,252}", value.strip().lower()):
+            return value.strip().lower()
+        return None
 
 
     # --- pre-serving migration (serverless) ------------------------------------------------------

@@ -19,7 +19,7 @@ Run a geoprocessing job — over OGC API - Processes, from JavaScript, Python an
 
 **OGC API Processes.** Submit and poll jobs through OGC API - Processes.
 
-**Geoprocessing Task Execution.** Submit and poll geoprocessing tasks through the Esri GeoServices GPServer surface. Print/export-specific tasks are gated by printing.* entitlement keys.
+**Geoprocessing Task Execution.** Submit and poll geoprocessing tasks through the GeoServices GPServer surface. Print/export-specific tasks are gated by printing.* entitlement keys.
 
 ## Set it up
 
@@ -66,7 +66,7 @@ try {
 > Partly there in the Python SDK — [track the rest here](https://github.com/honua-io/honua-sdk-python/issues/196).
 
 ```bash
-python3 -m pip install honua-sdk==0.1.16
+python3 -m pip install honua-sdk==0.1.18
 ```
 
 ```python
@@ -88,7 +88,7 @@ print(output['outputFeatureLayer']['value']['geometry']['type'])
 
 ```bash
 dotnet new console -o geoprocessing && cd geoprocessing
-dotnet add package Honua.Sdk --version 1.11.1
+dotnet add package Honua.Sdk --version 1.12.0
 ```
 
 ```csharp
