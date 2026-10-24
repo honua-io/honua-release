@@ -53,6 +53,10 @@ override_module {
     db_endpoint               = "isolated.example.us-east-1.rds.amazonaws.com"
     db_connection_secret_arn  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-master-db-123456"
     admin_password_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-admin-password-123456"
+    native_membership_credentials = {
+      root = { secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-admin-password-123456", versionId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      scim = { secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-native-scim-123456", versionId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+    }
   }
 }
 override_module {
@@ -691,4 +695,283 @@ run "counting_member_cannot_be_an_unreviewed_model" {
     }
   }
   expect_failures = [var.controller_model]
+}
+
+run "legacy_native_bootstrap_omits_installed_fields_and_control_custody" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ]
+    }
+  }
+  assert {
+    condition     = (length(aws_secretsmanager_secret.runtime_control) == 0 && !contains(keys(local.native_bootstrap_config), "installedRuntime") && output.installed_runtime_credential_preparation == null && !contains(keys(local.controller_secrets), "HONUA_EXTERNAL_EXECUTION_CONTROL_KEY"))
+    error_message = "Installed runtime credential custody must preserve exact original identities, versions and isolation."
+  }
+}
+
+run "pending_runtime_creates_control_custody_without_injecting_or_activating_it" {
+  command = plan
+  override_resource {
+    target = aws_secretsmanager_secret.runtime_control[0]
+    values = {
+      arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+      id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+    }
+  }
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ],
+      "installedRuntime" : {
+        "runtimeId" : "installed_runtime",
+        "mutationCeilings" : {
+          "createMap" : false,
+          "createDashboard" : false,
+          "compose" : false,
+          "proposePublication" : false,
+          "proposeRestore" : false,
+          "datasetImportScopes" : [
+            "native-target/honua_data/pilot_points"
+          ],
+          "managedProcessIds" : [
+            "analytics.buffer-aggregate-managed"
+          ]
+        }
+      }
+    }
+  }
+  assert {
+    condition     = (length(aws_secretsmanager_secret.runtime_control) == 1 && length(aws_iam_role_policy.issue_runtime_control) == 1 && length(aws_iam_role_policy.inject_runtime_control) == 0 && !contains(keys(local.controller_secrets), "HONUA_EXTERNAL_EXECUTION_CONTROL_KEY") && !output.installed_runtime_credential_preparation.activation && !output.installed_runtime_credential_preparation.qualification && local.native_bootstrap_config.installedRuntime == var.native_bootstrap.installedRuntime && endswith(local.native_bootstrap_secrets.PILOT_FIXTURE_ADMIN_PASSWORD, ":::aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+    error_message = "Installed runtime credential custody must preserve exact original identities, versions and isolation."
+  }
+}
+
+run "actual_control_version_is_controller_only_and_execution_grants_are_exact" {
+  command = plan
+  override_resource {
+    target = aws_secretsmanager_secret.runtime_control[0]
+    values = {
+      arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+      id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+    }
+  }
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ],
+      "installedRuntime" : {
+        "runtimeId" : "installed_runtime",
+        "mutationCeilings" : {
+          "createMap" : false,
+          "createDashboard" : false,
+          "compose" : false,
+          "proposePublication" : false,
+          "proposeRestore" : false,
+          "datasetImportScopes" : [
+            "native-target/honua_data/pilot_points"
+          ],
+          "managedProcessIds" : [
+            "analytics.buffer-aggregate-managed"
+          ]
+        }
+      }
+    }
+    issued_native_keys = {
+      "setup" : {
+        "apiKeyId" : "11111111-1111-1111-1111-111111111111",
+        "versionId" : "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "observer" : {
+        "apiKeyId" : "22222222-2222-2222-2222-222222222222",
+        "versionId" : "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "agent" : {
+        "apiKeyId" : "33333333-3333-3333-3333-333333333333",
+        "versionId" : "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+    issued_runtime_control_key = {
+      "apiKeyId" : "44444444-4444-4444-4444-444444444444",
+      "versionId" : "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  }
+  assert {
+    condition     = (local.controller_secrets.HONUA_EXTERNAL_EXECUTION_CONTROL_KEY == "${aws_secretsmanager_secret.runtime_control[0].arn}:::${var.issued_runtime_control_key.versionId}" && length(jsondecode(aws_iam_role_policy.inject_runtime_control[0].policy).Statement) == 2 && alltrue([for row in jsondecode(aws_iam_role_policy.inject_runtime_control[0].policy).Statement : row.Resource == aws_secretsmanager_secret.runtime_control[0].arn && row.Action == "secretsmanager:GetSecretValue"]) && jsondecode(aws_iam_role_policy.inject_runtime_control[0].policy).Statement[0].Condition.StringEquals["secretsmanager:VersionId"] == var.issued_runtime_control_key.versionId && jsondecode(aws_iam_role_policy.inject_runtime_control[0].policy).Statement[1].Condition.StringNotEquals["secretsmanager:VersionId"] == var.issued_runtime_control_key.versionId && !strcontains(aws_iam_role_policy.execution["controller"].policy, aws_secretsmanager_secret.runtime_control[0].arn) && !contains(keys(local.fixture_secrets), "HONUA_EXTERNAL_EXECUTION_CONTROL_KEY") && !contains(keys(local.controller_secrets), "PILOT_FIXTURE_ADMIN_PASSWORD") && !contains(keys(local.controller_secrets), "PILOT_FIXTURE_MASTER_CONNECTION"))
+    error_message = "Installed runtime credential custody must preserve exact original identities, versions and isolation."
+  }
+}
+
+run "control_key_without_original_runtime_cannot_be_ignored" {
+  command = plan
+  variables {
+    issued_runtime_control_key = {
+      "apiKeyId" : "44444444-4444-4444-4444-444444444444",
+      "versionId" : "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  }
+  expect_failures = [output.installed_runtime_credential_preparation]
+}
+
+run "task_key_cannot_be_reused_as_control_key" {
+  command = plan
+  override_resource {
+    target = aws_secretsmanager_secret.runtime_control[0]
+    values = {
+      arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+      id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+    }
+  }
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ],
+      "installedRuntime" : {
+        "runtimeId" : "installed_runtime",
+        "mutationCeilings" : {
+          "createMap" : false,
+          "createDashboard" : false,
+          "compose" : false,
+          "proposePublication" : false,
+          "proposeRestore" : false,
+          "datasetImportScopes" : [
+            "native-target/honua_data/pilot_points"
+          ],
+          "managedProcessIds" : [
+            "analytics.buffer-aggregate-managed"
+          ]
+        }
+      }
+    }
+    issued_native_keys = {
+      "setup" : {
+        "apiKeyId" : "11111111-1111-1111-1111-111111111111",
+        "versionId" : "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "observer" : {
+        "apiKeyId" : "22222222-2222-2222-2222-222222222222",
+        "versionId" : "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "agent" : {
+        "apiKeyId" : "33333333-3333-3333-3333-333333333333",
+        "versionId" : "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+    issued_runtime_control_key = {
+      "apiKeyId" : "33333333-3333-3333-3333-333333333333",
+      "versionId" : "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  }
+  expect_failures = [aws_secretsmanager_secret.runtime_control[0]]
+}
+
+run "installed_import_ceiling_must_preserve_original_exact_destinations" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ],
+      "installedRuntime" : {
+        "runtimeId" : "installed_runtime",
+        "mutationCeilings" : {
+          "createMap" : false,
+          "createDashboard" : false,
+          "compose" : false,
+          "proposePublication" : false,
+          "proposeRestore" : false,
+          "datasetImportScopes" : [],
+          "managedProcessIds" : [
+            "analytics.buffer-aggregate-managed"
+          ]
+        }
+      }
+    }
+  }
+  expect_failures = [var.native_bootstrap]
 }
