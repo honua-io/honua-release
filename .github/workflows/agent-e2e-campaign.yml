@@ -69,7 +69,7 @@ jobs:
           python-version: '3.12'
       - name: Install candidate binding dependencies
         run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.candidate_run_id }}
@@ -106,7 +106,7 @@ jobs:
           PYTHON
       - name: Download the original funding artifact without AWS authority
         if: steps.funding.outputs.run_id != ''
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           github-token: ${{ github.token }}
           run-id: ${{ steps.funding.outputs.run_id }}
@@ -139,7 +139,7 @@ jobs:
               stream.write('Frozen pre-execution campaign digest: `'+result['campaignDigest']+'`\n')
           PYTHON
       - name: Retain immutable pre-execution inputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign/
@@ -172,7 +172,7 @@ jobs:
           python-version: '3.12'
       - name: Install private dispatch SDK
         run: python -m pip install 'boto3>=1.40,<2'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign
@@ -194,7 +194,7 @@ jobs:
             --evidence-directory "$RUNNER_TEMP/agent-e2e-private/development/evidence"
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-development-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -228,7 +228,7 @@ jobs:
           python-version: '3.12'
       - name: Install private dispatch SDK
         run: python -m pip install 'boto3>=1.40,<2'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign
@@ -251,7 +251,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-docker-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -285,7 +285,7 @@ jobs:
           python-version: '3.12'
       - name: Install private dispatch SDK
         run: python -m pip install 'boto3>=1.40,<2'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign
@@ -308,7 +308,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-ecs-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -342,7 +342,7 @@ jobs:
           python-version: '3.12'
       - name: Install private dispatch SDK
         run: python -m pip install 'boto3>=1.40,<2'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign
@@ -365,7 +365,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-eks-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -399,7 +399,7 @@ jobs:
           python-version: '3.12'
       - name: Install private dispatch SDK
         run: python -m pip install 'boto3>=1.40,<2'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign
@@ -422,7 +422,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-lambda-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -456,7 +456,7 @@ jobs:
           python-version: '3.12'
       - name: Install private dispatch SDK
         run: python -m pip install 'boto3>=1.40,<2'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign
@@ -479,7 +479,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-batch-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -514,7 +514,7 @@ jobs:
           python-version: '3.12'
       - name: Install private dispatch SDK
         run: python -m pip install 'boto3>=1.40,<2'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign
@@ -541,7 +541,7 @@ jobs:
             campaign/campaign.json
             campaign/trusted-inventory.json
       - name: Publish consumer-compatible qualification bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-campaign-${{ github.run_attempt }}
           path: |
@@ -582,7 +582,7 @@ jobs:
           python-version: '3.12'
       - name: Install candidate binding dependencies
         run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.candidate_run_id }}
@@ -608,7 +608,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: budget-bootstrap/bootstrap-accounting.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-budget-bootstrap-${{ github.run_attempt }}
           path: budget-bootstrap/bootstrap-accounting.json

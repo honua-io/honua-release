@@ -76,8 +76,8 @@ jobs:
             --run-id "$CANDIDATE_RUN_ID" --attempt "$CANDIDATE_ATTEMPT" \
             --candidate-artifact-id "$CANDIDATE_ARTIFACT_ID" --image-artifact-id "$IMAGE_ARTIFACT_ID" \
             --release-sha "$RELEASE_SHA" --server-sha "$SERVER_SHA" --version "$PACKAGE_VERSION" --output publication
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -101,7 +101,7 @@ jobs:
           subject-name: ${{ steps.identity.outputs.name }}
           subject-digest: ${{ steps.identity.outputs.digest }}
           push-to-registry: true
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gp-devkit-publication
           path: publication/published
@@ -120,7 +120,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: gp-devkit-publication
           path: publication
@@ -130,7 +130,7 @@ jobs:
           python3 tools/gp_devkit_public_consumption.py \
             --candidate-directory publication/candidate --release-identity publication/published.json \
             --registry-manifest publication/registry-manifest.json --output anonymous-consumption
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gp-devkit-anonymous-consumption
           path: anonymous-consumption/public-consumption.json

@@ -235,7 +235,7 @@ jobs:
 
       - name: Upload the sealed state
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-cell-state-${{ env.CELL_ARTIFACT }}
           path: ${{ runner.temp }}/cell-state/state.enc
@@ -244,7 +244,7 @@ jobs:
 
       - name: Upload the provision handoff
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
           # Identifiers and verdicts only; this repository's artifacts are public.
@@ -288,7 +288,7 @@ jobs:
               -out "$RUNNER_TEMP/journey-key/private.pem" )
           openssl pkey -in "$RUNNER_TEMP/journey-key/private.pem" -pubout -out "$RUNNER_TEMP/journey-hello/public.pem"
       - name: Upload this runner's address and public key
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
           path: ${{ runner.temp }}/journey-hello/
@@ -309,7 +309,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Install journey runner dependencies
@@ -402,7 +402,7 @@ jobs:
           key: playwright-1.61.1-chromium-ubuntu-24.04-${{ runner.arch }}
 
       - name: Download the provision handoff
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
           path: ${{ env.CELL_DIR }}
@@ -441,7 +441,7 @@ jobs:
           echo "::error::the admit job never delivered the cell's sealed application key"
           exit 1
       - name: Download the sealed application key
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cloud-cell-key-${{ env.CELL_ARTIFACT }}
           path: ${{ runner.temp }}/journey-key/sealed
@@ -497,7 +497,7 @@ jobs:
       # Matches the train's journey-gate-report* download, which feeds mint_nightly_lock --declare-evidence.
       - name: Upload the nightly-model-journey row
         if: ${{ always() && inputs.enable_bedrock }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}
           path: |
@@ -507,7 +507,7 @@ jobs:
 
       - name: Upload the journey receipts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-cell-journey-${{ env.CELL_ARTIFACT }}
           # Driver scratch output can hold the application key; only the redacted reports travel.
@@ -551,7 +551,7 @@ jobs:
           python -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$RUNNER_IP"
           echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
       - name: Download the provision handoff
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
           path: ${{ env.CELL_DIR }}
@@ -592,7 +592,7 @@ jobs:
           python e2e/run_cloud.py --phase deliver-key --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
             --public-key "$RUNNER_TEMP/journey-hello/public.pem" --sealed-key "$RUNNER_TEMP/journey-key/app-key.sealed"
       - name: Upload the sealed application key
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-cell-key-${{ env.CELL_ARTIFACT }}
           path: ${{ runner.temp }}/journey-key/app-key.sealed
@@ -678,7 +678,7 @@ jobs:
           echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
           echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
       - name: Download the provision handoff
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
           path: ${{ env.CELL_DIR }}
@@ -687,13 +687,13 @@ jobs:
       # provision observed and copies only verified files into the cell's evidence directory.
       - name: Download the journey receipts
         if: ${{ needs.journey.result != 'skipped' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cloud-cell-journey-${{ env.CELL_ARTIFACT }}
           path: ${{ runner.temp }}/journey-upload
         continue-on-error: true
       - name: Download the sealed state
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cloud-cell-state-${{ env.CELL_ARTIFACT }}
           path: ${{ runner.temp }}/cell-state
@@ -863,7 +863,7 @@ jobs:
 
       - name: Upload cloud gate-report (per cell)
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}
           path: |
