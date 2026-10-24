@@ -47,6 +47,7 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,7 +59,7 @@ jobs:
       - run: python -m pip install "jsonschema>=4.23" "pyyaml>=6.0" pytest
 
       - name: Self-test the release gate
-        run: python -m pytest tools/test_gp_process_release.py -q
+        run: python -m pytest tools/test_gp_process_release.py tools/test_gp_process_deploy.py -q
 
       - name: Fetch and verify the attested release lock
         env:
@@ -85,12 +86,18 @@ jobs:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
           RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.release_run_id }}
           ACTOR: ${{ github.triggering_actor || github.actor }}
+          HONUA_GP_SERVER_URL: ${{ vars.HONUA_GP_SERVER_URL }}
+          HONUA_GP_ADMIN_API_KEY: ${{ secrets.HONUA_GP_ADMIN_API_KEY }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, sys
+          import json, os, re, sys
           from pathlib import Path
+          sys.path.insert(0, "tools")
+          from gp_process_deploy import promotion_binding_version
           env, process, digest = os.environ["ENVIRONMENT"], os.environ["PROCESS"], os.environ["LOCK_DIGEST"]
+          if not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", env):
+              print("::error::environment must name one reviewed environment directory"); sys.exit(1)
           lock = json.load(open("_release/process-release-lock.json"))
           if lock["process"]["name"] != process:
               print(f"::error::the lock is for {lock['process']['name']!r}, not {process!r}"); sys.exit(1)
@@ -98,6 +105,8 @@ jobs:
           if not state_path.is_file():
               print(f"::error::{state_path} does not exist; environments are declared in Git before anything is promoted to them"); sys.exit(1)
           state = json.load(open(state_path))
+          if state.get("environment") != env:
+              print("::error::environment state identity differs from the selected environment"); sys.exit(1)
           short = digest[len("sha256:"):][:12]
           lock_path = Path("release/gp-process-locks") / process / f"{short}.json"
           lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,18 +118,19 @@ jobs:
               if current["release"]["lockDigest"] == digest:
                   print(f"::error::{env} already pins {process} to {digest}"); sys.exit(1)
               previous = current["release"]
+          binding_version = promotion_binding_version(state, process, previous)
           pin = {
               "schema": "honua.gp-environment-pin/v1", "environment": env, "process": process,
               "release": {"lockPath": str(lock_path).replace(os.sep, "/"), "lockDigest": digest},
               "previous": previous,
-              "expectedBindingVersion": state["bindingVersion"],
+              "expectedBindingVersion": binding_version,
               "promotedBy": {"actor": os.environ["ACTOR"], "sourceRun": os.environ["RELEASE_RUN_URL"]},
           }
           pin_path.write_text(json.dumps(pin, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               out.write(f"short={short}\npin_path={pin_path}\nlock_path={lock_path}\nversion={lock['process']['version']}\n")
               out.write(f"previous={previous['lockDigest'] if previous else 'none'}\n")
-              out.write(f"expected_binding_version={state['bindingVersion']}\n")
+              out.write(f"expected_binding_version={binding_version}\n")
           PY
           python3 tools/gp_process_release.py validate-pin "$(sed -n 's/^pin_path=//p' "$GITHUB_OUTPUT" | tail -n1)" --locks-root .
 

@@ -68,6 +68,103 @@ def test_live_preflight_does_not_trust_committed_version(docs):
     assert "STALE_BINDING_VERSION" in decision["refusalReasons"]
 
 
+def test_repeated_live_promotion_reads_current_per_process_version_without_writing(docs):
+    lock, _, state, _, live = docs
+    previous = {"lockDigest": "sha256:" + "b" * 64}
+    live.update(bindingVersion=8, lockDigest=previous["lockDigest"])
+    server = FakeServer(lock, live)
+    assert deploy.promotion_binding_version(state, lock["process"]["name"], previous, client=server) == 8
+    server.live["bindingVersion"] = 9
+    assert deploy.promotion_binding_version(state, lock["process"]["name"], previous, client=server) == 9
+    assert [method for method, _, _ in server.requests] == ["GET", "GET"]
+
+
+def test_reference_promotion_keeps_its_reference_version_without_a_native_client(docs):
+    lock, _, state, _, _ = docs
+    state["deploymentTooling"] = {"kind": "reference"}
+    class NoNativeCall:
+        def request(self, *args, **kwargs):
+            raise AssertionError("Reference promotion cannot read a live target")
+    assert deploy.promotion_binding_version(state, lock["process"]["name"], None, client=NoNativeCall()) == state["bindingVersion"]
+
+
+@pytest.mark.parametrize("changed", [{"process": "foreign"}, {"bindingVersion": True}, {"bindingVersion": -1},
+                                     {"lockDigest": "sha256:" + "c" * 64}])
+def test_live_promotion_refuses_foreign_or_unreviewed_binding(docs, changed):
+    lock, _, state, _, live = docs
+    live.update(changed)
+    with pytest.raises(deploy.DeploymentError, match="reviewed predecessor"):
+        deploy.promotion_binding_version(state, lock["process"]["name"], None, client=FakeServer(lock, live))
+
+
+def test_promotion_observation_does_not_hide_a_later_deployment_race(docs):
+    lock, pin, state, index, live = docs
+    live["bindingVersion"] = 8
+    server = FakeServer(lock, live)
+    pin["expectedBindingVersion"] = deploy.promotion_binding_version(state, lock["process"]["name"], None, client=server)
+    server.live["bindingVersion"] = 9
+    decision, _ = deploy.live_preflight(server, lock, pin, state, index, "deploy")
+    assert not decision["admissible"] and "STALE_BINDING_VERSION" in decision["refusalReasons"]
+
+
+def test_actual_promotion_workflow_records_two_native_versions_with_unchanged_committed_state(docs, tmp_path, monkeypatch):
+    workflow = yaml.safe_load((Path(__file__).parents[1] / ".github/workflows/gp-promote-process.yml").read_text())
+    job = workflow["jobs"]["promote"]
+    assert job["environment"] == "${{ inputs.environment }}"
+    step = next(row for row in job["steps"] if row.get("name") == "Write the lock and the environment pin")
+    assert step["env"]["HONUA_GP_ADMIN_API_KEY"] == "${{ secrets.HONUA_GP_ADMIN_API_KEY }}"
+    script = step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    lock, _, state, _, _ = docs
+    process = lock["process"]["name"]
+    predecessor = copy.deepcopy(lock); predecessor["process"]["version"] = "0.9.0"
+    previous_path = Path("release/gp-process-locks") / process / "previous.json"
+    (tmp_path / previous_path).parent.mkdir(parents=True)
+    (tmp_path / previous_path).write_text(json.dumps(predecessor))
+    environment = tmp_path / "release/gp-environments/dev"
+    environment.mkdir(parents=True)
+    (environment / "environment.json").write_text(json.dumps(state))
+    pin_path = environment / (process + ".pin.json")
+    pin_path.write_text(json.dumps({"release":{"lockPath":str(previous_path), "lockDigest":gate.digest(predecessor)}}))
+    original_state = (environment / "environment.json").read_bytes()
+    wire = {"process":process, "bindingVersion":8, "lockDigest":gate.digest(predecessor)}
+    requests = []
+    class NativeBinding(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            requests.append((self.command, self.path, self.headers.get("X-API-Key")))
+            assert self.path == deploy.BASE + "/bindings/" + process
+            assert self.headers.get("X-API-Key") == "private-test-key"
+            raw = json.dumps(wire).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
+    server = ThreadingHTTPServer(("127.0.0.1",0), NativeBinding)
+    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    original_client = deploy.Client
+    monkeypatch.setattr(deploy, "Client", lambda url, key: original_client(url, key, allow_loopback_http=True))
+    monkeypatch.syspath_prepend(str(Path(__file__).parent))
+    monkeypatch.chdir(tmp_path)
+    for key,value in {"ENVIRONMENT":"dev", "PROCESS":process, "ACTOR":"reviewed-operator",
+            "RELEASE_RUN_URL":"https://github.com/honua-io/honua-release/actions/runs/1",
+            "GITHUB_OUTPUT":str(tmp_path/"step-output"), "HONUA_GP_SERVER_URL":f"http://127.0.0.1:{server.server_port}",
+            "HONUA_GP_ADMIN_API_KEY":"private-test-key"}.items(): monkeypatch.setenv(key,value)
+    (tmp_path/"_release").mkdir()
+    try:
+        for version, expected in [("1.0.0",8),("2.0.0",9)]:
+            candidate = copy.deepcopy(lock); candidate["process"]["version"] = version
+            (tmp_path/"_release/process-release-lock.json").write_text(json.dumps(candidate))
+            monkeypatch.setenv("LOCK_DIGEST", gate.digest(candidate))
+            exec(compile(script,"gp-promote-process.yml","exec"), {})
+            pin = json.loads(pin_path.read_text())
+            assert pin["expectedBindingVersion"] == expected
+            gate.validate_pin(pin, tmp_path)
+            assert (environment/"environment.json").read_bytes() == original_state
+            wire.update(bindingVersion=expected+1, lockDigest=gate.digest(candidate))
+        assert len(requests) == 2 and all(method == "GET" for method, _, _ in requests)
+        assert "expected_binding_version=9" in (tmp_path/"step-output").read_text()
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=5)
+
+
 def test_rollback_reads_current_version_but_requires_exact_predecessor(docs):
     lock, pin, state, index, live = docs
     pin["previous"] = {"lockDigest": gate.digest(lock)}

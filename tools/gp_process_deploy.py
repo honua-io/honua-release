@@ -95,6 +95,26 @@ def write(path, document):
     temporary.replace(path)
 
 
+def promotion_binding_version(state, process, previous, *, client=None):
+    """Capture the live version without changing it or weakening deployment CAS.
+
+    A reference environment has no remote binding. A live promotion must name
+    the exact currently pinned predecessor before it records a new version.
+    Concurrent changes after this GET remain deployment-time refusals.
+    """
+    if state.get("deploymentTooling", {}).get("kind") == "reference":
+        return state["bindingVersion"]
+    if state.get("deploymentTooling", {}).get("kind") != "aws-batch":
+        raise DeploymentError("Live promotion requires the supported IaC Batch deployment contract")
+    client = client or Client(os.environ.get("HONUA_GP_SERVER_URL", ""), os.environ.get("HONUA_GP_ADMIN_API_KEY", ""))
+    observed = client.request("GET", f"{BASE}/bindings/{quote(process, safe='')}")
+    expected_lock = previous["lockDigest"] if previous else None
+    if (observed.get("process") != process or type(observed.get("bindingVersion")) is not int
+            or observed["bindingVersion"] < 0 or observed.get("lockDigest") != expected_lock):
+        raise DeploymentError("Live promotion binding identity or reviewed predecessor differs; reconcile before promotion")
+    return observed["bindingVersion"]
+
+
 def live_preflight(client, lock, pin, state, index, operation):
     """Use the current binding, never a checked-in version as live state."""
     process = lock["process"]["name"]
