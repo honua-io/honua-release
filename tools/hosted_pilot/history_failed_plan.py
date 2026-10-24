@@ -145,6 +145,10 @@ SUCCESS_RELEASE_SOURCES = {'certification/hosted-pilot/bootstrap/.terraform.lock
 
 def original_success_sources(record,receipt):
     """Keep this actually observed plan valid after unrelated helper evolution."""
+    from history_expired_phase import observed_plan_sources
+    observed = observed_plan_sources(record, receipt)
+    if observed is not None:
+        return observed
     if record['producer'] != SUCCESS_PRODUCER:
         return None
     require(record['kind']=='foundation-plan' and record['artifact']==SUCCESS_ARTIFACT and
