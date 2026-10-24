@@ -731,7 +731,8 @@ run "legacy_native_bootstrap_omits_installed_fields_and_control_custody" {
 run "pending_runtime_creates_control_custody_without_injecting_or_activating_it" {
   command = plan
   override_resource {
-    target = aws_secretsmanager_secret.runtime_control[0]
+    override_during = plan
+    target          = aws_secretsmanager_secret.runtime_control[0]
     values = {
       arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
       id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
@@ -785,7 +786,8 @@ run "pending_runtime_creates_control_custody_without_injecting_or_activating_it"
 run "actual_control_version_is_controller_only_and_execution_grants_are_exact" {
   command = plan
   override_resource {
-    target = aws_secretsmanager_secret.runtime_control[0]
+    override_during = plan
+    target          = aws_secretsmanager_secret.runtime_control[0]
     values = {
       arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
       id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
@@ -868,7 +870,8 @@ run "control_key_without_original_runtime_cannot_be_ignored" {
 run "task_key_cannot_be_reused_as_control_key" {
   command = plan
   override_resource {
-    target = aws_secretsmanager_secret.runtime_control[0]
+    override_during = plan
+    target          = aws_secretsmanager_secret.runtime_control[0]
     values = {
       arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
       id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
