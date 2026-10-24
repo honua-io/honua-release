@@ -49,8 +49,8 @@ def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    # The retained full source and its executable block bindings advance together.
-    assert row["revision"] == "94dd703553024d695e03b36dcbc9362b5b267fc9"
+    # The renewed source has the exact same Git blob as the retained full snapshot.
+    assert row["revision"] == "24c214c2ec680ed3cbacc4149fd2321d572aac49"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])
