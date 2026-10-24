@@ -33,7 +33,7 @@ resource "aws_secretsmanager_secret" "runtime_control" {
 }
 
 locals {
-  runtime_control_injection = local.native_installed_runtime == null || var.issued_runtime_control_key == null ? {} : {
+  runtime_control_injection = local.native_installed_runtime == null || var.issued_runtime_control_key == null || local.installed_identity != null ? {} : {
     HONUA_EXTERNAL_EXECUTION_CONTROL_KEY = "${aws_secretsmanager_secret.runtime_control[0].arn}:::${var.issued_runtime_control_key.versionId}"
   }
 }
@@ -47,7 +47,7 @@ resource "aws_iam_role_policy" "issue_runtime_control" {
 }
 
 resource "aws_iam_role_policy" "inject_runtime_control" {
-  count = local.native_installed_runtime == null || var.issued_runtime_control_key == null ? 0 : 1
+  count = local.native_installed_runtime == null || var.issued_runtime_control_key == null || local.installed_identity != null ? 0 : 1
   role  = aws_iam_role.execution["controller"].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = aws_secretsmanager_secret.runtime_control[0].arn,
