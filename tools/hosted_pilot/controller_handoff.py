@@ -21,7 +21,7 @@ COMMAND = ['python', 'tools/hosted_pilot/controller_entry.py']
 CONFIG_PATH = 'certification/agent-e2e/controller-handoff.json'
 WORKFLOW = 'agent-e2e-campaign.yml'
 PREPARE_WORKFLOW = 'hosted-pilot-prepare.yml'
-PREPARATIONS = {'prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base'}
+PREPARATIONS = {'prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base', 'prepare-runtime-registration-budget'}
 
 
 def sdk(service, region):

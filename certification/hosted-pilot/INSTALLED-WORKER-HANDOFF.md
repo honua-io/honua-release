@@ -56,13 +56,17 @@ absolute deadline is the earlier of the original funding expiry and the original
 admission time plus the quoted lifetime (at most 600 seconds). A process restart,
 replacement task or missing response cannot create a new deadline. The task
 must use the quoted 256 CPU units, 1024 MiB memory and default ephemeral storage.
+The checked `prepare-runtime-registration-budget` route performs that preparation
+under its own previously reserved controller overhead operation. Its rows are
+disjoint from the later registrar's rows, and its result is only the original
+admission reference; the route has no registrar credential and does not launch it.
 
 The optional runtime Terraform input creates a separate control credential and
 pins the original root credential for the bootstrap/registrar path. The ordinary
 controller receives the exact control credential version and never the root
 credential. The input is absent by default and does not activate execution.
 
-The registrar task definition, checked preparation/dispatch route, independent
+The registrar task definition, checked dispatch route, independent
 same-deadline reaper, actual positive quote and deployed references remain
 required integration steps. This source interface does not assert a deployed
 registration, successful execution, cleanup or settlement.

@@ -40,7 +40,7 @@ jobs:
           import json, os
           from pathlib import Path
           manifest = json.loads((Path(os.environ['RUNNER_TEMP'])/'preparation/preparation.json').read_text())
-          assert manifest['operation'] in ('prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base')
+          assert manifest['operation'] in ('prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base', 'prepare-runtime-registration-budget')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('operation='+manifest['operation']+'\n')
           PY

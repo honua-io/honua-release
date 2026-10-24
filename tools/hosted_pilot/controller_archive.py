@@ -58,6 +58,7 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/enrollment_receipt.py',
     'tools/hosted_pilot/human_enrollment.py',
     'tools/hosted_pilot/worker_allowance.py',
+    'tools/hosted_pilot/registration_allowance_preparation.py',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
 BUNDLE_LIMIT = 128 * 1024 * 1024
