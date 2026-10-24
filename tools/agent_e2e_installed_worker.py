@@ -14,7 +14,7 @@ import time
 
 from agent_e2e_console_runtime import require, identifier, execution_id, digest
 from agent_e2e_pack import canonical_digest
-from agent_e2e_worker_lifecycle import WorkerLifecycle
+from agent_e2e_worker_lifecycle import WorkerLifecycle, terraform_definition_digest
 from agent_e2e_budget import validate as validate_budget, money
 from agent_e2e_interactive_budget import validate_retained_funding
 
@@ -162,7 +162,7 @@ class InstalledSlot:
         definition = self.states.describe_state_machine(stateMachineArn=c['stateMachineArn'])
         require(definition.get('stateMachineArn') == c['stateMachineArn'] and definition.get('roleArn') == c['stateMachineRoleArn'] and
                 definition.get('status') == 'ACTIVE' and definition.get('type') == 'STANDARD' and
-                canonical_digest(json.loads(definition['definition'])) == c['definitionDigest'],
+                terraform_definition_digest(definition.get('definition')) == c['definitionDigest'],
                 'installed lifecycle differs from reviewed source')
         response = self.ecs.describe_task_definition(taskDefinition=c['taskDefinitionArn'])
         task = response.get('taskDefinition', {})
