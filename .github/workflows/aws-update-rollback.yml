@@ -119,7 +119,6 @@ jobs:
     secrets:
       RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
       UPDATE_ROLLBACK_CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
-      UPDATE_ROLLBACK_APPROVAL_KEY: ${{ secrets.UPDATE_ROLLBACK_APPROVAL_KEY }}
   collect:
     needs: cloud
     if: always() && github.ref == 'refs/heads/trunk'

@@ -458,6 +458,17 @@ def documented_blockers(receipt):
     blockers = set()
     if any(notice.startswith(UNSUPPORTED_KIND_NOTICE) for notice in notices):
         blockers.add(UNSUPPORTED_KIND_ISSUE)
+    roster = receipt.get("roster") if isinstance(receipt.get("roster"), dict) else {}
+    if roster.get("status") == "fail":
+        return []
+    if roster.get("status") == "blocked":
+        # The candidate roster exports are a tracked upstream limitation, never a pass.
+        named = roster.get("blockedBy")
+        named = [named] if isinstance(named, str) else list(named or [])
+        named = [str(b) for b in named if str(b).strip()]
+        if not named:
+            return []
+        blockers.update(named)
     for stage in receipt.get("stages") or []:
         if stage.get("status") == "fail":
             return []
@@ -556,6 +567,23 @@ def _deleted(status):
                  "meet the existing object)"}.get(status, f"answered {status or 'nothing'}")
 
 
+ATTEMPT_SUFFIX = "-attempt"
+
+
+def attempt_datasource_name(base, number):
+    """Attempt 1 keeps the authored datasource name; a retry gets its own. Attempt 1's connection
+    usually cannot be deleted (the service it published still references it: 409), so a retry that
+    re-used the name failed at CreateConnectionAsync before any stage could recover (runs
+    39705901768, 39746615094, 39772292511)."""
+    base = str(base or "")
+    return base if number <= 1 or not base else f"{base}{ATTEMPT_SUFFIX}{number}"
+
+
+def _base_datasource_name(name):
+    head, sep, tail = str(name or "").rpartition(ATTEMPT_SUFFIX)
+    return head if sep and tail.isdigit() and head else str(name or "")
+
+
 def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None):
     """Delete attempt N-1's fixed-name journey objects before attempt N; returns the receipt notice.
 
@@ -566,7 +594,7 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
         return []
     request = request or admin_request
     base = (endpoint or "").rstrip("/")
-    name = str(((execution or {}).get("datasource") or {}).get("name") or "")
+    name = _base_datasource_name(((execution or {}).get("datasource") or {}).get("name"))
     style = str((execution or {}).get("styleId") or "")
     steps = []
     if name:
@@ -575,8 +603,10 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
         if status != 200 or not isinstance(rows, list):
             steps.append(f"listing connections answered {status or 'nothing'}, so no {name} connection was deleted")
         else:
+            # Every earlier attempt's connection: the authored name and its per-attempt variants.
             ids = [str(row.get("connectionId")) for row in rows
-                   if isinstance(row, dict) and row.get("name") == name]
+                   if isinstance(row, dict) and (row.get("name") == name
+                       or _base_datasource_name(row.get("name")) == name != row.get("name"))]
             if not ids:
                 steps.append(f"no {name} connection was left")
             for connection_id in ids:
@@ -634,7 +664,6 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     directory.mkdir(parents=True, exist_ok=True)
     workdir = directory / f"work-{number}"
     contract = driver.load(HERE / "journey.v1.json")
-    policy = driver.load(HERE / "control-plane-roster.v1.json")
     pinned = manifest()
     template = driver.load(adapter.DEFAULT_TARGET)
     targets = cloud_targets()
@@ -648,6 +677,9 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         target.update(id=cell, kind=kind or "none")
         target["adminPassword"] = {"env": "HONUA_CLOUD_JOURNEY_ADMIN", "default": ""}
         target["compose"]["notes"] = "Externally provisioned cloud cell; the cloud harness owns teardown."
+    datasource = (target.get("execution") or {}).get("datasource")
+    if kind is not None and isinstance(datasource, dict) and datasource.get("name"):
+        datasource["name"] = attempt_datasource_name(datasource["name"], number)
     target_path = directory / f"target-{number}.json"
     target_path.write_text(json.dumps(target) + "\n")
     notices = [f"Imported adapter protocol: {adapter.PROTOCOL}"]
@@ -669,6 +701,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     attribution = None
     if "discovery" in sys.modules:
         sys.modules["discovery"].reset_trace()
+        sys.modules["discovery"].reset_calls()
     try:
         if endpoint is not None:
             # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
@@ -706,9 +739,14 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     if build_only:
         target["kind"] = "none"
     receipt = driver.build_receipt(
-        manifest=pinned, journey=contract, roster=driver.roster_verdict(policy,
+        manifest=pinned, journey=contract, roster=driver.roster_verdict(
             driver.load(Path(os.environ["HONUA_CLOUD_REST_ROSTER"])) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
-            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None),
+            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+            sys.modules["discovery"].calls() if "discovery" in sys.modules else [],
+            source=driver.roster_source(
+                Path(os.environ["HONUA_CLOUD_REST_ROSTER"]) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
+                Path(os.environ["HONUA_CLOUD_MCP_ROSTER"]) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+                os.environ.get("HONUA_CLOUD_ROSTER_SOURCE_SHA"), pinned)),
         evidence_uri=evidence_uri,
         mode="build" if build_only else "live", target=target,
         target_path=target_path, target_base_url=endpoint, workspace=workspace,
@@ -749,6 +787,13 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         if proof.get("status") != "pass" and record["failureAttribution"] is None:
             record["failureAttribution"] = "infrastructure"
     return record
+
+
+def profile_blocked(record, raw_path):
+    """A Redis-off attempt whose serving/refusal profile is a documented block (no admissible
+    prerequisite), as opposed to a profile that ran and failed."""
+    import deterministic_refusal_profile as profile
+    return profile.blocked_record(record, Path(raw_path))
 
 
 def qualify_attempt(record, receipt, cell, *, raw_path, run_id, run_attempt,

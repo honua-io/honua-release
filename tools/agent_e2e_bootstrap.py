@@ -36,9 +36,14 @@ def validate_import(value, candidate):
         raise PackError('invalid bootstrap producer identity')
     ledger = artifact['ledger']
     validate_budget(ledger)
-    if (ledger['candidateKey'] != candidate or ledger['schemaVersion'] != 2 or ledger['entries']
+    if any(field in ledger for field in ('interactiveAccounting', 'interactiveEntries', 'interactivePaidAdmissions')):
+        raise PackError('bootstrap import cannot reinitialize interactive execution history')
+    if (ledger['candidateKey'] != candidate or ledger['schemaVersion'] not in (2, 3) or ledger['entries']
             or not ledger['operations']):
         raise PackError('bootstrap must preserve operation accounting without claiming model attempts')
+    if ledger['schemaVersion'] == 3 and (ledger['policyAmendment']['priorLedger']['schemaVersion'] != 2 or
+            ledger.get('paidAdmissions')):
+        raise PackError('bootstrap amendment requires actual prior version-2 operation history without paid model attempts')
     bootstrap_kinds = {row['kind'] for row in ledger['operations'] if row['purpose'] == 'bootstrap'}
     if bootstrap_kinds != {'infrastructure', 'cleanup'}:
         raise PackError('bootstrap requires retained infrastructure and cleanup reservations')

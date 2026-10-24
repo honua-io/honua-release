@@ -1,0 +1,79 @@
+{
+  "schema": "honua.hosted-pilot-observed-legacy-model-liabilities/v1",
+  "candidateIndependent": true,
+  "source": "Original retained terminal-model-canary receipts; full transcript/provenance remain private",
+  "accountId": "585192672263",
+  "region": "us-east-1",
+  "collectionCutoff": "2026-10-23T13:45:00Z",
+  "accountUsageCoverageMustNotBeExtended": true,
+  "rows": [
+    {
+      "runId": "39954064982",
+      "runAttempt": 1,
+      "status": "fail",
+      "mode": "genuine-model",
+      "completedAt": "2026-10-23T12:38:38.190582Z",
+      "totals": {
+        "completionTokens": 1868,
+        "elapsedMs": 97129,
+        "modelCalls": 19,
+        "promptTokens": 689747,
+        "totalTokens": 691615
+      },
+      "reportedModels": [
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+      ],
+      "receiptSha256": "sha256:f73d1dc01b17a63bfea0ef2e2a8d5aea2a8e89852540a5761a90ad0aa0095ed3",
+      "unsettledActualUsd": null,
+      "provisionalAdditionalHoldUsd": "20",
+      "holdPurpose": "Unattributed/unbilled genuine-model and diagnostic liability; a conservative reservation, not a price estimate or settled charge",
+      "originalZipSha256": "sha256:f41da6e8a55d66911a8322ff3273b0408c761a206e080ffaacdc1b0b42d01d16"
+    },
+    {
+      "runId": "39964245470",
+      "runAttempt": 1,
+      "status": "fail",
+      "mode": "genuine-model",
+      "completedAt": "2026-10-23T13:54:51.978154Z",
+      "totals": {
+        "completionTokens": 2936,
+        "elapsedMs": 135189,
+        "modelCalls": 24,
+        "promptTokens": 852285,
+        "totalTokens": 855221
+      },
+      "reportedModels": [
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+      ],
+      "receiptSha256": "sha256:b4a7f52d2172b195a3e8269c4bd51a4c80e984eff6fb1398da5d1b4cfe428e0e",
+      "unsettledActualUsd": null,
+      "provisionalAdditionalHoldUsd": "20",
+      "holdPurpose": "Unattributed/unbilled genuine-model and diagnostic liability; a conservative reservation, not a price estimate or settled charge",
+      "originalZipSha256": "sha256:a434d2f5387f199064a6524d4151e99edf7f905c2271855d09677114eb6dfda3"
+    },
+    {
+      "runId": "39946356426",
+      "runAttempt": 1,
+      "status": "fail",
+      "mode": "genuine-model",
+      "completedAt": "2026-10-23T11:33:55.520542Z",
+      "totals": {
+        "completionTokens": 1265,
+        "elapsedMs": 59531,
+        "modelCalls": 12,
+        "promptTokens": 415234,
+        "totalTokens": 416499
+      },
+      "reportedModels": [
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+      ],
+      "receiptSha256": "sha256:ecb36dc5657b59614a5893077cfffb54e476bde2333d405ab156608485a494d7",
+      "unsettledActualUsd": null,
+      "provisionalAdditionalHoldUsd": "20",
+      "holdPurpose": "Unattributed/unbilled genuine-model and diagnostic liability; a conservative reservation, not a price estimate or settled charge"
+    }
+  ],
+  "settledActualUsd": null,
+  "laterReceiptNeverMeansFreeRetry": true,
+  "unknownEarlierLiabilitiesMayNotBeReleased": true
+}

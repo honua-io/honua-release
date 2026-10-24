@@ -139,7 +139,7 @@ def _tool_view(observation: stagelib.Observation) -> dict[str, Any]:
         "tools": discovery.get("tools", []) if observation.setup_view_present else [],
         "metadata": discovery.get("metadata") if observation.setup_view_present else None,
         "catalogToolCount": len(observation.tool_names),
-        "blockedBy": [] if observation.setup_view_present else [stagelib.SETUP_VIEW],
+        "blockedBy": [] if observation.setup_view_present else [stagelib.JOURNEY_DRIVER],
         "detail": (
             "the candidate negotiates a bounded server-authored setup view"
             if observation.setup_view_present
@@ -304,12 +304,15 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     if workspace.status != "pass" or bindir is None:
         blockers.append(stagelib.INSTALLED_CLIENTS)
     if not observation.setup_view_present:
-        blockers.append(stagelib.SETUP_VIEW)
+        blockers.append(stagelib.JOURNEY_DRIVER)
     if stack_up and observation.ready:
         try:
-            local_fixture.credentials(target, workdir, base_url, mint=True,
+            credentials = local_fixture.credentials(target, workdir, base_url, mint=True,
                 **({"tenant_signing_key": os.environ["HONUA_CANARY_TENANT_SIGNING_KEY"]}
                    if cloud and os.environ.get("HONUA_CANARY_TENANT_SIGNING_KEY") else {}))
+            if serving_fixture is None:
+                local_fixture.prepare_style_catalog(target,
+                    Transport(base_url, None, None, workdir, credentials))
         except (ExecutionError, KeyError, ValueError, TypeError, AttributeError):
             blockers.append(stagelib.JOURNEY_DRIVER)
 
@@ -405,7 +408,12 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         unfinished = result and any(c.detail == "required live assertion has not executed" for c in result.checks)
         if result and not unfinished:
             concrete = prerequisites + result.checks
-        failed = any(c.status == "fail" for c in concrete)
+        # Keep the failed oracle visible while a model can repair its own
+        # selected size within the unchanged action budget. Candidate defects
+        # and every other failed assertion remain terminal. Completion still
+        # requires engine.result() to pass the original pixel oracle.
+        repairable = {c.id for c in concrete if engine.repairable_render_selection(number, c)}
+        failed = any(c.status == "fail" and c.id not in repairable for c in concrete)
         blocked = any(c.status == "blocked" for c in concrete)
         blockers = list(dict.fromkeys(b for c in concrete if c.status == "blocked" for b in c.blocked_by))
         _write_state(state["workspaceId"], state)
@@ -419,11 +427,18 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                 "proposalId": proposal_id if pending else None,
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
-                                "terminalSurface": {"sdkCommand": "honua-journey-sdk",
-                                                    "sdkMethods": sorted(executor.SDK_METHODS),
-                                                    "uploadCommand": executor.UPLOAD_COMMAND} if number == 3 else {},
+                                "terminalSurface": engine.terminal_surface(number),
+                                "renderDimensions": engine.evidence.get("renderDimensions"),
+                                "mapReadbacks": engine.evidence.get("mapReadbacks", []),
+                                "repairableChecks": sorted(repairable),
                                 "evidence": checks},
-                "toolView": _tool_view(observation), "blockedBy": blockers}
+                "toolView": _tool_view(observation),
+                # The tool calls this stage admits (the executor refuses any other as an invalid action):
+                # the stage's set intersected with the server-authored view.
+                "stageTools": sorted(executor.STAGE_TOOLS.get(number, set())
+                                     & {t.get("name") for t in _tool_view(observation).get("tools", [])
+                                        if isinstance(t, dict)}),
+                "blockedBy": blockers}
     return {
         "status": "blocked" if status["status"] != "pass" else "pass",
         "stageStatus": status,
@@ -431,6 +446,13 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         "toolView": _tool_view(observation),
         "blockedBy": status["blockedBy"],
     }
+
+
+# Typed MCP tool error codes that describe the request, not a candidate fault: a well-formed call the
+# candidate refused because of what was asked (missing resource, invalid argument, wrong state). Server
+# faults, transport failures, permission or proof failures stay candidate-execution (infrastructure).
+CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "invalid_argument", "invalid_input", "conflict",
+                                     "already_exists", "failed_precondition", "validation_failed"})
 
 
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
@@ -451,9 +473,20 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
             result = engine.execute(status["number"], action)
         except ExecutionError as exc:
             _write_state(state["workspaceId"], state)
+            from transport import ActionRejected  # noqa: PLC0415 - same module path as the executor
             return {"status": "blocked" if exc.blocked else "fail", "stageStatus": status,
+                    # invalid-action: the selected action was refused before its candidate write
+                    # (model feedback). candidate-execution: a valid action failed in the candidate or
+                    # its proof (never model feedback).
+                    # candidate-refusal: a typed client-side tool error for a well-formed call (e.g. asking
+                    # for a service that is not published yet) - feedback an agent is expected to act on.
+                    "refusal": ("invalid-action" if isinstance(exc, ActionRejected)
+                                else "candidate-refusal" if exc.problem.get("code") in CANDIDATE_REFUSAL_CODES
+                                else "candidate-execution"),
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
-                               "injectedError": None, "recoveredError": None},
+                               "injectedError": None, "recoveredError": None,
+                               **({"mapReadbacks": engine.evidence.get("mapReadbacks", [])}
+                                  if action.get("tool") == "honua_studio_save_version" else {})},
                     "canonicalIds": {k: None for k in executor.ID_FIELDS},
                     "blockedBy": [stagelib.JOURNEY_DRIVER] if exc.blocked else []}
         _write_state(state["workspaceId"], state)
@@ -609,6 +642,7 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
 def _executor(state, target, observation):
     workdir = Path(state["workdir"])
     bindir = workdir / "install" / "node_modules" / ".bin"
+    local_fixture.restore_datasource_environment(target)
     credentials = local_fixture.credentials(target, workdir, state["baseUrl"],
         **({"tenant_signing_key": os.environ["HONUA_CANARY_TENANT_SIGNING_KEY"]}
            if state.get("external") and os.environ.get("HONUA_CANARY_TENANT_SIGNING_KEY") else {}))
@@ -669,10 +703,10 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
     try:
         response = handler(request)
     except DriverError as exc:
-        return {"status": "fail", "operation": operation, "error": str(exc)}
+        return {"status": "fail", "operation": operation, "errorCategory": "DriverError", "error": str(exc)}
     except ExecutionError as exc:
         return {"status": "blocked" if exc.blocked else "fail", "operation": operation,
-                "error": f"{exc.command}: {exc.reason}"}
+                "errorCategory": "ExecutionError", "error": f"{exc.command}: {exc.reason}"}
     except Exception as exc:  # noqa: BLE001 - a driver crash must never read as pass
         return {"status": "fail", "operation": operation, "error": f"{type(exc).__name__}: {exc}"}
     response.setdefault("protocol", PROTOCOL)

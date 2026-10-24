@@ -769,7 +769,8 @@ def test_canonical_client_applicability_decisions_are_complete_and_governed():
         "not-client-addressable",
     }
 
-    assert len(decisions) == 41
+    assert len(decisions) == 42
+    assert {"capability_key": "analytics.h3", "classification": "official-sdk-required"} in decisions
     assert len(capability_keys) == len(set(capability_keys))
     assert all(decision["classification"] in allowed for decision in decisions)
     assert all(
@@ -1451,6 +1452,32 @@ def _desktop_source():
     )
 
 
+def _pinned_matrix():
+    matrix = json.loads(
+        (cert.REQUIREMENTS_PATH.parent / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8")
+    )
+    keys = {row["key"] for row in matrix["capabilities"]}
+    implemented = {
+        row["key"] for row in matrix["capabilities"] if row.get("maturity", {}).get("implemented")
+    }
+    return keys, implemented
+
+
+def _ui_must_fix(source, field):
+    """Must-fix UI cells for capabilities the pinned matrix has implemented."""
+    matrix_keys, implemented = _pinned_matrix()
+    ui = source["ui"]
+    core = set()
+    for surface in ui["surfaces"]:
+        key = surface["capability_key"]
+        if key in matrix_keys and key not in implemented:
+            continue
+        core.update((surface["surface"], function) for function in surface[field])
+    if ui["auth_capability"] not in matrix_keys or ui["auth_capability"] in implemented:
+        core.update((ui["auth_surface"], mode) for mode in ui["auth_modes"])
+    return core
+
+
 def test_ledger_cell_must_carry_and_bind_the_client_driver():
     """R40: the ledger cell carries the requirement's driver, and the receipt binds that driver."""
     cell = _release_line_cell(client_driver="pyqgis", release_bucket="must-fix-before-cut")
@@ -1531,19 +1558,14 @@ def test_owned_denominator_splits_desktop_rows_by_driver():
         for row in rows
         if row.get("client_driver") == "pro-ui" and row["release_bucket"] == must_fix
     }
-    assert pro_core == {
-        ("feature-server", "connect"), ("feature-server", "add-layer"), ("feature-server", "render"),
-        ("feature-server", "identify"), ("feature-server", "query"), ("feature-server", "edit"),
-        ("map-server", "connect"), ("map-server", "add-layer"), ("map-server", "render"),
-        ("map-server", "identify"), ("map-server", "query"),
-        ("image-server", "render"),
-        ("auth", "anonymous"), ("auth", "token-api-key"), ("auth", "portal-sign-in"),
-    }
+    assert pro_core == _ui_must_fix(source, "pro_core")
+    assert ("image-server", "render") not in pro_core
     qgis_core = {
         (row["surface"], row["operation"])
         for row in rows
         if row.get("client_driver") == "qgis-ui" and row["release_bucket"] == must_fix
     }
+    assert qgis_core == _ui_must_fix(source, "qgis_core")
     assert pro_core < qgis_core
     for surface, functions in {
         "wms": {"connect", "add-layer", "render", "identify", "query"},
@@ -1629,26 +1651,40 @@ def test_licensed_scripting_driver_keeps_the_metadata_facet():
 
 
 def test_pyqgis_is_the_full_surface_function_grid():
-    """R40: pyqgis is every server-declared surface crossed with every function, and a function
-    PyQGIS has no client for is not-applicable with that reason declared on the row."""
+    """R40: pyqgis is every implemented server-declared surface crossed with every function, and a
+    function PyQGIS has no client for is not-applicable with that reason declared on the row.
+    A capability the pinned matrix has not implemented contributes no row."""
     requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
     grid = json.loads(
         (Path(__file__).parents[1] / "certification" / "sources" / "pyqgis-function-grid.v1.json")
         .read_text(encoding="utf-8")
     )
+    matrix_keys, implemented = _pinned_matrix()
     operations = [item["operation"] for item in grid["functions"]]
+
+    def withheld(capability_key: str) -> bool:
+        return capability_key in matrix_keys and capability_key not in implemented
+
     expected = {
         (surface["surface"], operation): surface["not_applicable"].get(operation)
         for surface in grid["surfaces"]
+        if not withheld(surface["capability_key"])
         for operation in operations
     }
     for dropped in grid["dropped_functions"]:
+        if withheld(dropped["surface"]):
+            continue
         expected[(dropped["surface"], dropped["operation"])] = dropped["addressability_reason"]
+    withheld_surfaces = {
+        surface["surface"] for surface in grid["surfaces"] if withheld(surface["capability_key"])
+    }
+    assert "sensorthings" in withheld_surfaces
     rows = [
         row for row in requirements["requirements"]
         if row.get("client_driver") == "pyqgis" and row["client_lane"] == "desktop-pyqgis"
         and row["surface"] != "ogc"
     ]
+    assert not any(row["surface"] in withheld_surfaces for row in rows)
     present = {(row["surface"], row["operation"]): row for row in rows}
     assert set(present) == set(expected)
     assert all(row["release_bucket"] == "must-fix-before-cut" for row in rows)
@@ -1838,3 +1874,311 @@ def test_python_wheel_schema_is_closed_and_other_lanes_cannot_claim_it():
     cell = _cell(client_package={"filename": "honua_sdk-1.4.3-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"})
     assert list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
     assert _evaluate(_ledger(cell), "nightly", now=NOW)["overall_status"] == "fail"
+
+
+def _mcp_package_versions():
+    package = json.loads(
+        (Path(__file__).resolve().parents[1] / "certification/sources/geospatial-mcp/package.json").read_text()
+    )
+    dependencies = package["dependencies"]
+    return dependencies["@modelcontextprotocol/sdk"], dependencies["@modelcontextprotocol/inspector"]
+
+
+def _mcp_obs(name, operation, result, mode, session, caller):
+    if ":" in operation:
+        method, target = operation.split(":", 1)
+    else:
+        method, target = operation, ""
+    request = {"method": method, "target": target}
+    outcome = "result" if result == "pass" else "error"
+    code = "ok" if result == "pass" else "unauthorized"
+    return {
+        "result": result,
+        "credential_mode": mode,
+        "forwarded_credential": False,
+        "session_id": session,
+        "caller_id": caller,
+        "request": request,
+        "response": {
+            "outcome": outcome,
+            "code": code,
+            "digest": cert._mcp_response_digest(name, request, outcome, code, session, caller),
+        },
+    }
+
+
+def _mcp_protected_observations(operation="tools/call:geocode_address"):
+    return {
+        "authenticated-success": _mcp_obs(
+            "authenticated-success", operation, "pass", "authenticated", "session-auth", "caller-auth"),
+        "fresh-anonymous-refusal": _mcp_obs(
+            "fresh-anonymous-refusal", operation, "refused", "anonymous", "session-anon", "caller-anon"),
+        "no-credential-forwarding": _mcp_obs(
+            "no-credential-forwarding", operation, "pass", "authenticated", "session-auth", "caller-auth"),
+        "no-authenticated-session-reuse": _mcp_obs(
+            "no-authenticated-session-reuse", operation, "refused", "anonymous", "session-reuse", "caller-anon"),
+        "caller-session-binding": _mcp_obs(
+            "caller-session-binding", operation, "refused", "authenticated", "session-auth", "caller-other"),
+    }
+
+
+def _mcp_anonymous_observations(operation="initialize"):
+    return {
+        "anonymous-success": _mcp_obs(
+            "anonymous-success", operation, "pass", "anonymous", "session-a", "caller-anon"),
+        "fresh-anonymous-session": _mcp_obs(
+            "fresh-anonymous-session", operation, "pass", "anonymous", "session-b", "caller-anon"),
+        "no-credentials": _mcp_obs(
+            "no-credentials", operation, "pass", "anonymous", "session-c", "caller-anon"),
+    }
+
+
+def _bind_mcp_payload(cell, payload):
+    cell["evidence_receipt"]["payload_base64"] = base64.b64encode(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).decode()
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    return cell
+
+
+def _mcp_payload(cell, observations):
+    return {
+        "schema": "honua.mcp-auth-observations/v1",
+        "auth_policy_revision": cell["auth_policy_revision"],
+        "policy_revision": "mcp-operation-auth-v1",
+        "canonical_client": cell["canonical_client"],
+        "client_lane": cell["client_lane"],
+        "client_version": cell["client_version"],
+        "operation": cell["operation"],
+        "producer_source_sha": cell["producer_source_sha"],
+        "observations": observations,
+    }
+
+
+def _mcp_cell(client, lane, version, operation, policy, observations):
+    cell = _cell(
+        capability_key="mcp.tool" if operation.startswith("tools/call:") else "mcp.transport",
+        surface="mcp",
+        operation=operation,
+        canonical_client=client,
+        client_lane=lane,
+        client_version=version,
+        scenario_facets=["positive", "negative", "media-schema", "auth"],
+        contract_revision="geospatial-mcp@" + SHA,
+        auth_policy_revision=policy,
+    )
+    return _bind_mcp_payload(cell, _mcp_payload(cell, observations))
+
+
+def test_passing_mcp_cells_bind_policy_cohort_and_do_not_qualify_a_candidate():
+    """A synthetic observation payload satisfies the checker only. It is not candidate proof."""
+    sdk, inspector = _mcp_package_versions()
+    protected = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1", _mcp_protected_observations(),
+    )
+    anonymous = _mcp_cell(
+        "MCP Inspector", "mcp-inspector", inspector,
+        "initialize", "anonymous-public-v1", _mcp_anonymous_observations(),
+    )
+    for cell in (protected, anonymous):
+        report = _evaluate(_ledger(cell), "nightly", requirements=_requirements(cell), now=NOW)
+        assert report["overall_status"] == "pass", report["findings"]
+
+
+def test_passing_mcp_cells_refuse_mislabeled_sessions_policy_cohort_and_source():
+    sdk, _inspector = _mcp_package_versions()
+    cell = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1", _mcp_protected_observations(),
+    )
+
+    def mutated(change):
+        changed = copy.deepcopy(cell)
+        payload = json.loads(base64.b64decode(changed["evidence_receipt"]["payload_base64"]))
+        change(payload)
+        _bind_mcp_payload(changed, payload)
+        report = _evaluate(_ledger(changed), "nightly", requirements=_requirements(changed), now=NOW)
+        assert report["overall_status"] == "fail"
+        return " ".join(item["why"] for item in report["findings"])
+
+    assert "anonymous label on an authenticated observation" in mutated(
+        lambda payload: payload["observations"]["fresh-anonymous-refusal"].__setitem__("credential_mode", "authenticated")
+    )
+    def reuse_authenticated_session(payload):
+        obs = payload["observations"]["no-authenticated-session-reuse"]
+        obs["session_id"] = "session-auth"
+        obs["response"]["digest"] = cert._mcp_response_digest(
+            "no-authenticated-session-reuse", obs["request"], obs["response"]["outcome"],
+            obs["response"]["code"], obs["session_id"], obs["caller_id"],
+        )
+
+    assert "reused authenticated session" in mutated(reuse_authenticated_session)
+    assert "MCP observation policy does not match the cell" in mutated(
+        lambda payload: payload.__setitem__("auth_policy_revision", "anonymous-public-v1")
+    )
+    assert "MCP observation cohort does not match the pinned canonical client" in mutated(
+        lambda payload: payload.__setitem__("client_version", "1.30.0")
+    )
+    assert "MCP observation source does not match the cell producer" in mutated(
+        lambda payload: payload.__setitem__("producer_source_sha", "e" * 40)
+    )
+    assert "MCP authorization observations are incomplete" in mutated(
+        lambda payload: payload["observations"].pop("caller-session-binding")
+    )
+
+
+def test_nonpassing_mcp_cell_does_not_require_authorization_observations():
+    _sdk, inspector = _mcp_package_versions()
+    in_scope = _cell(required_tier="pr")
+    cell = _cell(
+        surface="mcp",
+        operation="initialize",
+        canonical_client="MCP Inspector",
+        client_lane="mcp-inspector",
+        client_version=inspector,
+        result="fail",
+        required_tier="nightly",
+        scenario_facets=["positive", "negative", "media-schema", "auth"],
+        auth_policy_revision="anonymous-public-v1",
+        contract_revision="geospatial-mcp@" + SHA,
+    )
+    report = _evaluate(
+        _ledger(in_scope, cell), "pr", requirements=_requirements(in_scope, cell), now=NOW,
+    )
+    assert report["overall_status"] == "pass", report["findings"]
+    assert not any("MCP " in item["why"] for item in report["findings"])
+
+
+def test_copied_mcp_probe_does_not_certify_another_operation():
+    sdk, _inspector = _mcp_package_versions()
+    copied = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1",
+        _mcp_protected_observations("tools/call:list_layers"),
+    )
+    report = _evaluate(_ledger(copied), "nightly", requirements=_requirements(copied), now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("request does not match the cell operation" in item["why"] for item in report["findings"])
+
+    cell = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1", _mcp_protected_observations(),
+    )
+    payload = json.loads(base64.b64decode(cell["evidence_receipt"]["payload_base64"]))
+    payload["observations"]["authenticated-success"]["response"]["digest"] = (
+        payload["observations"]["no-credential-forwarding"]["response"]["digest"]
+    )
+    _bind_mcp_payload(cell, payload)
+    report = _evaluate(_ledger(cell), "nightly", requirements=_requirements(cell), now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("not bound to its request" in item["why"] for item in report["findings"])
+
+
+def _portal_document():
+    import portal_group_sharing as portal
+
+    shared = {"member": {name: True for name in portal.SURFACES}, "nonmember": {name: False for name in portal.SURFACES}}
+    hidden = {"member": {name: False for name in portal.SURFACES}, "nonmember": {name: False for name in portal.SURFACES}}
+    return {
+        "schema": portal.SCHEMA,
+        "candidateSourceSha": "a" * 40,
+        "candidateImage": "ghcr.io/example/server@sha256:" + "b" * 64,
+        "identities": {
+            "owner": "owner-1", "member": "member-1", "nonmember": "nonmember-1",
+            "group": "group-1", "item": "item-1",
+        },
+        "runtime": {
+            "beforeRestart": "process-before", "afterRestart": "process-after",
+            "replica": "process-replica", "store": "store-1",
+        },
+        "notSharedWith": ["everyone", "org"],
+        "publicCallerVisibilityUnchanged": True,
+        "policyRefusals": {name: "refused" for name in portal.POLICY_REFUSALS},
+        "phases": {
+            "shared": shared,
+            "sharedAfterRestart": copy.deepcopy(shared),
+            "sharedOnReplica": copy.deepcopy(shared),
+            "unshared": hidden,
+            "unsharedAfterRestart": copy.deepcopy(hidden),
+        },
+    }
+
+
+def _portal_cell(**overrides):
+    cell = _cell(
+        surface="portal-sharing",
+        operation="group-member-readback",
+        canonical_client="Portal group client",
+        client_lane="portal-group-sharing",
+        required_tier="nightly",
+        **overrides,
+    )
+    return cell
+
+
+def _bind_portal_payload(cell, document):
+    cell["evidence_receipt"]["payload_base64"] = base64.b64encode(
+        json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+    ).decode()
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass" if cell["result"] == "pass" else "fail", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    return cell
+
+
+def test_nightly_portal_sharing_cells_call_qualify_and_do_not_pass(monkeypatch):
+    module = cert._portal_sharing_module()
+    calls = []
+    original = module.qualify
+
+    def spy(document):
+        calls.append(document)
+        verdict = original(document)
+        assert verdict.get("status") != "pass"
+        return verdict
+
+    monkeypatch.setattr(module, "qualify", spy)
+    absent = _portal_cell()
+    report = _evaluate(_ledger(absent), "nightly", requirements=_requirements(absent), now=NOW)
+    assert report["overall_status"] == "fail", report["findings"]
+    assert any("no-retained-observations" in item["why"] for item in report["findings"])
+    assert calls == [None]
+
+    complete = _bind_portal_payload(copy.deepcopy(absent), _portal_document())
+    calls.clear()
+    report = _evaluate(_ledger(complete), "nightly", requirements=_requirements(complete), now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("exact-candidate-execution-not-claimed" in item["why"] for item in report["findings"])
+    assert calls and calls[0]["schema"].endswith("portal-group-sharing-observations/v1")
+
+    incomplete = _portal_document()
+    incomplete["phases"]["shared"]["nonmember"]["feature"] = True
+    refused = _bind_portal_payload(_portal_cell(result="fail"), incomplete)
+    report = _evaluate(_ledger(refused), "nightly", requirements=_requirements(refused), now=NOW)
+    assert any("nonmember-readback" in item["why"] for item in report["findings"])
+    assert report["overall_status"] == "fail"
+
+    calls.clear()
+    in_scope = _cell(required_tier="pr")
+    parked = _portal_cell(result="fail")
+    report = _evaluate(
+        _ledger(in_scope, parked), "pr", requirements=_requirements(in_scope, parked), now=NOW,
+    )
+    assert report["overall_status"] == "pass", report["findings"]
+    assert calls == []
+
+    claimed = _portal_cell()
+    report = _evaluate(
+        _ledger(in_scope, claimed), "pr", requirements=_requirements(in_scope, claimed), now=NOW,
+    )
+    assert report["overall_status"] == "fail"
+    assert any("no-retained-observations" in item["why"] for item in report["findings"])

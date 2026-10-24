@@ -38,17 +38,19 @@ def gp_source():
     sources = json.loads((HERE / "sources.json").read_text())
     doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
                and d["path"] == "docs/geoprocessing/index.md")
-    return doc, (HERE / "fixtures/site-geoprocessing-7d733c0.md").read_text()
+    return doc, (HERE / "fixtures/site-geoprocessing-99dee72.md").read_text()
 
 
 def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     doc, text = gp_source()
-    # Full source bytes from honua-site 7d733c0, Git blob 066553902e5914673dec395382dad69d189828b7.
-    assert hashlib.sha256(text.encode()).hexdigest() == "652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa"
+    # Full source bytes from honua-site 99dee72 (honua-site#318: honua-sdk 0.1.18), Git blob
+    # 77366a018f0d13d9106f8cadc457fa1805a461bf.
+    assert hashlib.sha256(text.encode()).hexdigest() == "b0be5ceeb94f8fc8433426dc17645dfe4d33d27acaec1c7ac63e6f3b854f87d2"
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    assert row["revision"] == "7d733c0f04822947c111c8bc9e43a977e5714f9f"
+    # Inventory advanced; the full source blob remains 77366a018f0d13d9106f8cadc457fa1805a461bf.
+    assert row["revision"] == "7e4527753c0b1cbe6c42c4ecc73ccb1f175fa5a7"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])

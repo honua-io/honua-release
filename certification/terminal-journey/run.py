@@ -65,57 +65,124 @@ def _sha256_file(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Control-plane roster gate (unchanged contract from the #121 landing)
+# Control-plane roster gate (data-driven; operator ruling on honua-release#785)
 # ---------------------------------------------------------------------------
-def validate_policy(policy: dict[str, Any]) -> None:
-    expected = policy.get("expected", {})
-    exclusions = policy.get("exclusions", [])
-    if expected != {"restCliOperations": 396, "mcpProjections": 385, "mcpExclusions": 11}:
-        raise GateError("control-plane cardinality policy drifted from 396 REST/CLI, 385 MCP, 11 exclusions")
-    if len(exclusions) != 11 or len({row.get("id") for row in exclusions}) != 11:
-        raise GateError("the 11 MCP exclusions must be individually named and unique")
-    for row in exclusions:
-        if row.get("class") not in {"one-time-secret", "session"} or row.get("sink") != "private-cli":
-            raise GateError(f"{row.get('id')}: exclusion must be secret/session class with private-cli sink")
-    if expected["restCliOperations"] - expected["mcpProjections"] != expected["mcpExclusions"]:
-        raise GateError("REST/CLI minus MCP must equal the audited exclusion count")
+# The server publishes its Admin parity exports at docs/gis/data/ for every source sha:
+# admin-openapi-operation-ids.json (every REST/CLI operation) and admin-mcp-projection-manifest.json
+# (catalog operations projected to MCP, plus the audited exclusions). The roster passes when both
+# exports are present, declared ready, self-consistent, and every Admin operation this journey
+# called is inside them. Counts are reported, never asserted: the hard-pinned 396/385/11 contract
+# (control-plane-roster.v1.json) is a historical fixture and no longer gates.
+ADMIN_BASE = "/api/v1/admin"
+ADMIN_EXPORTS = ("docs/gis/data/admin-openapi-operation-ids.json",
+                 "docs/gis/data/admin-mcp-projection-manifest.json")
 
 
-def roster_verdict(policy: dict[str, Any], rest: dict[str, Any] | None, mcp: dict[str, Any] | None) -> dict[str, Any]:
-    validate_policy(policy)
+def _admin_route(method: str, template: str):
+    import re
+
+    pattern = re.sub(r"\\{[^/{}]+\\}", "[^/]+", re.escape(template.rstrip("/") or "/"))
+    return method.upper(), re.compile(pattern + "/?")
+
+
+def roster_verdict(rest: dict[str, Any] | None, mcp: dict[str, Any] | None,
+                   calls: list[dict[str, Any]] | None = None, *,
+                   source: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Judge the server's own parity exports and the journey's Admin calls against them."""
+    binding = {"source": source} if source else {}
     if rest is None or mcp is None:
-        upstream = policy["upstreamRoster"]
-        return {"status": "blocked", "reason": "authoritative candidate roster exports unavailable", **upstream}
-    rest_ids = rest.get("operationIds", [])
-    projected = mcp.get("projectedOperationIds", [])
-    excluded = mcp.get("exclusions", [])
-    audited_exclusions = {row["id"] for row in policy["exclusions"]}
-    problems = []
-    if len(rest_ids) != 396 or len(set(rest_ids)) != 396:
-        problems.append(f"REST/CLI roster has {len(set(rest_ids))} unique operations, expected 396")
-    if len(projected) != 385 or len(set(projected)) != 385:
-        problems.append(f"MCP roster has {len(set(projected))} unique projections, expected 385")
-    if len(excluded) != 11 or len(set(excluded)) != 11:
-        problems.append(f"MCP manifest has {len(set(excluded))} unique exclusions, expected 11")
-    if set(excluded) != audited_exclusions:
-        missing = sorted(audited_exclusions - set(excluded))
-        unexpected = sorted(set(excluded) - audited_exclusions)
-        problems.append(
-            f"MCP exclusions differ from audited policy IDs (missing={missing}, unexpected={unexpected})"
-        )
-    if set(projected) & set(excluded):
-        problems.append("an operation is both projected and excluded")
-    if set(projected) | set(excluded) != set(rest_ids):
-        problems.append("MCP projections plus exclusions do not exactly partition REST/CLI operations")
+        missing = [name.rsplit("/", 1)[-1] for name, value in zip(ADMIN_EXPORTS, (rest, mcp)) if value is None]
+        return {"status": "blocked",
+                "reason": "authoritative candidate roster exports unavailable: " + ", ".join(missing),
+                "requiredExports": list(ADMIN_EXPORTS), **binding}
+    problems: list[str] = []
+    try:
+        rest_rows = rest["operations"]
+        projections = mcp["operations"]
+        exclusions = mcp["exclusions"]["operations"]
+        rest_ids = [row["operationId"] for row in rest_rows]
+        catalog = {row["catalogOperationId"]: row["operationId"] for row in rest_rows if row.get("catalogOperationId")}
+        projected = [row["operationId"] for row in projections]
+        tools = {row["toolName"] for row in projections}
+        excluded = [row["OperationId"] for row in exclusions]
+        excluded_rest = [row["OpenApiOperationId"] for row in exclusions]
+        routes = [(_admin_route(row["method"], row["path"]), row["operationId"]) for row in rest_rows]
+    except (KeyError, TypeError, AttributeError) as exc:
+        return {"status": "fail", "problems": [f"parity exports are not in the server format: {exc!r}"], **binding}
+
+    roster = mcp.get("roster") or {}
+    if roster.get("status") != "ready" or list(roster.get("exports") or []) != list(ADMIN_EXPORTS):
+        problems.append("MCP manifest does not declare the exact parity exports ready")
+    if len(set(rest_ids)) != len(rest_ids):
+        problems.append("REST/CLI export repeats an operationId")
+    if len(set(projected)) != len(projected) or len(set(excluded)) != len(excluded):
+        problems.append("MCP manifest repeats a projected or excluded operation")
+    if not projected:
+        problems.append("MCP manifest projects no operation")
+    both = sorted(set(projected) & set(excluded))
+    if both:
+        problems.append(f"operations both projected and excluded: {both}")
+    outside = sorted(set(projected) - set(catalog))
+    if outside:
+        problems.append(f"MCP projections without a REST catalog identity: {outside}")
+    unaccounted = sorted(set(catalog) - set(projected) - set(excluded))
+    if unaccounted:
+        problems.append(f"catalogued REST operations neither projected nor excluded: {unaccounted}")
+    unknown_exclusions = sorted(set(excluded_rest) - set(rest_ids))
+    if unknown_exclusions:
+        problems.append(f"MCP exclusions name unknown REST operations: {unknown_exclusions}")
+    fields = [rest.get("generatedCliFields"), rest.get("generatedConsoleFields"), mcp.get("catalogFields"),
+              mcp.get("generatedCliFields"), mcp.get("generatedConsoleFields")]
+    if not all(isinstance(value, list) and value for value in fields) or any(value != fields[2] for value in fields):
+        problems.append("CLI/Console/catalog field rosters are missing or drift")
+
+    admin_calls: list[str] = []
+    out_of_scope = 0
+    for call in calls or []:
+        surface, name = call.get("surface"), str(call.get("name") or "")
+        if surface == "cli":
+            admin_calls.append(f"cli {name}")
+            if name not in rest_ids:
+                problems.append(f"journey called CLI operation outside the roster: {name}")
+        elif surface == "rest" and name.split(" ", 1)[-1].startswith(ADMIN_BASE):
+            method, path = name.split(" ", 1)
+            admin_calls.append(f"{method} {path}")
+            relative = path[len(ADMIN_BASE):] or "/"
+            if not any(m == method.upper() and rx.fullmatch(relative) for (m, rx), _ in routes):
+                problems.append(f"journey called Admin REST route outside the roster: {method} {path}")
+        elif surface == "mcp" and name.startswith("honua_admin_"):
+            admin_calls.append(f"mcp {name}")
+            if name not in tools:
+                problems.append(f"journey called Admin MCP tool outside the projection: {name}")
+        else:
+            out_of_scope += 1
     return {
         "status": "fail" if problems else "pass",
         "problems": problems,
         "counts": {
             "restCliOperations": len(set(rest_ids)),
+            "catalogOperations": len(catalog),
+            "uncataloguedRestOperations": len(set(rest_ids)) - len(set(catalog.values())),
             "mcpProjections": len(set(projected)),
             "mcpExclusions": len(set(excluded)),
+            "journeyAdminCalls": len(set(admin_calls)),
+            "journeyCallsOutsideAdminSurface": out_of_scope,
         },
+        "journeyAdminCalls": sorted(set(admin_calls)),
+        **binding,
     }
+
+
+def roster_source(rest_path: Path | None, mcp_path: Path | None, source_sha: str | None,
+                  manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """Bind the exports to the server source sha of the image under test, or refuse them."""
+    if rest_path is None or mcp_path is None:
+        return None
+    server_sha = manifest["components"]["honua-server"]["sha"]
+    if source_sha != server_sha:
+        raise GateError(f"roster exports come from honua-server {source_sha}, not the image's source {server_sha}")
+    return {"repository": "honua-io/honua-server", "sourceSha": source_sha,
+            "exports": {name: _sha256_file(path) for name, path in zip(ADMIN_EXPORTS, (rest_path, mcp_path))}}
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +372,17 @@ def build_receipt(
                 }
             )
 
+    approval = None
+    if stage_results is not None:
+        stage_eight = next((result for result in stage_results if result.number == 8), None)
+        if (stage_eight is not None and stage_eight.proposal_id and stage_eight.resolved_by
+                and stage_eight.audit_id):
+            approval = {
+                "proposalId": stage_eight.proposal_id,
+                "resolvedBy": stage_eight.resolved_by,
+                "auditId": stage_eight.audit_id,
+            }
+
     if roster["status"] == "fail" or any(row["status"] == "fail" for row in stage_rows):
         status = "fail"
     elif all(row["status"] == "pass" for row in stage_rows) and roster["status"] == "pass" and workspace.status == "pass":
@@ -363,6 +441,7 @@ def build_receipt(
         "authPolicyRevision": revisions.get("authPolicyRevision", "terminal-separate-principals-v1"),
         "roster": roster,
         "stages": stage_rows,
+        **({"approval": approval} if approval else {}),
         "failure": failure,
         "notices": notices,
         "linkedEvidence": {
@@ -536,11 +615,12 @@ def run_live(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", type=Path, default=ROOT / "platform-manifest.yaml")
-    parser.add_argument("--policy", type=Path, default=HERE / "control-plane-roster.v1.json")
+    parser.add_argument("--policy", type=Path, help="retired: the 396/385/11 roster fixture no longer gates (#785)")
     parser.add_argument("--journey", type=Path, default=HERE / "journey.v1.json")
     parser.add_argument("--schema", type=Path, default=HERE / "receipt.schema.json")
-    parser.add_argument("--rest-roster", type=Path)
-    parser.add_argument("--mcp-roster", type=Path)
+    parser.add_argument("--rest-roster", type=Path, help="server docs/gis/data/admin-openapi-operation-ids.json")
+    parser.add_argument("--mcp-roster", type=Path, help="server docs/gis/data/admin-mcp-projection-manifest.json")
+    parser.add_argument("--roster-source-sha", help="honua-server sha the exports were read at; must be the image's source")
     parser.add_argument("--mode", choices=["build", "live"], default="build")
     parser.add_argument("--target", type=Path, help="target config, e.g. certification/terminal-journey/targets/local-docker.json")
     parser.add_argument("--workdir", type=Path, help="scratch directory for pinned client materialization")
@@ -552,11 +632,14 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        policy, journey = load(args.policy), load(args.journey)
+        import discovery
+
+        journey = load(args.journey)
         rest = load(args.rest_roster) if args.rest_roster else None
         mcp = load(args.mcp_roster) if args.mcp_roster else None
-        roster = roster_verdict(policy, rest, mcp)
         manifest = yaml.safe_load(args.manifest.read_text())
+        source = roster_source(args.rest_roster, args.mcp_roster, args.roster_source_sha, manifest)
+        discovery.reset_calls()
 
         if args.mode == "live":
             if args.target is None:
@@ -566,6 +649,8 @@ def main() -> int:
             workspace, results, notices, _image = run_live(
                 target, manifest, journey, workdir, args.base_url, args.keep_stack
             )
+            # Judged after the run: every Admin operation the journey called must be in the roster.
+            roster = roster_verdict(rest, mcp, discovery.calls(), source=source)
             receipt = build_receipt(
                 manifest=manifest,
                 journey=journey,
@@ -580,6 +665,7 @@ def main() -> int:
                 notices=notices,
             )
         else:
+            roster = roster_verdict(rest, mcp, [], source=source)
             receipt = build_receipt(
                 manifest=manifest,
                 journey=journey,

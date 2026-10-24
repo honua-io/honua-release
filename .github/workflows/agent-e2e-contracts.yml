@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/agent-e2e-contracts.yml'
+      - '.github/workflows/agent-e2e-campaign.yml'
       - '.gitattributes'
       - 'certification/agent-e2e/**'
       - 'schemas/agent-e2e*'
@@ -24,6 +25,7 @@ on:
     branches: [trunk]
     paths:
       - '.github/workflows/agent-e2e-contracts.yml'
+      - '.github/workflows/agent-e2e-campaign.yml'
       - '.gitattributes'
       - 'certification/agent-e2e/**'
       - 'schemas/agent-e2e*'
@@ -50,6 +52,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  postgres-fixture-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: tools
+      PYTHONDONTWRITEBYTECODE: '1'
+      HONUA_AGENT_POSTGRES_TESTS: '1'
+      HONUA_AGENT_POSTGRES_TEST_IMAGE: postgis/postgis@sha256:b4466ea2ba7e3af54fcbba996d45325720f4b3ecb4f43f99b2f41367dc196f23
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL contract dependencies
+        run: python -m pip install 'pytest>=8,<10' 'psycopg[binary]>=3.2,<4'
+      - name: Fetch immutable local PostgreSQL fixture
+        run: docker pull "$HONUA_AGENT_POSTGRES_TEST_IMAGE"
+      - name: Prove actual transactions, rollback and independent SQL absence
+        # Local contract fixtures only; no model calls or cloud infrastructure.
+        run: |
+          set -euo pipefail
+          python -m pytest --import-mode=importlib tools/test_agent_e2e_fixture_database.py \
+            tools/test_agent_e2e_studio_tenant_database.py \
+            -q --junitxml=agent-e2e-postgres-contracts.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          suites = list(ET.parse('agent-e2e-postgres-contracts.xml').getroot().iter('testsuite'))
+          assert sum(int(suite.get('tests', 0)) for suite in suites) >= 12
+          assert sum(int(suite.get('skipped', 0)) for suite in suites) == 0
+          PY
+      - name: Retain actual PostgreSQL contract results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-e2e-postgres-contracts-${{ github.run_attempt }}
+          path: agent-e2e-postgres-contracts.xml
+          if-no-files-found: error
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 20

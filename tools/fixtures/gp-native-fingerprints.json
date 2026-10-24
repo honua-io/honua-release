@@ -1,0 +1,107 @@
+{
+  "repository": "honua-io/honua-server",
+  "commit": "749d006e42007f9ed4aa33a2be5fcaab5582a9cd",
+  "path": "src/Honua.Geoprocessing/Features/Geoprocessing/GeoprocessingJobService.cs",
+  "method": "GeoprocessingJobService.CreateRequestFingerprint",
+  "methodSha256": "7be0ed26e7e36f289e8fa7f3e532cbecfca49b499c1a8b55a473fb5da02471d7",
+  "methodUnchangedFromCommit": true,
+  "runtime": "net10.0 Utf8JsonWriter",
+  "scope": "Exact native fingerprint method with minimal domain records; not server execution evidence",
+  "vectors": [
+    {
+      "name": "empty-domain-defaults",
+      "plan": {},
+      "expectedFingerprint": "dff0a44aea9d4fa1b0ea3d6b3d12ab78f70f430a0c82e905d2b9ec09fdfc3c83"
+    },
+    {
+      "name": "managed-buffer",
+      "plan": {
+        "planId": "buffer-500m",
+        "intentId": "shelter-map",
+        "steps": [
+          {
+            "stepId": "buffer",
+            "kind": "Geoprocess",
+            "processId": "analytics.buffer-aggregate-managed",
+            "inputs": {
+              "distance": "500",
+              "input": "shelters",
+              "dissolve": "false"
+            },
+            "dependsOn": []
+          }
+        ],
+        "outputs": [
+          "FeatureLayer"
+        ]
+      },
+      "expectedFingerprint": "36288f61f5c3bc04e59aaf89f31d2b8f9a1c612d2c18715d782907d1fd8ab029"
+    },
+    {
+      "name": "null-collections-and-case",
+      "plan": {
+        "planId": null,
+        "intentId": null,
+        "steps": [
+          {
+            "stepId": null,
+            "kind": "queryfeatures",
+            "processId": null,
+            "inputs": null,
+            "dependsOn": null
+          }
+        ],
+        "outputs": [
+          "table",
+          "MAP",
+          "scalar"
+        ],
+        "warnings": [
+          "excluded from request hash"
+        ]
+      },
+      "expectedFingerprint": "313091f3f8575bdda8dadf79fa651839c583d620b607de424912facccb0eaf61"
+    },
+    {
+      "name": "utf16-and-default-json-encoder",
+      "plan": {
+        "planId": "\u00e9\u4e2d\ud83d\ude00",
+        "intentId": "<&\"+'`>\\\n\r\t\b\f\u0001\u007f",
+        "steps": [
+          {
+            "stepId": "first",
+            "kind": "geoprocess",
+            "processId": "managed",
+            "inputs": {
+              "\ue000": "bmp",
+              "\ud83d\ude00": "astral",
+              "a": "{\"where\":\"name = 'x' & x > 0\"}"
+            },
+            "dependsOn": [
+              "\ue000",
+              "\ud83d\ude00",
+              "first"
+            ]
+          },
+          {
+            "stepId": "second",
+            "kind": "EXPORT",
+            "inputs": {
+              "text": "\u2028\u2029"
+            },
+            "dependsOn": []
+          }
+        ],
+        "outputs": [
+          "report",
+          "FeatureLayer",
+          "Map",
+          "FeatureLayer"
+        ],
+        "warnings": []
+      },
+      "expectedFingerprint": "a17d9a1a6a2e0e8b98cccf1aedddd7b95bb2cc69cff37f44b9f2c3e4da9e3e3b"
+    }
+  ],
+  "executionReceiptSha256": "3ee4896751f2cec35f2fb88ff57e1e2f3acaf28e664a5a9b106214d317ca638f"
+}

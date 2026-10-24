@@ -55,8 +55,18 @@ jobs:
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::error::RELEASE_GH_TOKEN is required to read component repositories"; exit 1
           fi
+          # Exit 75 = transient-registry-unavailable: a package registry kept answering 5xx after the
+          # verifier's bounded backoff. The night still mints nothing, but it is reported as an outage,
+          # never as a provenance refusal (run 39630172050, PyPI integrity 503).
+          rc=0
           python tools/resolve_trunk_candidate.py --dry-run --max-commits 500 --protocol-ledger produce --prepare-deployments \
-            --out-dir resolved-candidate
+            --out-dir resolved-candidate || rc=$?
+          if [ "$rc" = 75 ]; then
+            echo "::error title=transient-registry-unavailable::a package registry was unavailable after bounded retries; this is not a provenance refusal (see the resolved-candidate-outcome artifact)"
+            { echo "## Resolve outcome: transient-registry-unavailable"; echo;
+              echo "A registry outage outlasted the bounded retry. No pin was refused; re-run the night once the registry is healthy."; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
       - name: Stamp the next 2026.1-rc label
         id: stamp
         env:
@@ -125,6 +135,14 @@ jobs:
           name: resolved-candidate-skips
           path: resolved-candidate/skips.json
           if-no-files-found: warn
+      # Exit 75 stops the job before the ordinary resolved-candidate upload; keep the
+      # transient-registry-unavailable outcome the step annotation points operators to.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: resolved-candidate-outcome
+          path: resolved-candidate/resolution-outcome.json
+          if-no-files-found: ignore
 
   lambda_deployment:
     needs: resolve

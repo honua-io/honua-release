@@ -57,6 +57,9 @@
     "lockDigest": {
       "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/lockDigest"
     },
+    "serverImage": {
+      "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/serverImage"
+    },
     "failureAttribution": {
       "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/failureAttribution"
     },

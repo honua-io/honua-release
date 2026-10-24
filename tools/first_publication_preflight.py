@@ -14,6 +14,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import tarfile
 import time
 import urllib.error
@@ -37,7 +38,14 @@ GRPC_NUPKG_SHA256 = "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe84
 GRPC_NUPKG_URL = "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg"
 BSR_ZIP_SHA256 = "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef"
 BSR_ZIP_URL = "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip"
-MAPLIBRE_ADVISORY_PIN = "6.1.0"
+# Upstream GHSA-jrc7-96c5-q579 lists <=6.4.0 as affected and 6.4.1 as patched.
+MAPLIBRE_PATCHED_VERSION = (6, 4, 1)
+
+
+def _maplibre_pin_is_patched(pin: str) -> bool:
+    """Require an exact stable version with a known patched lower bound."""
+    match = re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", pin)
+    return match is not None and tuple(map(int, match.groups())) >= MAPLIBRE_PATCHED_VERSION
 
 SDK_PACKAGE_IDS = (
     "Honua.Sdk",
@@ -134,8 +142,33 @@ class Response:
         self.url = url
 
 
+# A registry 5xx/429 or a dropped connection is an outage, not an answer about the package.
+# Retry it with bounded backoff (npm answered 502 on pinned version documents for over an hour on
+# 2026-10-22 while the tarballs served). A persistent outage still fails; a 4xx is never retried.
+REQUEST_DELAYS = (0, 5, 15, 30)
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504, 522})
+_sleep = time.sleep
+
+
 class UrllibTransport:
     def get(self, url: str) -> Response:
+        last: Response | None = None
+        for delay in REQUEST_DELAYS:
+            if delay:
+                _sleep(delay)
+            try:
+                response = self._get_once(url)
+            except _TransientProbeFailure as exc:
+                if delay == REQUEST_DELAYS[-1]:
+                    raise PreflightError(f"registry probe failed for {url}: {exc.__cause__}") from exc.__cause__
+                continue
+            if response.status not in TRANSIENT_STATUSES:
+                return response
+            last = response
+        assert last is not None
+        return last
+
+    def _get_once(self, url: str) -> Response:
         _require_host(url)
         request = urllib.request.Request(url, headers=dict(ANONYMOUS_HEADERS))
         if request.has_header("Authorization"):
@@ -150,7 +183,11 @@ class UrllibTransport:
             _require_host(final)
             return Response(exc.code, exc.read(), final)
         except (urllib.error.URLError, TimeoutError) as exc:
-            raise PreflightError(f"registry probe failed for {url}: {exc}") from exc
+            raise _TransientProbeFailure() from exc
+
+
+class _TransientProbeFailure(Exception):
+    """A connection-level failure; UrllibTransport.get retries it and then reports the cause."""
 
 
 def _require_host(url: str) -> None:
@@ -877,7 +914,7 @@ def build_receipt(
     # A template SDK pin that resolves on npm is still off-train unless it is the
     # manifest's @honua/sdk-js version; HTTP 200 alone does not clear the blocker.
     template_blocked = (
-        MAPLIBRE_ADVISORY_PIN in maplibre_pins
+        any(not _maplibre_pin_is_patched(pin) for pin in maplibre_pins)
         or any(status != 200 for status in sdk_pin_statuses.values())
         or any(sdk_pin != view["js_version"] for sdk_pin in sdk_pins)
         or not sdk_pins
@@ -1066,8 +1103,9 @@ def _blockers(channels: list[dict]) -> list[dict]:
                 f"The published tarball was downloaded, but its templates pin {templates}. "
                 f"npm version status for those @honua/sdk-js pins is {create['sdk_pin_statuses']}; "
                 f"the platform manifest pins @honua/sdk-js {create['manifest_sdk_pin']}. "
-                f"maplibre-gl {MAPLIBRE_ADVISORY_PIN} is the GHSA-jrc7-96c5-q579 pin named by "
-                "honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to "
+                "MapLibre pins must be exact stable versions at least 6.4.1, the patched version "
+                "for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. "
+                "A replacement create-honua-app release has to "
                 "come from honua-sdk-js. This repo cannot publish that tarball."
             ),
             ["npm:create-honua-app"],

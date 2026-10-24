@@ -12,8 +12,28 @@
 #                  prior image. That last query is the expand-contract proof.
 #
 # The prior release's manifest/image is read from the latest promoted `honua-*` GitHub Release (not a
-# pre-release, signed platform lock attached — tools/check_upgrade.py prior_platform_release, ruling
-# R26); until one exists the immutable first-cut baseline is used. The kind smoke
+# pre-release, signed platform lock attached â€” tools/check_upgrade.py prior_platform_release, ruling
+# R26); until one exists the signed-lock kind smoke is blocked.
+#
+# Pairs (coordinator ruling 2026-10-22, https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760):
+#   trunk-candidate    REQUIRED for rc: previous trunk manifest pin (N-1 nightly) -> candidate ->
+#                      rollback, plus every fault scenario. Never a customer release pair.
+#   published-release  ADVISORY until a real release exists (the only published artefact is the
+#                      August 2026.1 snapshot, which has no schema-reader guard). Its fragments, and
+#                      the signed-lock fragment it carries, are reported with decided=advisory-* and
+#                      never change overallStatus. Runs nightly and on explicit dispatch.
+#                      prior = the server of the newest published honua-* GitHub release, pulled by
+#                      the public GHCR digest its release assets name, installed with that release's
+#                      chart; candidate = the manifest candidate with its chart. The upgrade follows
+#                      the documented customer steps (docs/UPGRADE-RUNBOOK.md): helm upgrade; when the
+#                      candidate refuses contract-phase migrations, read the one-shot nonce from its
+#                      typed refusal and helm upgrade again with HONUA_APPROVE_CONTRACT_MIGRATIONS;
+#                      after helm rollback, an older image that refuses the migrated schema at the
+#                      documented boundary is recovered by restoring the pre-upgrade backup.
+# Each pair emits upgrade-kind-<pair>-<scenario>; receipts say priorSource and certification role,
+# `certifiedReleasePair: false`, and the signed-lock fragment stays blocked. A FAIL (migrations did not
+# advance after approval, seeded rows lost, the prior cannot serve after rollback or restore) fails the
+# gate. The kind smoke
 # SELF-SKIPS cleanly (blocked, exit 0) when the helm chart or the server image can't be reached, so a
 # no-creds local cut still runs the static layer. enforcement=strict promotes blocked -> fail.
 #
@@ -42,6 +62,8 @@ on:
       - "tools/test_upgrade_lock_binding.py"
       - "tools/inject_upgrade_failure.py"
       - "tools/test_inject_upgrade_failure.py"
+      - "tools/upgrade_trunk_pair.py"
+      - "tools/test_upgrade_trunk_pair.py"
       - ".github/workflows/gate-upgrade.yml"
   schedule:
     - cron: "17 6 * * *"
@@ -55,12 +77,19 @@ on:
         type: choice
         options: [normal, post-migration-readiness, bad-config, migration-boundary, rollback-failure]
         default: normal
+      upgrade_pair:
+        description: "trunk-candidate = previous trunk pin -> candidate (required for rc); published-release = the newest published honua-* release -> candidate (advisory until a real release exists)"
+        required: false
+        type: choice
+        options: [trunk-candidate, published-release]
+        default: trunk-candidate
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
       failure_scenario: { required: false, type: string, default: normal }
+      upgrade_pair: { required: false, type: string, default: trunk-candidate }
     secrets:
       RELEASE_GH_TOKEN: { required: false }
     outputs:
@@ -104,6 +133,7 @@ jobs:
           set -euo pipefail
           python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py tools/test_upgrade_lock_binding.py -q -k "upgrade or recovery or lock_binding"
           python -m pytest tools/test_check_upgrade.py -q
+          python -m pytest tools/test_upgrade_trunk_pair.py -q
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -177,10 +207,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Headline: the published-release pair (what a customer upgrades from). The fault game days run
+      # on the trunk-candidate pair (the required rc path).
       matrix:
-        scenario: ${{ fromJSON(github.event_name == 'schedule' && '["normal","post-migration-readiness","bad-config","migration-boundary","rollback-failure"]' || format('["{0}"]', inputs.failure_scenario || 'normal')) }}
+        include: ${{ fromJSON(github.event_name == 'schedule' && '[{"scenario":"normal","pair":"published-release"},{"scenario":"normal","pair":"trunk-candidate"},{"scenario":"post-migration-readiness","pair":"trunk-candidate"},{"scenario":"bad-config","pair":"trunk-candidate"},{"scenario":"migration-boundary","pair":"trunk-candidate"},{"scenario":"rollback-failure","pair":"trunk-candidate"}]' || format('[{{"scenario":"{0}","pair":"{1}"}}]', inputs.failure_scenario || 'normal', inputs.upgrade_pair || 'trunk-candidate')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The trunk-candidate pair reads the previous honua-server pin from manifest history.
+          fetch-depth: 0
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
@@ -258,6 +293,61 @@ jobs:
           echo "cross_release=$CROSS" >> "$GITHUB_OUTPUT"
           echo "candidate=${CAND:-} prior=${PRIOR:-} signed-locks=$VERIFIED cross_release=$CROSS"
 
+      # No signed prior lock: pick the substitute pair so the real lifecycle still executes. This is
+      # never a certified release pair and never clears the signed-lock fragment (see header).
+      - name: Resolve the published-release or trunk-candidate pair
+        id: fallback
+        if: steps.images.outputs.verified != '1' || matrix.pair == 'trunk-candidate'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          PAIR: ${{ matrix.pair }}
+        run: |
+          set -uo pipefail
+          ARGS=(--prior-source "$PAIR")
+          if [ "$PAIR" = published-release ]; then
+            # The customer's starting point: the newest published honua-* release and the exact
+            # server digest its own release assets name (never a floating or nightly tag).
+            gh api "repos/${{ github.repository }}/releases?per_page=100" > /tmp/releases.json 2>/tmp/releases.err || cat /tmp/releases.err
+            python tools/upgrade_trunk_pair.py select-release --releases-json /tmp/releases.json | tee /tmp/release.env
+            field() { grep -m1 "^$1=" /tmp/release.env | cut -d= -f2-; }
+            release_ready="$(field release_ready)"; release_tag="$(field release_tag)"
+            release_url="$(field release_url)"; release_prerelease="$(field release_prerelease)"
+            if [ "${release_ready:-0}" = 1 ]; then
+              gh release download "$release_tag" --repo "${{ github.repository }}" \
+                --pattern 'finalized-manifest.yaml' --dir _release_prior >/tmp/release-prior-download.log 2>&1 || cat /tmp/release-prior-download.log
+            fi
+            ARGS+=(--prior-manifest _release_prior/finalized-manifest.yaml --prior-label "${release_tag:-release} release assets (finalized-manifest.yaml)"
+                   --release-tag "${release_tag:-}" --release-url "${release_url:-}" --release-prerelease "${release_prerelease:-false}")
+          fi
+          python tools/upgrade_trunk_pair.py resolve --candidate-manifest platform-manifest.yaml "${ARGS[@]}" | tee /tmp/trunk-pair.env
+          cat /tmp/trunk-pair.env >> "$GITHUB_OUTPUT"
+          python - <<'PY' > /tmp/trunk-pair.json
+          import json
+          print(json.dumps(dict(line.rstrip("\n").split("=", 1) for line in open("/tmp/trunk-pair.env") if "=" in line)))
+          PY
+
+      - name: Fetch the candidate manifest-pinned chart source (pair)
+        id: trunk_chart
+        if: steps.fallback.outputs.ready == '1'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-helm
+          ref: ${{ steps.fallback.outputs.helm_sha }}
+          path: _chart/trunk
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Fetch the prior's own pinned chart source (pair)
+        id: trunk_prior_chart
+        if: steps.fallback.outputs.ready == '1'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-helm
+          ref: ${{ steps.fallback.outputs.prior_helm_sha }}
+          path: _chart/trunk-prior
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          persist-credentials: false
+
       - name: Pull lock-bound Helm chart packages
         id: chart
         if: steps.images.outputs.verified == '1'
@@ -292,13 +382,13 @@ jobs:
           set -uo pipefail
           echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
           OK=1
-          for IMG in "${{ steps.images.outputs.prior }}" "${{ steps.images.outputs.candidate }}"; do
+          for IMG in "${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior || steps.fallback.outputs.prior }}" "${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate || steps.fallback.outputs.candidate }}"; do
             [ -n "$IMG" ] && docker pull "$IMG" >/tmp/pull.log 2>&1 || { OK=0; echo "cannot pull $IMG"; tail -n 3 /tmp/pull.log || true; }
           done
           echo "pullable=$OK" >> "$GITHUB_OUTPUT"
 
       - name: Create kind cluster
-        if: steps.chart.outcome == 'success' && steps.pull.outputs.pullable == '1'
+        if: (steps.chart.outcome == 'success' || (steps.trunk_chart.outcome == 'success' && steps.trunk_prior_chart.outcome == 'success')) && steps.pull.outputs.pullable == '1'
         uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           cluster_name: honua-upgrade
@@ -307,33 +397,78 @@ jobs:
         id: smoke
         if: always()
         env:
-          PRIOR: ${{ steps.images.outputs.prior }}
-          CAND: ${{ steps.images.outputs.candidate }}
-          DECLARED_SCHEMA: ${{ steps.images.outputs.candidate_schema }}
-          DECLARED_JOURNAL_SHA: ${{ steps.images.outputs.declared_journal_sha }}
-          PRIOR_SOURCE_REVISION: ${{ steps.images.outputs.prior_source_revision }}
-          CANDIDATE_SOURCE_REVISION: ${{ steps.images.outputs.candidate_source_revision }}
-          PRIOR_LOCK_DIGEST: ${{ steps.images.outputs.prior_lock_digest }}
-          CANDIDATE_LOCK_DIGEST: ${{ steps.images.outputs.candidate_lock_digest }}
+          # Signed-lock values only for the published-release cell with both locks verified; a
+          # trunk-candidate cell always uses its own resolved pair, even when signed locks exist.
+          # In fallback mode the *_LOCK_DIGEST values are manifest/identity digests, not lock digests.
+          PRIOR: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior || steps.fallback.outputs.prior }}
+          CAND: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate || steps.fallback.outputs.candidate }}
+          DECLARED_SCHEMA: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate_schema || steps.fallback.outputs.candidate_schema }}
+          DECLARED_JOURNAL_SHA: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.declared_journal_sha || '' }}
+          PRIOR_SOURCE_REVISION: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior_source_revision || steps.fallback.outputs.prior_source_revision }}
+          CANDIDATE_SOURCE_REVISION: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate_source_revision || steps.fallback.outputs.candidate_source_revision }}
+          PRIOR_LOCK_DIGEST: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior_lock_digest || steps.fallback.outputs.prior_manifest_digest }}
+          CANDIDATE_LOCK_DIGEST: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate_lock_digest || steps.fallback.outputs.candidate_manifest_digest }}
           ENF: ${{ inputs.enforcement }}
-          CROSS: ${{ steps.images.outputs.cross_release }}
+          CROSS: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.verified == '1' && steps.images.outputs.cross_release || steps.fallback.outputs.cross }}
           FAILURE_SCENARIO: ${{ matrix.scenario }}
+          PAIR: ${{ matrix.pair }}
+          PRIOR_SCHEMA: ${{ steps.fallback.outputs.prior_schema }}
+          # honua-server#6478: readers at schema 135+ verify expand-only journal entries they do not
+          # ship. An older image refusing the migrated schema is the documented rollback boundary,
+          # recovered by restoring the pre-upgrade backup; at or above it the image must serve.
+          READER_EXPAND_FLOOR: "135"
+          TRUNK_READY: ${{ steps.fallback.outputs.ready }}
+          TRUNK_UNAVAILABLE_WHY: ${{ steps.fallback.outputs.why }}
+          TRUNK_CHART_OUTCOME: ${{ steps.trunk_chart.outcome == 'success' && steps.trunk_prior_chart.outcome || steps.trunk_chart.outcome }}
+          # Kept out of the script body: a run block containing any expression is evaluated as one
+          # expression, and this one exceeds Actions' 21000-character expression limit.
+          SIGNED_VERIFIED: ${{ steps.images.outputs.verified }}
+          SIGNED_CHART_OUTCOME: ${{ steps.chart.outcome }}
+          SIGNED_PRIOR_CHART: ${{ steps.chart.outputs.prior }}
+          SIGNED_CANDIDATE_CHART: ${{ steps.chart.outputs.candidate }}
+          PULLABLE: ${{ steps.pull.outputs.pullable }}
         run: |
           set -uo pipefail
           STATUS=blocked; WHY=""
-          if [ "${{ steps.images.outputs.verified }}" != 1 ]; then
-            STATUS=blocked; WHY="exact signed prior/candidate platform locks are unavailable or invalid"
-          elif [ "${{ steps.chart.outcome }}" != "success" ]; then
+          SIGNED_LOCK_WHY="exact signed prior/candidate platform locks are unavailable or invalid"
+          # MODE: signed-lock (both locks verified, published-release job), else the matrix pair.
+          MODE=signed-lock
+          if [ "$PAIR" = trunk-candidate ] || [ "$SIGNED_VERIFIED" != 1 ]; then
+            MODE="$PAIR"
+            echo "PAIR $MODE: running $PRIOR -> $CAND (signed-lock requirement: ${SIGNED_VERIFIED:-0})"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          APPROVAL_NONCE=""; ROLLBACK_OUTCOME=""; CONTRACT_APPROVAL=not-required; BACKUP_TAKEN=false
+          if [ "$MODE" != signed-lock ] && [ "$TRUNK_READY" != 1 ]; then
+            STATUS=blocked; WHY="${TRUNK_UNAVAILABLE_WHY:-$MODE pair unavailable}"
+          elif [ "$MODE" = published-release ] && [ "$FAILURE_SCENARIO" != normal ]; then
+            STATUS=blocked; WHY="fault game days run on the trunk-candidate pair; the published-release pair runs the customer path (normal)"
+          elif [ "$MODE" = signed-lock ] && [ "$SIGNED_CHART_OUTCOME" != "success" ]; then
             STATUS=blocked; WHY="lock-bound honua-helm package is unavailable or its checksum mismatched"
-          elif [ "${{ steps.pull.outputs.pullable }}" != "1" ]; then
+          elif [ "$MODE" != signed-lock ] && [ "$TRUNK_CHART_OUTCOME" != "success" ]; then
+            STATUS=blocked; WHY="manifest-pinned honua-helm chart source could not be fetched"
+          elif [ "$PULLABLE" != "1" ]; then
             STATUS=blocked; WHY="server image(s) not pullable (private/unpublished) — kind smoke self-skipped"
           elif [ "$CROSS" = "no" ]; then
             STATUS=blocked; WHY="prior baseline image is missing or equals the manifest candidate — real migration upgrade cannot run"
           else
-            PRIOR_CHART="${{ steps.chart.outputs.prior }}"
-            CANDIDATE_CHART="${{ steps.chart.outputs.candidate }}"
+            if [ "$MODE" != signed-lock ]; then
+              # Each side's own manifest-pinned chart source: install the prior as its manifest
+              # shipped it, upgrade chart + image together, and `helm rollback` restores both.
+              PRIOR_CHART="_chart/trunk-prior/honua"
+              CANDIDATE_CHART="_chart/trunk/honua"
+            else
+              PRIOR_CHART="$SIGNED_PRIOR_CHART"
+              CANDIDATE_CHART="$SIGNED_CANDIDATE_CHART"
+            fi
             NS=honua-upgrade
             kubectl create namespace "$NS" || true
+            # Production refuses credentials that ship in honua-server's example/harness files
+            # ("'ConnectionStrings__DefaultConnection' is set to a placeholder value", run
+            # 39667188026), so the database password and encryption master key are minted per run.
+            DB_PASSWORD="$(openssl rand -hex 24)"; MASTER_KEY="$(openssl rand -hex 32)"
+            echo "::add-mask::$DB_PASSWORD"; echo "::add-mask::$MASTER_KEY"
+            kubectl create secret generic honua-postgis-auth -n "$NS" --from-literal=password="$DB_PASSWORD"
             # PostGIS + Redis (persistent backing so the schema seeded pre-upgrade survives the upgrade).
             kubectl apply -n "$NS" -f - <<'YAML'
           apiVersion: apps/v1
@@ -351,7 +486,7 @@ jobs:
                     ports: [ { containerPort: 5432 } ]
                     env:
                       - { name: POSTGRES_USER, value: honua }
-                      - { name: POSTGRES_PASSWORD, value: honua }
+                      - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: honua-postgis-auth, key: password } } }
                       - { name: POSTGRES_DB, value: honua }
           ---
           apiVersion: v1
@@ -391,17 +526,56 @@ jobs:
             helm dependency build "$PRIOR_CHART" || helm dependency update "$PRIOR_CHART" || true
             helm dependency build "$CANDIDATE_CHART" || helm dependency update "$CANDIDATE_CHART" || true
 
-            # Load images into kind so the cluster doesn't need registry creds at pod-pull time.
-            kind load docker-image "$PRIOR" --name honua-upgrade || true
-            [ "$CAND" != "$PRIOR" ] && kind load docker-image "$CAND" --name honua-upgrade || true
+            # Do NOT `kind load` these digest references. kind imports a digest-only image under a
+            # synthetic docker.io/library/import-<date>@sha256 name, and containerd then refuses the
+            # pod with CreateContainerError "failed to check if this is a checkpoint image" (run
+            # 39662331927). The pre-pull step above already proved both digests are pullable, so
+            # the kind node pulls exactly those digests from the registry itself.
+            for IMG in "$PRIOR" "$CAND"; do
+              case "$IMG" in
+                *@sha256:*) ;;
+                *) kind load docker-image "$IMG" --name honua-upgrade || true ;;
+              esac
+            done
 
+            # With Redis connected in Production the server enables the durable operation secret
+            # channel and exits at startup without a key-ring certificate ("'Operations:SecretChannel:
+            # KeyRingCertificatePath' is required", run 39664663981). Mint a per-run PKCS#12 key ring
+            # (as certification/control-plane-parity does) and an audit chain key, mounted the same
+            # way for install, upgrade and rollback.
+            KEYRING_PASSWORD="$(openssl rand -hex 24)"; AUDIT_CHAIN_KEY="$(openssl rand -hex 32)"
+            echo "::add-mask::$KEYRING_PASSWORD"; echo "::add-mask::$AUDIT_CHAIN_KEY"
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/keyring.key -out /tmp/keyring.crt \
+              -days 2 -subj /CN=honua-upgrade-kind-keyring >/dev/null 2>&1
+            openssl pkcs12 -export -inkey /tmp/keyring.key -in /tmp/keyring.crt -out /tmp/keyring.pfx \
+              -passout "pass:$KEYRING_PASSWORD"
+            kubectl create secret generic honua-upgrade-keyring -n "$NS" --from-file=keyring.pfx=/tmp/keyring.pfx
+            cat > /tmp/upg-keyring-values.yaml <<'YAML'
+          extraVolumes:
+            - name: operation-keyring
+              secret: { secretName: honua-upgrade-keyring }
+          extraVolumeMounts:
+            - { name: operation-keyring, mountPath: /keyring, readOnly: true }
+          YAML
+
+            # HostValidation:AllowedHosts: Honua's host validation rejects the chart's own in-cluster
+            # license-status hook ("untrusted host header 'honua-honua:80'", run 39669924148) and the
+            # port-forwarded probes unless allowlisted. Not ASP.NET's AllowedHosts: that also enables
+            # HostFiltering, which 400s the kubelet's pod-IP probes (run 39670822137).
             COMMON=(--namespace "$NS" --wait --timeout 12m
+                    -f /tmp/upg-keyring-values.yaml
+                    --set-string 'config.env.HostValidation__AllowedHosts__0=honua-honua'
+                    --set-string 'config.env.HostValidation__AllowedHosts__1=127.0.0.1'
+                    --set-string 'config.env.HostValidation__AllowedHosts__2=localhost'
+                    --set-string 'config.env.Operations__SecretChannel__KeyRingCertificatePath=/keyring/keyring.pfx'
+                    --set-string "secret.env.Operations__SecretChannel__KeyRingCertificatePassword=$KEYRING_PASSWORD"
+                    --set-string "secret.env.AuditLog__ChainVerification__Key=$AUDIT_CHAIN_KEY"
                     --set postgresql.enabled=false
                     --set redis.enabled=false
-                    --set 'secret.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=honua'
+                    --set-string "secret.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=$DB_PASSWORD"
                     --set 'secret.env.ConnectionStrings__redis=honua-redis:6379'
                     --set 'secret.env.HONUA_ADMIN_PASSWORD=UpgradeCiAdmin!2026'
-                    --set 'secret.env.Security__ConnectionEncryption__MasterKey=upgrade-kind-master-key-2026-rc2-0001'
+                    --set-string "secret.env.Security__ConnectionEncryption__MasterKey=$MASTER_KEY"
                     --set-string 'config.env.Operations__Policy__Enabled=true'
                     --set-string 'config.env.Operations__Policy__DefaultDecision=Deny'
                     --set image.pullPolicy=IfNotPresent)
@@ -443,6 +617,10 @@ jobs:
                 '{e2e_src_fs:$src,maui_zoning:$zoning}' > "/tmp/upg/seed-checksums-${suffix}.json"
             }
             image_digest() {
+              # A digest-pinned reference IS its identity: the kind node pulls by it and reports it
+              # as the pod imageID. The local docker config Id is a different digest and never
+              # matches (run 39667428920 misclassified a recovered rollback as rollback-failed).
+              case "$1" in *@sha256:*) printf '%s\n' "${1##*@}"; return 0 ;; esac
               docker image inspect "$1" --format '{{.Id}}' 2>/dev/null | grep '^sha256:' || \
                 printf '%s' "$1" | sha256sum | awk '{print "sha256:"$1}'
             }
@@ -480,7 +658,7 @@ jobs:
               local image_id observed_version observed_lock
               image_id="$(kubectl get pods -n "$NS" -l app.kubernetes.io/instance=honua -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')"
               if start_server_forward; then
-                curl -fsS http://127.0.0.1:18080/api/v1/admin/capabilities -o "/tmp/${phase}-runtime.json"
+                curl -fsS -H 'X-API-Key: UpgradeCiAdmin!2026' http://127.0.0.1:18080/api/v1/admin/capabilities -o "/tmp/${phase}-runtime.json"
                 stop_server_forward
               else
                 echo '{}' > "/tmp/${phase}-runtime.json"
@@ -488,6 +666,12 @@ jobs:
               observed_version="$(jq -r '.data.serverVersion // empty' "/tmp/${phase}-runtime.json")"
               observed_lock="$(kubectl get deployment -n "$NS" -l app.kubernetes.io/instance=honua -o json \
                 | jq -r '.items[0].spec.template.spec.containers[0].env[]? | select(.name=="HONUA_PLATFORM_LOCK_DIGEST") | .value')"
+              # The chart renders config.env into its ConfigMap (envFrom), not into env[]: read the
+              # value the current release revision actually serves from there when env[] has none.
+              if [ -z "$observed_lock" ]; then
+                observed_lock="$(kubectl get configmap -n "$NS" -l app.kubernetes.io/instance=honua -o json \
+                  | jq -r '[.items[].data.HONUA_PLATFORM_LOCK_DIGEST // empty][0] // empty')"
+              fi
               jq -n --arg imageID "$image_id" --arg digest "${expected_ref##*@}" --arg source "$expected_source" \
                 --arg version "$observed_version" --arg lock "$observed_lock" --arg schema "$schema" \
                 '{imageID:$imageID,runtimeIdentity:{imageDigest:$digest,sourceRevision:$source,observedVersion:$version,platformLockDigest:$lock},databaseSchema:$schema}' \
@@ -502,7 +686,7 @@ jobs:
               "${COMMON[@]}" >/tmp/install.log 2>&1; then
               BEFORE_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/before-db.log || true)"
               if start_server_forward && E2E_BASE=http://127.0.0.1:18080 \
-                   E2E_API_KEY='UpgradeCiAdmin!2026' E2E_DB_HOST=honua-postgis \
+                   E2E_API_KEY='UpgradeCiAdmin!2026' E2E_DB_HOST=honua-postgis E2E_DB_PASSWORD="$DB_PASSWORD" \
                    E2E_PSQL="kubectl exec -i -n $NS deployment/honua-postgis -- env PGPASSWORD=honua psql -U honua -d honua" \
                    E2E_OUT=/tmp/upg-seed bash e2e/harness/seed/seed.sh >/tmp/seed.log 2>&1; then
                 stop_server_forward
@@ -517,7 +701,7 @@ jobs:
                 fi
               else
                 stop_server_forward
-                STATUS=fail; WHY="honua-2026.1 installed but the real e2e seed failed"; tail -n 80 /tmp/seed.log || true
+                STATUS=fail; WHY="prior image installed but the real e2e seed failed"; tail -n 80 /tmp/seed.log || true
               fi
               # 2) UPGRADE to candidate — then prove journal advancement and seed survival.
               UPGRADE_EXTRA=()
@@ -539,9 +723,105 @@ jobs:
                   ;;
                 *) STATUS=fail; WHY="unknown recovery failure scenario: $FAILURE_SCENARIO" ;;
               esac
-              if [ "$STATUS" != "fail" ] && helm upgrade honua "$CANDIDATE_CHART" --set image.repository="${CAND%@*}" --set image.tag='' --set image.digest="${CAND##*@}" \
-                --set-string config.env.Deployment__ImageDigest="${CAND##*@}" --set-string config.env.HONUA_PLATFORM_LOCK_DIGEST="$CANDIDATE_LOCK_DIGEST" \
-                "${UPGRADE_EXTRA[@]}" "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
+              # Rollback-target eligibility probe (honua-server#5333, #6484): does the prior image refuse
+              # a journal entry it does not ship? Insert one unknown entry, restart the prior, and see
+              # whether it starts. A guarded image refuses with schema_reader_incompatible; an
+              # unguarded one (2026.1) starts, so an image-only rollback to it can never be certified.
+              PRIOR_GUARD=unprobed
+              if [ "$STATUS" != fail ] && [ "$FAILURE_SCENARIO" = normal ]; then
+                mkdir -p /tmp/upg
+                PROBE_SCRIPT='Honua.Server.Migrations.999_RollbackTargetGuardProbe.sql'
+                if db_query "INSERT INTO public.schema_versions (scriptname, applied) VALUES ('$PROBE_SCRIPT', now());" >/tmp/upg/guard-probe.log 2>&1 \
+                   && kubectl rollout restart -n "$NS" deployment -l app.kubernetes.io/instance=honua >>/tmp/upg/guard-probe.log 2>&1; then
+                  if kubectl rollout status -n "$NS" deployment -l app.kubernetes.io/instance=honua --timeout=180s >>/tmp/upg/guard-probe.log 2>&1; then
+                    PRIOR_GUARD=absent
+                  else
+                    kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=300 >>/tmp/upg/guard-probe.log 2>&1 || true
+                    kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=300 --previous >>/tmp/upg/guard-probe.log 2>&1 || true
+                    if grep -q 'schema_reader_incompatible' /tmp/upg/guard-probe.log; then PRIOR_GUARD=present; else PRIOR_GUARD=inconclusive; fi
+                  fi
+                fi
+                db_query "DELETE FROM public.schema_versions WHERE scriptname = '$PROBE_SCRIPT';" >>/tmp/upg/guard-probe.log 2>&1 || true
+                kubectl rollout restart -n "$NS" deployment -l app.kubernetes.io/instance=honua >>/tmp/upg/guard-probe.log 2>&1 || true
+                if ! kubectl rollout status -n "$NS" deployment -l app.kubernetes.io/instance=honua --timeout=300s >>/tmp/upg/guard-probe.log 2>&1; then
+                  STATUS=fail; WHY="prior did not return to ready after the rollback-target guard probe was removed"
+                fi
+                echo "ROLLBACK-TARGET GUARD PROBE: prior guard $PRIOR_GUARD"
+              fi
+              # Customer step before any upgrade: back up the database. It is the documented last-resort
+              # rollback path and is restored only at the documented rollback boundary (below).
+              # A failed backup fails the cell before any upgrade: the runbook makes it mandatory, and
+              # without it the documented recovery path is not proven available.
+              if [ "$STATUS" != fail ] && [ "$FAILURE_SCENARIO" = normal ]; then
+                if kubectl exec -n "$NS" deployment/honua-postgis -- pg_dump -U honua -d honua -Fc -f /tmp/pre-upgrade.dump \
+                     >/tmp/backup.log 2>&1; then
+                  BACKUP_TAKEN=true
+                else
+                  STATUS=fail; WHY="mandatory pre-upgrade backup (pg_dump) failed; the documented recovery path is unavailable"
+                  tail -n 20 /tmp/backup.log || true
+                fi
+              fi
+              serves_seed() {
+                local rc=1
+                if start_server_forward && curl -fsS -H 'X-API-Key: UpgradeCiAdmin!2026' \
+                     "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/query?where=1%3D1&returnCountOnly=true&f=json" \
+                     -o "$1" && [ "$(jq -r '.count // -1' "$1")" = "2" ]; then
+                  rc=0
+                fi
+                stop_server_forward
+                return $rc
+              }
+              restore_pre_upgrade_backup() {
+                mkdir -p /tmp/upg
+                kubectl scale deployment -n "$NS" -l app.kubernetes.io/instance=honua --replicas=0 >/tmp/upg/restore.log 2>&1 || return 1
+                for _ in $(seq 1 60); do
+                  [ -z "$(kubectl get pods -n "$NS" -l app.kubernetes.io/instance=honua --field-selector=status.phase=Running -o name 2>/dev/null)" ] && break
+                  sleep 2
+                done
+                kubectl exec -n "$NS" deployment/honua-postgis -- psql -U honua -d postgres -v ON_ERROR_STOP=1 \
+                  -c 'DROP DATABASE honua WITH (FORCE);' -c 'CREATE DATABASE honua OWNER honua;' >>/tmp/upg/restore.log 2>&1 || return 1
+                # pg_restore reports benign "already exists" notices as errors; the serving check after
+                # the restore is the verdict, and the exit code is kept in the log.
+                kubectl exec -n "$NS" deployment/honua-postgis -- pg_restore -U honua -d honua --no-owner /tmp/pre-upgrade.dump \
+                  >>/tmp/upg/restore.log 2>&1; echo "pg_restore exit $?" >>/tmp/upg/restore.log
+                kubectl scale deployment -n "$NS" -l app.kubernetes.io/instance=honua --replicas=1 >>/tmp/upg/restore.log 2>&1 || return 1
+                kubectl rollout status -n "$NS" deployment -l app.kubernetes.io/instance=honua --timeout=300s >>/tmp/upg/restore.log 2>&1
+              }
+              upgrade_candidate() {
+                helm upgrade honua "$CANDIDATE_CHART" --set image.repository="${CAND%@*}" --set image.tag='' --set image.digest="${CAND##*@}" \
+                  --set-string config.env.Deployment__ImageDigest="${CAND##*@}" --set-string config.env.HONUA_PLATFORM_LOCK_DIGEST="$CANDIDATE_LOCK_DIGEST" \
+                  "${COMMON[@]}" "$@"
+              }
+              UPGRADE_OK=0
+              if [ "$STATUS" != "fail" ]; then
+                # (Fault injection comes LAST: helm keeps the last --set for a key, so a bad-config
+                # override placed before COMMON was silently replaced by the good value, run 39677853038.)
+                if upgrade_candidate "${UPGRADE_EXTRA[@]}" >/tmp/upgrade.log 2>&1; then
+                  UPGRADE_OK=1
+                elif [ "$FAILURE_SCENARIO" = normal ]; then
+                  # Documented customer step (docs/UPGRADE-RUNBOOK.md): a candidate that gates
+                  # contract-phase migrations refuses with a one-shot nonce bound to those scripts.
+                  # Read it from the typed refusal, then upgrade again with HONUA_APPROVE_CONTRACT_MIGRATIONS.
+                  mkdir -p /tmp/upg
+                  cp /tmp/upgrade.log /tmp/upg/upgrade-unattended.log
+                  for prev in "" --previous; do
+                    kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=800 $prev \
+                      >> /tmp/upg/contract-gate.log 2>&1 || true
+                  done
+                  APPROVAL_NONCE="$(grep -hoE 'HONUA_APPROVE_CONTRACT_MIGRATIONS=[0-9a-f]{8,64}' /tmp/upg/contract-gate.log | head -n 1 | cut -d= -f2 || true)"
+                  GATED_SCRIPTS="$(sed -n 's/.*pending contract-phase migration(s) on an existing database: \(.*[.]sql\)[.] These reviewed.*/\1/p' /tmp/upg/contract-gate.log | head -n 1 || true)"
+                  if [ -n "$APPROVAL_NONCE" ]; then
+                    CONTRACT_APPROVAL=contract-approval-required
+                    echo "CONTRACT-APPROVAL-REQUIRED (expected customer step): nonce $APPROVAL_NONCE for: $GATED_SCRIPTS"
+                    if upgrade_candidate --set-string "config.env.HONUA_APPROVE_CONTRACT_MIGRATIONS=$APPROVAL_NONCE" >/tmp/upgrade.log 2>&1; then
+                      UPGRADE_OK=1; CONTRACT_APPROVAL=approved-and-applied
+                    else
+                      CONTRACT_APPROVAL=approved-upgrade-failed
+                    fi
+                  fi
+                fi
+              fi
+              if [ "$UPGRADE_OK" = 1 ]; then
                 helm test honua -n "$NS" --timeout 6m >/tmp/test.log 2>&1 && HT=ok || HT=failed
                 AFTER_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/after-db.log || true)"
                 CANDIDATE_SCHEMA="$(db_query "SELECT COALESCE(max(substring(scriptname from '([0-9]{3})_')::integer), 0) FROM public.schema_versions;" 2>/tmp/schema-floor.log || true)"
@@ -560,18 +840,70 @@ jobs:
                 # 3) ROLLBACK IMAGE only; retain migrated DB and query seed data through the prior app.
                 elif helm rollback honua 1 -n "$NS" --wait --timeout 12m >/tmp/rollback.log 2>&1; then
                   capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$CANDIDATE_SCHEMA" || STATUS=fail
-                  if [ "$HT" = "ok" ] && start_server_forward && \
-                     curl -fsS -H 'X-API-Key: UpgradeCiAdmin!2026' \
-                       "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/query?where=1%3D1&returnCountOnly=true&f=json" \
-                       -o /tmp/rollback-query.json && [ "$(jq -r '.count // -1' /tmp/rollback-query.json)" = "2" ]; then
-                    stop_server_forward
-                    STATUS=pass; WHY="schema_versions advanced $BEFORE_VERSIONS->$AFTER_VERSIONS (schema $CANDIDATE_SCHEMA); seeded rows survived; prior image served 2 seeded features against migrated schema"
+                  if [ "$PRIOR_GUARD" = absent ]; then
+                    # rollback-target-ineligible: the prior has no schema-reader guard, so it starts on
+                    # any newer schema and "prior still serves" proves nothing (honua-server#6484). The
+                    # image-only rollback is never graded a pass; the certified customer rollback for
+                    # this release is the backup restore, which is still executed and recorded.
+                    BOUNDARY=rollback-target-unguarded
+                    serves_seed /tmp/rollback-silent-query.json && SERVED_SILENTLY=true || SERVED_SILENTLY=false
+                    RESTORE_VERIFIED=false
+                    if [ "$BACKUP_TAKEN" = true ] && restore_pre_upgrade_backup && serves_seed /tmp/rollback-query.json \
+                       && capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$PRIOR_SCHEMA"; then
+                      RESTORE_VERIFIED=true
+                    fi
+                    ROLLBACK_OUTCOME=rollback-target-ineligible
+                    STATUS=fail; WHY="rollback-target-ineligible: prior $PRIOR_SOURCE_REVISION (schema $PRIOR_SCHEMA) has no schema-reader guard (probe: it started on an unrecognised journal entry; honua-server#5333, #6484), so an image-only rollback to it cannot be certified (it served silently on schema $CANDIDATE_SCHEMA: $SERVED_SILENTLY); certified rollback path for this release: restore the pre-upgrade backup (verified: $RESTORE_VERIFIED). Upgrade itself: schema_versions $BEFORE_VERSIONS->$AFTER_VERSIONS, schema $CANDIDATE_SCHEMA, contract approval $CONTRACT_APPROVAL, seeded rows survived"
+                  elif [ "$STATUS" != fail ] && [ -n "$APPROVAL_NONCE" ]; then
+                    # A guarded prior must refuse a schema narrowed by approved contract migrations.
+                    ROLLBACK_OUTCOME=guarded-prior-served-across-contract
+                    STATUS=fail; WHY="prior image (guard $PRIOR_GUARD) started on a schema narrowed by approved contract migrations instead of refusing with schema_reader_incompatible"
+                  elif [ "$STATUS" != fail ] && [ "$HT" = "ok" ] && serves_seed /tmp/rollback-query.json; then
+                    ROLLBACK_OUTCOME=image-rollback-served
+                    STATUS=pass; WHY="schema_versions advanced $BEFORE_VERSIONS->$AFTER_VERSIONS (schema $CANDIDATE_SCHEMA, contract approval: $CONTRACT_APPROVAL); seeded rows survived; prior image served 2 seeded features against the migrated schema"
                   else
-                    stop_server_forward
+                    ROLLBACK_OUTCOME=image-rollback-did-not-serve
                     STATUS=fail; WHY="prior image rollback did not serve seeded data against the migrated schema"; tail -n 40 /tmp/test.log || true
                   fi
                 else
                   STATUS=fail; WHY="rollback to the prior revision failed"; tail -n 40 /tmp/rollback.log || true
+                  # Keep the prior image's own refusal: it is the expand-contract verdict.
+                  mkdir -p /tmp/upg
+                  kubectl describe pods -n "$NS" -l app.kubernetes.io/instance=honua > /tmp/upg/rollback-pods.txt 2>&1 || true
+                  for prev in "" --previous; do
+                    kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=400 $prev \
+                      >> /tmp/upg/rollback-prior.log 2>&1 || true
+                  done
+                  REFUSAL="$(grep -hoE 'schema_reader_incompatible[^"]{0,200}|Unhandled exception[^"]{0,300}' /tmp/upg/rollback-prior.log | head -n 1 || true)"
+                  [ -z "$REFUSAL" ] || WHY="$WHY: prior image refused the migrated schema: $REFUSAL"
+                  tail -n 60 /tmp/upg/rollback-prior.log || true
+                  ROLLBACK_OUTCOME=image-rollback-refused
+                  # Documented rollback boundary: a typed schema_reader_incompatible refusal is the
+                  # specified behaviour when contract migrations were approved on this edge, or when the
+                  # prior image predates the expand-only reader check (schema < READER_EXPAND_FLOOR).
+                  # The customer's documented recovery is restoring the pre-upgrade backup; the prior must
+                  # then serve. Any other refusal, or a prior at/above the floor refusing, stays a FAIL.
+                  BOUNDARY=no
+                  if [[ "$REFUSAL" == schema_reader_incompatible* ]]; then
+                    if [ -n "$APPROVAL_NONCE" ]; then BOUNDARY=contract-migrations-approved
+                    elif [[ "$PRIOR_SCHEMA" =~ ^[0-9]+$ ]] && [ "$PRIOR_SCHEMA" -lt "$READER_EXPAND_FLOOR" ]; then BOUNDARY="prior-schema-$PRIOR_SCHEMA-below-$READER_EXPAND_FLOOR"
+                    fi
+                  fi
+                  if [ "$BOUNDARY" != no ] && [ "$BACKUP_TAKEN" = true ]; then
+                    if restore_pre_upgrade_backup && [ "$HT" = ok ] && serves_seed /tmp/rollback-query.json; then
+                      ROLLBACK_OUTCOME=restored-from-pre-upgrade-backup
+                      if ! capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$PRIOR_SCHEMA"; then
+                        STATUS=fail; WHY="documented boundary ($BOUNDARY): backup restored and seed served, but the rolled-back identity did not match the prior"
+                      else
+                        STATUS=pass
+                        WHY="schema_versions advanced $BEFORE_VERSIONS->$AFTER_VERSIONS (schema $CANDIDATE_SCHEMA, contract approval: $CONTRACT_APPROVAL); seeded rows survived; helm rollback reached the documented boundary ($BOUNDARY: typed schema_reader_incompatible); the pre-upgrade backup was restored and the prior image served 2 seeded features"
+                      fi
+                    else
+                      ROLLBACK_OUTCOME=restore-did-not-recover
+                      STATUS=fail; WHY="$WHY; documented boundary ($BOUNDARY) but restoring the pre-upgrade backup did not bring the prior back"
+                      tail -n 40 /tmp/upg/restore.log || true
+                    fi
+                  fi
                 fi
               elif [ "$STATUS" != "fail" ]; then
                 kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua \
@@ -637,11 +969,55 @@ jobs:
                   fi
                 fi
                 tail -n 60 /tmp/upgrade.log || true
+                # What the rolled-back prior said about the schema it found (e.g. schema_reader_incompatible).
+                for prev in "" --previous; do
+                  kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=400 $prev \
+                    >> /tmp/upg/rollback-prior.log 2>&1 || true
+                done
+                grep -hoE 'schema_reader_incompatible[^"]{0,300}' /tmp/upg/rollback-prior.log | head -n 1 || true
               fi
             else
               STATUS=fail; WHY="helm install of the prior baseline image failed"; tail -n 60 /tmp/install.log || true
+              mkdir -p /tmp/upg
+              kubectl describe pods -n "$NS" -l app.kubernetes.io/instance=honua > /tmp/upg/prior-install-pods.txt 2>&1 || true
+              kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=500 \
+                > /tmp/upg/prior-install.log 2>&1 || true
+              tail -n 40 /tmp/upg/prior-install.log || true
             fi
             set +x
+          fi
+          if [ "$MODE" != signed-lock ]; then
+            # The lifecycle verdict belongs to the pair fragment; the signed-lock fragment stays
+            # blocked because no signed prior lock exists, whatever the pair observed.
+            mkdir -p /tmp/upg
+            jq -n --arg before "${BEFORE_VERSIONS:-}" --arg after "${AFTER_VERSIONS:-}" \
+              --arg schema "${CANDIDATE_SCHEMA:-}" --arg declared "${DECLARED_SCHEMA:-}" \
+              --arg beforeSrc "${BEFORE_SRC:-}" --arg afterSrc "${AFTER_SRC:-}" \
+              --arg beforeZoning "${BEFORE_ZONING:-}" --arg afterZoning "${AFTER_ZONING:-}" \
+              --arg helmTest "${HT:-}" --arg rollbackCount "$(jq -r '.count // empty' /tmp/rollback-query.json 2>/dev/null || true)" \
+              --arg approval "${CONTRACT_APPROVAL:-not-required}" --arg nonce "${APPROVAL_NONCE:-}" --arg gated "${GATED_SCRIPTS:-}" \
+              --arg rollback "${ROLLBACK_OUTCOME:-}" --arg boundary "${BOUNDARY:-}" --arg backup "${BACKUP_TAKEN:-false}" \
+              --arg floor "$READER_EXPAND_FLOOR" --arg priorSchema "${PRIOR_SCHEMA:-}" --arg silent "${SERVED_SILENTLY:-}" \
+              --arg guard "${PRIOR_GUARD:-unprobed}" --arg restored "${RESTORE_VERIFIED:-}" \
+              '{schemaVersionsRows:{beforeUpgrade:$before,afterUpgrade:$after},observedSchema:$schema,declaredCandidateSchema:$declared,
+                seededRows:{e2e_src_fs:{before:$beforeSrc,after:$afterSrc},maui_zoning:{before:$beforeZoning,after:$afterZoning}},
+                helmTest:$helmTest,rollbackPriorQueryCount:$rollbackCount,
+                customerSteps:{preUpgradeBackup:($backup=="true"),
+                  contractMigrationApproval:{outcome:$approval,nonce:$nonce,gatedScripts:$gated,
+                    steps:(if $nonce=="" then [] else ["helm upgrade (unattended): candidate refused with the typed contract-migration gate and printed the one-shot nonce",
+                           "helm upgrade with HONUA_APPROVE_CONTRACT_MIGRATIONS=<nonce>"] end)},
+                  migrateOnly:"not used (HONUA_MIGRATE_ONLY, honua-server#6479, is not in this candidate)",
+                  rollback:{outcome:$rollback,boundary:$boundary,readerExpandFloorSchema:$floor,priorSchema:$priorSchema,
+                            priorSchemaReaderGuard:$guard,
+                            certifiedRollbackPath:(if $guard=="absent" or $boundary!="" then "restore-pre-upgrade-backup" else "image-rollback" end),
+                            restoreVerified:(if $restored=="" then null else ($restored=="true") end),
+                            imageRollbackServedSilently:(if $silent=="" then null else ($silent=="true") end)}}}' > /tmp/upg/trunk-observed.json
+            cp /tmp/migration-journal.json /tmp/upg/trunk-migration-journal.json 2>/dev/null || true
+            echo "trunk_status=$STATUS" >> "$GITHUB_ENV"
+            echo "trunk_why=$(printf '%s' "$WHY" | tr '\n' ' ')" >> "$GITHUB_ENV"
+            echo "PAIR RESULT ($MODE): $STATUS — $WHY"
+            STATUS=blocked
+            WHY="$SIGNED_LOCK_WHY (the $MODE pair ran separately: see upgrade-kind-$MODE-$FAILURE_SCENARIO)"
           fi
           echo "status=$STATUS" >> "$GITHUB_ENV"
           echo "why=$WHY"       >> "$GITHUB_ENV"
@@ -675,6 +1051,22 @@ jobs:
           cp _locks/candidate.json /tmp/upg/candidate-platform-lock.json 2>/dev/null || true
           cp /tmp/*-identity.json /tmp/upg/ 2>/dev/null || true
           cp /tmp/migration-journal.json /tmp/upg/ 2>/dev/null || true
+          PAIR_MODE="${{ steps.smoke.outputs.mode }}"
+          if [ -n "$PAIR_MODE" ] && [ "$PAIR_MODE" != signed-lock ]; then
+            # Labelled pair receipt: priorSource published-release (customer path) or trunk-candidate
+            # (rc-required path), certifiedReleasePair false, signed-lock requirement still blocked. Never
+            # attested as a signed-lock release receipt.
+            if ! python tools/upgrade_trunk_pair.py receipt --pair /tmp/trunk-pair.json \
+                 --scenario "${{ matrix.scenario }}" --status "${trunk_status:-fail}" --why "${trunk_why:-}" \
+                 --signed-lock-why "exact signed prior/candidate platform locks are unavailable or invalid" \
+                 --observed /tmp/upg/trunk-observed.json --phase-dir /tmp \
+                 --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --commit "$GITHUB_SHA" \
+                 --output "/tmp/upg/$PAIR_MODE-upgrade-receipt.json"; then
+              echo "trunk_status=fail" >> "$GITHUB_ENV"
+              echo "trunk_why=$PAIR_MODE receipt could not be assembled" >> "$GITHUB_ENV"
+            fi
+            cat "/tmp/upg/$PAIR_MODE-upgrade-receipt.json" 2>/dev/null || true
+          fi
           # The exact-lock-receipt below asserts install/candidate/rollback chart identities together;
           # only the happy-path lifecycle smoke (scenario=normal) populates all three phase files, so
           # gate it on their presence rather than on `$status` alone. A fault-injection scenario
@@ -722,12 +1114,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: upgrade-kind-evidence-${{ matrix.scenario }}
+          name: upgrade-kind-evidence-${{ matrix.scenario }}-${{ matrix.pair }}
           path: /tmp/upg
           if-no-files-found: warn
 
       - name: Attest candidate-bound recovery receipt
-        if: always() && steps.smoke.outputs.recovery_receipt == 'true'
+        # A pair recovery receipt binds manifest digests, not signed locks: evidence only.
+        if: always() && steps.smoke.outputs.recovery_receipt == 'true' && steps.smoke.outputs.mode == 'signed-lock'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: /tmp/upg/recovery-receipt.json
@@ -739,7 +1132,8 @@ jobs:
           subject-path: /tmp/upg/exact-lock-receipt.json
 
       - name: Emit fragment
-        if: always()
+        # The signed-lock requirement belongs to the release pair; one fragment per scenario.
+        if: always() && matrix.pair == 'published-release'
         uses: ./.github/actions/gate-fragment
         with:
           gate: upgrade-kind-smoke-${{ matrix.scenario }}
@@ -748,6 +1142,17 @@ jobs:
           why: ${{ env.why || 'job crashed before recording a result' }}
           enforcement: ${{ inputs.enforcement }}
           prefix: upg-${{ matrix.scenario }}-
+
+      - name: Emit pair fragment
+        if: always() && (steps.smoke.outputs.mode == 'published-release' || steps.smoke.outputs.mode == 'trunk-candidate')
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: upgrade-kind-${{ matrix.pair }}-${{ matrix.scenario }}
+          status: ${{ env.trunk_status || 'fail' }}
+          source: kind
+          why: "${{ matrix.pair == 'published-release' && format('prior-source: published-release {0} ({1}; customer upgrade path, advisory until a real release exists, no signed lock yet)', steps.fallback.outputs.release_tag, steps.fallback.outputs.prior_public_reference) || format('prior-source: trunk-candidate ({0} -> {1}; rc-required path, not a customer release pair)', steps.fallback.outputs.prior_source_revision, steps.fallback.outputs.candidate_source_revision) }}: ${{ env.trunk_why || 'job crashed before recording a result' }}"
+          enforcement: ${{ inputs.enforcement }}
+          prefix: upg-${{ matrix.pair }}-${{ matrix.scenario }}-
 
   # ── report — aggregate the upg- fragments; fail per enforcement ──────────────────────────────────
   report:
@@ -770,11 +1175,21 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Advisory fragments: the published-release pair and the signed-lock fragment it carries
+          # (coordinator ruling 2026-10-22). Reported, never counted toward overallStatus.
+          ADVISORY_GATES: "^upgrade-kind-(published-release|smoke)-"
+          # The required trunk-candidate cells this run must report: all five scenarios on the
+          # schedule, one on a trunk-candidate dispatch or train call, none on a pull request (the kind
+          # lane does not run there). A missing one fails the gate.
+          EXPECTED_TRUNK_CELLS: ${{ github.event_name == 'schedule' && '5' || (github.event_name != 'pull_request' && (inputs.upgrade_pair || 'trunk-candidate') == 'trunk-candidate') && '1' || '0' }}
+          ADVISORY_RULING: https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760
         run: |
           set -euo pipefail
           mkdir -p out
           jq -s \
             --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+            --arg advisory "$ADVISORY_GATES" --arg ruling "$ADVISORY_RULING" \
+            --argjson expect "$EXPECTED_TRUNK_CELLS" \
             --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
             def decided(enf):
               if .status=="pass" then "pass"
@@ -785,14 +1200,24 @@ jobs:
               elif .status=="skipped" then (if enf=="strict" then "fail" else "skipped" end)
               elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
               else "fail" end;
-            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            ( [ .[] | if (.gate|test($advisory))
+                        then . + {advisory:true, advisoryRuling:$ruling,
+                                  decided:(if .status=="pass" then "pass" else "advisory-\(.status)" end)}
+                        else . + {decided: decided($enf)} end ] ) as $g
             | { gate:"upgrade", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
                 gates:$g,
                 summary:{ pass:([$g[]|select(.decided=="pass")]|length),
                           skipped:([$g[]|select(.decided=="skipped")]|length),
                           blocked:([$g[]|select(.decided=="blocked")]|length),
-                          fail:([$g[]|select(.decided=="fail")]|length) },
-                overallStatus:( if any($g[];.decided=="fail") then "fail"
+                          fail:([$g[]|select(.decided=="fail")]|length),
+                          advisory:([$g[]|select(.advisory==true)]|length),
+                          required:([$g[]|select(.advisory!=true)]|length),
+                          trunkCandidateCells:([$g[]|select(.gate|startswith("upgrade-kind-trunk-candidate-"))]|length),
+                          expectedTrunkCandidateCells:$expect },
+                # Advisory fragments never decide the verdict; at least one required fragment must exist.
+                overallStatus:( if ([$g[]|select(.advisory!=true)]|length)==0 then "fail"
+                                elif ([$g[]|select(.gate|startswith("upgrade-kind-trunk-candidate-"))]|length) < $expect then "fail"
+                                elif any($g[];.decided=="fail") then "fail"
                                 elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
             fragments/*.json > out/gate-report.json
           cat out/gate-report.json
@@ -802,6 +1227,7 @@ jobs:
             echo "## Upgrade gate — $OVERALL";
             echo "| layer | status | why |"; echo "|---|---|---|";
             jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
+            echo; echo "Advisory rows (published-release pair, signed-lock fragment) do not affect the verdict: $ADVISORY_RULING";
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gate-report

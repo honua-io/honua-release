@@ -15,10 +15,10 @@ from agent_e2e_telemetry import validate_events, validate_values
 from agent_e2e_worker import encode
 
 
-def verify_dispatch(state, candidate, launch, context, action, dispatch):
+def verify_dispatch(state, candidate, launch, context, action, dispatch, *, names=('mcp_list_tools', 'mcp_call_tool')):
     validate_action(action)
-    if action['name'] not in ('mcp_list_tools', 'mcp_call_tool'):
-        raise PackError('MCP backend cannot execute another action interface')
+    if action['name'] not in names:
+        raise PackError('backend cannot execute another action interface')
     if (not isinstance(context, dict) or context.get('componentBindingDigest') != candidate
             or any(context.get(k) != v for k, v in launch['context'].items())):
         raise PackError('MCP action belongs to another candidate or attempt')

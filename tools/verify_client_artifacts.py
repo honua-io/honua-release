@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import tarfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -37,16 +38,49 @@ class _CrossOriginAuthStripRedirect(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
+class RegistryUnavailable(VerificationError):
+    """The registry kept answering 5xx/429 or could not be reached after bounded retries.
+
+    This is an outage, not evidence about the package: it never counts as a provenance refusal.
+    A 404 or any other 4xx answer, or bytes that fail verification, stays a VerificationError.
+    """
+
+    outcome = "transient-registry-unavailable"
+
+
+# Backoff before each attempt (seconds). Run 39630172050 refused the night on a single PyPI
+# integrity 503 ("Backend is unhealthy"); run 39715081784 then stopped as transient on npm 502s that answered about half
+# the time for minutes; eight bounded attempts (about 4 minutes) ride out that kind of brownout.
+REQUEST_DELAYS = (0, 5, 10, 20, 30, 45, 60, 90)
+_TRANSIENT_HTTP = frozenset({429, 500, 502, 503, 504})
+_sleep = time.sleep
+
+
+def _open(url: str, headers: dict) -> bytes:
+    opener = urllib.request.build_opener(_CrossOriginAuthStripRedirect())
+    with opener.open(urllib.request.Request(url, headers=headers), timeout=60) as response:
+        return response.read()
+
+
 def _request(url: str, *, token: str | None = None) -> bytes:
     headers = {"Accept": "*/*", "User-Agent": "honua-release-pin-verifier"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    try:
-        opener = urllib.request.build_opener(_CrossOriginAuthStripRedirect())
-        with opener.open(urllib.request.Request(url, headers=headers), timeout=60) as response:
-            return response.read()
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
-        raise VerificationError(f"published artifact is unreachable at {url}: {exc}") from exc
+    last: Exception | None = None
+    for delay in REQUEST_DELAYS:
+        if delay:
+            _sleep(delay)
+        try:
+            return _open(url, headers)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _TRANSIENT_HTTP:
+                raise VerificationError(f"published artifact is unreachable at {url}: {exc}") from exc
+            last = exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            last = exc
+    raise RegistryUnavailable(
+        f"{RegistryUnavailable.outcome}: registry did not answer {url} after "
+        f"{len(REQUEST_DELAYS)} attempts: {last}") from last
 
 
 def _request_json(url: str, *, token: str | None = None) -> dict:
@@ -407,6 +441,9 @@ def main(argv: list[str] | None = None) -> int:
     manifest = yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {}
     try:
         verified = verify_manifest(manifest, github_token=os.environ.get(args.github_token_env), ecosystem=args.ecosystem)
+    except RegistryUnavailable as exc:
+        print(f"TRANSIENT {exc}")
+        return 75
     except VerificationError as exc:
         print(f"ERROR {exc}")
         return 1

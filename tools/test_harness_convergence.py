@@ -66,18 +66,30 @@ def validate(candidate):
     return run(candidate, "validate-protocol-requirements.py")
 
 
+def implemented_keys(candidate):
+    matrix = read(candidate / "sources/server/capability-matrix.v1.json")
+    return {row["key"] for row in matrix["capabilities"] if row.get("maturity", {}).get("implemented")}
+
+
 def test_all_42_actual_governed_operations_include_ten_added_writes(candidate):
+    """Forty-two fixture operations remain the contract. Preview demotions are not harness rows."""
     generate(candidate)
     result = validate(candidate)
     assert result.returncode == 0, result.stderr
     expected = read(candidate / HARNESS)["assignments"]
+    assert len(expected) == 42
+    implemented = implemented_keys(candidate)
+    demoted = {assignment["capability_key"] for assignment in expected if assignment["capability_key"] not in implemented}
+    assert demoted == {"alerts.evaluation", "serve.ogc-api-edr", "serve.sensorthings"}
+    governed = [assignment for assignment in expected if assignment["capability_key"] in implemented]
     rows = [row for row in read(candidate / CATALOG)["requirements"] if row["client_lane"] == "server-protocol-harness"]
-    assert len(rows) == 42
+    assert len(rows) == len(governed)
     assert {(r["capability_key"], r["surface"], r["operation"], tuple(r["test_ids"]), tuple(r["scenario_facets"])) for r in rows} == {
-        (a["capability_key"], a["surface"], a["operation"], tuple(a["test_ids"]), tuple(a["scenario_facets"])) for a in expected
+        (a["capability_key"], a["surface"], a["operation"], tuple(a["test_ids"]), tuple(a["scenario_facets"])) for a in governed
     }
-    writes = [a for a in expected if a["capability_key"] in {"editing.featureserver-edits", "serve.ogc-api-features", "serve.wfs"}]
+    writes = [a for a in governed if a["capability_key"] in {"editing.featureserver-edits", "serve.ogc-api-features", "serve.wfs"}]
     assert len(writes) == 10
+    assert not any(row["capability_key"] in demoted for row in rows)
 
 
 @pytest.mark.parametrize("mutation", ["omit", "extra", "test-id", "facet", "preview-row"])
@@ -175,7 +187,7 @@ def test_applicability_cannot_invent_or_omit_implemented_decisions(candidate, mu
 
 
 def change_client_versions(candidate):
-    versions = {"sdk-js": "0.2.0", "sdk-python": "0.1.16", "sdk-dotnet": "1.11.0"}
+    versions = {"sdk-js": "0.2.0", "sdk-python": "0.1.18", "sdk-dotnet": "1.11.0"}
     for source in ("sdk-js", "sdk-python"):
         path = candidate / "sources" / source / "protocol-certification.v1.json"
         contract = read(path)
@@ -268,12 +280,39 @@ def test_source_versions_must_equal_both_manifest_selections(candidate, source, 
     assert policy_path.read_bytes() == original
 
 
+def drop_matrix_capability(candidate, key):
+    """Pinned candidate snapshots may already contain the capability under test."""
+    matrix_path = candidate / "sources/server/capability-matrix.v1.json"
+    matrix = read(matrix_path)
+    matrix["capabilities"] = [row for row in matrix["capabilities"] if row["key"] != key]
+    write(matrix_path, matrix)
+    harness_path = candidate / HARNESS
+    harness = read(harness_path)
+    harness["assignments"] = [row for row in harness["assignments"] if row["capability_key"] != key]
+    write(harness_path, harness)
+
+
+def drop_h3_applicability(candidate):
+    path = candidate / "sources/canonical-client-applicability.v1.json"
+    policy = read(path)
+    expected = {"capability_key": "analytics.h3", "classification": "official-sdk-required"}
+    policy["decisions"] = [row for row in policy["decisions"] if row != expected]
+    write(path, policy)
+
+
+def drop_unproduced_lane(candidate, lane):
+    path = candidate / "sources/protocol-certification-production.v1.json"
+    policy = read(path)
+    policy["unproduced"] = [row for row in policy["unproduced"] if row.get("client_lanes") != [lane]]
+    write(path, policy)
+
+
 def add_reviewed_wps_contract(candidate):
     """Extracted source inputs, not a conformance receipt or a support promotion."""
     fixture = read(ROOT / "tools/fixtures/wps-contract-source-2026-10-13.json")
+    drop_matrix_capability(candidate, "serve.wps")
     matrix_path = candidate / "sources/server/capability-matrix.v1.json"
     matrix = read(matrix_path)
-    assert not any(row["key"] == "serve.wps" for row in matrix["capabilities"])
     matrix["capabilities"].append(fixture["capability"])
     write(matrix_path, matrix)
     harness = read(candidate / HARNESS)
@@ -289,8 +328,12 @@ def test_wps_operations_admit_without_inventing_cite_production(candidate):
     result = validate(candidate)
     assert result.returncode == 0, result.stderr
     catalog = read(candidate / CATALOG)
+    assignments = read(candidate / HARNESS)["assignments"]
+    assert len(assignments) == 47
+    implemented = implemented_keys(candidate)
+    governed = [assignment for assignment in assignments if assignment["capability_key"] in implemented]
     harness = [r for r in catalog["requirements"] if r["client_lane"] == "server-protocol-harness"]
-    assert len(harness) == 47
+    assert len(harness) == len(governed)
     wps = [r for r in harness if r["capability_key"] == "serve.wps"]
     assert len(wps) == 5
     assert sum(len(r["test_ids"]) for r in wps) == 10
@@ -334,9 +377,9 @@ def test_wps_cite_disposition_must_be_exactly_once(candidate, mutation, count):
 def add_reviewed_h3_contract(candidate, *, implemented=True, assignments=True):
     """Reviewed adapter source data; never an executed or image-qualified receipt."""
     fixture = read(ROOT / "tools/fixtures/h3-contract-source-2026-10-13.json")
+    drop_matrix_capability(candidate, "analytics.h3")
     matrix_path = candidate / "sources/server/capability-matrix.v1.json"
     matrix = read(matrix_path)
-    assert not any(row["key"] == "analytics.h3" for row in matrix["capabilities"])
     capability = copy.deepcopy(fixture["capability"])
     if not implemented:
         capability["maturity"] = {"preview": 1}
@@ -350,6 +393,9 @@ def add_reviewed_h3_contract(candidate, *, implemented=True, assignments=True):
 
 @pytest.mark.parametrize("state", ["absent", "preview", "implemented"])
 def test_h3_applicability_is_explicit_conditional_and_idempotent(candidate, state):
+    # Reconstruct the pre-decision input. The pinned candidate already carries the decision.
+    drop_matrix_capability(candidate, "analytics.h3")
+    drop_h3_applicability(candidate)
     policy_path = candidate / "sources/canonical-client-applicability.v1.json"
     original = policy_path.read_bytes()
     if state != "absent":
@@ -400,7 +446,85 @@ def test_h3_projection_refuses_conflicting_existing_decisions(candidate, mutatio
     assert path.read_bytes() == original
 
 
+def stage_reviewed_unassigned_gap(candidate, capability):
+    """Implemented source surface, no harness assignment, one reviewed unproduced owner."""
+    if capability == "analytics.h3":
+        add_reviewed_h3_contract(candidate, assignments=False)
+        path, data = REBIND.project_canonical_client_applicability(candidate.parent)
+        (candidate.parent / path).write_bytes(data)
+        path, data = REBIND.project_h3_production_gap(candidate.parent)
+    elif capability == "serve.wps":
+        fixture = read(ROOT / "tools/fixtures/wps-contract-source-2026-10-13.json")
+        drop_matrix_capability(candidate, "serve.wps")
+        matrix_path = candidate / "sources/server/capability-matrix.v1.json"
+        matrix = read(matrix_path)
+        matrix["capabilities"].append(fixture["capability"])
+        write(matrix_path, matrix)
+        path, data = REBIND.project_official_protocol_assignments(candidate.parent)
+        (candidate.parent / path).write_bytes(data)
+        path, data = REBIND.project_wps_production_gap(candidate.parent)
+    else:
+        raise AssertionError(capability)
+    (candidate.parent / path).write_bytes(data)
+    return path
+
+
+@pytest.mark.parametrize("capability, lane", [
+    ("analytics.h3", "protocol-harness-gap-analytics-h3"),
+    ("serve.wps", "protocol-harness-gap-serve-wps"),
+])
+def test_explicit_unproduced_gap_is_accounted_and_not_harness_credit(candidate, capability, lane):
+    stage_reviewed_unassigned_gap(candidate, capability)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr
+    catalog = read(candidate / CATALOG)
+    gaps = [row for row in catalog["requirements"] if row["client_lane"] == lane]
+    assert len(gaps) == 1
+    assert gaps[0]["operation"] == f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability}"
+    assert gaps[0]["canonical_client"] == "UNASSIGNED PROTOCOL HARNESS"
+    assert not any(
+        row["client_lane"] == "server-protocol-harness" and row["capability_key"] == capability
+        for row in catalog["requirements"]
+    )
+    owners = [
+        entry for entry in catalog["production"]["unproduced"]
+        if entry.get("client_lanes") == [lane]
+    ]
+    assert len(owners) == 1 and owners[0]["cells"] == 1
+    assert owners[0]["owner"] == "honua-io/honua-release"
+    assert not any(lane in (entry.get("client_lanes") or []) for entry in catalog["production"]["producers"])
+    catalog["requirements"] = [row for row in catalog["requirements"] if row["client_lane"] != lane]
+    write(candidate / CATALOG, catalog)
+    refused = validate(candidate)
+    assert refused.returncode != 0
+    assert "omit operation-contract gaps" in refused.stderr
+    assert capability in refused.stderr
+
+
+def test_producer_cannot_claim_an_unassigned_harness_gap(candidate):
+    stage_reviewed_unassigned_gap(candidate, "analytics.h3")
+    generate(candidate)
+    catalog = read(candidate / CATALOG)
+    lane = "protocol-harness-gap-analytics-h3"
+    owner = next(entry for entry in catalog["production"]["unproduced"] if entry["client_lanes"] == [lane])
+    catalog["production"]["unproduced"].remove(owner)
+    producer = next(entry for entry in catalog["production"]["producers"] if entry["producer"] == "server-protocol-harness")
+    producer["client_lanes"] = [*producer["client_lanes"], lane]
+    producer["cells"] += owner["cells"]
+    catalog["production"]["cells"]["produced"] += owner["cells"]
+    catalog["production"]["cells"]["unproduced"] -= owner["cells"]
+    write(candidate / CATALOG, catalog)
+    refused = validate(candidate)
+    assert refused.returncode != 0
+    assert "analytics.h3 is not an owned unproduced gap" in refused.stderr
+    assert "not a passing harness receipt" in refused.stderr
+
+
 def test_h3_classification_cannot_substitute_for_missing_operation_contract(candidate):
+    # The pinned production file already owns this gap. Removing that owner is what
+    # makes a bare applicability decision fail closed.
+    drop_unproduced_lane(candidate, "protocol-harness-gap-analytics-h3")
     add_reviewed_h3_contract(candidate, assignments=False)
     path, data = REBIND.project_canonical_client_applicability(candidate.parent)
     (candidate.parent / path).write_bytes(data)
@@ -429,6 +553,8 @@ def test_h3_projection_does_not_classify_unreviewed_capabilities(candidate):
 
 
 def test_h3_projection_can_roll_back_to_pre_h3_source(candidate):
+    drop_matrix_capability(candidate, "analytics.h3")
+    drop_h3_applicability(candidate)
     policy = candidate / "sources/canonical-client-applicability.v1.json"
     original = read(policy)
     matrix_path = candidate / "sources/server/capability-matrix.v1.json"

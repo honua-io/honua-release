@@ -66,7 +66,7 @@ try {
 > Partly there in the Python SDK — [track the rest here](https://github.com/honua-io/honua-sdk-python/issues/196).
 
 ```bash
-python3 -m pip install honua-sdk==0.1.16
+python3 -m pip install honua-sdk==0.1.18
 ```
 
 ```python

@@ -59,6 +59,24 @@ def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
     assert "continue-on-error" not in str(job)
 
 
+def test_capacity_soak_standalone_dispatch_adopts_only_prepared_data():
+    workflow = _workflow("capacity-soak.yml")
+    assert "prepared_ref" in _triggers(workflow)["workflow_dispatch"]["inputs"]
+    assert "prepared_ref" not in _triggers(workflow)["workflow_call"]["inputs"]
+    steps = workflow["jobs"]["frozen-slo"]["steps"]
+    adopt = next(step for step in steps if step.get("name") == "Adopt the published release preparation")
+    text = _step_text(adopt)
+    assert "refs/prepared-deployments/" in text
+    assert "merge-base --is-ancestor" in text
+    assert "platform-manifest.yaml|compatibility-matrix.yaml|deployment-preparation.json) ;;" in text
+    # Only the manifest is adopted; the frozen lock and the checker stay this checkout's bytes.
+    assert "capacity-envelope" not in text
+    assert 'git show "${PREPARED_REF}:platform-manifest.yaml" > platform-manifest.yaml' in text
+    # The candidate is read after adoption, so attestation and digest bind the prepared build.
+    names = [step.get("name") for step in steps]
+    assert names.index("Adopt the published release preparation") < names.index("Read manifest-pinned server revision")
+
+
 def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     freeze = _workflow("release-train.yml")["jobs"]["freeze"]
     commands = "\n".join(_step_text(step) for step in freeze["steps"])
@@ -805,11 +823,19 @@ def test_upgrade_gate_nightly_schedule_exercises_the_failed_rollback_scenario():
     exercised in the targeted nightly lane, not merely reachable via a manual workflow_dispatch game
     day that an operator has to remember to run."""
     workflow = _workflow("gate-upgrade.yml")
-    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["scenario"]
+    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["include"]
     assert "'schedule'" in matrix_scenario
-    assert '"rollback-failure"' in matrix_scenario
-    for scenario in ("normal", "post-migration-readiness", "bad-config", "migration-boundary"):
-        assert f'"{scenario}"' in matrix_scenario
+    assert '{"scenario":"rollback-failure","pair":"trunk-candidate"}' in matrix_scenario
+    for scenario in ("post-migration-readiness", "bad-config", "migration-boundary"):
+        assert '{"scenario":"%s","pair":"trunk-candidate"}' % scenario in matrix_scenario
+    # Coordinator ruling 2026-10-22 (release#376 issuecomment-6335886760): the trunk-candidate pair is
+    # the required rc path and the default for dispatch and the train; the published-release pair
+    # still runs nightly but is advisory until a real release exists.
+    assert '{"scenario":"normal","pair":"published-release"}' in matrix_scenario
+    assert '{"scenario":"normal","pair":"trunk-candidate"}' in matrix_scenario
+    assert "inputs.upgrade_pair || 'trunk-candidate'" in matrix_scenario
+    assert _triggers(workflow)["workflow_call"]["inputs"]["upgrade_pair"]["default"] == "trunk-candidate"
+    assert _triggers(workflow)["workflow_dispatch"]["inputs"]["upgrade_pair"]["default"] == "trunk-candidate"
 
 
 def test_upgrade_gate_treats_correctly_classified_rollback_failure_as_a_passing_negative():
@@ -1338,7 +1364,11 @@ def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
     triggers = _triggers(workflow)
     assert triggers["workflow_dispatch"]["inputs"]["target"]["options"] == [
         "all", "aws-serverless", "aws-ecs", "aws-eks"]
-    assert "'[\"aws-serverless\",\"aws-ecs\",\"aws-eks\"]'" in text
+    # Operator ruling 2026-10-22: `all` dispatches the GA targets only; aws-eks (Preview) runs
+    # only on an explicit target=aws-eks dispatch and is reported "not certified (preview)".
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in text
+    assert "'[\"aws-serverless\",\"aws-ecs\",\"aws-eks\"]'" not in text
+    assert 'status:"not certified (preview)"' in text
     assert "aws-mixed\"" not in text and "'aws-mixed'" not in text
     parity = workflow["jobs"]["parity"]["with"]
     assert parity["preview"] == "${{ matrix.target == 'aws-eks' }}"
