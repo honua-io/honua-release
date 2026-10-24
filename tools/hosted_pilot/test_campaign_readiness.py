@@ -79,6 +79,19 @@ class CampaignStaging(unittest.TestCase):
         if args[:2]==('ec2','describe-security-groups'):return {'SecurityGroups':[{'IpPermissions':[]},{'IpPermissions':[]}]}
         raise AssertionError('unreviewed API effect '+args[0]+'/'+args[1])
 
+    def test_controller_resource_digest_replays_raw_terraform_encoding(self):
+        import controller_handoff as handoff
+        raw = json.loads(self.sm.describe_state_machine.return_value['definition'])
+        raw['Comment'] = '<>&'
+        text = json.dumps(raw)
+        self.sm.describe_state_machine.return_value['definition'] = text
+        self.config['lifecycle']['definitionDigest'] = handoff.terraform_definition_digest(text)
+        result = readiness.inspect(self.outputs, self.cfg)
+        self.assertTrue(result['native_controller_lifecycle_verified'])
+        self.config['lifecycle']['definitionDigest'] = canonical_digest(raw)
+        with self.assertRaisesRegex(ValueError, 'lifecycle source/identity'):
+            readiness.inspect(self.outputs, self.cfg)
+
     def test_null_handoffs_still_verify_actual_controller_fixture_target_and_custody(self):
         result=readiness.inspect(self.outputs,self.cfg)
         self.assertFalse(result['qualification'])

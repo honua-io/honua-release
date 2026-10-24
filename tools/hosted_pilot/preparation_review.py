@@ -17,6 +17,7 @@ def project(result, outcome):
     value = result['result']
     patterns = {'prepare-studio-fixture': r'sha256:[a-f0-9]{64}', 'prepare-native-context': r'sha256:[a-f0-9]{64}/completed',
                 'capture-console-session': r'console-human-capture:[a-f0-9]{64}',
+                'prepare-runtime-registration-budget': r'runtime-registration-admission:[a-f0-9]{64}/admitted',
                 'prepare-installed-mcp-base': r'installed-worker-mcp:[a-f0-9]{64}/completed'}
     require(result['operation'] in patterns and re.fullmatch(patterns[result['operation']], value['key']), 'preparation state reference differs')
     require(re.fullmatch(r'sha256:[a-f0-9]{64}', value['sha256']), 'preparation state digest missing')
@@ -34,6 +35,11 @@ def project(result, outcome):
         review['agentApiKeyId'] = context['issuedAgentKey']['apiKeyId']
         if 'mcpConfiguration' in value:
             review['workerMcpConfiguration'] = value['mcpConfiguration']
+    elif result['operation'] == 'prepare-runtime-registration-budget':
+        require(value['activation'] is False and value['qualification'] is False, 'registrar funding is not activation')
+        review['registrationAdmission'] = value['admission']
+        review['maximumUsd'] = value['maximumUsd']
+        review['activation'] = False
     elif result['operation'] == 'prepare-installed-mcp-base':
         binding = value['binding']
         require(binding['schema'] == 'honua.private-installed-worker-mcp-binding/v1' and

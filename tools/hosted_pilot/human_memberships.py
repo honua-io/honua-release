@@ -422,7 +422,11 @@ def provision_human_memberships(*, configuration, bootstrap, durable, native, gu
     retain('capability-'+canonical_digest(capability_binding)[7:], capability_binding)
     roles = {}
     author_grants = [{'service': 'agent', 'operation': 'workspace', 'layer': '*'}, *[
-        {'service': 'agent', 'operation': 'dataset-import', 'layer': scope} for scope in bootstrap['datasetImportScopes']]]
+        {'service': 'agent', 'operation': 'dataset-import', 'layer': scope} for scope in bootstrap['datasetImportScopes']],
+        # Native elevated author operations use the own-resource sentinel; these
+        # human grants are separate from task ceilings and approver membership.
+        *[{'service': 'StudioDraft', 'operation': operation, 'layer': 'own'}
+          for operation in ('Publish', 'Rollback')]]
     for kind in ('authors', 'approvers'):
         role_name = enrollment['identity']['authorRole' if kind == 'authors' else 'approverRole']
         description = 'Pilot human membership '+prefix+' '+kind

@@ -10,6 +10,13 @@ variable "native_bootstrap" {
     datasetImportScopes     = list(string)
     managedProcessIds       = list(string)
     studioRestoreItemIds    = optional(list(string), [])
+    installedRuntime = optional(object({
+      runtimeId = string
+      mutationCeilings = object({
+        createMap           = bool, createDashboard = bool, compose = bool, proposePublication = bool, proposeRestore = bool,
+        datasetImportScopes = list(string), managedProcessIds = list(string)
+      })
+    }))
     humanMemberships = optional(object({
       schemaVersion = number
       enrollment    = object({ bucket = string, key = string, versionId = string, sha256 = string, kmsArn = string })
@@ -34,29 +41,41 @@ variable "native_bootstrap" {
       ]) &&
       length(var.native_bootstrap.managedProcessIds) == length(toset(var.native_bootstrap.managedProcessIds)) &&
       alltrue([for process in var.native_bootstrap.managedProcessIds : process == "analytics.buffer-aggregate-managed"]) &&
-      alltrue([for grant in var.native_bootstrap.readGrants : can(regex("^read:[a-z0-9_-]+/[0-9]+$", grant))])
+      alltrue([for grant in var.native_bootstrap.readGrants : can(regex("^read:[a-z0-9_-]+/[0-9]+$", grant))]) &&
+      (var.native_bootstrap.installedRuntime == null ? true : (
+        can(regex("^[A-Za-z0-9_-]{1,128}$", var.native_bootstrap.installedRuntime.runtimeId)) &&
+        var.native_bootstrap.installedRuntime.mutationCeilings.datasetImportScopes == var.native_bootstrap.datasetImportScopes &&
+        var.native_bootstrap.installedRuntime.mutationCeilings.managedProcessIds == var.native_bootstrap.managedProcessIds
+      ))
     )
     error_message = "Use the observed native target, exact new-table import destinations, the supported managed process, separate exact Studio restore item IDs, and separate exact read grants."
   }
 }
 
 locals {
-  native_memberships = try(var.native_bootstrap.humanMemberships, null)
+  native_memberships       = try(var.native_bootstrap.humanMemberships, null)
+  native_installed_runtime = try(var.native_bootstrap.installedRuntime, null)
+  native_root_version      = local.native_installed_runtime == null ? null : module.application.native_membership_credentials.root
+  native_bootstrap_versioned_credentials = local.native_memberships != null ? values(local.native_memberships.credentials) : (
+    local.native_installed_runtime != null ? [local.native_root_version] : []
+  )
   native_bootstrap_secrets = merge(local.fixture_secrets, local.native_memberships == null ? {} : {
     HONUA_NATIVE_SCIM_TOKEN      = "${local.native_memberships.credentials.scim.secretArn}:::${local.native_memberships.credentials.scim.versionId}"
     PILOT_FIXTURE_ADMIN_PASSWORD = "${local.native_memberships.credentials.root.secretArn}:::${local.native_memberships.credentials.root.versionId}"
+    }, local.native_installed_runtime == null ? {} : {
+    PILOT_FIXTURE_ADMIN_PASSWORD = "${local.native_root_version.secretArn}:::${local.native_root_version.versionId}"
   })
   membership_review_key = local.native_memberships == null ? null : "${dirname(local.native_memberships.enrollment.key)}/review.json"
   membership_object_arns = local.native_memberships == null ? [] : [
     "arn:aws:s3:::${local.native_memberships.enrollment.bucket}/${local.native_memberships.enrollment.key}",
     "arn:aws:s3:::${local.native_memberships.enrollment.bucket}/${local.membership_review_key}"
   ]
-  native_bootstrap_config = var.native_bootstrap == null ? null : merge(var.native_bootstrap, {
+  native_bootstrap_config = var.native_bootstrap == null ? null : merge({ for key, value in var.native_bootstrap : key => value if key != "installedRuntime" || value != null }, {
     schemaVersion        = 2, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
     generationDigest     = var.dispatch_budget == null ? null : var.dispatch_budget.generationDigest,
     state                = module.accounting.state_config, databaseHost = nonsensitive(module.application.db_endpoint), database = local.database,
     appRole              = local.app_role, cleanupRole = local.fixture_roles.cleanup, observerRole = local.fixture_roles.observer,
-    endpoint             = local.origin, secretArns = { for kind, secret in aws_secretsmanager_secret.api : kind => secret.arn },
+    endpoint             = local.origin, secretArns = merge({ for kind, secret in aws_secretsmanager_secret.api : kind => secret.arn }, local.native_installed_runtime == null ? {} : { control = aws_secretsmanager_secret.runtime_control[0].arn }),
     bucket               = aws_s3_bucket.handoff.id, receiptKey = "native/bootstrap/${local.candidate_hex}/${var.native_bootstrap.operation.operationId}.json",
     clusterArn           = local.target_cluster_arn, imageUri = var.controller_image.uri,
     taskDefinitionFamily = "arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-native-bootstrap"
@@ -83,12 +102,12 @@ resource "aws_iam_role_policy" "native_bootstrap_execution" {
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.controller["fixture"].arn}:*" },
     { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = concat([module.application.db_connection_secret_arn], [for secret in aws_secretsmanager_secret.fixture : secret.arn]) },
     { Effect = "Allow", Action = "kms:Decrypt", Resource = "arn:aws:kms:${var.region}:${var.account_id}:key/*", Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com", "aws:ResourceTag/ResetBoundary" = var.name_prefix }, ArnLike = { "kms:EncryptionContext:SecretARN" = "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.name_prefix}*" } } }
-    ], local.native_memberships == null ? [
+    ], length(local.native_bootstrap_versioned_credentials) == 0 ? [
     { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = module.application.admin_password_secret_arn }
-    ] : [], local.native_memberships == null ? [] : [for credential in values(local.native_memberships.credentials) : {
+    ] : [], [for credential in local.native_bootstrap_versioned_credentials : {
       Effect    = "Allow", Action = "secretsmanager:GetSecretValue", Resource = credential.secretArn,
       Condition = { StringEquals = { "secretsmanager:VersionId" = credential.versionId } }
-      }], local.native_memberships == null ? [] : [for credential in values(local.native_memberships.credentials) : {
+      }], [for credential in local.native_bootstrap_versioned_credentials : {
       Effect    = "Deny", Action = "secretsmanager:GetSecretValue", Resource = credential.secretArn,
       Condition = { StringNotEquals = { "secretsmanager:VersionId" = credential.versionId } }
     }], local.native_memberships == null || var.application.identity_secrets_kms_key_arn == "" ? [] : [

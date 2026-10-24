@@ -109,6 +109,16 @@ components:
     repository: "https://github.com/honua-io/honua-server"
     lifecycleStatus: GA
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
+    # First-release model (#233, docs/SDK-SERVER-BASELINE-RULE.md): the committed receipt that
+    # every SDK's release/sdk-capability-baseline.json cites, byte for byte, as the evidence for
+    # its `first-release` floor. Refreshing the receipt changes the digest the published SDKs
+    # cite, so the pin stays on these bytes; maxAgeDays bounds how long they are reusable, and
+    # every strict check re-enumerates honua-server live before it qualifies a floor.
+    publicationHistory:
+      path: "certification/sources/server-publication-history.v1.json"
+      uri: "https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json"
+      sha256: "sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1"
+      maxAgeDays: 90
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110): the newest trunk commit whose
     # own CI is GREEN **and** which has a published, immutable multi-arch AOT image. A sha with no
     # matching published image is not a usable pin — gate-artifact-consume, gate-security and

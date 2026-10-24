@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
 from agent_e2e_pack import canonical_digest
+from agent_e2e_worker_lifecycle import terraform_definition_digest
 from agent_e2e_interactive_budget import validate_retained_funding
 from enrollment_receipt import original_review, positive_integer, private_bytes
 from fixture_handoff import require, encoded
@@ -259,6 +260,9 @@ def verify_installation(selected, *, durable, runtime_id, target_id, original_ex
     require(configuration.get('candidate_digest')==value['candidateKey'] and configuration.get('account_id')==value['accountId'] and
         configuration.get('attempt_id')==value['slotId'] and configuration.get('installed_slot',{}).get('runtime_id')==runtime_id and
         configuration.get('mcp_bootstrap_binding')==value['mcpBootstrap'], 'installation configuration substituted candidate/allocation/MCP original')
+    require(re.fullmatch('arn:aws:iam::'+re.escape(configuration['account_id'])+r':policy/[A-Za-z0-9+=,.@_/-]+',
+            str(configuration.get('permissions_boundary_arn'))),
+            'installed worker original source permissions boundary is absent or foreign')
     base=pending_binding(durable.state,configuration)
     require(base.get('targetId')==target_id,'installed pending MCP target differs')
     descriptor=value['descriptor'];slot=configuration['installed_slot']
@@ -282,9 +286,10 @@ def verify_installation(selected, *, durable, runtime_id, target_id, original_ex
         'proof':{'nativeEndpoint':base['_nativeEndpoint'],'installation':selected,'readiness':value['readiness'],'review':plan['review'],'publicOriginals':proofs,
                  'native':{'stateMachineArn':actual['lifecycle']['stateMachineArn'],
                      'stateMachineRoleArn':actual['lifecycle']['roleArn'],
-                     'definitionDigest':canonical_digest(json.loads(actual['lifecycle']['definition'])),
+                     'definitionDigest':terraform_definition_digest(actual['lifecycle']['definition']),
                      'taskDefinitionArn':actual['taskDefinition']['taskDefinition']['taskDefinitionArn'],
                      'taskRoleArn':actual['taskDefinition']['taskDefinition']['taskRoleArn'],
+                     'permissionsBoundaryArn':configuration['permissions_boundary_arn'],
                      'image':actual['taskDefinition']['taskDefinition']['containerDefinitions'][0]['image']}},'activation':False,'qualification':False}
 
 

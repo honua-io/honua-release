@@ -27,3 +27,6 @@ e2e/fixtures/s10-redis-off.geojson -text
 
 # Prompt and corpus hashes are byte-bound on every controller platform.
 certification/agent-e2e/** text eol=lf
+
+# The lock pins this receipt by byte digest; a CRLF checkout would no longer match it.
+certification/sources/server-publication-history.v1.json text eol=lf

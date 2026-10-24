@@ -13,7 +13,7 @@ HEAD = ('stateVersion', 'snapshotKey', 'snapshotVersion', 'snapshotDigest',
         'generationKey', 'generationVersion', 'generationDigest')
 
 
-def observe(store):
+def observe(store, *, include_head=False):
     def head():
         row = store.db.get_item(TableName=store.table, Key=store.key, ConsistentRead=True).get('Item', {})
         require(all(field in row for field in HEAD), 'existing accounting head is absent or incomplete; recovery cannot initialize')
@@ -61,4 +61,4 @@ def observe(store):
     validate(payload['ledger'])
     require(payload['ledger']['candidateKey'] == store.candidate, 'accounting ledger candidate differs')
     require(head() == first, 'accounting head advanced during recovery; repeat observation without replacing state')
-    return payload, generation
+    return (payload, generation, first) if include_head else (payload, generation)

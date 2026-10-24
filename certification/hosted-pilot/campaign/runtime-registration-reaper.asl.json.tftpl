@@ -1,0 +1,161 @@
+{
+  "Comment": "Independent original-deadline observer; never releases claims/admissions or settles costs.",
+  "QueryLanguage": "JSONata",
+  "StartAt": "Installation",
+  "TimeoutSeconds": 120,
+  "States": {
+    "Installation": {
+      "Type": "Pass",
+      "Output": {
+        "installation": ${installation_json}
+      },
+      "Next": "ReadPermanentClaim"
+    },
+    "ReadPermanentClaim": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:getItem",
+      "Arguments": {
+        "TableName": "{% $states.input.installation.claimTable %}",
+        "Key": {
+          "claimKey": {
+            "S": "{% $states.input.installation.claimKey %}"
+          }
+        },
+        "ConsistentRead": true
+      },
+      "Next": "ClaimExists",
+      "Output": "{% $merge([$states.input, {'claim':$states.result}]) %}"
+    },
+    "ClaimExists": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $exists($states.input.claim.Item.claimKey.S) %}",
+          "Next": "VerifyOriginalDeadline"
+        }
+      ],
+      "Default": "ObservationOnly"
+    },
+    "VerifyOriginalDeadline": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.claim.Item.claimKey.S=$states.input.installation.claimKey and $states.input.claim.Item.configurationDigest.S=$states.input.installation.configurationDigest and $type($states.input.claim.Item.admissionDigest.S)=\"string\" and $length($states.input.claim.Item.admissionDigest.S)=71 and $number($states.input.claim.Item.deadlineEpoch.N)<=$states.input.installation.originalFundingExpiresEpoch and $number($states.input.claim.Item.deadlineEpoch.N)>$number($states.input.claim.Item.admittedEpoch.N) and $number($states.input.claim.Item.deadlineEpoch.N)-$number($states.input.claim.Item.admittedEpoch.N)<=$states.input.installation.maxExecutionSeconds %}",
+          "Next": "DeadlineReached"
+        }
+      ],
+      "Default": "UnknownEffects"
+    },
+    "DeadlineReached": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $floor($toMillis($now())/1000)>=$number($states.input.claim.Item.deadlineEpoch.N) %}",
+          "Next": "ListOriginalTasks"
+        }
+      ],
+      "Default": "ObservationOnly"
+    },
+    "ListOriginalTasks": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ecs:listTasks",
+      "Arguments": {
+        "Cluster": "{% $states.input.installation.clusterArn %}",
+        "StartedBy": "{% $states.input.installation.startedBy %}",
+        "MaxResults": 100
+      },
+      "Next": "CompleteInventory",
+      "Output": "{% $merge([$states.input, {'listed':$states.result}]) %}"
+    },
+    "CompleteInventory": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $exists($states.input.listed.NextToken) %}",
+          "Next": "UnknownEffects"
+        },
+        {
+          "Condition": "{% $count($states.input.listed.TaskArns)=0 %}",
+          "Next": "ObservationOnly"
+        }
+      ],
+      "Default": "InspectTasks"
+    },
+    "InspectTasks": {
+      "Type": "Map",
+      "Items": "{% [$map($states.input.listed.TaskArns,function($arn){ {\"taskArn\":$arn,\"installation\":$states.input.installation,\"claim\":$states.input.claim} })] %}",
+      "MaxConcurrency": 1,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "DescribeOriginalTask",
+        "States": {
+          "DescribeOriginalTask": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:ecs:describeTasks",
+            "Arguments": {
+              "Cluster": "{% $states.input.installation.clusterArn %}",
+              "Tasks": [
+                "{% $states.input.taskArn %}"
+              ],
+              "Include": [
+                "TAGS"
+              ]
+            },
+            "Next": "VerifyOriginalTask",
+            "Output": "{% $merge([$states.input, {'observed':$states.result}]) %}"
+          },
+          "VerifyOriginalTask": {
+            "Type": "Choice",
+            "Choices": [
+              {
+                "Condition": "{% $count($states.input.observed.Tasks)=1 and $count($states.input.observed.Failures)=0 and $states.input.observed.Tasks[0].TaskArn=$states.input.taskArn and $states.input.observed.Tasks[0].ClusterArn=$states.input.installation.clusterArn and $states.input.observed.Tasks[0].TaskDefinitionArn=$states.input.installation.taskDefinitionArn and $states.input.observed.Tasks[0].StartedBy=$states.input.installation.startedBy and $count($states.input.observed.Tasks[0].Tags[Key=\"honua-registration\" and Value=$states.input.installation.configurationDigest])=1 and $count($states.input.observed.Tasks[0].Tags[Key=\"honua-registration-admission\" and Value=$states.input.claim.Item.admissionDigest.S])=1 and $count($states.input.observed.Tasks[0].Tags[Key=\"honua-registration-candidate\" and Value=$states.input.installation.candidateKey])=1 %}",
+                "Next": "StopOriginalTask"
+              }
+            ],
+            "Default": "UnknownTask"
+          },
+          "StopOriginalTask": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:ecs:stopTask",
+            "Arguments": {
+              "Cluster": "{% $states.input.installation.clusterArn %}",
+              "Task": "{% $states.input.taskArn %}",
+              "Reason": "Original registrar deadline exhausted; stop observation does not retire or settle"
+            },
+            "Next": "ObservedStopRequest",
+            "Output": "{% $states.result %}"
+          },
+          "ObservedStopRequest": {
+            "Type": "Succeed",
+            "Output": {
+              "status": "stop-requested-only",
+              "activation": false,
+              "qualification": false
+            }
+          },
+          "UnknownTask": {
+            "Type": "Fail",
+            "Error": "RegistrationTaskUnknown",
+            "Cause": "Absent/mismatched native task is not stopped or retired."
+          }
+        }
+      },
+      "Next": "ObservationOnly"
+    },
+    "ObservationOnly": {
+      "Type": "Succeed",
+      "Output": {
+        "status": "bounded-observation-only",
+        "activation": false,
+        "qualification": false
+      }
+    },
+    "UnknownEffects": {
+      "Type": "Fail",
+      "Error": "RegistrationReaperUnknown",
+      "Cause": "Claim/deadline/inventory differs; preserve original liabilities."
+    }
+  }
+}

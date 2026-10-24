@@ -69,6 +69,13 @@ def load_declaration(reference, *, durable, s3, ecs, states, guard,
     """Return verified installation inputs; never creates a key/task/admission."""
     require(callable(guard), 'installed declaration requires original live custody guard')
     guard(); durable._require_live_lease()
+    return _verified_declaration(reference, durable=durable, s3=s3, ecs=ecs, states=states,
+                                 guard=guard, source_reader=source_reader, worker_verifier=worker_verifier)
+
+
+def _verified_declaration(reference, *, durable, s3, ecs, states, guard,
+                          source_reader=source_file, worker_verifier=None):
+    """Shared checks after live lease or authenticated original-SDK snapshot custody."""
     validate_retained_funding(durable.state)
     validate_budget(durable.state['ledger'])
     require(isinstance(reference, dict) and set(reference) == {'path', 'sha256'} and
