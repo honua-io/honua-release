@@ -44,7 +44,8 @@ def validate_action(call):
         raise ModelFailure("invalid-tool-arguments")
     required = {"terminal": {"command"}, "mcp_list_tools": set(),
                 "mcp_call_tool": {"name", "arguments"}, "ask_user": {"question"}}
-    if name not in required or not required[name] <= set(args) or set(args) - required[name] - ({"timeoutSeconds"} if name == "terminal" else set()):
+    optional = {"terminal": {"timeoutSeconds"}, "mcp_list_tools": {"view"}}
+    if name not in required or not required[name] <= set(args) or set(args) - required[name] - optional.get(name, set()):
         raise ModelFailure("invalid-tool-arguments")
     for key in required[name] - {"arguments"}:
         if not isinstance(args[key], str) or not args[key].strip():
@@ -53,6 +54,9 @@ def validate_action(call):
         raise ModelFailure("invalid-tool-timeout")
     if name == "mcp_call_tool" and not isinstance(args["arguments"], dict):
         raise ModelFailure("invalid-mcp-arguments")
+    if name == "mcp_list_tools" and "view" in args and (not isinstance(args['view'], str)
+            or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', args['view'])):
+        raise ModelFailure("invalid-mcp-view")
 
 
 SYSTEM = """Complete the user's Honua task using the actual environment and public documentation.
@@ -67,8 +71,8 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"},
         "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 300}},
         "required": ["command"], "additionalProperties": False}},
-    {"name": "mcp_list_tools", "description": "Discover the current server-authored MCP setup view and canonical tool descriptors.",
-     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "mcp_list_tools", "description": "Discover canonical native tools. Omit view for the installed default, or select a server-published workflow view such as workspace, setup, configure, analyze, operate or processes. The explicit full view exports the paginated catalog. Discovery never grants authority.",
+     "input_schema": {"type": "object", "properties": {"view": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}}, "additionalProperties": False}},
     {"name": "mcp_call_tool", "description": "Call a tool discovered from the server using your current identity.",
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"},
         "arguments": {"type": "object"}}, "required": ["name", "arguments"], "additionalProperties": False}},

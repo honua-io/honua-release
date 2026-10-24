@@ -45,6 +45,7 @@ CONTRACT_PATHS = (
     'tools/agent_e2e_interactive_budget.py',
     'tools/agent_e2e_console_runtime.py',
     'tools/agent_e2e_console_loop.py',
+    'tools/agent_e2e_console_dispatcher.py',
     'tools/agent_e2e_runtime_configuration.py',
     'tools/agent_e2e_execution_witness.py',
     'tools/agent_e2e_installed_worker.py',
