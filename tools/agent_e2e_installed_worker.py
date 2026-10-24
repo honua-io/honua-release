@@ -67,14 +67,18 @@ class InstalledSlot:
         self.task_prefix = prefix+'task/'+c['clusterArn'].rsplit('/', 1)[1]+'/'
 
     def bind(self, native, *, generation, expiry, native_binding_digest, reservation_ids):
+        return self._binding(native, generation=generation, expiry=expiry, native_binding_digest=native_binding_digest,
+            reservation_ids=reservation_ids, live=True)
+
+    def _binding(self, native, *, generation, expiry, native_binding_digest, reservation_ids, live):
         """The launch input contains authority identity, never a secret/capability."""
         record, binding = native['value']['execution'], native['value']['binding']
         original = execution_id(record['executionId'])
         require(native['value']['candidateKey'] == self.config['candidateKey'] and
                 binding['runtimeId'] == self.config['runtimeId'] and type(generation) is int and generation > 0,
                 'installed launch differs from original native authority')
-        require(type(expiry) is int and self.clock() < expiry <= min(
-            self.clock()+self.config['maxExecutionSeconds'], self.config['originalFundingExpiresEpoch']),
+        require(type(expiry) is int and 0 < expiry <= self.config['originalFundingExpiresEpoch'] and
+                (not live or self.clock() < expiry <= self.clock()+self.config['maxExecutionSeconds']),
             'installed launch exceeds original funding/lifetime')
         value = {'schemaVersion': 1, 'candidateKey': self.config['candidateKey'], 'runtimeId': self.config['runtimeId'],
             'slotId': self.config['slotId'], 'executionId': original, 'targetId': binding['targetId'],
@@ -93,6 +97,25 @@ class InstalledSlot:
                 'inputDigest': canonical_digest(value), 'executionArn': self.execution_arn,
                 'reservationIds': copy.deepcopy(reservation_ids)}
 
+    def restore(self, journal, launch):
+        """Restore only an original intended launch, including after expiry."""
+        require(isinstance(launch, dict) and set(launch) == {'configurationDigest', 'input', 'inputDigest',
+                'executionArn', 'reservationIds'} and launch['configurationDigest'] == canonical_digest(self.config) and
+                canonical_digest(launch['input']) == launch['inputDigest'] and journal.values('worker-intent') == [launch],
+                'installed recovery lacks the unchanged original launch intent')
+        record = journal.record
+        reference = record['nativeOriginal']
+        original = journal.durable.state.get('nativeRuntimeHttp', {}).get(reference['key'])
+        require(isinstance(original, dict) and canonical_digest(original) == reference['sha256'],
+                'installed recovery lacks original authenticated native execution')
+        value = original['response']['body']
+        supplied = launch['input']
+        restored = self._binding({'value': value}, generation=supplied['claimGeneration'], expiry=supplied['expiresEpoch'],
+            native_binding_digest=supplied['nativeBindingDigest'], reservation_ids=launch['reservationIds'], live=False)
+        require(restored == launch, 'restored worker differs from original native input/slot')
+        self._authorize(journal, launch, reconcile=True)
+        return self
+
     def _authorize(self, journal, launch, *, reconcile=False):
         durable = journal.durable
         durable._require_live_lease()
@@ -109,7 +132,8 @@ class InstalledSlot:
         rows = [row for row in ledger.get('interactivePaidAdmissions', []) if row['id'] == self.input['executionId']]
         require(len(rows) == 1 and rows[0]['ownerToken'] == admission['ownerToken'] and
                 rows[0]['expiresEpoch'] == self.input['expiresEpoch'] and all(rows[0][k] == self.input[k]
-                    for k in ('executionId', 'targetId', 'workspaceId', 'turnId')),
+                    for k in ('executionId', 'targetId', 'workspaceId', 'turnId')) and
+                0 < rows[0]['expiresEpoch']-rows[0]['createdEpoch'] <= self.config['maxExecutionSeconds'],
                 'installed worker admission replaced original E identity/expiry')
         if not reconcile:
             durable.update(durable.path, 'check-interactive-attempt', candidate_key=self.config['candidateKey'],
@@ -142,7 +166,8 @@ class InstalledSlot:
         env_rows = container.get('environment', [])
         require(len({row['name'] for row in env_rows}) == len(env_rows), 'duplicate installed worker environment')
         env = {row['name']: row['value'] for row in env_rows}
-        require(set(env) == {'HONUA_AGENT_TRANSPORT'}, 'installed worker has unreviewed task environment injections')
+        require(set(env) == {'HONUA_AGENT_TRANSPORT', 'AWS_DEFAULT_REGION'} and env['AWS_DEFAULT_REGION'] == c['region'],
+                'installed worker has unreviewed task environment injections or region')
         transport = {'schemaVersion': 2, 'mode': 'installed-slot',
             **{key: c[key] for key in ('candidateKey', 'runtimeId', 'slotId', 'commandQueueUrl', 'replyQueueUrl',
                 'originalFundingExpiresEpoch', 'maxExecutionSeconds')}}

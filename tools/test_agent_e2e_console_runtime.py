@@ -11,7 +11,8 @@ import pytest
 
 from agent_e2e_budget import update
 from agent_e2e_console_runtime import NativeControl, ExecutionJournal, secret_for
-from agent_e2e_installed_container import InstalledBinding
+from agent_e2e_installed_container import InstalledBinding, bind_message, McpOnlyExecutor
+from agent_e2e_worker import MCP_PROTOCOL, PROTOCOL, validate_command
 from agent_e2e_installed_worker import InstalledSlot
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_state import preserve_history
@@ -170,6 +171,35 @@ def test_actual_private_first_bind_replays_same_native_authority_without_rebindi
     assert len(server.seen) == 2 and installed.path.stat().st_mode & 0o777 == 0o600
 
 
+def test_bind_specific_bound_does_not_reject_a_valid_large_mcp_command(installed):
+    value = {'protocol': MCP_PROTOCOL, 'attemptId': E, 'actionId': 'action-original',
+        'deadlineEpoch': installed.value['expiresEpoch']-10, 'timeoutSeconds': 120,
+        'action': {'name': 'mcp_call_tool', 'input': {'name': 'native_tool', 'arguments': {'text': 'x'*33000}}}}
+    validate_command(value, E, installed.value['expiresEpoch'], value['deadlineEpoch']-120)
+    assert bind_message(None, {}, {'Body': json.dumps(value)}, installed.binding) is False
+    value['action']['input']['arguments']['text'] = 'x'*100001
+    with pytest.raises(PackError, match='command envelope'):
+        bind_message(None, {}, {'Body': json.dumps(value)}, installed.binding)
+
+
+def test_installed_worker_keeps_capability_off_disk_and_cannot_start_an_untrusted_shell(installed, tmp_path, monkeypatch):
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    installed.binding.accept(installed.value)
+    stored = installed.binding.db.execute('SELECT value FROM installed_binding').fetchone()[0]
+    assert CAP not in stored and installed.binding.mcp['credential'] not in stored
+    attempts = []
+    executor = McpOnlyExecutor({'attemptId': E, 'expiresEpoch': installed.value['expiresEpoch']},
+        tmp_path/'actions.sqlite', tmp_path, execute=lambda *args: attempts.append(args))
+    request = {'protocol': PROTOCOL, 'attemptId': E, 'actionId': 'terminal-original',
+        'deadlineEpoch': installed.value['expiresEpoch']-10, 'timeoutSeconds': 120, 'command': 'true'}
+    validate_command(request, E, installed.value['expiresEpoch'], request['deadlineEpoch']-120)
+    with pytest.raises(PackError, match='native MCP actions only'): executor.handle(request)
+    assert not attempts
+    changed = copy.deepcopy(installed.value); changed['capability'] = 'other-private-capability-'+'8'*32
+    with pytest.raises(PackError, match='cannot rebind'): installed.binding.accept(changed)
+    executor.db.close()
+
+
 @pytest.mark.parametrize('change', ['worker', 'turn', 'capability-echo', 'claim-generation'])
 def test_first_bind_refuses_foreign_native_projection_and_disclosed_capability(installed, server, monkeypatch, change):
     monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
@@ -210,7 +240,8 @@ def slot(runtime):
     transport = {'schemaVersion': 2, 'mode': 'installed-slot', **{key: c[key] for key in ('candidateKey', 'runtimeId', 'slotId',
         'commandQueueUrl', 'replyQueueUrl', 'originalFundingExpiresEpoch', 'maxExecutionSeconds')}}
     ecs = SimpleNamespace(definition={'taskDefinitionArn': c['taskDefinitionArn'], 'taskRoleArn': c['taskRoleArn'], 'status': 'ACTIVE',
-        'containerDefinitions': [{'image': c['image'], 'environment': [{'name': 'HONUA_AGENT_TRANSPORT', 'value': json.dumps(transport)}],
+        'containerDefinitions': [{'image': c['image'], 'environment': [{'name': 'HONUA_AGENT_TRANSPORT', 'value': json.dumps(transport)},
+            {'name': 'AWS_DEFAULT_REGION', 'value': c['region']}],
             'secrets': [{'name': 'HONUA_AGENT_MCP_CONFIG', 'valueFrom': c['mcpSecret']['secretArn']+':::'+c['mcpSecret']['versionId']}]}]},
         task={'taskArn': PHYSICAL_TASK, 'clusterArn': c['clusterArn'], 'taskDefinitionArn': c['taskDefinitionArn'],
             'launchType': 'FARGATE', 'lastStatus': 'RUNNING', 'tags': [
@@ -259,12 +290,14 @@ def test_lost_installed_start_ack_recovers_same_e_task_and_never_relaunches(slot
 
 
 @pytest.mark.parametrize('failure', ['missing-history', 'truncated-history', 'wrong-input', 'wrong-e-claim',
-    'wrong-slot-claim', 'wrong-role', 'extra-secret', 'missing-reservation'])
+    'wrong-slot-claim', 'wrong-role', 'wrong-region', 'extra-environment', 'extra-secret', 'missing-reservation'])
 def test_installed_launch_and_recovery_refuse_missing_or_conflicting_originals(slot, failure):
     if failure == 'wrong-role': slot.ecs.definition['taskRoleArn'] += '-other'
+    elif failure == 'wrong-region': slot.ecs.definition['containerDefinitions'][0]['environment'][1]['value'] = 'us-west-2'
+    elif failure == 'extra-environment': slot.ecs.definition['containerDefinitions'][0]['environment'].append({'name': 'ROOT_KEY', 'value': 'not-allowed'})
     elif failure == 'extra-secret': slot.ecs.definition['containerDefinitions'][0]['secrets'].append({'name': 'ROOT_KEY', 'valueFrom': 'other'})
     elif failure == 'missing-reservation': slot.durable.state['ledger']['interactiveEntries'].clear()
-    if failure in ('wrong-role', 'extra-secret', 'missing-reservation'):
+    if failure in ('wrong-role', 'wrong-region', 'extra-environment', 'extra-secret', 'missing-reservation'):
         with pytest.raises(PackError): slot.worker.start(slot.journal, slot.launch)
         assert not any(op == 'start' for op, _ in slot.states.calls)
         return
@@ -290,3 +323,30 @@ def test_expired_installed_worker_can_be_observed_without_release_or_new_spend(s
     assert observed['taskStatus'] == 'STOPPED' and observed['retired'] is False
     assert slot.durable.state['ledger']['interactivePaidAdmissions'][0]['state'] == 'active'
     assert all(row['state'] == 'reserved' for row in slot.durable.state['ledger']['interactiveEntries'])
+
+
+def test_fresh_controller_restores_expired_original_launch_for_observation_only(slot):
+    slot.journal.append('worker-intent', slot.launch)
+    slot.clock[0] = slot.config['originalFundingExpiresEpoch']+10
+    slot.ecs.task['lastStatus'] = 'STOPPED'
+    replacement = InstalledSlot(slot.config, states=slot.states, ecs=slot.ecs, db=slot.claims, clock=lambda: slot.clock[0])
+    replacement.restore(slot.journal, copy.deepcopy(slot.launch))
+    assert replacement.observe(slot.journal)['taskStatus'] == 'STOPPED'
+    with pytest.raises(PackError): replacement.start(slot.journal, slot.launch)
+    assert not any(op == 'start' for op, _ in slot.states.calls)
+    assert slot.durable.state['ledger']['interactivePaidAdmissions'][0]['state'] == 'active'
+
+
+@pytest.mark.parametrize('failure', ['missing-original', 'changed-input'])
+def test_expired_restore_refuses_missing_or_changed_native_launch_identity(slot, failure):
+    slot.journal.append('worker-intent', slot.launch)
+    slot.clock[0] = slot.config['originalFundingExpiresEpoch']+10
+    if failure == 'missing-original':
+        slot.durable.state['nativeRuntimeHttp'].pop(slot.journal.record['nativeOriginal']['key'])
+    else:
+        # An altered retained launch still cannot replace its native original.
+        slot.launch['input']['executionId'] = 'execution-'+'9'*32
+        slot.launch['inputDigest'] = canonical_digest(slot.launch['input'])
+        slot.journal.record['events'][-1]['value'] = copy.deepcopy(slot.launch)
+    replacement = InstalledSlot(slot.config, states=slot.states, ecs=slot.ecs, db=slot.claims, clock=lambda: slot.clock[0])
+    with pytest.raises(PackError): replacement.restore(slot.journal, slot.launch)

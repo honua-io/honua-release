@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import base64
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,8 @@ import urllib.request
 from agent_e2e_execution_protocol import require, identifier, execution_id, digest, canonical_digest
 from agent_e2e_mcp import validate_agent_context, validate_execution_context, NoRedirect, parse, execution_headers
 from agent_e2e_worker import Worker, command_digest, encode
+from agent_e2e_worker import MCP_PROTOCOL
+from agent_e2e_container import Executor
 
 BIND_PROTOCOL = 'honua.installed-worker-bind/v1'
 BOUND_PROTOCOL = 'honua.installed-worker-bound/v1'
@@ -118,7 +121,13 @@ class InstalledBinding:
 
     def accept(self, value):
         self.validate(value)
-        raw = encode(value)
+        # A physical process never needs a reusable capability on disk. Keep an
+        # unambiguous private binding verifier only; duplicate delivery still
+        # supplies the actual capability and native independently revalidates it.
+        persisted = {key: item for key, item in value.items() if key != 'capability'}
+        persisted['capabilityVerifier'] = hmac.new(self.mcp['credential'].encode(),
+            value['capability'].encode(), hashlib.sha256).hexdigest()
+        raw = encode(persisted)
         row = self.db.execute('SELECT value FROM installed_binding WHERE id=1').fetchone()
         if row is None:
             self.db.execute('INSERT INTO installed_binding(id,value) VALUES(1,?)', (raw,))
@@ -149,10 +158,11 @@ class InstalledBinding:
 
 
 def bind_message(sqs, config, message, binding):
-    require(isinstance(message.get('Body'), str) and len(message['Body'].encode()) <= 32768, 'oversized installed bind')
-    value = json.loads(message['Body'])
-    if value.get('protocol') != BIND_PROTOCOL:
+    require(isinstance(message.get('Body'), str) and len(message['Body'].encode()) <= 100000, 'oversized installed command envelope')
+    value = parse(message['Body'].encode())
+    if not isinstance(value, dict) or value.get('protocol') != BIND_PROTOCOL:
         return False
+    require(len(message['Body'].encode()) <= 32768, 'oversized installed bind')
     reply = binding.accept(value)
     sqs.send_message(QueueUrl=config['replyQueueUrl'], MessageBody=encode(reply),
         MessageGroupId=value['executionId'], MessageDeduplicationId=command_digest(reply)[7:])
@@ -160,9 +170,22 @@ def bind_message(sqs, config, message, binding):
     return True
 
 
+class McpOnlyExecutor(Executor):
+    """Installed Console operation policy has no untrusted local shell.
+
+    Legacy case workers retain their separate terminal protocol. An installed
+    task cannot expose its private agent transport to a shell sharing its UID,
+    environment or private journal, even through a crafted queue command.
+    """
+    def handle(self, request):
+        require(isinstance(request, dict) and request.get('protocol') == MCP_PROTOCOL,
+                'installed Console workers accept canonical native MCP actions only')
+        return super().handle(request)
+
+
 def serve_installed(sqs, configuration, *, journal='/journal/installed.sqlite', workspace='/workspace',
                     task_reader=actual_task, clock=time.time):
-    from agent_e2e_container import Executor, serve
+    from agent_e2e_container import serve
     config = transport(configuration)
     started = clock()
     # An unbound physical task must not wait for the entire funding window.
@@ -178,7 +201,7 @@ def serve_installed(sqs, configuration, *, journal='/journal/installed.sqlite', 
         require(binding.binding is not None, 'unbound worker startup deadline exceeded')
         worker = {**{k: config[k] for k in ('commandQueueUrl', 'replyQueueUrl')},
             'attemptId': binding.binding['executionId'], 'expiresEpoch': binding.binding['expiresEpoch']}
-        executor = Executor(worker, str(Path(journal).with_name('actions.sqlite')), workspace, clock=clock)
+        executor = McpOnlyExecutor(worker, str(Path(journal).with_name('actions.sqlite')), workspace, clock=clock)
         serve(sqs, worker, executor, clock=clock,
             control_handler=lambda message: bind_message(sqs, config, message, binding))
     finally:
