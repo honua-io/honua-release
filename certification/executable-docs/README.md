@@ -54,6 +54,10 @@ bootstrap has a separate bounded timeout and a version/hash receipt; failure sto
 the run before document execution. Unsupported import syntax fails before evaluation. CommonJS `require`
 resolves from the reader's current directory. TypeScript uses the pinned Node runtime's
 type transformation; the separate explicit typecheck path still uses the configured compiler.
+This parser-library pin is independent of the map app's TypeScript CLI. TypeScript 7
+changes that library API and removes `typescript/lib/typescript.js`; its migration
+and equivalent execution/refusal proof are tracked in
+[release #916](https://github.com/honua-io/honua-release/issues/916).
 Native linking checks every requested static export before any dependency body runs;
 an existing export whose value is `undefined` remains valid. Dynamic imports retain
 native parsing, including whitespace and comments before the argument.
