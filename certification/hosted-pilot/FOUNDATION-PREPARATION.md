@@ -52,24 +52,42 @@ After release source and the identical IaC input are reviewed and merged:
 
 1. Run release `hosted-pilot-bootstrap.yml` on trunk with
    `config_path=certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json`,
-   `region=us-east-1`, `mode=plan`. Inspect actual value-free review metadata.
-2. Use the same checked workflow and source-reviewed configuration with
-   `mode=deploy` through its existing protected foundation approval. The helper
-   applies only its exact locally saved plans, preserves encrypted original
-   recovery custody and verifies remote state before its identity phase. Any
-   partial failure keeps its original recovery run/state; no manual AWS writes,
-   local apply or fresh ownership identity is a recovery mechanism.
-3. Run `hosted-pilot-bind.yml` with the actual producing `release_root_sha`,
-   `bootstrap_run_id`, `bindings_artifact_id` and`bindings_sha256`. These values
-   must be read from that successful producer, not predicted here.
-4. Run `hosted-pilot-controller-image.yml` on trunk with
+   `region=us-east-1`, `mode=plan`, `phase=custody-only`. Inspect the actual
+   value-free review metadata, exact source/configuration/lock bindings and
+   proposed resource changes. A completed plan creates no custody resources.
+2. After reviewing that scope, use `mode=apply`, `phase=custody-only`. This
+   prepares a **new same-run** private saved binary and publishes its exact
+   review before the separate `terraform-live-approval` job can start. Root's
+   scope review is not human environment approval. The configured real reviewer
+   must approve that native gate; the executor independently verifies the
+   successful approval job, reviewer, source, run, attempt, phase and plan hash.
+   Approval is bounded to twenty minutes with a separately reserved fifteen
+   minute execution window, clipped to original funding/infrastructure expiry.
+   The watchdog cannot renew either deadline. The workflow applies only custody
+   and stops; an earlier plan-only run's binary or approval cannot be reused.
+3. Once secured canonical custody/state is positively observed, run a distinct
+   `mode=plan`, `phase=remote-backed-foundation`. Review its complete changes
+   before a separate `mode=apply`, `phase=remote-backed-foundation` preparation
+   and genuine exact-plan human gate. It preserves original custody creation
+   identity. No phase silently replans or applies the next phase. Any partial
+   failure keeps original recovery run/state, costs and liabilities; no manual
+   AWS writes, local apply or fresh ownership identity is a recovery mechanism.
+4. Run `hosted-pilot-bind.yml` with the actual successful full-foundation
+   producer's `release_root_sha`, `bootstrap_run_id`, `bindings_artifact_id` and
+   `bindings_sha256`. Read these from its original artifact, not a custody-only
+   completion, predicted ID or former plan-only run.
+5. After the controller runtime contracts are stable, run
+   `hosted-pilot-controller-image.yml` on trunk with
    `config_path=certification/hosted-pilot/deployments/foss4g-image-preparation.tfvars.json`
    and the actual immutable owner `budget_version_id`/`budget_sha256`. It archives
-   its exact source, checks real restricted-container/browser startup and reads
-   actual registry expiry before publication. Retain its resulting source/tree/
-   archive/runtime/image/run receipt. A new source or owner-object version cannot
-   reopen the stable allocation. Reconcile the prior publication and review a
-   new allocation before a different producer; no free second allowance exists.
+   exact source, checks restricted-container/browser startup and actual registry
+   expiry before publication. Retain the original source/tree/archive/runtime/
+   image/run receipt. A new source or owner-object version cannot reopen its
+   stable allocation. A selected public worker image additionally requires its
+   own reviewed `worker-image.json`, coherent native/public-knowledge/model
+   bindings and a distinct original owner reservation; do not reuse the
+   controller claim. Preserve all original holds and settle only from genuine
+   costs/cleanup evidence before reviewing a different producer allocation.
 
 The initial campaign stage now has its own read-only readiness descriptor.
 Null dispatch handoffs remain non-executable. Readiness observes the actual
