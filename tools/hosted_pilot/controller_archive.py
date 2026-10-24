@@ -42,7 +42,17 @@ CONTRACT_PATHS = (
     'tools/agent_e2e_backend.py',
     'tools/agent_e2e_controller.py',
     'tools/agent_e2e_campaign_budget.py',
+    'tools/agent_e2e_interactive_budget.py',
+    'tools/agent_e2e_console_runtime.py',
+    'tools/agent_e2e_installed_worker.py',
+    'tools/agent_e2e_installed_container.py',
+    'tools/agent_e2e_execution_protocol.py',
     'tools/hosted_pilot/worker_mcp_configuration.py',
+    'tools/hosted_pilot/installed_mcp_configuration.py',
+    'tools/hosted_pilot/installed_worker_receipt.py',
+    'tools/hosted_pilot/enrollment_receipt.py',
+    'tools/hosted_pilot/human_enrollment.py',
+    'tools/hosted_pilot/worker_allowance.py',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
 BUNDLE_LIMIT = 128 * 1024 * 1024

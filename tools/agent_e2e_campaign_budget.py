@@ -95,6 +95,11 @@ def bind_ledger(campaign, ledger, root, *, bootstrap=None):
             all(ledger['policyAmendment'][name] == policy[name] for name in ('policyId', 'priorLedgerDigest')),
             'actual durable ledger lacks the frozen named owner amendment')
     imported, _ = original_file(Path(root)/ORIGINAL, policy['original']['sha256'], ledger['candidateKey'])
+    if 'interactiveAccounting' in ledger:
+        marker = ledger['interactiveAccounting']
+        require(marker['bootstrapArtifactDigest'] == imported['artifactDigest'] and
+                marker['source'] == imported['artifact']['source'],
+                'interactive history belongs to different original funding')
     if bootstrap is not None:
         require(bootstrap == imported, 'actual durable import differs from original frozen funding artifact')
     original = imported['artifact']['ledger']

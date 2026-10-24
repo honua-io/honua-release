@@ -8,6 +8,7 @@ RUN python -m pip install --no-cache-dir --require-hashes -r /app/requirements.t
     && chown 10001:10001 /workspace /journal
 COPY agent_e2e_errors.py agent_e2e_worker.py agent_e2e_container.py agent_e2e_container_entry.py /app/
 COPY agent_e2e_mcp.py agent_e2e_mcp_runner.py agent_e2e_mcp_entry.py /app/
+COPY agent_e2e_installed_container.py agent_e2e_execution_protocol.py /app/
 COPY agent_e2e_public.py agent_e2e_public_entry.py /app/
 COPY public/ /opt/honua-public/
 USER 10001:10001
