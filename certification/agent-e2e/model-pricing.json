@@ -1,0 +1,54 @@
+{
+  "modelId": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "returnedModelId": "claude-sonnet-4-5-20250929",
+  "region": "us-east-1",
+  "inputUsdPerMillion": "3.30",
+  "outputUsdPerMillion": "16.50",
+  "tokenCountingModelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "profileArn": "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "profile": {
+    "path": "certification/agent-e2e/model-profile.json",
+    "sha256": "sha256:4599fb8a0d31142121a9060be6b8f3e43d2d4262e1b9a746afbc507495e4dec8"
+  },
+  "pricingScope": {
+    "currency": "USD",
+    "serviceTier": "standard",
+    "inference": "US geographic cross-region",
+    "inputTokenLimit": 200000,
+    "promptCaching": false,
+    "batch": false
+  },
+  "source": {
+    "page": {
+      "url": "https://aws.amazon.com/bedrock/pricing/",
+      "observedAt": "2026-10-24T03:26:08.600968+00:00",
+      "bytes": 893631,
+      "sha256": "b88fbf36c25690604766c5f2c215a259e5e08080b32eb84a8dda19db3cd0f2fa"
+    },
+    "rates": {
+      "url": "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/bedrockfoundationmodels/USD/current/bedrockfoundationmodels.json",
+      "observedAt": "2026-10-24T03:27:16.014828+00:00",
+      "bytes": 458785,
+      "sha256": "948e4452c81448c19747085ec332ea1316fd3344f274934ac560a40465a06a18",
+      "lastModified": null
+    },
+    "decodedRatesSha256": "34e18bca755ac86f7920bb121b85dc17fd72fb64799acd27c1787a958bf847a3",
+    "publicationDate": "2026-10-12T08:40:08Z",
+    "inputToken": "dw9Jrp0cBam3cKl_VPSJvYOecz0N2Tpb2TlLqAx7zvg",
+    "outputToken": "mMM0nVjbwmvAml5DpYxULYDx3lz9j0x3QoMy45QsqKU",
+    "regions": [
+      "US East (N. Virginia)",
+      "US East (Ohio)",
+      "US West (Oregon)"
+    ]
+  },
+  "returnedModelSource": {
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "e2c736fba682118b5c595ceb76c621f7ab70b6be",
+    "path": "docs/evidence/ask-map-2051/07-sonnet-serialized-query-failure/identity-preflight.json",
+    "sha256": "sha256:6519eff55d6f0ea946b4b133c70fa9892edcc080b82f9df2a4144802a62f9ece",
+    "url": "https://github.com/honua-io/honua-sdk-js/blob/e2c736fba682118b5c595ceb76c621f7ab70b6be/docs/evidence/ask-map-2051/07-sonnet-serialized-query-failure/identity-preflight.json",
+    "scope": "Retained actual native identity preflight; reviewed expected response.model only, not current-candidate qualification. Existing terminal canary receipt reports requested profile, not raw response.model.",
+    "providerRequestId": "65851464-eb22-40f8-a327-0b1a6b4bcc61"
+  }
+}

@@ -86,6 +86,34 @@ def validate_model_profile(model, profile):
             'token counting requires an explicit original regional profile member')
 
 
+def validate_model_source(model, *, source_reader=None):
+    """Shared reviewed prices/profile check; no model or counting API calls."""
+    read = source_reader or source_file
+    fields = {'modelId', 'returnedModelId', 'region', 'pricingDigest', 'inputUsdPerMillion', 'outputUsdPerMillion',
+              'tokenCountingModelArn', 'profileArn', 'profile'}
+    require(isinstance(model, dict) and fields <= set(model) <= fields | {'maxOutputTokens', 'pricingScope', 'source', 'returnedModelSource'},
+            'missing or extra reviewed model fields')
+    require(model['region'] == 'us-east-1', 'campaign model region differs from reviewed baseline')
+    require(re.fullmatch(r'sha256:[0-9a-f]{64}', model['pricingDigest']), 'missing pinned pricing digest')
+    pricing = load_json(read('certification/agent-e2e/model-pricing.json', model['pricingDigest']))
+    require(all(pricing[k] == model[k] for k in ('modelId', 'returnedModelId', 'region',
+                'inputUsdPerMillion', 'outputUsdPerMillion', 'tokenCountingModelArn', 'profileArn', 'profile')),
+            'model differs from reviewed prices/profile')
+    require('source' not in model or model['source'] == pricing.get('source'), 'model price provenance differs from source')
+    require('returnedModelSource' not in model or model['returnedModelSource'] == pricing.get('returnedModelSource'),
+            'model returned-identity provenance differs from source')
+    if 'pricingScope' in pricing:
+        require(model.get('pricingScope') == pricing['pricingScope'] and pricing['pricingScope'] == {
+            'currency': 'USD', 'serviceTier': 'standard', 'inference': 'US geographic cross-region',
+            'inputTokenLimit': 200000, 'promptCaching': False, 'batch': False},
+            'model pricing scope differs from reviewed standard US geographic rates')
+    profile = model['profile']
+    require(isinstance(profile, dict) and set(profile) == {'path', 'sha256'} and
+            profile['path'] == 'certification/agent-e2e/model-profile.json', 'missing reviewed original model profile')
+    validate_model_profile(model, load_json(read(profile['path'], profile['sha256'])))
+    return model
+
+
 def inputs(mode='qualification'):
     require(CONFIG.is_file(), 'missing reviewed certification/agent-e2e/campaign-inputs.json; '
             'full scenario backend, immutable model/pricing, knowledge, expectations, state and bootstrap must be configured')
@@ -132,18 +160,7 @@ def inputs(mode='qualification'):
         source_file(config[name]['path'], config[name]['sha256'])
     model = config['model']
     require(model['modelId'] == os.environ.get('TERMINAL_MODEL_NAME'), 'model differs from terminal canary baseline')
-    require(model['region'] == 'us-east-1', 'campaign model region differs from reviewed baseline')
-    require(re.fullmatch(r'sha256:[0-9a-f]{64}', model['pricingDigest']), 'missing pinned pricing digest')
-    # Prices must themselves be reviewed source bytes, not merely a self-declared hash.
-    source_file('certification/agent-e2e/model-pricing.json', model['pricingDigest'])
-    pricing = load_json(ROOT/'certification/agent-e2e/model-pricing.json')
-    require(all(pricing[k] == model[k] for k in ('modelId', 'returnedModelId', 'region',
-                'inputUsdPerMillion', 'outputUsdPerMillion', 'tokenCountingModelArn', 'profileArn', 'profile')),
-            'model differs from reviewed prices/profile')
-    profile = model['profile']
-    require(isinstance(profile, dict) and set(profile) == {'path', 'sha256'} and
-            profile['path'] == 'certification/agent-e2e/model-profile.json', 'missing reviewed original model profile')
-    validate_model_profile(model, load_json(source_file(profile['path'], profile['sha256'])))
+    validate_model_source(model)
     return config
 
 

@@ -1,0 +1,9 @@
+{
+  "testRun": "installed_slot_protocol",
+  "schema": "honua.installed-worker-slot/v1",
+  "actualTerraformEmittedDefinitionDigest": "sha256:2043622fd0bd268cd5b0309bb82fc54d1c25f385719617cba1dc88b25dbd0b60",
+  "actualDefinitionRawSha256": "2043622fd0bd268cd5b0309bb82fc54d1c25f385719617cba1dc88b25dbd0b60",
+  "pythonConsumerDigest": "sha256:7fe6054ab345b46fd1cbc3f80a6335e44607a9d1ea1528a936ed53d17deebf83",
+  "emittedDigestMatchesCurrentConsumer": false,
+  "originalZipSha256": "9ac60f98b2149f9c4368ba9b22f10cd1d97496b5d69faebebf013bef997c49b1"
+}
