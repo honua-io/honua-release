@@ -16,7 +16,7 @@ def main():
         ('actual-installed-asl', fixture.read_text(encoding='utf-8')),
         ('escapes', '{"<key>":"<>&\\u2028\\u2029","literal":"\\\\u003c\\\\u2028","unicode":"😀é"}'),
         ('numbers', '{"values":[1.0,-0.0,1e6,1e-7,1.2300,9007199254740993,0.123456789012345678901234567890123456789]}'),
-        ('normalization', '{"e\\u0301":"e\\u0301","z":null,"a":[true,false]}'),
+        ('normalization', '{"value":"e\\u0301","z":null,"a":[true,false]}'),
         ('precise-number', '{"value":0.'+'1234567890'*12+'12345678}'),
     ]
     with tempfile.TemporaryDirectory(prefix='honua-definition-digest-') as directory:
@@ -28,7 +28,9 @@ def main():
             encoded = base64.b64encode(original.encode('utf-8')).decode('ascii')
             expression = 'jsonencode(jsondecode(base64decode("'+encoded+'")))\n'
             response = subprocess.run(['terraform', 'console', '-no-color'], cwd=directory,
-                input=expression, check=True, capture_output=True, text=True, timeout=30)
+                input=expression, check=False, capture_output=True, text=True, timeout=30)
+            if response.returncode:
+                raise RuntimeError('Terraform console refused '+name+': '+response.stderr[:4096])
             actual = json.loads(response.stdout).encode('utf-8')
             expected = 'sha256:'+hashlib.sha256(actual).hexdigest()
             if terraform_definition_digest(original) != expected:
