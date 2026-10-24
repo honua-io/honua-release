@@ -117,7 +117,7 @@ def test_actual_promotion_workflow_records_two_native_versions_with_unchanged_co
     lock, _, state, _, _ = docs
     process = lock["process"]["name"]
     predecessor = copy.deepcopy(lock); predecessor["process"]["version"] = "0.9.0"
-    previous_path = Path("release/gp-process-locks") / process / "previous.json"
+    previous_path = Path("release/gp-process-locks") / process / (gate.digest(predecessor)[7:19] + ".json")
     (tmp_path / previous_path).parent.mkdir(parents=True)
     (tmp_path / previous_path).write_text(json.dumps(predecessor))
     environment = tmp_path / "release/gp-environments/dev"
