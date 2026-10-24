@@ -177,6 +177,8 @@ def update_admission(ledger, operation, values):
         expiry = values['expires_epoch']
         if type(expiry) is not int or not now < expiry <= now + 6000:
             raise BudgetError('paid attempt admission requires a bounded unexpired lifetime')
+        if 'interactiveAccounting' in ledger and expiry > ledger['interactiveAccounting']['originalExpiresEpoch']:
+            raise BudgetError('paid attempt cannot extend original candidate funding expiry')
         identity = ({field: values[{'executionId': 'execution_id', 'targetId': 'target_id',
                      'workspaceId': 'workspace_id', 'turnId': 'turn_id'}[field]]
                      for field in ('executionId', 'targetId', 'workspaceId', 'turnId')} if interactive else
@@ -204,7 +206,8 @@ def update_admission(ledger, operation, values):
             raise BudgetError('paid admission is missing, released or owned by another controller')
         row = matches[0]
         if operation in ('check-paid-attempt', 'check-interactive-attempt'):
-            if not row['createdEpoch'] <= now < row['expiresEpoch']:
+            expiry = min(row['expiresEpoch'], ledger.get('interactiveAccounting', {}).get('originalExpiresEpoch', row['expiresEpoch']))
+            if not row['createdEpoch'] <= now < expiry:
                 raise BudgetError('stale paid admission requires drain/accounting reconciliation')
         else:
             # Releasing an expired attempt is allowed only after exact final
@@ -340,6 +343,10 @@ def update(path, operation, *, candidate_key, **values):
         # A prior overrun blocks new work, but must not prevent retaining later
         # independently observed charges for already-reserved cleanup/resources.
         validate(ledger, allow_overrun=operation == 'settle')
+        if operation in ('reserve', 'reserve-operation', 'reserve-interactive') and 'interactiveAccounting' in ledger:
+            now = values.get('now_epoch', int(time.time()))
+            if type(now) is not int or now >= ledger['interactiveAccounting']['originalExpiresEpoch']:
+                raise BudgetError('original candidate funding expired; only retained charge reconciliation remains')
         if operation == 'amend-foss4g':
             if ledger['schemaVersion'] != 3:
                 previous = copy.deepcopy(ledger)

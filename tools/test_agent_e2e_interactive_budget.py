@@ -226,3 +226,17 @@ def test_legacy_case_mode_cannot_duplicate_an_admission_with_different_mode(inte
     update(path, 'acquire-paid-attempt', admission_id='original', campaign_mode='development', **values)
     with pytest.raises(BudgetError, match='readmitted'):
         update(path, 'acquire-paid-attempt', admission_id='replacement', campaign_mode='qualification', **values)
+
+
+def test_shared_original_expiry_also_fences_case_and_shared_operation_reservations(interactive, monkeypatch):
+    path, binding, now, *_ = interactive
+    expiry = binding['originalExpiresEpoch']
+    with pytest.raises(BudgetError, match='original.*expiry'):
+        update(path, 'acquire-paid-attempt', candidate_key=KEY, admission_id='case-outside-funding',
+            owner_token='b'*32, campaign_id='original-campaign', case_id='P01:A:local-docker',
+            campaign_mode='development', attempt=1, now_epoch=now, expires_epoch=expiry+1)
+    before = path.read_bytes()
+    monkeypatch.setattr('agent_e2e_budget.time.time', lambda: expiry+1)
+    with pytest.raises(BudgetError, match='funding expired'): reserve(path, 'case-after-original-expiry', '1')
+    with pytest.raises(BudgetError, match='funding expired'): reserve_operation(path, rid='operation-after-original-expiry', amount='1')
+    assert path.read_bytes() == before
