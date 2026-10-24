@@ -91,6 +91,7 @@ jobs:
         run: |
           python3 -m pip install --require-hashes -r certification/hosted-pilot/controller/requirements.txt
           python3 tools/check_agent_e2e_definition_digest.py
+          HONUA_SHARED_GRAPH_OUTPUT="$RUNNER_TEMP/shared-retirement-graph" python3 tools/check_shared_retirement_graph.py
           python3 -m pip install 'pytest>=8,<9' 'pyyaml>=6,<7'
           python3 -m pytest tools/hosted_pilot/fixture_import_handoff_test.py -k independently_replays -q
           python3 -m pytest tools/hosted_pilot/installed_evaluation_binding_test.py -q

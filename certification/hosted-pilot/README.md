@@ -379,3 +379,55 @@ still required. No registrar handoff or live launch is created by this change.
 The original $334 liabilities and funding expiry remain unchanged. Ordinary installed
 poller identity staging and its final registration-bound supervisor need separate
 successful apply receipts; source registration never proves poller activation.
+
+
+### Shared staging coverage and scheduled cleanup attempts
+
+Registrar staging requires the version2 shared-infrastructure binding. Its
+hash-verified original funding history supplies the conservative beginning of
+the shared cost window; the unchanged funding expiry ends that planned window.
+The quote charges one NAT gateway and every minute's bounded registrar reaper
+(including paid Scheduler invocations, Step Functions transitions and consistent
+DynamoDB reads). It also charges the actual 14-day bounded task-log retention;
+that retention is not a NAT lifetime or proof of cleanup. Original nonzero costs,
+unknown liabilities and earlier reservations remain independent and unchanged.
+No quote or admission exists merely because these source contracts are present.
+The closed shared binding uses schema `honua.registrar-shared-infrastructure-binding/v2`,
+with `historyOriginal` equal to the retained funding configuration's exact history
+reference, `originalFundingExpiresEpoch`, and `plannedRetirementAtEpoch` equal to
+that expiry minus 900 seconds. The existing registrar pricing originals additionally
+require `nat-hours`, `scheduler-invocations`, and `cloudwatch-retention`. Scheduler
+pricing retains both native tiers and charges the paid tier for every invocation;
+no free-tier availability or zero cost is inferred.
+
+Stage `shared_retirement` before requesting cleanup. The checked deployment
+workflow's `scheduled_cleanup=true` selection prepares a new target-only saved
+destroy plan. The protected `hosted-pilot-apply` environment must match
+`apply-environment.json`, including Mike's exact reviewer identity and disabled
+administrator bypass. The versioned credential-environment workflow can establish
+that policy; an absent or weaker environment refuses. Existing role trust is
+reused and no third deployment role is created.
+
+After actual same-run human approval, the one original STS grant must cover the
+fixed wait, fifteen-minute cleanup attempt and two-minute margin inside the
+actual job timeout. Terraform acquires its real S3 backend lock before entering
+the staged destroy-time gate. Current job/approval and native lock observations
+remain required during the wait. The gate must complete before selected target
+deletion. Missing/tainted gate, extra resource actions, cancellation, clock drift,
+expired credentials or a changed lock refuse continuation. The original saved
+binary/configuration cannot be changed under that approval.
+
+A missed deadline is not teardown. A separate `cleanup_recovery=true` request
+requires a fresh exact target-only saved plan and actual human approval, retains
+the original elapsed deadline and permits only a currently bounded cleanup
+attempt. It cannot authorize startup, renew funding or release old holds. The
+two selections are mutually exclusive. All wait and recovery witnesses explicitly
+retain `activation:false` and `qualification:false`; a completed wait is never
+reported as deletion or cost settlement.
+
+Runtime activation still requires an authenticated final installation sidecar
+and a current scheduled-cleanup waiting witness. That future sidecar is produced
+after final Terraform staging and is referenced by the original supervisor
+execution input, avoiding a future-plan reference in its own Terraform config.
+Missing sidecar/runtime-index/installed-human evidence remains a refusal; this
+source change performs no deployment or model call.

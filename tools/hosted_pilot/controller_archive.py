@@ -9,6 +9,11 @@ import subprocess
 import tarfile
 
 CONTRACT_PATHS = (
+    'tools/hosted_pilot/shared_retirement.py',
+    'certification/hosted-pilot/campaign/runtime-registration-reaper.asl.json.tftpl',
+    'certification/hosted-pilot/campaign/runtime-registration-lifecycle.tf',
+    'certification/hosted-pilot/campaign/target.tf',
+    'certification/hosted-pilot/campaign/controller.tf',
     'certification/hosted-pilot/controller/Dockerfile',
     'certification/hosted-pilot/controller/requirements.txt',
     'certification/hosted-pilot/controller/browser/package.json',

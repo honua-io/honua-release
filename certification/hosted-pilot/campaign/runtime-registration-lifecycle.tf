@@ -113,7 +113,7 @@ resource "aws_scheduler_schedule" "registration_reaper" {
   group_name                   = aws_scheduler_schedule_group.registration[0].name
   schedule_expression          = "rate(1 minute)"
   schedule_expression_timezone = "UTC"
-  end_date                     = var.expires_at
+  end_date                     = timeadd("1970-01-01T00:00:00Z", "${var.native_runtime_registration.originalFundingExpiresEpoch}s")
   state                        = "ENABLED"
   flexible_time_window { mode = "OFF" }
   target {

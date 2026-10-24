@@ -1113,7 +1113,7 @@ run "registrar_keeps_original_versions_deadline_and_separate_reaper" {
       !contains(keys(jsondecode(aws_sfn_state_machine.runtime_registration[0].definition).States.RunRegistrar), "Retry") &&
       jsondecode(aws_sfn_state_machine.runtime_registration[0].definition).States.Installation.Output.installation.originalFundingExpiresEpoch == var.native_runtime_registration.originalFundingExpiresEpoch &&
       jsondecode(aws_sfn_state_machine.registration_reaper[0].definition).States.Installation.Output.installation == local.registration_installation &&
-      aws_scheduler_schedule.registration_reaper[0].end_date == var.expires_at && aws_scheduler_schedule.registration_reaper[0].flexible_time_window[0].mode == "OFF" &&
+      aws_scheduler_schedule.registration_reaper[0].end_date == timeadd("1970-01-01T00:00:00Z", "${var.native_runtime_registration.originalFundingExpiresEpoch}s") && aws_scheduler_schedule.registration_reaper[0].flexible_time_window[0].mode == "OFF" &&
       aws_scheduler_schedule.registration_reaper[0].target[0].retry_policy[0].maximum_retry_attempts == 0 &&
       !strcontains(aws_iam_role_policy.registration_reaper[0].policy, "dynamodb:UpdateItem") &&
       !strcontains(aws_iam_role_policy.registration_reaper[0].policy, "secretsmanager:") &&
@@ -1321,4 +1321,22 @@ run "registrar_cannot_renew_original_funding" {
     }
   }
   expect_failures = [aws_ecs_task_definition.runtime_registration[0]]
+}
+
+run "scheduled_cleanup_gate_staged" {
+  command = plan
+  variables {
+    shared_retirement = { original_funding_expires_at = "2026-10-24T13:45:00Z", retirement_at = "2026-10-24T13:30:00Z" }
+  }
+  assert {
+    condition     = length(terraform_data.shared_retirement) == 1 && terraform_data.shared_retirement[0].input.candidate_key == var.candidate_digest && terraform_data.shared_retirement[0].input.retirement_at == "2026-10-24T13:30:00Z"
+    error_message = "Cleanup gate must be staged with the exact candidate and unchanged source deadline."
+  }
+}
+run "scheduled_cleanup_margin_required" {
+  command = plan
+  variables {
+    shared_retirement = { original_funding_expires_at = "2026-10-24T13:45:00Z", retirement_at = "2026-10-24T13:44:00Z" }
+  }
+  expect_failures = [var.shared_retirement]
 }

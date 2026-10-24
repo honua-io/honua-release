@@ -6,7 +6,8 @@ two distinct rows. The registrar consumes only verify_retained_admission.
 from __future__ import annotations
 
 import copy
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -59,7 +60,110 @@ def unit_price(original, *, region, usage, unit):
     return money(dimensions[0]['pricePerUnit']['USD'])
 
 
+
+def shared_history_start(durable, source_reader):
+    """Conservative original coverage start; never manufacture a ledger clock."""
+    funding = json.loads(durable.state['interactiveFunding']['configuration'])
+    seen = set()
+    cached = {}
+    def read(reference):
+        require(isinstance(reference,dict) and set(reference) == {'path','sha256'} and
+                reference['path'].startswith(('certification/hosted-pilot/history/','certification/agent-e2e/')) and
+                '..' not in reference['path'].split('/') and re.fullmatch(r'sha256:[a-f0-9]{64}',reference['sha256']),
+                'shared coverage requires the retained original funding history reference')
+        if reference['sha256'] in cached:return cached[reference['sha256']]
+        require(reference['sha256'] not in seen and len(seen)+len(cached) < 32, 'shared history contains cycles or too many originals')
+        seen.add(reference['sha256'])
+        path=Path(source_reader(reference['path'],reference['sha256']))
+        require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 2*1024*1024,
+                'shared original history is absent or oversized')
+        raw=path.read_bytes()
+        require('sha256:'+hashlib.sha256(raw).hexdigest() == reference['sha256'], 'shared original history bytes differ')
+        value=json.loads(raw)
+        if value.get('schema') == 'honua.hosted-pilot-reconciled-history/v1':
+            require(set(value) == {'schema','currentHistory','retainedHistories','producerReconciliations'} and
+                    isinstance(value['retainedHistories'],list), 'shared reconciled original history differs')
+            result=min(read(ref) for ref in [value['currentHistory'],*value['retainedHistories']])
+            seen.remove(reference['sha256']);cached[reference['sha256']]=result
+            return result
+        require(value.get('schema') == 'honua.hosted-pilot-budget-history/v1', 'shared original history schema differs')
+        start=datetime.fromisoformat(value['coverage']['start'].replace('Z','+00:00'))
+        require(start.tzinfo is not None and start.utcoffset().total_seconds() == 0 and
+                start.timestamp() > 0 and start.timestamp() == int(start.timestamp()), 'shared original history start is invalid')
+        result=int(start.timestamp());seen.remove(reference['sha256']);cached[reference['sha256']]=result
+        return result
+    return funding['history'],read(funding['history'])
+
+
+
+def verify_shared_source_bounds():
+    """Refuse source drift that invalidates the finite quote's primitive bounds."""
+    root=Path(__file__).resolve().parents[2]/'certification/hosted-pilot/campaign'
+    network=(root/'target.tf').read_text()
+    require(re.search(r'single_nat_gateway\s*=\s*true',network) and
+            re.search(r'enable_nat_gateway\s*=\s*true',network), 'shared single NAT primitive differs')
+    source=(root/'runtime-registration-reaper.asl.json.tftpl').read_text()
+    machine=json.loads(source.replace('${installation_json}','{}'))
+    require(machine['States']['ListOriginalTasks']['Arguments']['MaxResults'] == 100,
+            'shared reaper inventory bound differs')
+    def bound(states):
+        total=len(states)
+        edges={name:set() for name in states}
+        def targets(value):
+            result=[]
+            if isinstance(value,dict):
+                require('Retry' not in value, 'shared reaper retry costs are unquoted')
+                for key,item in value.items():
+                    if key=='ItemProcessor':continue
+                    if key in ('Next','Default'):result.append(item)
+                    else:result+=targets(item)
+            elif isinstance(value,list):
+                for item in value:result+=targets(item)
+            return result
+        for name,row in states.items():
+            edges[name]=set(targets(row))
+            require(edges[name] <= set(states),'shared reaper transition target differs')
+            if row['Type']=='Map':
+                require(row.get('MaxConcurrency') == 1,'shared reaper concurrency differs')
+                total+=100*bound(row['ItemProcessor']['States'])
+        def visit(name,active):
+            require(name not in active,'shared reaper cycle costs are unquoted')
+            for target in edges[name]:visit(target,active|{name})
+        for name in states:visit(name,set())
+        return total
+    require(bound(machine['States']) <= 512 and source.count('aws-sdk:dynamodb:getItem') == 1 and
+            not any(operation in source for operation in ('dynamodb:updateItem','dynamodb:putItem','dynamodb:query','dynamodb:scan')),
+            'shared reaper state/read bounds differ')
+    lifecycle=(root/'runtime-registration-lifecycle.tf').read_text()
+    require('schedule_expression          = "rate(1 minute)"' in lifecycle and
+            re.search(r'maximum_retry_attempts\s*=\s*0',lifecycle) and
+            'timeadd("1970-01-01T00:00:00Z", "${var.native_runtime_registration.originalFundingExpiresEpoch}s")' in lifecycle,
+            'shared reaper schedule exceeds original funding or invocation bounds')
+    logs=(root/'controller.tf').read_text()
+    block=re.search(r'resource "aws_cloudwatch_log_group" "controller"\s*\{.*?\n\}',logs,re.S)
+    require(block and re.search(r'retention_in_days\s*=\s*14',block[0]),
+            'shared log retention bound differs')
+
+def scheduler_price(original, *, region):
+    require(isinstance(original,dict) and not original.get('NextToken') and len(original.get('PriceList',[])) == 1,
+            'shared scheduler pricing original is incomplete')
+    value=json.loads(original['PriceList'][0]);attributes=value['product']['attributes']
+    require(attributes.get('regionCode') == region and attributes.get('usagetype') == 'USE1-ScheduledInvocation',
+            'shared scheduler pricing region/meter differs')
+    terms=list(value['terms']['OnDemand'].values())
+    require(len(terms) == 1,'shared scheduler pricing terms are ambiguous')
+    rows=sorted(terms[0]['priceDimensions'].values(),key=lambda row:Decimal(row['beginRange']))
+    require(len(rows) == 2 and [(row['beginRange'],row['endRange'],row['unit']) for row in rows] ==
+            [('0','14000000','Invocations'),('14000000','Inf','Invocations')] and
+            all(set(row['pricePerUnit']) == {'USD'} for row in rows) and
+            Decimal(rows[0]['pricePerUnit']['USD']) == 0, 'shared scheduler pricing tiers differ')
+    # Quote the paid tier for every invocation; account free-tier availability is
+    # never assumed and existing unknown costs remain separate.
+    return money(rows[1]['pricePerUnit']['USD'])
+
+
 def verify_quote(config, durable, *, source_reader):
+    verify_shared_source_bounds()
     quote = source_object(config['liabilityQuote'], source_reader)
     fields = {'schema', 'candidateKey', 'runtimeId', 'region', 'cpu', 'memory', 'maxExecutionSeconds',
               'image', 'maximumUsd', 'bounds', 'pricingOriginals', 'imageOriginal', 'sharedInfrastructureOriginal'}
@@ -87,13 +191,18 @@ def verify_quote(config, durable, *, source_reader):
               'cloudwatch-ingestion': ('USE1-DataProcessing-Bytes', 'GB'),
               'standard-state-transitions': ('USE1-StateTransition', 'StateTransitions'),
               'dynamodb-read': ('ReadRequestUnits', 'ReadRequestUnits'),
-              'dynamodb-write': ('WriteRequestUnits', 'WriteRequestUnits')}
+              'dynamodb-write': ('WriteRequestUnits', 'WriteRequestUnits'),
+              'nat-hours': ('NatGateway-Hours','Hrs'),
+              'cloudwatch-retention': ('USE1-TimedStorage-ByteHrs','GB-Mo'),
+              'scheduler-invocations': ('USE1-ScheduledInvocation','Invocations')}
     originals = quote['pricingOriginals']
     require(isinstance(originals, list) and len(originals) == len(meters) and all(isinstance(row, dict) and
             set(row) == {'kind', 'reference'} for row in originals) and
             {row['kind'] for row in originals} == set(meters), 'registrar original pricing meters are incomplete')
-    prices = {row['kind']: unit_price(source_object(row['reference'], source_reader), region=config['region'],
-              usage=meters[row['kind']][0], unit=meters[row['kind']][1]) for row in originals}
+    prices = {row['kind']: (scheduler_price(source_object(row['reference'],source_reader),region=config['region'])
+              if row['kind'] == 'scheduler-invocations' else
+              unit_price(source_object(row['reference'], source_reader), region=config['region'],
+              usage=meters[row['kind']][0], unit=meters[row['kind']][1])) for row in originals}
     image = source_object(quote['imageOriginal'], source_reader)
     uri = config['imageUri']
     match = re.fullmatch(r'([0-9]{12})\.dkr\.ecr\.(us-east-1)\.amazonaws\.com/([a-z0-9/_-]+)@(sha256:[a-f0-9]{64})', uri)
@@ -106,18 +215,37 @@ def verify_quote(config, durable, *, source_reader):
             observed.get('imageDigest') == match[4] and type(observed.get('imageSizeInBytes')) is int and
             0 < observed['imageSizeInBytes'] <= bounds['maximumImagePullBytes'], 'registrar image transfer bound is insufficient')
     shared = source_object(quote['sharedInfrastructureOriginal'], source_reader)
-    require(set(shared) == {'schema', 'candidateKey', 'operationId', 'basisDigest', 'reservationIds'} and
-            shared['schema'] == 'honua.registrar-shared-infrastructure-binding/v1' and
+    require(set(shared) == {'schema', 'candidateKey', 'operationId', 'basisDigest', 'reservationIds', 'historyOriginal',
+            'originalFundingExpiresEpoch', 'plannedRetirementAtEpoch'} and
+            shared['schema'] == 'honua.registrar-shared-infrastructure-binding/v2' and
             shared['candidateKey'] == config['candidateKey'] and set(shared['reservationIds']) == {'infrastructure', 'cleanup'} and
             len(set(shared['reservationIds'].values())) == 2 and not set(shared['reservationIds'].values()) &
             set(config['operation']['reservationIds'].values()), 'registrar shared infrastructure cannot reuse its new effect rows')
+    history, start = shared_history_start(durable,source_reader)
+    expiry = durable.state['ledger']['interactiveAccounting']['originalExpiresEpoch']
+    require(shared['historyOriginal'] == history and shared['originalFundingExpiresEpoch'] == expiry and
+            shared['plannedRetirementAtEpoch'] == expiry-900 and 0 < start < expiry-900,
+            'shared coverage must preserve original history and funding/cleanup deadlines')
+    def shared_cost(seconds):
+        invocations=(seconds+59)//60+2
+        # One reviewed single NAT gateway; the reaper is no-retry, max100 tasks,
+        # <=512 transitions and <=128 consistent DDB request units per run.
+        control=Decimal(invocations)*(512*prices['standard-state-transitions']+
+                    128*prices['dynamodb-read']+prices['scheduler-invocations'])
+        # Actual controller log retention is14 days. Use the shortest28-day
+        # billing month and charge both bounded task starts; never apply that
+        # object-retention period as a NAT cleanup guarantee.
+        storage=Decimal(2*bounds['maximumLogBytes'])/Decimal(1024**3)*Decimal(14)/Decimal(28)*prices['cloudwatch-retention']
+        return Decimal(seconds)/3600*prices['nat-hours']+control+storage
+    shared_minimum={'infrastructure':shared_cost(expiry-start+120),'cleanup':shared_cost(900+120)}
     for kind, rid in shared['reservationIds'].items():
         rows = [row for row in durable.state['ledger'].get('operations', []) if row['id'] == rid]
         require(len(rows) == 1 and rows[0]['operationId'] == shared['operationId'] and
                 rows[0]['basisDigest'] == shared['basisDigest'] and rows[0]['kind'] == kind and
                 rows[0]['purpose'] == 'shared-environment' and rows[0]['state'] == 'reserved' and rows[0]['actualUsd'] is None,
                 'registrar shared network/reaper originals are not retained liabilities')
-        money(rows[0]['amountUsd'])
+        require(money(rows[0]['amountUsd']) >= shared_minimum[kind],
+                'shared reservation does not cover the whole original network/reaper window and log retention')
     hourly = Decimal('0.25')*prices['fargate-vcpu']+prices['fargate-memory']
     # Decimal GiB transfer/log bounds conservatively include image and response
     # bytes; fixed shared network/reaper time remains separately reserved above.
@@ -148,7 +276,7 @@ def _retained_identity(config, durable, *, source_reader, clock):
             'registrar cannot substitute original accounting custody')
     funding = ledger.get('interactiveAccounting')
     require(isinstance(funding, dict) and type(funding.get('originalExpiresEpoch')) is int and
-            clock() < funding['originalExpiresEpoch'] and ledger['candidateKey'] == durable.store.candidate == config['candidateKey'] and
+            clock() < funding['originalExpiresEpoch']-900 and ledger['candidateKey'] == durable.store.candidate == config['candidateKey'] and
             durable.store.generation['digest'] == config['generationDigest'] and
             durable.state.get('bootstrapImport', {}).get('artifactDigest') == config['bootstrapArtifactDigest'],
             'registrar original funding/generation is absent, changed or expired')
@@ -177,7 +305,7 @@ def admission_record(config, durable, *, runtime, funding_expiry, clock):
             row['configurationDigest'] == canonical_digest(config) and row['basisDigest'] == operation['liabilityBasisDigest'] and
             row['quoteDigest'] == config['liabilityQuote']['sha256'] and row['originalFundingExpiresEpoch'] == funding_expiry and
             type(row['admittedEpoch']) is int and row['admittedEpoch'] > 0 and type(row['deadlineEpoch']) is int and
-            row['deadlineEpoch'] == min(row['admittedEpoch']+config['maxExecutionSeconds'], funding_expiry) and
+            row['deadlineEpoch'] == min(row['admittedEpoch']+config['maxExecutionSeconds'], funding_expiry-900) and
             row['admittedEpoch'] <= clock() < row['deadlineEpoch'], 'registrar original admission is missing, changed or expired')
     original = durable.state.get('scenarioOperations', {}).get(admission_key(config))
     require(isinstance(original, dict) and set(original) == {'producer', 'candidateKey', 'value'} and
@@ -235,7 +363,7 @@ def retain_admission_and_reservations(config, durable, *, source_reader, guard, 
         admissions[operation['operationId']] = {'schema':'honua.runtime-registration-admission/v1', 'candidateKey':config['candidateKey'],
             'runtimeId':runtime, 'operationId':operation['operationId'], 'configurationDigest':canonical_digest(config),
             'basisDigest':operation['liabilityBasisDigest'], 'quoteDigest':config['liabilityQuote']['sha256'],
-            'admittedEpoch':admitted, 'deadlineEpoch':min(admitted+config['maxExecutionSeconds'], expiry),
+            'admittedEpoch':admitted, 'deadlineEpoch':min(admitted+config['maxExecutionSeconds'], expiry-900),
             'originalFundingExpiresEpoch':expiry, 'sourceHead':{'generationDigest':observed['generationDigest']['S'],
                 'stateVersion':int(observed['stateVersion']['N']), 'snapshotDigest':observed['snapshotDigest']['S'],
                 'snapshotVersion':observed['snapshotVersion']['S']}}

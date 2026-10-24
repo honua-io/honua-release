@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import signal
+import time
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +76,50 @@ def run(args, *, log=None):
     if result.returncode != 0:
         raise ValueError(failure_diagnostic(args, result.stderr, retained=log is not None))
     return result.stdout
+
+
+
+def bounded_cleanup_apply(args, *, log, deadline, clock=time.time, grace=(30,10,5)):
+    """Bound only this saved-plan process group; never force-unlock or settle."""
+    remaining=deadline-clock()
+    require(remaining > 0,'original cleanup attempt deadline elapsed before apply')
+    previous={action:signal.getsignal(action) for action in (signal.SIGINT,signal.SIGTERM)}
+    def interrupted(_action,_frame):raise KeyboardInterrupt()
+    for action in previous:signal.signal(action,interrupted)
+    child=None;reason=None
+    mask=signal.pthread_sigmask(signal.SIG_BLOCK,set(previous))
+    try:
+        child=subprocess.Popen(args,cwd=TF,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK,mask)
+            stdout,stderr=child.communicate(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            reason='original cleanup attempt deadline elapsed'
+        except KeyboardInterrupt:
+            reason='original cleanup attempt interrupted'
+        if reason:
+            # Further cancellation cannot orphan the exact already-started group.
+            for action in previous:signal.signal(action,signal.SIG_IGN)
+            for action,seconds in zip((signal.SIGINT,signal.SIGTERM,signal.SIGKILL),grace):
+                try:os.killpg(child.pid,action)
+                except ProcessLookupError:pass
+                try:
+                    stdout,stderr=child.communicate(timeout=seconds)
+                    break
+                except subprocess.TimeoutExpired:continue
+            else:raise ValueError('cleanup process group termination is unknown; preserve all obligations')
+        Path(log).write_bytes(stdout+b'\n'+stderr)
+        Path(log).chmod(0o600)
+        require(reason is None,(reason or '')+'; retain unknown effects and original liabilities')
+        require(child.returncode == 0,failure_diagnostic(args,stderr,retained=True))
+        return stdout.decode()
+    finally:
+        if child is not None and child.poll() is None:
+            try:os.killpg(child.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            child.wait(timeout=5)
+        for action,handler in previous.items():signal.signal(action,handler)
+        signal.pthread_sigmask(signal.SIG_SETMASK,mask)
 
 
 def aws(*args):
@@ -210,6 +256,11 @@ def seal(work, cfg, backend_hash, budget_binding):
     e = os.environ
     review = {'schema': 'honua.hosted-pilot-saved-plan/v1', 'context': context(), 'operation': e['PILOT_OPERATION'], 'config_path': str(cfg.relative_to(ROOT)), 'config_sha256': digest(cfg), 'backend_sha256': backend_hash, 'root_path': TF_ROOT, 'lock_sha256': digest(TF / '.terraform.lock.hcl'), 'plan_sha256': digest(work / 'saved.tfplan'), 'budget': budget_binding, 'created_at': datetime.now(timezone.utc).isoformat()}
     plan = json.loads(run(['terraform', 'show', '-json', str(work / 'saved.tfplan')]))
+    if os.environ.get('PILOT_SCHEDULED_CLEANUP') == 'true' or os.environ.get('PILOT_CLEANUP_RECOVERY') == 'true':
+        from shared_retirement import configuration, target_only_plan
+        target_only_plan(plan)
+        review['scheduled_cleanup'] = dict(configuration(json.loads(cfg.read_text())),
+            mode='recovery' if os.environ.get('PILOT_CLEANUP_RECOVERY') == 'true' else 'scheduled')
     review['resource_changes'] = summarize(plan)
     review['action_counts'] = dict(Counter(action for row in review['resource_changes'] for action in row['actions']))
     return review
@@ -224,6 +275,14 @@ def verify(review, work, cfg, backend_hash):
     require(review['context'] == expected, 'saved plan producer identity mismatch')
     for field, value in {'operation': e['PILOT_OPERATION'], 'config_path': str(cfg.relative_to(ROOT)), 'config_sha256': digest(cfg), 'backend_sha256': backend_hash, 'root_path': TF_ROOT, 'lock_sha256': digest(TF / '.terraform.lock.hcl'), 'plan_sha256': digest(work / 'saved.tfplan')}.items():
         require(review[field] == value, f'saved plan {field} mismatch')
+    from shared_retirement import configuration as retirement_configuration
+    if e.get('PILOT_SCHEDULED_CLEANUP') == 'true' or e.get('PILOT_CLEANUP_RECOVERY') == 'true':
+        require(CAMPAIGN and e['PILOT_OPERATION'] == 'destroy' and
+                review.get('scheduled_cleanup') == dict(retirement_configuration(json.loads(cfg.read_text())),
+                    mode='recovery' if e.get('PILOT_CLEANUP_RECOVERY') == 'true' else 'scheduled'),
+                'scheduled cleanup original configuration differs')
+    else:
+        require('scheduled_cleanup' not in review, 'scheduled cleanup plan cannot become an immediate destroy')
     require(review['budget'] == {'version_id': e['PILOT_BUDGET_VERSION_ID'], 'sha256': e['PILOT_BUDGET_SHA256']}, 'budget binding changed')
     age = (datetime.now(timezone.utc) - datetime.fromisoformat(review['created_at'])).total_seconds()
     require(0 <= age <= 24 * 3600, 'saved plan approval expired; create a fresh plan')
@@ -249,10 +308,25 @@ def main():
     binding = budget() if os.environ['PILOT_OPERATION'] == 'apply' and not BOOTSTRAP else {'version_id': os.environ['PILOT_BUDGET_VERSION_ID'], 'sha256': os.environ['PILOT_BUDGET_SHA256']}
     e = os.environ
     key = f"hosted-pilot/plans/{e['GITHUB_RUN_ID']}/{e['PILOT_PLAN_ATTEMPT']}/saved.tfplan"
+    scheduled_flag=e.get('PILOT_SCHEDULED_CLEANUP','false')
+    recovery_flag=e.get('PILOT_CLEANUP_RECOVERY','false')
+    require((scheduled_flag,recovery_flag) in (('false','false'),('true','false'),('false','true')),
+            'cleanup scheduling and fresh recovery cannot be combined')
+    scheduled='true' if 'true' in (scheduled_flag,recovery_flag) else 'false'
+    if scheduled == 'true':
+        require(CAMPAIGN and e['PILOT_OPERATION'] == 'destroy', 'scheduled cleanup is target-only campaign destroy')
+        from shared_retirement import configuration, staged_gate, TARGETS
+        retirement = configuration(json.loads(cfg.read_text()))
+        expected_gate = {'candidate_key':'sha256:'+json.loads(cfg.read_text())['application']['candidate']['manifest_sha256'],
+                         **json.loads(cfg.read_text())['shared_retirement']}
+        state = json.loads(run(['terraform','state','pull']))
+        staged_gate(state,expected_gate)
     if args.action == 'plan':
         command = ['terraform', 'plan', '-input=false', '-no-color', f'-var-file={cfg}', f'-out={work / "saved.tfplan"}']
         if e['PILOT_OPERATION'] == 'destroy':
             command.append('-destroy')
+        if scheduled == 'true':
+            command += ['-target='+target for target in TARGETS]
         run(command, log=work / 'plan.log')
         review = seal(work, cfg, backend_hash, binding)
         uploaded = aws('s3api', 'put-object', '--bucket', e['PILOT_PLAN_BUCKET'], '--key', key, '--body', str(work / 'saved.tfplan'), '--server-side-encryption', 'aws:kms', '--ssekms-key-id', e['PILOT_PLAN_KMS_ARN'], '--if-none-match', '*')
@@ -270,7 +344,25 @@ def main():
         received = aws('s3api', 'get-object', '--bucket', e['PILOT_PLAN_BUCKET'], '--key', key, '--version-id', review['s3_version_id'], str(work / 'saved.tfplan'))
         require(received.get('ServerSideEncryption') == 'aws:kms' and received.get('SSEKMSKeyId') == e['PILOT_PLAN_KMS_ARN'], 'plan encryption identity mismatch')
         verify(review, work, cfg, backend_hash)
-        run(['terraform', 'apply', '-input=false', '-no-color', str(work / 'saved.tfplan')], log=work / 'apply.log')
+        if scheduled == 'true':
+            from shared_retirement import target_only_plan, window, recovery_window, epoch, native_job
+            from bind_github import api
+            native = native_job(source_sha=e['GITHUB_SHA'],run_id=int(e['GITHUB_RUN_ID']),
+                run_attempt=int(e['GITHUB_RUN_ATTEMPT']),
+                policy=json.loads((ROOT/'certification/hosted-pilot/apply-environment.json').read_text()),
+                call=lambda path:api('GET',path))
+            target_only_plan(json.loads(run(['terraform','show','-json',str(work/'saved.tfplan')])))
+            # Fail before Terraform apply if the single actual STS grant cannot
+            # contain the original wait, cleanup attempt and safety margin.
+            cleanup_window=(recovery_window if recovery_flag == 'true' else window)(funding_expiry=retirement['originalFundingExpiresEpoch'],retirement_at=retirement['retirementAtEpoch'],
+                credential_expiry=epoch(e['PILOT_AWS_EXPIRATION']),job_started=native['jobStartedEpoch'],
+                now=int(datetime.now(timezone.utc).timestamp()))
+        apply_command=['terraform','apply','-input=false','-no-color',str(work/'saved.tfplan')]
+        if scheduled == 'true':
+            deadline=cleanup_window.get('currentCleanupAttemptByEpoch',cleanup_window.get('plannedCompletionByEpoch'))
+            bounded_cleanup_apply(apply_command,log=work/'apply.log',deadline=deadline)
+        else:
+            run(apply_command,log=work/'apply.log')
         # Terraform outputs remain on the executor; even later added secret outputs
         # must never enter a public workflow log or GitHub artifact.
         if e['PILOT_OPERATION'] == 'apply':

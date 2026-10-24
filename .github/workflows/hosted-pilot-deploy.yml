@@ -18,6 +18,16 @@ on:
         required: true
         type: choice
         options: [apply, destroy]
+      scheduled_cleanup:
+        description: Target-only destroy waits under the original backend lock until its checked source deadline
+        required: true
+        type: boolean
+        default: false
+      cleanup_recovery:
+        description: Fresh exact target-only cleanup after the original scheduled deadline; never startup or funding renewal
+        required: true
+        type: boolean
+        default: false
       budget_version_id:
         description: Immutable owner ledger S3 version (destroy does not spend deployment allocation)
         required: true
@@ -41,6 +51,8 @@ env:
   PILOT_CONFIG_PATH: ${{ inputs.config_path }}
   PILOT_TERRAFORM_ROOT: ${{ inputs.terraform_root }}
   PILOT_OPERATION: ${{ inputs.operation }}
+  PILOT_SCHEDULED_CLEANUP: ${{ inputs.scheduled_cleanup }}
+  PILOT_CLEANUP_RECOVERY: ${{ inputs.cleanup_recovery }}
   PILOT_BUDGET_VERSION_ID: ${{ inputs.budget_version_id }}
   PILOT_BUDGET_SHA256: ${{ inputs.budget_sha256 }}
   PILOT_REGION: ${{ vars.HOSTED_PILOT_REGION }}
@@ -88,6 +100,11 @@ jobs:
           branches = policy.get('deployment_branch_policy') or {}
           assert branches.get('custom_branch_policies') or branches.get('protected_branches'), 'environment branch restriction missing'
           PY
+      - name: Verify the source-defined scheduled cleanup human gate
+        if: inputs.scheduled_cleanup || inputs.cleanup_recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/hosted_pilot/foundation_environment.py check --policy apply
       - name: Verify accounting credential environment before planning its IAM trust
         if: inputs.terraform_root == 'certification/hosted-pilot/campaign'
         env:
@@ -153,14 +170,18 @@ jobs:
           terraform_version: 1.13.5
           terraform_wrapper: false
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        id: apply_credentials
         with:
           role-to-assume: ${{ vars.HOSTED_PILOT_APPLY_ROLE_ARN }}
           aws-region: ${{ vars.HOSTED_PILOT_REGION }}
           allowed-account-ids: ${{ vars.HOSTED_PILOT_ACCOUNT_ID }}
           role-session-name: pilot-apply-${{ github.run_id }}
+          output-credentials: true
       - name: Verify identity and apply exactly the saved plan
         id: applied
         env:
+          GH_TOKEN: ${{ github.token }}
+          PILOT_AWS_EXPIRATION: ${{ steps.apply_credentials.outputs.aws-expiration }}
           PILOT_REVIEW_SHA256: ${{ needs.plan.outputs.review_sha256 }}
           PILOT_REVIEW_ARTIFACT_ID: ${{ needs.plan.outputs.review_artifact_id }}
           PILOT_PLAN_ATTEMPT: ${{ needs.plan.outputs.plan_attempt }}
@@ -186,6 +207,8 @@ jobs:
         id: installed_identity
         if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot/worker'
         env:
+          GH_TOKEN: ${{ github.token }}
+          PILOT_AWS_EXPIRATION: ${{ steps.apply_credentials.outputs.aws-expiration }}
           PILOT_REVIEW_SHA256: ${{ needs.plan.outputs.review_sha256 }}
           PILOT_REVIEW_ARTIFACT_ID: ${{ needs.plan.outputs.review_artifact_id }}
           PILOT_PLAN_ATTEMPT: ${{ needs.plan.outputs.plan_attempt }}

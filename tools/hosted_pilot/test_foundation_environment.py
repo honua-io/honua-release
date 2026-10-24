@@ -105,5 +105,12 @@ class AccountingEnvironment(FoundationEnvironment):
         self.assertEqual(self.calls, [])
 
 
+class ApplyEnvironment(AccountingEnvironment):
+    def setUp(self):
+        super().setUp()
+        self.policy = json.loads((module.ROOT/'certification/hosted-pilot/apply-environment.json').read_text())
+        self.detail['name'] = self.policy['environment']
+
+
 if __name__ == '__main__':
     unittest.main()

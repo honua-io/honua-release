@@ -33,8 +33,12 @@ class RegistrarCarrier(unittest.TestCase):
                        'sourceSha': 'a'*40, 'runId': 123, 'runAttempt': 1}}
         imported = {'artifactDigest': digest_bytes(json.dumps(artifact).encode()), 'artifact': artifact}
         self.expiry = int(datetime.now(timezone.utc).timestamp())+3600
+        history_path='certification/hosted-pilot/history/synthetic-carrier.json'
+        history={'schema':'honua.hosted-pilot-budget-history/v1','coverage':{'start':datetime.fromtimestamp(self.expiry-7200,timezone.utc).isoformat()}}
+        history_raw=json.dumps(history).encode();target=self.root/history_path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(history_raw)
+        history_reference={'path':history_path,'sha256':digest_bytes(history_raw)}
         raw = json.dumps({'schemaVersion': 1, 'candidateKey': candidate, 'ledger': original,
-            'history': {'path': 'original-history.json'}, 'expiresAt': datetime.fromtimestamp(self.expiry, timezone.utc).isoformat(),
+            'history': history_reference, 'expiresAt': datetime.fromtimestamp(self.expiry, timezone.utc).isoformat(),
             'liveLiabilityReferences': [{'path': 'original-liability.json'}]}).encode()
         binding, _ = funding_binding(imported, source_reader=lambda sha, name: raw)
         update(path, 'amend-foss4g', candidate_key=candidate)
@@ -64,10 +68,18 @@ class RegistrarCarrier(unittest.TestCase):
                 ('cloudwatch-ingestion', 'USE1-DataProcessing-Bytes', 'GB', '0.50'),
                 ('standard-state-transitions', 'USE1-StateTransition', 'StateTransitions', '0.000025'),
                 ('dynamodb-read', 'ReadRequestUnits', 'ReadRequestUnits', '0.000000125'),
-                ('dynamodb-write', 'WriteRequestUnits', 'WriteRequestUnits', '0.000000625')):
+                ('dynamodb-write', 'WriteRequestUnits', 'WriteRequestUnits', '0.000000625'),
+                ('nat-hours','NatGateway-Hours','Hrs','0.045'),
+                ('cloudwatch-retention','USE1-TimedStorage-ByteHrs','GB-Mo','0.03'),
+                ('scheduler-invocations','USE1-ScheduledInvocation','Invocations','0.000001')):
             original = {'PriceList': [json.dumps({'product': {'attributes': {'regionCode': 'us-east-1', 'usagetype': usage}},
                 'terms': {'OnDemand': {'offer': {'priceDimensions': {'rate': {'unit': unit, 'beginRange': '0',
                     'endRange': 'Inf', 'pricePerUnit': {'USD': price}}}}}}})]}
+            if kind=='scheduler-invocations':
+                value=json.loads(original['PriceList'][0]);value['terms']['OnDemand']['offer']['priceDimensions']={
+                    'free':{'unit':'Invocations','beginRange':'0','endRange':'14000000','pricePerUnit':{'USD':'0'}},
+                    'paid':{'unit':'Invocations','beginRange':'14000000','endRange':'Inf','pricePerUnit':{'USD':'0.000001'}}}
+                original['PriceList']=[json.dumps(value)]
             pricing.append({'kind': kind, 'reference': self.put_source(kind, original)})
         quote = {'schema': 'honua.registrar-liability-quote/v1', 'candidateKey': candidate, 'runtimeId': 'runtime-original',
             'region': 'us-east-1', 'cpu': 256, 'memory': 1024, 'maxExecutionSeconds': 600, 'image': self.config['imageUri'],
@@ -79,7 +91,8 @@ class RegistrarCarrier(unittest.TestCase):
                 'accountId': self.config['accountId'], 'repository': 'honua-pilot-unit-trusted-controller', 'imageDigest': 'sha256:'+'e'*64,
                 'response': {'imageDetails': [{'registryId': self.config['accountId'], 'repositoryName': 'honua-pilot-unit-trusted-controller',
                     'imageDigest': 'sha256:'+'e'*64, 'imageSizeInBytes': 1024**3}]}}),
-            'sharedInfrastructureOriginal': self.put_source('shared', {'schema': 'honua.registrar-shared-infrastructure-binding/v1',
+            'sharedInfrastructureOriginal': self.put_source('shared', {'schema': 'honua.registrar-shared-infrastructure-binding/v2',
+                'historyOriginal':history_reference,'originalFundingExpiresEpoch':self.expiry,'plannedRetirementAtEpoch':self.expiry-900,
                 'candidateKey': candidate, 'operationId': 'original-network', 'basisDigest': 'sha256:'+'e'*64,
                 'reservationIds': {kind: 'shared-'+kind for kind in ('infrastructure', 'cleanup')}})}
         self.config['liabilityQuote'] = self.put_source('quote', quote)
