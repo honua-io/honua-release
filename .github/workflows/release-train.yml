@@ -515,6 +515,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-agent-e2e.yml
     with:
+      current_run_candidate: true
       run_id: ${{ vars.AGENT_E2E_RUN_ID }}
       run_attempt: ${{ vars.AGENT_E2E_RUN_ATTEMPT }}
       source_sha: ${{ vars.AGENT_E2E_SOURCE_SHA }}

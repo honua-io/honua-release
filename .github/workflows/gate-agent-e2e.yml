@@ -1,10 +1,10 @@
 name: gate-agent-e2e
-# Consumer of the authenticated 252-case agent campaign (honua-release#619). The release train and
-# nightly do not call it yet (#628). workflow_dispatch runs it standalone on trunk: it takes the
+# Consumer of the authenticated 252-case agent campaign (honua-release#619). Activation remains
+# subject to producer qualification and the #628 handoff. Standalone dispatch on trunk takes the
 # producer identity from its inputs or, when empty, from the frozen repository variables
 # AGENT_E2E_RUN_ID / AGENT_E2E_RUN_ATTEMPT / AGENT_E2E_SOURCE_SHA / AGENT_E2E_CAMPAIGN_DIGEST, and the
-# candidate-manifest artifact from candidate_run_id (a release-train or nightly run). The producer,
-# .github/workflows/agent-e2e-campaign.yml (#627), does not exist yet, so a standalone run fails closed.
+# candidate-manifest artifact from candidate_run_id (a completed release-train or nightly run).
+# Reusable calls consume the current run's artifact even when the caller was manually dispatched.
 on:
   workflow_dispatch:
     inputs:
@@ -30,6 +30,7 @@ on:
         type: string
   workflow_call:
     inputs:
+      current_run_candidate: {required: false, type: boolean, default: true}
       run_id: {required: true, type: string}
       run_attempt: {required: true, type: string}
       source_sha: {required: true, type: string}
@@ -50,7 +51,7 @@ jobs:
     steps:
       # A standalone dispatch runs only the trunk verifier: a branch could otherwise stub its own.
       - name: Refuse a standalone dispatch off trunk
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/trunk'
+        if: ${{ !inputs.current_run_candidate && github.ref != 'refs/heads/trunk' }}
         run: |
           echo "::error::gate-agent-e2e dispatches only from refs/heads/trunk (got $GITHUB_REF)"
           exit 1
@@ -68,6 +69,7 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha || vars.AGENT_E2E_SOURCE_SHA }}
           CAMPAIGN_DIGEST: ${{ inputs.campaign_digest || vars.AGENT_E2E_CAMPAIGN_DIGEST }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CURRENT_RUN_CANDIDATE: ${{ inputs.current_run_candidate }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -76,10 +78,11 @@ jobs:
           [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || missing+=("run_attempt / AGENT_E2E_RUN_ATTEMPT")
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || missing+=("source_sha / AGENT_E2E_SOURCE_SHA")
           [[ "$CAMPAIGN_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || missing+=("campaign_digest / AGENT_E2E_CAMPAIGN_DIGEST")
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          # The event belongs to the caller in a reusable workflow. Only the call-only input
+          # selects its still-running candidate; standalone dispatch cannot supply that input.
+          if [ "$CURRENT_RUN_CANDIDATE" != true ]; then
             [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || missing+=("candidate_run_id")
-            # Fail closed with the reason rather than at an artifact download: the gate admits only
-            # the attested trunk producer, which honua-release#627 has not landed.
+            # Fail closed with the reason rather than at an artifact download.
             gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/agent-e2e-campaign.yml?ref=trunk" \
               --silent 2>/dev/null || missing+=("producer .github/workflows/agent-e2e-campaign.yml on trunk (honua-release#627)")
           fi
@@ -94,12 +97,12 @@ jobs:
             echo "campaign_digest=$CAMPAIGN_DIGEST"
           } >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name != 'workflow_dispatch'
+        if: inputs.current_run_candidate
         with:
           name: candidate-manifest
           path: candidate-input
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'workflow_dispatch'
+        if: ${{ !inputs.current_run_candidate }}
         with:
           github-token: ${{ github.token }}
           repository: honua-io/honua-release
@@ -109,7 +112,7 @@ jobs:
       # Trust the candidate bytes only from a completed trunk release-train/nightly run (schedule or
       # dispatch) whose platform-manifest.yaml is exactly the one at that run's head commit.
       - name: Authenticate the candidate artifact's producer run
-        if: github.event_name == 'workflow_dispatch'
+        if: ${{ !inputs.current_run_candidate }}
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
