@@ -107,6 +107,8 @@ def test_failed_setup_observation_then_recovery_exports_only_original_post_autho
     with pytest.raises(PackError, match='did not succeed'): protocol.provision()
     assert not protocol.posts()
     failed_records = copy.deepcopy(protocol.durable.state['scenarioOperations'])
+    assert any(row.get('step', '').startswith('setup-target-') and
+               row.get('response', {}).get('httpStatus') == 503 for row in failed_records.values())
     protocol.lose_post = lost_post_ack
     if lost_post_ack:
         with pytest.raises(PackError, match='reconcile without replay'): protocol.provision()
@@ -131,7 +133,8 @@ def test_recovery_cannot_substitute_earlier_failed_setup_for_original_post_autho
     with pytest.raises(PackError): protocol.provision()
     result = protocol.provision()
     records = protocol.durable.state['scenarioOperations']
-    prefix = next(key.removesuffix('/completed') for key in records if key.endswith('/completed'))
+    prefix = next(key.removesuffix('/completed') for key, row in records.items()
+        if row.get('producer') == binding.PRODUCER and key.endswith('/completed'))
     failed_key, failed_row = next((key,row) for key,row in records.items()
         if key.startswith(prefix+'/http/response/setup-target-') and row['response']['httpStatus'] == 503)
     if mutation == 'failed-completion-reference':
