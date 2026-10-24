@@ -14,8 +14,21 @@ locals {
 }
 output "worker_claims" {
   value = {
-    table = module.accounting.claim_table_name, writerRoleArns = local.worker_claim_writers
+    table          = module.accounting.claim_table_name, writerRoleArns = local.worker_claim_writers
+    installedSlots = var.installed_worker_slots
     administratorRoleArns = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn],
     [for role in aws_iam_role.native_bootstrap : role.arn], [for role in aws_iam_role.setup_retirement : role.arn])
+  }
+}
+
+variable "installed_worker_slots" {
+  description = "Exact optional installed runtime/physical-slot allocations; no paid admission is created."
+  type        = list(object({ runtime_id = string, slot_id = string }))
+  default     = []
+  validation {
+    condition = length(var.installed_worker_slots) <= 4 && length(distinct([for slot in var.installed_worker_slots : slot.slot_id])) == length(var.installed_worker_slots) && alltrue([
+      for slot in var.installed_worker_slots : can(regex("^[A-Za-z0-9_-]{1,128}$", slot.runtime_id)) && contains(var.worker_attempt_ids, slot.slot_id)
+    ])
+    error_message = "Every reviewed installed slot must name an existing fixed worker root."
   }
 }

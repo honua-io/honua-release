@@ -50,13 +50,18 @@ def reference(value):
         re.fullmatch(r'sha256:[a-f0-9]{64}',value['sha256']), 'original installation object reference missing')
 
 
-def read_original(s3, value, *, guard):
+def read_original_bytes(s3, value, *, guard):
     reference(value); guard()
     observed = s3.get_object(Bucket=value['bucket'],Key=value['key'],VersionId=value['versionId'])
     require(observed.get('VersionId') == value['versionId'] and observed.get('ServerSideEncryption') == 'AES256',
         'original installation object encryption/version differs')
     raw = observed['Body'].read(LIMIT+1); guard()
     require(len(raw) <= LIMIT and digest(raw) == value['sha256'], 'original installation object bytes differ')
+    return raw
+
+
+def read_original(s3, value, *, guard):
+    raw = read_original_bytes(s3, value, guard=guard)
     return json.loads(raw), raw
 
 
@@ -144,7 +149,7 @@ def retained_put(path, *, bucket, key, aws):
     return {'bucket':bucket,'key':key,'versionId':observed['VersionId'],'sha256':digest(raw)}
 
 
-def emit(*, cfg, root, outputs, review, work, env, aws):
+def emit(*, cfg, root, outputs, review, work, env, aws, github=github_json):
     """Called only after exact worker apply AND independent native readiness."""
     configuration = json.loads(Path(cfg).read_bytes())
     if configuration.get('installed_slot') is None: return None
@@ -172,6 +177,9 @@ def emit(*, cfg, root, outputs, review, work, env, aws):
         readiness.get('mode') == 'installed-slot' and readiness.get('qualification') is False and all(readiness.get(k) is True for k in
         ('registered_task_definition_verified','immutable_agent_mcp_binding_verified','worker_role_queue_only',
          'independent_expiry_schedule_verified','cleanup_monitor_confirmed')), 'actual independent installed readiness is missing')
+    from worker_publication_installation import saved as publication_saved, ARCHIVE_NAME, INDEX_FILE
+    publication_saved(configuration, work, github=github,
+        guard=lambda: verify(configuration,work,aws=aws,require=require))
     producer = {'repository':REPOSITORY,'workflow':WORKFLOW,'sourceSha':env['GITHUB_SHA'],
         'runId':positive_integer(env['GITHUB_RUN_ID']),'runAttempt':positive_integer(env['GITHUB_RUN_ATTEMPT']),
         'jobKey':'apply','ref':env['GITHUB_REF'],'event':env['GITHUB_EVENT_NAME']}
@@ -180,6 +188,8 @@ def emit(*, cfg, root, outputs, review, work, env, aws):
     bucket = configuration['accounting']['state']['bucket']
     review_ref = retained_put(work/'review.json',bucket=bucket,key=prefix+'review.json',aws=aws)
     readiness_ref = retained_put(work/'readiness.json',bucket=bucket,key=prefix+'readiness.json',aws=aws)
+    publication_ref = retained_put(work/ARCHIVE_NAME,bucket=bucket,key=prefix+ARCHIVE_NAME,aws=aws)
+    index_ref = retained_put(work/INDEX_FILE,bucket=bucket,key=prefix+INDEX_FILE,aws=aws)
     carrier = {'schema':SCHEMA,'accountId':configuration['account_id'],'candidateKey':candidate,
         'runtimeId':slot['runtime_id'],'slotId':slot['slot_id'],'originalFundingExpiresEpoch':slot['original_funding_expires_epoch'],
         'producer':producer,'sourceConfiguration':{'path':path,'sha256':'sha256:'+review['config_sha256']},
@@ -187,6 +197,7 @@ def emit(*, cfg, root, outputs, review, work, env, aws):
             'attempt':positive_integer(env['PILOT_PLAN_ATTEMPT']),'reviewSha256':'sha256:'+env['PILOT_REVIEW_SHA256'],
             'reviewArtifactId':positive_integer(env['PILOT_REVIEW_ARTIFACT_ID']),'review':review_ref},
         'descriptor':descriptor,'mcpBootstrap':configuration['mcp_bootstrap_binding'],
+        'workerPublication':{'binding':configuration['worker_publication'],'publication':publication_ref,'indexReference':index_ref},
         'readiness':readiness_ref,'activation':False,'qualification':False}
     private_bytes(work/'installed-worker-identity.json',encoded(carrier))
     result = retained_put(work/'installed-worker-identity.json',bucket=bucket,key=prefix+'installation.json',aws=aws)
@@ -204,7 +215,7 @@ def verify_installation(selected, *, durable, runtime_id, target_id, original_ex
     require(selected.get('bucket') == expected_bucket, 'installation object escaped original accounting custody')
     value,_ = read_original(s3,selected,guard=guard)
     require(isinstance(value,dict) and set(value) == {'schema','accountId','candidateKey','runtimeId','slotId',
-        'originalFundingExpiresEpoch','producer','sourceConfiguration','plan','descriptor','mcpBootstrap','readiness','activation','qualification'} and
+        'originalFundingExpiresEpoch','producer','sourceConfiguration','plan','descriptor','mcpBootstrap','readiness','workerPublication','activation','qualification'} and
         value['schema'] == SCHEMA and value['candidateKey'] == durable.store.candidate and value['runtimeId'] == runtime_id and
         value['originalFundingExpiresEpoch'] == original_expires_epoch and value['activation'] is False and value['qualification'] is False,
         'original installation candidate/runtime/expiry or producer shape differs')
@@ -249,7 +260,12 @@ def verify_installation(selected, *, durable, runtime_id, target_id, original_ex
                 require(sum(row.get('name')==step and row.get('conclusion')=='success' for row in matches[0].get('steps',[]))==1,
                     'original installed apply/readiness/receipt step did not succeed')
         proofs[str(attempt)+'/'+name]={'run':run,'jobs':jobs}
-    guard(); ancestor=github('repos/'+REPOSITORY+'/compare/'+producer['sourceSha']+'...trunk'); guard()
+    guard(); branch=github('repos/'+REPOSITORY+'/branches/trunk'); guard()
+    branch_sha=(branch.get('commit') or {}).get('sha')
+    require(branch.get('name')=='trunk' and branch.get('protected') is True and
+        isinstance(branch_sha,str) and re.fullmatch(r'[a-f0-9]{40}',branch_sha),
+        'installation requires an observed protected trunk branch')
+    guard(); ancestor=github('repos/'+REPOSITORY+'/compare/'+producer['sourceSha']+'...'+branch_sha); guard()
     require(ancestor.get('status') in ('ahead','identical') and ancestor.get('merge_base_commit',{}).get('sha')==producer['sourceSha'],
         'installation source is not protected trunk history')
     guard(); original=github('repos/'+REPOSITORY+'/contents/'+source['path']+'?ref='+producer['sourceSha']); guard()
@@ -270,20 +286,22 @@ def verify_installation(selected, *, durable, runtime_id, target_id, original_ex
     require(descriptor.get('candidateKey')==value['candidateKey'] and descriptor.get('runtimeId')==runtime_id and descriptor.get('slotId')==value['slotId'] and
         descriptor.get('originalFundingExpiresEpoch')==original_expires_epoch==slot['original_funding_expires_epoch'] and
         descriptor.get('image')==configuration['worker_image'] and descriptor.get('mcpSecret')=={'secretArn':base['secretArn'],'versionId':base['versionId']} and
-        descriptor.get('liability')=={'basisDigest':configuration['accounting']['operation']['liabilityBasisDigest'],
-            'maximumInfrastructureUsd':configuration['accounting']['maximumUsd']['infrastructure'],
-            'maximumCleanupUsd':configuration['accounting']['maximumUsd']['cleanup']},'installed original descriptor/source/quote differs')
+        descriptor.get('liability')==configuration['execution_liability'],'installed original descriptor/source/quote differs')
     readiness,_=read_original(s3,value['readiness'],guard=guard)
     require(readiness.get('schema')=='honua.hosted-worker-readiness/v1' and readiness.get('source_sha')==producer['sourceSha'] and
         readiness.get('run_id')==str(producer['runId']) and readiness.get('attempt_id')==value['slotId'] and
         readiness.get('mode')=='installed-slot' and readiness.get('qualification') is False and all(readiness.get(k) is True for k in
         ('registered_task_definition_verified','immutable_agent_mcp_binding_verified','worker_role_queue_only',
          'independent_expiry_schedule_verified','cleanup_monitor_confirmed')),'original installed native readiness differs')
+    from worker_publication_installation import verify_retained as verify_publication_originals
+    runtime_proof = verify_publication_originals(value['workerPublication'],configuration=configuration,
+        prefix=prefix,bucket=expected_bucket,
+        read_bytes=lambda ref,guard: read_original_bytes(s3,ref,guard=guard),github=github,guard=guard)
     from agent_e2e_installed_worker import InstalledSlot
     guard(); actual=InstalledSlot(descriptor,states=states,ecs=ecs,db=None).inspect(); guard()
     return {'descriptor':descriptor,'mcpBootstrap':value['mcpBootstrap'],'issuedAgentKey':base['issuedAgentKey'],
         'nativeBootstrap':base['nativeBootstrap'],'producer':producer,'sourceConfiguration':source,'plan':plan,
-        'proof':{'nativeEndpoint':base['_nativeEndpoint'],'installation':selected,'readiness':value['readiness'],'review':plan['review'],'publicOriginals':proofs,
+        'proof':{'nativeEndpoint':base['_nativeEndpoint'],'installation':selected,'readiness':value['readiness'],'review':plan['review'],'publicOriginals':proofs,'runtime':runtime_proof,
                  'native':{'stateMachineArn':actual['lifecycle']['stateMachineArn'],
                      'stateMachineRoleArn':actual['lifecycle']['roleArn'],
                      'definitionDigest':terraform_definition_digest(actual['lifecycle']['definition']),

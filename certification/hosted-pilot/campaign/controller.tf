@@ -30,7 +30,7 @@ resource "aws_iam_role" "dispatcher" {
   } } }] })
 }
 module "accounting" {
-  source              = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/internal/aws-agent-controller?ref=484e9d762e9b9ec0483170f548fa0bb306623bd2"
+  source              = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/internal/aws-agent-controller?ref=7765d919aa2eab19890efa13e57f89ae4266fbf8"
   region              = var.region
   account_id          = var.account_id
   candidate_digest    = var.candidate_digest
@@ -39,6 +39,7 @@ module "accounting" {
   # explicit resource-policy exception permits observation, never ledger writes.
   state_admin_role_arns  = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn], [for role in aws_iam_role.native_bootstrap : role.arn], [for role in aws_iam_role.setup_retirement : role.arn])
   claim_writer_role_arns = local.worker_claim_writers
+  installed_worker_slots = var.installed_worker_slots
 }
 resource "aws_s3_bucket" "handoff" {
   bucket        = "${var.name_prefix}-controller-${var.account_id}"

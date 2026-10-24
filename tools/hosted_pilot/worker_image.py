@@ -11,9 +11,9 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_e2e_knowledge import export, REPOSITORY
 from agent_e2e_pack import canonical_digest, digest_bytes, load_json
-from bundle_agent_e2e_container import bundle
+from bundle_agent_e2e_container import bundle, verify_runtime_index
 from controller_image import call
-from deploy import ROOT, budget, require
+from deploy import ROOT, budget, private_json, require
 from image_retention import verify as verify_retention
 
 
@@ -28,6 +28,45 @@ def configuration(path):
             value['knowledge']['sourceRepository'] == REPOSITORY and
             re.fullmatch(r'[a-f0-9]{40}', value['knowledge']['sourceRevision']), 'reviewed public pack/knowledge source differs')
     return value
+
+
+def claim_publication(original_budget):
+    """Reserve exactly one physical build, including across workflow reruns.
+
+    The generic deployment claim admits retries of one run. Image building is
+    a separate paid effect, so even an identical retry or an ambiguous write
+    cannot start a second build against the original reservation.
+    """
+    e = os.environ
+    raw = (Path(e['RUNNER_TEMP'])/'pilot-budget.json').read_bytes()
+    require(digest_bytes(raw) == 'sha256:'+original_budget['sha256'], 'original image reservation bytes changed')
+    ledger = json.loads(raw)
+    reservation = ledger.get('reservation_id') or original_budget['sha256']
+    require(isinstance(reservation, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{2,119}', reservation),
+            'original image reservation identity is invalid')
+    require(re.fullmatch(r'[a-f0-9]{40}', e['GITHUB_SHA']) and
+            all(re.fullmatch(r'[1-9][0-9]*', e[name]) for name in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT')),
+            'worker publication claim needs its exact source/run/attempt')
+    claim = {'schema': 'honua.hosted-worker-publication-claim/v1', 'sourceSha': e['GITHUB_SHA'],
+        'runId': e['GITHUB_RUN_ID'], 'runAttempt': e['GITHUB_RUN_ATTEMPT'], 'ownerBudget': original_budget,
+        'repository': e['PILOT_WORKER_REPOSITORY']}
+    path = Path(e['RUNNER_TEMP'])/'worker-publication-claim.json'
+    private_json(path, claim)
+    key = 'hosted-pilot/reservations/worker-image/'+reservation+'.json'
+    result = subprocess.run(['aws', 's3api', 'put-object', '--bucket', e['PILOT_PLAN_BUCKET'], '--key', key,
+        '--body', str(path), '--if-none-match', '*', '--server-side-encryption', 'aws:kms',
+        '--ssekms-key-id', e['PILOT_PLAN_KMS_ARN'], '--output', 'json'], capture_output=True)
+    require(result.returncode == 0, 'worker publication is already claimed or its claim is ambiguous; no build admitted')
+    try:
+        observed = json.loads(result.stdout)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise ValueError('worker publication claim result is ambiguous; no build admitted') from error
+    require(isinstance(observed, dict) and isinstance(observed.get('VersionId'), str) and
+        observed['VersionId'] not in ('', 'null') and observed.get('ServerSideEncryption') == 'aws:kms' and
+        observed.get('SSEKMSKeyId') == e['PILOT_PLAN_KMS_ARN'],
+        'worker publication claim has no immutable encrypted version; no build admitted')
+    return {'bucket': e['PILOT_PLAN_BUCKET'], 'key': key, 'versionId': observed['VersionId'],
+        'sha256': digest_bytes(path.read_bytes())}
 
 
 def main():
@@ -45,6 +84,7 @@ def main():
     # The existing create-only owner reservation can fund only this workflow run.
     # Its immutable source SHA also binds worker-image.json and selected exports.
     original_budget = budget()
+    publication_claim = claim_publication(original_budget)
     tag = e['GITHUB_SHA']+'-'+e['GITHUB_RUN_ID']+'-'+e['GITHUB_RUN_ATTEMPT']
     require(re.fullmatch(r'[a-f0-9]{40}-[1-9][0-9]*-[1-9][0-9]*', tag), 'worker publication requires actual producer run/attempt')
     image = repository+':'+tag
@@ -57,6 +97,9 @@ def main():
         require(actual == config['knowledge'], 'public OKF export differs from exact reviewed source binding')
         index = bundle(context, knowledge_root=knowledge, pack_path=ROOT/config['pack']['path'], case_id=config['caseId'])
         public_digest = digest_bytes((context/'public/public-manifest.json').read_bytes())
+        verify_runtime_index(index)
+        require(index['files'].get('public/public-manifest.json') == public_digest,
+                'published runtime index must retain the exact public manifest')
         call(['docker', 'build', '--platform', 'linux/amd64', '-t', image, str(context)])
         size = int(call(['docker', 'image', 'inspect', '--format', '{{.Size}}', image], capture=True))
         require(0 < size <= 512*1024*1024, 'worker image exceeds its bounded artifact-storage liability')
@@ -78,8 +121,12 @@ def main():
     receipt = {'schema': 'honua.hosted-worker-image/v1', 'sourceSha': e['GITHUB_SHA'], 'runId': e['GITHUB_RUN_ID'], 'runAttempt': e['GITHUB_RUN_ATTEMPT'],
         'image': repository+'@'+image_digest, 'imageBytes': size, 'platform': 'linux/amd64', 'caseId': config['caseId'], 'pack': config['pack'],
         'knowledge': actual, 'publicBundleDigest': public_digest, 'runtimeBundleDigest': canonical_digest(index), 'ownerBudget': original_budget,
-        'retention': retention, 'qualification': False, 'modelExecution': 'not-run'}
-    (Path(e['RUNNER_TEMP'])/'hosted-pilot-worker-image.json').write_text(json.dumps(receipt, sort_keys=True)+'\n')
+        'retention': retention, 'publicationClaim': publication_claim, 'qualification': False, 'modelExecution': 'not-run'}
+    # Retain the original index alongside the image receipt in one Actions
+    # artifact. Installation authenticates that ZIP before retaining its bytes;
+    # image publication does not require a candidate accounting bucket.
+    (Path(e['RUNNER_TEMP'])/'runtime-index.json').write_text(json.dumps(index, sort_keys=True)+'\n', encoding='utf-8')
+    (Path(e['RUNNER_TEMP'])/'hosted-pilot-worker-image.json').write_text(json.dumps(receipt, sort_keys=True)+'\n', encoding='utf-8')
     print('Selected public A/B worker image published. Real native worker/model/cleanup evidence remains required.')
 
 

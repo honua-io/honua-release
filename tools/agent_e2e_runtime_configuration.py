@@ -20,6 +20,33 @@ from agent_e2e_pack import canonical_digest, load_json
 SCHEMA = 'honua.installed-console-declaration/v1'
 
 
+def validate_worker_runtime(verified):
+    """Compare authenticated publisher bytes with this maintained runtime.
+
+    The installation verifier owns publication/source/job/object provenance.
+    A caller-authored index or an image/transport schema label is insufficient.
+    """
+    from bundle_agent_e2e_container import verify_runtime_index
+    proof = verified.get('proof', {}).get('runtime')
+    require(isinstance(proof, dict) and set(proof) ==
+            {'image', 'publication', 'indexReference', 'index', 'runtimeBundleDigest'} and
+            proof['image'] == verified['descriptor']['image'],
+            'authenticated original worker runtime publication proof is unavailable or differs')
+    for name in ('publication', 'indexReference'):
+        ref = proof[name]
+        require(isinstance(ref, dict) and set(ref) == {'bucket', 'key', 'versionId', 'sha256'} and
+                all(isinstance(ref[field], str) and ref[field] and len(ref[field]) <= 2048
+                    for field in ('bucket', 'key', 'versionId')) and ref['versionId'] != 'null',
+                'immutable original worker publication/index reference is unavailable')
+        digest(ref['sha256'])
+    require(proof['runtimeBundleDigest'] == canonical_digest(proof['index']),
+            'original worker publication/index digest differs')
+    try:
+        verify_runtime_index(proof['index'])
+    except ValueError as error:
+        require(False, str(error))
+
+
 def reference(value):
     require(isinstance(value, dict) and set(value) == {'key', 'sha256'} and
             isinstance(value['key'], str) and value['key'] and len(value['key']) <= 2048,
@@ -204,6 +231,7 @@ def _verified_declaration(reference, *, durable, s3, ecs, states, guard,
                 verified['issuedAgentKey'] == keys['task']['reference'] and verified['proof'].get('nativeEndpoint') == declaration['endpoint'],
                 'worker original does not bind the same actual native issuance/origin')
         descriptor = verified['descriptor']
+        validate_worker_runtime(verified)
         require(descriptor['schema'] == 'honua.installed-worker-slot/v1' and descriptor['candidateKey'] == durable.store.candidate and
                 descriptor['runtimeId'] == runtime and descriptor['originalFundingExpiresEpoch'] == expiry,
                 'actual worker descriptor differs from original installed runtime/funding')
