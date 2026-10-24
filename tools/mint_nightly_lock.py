@@ -34,10 +34,10 @@ from platform_version import stamp_platform_version
 from release_notes_ref import snapshot
 from release_facts import SOURCE_REFERENCE
 from tag_signing import publication_tag
-from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
+from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey, valid_agent_pack
 
 REQUIRED_NIGHTLY_GATES = REQUIRED_RELEASE_GATES | {'capacity-soak', 'one-operation-rollback', 'journey',
-                                                   'executable-docs', 'installed-clients'}
+                                                   'executable-docs', 'installed-clients', 'agent-e2e'}
 LABEL = re.compile(r'(?:honua-)?2026\.1-rc\.([1-9][0-9]*)\Z')
 LOCK_REFS = 'refs/tags/nightly-lock/'
 TRUSTED_REPOSITORY = 'honua-io/honua-release'
@@ -475,10 +475,11 @@ CLASS_GATES = {
     'deterministic-journey': 'journey', 'nightly-model-journey': 'journey',
     'executable-docs': 'executable-docs',
     'installed-clients': 'installed-clients',
+    'agent-e2e': 'agent-e2e',
 }
 
 
-def declare_evidence(report: dict, lock: Path, journeys: list[dict]) -> dict:
+def declare_evidence(report: dict, lock: Path, journeys: list[dict], agent_summary: dict | None = None) -> dict:
     """Declare the R21 tiers and retain workflow verdicts; missing journeys stay red.
 
     The qualification lock is generated before gates run. Minting later requires these
@@ -530,6 +531,19 @@ def declare_evidence(report: dict, lock: Path, journeys: list[dict]) -> dict:
             receipt['cells'] = cells
             if not _journey(receipt, required, mode, digest, completed - timedelta(hours=24), completed):
                 receipt['status'] = 'fail'
+        if name == 'agent-e2e':
+            from agent_e2e_gate import component_binding
+            receipt['agentPack'] = agent_summary
+            if not valid_agent_pack(agent_summary) or not valid_agent_pack(
+                    agent_summary, component_binding(json.loads(lock.read_text()))):
+                receipt['status'] = 'fail'
+            else:
+                original_expiry = datetime.fromisoformat(agent_summary['expiresAt'].replace('Z', '+00:00'))
+                expiry = min(completed + MAX_FRESHNESS[name], original_expiry).isoformat().replace('+00:00', 'Z')
+                receipt['freshUntil'] = expiry
+                original_completion = datetime.fromisoformat(agent_summary['completedAt'].replace('Z', '+00:00'))
+                if not original_completion <= completed < original_expiry:
+                    receipt['status'] = 'fail'
         declarations[name] = {'kind': kind, 'receipt': f'promotion-receipts/{name}/receipt.json',
                               'freshUntil': expiry}
         receipts[name] = receipt
@@ -565,7 +579,7 @@ def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
                      and receipt['runAttempt'] == train['runAttempt']
                      and receipt['completedAt'] == report['generatedAt']
                      and completed.tzinfo == expiry.tzinfo == timezone.utc
-                     and expiry - completed == MAX_FRESHNESS[name]
+                     and timedelta(0) < expiry - completed <= MAX_FRESHNESS[name]
                      and declaration == {'kind': kind, 'receipt': f'promotion-receipts/{name}/receipt.json',
                                          'freshUntil': receipt['freshUntil']}
                      and (digest is None or receipt['lockDigest'] == digest))
@@ -573,6 +587,8 @@ def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
                 mode, required = JOURNEYS[name]
                 valid &= _journey(receipt, required, mode, receipt['lockDigest'],
                                   completed - timedelta(hours=24), completed)
+            if name == 'agent-e2e':
+                valid &= valid_agent_pack(receipt.get('agentPack'))
             if not valid:
                 errors.append(f'{name}: invalid or missing nightly receipt')
         except (ValueError, KeyError, TypeError):
@@ -799,6 +815,10 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
                                   report['evidenceDeclarations'], Path(scratch))
         draft = regenerate_post_gate(source, matrix, frozen, post_gate_evidence['references'])
         bind(draft.lock, source, matrix, label)
+        from agent_e2e_gate import component_binding
+        if not valid_agent_pack(report['evidenceReceipts']['agent-e2e'].get('agentPack'),
+                                component_binding(draft.lock)):
+            raise ValueError('no lock minted: signed candidate differs from agent-pack component binding')
         if notes_bundle is None:
             raise ValueError('no lock minted: retained notes bundle is required')
         verify_reference_bundle(post_gate_evidence, notes_bundle, manifest, matrix, report)
@@ -868,6 +888,7 @@ def main(argv=None):
     parser.add_argument('--notes-bundle', type=Path)
     parser.add_argument('--lock', type=Path)
     parser.add_argument('--journey-reports', type=Path)
+    parser.add_argument('--agent-e2e-summary', type=Path)
     parser.add_argument('--history', type=Path, default=Path('nightly-history'))
     parser.add_argument('--next-label', action='store_true')
     parser.add_argument('--stamp', type=Path, help='write the next label onto this candidate manifest')
@@ -895,7 +916,8 @@ def main(argv=None):
             if not args.report or not args.lock or not args.journey_reports:
                 raise ValueError('declaration requires report, lock and journey reports')
             journeys = [json.loads(path.read_text()) for path in args.journey_reports.rglob('gate-report-journey.json')]
-            report = declare_evidence(json.loads(args.report.read_text()), args.lock, journeys)
+            report = declare_evidence(json.loads(args.report.read_text()), args.lock, journeys,
+                json.loads(args.agent_e2e_summary.read_text()) if args.agent_e2e_summary else None)
             args.report.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
             return 0
         published = None

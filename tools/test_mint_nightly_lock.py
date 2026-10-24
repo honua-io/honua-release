@@ -2,7 +2,7 @@ import copy
 import base64
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import subprocess
 import sys
@@ -80,9 +80,65 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None, missing_post_gate=F
                 if attempt['driver'] == 'genuine-model':
                     attempt['lockDigest'] = 'sha256:' + _sha256(qualification_lock)
                     attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused', functionalGpExecuted=False)
-    report = nightly.declare_evidence(report, qualification_lock, journeys)
+    report = nightly.declare_evidence(report, qualification_lock, journeys, agent_summary(qualification_lock, report['generatedAt']))
     nightly.snapshot(*real_paths, report, tmp_path / 'notes')
     return report, real_paths
+
+
+def agent_summary(lock, stamp=None):
+    from agent_e2e_gate import component_binding
+    digest = 'sha256:' + 'c' * 64
+    completed = datetime.fromisoformat(stamp.replace('Z', '+00:00')) if stamp else datetime.now(timezone.utc)
+    return {'schemaVersion': 1, 'status': 'pass', 'campaignId': 'test-campaign',
+            'packDigest': digest, 'corpusDigest': digest, 'componentBindingDigest': component_binding(json.loads(lock.read_text())),
+            'qualificationLockDigest': 'sha256:' + _sha256(lock), 'campaignDigest': digest, 'inventoryDigest': digest,
+            'casesExpected': 252, 'casesPassed': 252, 'attempts': 252, 'infrastructureRetries': 0,
+            'totalCostUsd': '1', 'candidateLiabilityUsd': '1',
+            'completedAt': completed.isoformat().replace('+00:00', 'Z'),
+            'expiresAt': (completed + timedelta(days=7)).isoformat().replace('+00:00', 'Z'),
+            'controller': {'repository': 'honua-io/honua-release', 'workflow': '.github/workflows/agent-e2e-campaign.yml',
+                           'sourceSha': 'f' * 40, 'runId': 4241, 'runAttempt': 1}}
+
+
+def test_agent_pack_missing_or_wrong_component_cannot_declare_pass(inputs):
+    report, paths = inputs
+    lock = paths[0].parent / 'qualification-lock.json'
+    missing = nightly.declare_evidence(report, lock, [])
+    assert missing['evidenceReceipts']['agent-e2e']['status'] == 'fail'
+    wrong = agent_summary(lock, report['generatedAt'])
+    wrong['componentBindingDigest'] = 'sha256:' + '0' * 64
+    rebound = nightly.declare_evidence(report, lock, [], wrong)
+    assert rebound['evidenceReceipts']['agent-e2e']['status'] == 'fail'
+
+
+@pytest.mark.parametrize('change', [None, 'no-policy', 'no-ceiling', 'unknown-policy',
+    'wrong-ceiling', 'wrong-history', 'missing-original', 'wrong-path', 'bad-observation',
+    'excess', 'wrong-binding', 'nonfinite', 'legacy-excess', 'null-policy'])
+def test_agent_pack_promotion_honors_only_bound_budget_amendment(inputs, change):
+    from agent_e2e_budget import FOSS4G_POLICY
+    report, paths = inputs
+    lock = paths[0].parent / 'qualification-lock.json'
+    summary = agent_summary(lock, report['generatedAt'])
+    summary.update(totalBudgetUsd=2000, totalCostUsd='600', candidateLiabilityUsd='650',
+        budgetPolicy={'policyId': FOSS4G_POLICY, 'priorLedgerDigest': 'sha256:' + 'd' * 64,
+                      'original': {'path': 'budget-bootstrap-original.json', 'sha256': 'sha256:' + 'e' * 64},
+                      'amendmentObservedAtFreeze': False})
+    if change == 'no-policy': summary.pop('budgetPolicy')
+    elif change == 'no-ceiling': summary.pop('totalBudgetUsd')
+    elif change == 'unknown-policy': summary['budgetPolicy']['policyId'] = 'caller-approved'
+    elif change == 'wrong-ceiling': summary['totalBudgetUsd'] = 3000
+    elif change == 'wrong-history': summary['budgetPolicy']['priorLedgerDigest'] = 'unbound'
+    elif change == 'missing-original': summary['budgetPolicy'].pop('original')
+    elif change == 'wrong-path': summary['budgetPolicy']['original']['path'] = '../other.json'
+    elif change == 'bad-observation': summary['budgetPolicy']['amendmentObservedAtFreeze'] = 1
+    elif change == 'excess': summary['candidateLiabilityUsd'] = '2000.01'
+    elif change == 'wrong-binding': summary['componentBindingDigest'] = 'sha256:' + '0' * 64
+    elif change == 'nonfinite': summary['candidateLiabilityUsd'] = 'NaN'
+    elif change == 'legacy-excess':
+        summary.pop('budgetPolicy'); summary.pop('totalBudgetUsd')
+    elif change == 'null-policy': summary['budgetPolicy'] = None
+    declared = nightly.declare_evidence(report, lock, [], summary)
+    assert declared['evidenceReceipts']['agent-e2e']['status'] == ('pass' if change is None else 'fail')
 
 
 SOURCE = 'f' * 40
@@ -667,7 +723,7 @@ def test_cli_refuses_to_stamp_or_mint_without_synced_history(inputs, tmp_path):
 
 NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                     'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
-                    'executable-docs', 'installed-clients')
+                    'executable-docs', 'installed-clients', 'agent-e2e')
 QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
 
 
@@ -692,7 +748,7 @@ def test_minted_layout_retains_every_declared_receipt_and_no_qualifying_receipt(
     for name in QUALIFYING_EXPECTED:
         assert retained['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
         assert not (output / 'promotion-receipts' / name).exists()
-    assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == len(NIGHTLY_EXPECTED) == 13
+    assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == len(NIGHTLY_EXPECTED) == 14
 
 
 @pytest.mark.parametrize('mutation', ['missing-class', 'wrong-lock', 'missing-model', 'forged-qualifying', 'expiry'])
@@ -934,7 +990,7 @@ def test_emit_refuses_a_job_that_is_not_a_fixture_job(tmp_path):
 
 
 def _workflow(name):
-    return yaml.safe_load((Path(__file__).resolve().parents[1] / '.github/workflows' / name).read_text())
+    return yaml.safe_load((Path(__file__).resolve().parents[1] / '.github/workflows' / name).read_text(encoding='utf-8'))
 
 
 def test_every_fixture_gate_job_records_each_repository_it_checks_out():

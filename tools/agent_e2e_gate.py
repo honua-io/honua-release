@@ -265,7 +265,7 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     current = now or datetime.now(timezone.utc)
     require(start <= current <= expiry, 'campaign is stale or has not started')
     from agent_e2e_campaign_budget import manifest_policy, bind_ledger
-    manifest_policy(campaign)
+    budget_policy = manifest_policy(campaign)
     require(amount(pack['totalBudgetUsd']) == 500, 'original pack budget default must remain $500')
     exact_keys(trusted, {'schemaVersion', 'campaignId', 'campaignDigest', 'controller', 'receipts', 'budgetLedgerDigest',
                          'attemptRegistryDigest', 'knowledgeManifest', 'semanticReport', 'operationReports'},
@@ -494,7 +494,9 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
             'packDigest': campaign['packDigest'], 'componentBindingDigest': campaign['componentBindingDigest'],
             'casesExpected': len(cases), 'casesPassed': len(groups), 'attempts': len(paths),
             'infrastructureRetries': retries, 'totalCostUsd': str(total),
-            'candidateLiabilityUsd': budget_summary['liabilityUsd']}
+            'candidateLiabilityUsd': budget_summary['liabilityUsd'],
+            'totalBudgetUsd': campaign['totalBudgetUsd'],
+            **({'budgetPolicy': budget_policy} if budget_policy is not None else {})}
 
 
 def main(argv: list[str] | None = None) -> int:

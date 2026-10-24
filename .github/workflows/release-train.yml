@@ -510,6 +510,17 @@ jobs:
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
+  gate_agent_e2e:
+    if: ${{ !inputs.freeze_only }}
+    needs: freeze
+    uses: ./.github/workflows/gate-agent-e2e.yml
+    with:
+      current_run_candidate: true
+      run_id: ${{ vars.AGENT_E2E_RUN_ID }}
+      run_attempt: ${{ vars.AGENT_E2E_RUN_ATTEMPT }}
+      source_sha: ${{ vars.AGENT_E2E_SOURCE_SHA }}
+      campaign_digest: ${{ vars.AGENT_E2E_CAMPAIGN_DIGEST }}
+
   report:                      # never scrape logs — parse this (plan §15)
     needs:
       - gate_manifest
@@ -533,6 +544,7 @@ jobs:
       - gate_journey
       - gate_executable_docs
       - gate_installed_clients
+      - gate_agent_e2e
     if: ${{ !inputs.freeze_only && (always()) }}
     runs-on: ubuntu-latest
     steps:
@@ -594,6 +606,7 @@ jobs:
           S_DR: ${{ needs.gate_dr.result }}
           S_JOURNEY: ${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}
           S_EXEC_DOCS: ${{ needs.gate_executable_docs.outputs.overall_status || needs.gate_executable_docs.result }}
+          S_AGENT_E2E: ${{ needs.gate_agent_e2e.outputs.overall_status || needs.gate_agent_e2e.result }}
           S_INSTALLED: ${{ needs.gate_installed_clients.outputs.overall_status || needs.gate_installed_clients.result }}
         run: |
           set -euo pipefail
@@ -624,6 +637,7 @@ jobs:
           journey|$S_JOURNEY
           executable-docs|$S_EXEC_DOCS
           installed-clients|$S_INSTALLED
+          agent-e2e|$S_AGENT_E2E
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
@@ -711,6 +725,13 @@ jobs:
           pattern: journey-gate-report*
           path: journey-reports
 
+      - name: Download authenticated agent E2E gate observations
+        if: inputs.nightly && steps.assemble.outputs.overall == 'pass'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-e2e-gate-report
+          path: agent-e2e-report
+
       - name: Bind the report to the exact candidate and train identity
         if: inputs.dry_run || steps.assemble.outputs.overall == 'pass'
         env:
@@ -756,7 +777,8 @@ jobs:
             python tools/mint_nightly_lock.py --declare-evidence \
               --report out/certified-candidate/gate-report.json \
               --lock candidate-input/frozen-lock/platform-lock.json \
-              --journey-reports journey-reports
+              --journey-reports journey-reports \
+              --agent-e2e-summary agent-e2e-report/agent-e2e-summary.json
           fi
           cp out/certified-candidate/gate-report.json out/gate-report.json
           # Use only the attested freeze output, never a second checkout of lock bytes.

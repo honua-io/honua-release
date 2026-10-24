@@ -408,7 +408,8 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
                 if attempt.get('driver') == 'genuine-model' or row['cell'].endswith('/redis-off'):
                     attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused',
                                    functionalGpExecuted=False)
-    report = nightly.declare_evidence(report, lock, journeys)
+    from test_mint_nightly_lock import agent_summary
+    report = nightly.declare_evidence(report, lock, journeys, agent_summary(lock, report['generatedAt']))
     assert report['evidenceReceipts']['nightly-model-journey']['status'] == 'pass'
     validate = nightly.validate_live_report
     monkeypatch.setattr(nightly, 'validate_live_report',
@@ -437,7 +438,7 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
     for row in record['evidence']:
         if row['class'] in ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak',
                             'dr', 'lambda-certification', 'protocol-ledger', 'deterministic-journey',
-                            'nightly-model-journey', 'executable-docs', 'installed-clients'):
+                            'nightly-model-journey', 'executable-docs', 'installed-clients', 'agent-e2e'):
             row.update(runId='4242', completedAt='2026-09-30T06:04:00Z')
             gh.artifacts[('4242', 'promotion-receipt-' + row['class'])] = [
                 minted / 'promotion-receipts' / row['class'] / 'receipt.json']
@@ -449,7 +450,7 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
     nightly_paths = {path.parent.parent.name for path in (out / 'evidence').glob('*/4242/receipt.json')}
     assert nightly_paths == {'build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                              'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
-                             'executable-docs', 'installed-clients'}
+                             'executable-docs', 'installed-clients', 'agent-e2e'}
     for name in nightly_paths:
         assert (out / 'evidence' / name / '4242/receipt.json').read_bytes() == (
             minted / 'promotion-receipts' / name / 'receipt.json').read_bytes()
