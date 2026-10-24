@@ -305,10 +305,18 @@ def preserve_history(previous, current):
     for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
                   'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings',
                   'studioBootstrapOperations', 'studioBootstrapFixtures', 'importTransferRequests',
-                  'importCleanupPasses', 'importCleanupOutcomes'):
+                  'importCleanupPasses', 'importCleanupOutcomes', 'nativeRuntimeHttp'):
         for key, value in previous.get(field, {}).items():
             if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
                 raise PackError('cannot rewrite or erase retained campaign evidence')
+    for execution, old in previous.get('interactiveExecutions', {}).items():
+        from agent_e2e_console_runtime import validate_execution_history
+        new = current.get('interactiveExecutions', {}).get(execution)
+        validate_execution_history(old)
+        validate_execution_history(new)
+        if ({k: v for k, v in old.items() if k != 'events'} != {k: v for k, v in new.items() if k != 'events'} or
+                len(new['events']) < len(old['events']) or new['events'][:len(old['events'])] != old['events']):
+            raise PackError('cannot rewrite or erase original execution events')
     for key, record in previous.get('workerLaunches', {}).items():
         if canonical_digest(current.get('workerLaunches', {}).get(key)) != canonical_digest(record):
             raise PackError('cannot rewrite or erase retained worker launch intent')

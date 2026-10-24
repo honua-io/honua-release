@@ -148,7 +148,7 @@ class Executor:
         return reply
 
 
-def serve(sqs, config, executor, *, clock=time.time):
+def serve(sqs, config, executor, *, clock=time.time, control_handler=None):
     # Reuse the controller configuration validation without sending any command.
     Worker(sqs, config, clock=clock)
     while clock() < config["expiresEpoch"]:
@@ -156,6 +156,8 @@ def serve(sqs, config, executor, *, clock=time.time):
         response = sqs.receive_message(QueueUrl=config["commandQueueUrl"], MaxNumberOfMessages=1,
             WaitTimeSeconds=max(1, min(2, math.floor(remaining))), VisibilityTimeout=330)
         for message in response.get("Messages", []):
+            if control_handler is not None and control_handler(message):
+                continue
             if len(message["Body"].encode()) > 100000:
                 raise PackError("oversized container command")
             request = json.loads(message["Body"])
@@ -175,6 +177,11 @@ def main():
     import boto3
     from botocore.config import Config
     config = json.loads(os.environ["HONUA_AGENT_TRANSPORT"])
+    if config.get('mode') == 'installed-slot':
+        from agent_e2e_installed_container import serve_installed
+        serve_installed(boto3.client('sqs', config=Config(connect_timeout=5, read_timeout=10,
+            retries={'total_max_attempts': 1})), config)
+        return
     executor = Executor(config, "/journal/actions.sqlite", "/workspace")
     serve(boto3.client("sqs", config=Config(connect_timeout=5, read_timeout=10,
           retries={"total_max_attempts": 2})), config, executor)

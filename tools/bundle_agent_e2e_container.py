@@ -7,6 +7,7 @@ import json
 
 RUNTIME = ("agent_e2e_errors.py", "agent_e2e_worker.py", "agent_e2e_container.py", "agent_e2e_container_entry.py",
            "agent_e2e_mcp.py", "agent_e2e_mcp_runner.py", "agent_e2e_mcp_entry.py",
+           "agent_e2e_installed_container.py", "agent_e2e_execution_protocol.py",
            "agent_e2e_public.py", "agent_e2e_public_entry.py")
 
 
