@@ -87,7 +87,8 @@ class RegistrarCarrier(unittest.TestCase):
                    operation_id=self.config['operation']['operationId'], purpose='bootstrap', kind=kind,
                    amount='5', basis_digest=self.config['operation']['liabilityBasisDigest'])
         self.durable = MagicMock()
-        self.durable.store = SimpleNamespace(candidate=candidate, generation={'digest': self.config['generationDigest']})
+        self.durable.store = SimpleNamespace(candidate=candidate, generation={'digest': self.config['generationDigest']},
+            bucket=self.config['state']['bucket'], table=self.config['state']['table'])
         self.durable.state = {'ledger': json.loads(path.read_text()), 'bootstrapImport': imported,
             'interactiveFunding': {'binding': binding, 'configuration': raw.decode()}, 'scenarioOperations': {}}
         self.admitted = self.expiry-3600

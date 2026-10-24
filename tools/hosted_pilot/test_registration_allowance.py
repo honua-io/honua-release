@@ -87,9 +87,16 @@ class RegistrationAdmission(unittest.TestCase):
 
     def test_actual_history_invariant_forbids_rewriting_both_deadline_copies(self):
         from agent_e2e_state import preserve_history
-        self.produce();original=copy.deepcopy(self.durable.state);changed=copy.deepcopy(original)
-        changed['runtimeRegistrationAdmissions']['runtime-registration-runtime']['deadlineEpoch']+=1
-        changed['scenarioOperations'][admission.admission_key(self.config)]['value']['deadlineEpoch']+=1
+        from test_native_runtime_registration_carrier import RegistrarCarrier
+        # The maintained history guard also authenticates original funding.
+        # Use complete retained originals and prove their unchanged form first.
+        fixture=RegistrarCarrier()
+        fixture.setUp();self.addCleanup(fixture.doCleanups)
+        original=copy.deepcopy(fixture.durable.state)
+        preserve_history(original,copy.deepcopy(original))
+        changed=copy.deepcopy(original)
+        changed['runtimeRegistrationAdmissions'][fixture.config['operation']['operationId']]['deadlineEpoch']+=1
+        changed['scenarioOperations'][admission.admission_key(fixture.config)]['value']['deadlineEpoch']+=1
         with self.assertRaisesRegex(Exception,'rewrite or erase retained'):preserve_history(original,changed)
 
     def test_deleting_index_cannot_restart_original_custody_clock(self):
@@ -112,6 +119,12 @@ class RegistrationAdmission(unittest.TestCase):
 
     def test_missing_admission_never_uses_old_rows_as_new_start(self):
         self.produce();self.durable.state.pop('runtimeRegistrationAdmissions')
+        with self.assertRaisesRegex(ValueError,'orphan admission custody'):self.produce()
+        self.assertEqual(self.durable.update.call_count,2)
+
+    def test_orphan_reservations_cannot_start_a_new_clock_without_either_admission_copy(self):
+        self.produce();self.durable.state.pop('runtimeRegistrationAdmissions')
+        self.durable.state['scenarioOperations'].pop(admission.admission_key(self.config))
         with self.assertRaisesRegex(ValueError,'orphan reservations'):self.produce()
         self.assertEqual(self.durable.update.call_count,2)
 
