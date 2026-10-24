@@ -15,8 +15,21 @@ from controller_archive import BUNDLE_LIMIT, SOURCE_LIMIT, bundle_bytes, canonic
 from controller_budget import read_allowance, read_version
 from controller_handoff import CONFIG_PATH, WORKFLOW, PREPARE_WORKFLOW, PREPARATIONS, bundle_identity, sdk, validate_configuration, put_once, model_runtime
 
-INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json')
-FINAL_FILES = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
+INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json', 'budget-bootstrap-original.json')
+FINAL_FILES = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'budget-bootstrap-original.json', 'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
+
+
+def approved_model_environment(config, campaign, producer, environment):
+    pin = config.get('model')
+    expected = model_runtime(pin, config['region'], config['accountId'])
+    model = producer['model']
+    require(all(model[name] == pin[name] for name in ('modelId', 'returnedModelId', 'profileArn', 'tokenCountingModelArn')) and
+            model['profile']['sha256'] == pin['profileSha256'] and
+            all(campaign[name] == pin[name] for name in ('modelId', 'returnedModelId')),
+            'frozen campaign model differs from installed controller runtime binding')
+    require(all(environment.get(name) == value for name, value in expected.items()),
+            'private controller model environment is missing or changed')
+    return expected
 
 
 def approved_model_environment(config, campaign, producer, environment):

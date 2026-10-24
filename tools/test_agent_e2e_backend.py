@@ -97,6 +97,23 @@ def test_preflight_rejects_wrong_candidate_or_missing_case_without_import(tmp_pa
     assert backend.module is None
 
 
+def test_amended_preflight_uses_only_the_exact_reviewed_worker_and_absolute_expiry(tmp_path, execution):
+    _, config = configured(tmp_path)
+    path = Path(config['configuration']['path'])
+    source = json.loads(path.read_text())
+    source['configuration']['cases'] = {CASE: {'attempts': {'1': {
+        'attemptId': 'original-worker-first', 'lifecycle': {'expiresEpoch': 2000000000}}}}}
+    path.write_text(json.dumps(source))
+    config['configuration']['sha256'] = digest_bytes(path.read_bytes())
+    backend = InProcessBackend(config, source_root=tmp_path)
+    execution.update(execution.path, 'amend-foss4g', candidate_key=CANDIDATE)
+    bind(backend, execution, tmp_path)
+    assert backend.preflight(CONTEXT)['paidAttempt'] == {'id': 'original-worker-first', 'expiresEpoch': 2000000000}
+    with pytest.raises(PackError, match='exact source worker'):
+        backend.preflight(CONTEXT | {'attempt': 2})
+    assert backend.module is None
+
+
 def test_frozen_relative_inputs_relocate_to_private_execution_source_without_rebinding(tmp_path):
     import shutil
     original, relocated = tmp_path/'github-checkout', tmp_path/'private-controller/source'

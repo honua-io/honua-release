@@ -187,7 +187,7 @@ def restore_artifacts(outcome, *, configuration, bundle, evidence_directory):
     import tempfile
     config, custody = configuration, configuration['custody']
     s3 = sdk('s3', config['region'])
-    immutable_names = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json'}
+    immutable_names = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json', 'budget-bootstrap-original.json'}
     final_names = immutable_names | {'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
     expected_inputs = {name: digest((Path(bundle) / name).read_bytes()) for name in immutable_names if (Path(bundle) / name).is_file()}
     prefix = custody['evidencePrefix'] + outcome['invocationId'] + '/'

@@ -118,7 +118,14 @@ class InProcessBackend:
         self.inspect(context)
         quote = self.settings['contract']['cases'].get(context['caseId'])
         require(quote is not None, 'case lacks reviewed backend liability quote')
-        return {**copy.deepcopy(quote), 'target': context['caseId'].rsplit(':', 1)[1]}
+        result = {**copy.deepcopy(quote), 'target': context['caseId'].rsplit(':', 1)[1]}
+        if self.durable is not None and self.durable.state['ledger']['schemaVersion'] == 3:
+            worker = self.settings['configuration'].get('cases', {}).get(context['caseId'], {}).get('attempts', {}).get(str(context['attempt']))
+            require(isinstance(worker, dict) and isinstance(worker.get('attemptId'), str) and
+                    type(worker.get('lifecycle', {}).get('expiresEpoch')) is int,
+                    'missing exact source worker paid-admission policy')
+            result['paidAttempt'] = {'id': worker['attemptId'], 'expiresEpoch': worker['lifecycle']['expiresEpoch']}
+        return result
 
     def bind_execution(self, durable, campaign, bundle):
         require(self.durable is None and durable.store.candidate == campaign['componentBindingDigest'],
