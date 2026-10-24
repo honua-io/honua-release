@@ -289,3 +289,48 @@ The installed server must implement the guarded native restoration contract
 (honua-server#6532). A successful issuance or offline mock run is not a P13
 qualification: retain the actual original version/hash and pointer revision,
 separate human approval, native receipt and independent observed restoration.
+
+### Installed runtime credential issuance
+
+The optional `native_bootstrap.installedRuntime` object contains `runtimeId` and
+`mutationCeilings`. Supply it together with a fourth, dedicated
+`secretArns.control` destination. The existing three-key bootstrap keeps its
+original behavior when both are absent. Installation requires the authenticated
+original interactive funding record, and every issued key keeps that record's
+exact expiry. This operation cannot renew funding or reuse an earlier partial
+issuance.
+
+The control key receives exactly `admin:read` and
+`agent:runtime-control:<runtimeId>`. Only the private controller may receive its
+immutable secret version, through `HONUA_EXTERNAL_EXECUTION_CONTROL_KEY`; the
+model worker must never receive that credential, the setup key, or their custody
+permissions. Each key has a distinct native ID. Native effective-permission
+readback must confirm the issued ID and exact grants before completion.
+
+The five Boolean ceilings are `createMap`, `createDashboard`, `compose`,
+`proposePublication`, and `proposeRestore`. Each explicitly enabled ceiling
+adds its corresponding runtime-scoped permission to the task key. Restoration
+is independent of composition/publication. The additional
+`datasetImportScopes` and `managedProcessIds` arrays must exactly preserve the
+original bootstrap scopes. Existing item-scoped permissions remain unchanged;
+none of these permissions conveys human approval.
+
+Credential issuance ends at `registration-pending`, with `qualification: false`.
+Installation then follows this order:
+
+1. Authenticate the issued task key against the original target and effective
+   permissions, and retain its immutable MCP base secret as inactive.
+2. Apply the reviewed worker IaC to obtain the actual fixed task definition,
+   task role, image digest and MCP secret version.
+3. Use a separate privileged installation operation to register those observed
+   slots, the exact issued task/control IDs, original expiry and explicit ceilings
+   with the native server. A lost registration acknowledgement uses the original
+   registration GET; it does not authorize another mutation.
+4. Activate the controller only after the original native registration GET is
+   retained and verified. Native actor, owner and credential-version fields come
+   from that server; the producer must not reconstruct them from a key ID or a
+   secret. A Secrets Manager version is separate from a native credential version.
+
+The optional credential producer is only the first installation step. It does
+not itself create the worker infrastructure, register the runtime, dispatch a
+Console turn or qualify a live AI journey.

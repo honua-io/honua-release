@@ -48,10 +48,10 @@ class CredentialCustody(unittest.TestCase):
                 return {'targetId': config['targetId']}
             if method == 'POST':
                 kind = body['name'].rsplit('-', 1)[1]
-                key_id = {'setup': '1', 'observer': '2', 'agent': '3'}[kind]*8+'-1111-1111-1111-111111111111'
+                key_id = {'setup': '1', 'observer': '2', 'agent': '3', 'control': '4'}[kind]*8+'-1111-1111-1111-111111111111'
                 self.permissions[key_id] = body['permissions']
                 return {'apiKey': {'id': key_id, 'permissions': body['permissions'], 'expiresAt': body['expiresAt']}, 'key': 'private-key-'+kind+'x'*48}
-            return {'canAuthenticate': True, 'permissions': self.permissions[path.split('/')[-2]]}
+            return {'id': path.split('/')[-2], 'canAuthenticate': True, 'permissions': self.permissions[path.split('/')[-2]]}
         self.http = http
 
     def provision(self):
