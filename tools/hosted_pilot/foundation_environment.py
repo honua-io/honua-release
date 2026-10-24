@@ -13,11 +13,12 @@ from deploy import ROOT, require
 
 def validate_policy(policy):
     targets = {'honua.hosted-pilot-foundation-environment/v1': ('honua-io/honua-iac', 'terraform-live-approval'),
-               'honua.hosted-pilot-accounting-environment/v1': ('honua-io/honua-release', 'hosted-pilot-accounting-initialize')}
+               'honua.hosted-pilot-accounting-environment/v1': ('honua-io/honua-release', 'hosted-pilot-accounting-initialize'),
+               'honua.hosted-pilot-apply-environment/v1': ('honua-io/honua-release', 'hosted-pilot-apply')}
     require(policy['schema'] in targets, 'unknown environment policy')
     require((policy['repository'], policy['environment']) == targets[policy['schema']]
             and policy['branch'] == 'trunk', 'foundation environment target differs')
-    require(policy['schema'] != 'honua.hosted-pilot-accounting-environment/v1' or policy.get('can_admins_bypass') is False,
+    require(policy['schema'] not in ('honua.hosted-pilot-accounting-environment/v1', 'honua.hosted-pilot-apply-environment/v1') or policy.get('can_admins_bypass') is False,
             'accounting initializer environment cannot bypass human credential approval')
     require(isinstance(policy['prevent_self_review'], bool), 'invalid review policy')
     reviewers = policy['reviewers']
@@ -76,12 +77,12 @@ def reconcile(policy, *, create=False):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['check', 'create'])
-    parser.add_argument('--policy', choices=['foundation', 'accounting'], default='foundation')
+    parser.add_argument('--policy', choices=['foundation', 'accounting', 'apply'], default='foundation')
     args = parser.parse_args()
     if args.mode == 'create':
         require(os.environ.get('GITHUB_REPOSITORY') == 'honua-io/honua-release'
                 and os.environ.get('GITHUB_REF') == 'refs/heads/trunk', 'environment setup only runs from release trunk')
-        if args.policy == 'accounting':
+        if args.policy in ('accounting', 'apply'):
             require(os.environ.get('GITHUB_WORKFLOW_REF') ==
                     'honua-io/honua-release/.github/workflows/hosted-pilot-accounting-environment.yml@refs/heads/trunk',
                     'accounting environment administration requires its exact checked workflow')

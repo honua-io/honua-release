@@ -77,9 +77,14 @@ def test_cli_exits_nonzero_on_the_drifted_fixture(capsys):
 
 
 def test_fixture_differs_from_the_committed_manifest_only_in_the_drifted_pin(committed):
+    document, _, platform, _ = committed
     fixture = vcim.load_customer_manifest(DRIFTED_FIXTURE)
-    fixture["clients"]["honua-sdk"]["digest"] = committed[0]["clients"]["honua-sdk"]["digest"]
-    assert fixture == committed[0]
+    live = document["clients"]["honua-sdk"]["digest"]
+    platform_pin = platform["clientArtifacts"]["honua-sdk-python-wheel"]["digest"]
+    assert fixture["clients"]["honua-sdk"]["digest"] not in {live, platform_pin}
+    assert fixture["alternativeClients"]["honua-sdk-dotnet"] == document["alternativeClients"]["honua-sdk-dotnet"]
+    fixture["clients"]["honua-sdk"]["digest"] = live
+    assert fixture == document
 
 
 @pytest.mark.parametrize(("mutate", "expected"), [
@@ -200,10 +205,12 @@ def test_every_copied_honua_identity_field_is_compared(committed, section, key, 
 
 
 def test_unrecognized_rehearsal_still_requires_current_platform_client_pins(committed):
+    current = committed[0]["clients"]["honua-admin"]["version"]
+
     def bump(p):
         p["clientArtifacts"]["honua-admin-python-wheel"]["version"] = "99.0.0"
 
-    assert any(error.startswith("$.clients.honua-admin.version: '0.1.10' drifted")
+    assert any(error.startswith(f"$.clients.honua-admin.version: {current!r} drifted")
                for error in _errors(committed, _rehearsal, platform_mutate=bump))
 
 
@@ -232,11 +239,15 @@ def test_pin_source_must_resolve(committed):
 
 
 def test_pypi_urls_must_name_the_pinned_file_and_version(committed):
+    document = committed[0]
+    mcp_filename = document["clients"]["mcp"]["filename"]
+    sdk_metadata = document["clients"]["honua-sdk"]["metadataUrl"]
     errors = _errors(committed, lambda d: d["clients"]["mcp"].update(
-        downloadUrl=d["clients"]["mcp"]["downloadUrl"].replace("mcp-2.1.1", "mcp-2.1.0")))
-    assert "$.clients.mcp.downloadUrl: does not download 'mcp-2.1.1-py3-none-any.whl'" in errors
-    errors = _errors(committed, lambda d: d["clients"]["honua-sdk"].update(metadataUrl="https://pypi.org/pypi/honua-sdk/0.1.10/json"))
-    assert any(error.startswith("$.clients.honua-sdk.metadataUrl: must be 'https://pypi.org/pypi/honua-sdk/0.1.13/json'") for error in errors)
+        downloadUrl=d["clients"]["mcp"]["downloadUrl"].replace(mcp_filename, "not-the-pinned-file.whl")))
+    assert f"$.clients.mcp.downloadUrl: does not download '{mcp_filename}'" in errors
+    errors = _errors(committed, lambda d: d["clients"]["honua-sdk"].update(
+        metadataUrl="https://pypi.org/pypi/honua-sdk/0.0.0/json"))
+    assert any(error.startswith(f"$.clients.honua-sdk.metadataUrl: must be {sdk_metadata!r}") for error in errors)
 
 
 def test_client_listed_twice_fails(committed):

@@ -17,6 +17,46 @@ def cell(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
 
 
+UNQUALIFIED_EDGE = ("unqualified",) * 4
+
+
+def upgrade_edges(lock: dict, context: dict) -> list[str]:
+    """Upgrade-edge rows from facts the lock pins; every other column is explicitly unqualified.
+
+    Until an edge has separate schema-read and database-recovery receipts, a generic rollback
+    pass cannot establish either capability, so no row claims one. The only edge the lock can
+    state is the one into the first release: the pinned publication-history receipt (verified
+    live by --check) says no earlier server exists, so that release is a fresh install and has
+    no previous server to roll back to.
+    """
+    server = (lock.get("components") or {}).get("honua-server") or {}
+    database = (server.get("schemaVersions") or {}).get("database")
+    version = context.get("firstReleaseVersion")
+    # Same binding as first_release_floor: a version no locked server artifact carries names a
+    # server nobody can install, so it is not stated as an edge endpoint.
+    if not any(isinstance(artifact, dict) and artifact.get("version") == version
+               for artifact in server.get("artifacts") or []):
+        version = None
+    target = (f"{version} / database schema {database}" if version and database
+              else "unqualified")
+    history = context.get("publicationHistory")
+    rows = []
+    if isinstance(history, dict) and history.get("sha256") and history.get("uri") and version:
+        rows.append(("none: honua-server has no earlier release", target,
+                     "fresh install only; no upgrade edge into the first release exists",
+                     "not applicable: no previous server", "not applicable", "not applicable",
+                     f"Publication-history receipt `{history['sha256']}` ({history['uri']})"))
+    else:
+        reason = ("No locked honua-server artifact carries the first release version" if version is None
+                  else "No first-release publication history is pinned in this lock")
+        rows.append(("unqualified", target, *UNQUALIFIED_EDGE, reason))
+    rows.append(("pre-release build (nightly or earlier candidate)", target, *UNQUALIFIED_EDGE,
+                 "No edge receipt is pinned; pre-release builds are not release identities"))
+    rows.append((target, "next honua-server release", *UNQUALIFIED_EDGE,
+                 "No later release is locked; each column needs its own receipt"))
+    return ["| " + " | ".join(cell(value) for value in row) + " |" for row in rows]
+
+
 def render(lock: dict) -> str:
     context = release_context(lock)
     lines = [
@@ -50,10 +90,8 @@ def render(lock: dict) -> str:
         "| From server / schema | To server / schema | Supported edge | Previous server reads migrated schema / application rollback | Database rollback | Restore backup required | Evidence |",
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
-    # Until an edge has separate schema-read and database-recovery receipts, a generic
-    # rollback pass cannot establish either capability. The empty row is an operator template.
+    lines += upgrade_edges(lock, context)
     lines += [
-        "| unqualified | unqualified | unqualified | unqualified | unqualified | unqualified | No qualified edge is pinned in this lock |",
         "", "Application rollback reinstalls the previous server against the migrated database.",
         "Database rollback restores the previous schema and data state. They require separate evidence.",
         "If the previous server cannot read the migrated schema and no verified database reverse",

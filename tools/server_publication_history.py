@@ -2,17 +2,25 @@
 """Enumerate the server publisher's complete release history; never infer a missing floor.
 
 #233 needs, for every capability an SDK requires, the earliest server version that
-implements it. `honua-io/honua-server` has never published a version: no git tags and no
-GitHub releases exist. That is not a gap in the publisher's diligence, it is the shape of a
-first release — there is no earlier server to name, so the only correct introduction floor
+implements it. When `honua-io/honua-server` has no published version, there is no earlier
+server release to name. Non-versioned dispatch anchors may exist, but the introduction floor
 for every capability in the first release is that release itself.
 
 Asserting "no prior publication" needs evidence, so this tool records the *complete*
 enumeration of the publisher's tag and release namespaces at an observed default-branch SHA
-and refuses to accept a receipt that reports even one. A single tag or release means some
+and refuses to accept a receipt that reports a publication. A version tag or release means some
 capability may predate the candidate, and per-capability introduction evidence is required
 instead. The receipt is read-only input; it never certifies a pairing and never invents a
 number.
+
+One kind of tag is not a publication: the release program's own dispatch anchors,
+`nightly-candidate-<sha7>` and `nightly-candidate/<sha40>`. The nightly creates them on
+honua-server so that gated workflows can run at a non-head trunk commit (nightly-container-build,
+capacity-soak-candidate, the DR drill and the attestation signer identity). Their name is the
+commit they point at and carries no version, so no capability can be "introduced in" one and no
+floor can name one. The receipt records each anchor with the commit it resolves to, and an anchor
+whose name does not match that commit, or any GitHub release (even on an anchor), still withdraws
+the model.
 """
 from __future__ import annotations
 
@@ -33,6 +41,8 @@ REPOSITORY = "honua-io/honua-server"
 # a release can exist without a git tag object, and a tag can exist without a release.
 ENDPOINTS = ("tags", "releases", "git/refs/tags")
 SHA = re.compile(r"^[0-9a-f]{40}$")
+# The exact anchor names the release program's producers create; nothing looser.
+DISPATCH_ANCHOR = re.compile(r"^nightly-candidate(?:-([0-9a-f]{7})|/([0-9a-f]{40}))$")
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / "certification/sources/server-publication-history.v1.json"
 
@@ -74,6 +84,7 @@ def collect(repository: str = REPOSITORY) -> dict[str, Any]:
         check=True).stdout)
     sources = []
     names: list[str] = []
+    tag_commits: dict[str, str] = {}
     for endpoint in ENDPOINTS:
         rows, note = _api(f"repos/{repository}/{endpoint}?per_page=100",
                           allow_empty_namespace=endpoint == REF_NAMESPACE_ENDPOINT)
@@ -84,8 +95,24 @@ def collect(repository: str = REPOSITORY) -> dict[str, Any]:
         sources.append(source)
         for row in rows:
             value = row.get("name") or row.get("tag_name") or row.get("ref")
-            if value:
-                names.append(str(value).removeprefix("refs/tags/"))
+            if not value:
+                continue
+            value = str(value).removeprefix("refs/tags/")
+            if endpoint == "tags" and isinstance(row.get("commit"), dict):
+                tag_commits[value] = str(row["commit"].get("sha", ""))
+            # A release is a publication whatever tag it sits on, so it is never an anchor.
+            # The producers create lightweight refs directly at the source
+            # commit. The independent namespace observation must agree with
+            # the tags listing; a moved ref or an unresolved annotated object
+            # cannot inherit an earlier observation's anchor classification.
+            reference = row.get("object") if endpoint == REF_NAMESPACE_ENDPOINT else None
+            reference_differs = endpoint == REF_NAMESPACE_ENDPOINT and (
+                not isinstance(reference, dict) or reference.get("type") != "commit"
+                or reference.get("sha") != tag_commits.get(value))
+            if endpoint == "releases" or reference_differs or not anchor_matches(value, tag_commits.get(value)):
+                names.append(value)
+    anchors = sorted({name for name in tag_commits if anchor_matches(name, tag_commits[name])}
+                     - set(names))
     return {
         "schema": SCHEMA,
         "issue": ISSUE,
@@ -95,7 +122,16 @@ def collect(repository: str = REPOSITORY) -> dict[str, Any]:
         "observedDefaultBranchSha": tip["commit"]["sha"],
         "sources": sources,
         "publishedRefs": sorted(set(names)),
+        "dispatchAnchors": [{"ref": name, "commit": tag_commits[name]} for name in anchors],
     }
+
+
+def anchor_matches(ref: str, commit: str | None) -> bool:
+    """Whether `ref` is a release-program dispatch anchor naming exactly `commit`."""
+    match = DISPATCH_ANCHOR.fullmatch(ref)
+    if not match or not SHA.fullmatch(str(commit or "")):
+        return False
+    return str(commit).startswith(match.group(1) or match.group(2))
 
 
 def expected_endpoints(repository: str) -> dict[str, str]:
@@ -167,11 +203,35 @@ def verify(receipt: Any, repository: str = REPOSITORY, *, now: datetime | None =
     refs = receipt.get("publishedRefs")
     if not isinstance(refs, list) or any(not isinstance(ref, str) for ref in refs):
         raise ValueError("receipt must list the refs it found")
-    found = sum(observed_counts.values())
-    if found or refs:
-        raise ValueError(f"{repository} has {found or len(refs)} prior publication ref(s); the "
+    anchors = receipt.get("dispatchAnchors", [])
+    if not isinstance(anchors, list):
+        raise ValueError("dispatchAnchors must be a list")
+    anchor_refs: set[str] = set()
+    for anchor in anchors:
+        if (not isinstance(anchor, dict) or set(anchor) != {"ref", "commit"}
+                or not anchor_matches(str(anchor.get("ref", "")), anchor.get("commit"))):
+            raise ValueError(f"{anchor!r} is not a nightly-candidate dispatch anchor naming the "
+                             "commit it resolves to; an unclassified tag is a prior publication")
+        if anchor["ref"] in anchor_refs:
+            raise ValueError(f"dispatch anchor {anchor['ref']} is listed more than once")
+        anchor_refs.add(anchor["ref"])
+    found = len(refs) + observed_counts["releases"]
+    if found or anchor_refs & set(refs):
+        raise ValueError(f"{repository} has {found} prior publication ref(s); the "
                          "first-release model does not apply and each capability needs its own "
                          "introduction evidence")
+    # Both tag namespaces must be fully accounted for by the anchors; a count the classified refs
+    # do not explain is a tag nobody classified.
+    for endpoint in ("tags", REF_NAMESPACE_ENDPOINT):
+        extra = observed_counts[endpoint] - len(anchor_refs)
+        if extra > 0:
+            raise ValueError(f"{repository} has {extra} prior publication ref(s) in {endpoint} that "
+                             "are not dispatch anchors; an unclassified ref withdraws the "
+                             "first-release model")
+        if extra < 0:
+            raise ValueError(f"{endpoint} lists {observed_counts[endpoint]} ref(s) but the receipt "
+                             f"claims {len(anchor_refs)} dispatch anchor(s); the unclassified ref "
+                             "accounting is inconsistent")
     return repository
 
 

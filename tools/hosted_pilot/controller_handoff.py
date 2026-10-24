@@ -15,13 +15,14 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from controller_archive import BUNDLE_LIMIT, SOURCE_LIMIT, bundle_bytes, canonical, contract, digest, extract, portable, require
 from controller_budget import consume, read_allowance, read_version
+from agent_e2e_worker_lifecycle import terraform_definition_digest
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMAND = ['python', 'tools/hosted_pilot/controller_entry.py']
 CONFIG_PATH = 'certification/agent-e2e/controller-handoff.json'
 WORKFLOW = 'agent-e2e-campaign.yml'
 PREPARE_WORKFLOW = 'hosted-pilot-prepare.yml'
-PREPARATIONS = {'prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base'}
+PREPARATIONS = {'prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base', 'prepare-runtime-registration-budget'}
 
 
 def sdk(service, region):
@@ -128,7 +129,7 @@ def bundle_identity(bundle, *, operation, case_id, target, shard, shards):
 
 def verify_lifecycle(sm, ecs, config):
     observed = sm.describe_state_machine(stateMachineArn=config['lifecycle']['stateMachineArn'])
-    require(observed['type'] == 'STANDARD' and observed['roleArn'] == config['lifecycle']['stateMachineRoleArn'] and digest(canonical(json.loads(observed['definition']))) == config['lifecycle']['definitionDigest'], 'controller lifecycle source/identity changed')
+    require(observed['type'] == 'STANDARD' and observed['roleArn'] == config['lifecycle']['stateMachineRoleArn'] and terraform_definition_digest(observed['definition']) == config['lifecycle']['definitionDigest'], 'controller lifecycle source/identity changed')
     definition = json.loads(observed['definition'])
     require(definition.get('TimeoutSeconds', 0) <= config['maxSeconds'] and definition.get('TimeoutSeconds', 0) >= 60 and set(definition['States']) == {'RunController'}, 'controller lifecycle must be one bounded no-redrive task')
     state = definition['States']['RunController']

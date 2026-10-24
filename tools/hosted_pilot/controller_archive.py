@@ -9,6 +9,11 @@ import subprocess
 import tarfile
 
 CONTRACT_PATHS = (
+    'tools/hosted_pilot/shared_retirement.py',
+    'certification/hosted-pilot/campaign/runtime-registration-reaper.asl.json.tftpl',
+    'certification/hosted-pilot/campaign/runtime-registration-lifecycle.tf',
+    'certification/hosted-pilot/campaign/target.tf',
+    'certification/hosted-pilot/campaign/controller.tf',
     'certification/hosted-pilot/controller/Dockerfile',
     'certification/hosted-pilot/controller/requirements.txt',
     'certification/hosted-pilot/controller/browser/package.json',
@@ -33,6 +38,11 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/fixture_handoff.py',
     'tools/hosted_pilot/fixture_provisioner.py',
     'tools/hosted_pilot/native_bootstrap.py',
+    'tools/hosted_pilot/native_runtime_registration.py',
+    'tools/hosted_pilot/native_runtime_registration_carrier.py',
+    'tools/hosted_pilot/registration_allowance.py',
+    'tools/hosted_pilot/runtime_registration_dispatch.py',
+    'tools/hosted_pilot/registration_dispatch_admission.py',
     'tools/hosted_pilot/human_memberships.py',
     'tools/hosted_pilot/setup_key_retirement.py',
     'tools/hosted_pilot/setup_key_retirement_dispatch.py',
@@ -59,6 +69,7 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/enrollment_receipt.py',
     'tools/hosted_pilot/human_enrollment.py',
     'tools/hosted_pilot/worker_allowance.py',
+    'tools/hosted_pilot/registration_allowance_preparation.py',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
 BUNDLE_LIMIT = 128 * 1024 * 1024

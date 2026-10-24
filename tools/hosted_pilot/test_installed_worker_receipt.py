@@ -26,6 +26,7 @@ class InstalledOutputOriginals(unittest.TestCase):
         bootstrap_ref={'key':'original/completed','sha256':canonical_digest(self.bootstrap)}
         self.configuration={'region':'us-east-1','account_id':'123456789012','candidate_digest':self.candidate,'attempt_id':self.slot,
             'worker_image':'123456789012.dkr.ecr.us-east-1.amazonaws.com/worker@sha256:'+'c'*64,
+            'permissions_boundary_arn':getattr(self,'source_boundary','arn:aws:iam::123456789012:policy/original-worker-boundary'),
             'installed_slot':{'runtime_id':self.runtime,'slot_id':self.slot,'original_funding_expires_epoch':self.expiry,'max_execution_seconds':6000},
             'mcp_configuration':{'secret_arn':'arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-agent-fixed-slot-mcp-AbCdEf','version_id':'d'*64},
             'accounting':{'operation':{'liabilityBasisDigest':'sha256:'+'e'*64},'maximumUsd':{'infrastructure':'2.00','cleanup':'1.00'}}}
@@ -142,8 +143,24 @@ class InstalledOutputOriginals(unittest.TestCase):
     def test_real_installed_inspector_reads_actual_sdk_shapes_without_a_descriptor_mock(self):
         answer=self.verify(real_inspector=True)
         self.assertEqual(answer['proof']['native']['taskDefinitionArn'],self.descriptor['taskDefinitionArn'])
+        self.assertEqual(answer['proof']['native']['permissionsBoundaryArn'],self.configuration['permissions_boundary_arn'])
         self.ecs.describe_task_definition.assert_called_once_with(taskDefinition=self.descriptor['taskDefinitionArn'])
         self.states.describe_state_machine.assert_called_once_with(stateMachineArn=self.descriptor['stateMachineArn'])
+
+    def test_foreign_authenticated_source_boundary_is_refused_before_native_inspection(self):
+        other=type(self)()
+        other.source_boundary='arn:aws:iam::999999999999:policy/foreign'
+        self.addCleanup(other.doCleanups);other.setUp()
+        with self.assertRaisesRegex(PackError,'source permissions boundary is absent or foreign'):
+            other.verify()
+        other.native.inspect.assert_not_called()
+
+    def test_proof_replays_terraform_definition_bytes_without_float_decoding(self):
+        raw = '{"Comment":"<>&","precise":0.12345678901234567890123456789}'
+        self.native.inspect.return_value['lifecycle']['definition'] = raw
+        answer = self.verify()
+        self.assertEqual(answer['proof']['native']['definitionDigest'], receipt.terraform_definition_digest(raw))
+        self.assertNotEqual(answer['proof']['native']['definitionDigest'], canonical_digest(json.loads(raw)))
 
     def test_visible_output_before_job_completion_is_not_successful_apply(self):
         self.run_status='in_progress'

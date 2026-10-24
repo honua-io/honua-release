@@ -1,6 +1,13 @@
-name: Hosted pilot accounting approval environment
+name: Hosted pilot credential approval environments
 on:
   workflow_dispatch:
+    inputs:
+      policy:
+        description: Source-defined human credential gate
+        type: choice
+        options: [accounting, apply]
+        default: accounting
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -22,4 +29,5 @@ jobs:
       - name: Reconcile only the source-defined accounting credential approval environment
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
-        run: python3 tools/hosted_pilot/foundation_environment.py create --policy accounting
+          PILOT_ENVIRONMENT_POLICY: ${{ inputs.policy }}
+        run: python3 tools/hosted_pilot/foundation_environment.py create --policy "$PILOT_ENVIRONMENT_POLICY"

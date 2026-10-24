@@ -122,7 +122,7 @@ locals {
     HONUA_AGENT_FIXTURE_CLEANUP_DSN  = "${aws_secretsmanager_secret.fixture["cleanup"].arn}:::${aws_secretsmanager_secret_version.fixture["cleanup"].version_id}"
     HONUA_AGENT_FIXTURE_OBSERVER_DSN = "${aws_secretsmanager_secret.fixture["observer"].arn}:::${aws_secretsmanager_secret_version.fixture["observer"].version_id}"
   }
-  controller_secrets = merge(local.fixture_sql_secrets, var.issued_native_keys == null ? {} : {
+  controller_secrets = merge(local.fixture_sql_secrets, local.runtime_control_injection, var.issued_native_keys == null ? {} : {
     HONUA_AGENT_SETUP_KEY     = "${aws_secretsmanager_secret.api["setup"].arn}:::${var.issued_native_keys.setup.versionId}"
     HONUA_AGENT_OBSERVER_KEY  = "${aws_secretsmanager_secret.api["observer"].arn}:::${var.issued_native_keys.observer.versionId}"
     HONUA_AGENT_REQUESTER_KEY = "${aws_secretsmanager_secret.api["agent"].arn}:::${var.issued_native_keys.agent.versionId}"

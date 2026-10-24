@@ -125,6 +125,9 @@ resource "aws_iam_role_policy" "custody" {
     ], each.key == "plan" ? [
     { Effect = "Allow", Action = "s3:PutObject", Resource = "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*", Condition = { Null = { "s3:if-none-match" = "false" } } }
     ] : [], each.key == "apply" ? [
+    { Sid = "ObserveOriginalScheduledCleanupLock", Effect = "Allow", Action = ["s3:GetObject"],
+    Resource = [for key in local.deployment_state_keys : "${aws_s3_bucket.custody["state"].arn}/${key}.tflock"] }
+    ] : [], each.key == "apply" ? [
     { Sid      = "WriteOriginalHumanEnrollment", Effect = "Allow", Action = "s3:PutObject",
       Resource = ["${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/review.json", "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/human-identities-*.json"],
     Condition = { StringEquals = { "s3:if-none-match" = "*", "s3:x-amz-server-side-encryption" = "aws:kms", "s3:x-amz-server-side-encryption-aws-kms-key-id" = aws_kms_key.custody.arn } } }

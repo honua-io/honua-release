@@ -233,6 +233,39 @@ class HumanMembershipContracts(unittest.TestCase):
         self.assertTrue(all(self.durable.state['scenarioOperations'][k] == v for k, v in before.items()))
         self.assertNotIn('s'*48, json.dumps(self.durable.state)); self.assertNotIn('r'*48, json.dumps(self.durable.state))
 
+
+    def test_author_has_exact_owned_publication_restore_and_no_approval_authority(self):
+        result=self.run_helper()
+        author=result['roles']['authors'];approver=result['roles']['approvers']
+        studio=[row for row in author['permissions'] if row['service']=='StudioDraft']
+        self.assertEqual(studio,[{'service':'StudioDraft','operation':'Publish','layer':'own'},
+                                 {'service':'StudioDraft','operation':'Rollback','layer':'own'}])
+        self.assertEqual(approver['permissions'],[])
+        self.assertNotEqual(author['roleId'],approver['roleId'])
+        self.assertNotEqual(author['name'],approver['name'])
+        self.assertTrue(all(row['operation'] not in ('Approve','Admin') and row['service']!='admin' for row in author['permissions']))
+        retained=list(self.durable.state['scenarioOperations'].values())
+        effective=[record['value']['response']['body']['data']['permissions'] for record in retained
+            if record.get('producer')=='private-human-memberships' and record.get('value',{}).get('request',{}).get('path','').endswith('/effective-permissions')]
+        self.assertTrue(any(memberships.grants(studio) <= memberships.grants(rows) for rows in effective))
+
+    def test_own_studio_authority_loss_or_broadening_never_triggers_runtime_regrant(self):
+        result=self.run_helper();role=self.roles[result['roles']['authors']['roleId']]
+        original=copy.deepcopy(role['permissions']);effects=[row for row in self.requests if row[0]!='GET']
+        retained=copy.deepcopy(self.durable.state['scenarioOperations'])
+        for change in ('missing-publish','missing-rollback','wildcard-resource','approval-operation'):
+            role['permissions']=copy.deepcopy(original)
+            if change.startswith('missing-'):
+                operation='Publish' if change=='missing-publish' else 'Rollback'
+                role['permissions']=[row for row in role['permissions'] if row['operation']!=operation]
+            elif change=='wildcard-resource':
+                next(row for row in role['permissions'] if row['operation']=='Publish')['layer']='*'
+            else:role['permissions'].append({'service':'StudioDraft','operation':'Approve','layer':'own'})
+            with self.subTest(change=change),self.assertRaisesRegex(ValueError,'outcome unresolved'):
+                self.run_helper()
+            self.assertEqual(effects,[row for row in self.requests if row[0]!='GET'])
+            self.assertTrue(all(self.durable.state['scenarioOperations'][key]==value for key,value in retained.items()))
+
     def test_lost_post_reply_reconciles_native_effect_without_second_post(self):
         self.lost = 'POST'
         self.assertFalse(self.run_helper()['qualification'])
@@ -249,7 +282,9 @@ class HumanMembershipContracts(unittest.TestCase):
         result = self.run_helper()
         self.assertEqual(result['roles']['authors']['permissions'], [
             {'service': 'agent', 'operation': 'workspace', 'layer': '*'},
-            {'service': 'agent', 'operation': 'dataset-import', 'layer': self.bootstrap['datasetImportScopes'][0]}])
+            {'service': 'agent', 'operation': 'dataset-import', 'layer': self.bootstrap['datasetImportScopes'][0]},
+            {'service': 'StudioDraft', 'operation': 'Publish', 'layer': 'own'},
+            {'service': 'StudioDraft', 'operation': 'Rollback', 'layer': 'own'}])
         self.assertEqual(sum(row[0] == 'PUT' for row in self.requests), 3)
 
     def test_crash_after_native_commit_resumes_only_from_original_intent(self):
