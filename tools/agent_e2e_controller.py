@@ -176,6 +176,8 @@ class BedrockModel:
         for field in ("input_tokens", "output_tokens"):
             if type(usage.get(field)) is not int or usage[field] < 0:
                 raise ControllerError("provider usage missing or invalid")
+        if usage['input_tokens'] > 200000:
+            raise ControllerError('actual provider usage exceeds reviewed pricing; retain unresolved original liability')
         if usage.get("cache_creation_input_tokens", 0) or usage.get("cache_read_input_tokens", 0):
             raise ControllerError("unpriced cache usage is not permitted")
         cost = (Decimal(usage["input_tokens"]) * money(self.config["inputUsdPerMillion"]) +

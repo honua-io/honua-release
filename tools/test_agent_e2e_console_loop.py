@@ -8,7 +8,7 @@ import pytest
 
 from agent_e2e_console_loop import ExecutionLoop, original_messages
 from agent_e2e_console_runtime import ExecutionJournal
-from agent_e2e_controller import BedrockModel
+from agent_e2e_controller import BedrockModel, ControllerError
 from agent_e2e_pack import PackError
 from test_agent_e2e_console_runtime import runtime, original, E
 from test_agent_e2e_interactive_budget import interactive
@@ -109,6 +109,16 @@ def test_unknown_paid_invocation_stays_reserved_and_is_never_invoked_again(loop)
     assert len(loop.provider.invocations) == 1
     assert loop.runtime.durable.state['ledger']['interactiveEntries'][0]['state'] == 'reserved'
     with pytest.raises(PackError, match='outcome unknown'): loop.build().run()
+    assert len(loop.provider.invocations) == 1 and not loop.state.mutations
+
+
+def test_unexpected_long_context_response_retains_raw_usage_and_unresolved_liability(loop):
+    loop.provider.messages[0]['usage']['input_tokens'] = 200001
+    with pytest.raises(ControllerError, match='actual provider usage'): loop.build().run()
+    assert len(loop.journal.values('provider-response')) == 1
+    assert not loop.journal.values('model-response')
+    assert loop.runtime.durable.state['ledger']['interactiveEntries'][0]['state'] == 'reserved'
+    with pytest.raises(PackError, match='unpriced'): loop.build().run()
     assert len(loop.provider.invocations) == 1 and not loop.state.mutations
 
 
