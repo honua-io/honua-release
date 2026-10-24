@@ -13,7 +13,7 @@ locals {
 resource "aws_iam_policy" "native_bootstrap_boundary" {
   count = var.enable_agent_controller ? 1 : 0
   name  = "${local.foundation_prefix}-native-bootstrap-boundary"
-  policy = jsonencode({ Version = "2012-10-17", Statement = [
+  policy = jsonencode({ Version = "2012-10-17", Statement = concat([
     { Effect = "Deny", Action = ["iam:*", "organizations:*", "account:*", "bedrock:*", "secretsmanager:GetSecretValue"], Resource = "*" },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:GetBucketVersioning", "s3:ListBucketVersions"],
     Resource = ["arn:aws:s3:::honua-agent-*", "arn:aws:s3:::honua-agent-*/*", "arn:aws:s3:::${var.name_prefix}*", "arn:aws:s3:::${var.name_prefix}*/*"] },
@@ -31,7 +31,12 @@ resource "aws_iam_policy" "native_bootstrap_boundary" {
     # DescribeTaskDefinition has no resource-level IAM authorization. The
     # source-bound verifier still requests and validates exact task revisions.
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
-  ] })
+    ], length(var.installed_worker_identity_scopes) == 0 ? [] : [
+    { Sid = "ObserveOriginalRegistrarImage", Effect = "Allow", Action = "ecr:BatchGetImage", Resource = aws_ecr_repository.controller.arn },
+    { Sid = "ObserveExactInstalledWorkerDefinitions", Effect = "Allow", Action = "states:DescribeStateMachine",
+      Resource = [for slot in var.installed_worker_identity_scopes :
+    "arn:aws:states:${var.region}:${local.account}:stateMachine:honua-agent-${slot.slot_id}"] }
+  ]) })
 }
 
 output "native_bootstrap_permissions_boundary_arn" {

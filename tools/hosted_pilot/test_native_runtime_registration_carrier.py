@@ -61,7 +61,10 @@ class RegistrarCarrier(unittest.TestCase):
                 ('fargate-vcpu', 'USE1-Fargate-vCPU-Hours:perCPU', 'hours', '0.04048'),
                 ('fargate-memory', 'USE1-Fargate-GB-Hours', 'hours', '0.004445'),
                 ('nat-transfer', 'NatGateway-Bytes', 'GB', '0.045'),
-                ('cloudwatch-ingestion', 'USE1-DataProcessing-Bytes', 'GB', '0.50')):
+                ('cloudwatch-ingestion', 'USE1-DataProcessing-Bytes', 'GB', '0.50'),
+                ('standard-state-transitions', 'USE1-StateTransition', 'StateTransitions', '0.000025'),
+                ('dynamodb-read', 'ReadRequestUnits', 'ReadRequestUnits', '0.000000125'),
+                ('dynamodb-write', 'WriteRequestUnits', 'WriteRequestUnits', '0.000000625')):
             original = {'PriceList': [json.dumps({'product': {'attributes': {'regionCode': 'us-east-1', 'usagetype': usage}},
                 'terms': {'OnDemand': {'offer': {'priceDimensions': {'rate': {'unit': unit, 'beginRange': '0',
                     'endRange': 'Inf', 'pricePerUnit': {'USD': price}}}}}}})]}
@@ -70,7 +73,8 @@ class RegistrarCarrier(unittest.TestCase):
             'region': 'us-east-1', 'cpu': 256, 'memory': 1024, 'maxExecutionSeconds': 600, 'image': self.config['imageUri'],
             'maximumUsd': self.config['maximumUsd'], 'pricingOriginals': pricing,
             'bounds': {'maximumImagePullBytes': 2*1024**3, 'maximumRequestResponseBytes': 64*1024**2,
-                'maximumLogBytes': 1024**2, 'maximumTaskStarts': 1, 'maximumCleanupTaskStarts': 1, 'cleanupMaxExecutionSeconds': 600},
+                'maximumLogBytes': 1024**2, 'maximumStateTransitions':1200, 'maximumDynamoReadRequestUnits':512,
+                'maximumDynamoWriteRequestUnits':256, 'maximumTaskStarts': 1, 'maximumCleanupTaskStarts': 1, 'cleanupMaxExecutionSeconds': 600},
             'imageOriginal': self.put_source('image', {'schema': 'honua.registrar-ecr-image-original/v1', 'region': 'us-east-1',
                 'accountId': self.config['accountId'], 'repository': 'honua-pilot-unit-trusted-controller', 'imageDigest': 'sha256:'+'e'*64,
                 'response': {'imageDetails': [{'registryId': self.config['accountId'], 'repositoryName': 'honua-pilot-unit-trusted-controller',

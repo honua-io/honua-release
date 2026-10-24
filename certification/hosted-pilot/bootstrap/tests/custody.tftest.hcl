@@ -316,3 +316,57 @@ run "incomplete_original_custody_identity_refused" {
   variables { bootstrap_custody_creation_tags = { ManagedBy = "honua-release-hosted-pilot-bootstrap" } }
   expect_failures = [var.bootstrap_custody_creation_tags]
 }
+
+run "default_has_no_installed_identity_writer" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_role_policy.installed_worker_identity_output) == 0
+    error_message = "Image preparation must not gain accounting-bucket writes."
+  }
+}
+run "only_apply_can_create_exact_identity_objects" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  assert {
+    condition = (
+      aws_iam_role_policy.installed_worker_identity_output[0].role == aws_iam_role.executor["apply"].id &&
+      length(jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement) == 1 &&
+      jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Action == "s3:PutObject" &&
+      toset(jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Resource) == toset([
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/installation.json",
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/review.json",
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/readiness.json"
+      ]) &&
+      jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Condition.StringEquals["s3:if-none-match"] == "*" &&
+      jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Condition.StringEquals["s3:x-amz-server-side-encryption"] == "AES256"
+    )
+    error_message = "Identity retention must be exact create-only objects, never ledger, initialization or head writes."
+  }
+}
+run "identity_writer_requires_accounting_foundation" {
+  command = plan
+  variables {
+    enable_agent_controller          = false
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  expect_failures = [aws_iam_role_policy.installed_worker_identity_output[0]]
+}
+run "identity_writer_rejects_namespace_escape" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "../other", slot_id = "fixed-slot" }]
+  }
+  expect_failures = [var.installed_worker_identity_scopes]
+}
+run "identity_writer_rejects_candidate_wildcard" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:*", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  expect_failures = [var.installed_worker_identity_scopes]
+}

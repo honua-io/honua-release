@@ -36,6 +36,8 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/native_runtime_registration.py',
     'tools/hosted_pilot/native_runtime_registration_carrier.py',
     'tools/hosted_pilot/registration_allowance.py',
+    'tools/hosted_pilot/runtime_registration_dispatch.py',
+    'tools/hosted_pilot/registration_dispatch_admission.py',
     'tools/hosted_pilot/human_memberships.py',
     'tools/hosted_pilot/setup_key_retirement.py',
     'tools/hosted_pilot/setup_key_retirement_dispatch.py',

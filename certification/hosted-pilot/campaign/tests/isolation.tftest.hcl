@@ -11,7 +11,7 @@ mock_provider "aws" {
   mock_resource "aws_secretsmanager_secret" { defaults = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline", id = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline" } }
   mock_resource "aws_secretsmanager_secret_version" { defaults = { version_id = "offline-version" } }
   mock_resource "aws_cloudwatch_log_group" { defaults = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:/ecs/honua-pilot-offline-agent" } }
-  mock_resource "aws_sfn_state_machine" { defaults = { state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller:1" } }
+  mock_resource "aws_sfn_state_machine" { defaults = { arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller", state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller:1" } }
   mock_resource "aws_acm_certificate" {
     defaults = { domain_validation_options = [{ domain_name = "agent.pilot.demo.honua.io", resource_record_name = "_validation.agent.pilot.demo.honua.io", resource_record_type = "CNAME", resource_record_value = "_validation.acm-validations.aws" }] }
   }
@@ -30,7 +30,7 @@ mock_provider "aws" {
   mock_resource "aws_secretsmanager_secret" { defaults = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline", id = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline" } }
   mock_resource "aws_secretsmanager_secret_version" { defaults = { version_id = "offline-version" } }
   mock_resource "aws_cloudwatch_log_group" { defaults = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:/ecs/honua-pilot-offline-agent" } }
-  mock_resource "aws_sfn_state_machine" { defaults = { state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller:1" } }
+  mock_resource "aws_sfn_state_machine" { defaults = { arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller", state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller:1" } }
   mock_resource "aws_acm_certificate" {
     defaults = { domain_validation_options = [{ domain_name = "agent.pilot.demo.honua.io", resource_record_name = "_validation.agent.pilot.demo.honua.io", resource_record_type = "CNAME", resource_record_value = "_validation.acm-validations.aws" }] }
   }
@@ -141,7 +141,8 @@ run "private_sql_and_credential_custody" {
       local.controller_definition.TimeoutSeconds == 7200 &&
       local.controller_definition.States.RunController.Parameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp == "DISABLED" &&
       !can(local.controller_definition.States.RunController.Retry) &&
-      one([for statement in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement : statement if statement.Action == "states:StartExecution"]).Resource == aws_sfn_state_machine.controller.state_machine_version_arn &&
+      one([for statement in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement : statement if statement.Action == "states:StartExecution"]).Resource == aws_sfn_state_machine.controller.arn &&
+      one([for statement in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement : statement if statement.Action == "states:StartExecution"]).Condition["ForAnyValue:StringEquals"]["states:StateMachineQualifier"] == element(reverse(split(":", aws_sfn_state_machine.controller.state_machine_version_arn)), 0) &&
       alltrue([for table in aws_dynamodb_table.claims : table.deletion_protection_enabled && table.point_in_time_recovery[0].enabled]) &&
       output.fixture_staging.modelReady == false &&
       output.fixture_staging.nativeAgentConfigured == false
@@ -977,4 +978,347 @@ run "installed_import_ceiling_must_preserve_original_exact_destinations" {
     }
   }
   expect_failures = [var.native_bootstrap]
+}
+
+run "no_registrar_without_explicit_original_inputs" {
+  command = plan
+  assert {
+    condition     = (length(aws_ecs_task_definition.runtime_registration) == 0 && length(aws_sfn_state_machine.runtime_registration) == 0 && length(aws_scheduler_schedule.registration_reaper) == 0 && length(aws_iam_role_policy.dispatch_runtime_registration) == 0 && output.native_runtime_registration_handoff == null)
+    error_message = "Default staging must create no privileged registrar or paid launch authority."
+  }
+}
+run "registrar_keeps_original_versions_deadline_and_separate_reaper" {
+  command = plan
+  override_resource {
+    override_during = plan
+    target          = aws_scheduler_schedule.registration_reaper[0]
+    values          = { arn = "arn:aws:scheduler:us-east-1:123456789012:schedule/honua-pilot-offline-agent-registration/honua-pilot-offline-agent-registration-reaper" }
+  }
+  override_resource {
+    override_during = plan
+    target          = aws_sfn_state_machine.runtime_registration[0]
+    values          = { arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-runtime-registration", state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-runtime-registration:1" }
+  }
+  override_resource {
+    override_during = plan
+    target          = aws_sfn_state_machine.registration_reaper[0]
+    values          = { arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-runtime-registration-reaper", state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-runtime-registration-reaper:1" }
+  }
+  override_resource {
+    override_during = plan
+    target          = aws_ecs_task_definition.runtime_registration[0]
+    values          = { arn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-agent-runtime-registration:1" }
+  }
+  override_resource {
+    override_during = plan
+    target          = aws_secretsmanager_secret.runtime_control[0]
+    values = {
+      arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+      id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+    }
+  }
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ],
+      "installedRuntime" : {
+        "runtimeId" : "installed_runtime",
+        "mutationCeilings" : {
+          "createMap" : false,
+          "createDashboard" : false,
+          "compose" : false,
+          "proposePublication" : false,
+          "proposeRestore" : false,
+          "datasetImportScopes" : [
+            "native-target/honua_data/pilot_points"
+          ],
+          "managedProcessIds" : [
+            "analytics.buffer-aggregate-managed"
+          ]
+        }
+      }
+    }
+    issued_native_keys = {
+      "setup" : {
+        "apiKeyId" : "11111111-1111-1111-1111-111111111111",
+        "versionId" : "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "observer" : {
+        "apiKeyId" : "22222222-2222-2222-2222-222222222222",
+        "versionId" : "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "agent" : {
+        "apiKeyId" : "33333333-3333-3333-3333-333333333333",
+        "versionId" : "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+    issued_runtime_control_key = {
+      "apiKeyId" : "44444444-4444-4444-4444-444444444444",
+      "versionId" : "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+    worker_attempt_ids = [
+      "fixed-slot"
+    ]
+    native_runtime_registration = {
+      "originalFundingExpiresEpoch" : 1793232000,
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "runtime-registration-installed_runtime",
+        "liabilityBasisDigest" : "sha256:13a08d89c403e92bce085ae728f82c0fba5a9ec347ad3361b3f0db416780daa9",
+        "reservationIds" : {
+          "infrastructure" : "registrar-original-infra",
+          "cleanup" : "registrar-original-cleanup"
+        }
+      },
+      "declaration" : {
+        "path" : "certification/agent-e2e/installed-runtimes/installed_runtime.json",
+        "sha256" : "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "maximumUsd" : {
+        "infrastructure" : "0.30",
+        "cleanup" : "0.20"
+      },
+      "maxExecutionSeconds" : 600,
+      "liabilityQuote" : {
+        "path" : "certification/hosted-pilot/quotes/registrar-mock.json",
+        "sha256" : "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    }
+  }
+  assert {
+    condition = (
+      aws_ecs_task_definition.runtime_registration[0].cpu == "256" && aws_ecs_task_definition.runtime_registration[0].memory == "1024" &&
+      jsondecode(aws_ecs_task_definition.runtime_registration[0].container_definitions)[0].command == ["python", "tools/hosted_pilot/native_runtime_registration.py"] &&
+      length(jsondecode(aws_ecs_task_definition.runtime_registration[0].container_definitions)[0].secrets) == 3 &&
+      alltrue([for ref in jsondecode(aws_ecs_task_definition.runtime_registration[0].container_definitions)[0].secrets : can(regex(":::[a-z0-9]{32,64}$", ref.valueFrom))]) &&
+      !contains(keys(local.controller_secrets), "PILOT_FIXTURE_ADMIN_PASSWORD") &&
+      jsondecode(aws_sfn_state_machine.runtime_registration[0].definition).States.RunRegistrar.Arguments.ClientToken == "{% $substring($states.input.installation.configurationDigest,7) %}" &&
+      !contains(keys(jsondecode(aws_sfn_state_machine.runtime_registration[0].definition).States.RunRegistrar), "Retry") &&
+      jsondecode(aws_sfn_state_machine.runtime_registration[0].definition).States.Installation.Output.installation.originalFundingExpiresEpoch == var.native_runtime_registration.originalFundingExpiresEpoch &&
+      jsondecode(aws_sfn_state_machine.registration_reaper[0].definition).States.Installation.Output.installation == local.registration_installation &&
+      aws_scheduler_schedule.registration_reaper[0].end_date == var.expires_at && aws_scheduler_schedule.registration_reaper[0].flexible_time_window[0].mode == "OFF" &&
+      aws_scheduler_schedule.registration_reaper[0].target[0].retry_policy[0].maximum_retry_attempts == 0 &&
+      !strcontains(aws_iam_role_policy.registration_reaper[0].policy, "dynamodb:UpdateItem") &&
+      !strcontains(aws_iam_role_policy.registration_reaper[0].policy, "secretsmanager:") &&
+      jsondecode(aws_iam_role_policy.dispatch_runtime_registration[0].policy).Statement[0].Condition.DateLessThan["aws:CurrentTime"] == var.native_bootstrap.expiresAt &&
+      jsondecode(aws_iam_role_policy.dispatch_runtime_registration[0].policy).Statement[0].Resource == aws_sfn_state_machine.runtime_registration[0].arn &&
+      jsondecode(aws_iam_role_policy.dispatch_runtime_registration[0].policy).Statement[0].Condition["ForAnyValue:StringEquals"]["states:StateMachineQualifier"] == element(reverse(split(":", aws_sfn_state_machine.runtime_registration[0].state_machine_version_arn)), 0) &&
+      jsondecode(aws_iam_role_policy.registration_schedule[0].policy).Statement[0].Resource == aws_sfn_state_machine.registration_reaper[0].arn &&
+      jsondecode(aws_iam_role_policy.registration_schedule[0].policy).Statement[0].Condition["ForAnyValue:StringEquals"]["states:StateMachineQualifier"] == element(reverse(split(":", aws_sfn_state_machine.registration_reaper[0].state_machine_version_arn)), 0)
+    )
+    error_message = "Registrar must keep immutable credential versions, original admission expiry and a separate stop-only reaper."
+  }
+}
+
+run "registrar_forged_basis_refused" {
+  command = plan
+  override_resource {
+    override_during = plan
+    target          = aws_secretsmanager_secret.runtime_control[0]
+    values = {
+      arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+      id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+    }
+  }
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ],
+      "installedRuntime" : {
+        "runtimeId" : "installed_runtime",
+        "mutationCeilings" : {
+          "createMap" : false,
+          "createDashboard" : false,
+          "compose" : false,
+          "proposePublication" : false,
+          "proposeRestore" : false,
+          "datasetImportScopes" : [
+            "native-target/honua_data/pilot_points"
+          ],
+          "managedProcessIds" : [
+            "analytics.buffer-aggregate-managed"
+          ]
+        }
+      }
+    }
+    issued_native_keys = {
+      "setup" : {
+        "apiKeyId" : "11111111-1111-1111-1111-111111111111",
+        "versionId" : "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "observer" : {
+        "apiKeyId" : "22222222-2222-2222-2222-222222222222",
+        "versionId" : "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "agent" : {
+        "apiKeyId" : "33333333-3333-3333-3333-333333333333",
+        "versionId" : "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+    issued_runtime_control_key = {
+      "apiKeyId" : "44444444-4444-4444-4444-444444444444",
+      "versionId" : "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+    worker_attempt_ids = [
+      "fixed-slot"
+    ]
+    native_runtime_registration = {
+      "originalFundingExpiresEpoch" : 1793232000,
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "runtime-registration-installed_runtime",
+        "liabilityBasisDigest" : "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "reservationIds" : {
+          "infrastructure" : "registrar-original-infra",
+          "cleanup" : "registrar-original-cleanup"
+        }
+      },
+      "declaration" : {
+        "path" : "certification/agent-e2e/installed-runtimes/installed_runtime.json",
+        "sha256" : "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "maximumUsd" : {
+        "infrastructure" : "0.30",
+        "cleanup" : "0.20"
+      },
+      "maxExecutionSeconds" : 600,
+      "liabilityQuote" : {
+        "path" : "certification/hosted-pilot/quotes/registrar-mock.json",
+        "sha256" : "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    }
+  }
+  expect_failures = [aws_ecs_task_definition.runtime_registration[0]]
+}
+
+run "registrar_cannot_renew_original_funding" {
+  command = plan
+  override_resource {
+    override_during = plan
+    target          = aws_secretsmanager_secret.runtime_control[0]
+    values = {
+      arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+      id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/native-agent/control-aBcDeF"
+    }
+  }
+  variables {
+    native_bootstrap = {
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "original-native-bootstrap",
+        "liabilityBasisDigest" : "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "reservationIds" : {
+          "infrastructure" : "retained-native-infra",
+          "cleanup" : "retained-native-cleanup"
+        }
+      },
+      "itemId" : "11111111-1111-1111-1111-111111111111",
+      "expiresAt" : "2026-10-29T00:00:00Z",
+      "targetId" : "native-target",
+      "readGrants" : [],
+      "datasetImportScopes" : [
+        "native-target/honua_data/pilot_points"
+      ],
+      "managedProcessIds" : [
+        "analytics.buffer-aggregate-managed"
+      ],
+      "installedRuntime" : {
+        "runtimeId" : "installed_runtime",
+        "mutationCeilings" : {
+          "createMap" : false,
+          "createDashboard" : false,
+          "compose" : false,
+          "proposePublication" : false,
+          "proposeRestore" : false,
+          "datasetImportScopes" : [
+            "native-target/honua_data/pilot_points"
+          ],
+          "managedProcessIds" : [
+            "analytics.buffer-aggregate-managed"
+          ]
+        }
+      }
+    }
+    issued_native_keys = {
+      "setup" : {
+        "apiKeyId" : "11111111-1111-1111-1111-111111111111",
+        "versionId" : "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "observer" : {
+        "apiKeyId" : "22222222-2222-2222-2222-222222222222",
+        "versionId" : "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "agent" : {
+        "apiKeyId" : "33333333-3333-3333-3333-333333333333",
+        "versionId" : "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+    issued_runtime_control_key = {
+      "apiKeyId" : "44444444-4444-4444-4444-444444444444",
+      "versionId" : "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+    worker_attempt_ids = [
+      "fixed-slot"
+    ]
+    native_runtime_registration = {
+      "originalFundingExpiresEpoch" : 1793232060,
+      "bootstrapArtifactDigest" : "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "operation" : {
+        "operationId" : "runtime-registration-installed_runtime",
+        "liabilityBasisDigest" : "sha256:13a08d89c403e92bce085ae728f82c0fba5a9ec347ad3361b3f0db416780daa9",
+        "reservationIds" : {
+          "infrastructure" : "registrar-original-infra",
+          "cleanup" : "registrar-original-cleanup"
+        }
+      },
+      "declaration" : {
+        "path" : "certification/agent-e2e/installed-runtimes/installed_runtime.json",
+        "sha256" : "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "maximumUsd" : {
+        "infrastructure" : "0.30",
+        "cleanup" : "0.20"
+      },
+      "maxExecutionSeconds" : 600,
+      "liabilityQuote" : {
+        "path" : "certification/hosted-pilot/quotes/registrar-mock.json",
+        "sha256" : "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    }
+  }
+  expect_failures = [aws_ecs_task_definition.runtime_registration[0]]
 }

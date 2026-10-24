@@ -74,16 +74,22 @@ def verify_quote(config, durable, *, source_reader):
     ceilings = {kind: money(value) for kind, value in config['maximumUsd'].items()}
     bounds = quote['bounds']
     require(set(bounds) == {'maximumImagePullBytes', 'maximumRequestResponseBytes', 'maximumLogBytes',
-            'maximumTaskStarts', 'maximumCleanupTaskStarts', 'cleanupMaxExecutionSeconds'} and
+            'maximumTaskStarts', 'maximumCleanupTaskStarts', 'cleanupMaxExecutionSeconds',
+            'maximumStateTransitions', 'maximumDynamoReadRequestUnits', 'maximumDynamoWriteRequestUnits'} and
             all(type(v) is int and v > 0 for v in bounds.values()) and bounds['maximumTaskStarts'] == 1 and
-            bounds['maximumCleanupTaskStarts'] == 1 and bounds['cleanupMaxExecutionSeconds'] <= 600,
+            bounds['maximumCleanupTaskStarts'] == 1 and bounds['cleanupMaxExecutionSeconds'] <= 600 and
+            bounds['maximumStateTransitions'] >= 1200 and bounds['maximumDynamoReadRequestUnits'] >= 512 and
+            bounds['maximumDynamoWriteRequestUnits'] >= 256,
             'registrar quote needs finite installation and cleanup resource bounds')
     meters = {'fargate-vcpu': ('USE1-Fargate-vCPU-Hours:perCPU', 'hours'),
               'fargate-memory': ('USE1-Fargate-GB-Hours', 'hours'),
               'nat-transfer': ('NatGateway-Bytes', 'GB'),
-              'cloudwatch-ingestion': ('USE1-DataProcessing-Bytes', 'GB')}
+              'cloudwatch-ingestion': ('USE1-DataProcessing-Bytes', 'GB'),
+              'standard-state-transitions': ('USE1-StateTransition', 'StateTransitions'),
+              'dynamodb-read': ('ReadRequestUnits', 'ReadRequestUnits'),
+              'dynamodb-write': ('WriteRequestUnits', 'WriteRequestUnits')}
     originals = quote['pricingOriginals']
-    require(isinstance(originals, list) and len(originals) == 4 and all(isinstance(row, dict) and
+    require(isinstance(originals, list) and len(originals) == len(meters) and all(isinstance(row, dict) and
             set(row) == {'kind', 'reference'} for row in originals) and
             {row['kind'] for row in originals} == set(meters), 'registrar original pricing meters are incomplete')
     prices = {row['kind']: unit_price(source_object(row['reference'], source_reader), region=config['region'],
@@ -117,14 +123,24 @@ def verify_quote(config, durable, *, source_reader):
     # bytes; fixed shared network/reaper time remains separately reserved above.
     transfer = Decimal(bounds['maximumImagePullBytes']+bounds['maximumRequestResponseBytes'])/Decimal(1024**3)
     logs = Decimal(bounds['maximumLogBytes'])/Decimal(1024**3)
-    base = hourly*Decimal(config['maxExecutionSeconds'])/Decimal(3600)+transfer*prices['nat-transfer']+logs*prices['cloudwatch-ingestion']
-    cleanup = hourly*Decimal(bounds['cleanupMaxExecutionSeconds'])/Decimal(3600)+transfer*prices['nat-transfer']+logs*prices['cloudwatch-ingestion']
+    # Standard lifecycle transitions and transactional state/claim requests are
+    # paid effects too. Quoted bounds include full native GET/POST-once custody,
+    # fenced head persistence and the no-retry lifecycle's maximum polling path.
+    control = (Decimal(bounds['maximumStateTransitions'])*prices['standard-state-transitions']+
+               Decimal(bounds['maximumDynamoReadRequestUnits'])*prices['dynamodb-read']+
+               Decimal(bounds['maximumDynamoWriteRequestUnits'])*prices['dynamodb-write'])
+    base = control+hourly*Decimal(config['maxExecutionSeconds'])/Decimal(3600)+transfer*prices['nat-transfer']+logs*prices['cloudwatch-ingestion']
+    cleanup = control+hourly*Decimal(bounds['cleanupMaxExecutionSeconds'])/Decimal(3600)+transfer*prices['nat-transfer']+logs*prices['cloudwatch-ingestion']
     require(ceilings['infrastructure'] >= base and ceilings['cleanup'] >= cleanup, 'registrar quote does not cover original bounded resources')
     return quote
 
 
 def identity(config, durable, *, source_reader, clock):
     durable._require_live_lease()
+    return _retained_identity(config, durable, source_reader=source_reader, clock=clock)
+
+
+def _retained_identity(config, durable, *, source_reader, clock):
     validate_retained_funding(durable.state)
     ledger = durable.state['ledger']
     validate_budget(ledger)
@@ -178,7 +194,13 @@ def admission_record(config, durable, *, runtime, funding_expiry, clock):
 
 def verify_retained_admission(config, durable, *, source_reader, clock=time.time):
     """Read-only guard for every registrar effect; never reserve or renew."""
-    runtime, funding_expiry = identity(config, durable, source_reader=source_reader, clock=clock)
+    durable._require_live_lease()
+    return _verify_retained_admission(config, durable, source_reader=source_reader, clock=clock)
+
+
+def _verify_retained_admission(config, durable, *, source_reader, clock):
+    """Shared pure checks, called only after lease or original-SDK authentication."""
+    runtime, funding_expiry = _retained_identity(config, durable, source_reader=source_reader, clock=clock)
     row = admission_record(config, durable, runtime=runtime, funding_expiry=funding_expiry, clock=clock)
     operation = config['operation']
     for kind, rid in operation['reservationIds'].items():

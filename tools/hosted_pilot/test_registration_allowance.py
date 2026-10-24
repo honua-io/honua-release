@@ -47,14 +47,18 @@ class RegistrationAdmission(unittest.TestCase):
         for kind,usage,unit,price in [('fargate-vcpu','USE1-Fargate-vCPU-Hours:perCPU','hours','0.0404800000'),
             ('fargate-memory','USE1-Fargate-GB-Hours','hours','0.0044450000'),
             ('nat-transfer','NatGateway-Bytes','GB','0.0450000000'),
-            ('cloudwatch-ingestion','USE1-DataProcessing-Bytes','GB','0.5000000000')]:
+            ('cloudwatch-ingestion','USE1-DataProcessing-Bytes','GB','0.5000000000'),
+            ('standard-state-transitions','USE1-StateTransition','StateTransitions','0.000025'),
+            ('dynamodb-read','ReadRequestUnits','ReadRequestUnits','0.000000125'),
+            ('dynamodb-write','WriteRequestUnits','WriteRequestUnits','0.000000625')]:
             original={'PriceList':[json.dumps({'product':{'attributes':{'regionCode':'us-east-1','usagetype':usage}},
                 'terms':{'OnDemand':{'offer':{'priceDimensions':{'rate':{'unit':unit,'beginRange':'0','endRange':'Inf','pricePerUnit':{'USD':price}}}}}}})]}
             prices.append({'kind':kind,'reference':self.put(kind,original)})
         self.quote={'schema':'honua.registrar-liability-quote/v1','candidateKey':self.candidate,'runtimeId':'runtime','region':'us-east-1',
             'cpu':256,'memory':1024,'maxExecutionSeconds':600,'image':self.image,'maximumUsd':self.config['maximumUsd'],
             'bounds':{'maximumImagePullBytes':2*1024**3,'maximumRequestResponseBytes':64*1024**2,'maximumLogBytes':1024**2,
-                'maximumTaskStarts':1,'maximumCleanupTaskStarts':1,'cleanupMaxExecutionSeconds':600},'pricingOriginals':prices,
+                'maximumTaskStarts':1,'maximumCleanupTaskStarts':1,'cleanupMaxExecutionSeconds':600,
+                'maximumStateTransitions':1200,'maximumDynamoReadRequestUnits':512,'maximumDynamoWriteRequestUnits':256},'pricingOriginals':prices,
             'imageOriginal':self.put('image',{'schema':'honua.registrar-ecr-image-original/v1','region':'us-east-1','accountId':'123456789012',
                 'repository':'honua-pilot-test-trusted-controller','imageDigest':'sha256:'+'c'*64,'response':{'imageDetails':[{
                     'registryId':'123456789012','repositoryName':'honua-pilot-test-trusted-controller','imageDigest':'sha256:'+'c'*64,'imageSizeInBytes':1024**3}]}}),
@@ -151,6 +155,30 @@ class RegistrationAdmission(unittest.TestCase):
         self.quote['maximumUsd']=self.config['maximumUsd']={'infrastructure':'0.0001','cleanup':'0.0001'};self.refresh_quote()
         with self.assertRaisesRegex(ValueError,'does not cover'):self.produce()
         self.durable._persist.assert_not_called()
+
+    def test_compute_only_quote_cannot_omit_control_plane_meters(self):
+        self.quote['pricingOriginals'] = [row for row in self.quote['pricingOriginals']
+            if row['kind'] not in {'standard-state-transitions','dynamodb-read','dynamodb-write'}]
+        self.refresh_quote()
+        with self.assertRaisesRegex(ValueError,'pricing meters are incomplete'): self.produce()
+        self.durable._persist.assert_not_called(); self.durable.update.assert_not_called()
+
+    def test_amount_covering_compute_but_not_transitions_is_refused(self):
+        # The old four-meter subtotal is below0.10. The bounded Standard state
+        # transitions and transactional units raise the actual quote above0.12.
+        self.quote['maximumUsd'] = self.config['maximumUsd'] = {'infrastructure':'0.10','cleanup':'0.10'}
+        self.refresh_quote()
+        with self.assertRaisesRegex(ValueError,'does not cover'): self.produce()
+        self.durable._persist.assert_not_called(); self.durable.update.assert_not_called()
+
+    def test_control_plane_request_bounds_cannot_be_declared_zero_or_undersized(self):
+        for name, minimum in [('maximumStateTransitions',1200),('maximumDynamoReadRequestUnits',512),
+                              ('maximumDynamoWriteRequestUnits',256)]:
+            with self.subTest(name=name):
+                self.quote['bounds'][name] = minimum-1; self.refresh_quote()
+                with self.assertRaisesRegex(ValueError,'finite installation and cleanup resource bounds'): self.produce()
+                self.quote['bounds'][name] = minimum
+        self.durable._persist.assert_not_called(); self.durable.update.assert_not_called()
 
     def test_wrong_pricing_region_even_with_rehashed_source_is_refused(self):
         ref=self.quote['pricingOriginals'][0]['reference'];raw=json.loads((self.root/ref['path']).read_text())

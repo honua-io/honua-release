@@ -343,3 +343,39 @@ Installation then follows this order:
 The optional credential producer is only the first installation step. It does
 not itself create the worker infrastructure, register the runtime, dispatch a
 Console turn or qualify a live AI journey.
+
+### One-shot installed runtime registration dispatch
+
+`campaign.native_runtime_registration` defaults to null. Its reviewed enabled
+form defines a separate fixed registrar task, one published Standard lifecycle,
+and an independent stop-only reaper. The registrar receives only the original
+immutable root, dedicated control and task-key versions; the ordinary controller
+receives no root key. Its CPU 256 units, memory 1024 MiB and at most 600-second deadline must
+match the original source quote and append-only admission, with separate original
+infrastructure/cleanup reservations. Missing admission or original expiry refuses
+launch; a restarted workflow does not reset that deadline.
+
+The checked `hosted-pilot-runtime-registration.yml` requires an actual tracked
+`certification/agent-e2e/runtime-registration-handoff.json`. It authenticates the
+original versioned accounting snapshot/head before atomically retaining the
+permanent launch claim and dispatch-capacity use. Only that newly created claim
+may call StartExecution. Lost acknowledgements and later invocations observe the
+same execution/task; unknown outcomes retain all reservations. The reaper can stop
+an exact owned task after its original deadline and cannot retire claims, settle
+costs, or certify cleanup. Dependency wheels resolve in a credential-free job and
+are hash-verified offline before AWS authentication.
+
+Published registrar/reaper requests retain their version ARN. IAM authorization
+uses the base state-machine ARN plus the exact `states:StateMachineQualifier`,
+as required by the [AWS version authorization contract](https://docs.aws.amazon.com/step-functions/latest/dg/auth-version-alias.html).
+The existing worker descriptor remains the supported base-ARN contract, with its
+independently checked definition digest; no worker version is invented.
+
+These source paths are not a funded installation. The actual reviewed declaration,
+coherent published image, immutable key/worker receipts, complete infrastructure
+and cleanup quote (including shared network/reaper lifetime), original retained
+admission, applied fixed task/lifecycle and authenticated native registration are
+still required. No registrar handoff or live launch is created by this change.
+The original $334 liabilities and funding expiry remain unchanged. Ordinary installed
+poller identity staging and its final registration-bound supervisor need separate
+successful apply receipts; source registration never proves poller activation.
