@@ -287,6 +287,19 @@ def slot(runtime):
         launch=launch, clock=clock, config=c, durable=runtime.durable)
 
 
+def test_installed_inspector_accepts_only_actual_terraform_encoding(slot):
+    from test_agent_e2e_worker_lifecycle import emitted_definition
+    from agent_e2e_worker_lifecycle import terraform_definition_digest
+    raw = emitted_definition()
+    slot.states.definition['definition'] = raw
+    slot.worker.config['definitionDigest'] = terraform_definition_digest(raw)
+    assert slot.worker.inspect()['lifecycle']['definition'] == raw
+    slot.worker.config['definitionDigest'] = canonical_digest(json.loads(raw))
+    with pytest.raises(PackError, match='reviewed source'):
+        slot.worker.inspect()
+    assert not any(operation == 'start' for operation, _ in slot.states.calls)
+
+
 def test_lost_installed_start_ack_recovers_same_e_task_and_never_relaunches(slot):
     slot.states.lost_reply = True
     with pytest.raises(TimeoutError): slot.worker.start(slot.journal, slot.launch)
