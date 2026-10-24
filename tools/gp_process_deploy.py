@@ -29,9 +29,13 @@ class DeploymentError(Exception):
     """Safe error text: never includes a remote body, token or signed URL."""
 
 
+class ServerRefusal(DeploymentError):
+    """A definite HTTP/protocol refusal cannot be recovered as our activation."""
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise DeploymentError("Server redirected an authenticated request; refusing credential forwarding")
+        raise ServerRefusal("Server redirected an authenticated request; refusing credential forwarding")
 
 
 class Client:
@@ -74,7 +78,11 @@ class Client:
                 raise DeploymentError("Server response exceeds the deployment response limit")
             return payload
         except HTTPError as exc:
-            raise DeploymentError(f"Server refused {method} request (HTTP {exc.code})") from None
+            # A timeout/gateway/server error can follow acceptance. Ordinary
+            # client refusals, including the binding API's explicit CAS 409,
+            # cannot become this run's activation through another actor's GET.
+            error = ServerRefusal if 400 <= exc.code < 500 and exc.code != 408 else DeploymentError
+            raise error(f"Server refused {method} request (HTTP {exc.code})") from None
         except (URLError, TimeoutError, OSError, ValueError):
             raise DeploymentError(f"Server {method} request failed or returned invalid JSON") from None
 
@@ -169,6 +177,9 @@ def activate(client, lock, live, target, operation, state_path):
     path = f"{BASE}/bindings/{quote(process, safe='')}"
     try:
         client.request("POST", path + "/activate", request)
+    except ServerRefusal:
+        write(state_path, {"status": "unknown", "detail": "Server explicitly refused this activation; do not attribute a concurrent binding to this run"})
+        raise
     except DeploymentError:
         # Recover an ambiguous transport response by observing the exact desired version.
         # Never retry mutation with a newly observed version.

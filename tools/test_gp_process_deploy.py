@@ -101,6 +101,57 @@ def test_refused_activation_never_claims_unchanged_after_ambiguous_post(docs, tm
     assert json.loads((tmp_path / "binding.json").read_text())["status"] == "unknown"
 
 
+
+@pytest.mark.parametrize("status", [400, 401, 403, 409, 429])
+def test_explicit_native_refusal_cannot_be_relabelled_after_matching_concurrent_activation(docs, tmp_path, status):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    lock, _, _, _, live = docs
+    transport = deploy.Client("https://server.example", "private-test-key")
+    class RefusingTransport:
+        def open(self, request, timeout):
+            raise HTTPError(request.full_url, status, "refused", {}, BytesIO(b"{}"))
+    transport.opener = RefusingTransport()
+    class ConcurrentServer(FakeServer):
+        def request(self, method, path, document=None, **kwargs):
+            if method == "POST" and path.endswith("/activate"):
+                self.requests.append((method, path, document))
+                # A separate accepted request changes the matching live version;
+                # this request still received an explicit native refusal.
+                self.live.update(lockDigest=document["lockDigest"], bindingVersion=self.live["bindingVersion"]+1,
+                                 targets=document["targets"])
+                return transport.request(method, path, document)
+            return super().request(method, path, document, **kwargs)
+    server = ConcurrentServer(lock, live)
+    with pytest.raises(deploy.DeploymentError, match=f"HTTP {status}"):
+        deploy.activate(server, lock, live, {"kind":"aws-batch", "jobDefinitionArn":ARN}, "deploy", tmp_path/"binding.json")
+    assert json.loads((tmp_path/"binding.json").read_text())["status"] == "unknown"
+    assert server.requests[-1][0] == "POST" and server.requests[-1][1].endswith("/activate")
+
+
+
+@pytest.mark.parametrize("status", [408, 500, 504])
+def test_ambiguous_http_failure_still_observes_exact_accepted_version(docs, tmp_path, status):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    lock, _, _, _, live = docs
+    transport = deploy.Client("https://server.example", "private-test-key")
+    class AmbiguousTransport:
+        def open(self, request, timeout):
+            raise HTTPError(request.full_url, status, "uncertain", {}, BytesIO(b"{}"))
+    transport.opener = AmbiguousTransport()
+    class AcceptedServer(FakeServer):
+        def request(self, method, path, document=None, **kwargs):
+            if method == "POST" and path.endswith("/activate"):
+                super().request(method, path, document, **kwargs)
+                return transport.request(method, path, document)
+            return super().request(method, path, document, **kwargs)
+    result = deploy.activate(AcceptedServer(lock, live), lock, live,
+        {"kind":"aws-batch", "jobDefinitionArn":ARN}, "deploy", tmp_path/"binding.json")
+    assert result["bindingVersion"] == 1
+    assert json.loads((tmp_path/"binding.json").read_text())["status"] == "activated"
+
+
 def test_verify_existing_iac_revision_does_not_register_or_discard_provider_settings(docs):
     lock, _, state, _, _ = docs
     registration = deploy.registration_for(lock, state)
