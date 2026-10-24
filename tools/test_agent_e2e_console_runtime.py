@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -13,7 +14,7 @@ from agent_e2e_budget import update
 from agent_e2e_console_runtime import NativeControl, ExecutionJournal, secret_for
 from agent_e2e_installed_container import InstalledBinding, bind_message, McpOnlyExecutor
 from agent_e2e_worker import MCP_PROTOCOL, PROTOCOL, validate_command
-from agent_e2e_installed_worker import InstalledSlot
+from agent_e2e_installed_worker import InstalledSlot, sdk_original
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_state import preserve_history
 from bundle_agent_e2e_container import bundle, RUNTIME
@@ -98,6 +99,18 @@ def test_lost_http_mutation_ack_cannot_start_another_native_claim(runtime, serve
         restarted.mutate('claim', observed, {'claimGeneration': 1}, capability=CAP)
     assert len(server.seen) == count
     assert CAP not in json.dumps(runtime.durable.state)
+
+
+def test_original_native_reply_is_retained_if_funding_expires_on_the_wire(runtime, server):
+    def expire(*_):
+        runtime.control.clock = lambda: runtime.durable.state['ledger']['interactiveAccounting']['originalExpiresEpoch']+1
+        return 200, {}, json.dumps(runtime.value).encode()
+    server.respond = expire
+    observed = original(runtime)
+    assert observed['reference']['key'] in runtime.durable.state['nativeRuntimeHttp']
+    assert len(runtime.durable.state['nativeRuntimeHttp']) == 2
+    with pytest.raises(PackError, match='funding expired'): original(runtime)
+    assert len(server.seen) == 1
 
 
 @pytest.mark.parametrize('field,value', [('candidateKey', 'sha256:'+'9'*64), ('targetId', 'other'),
@@ -287,6 +300,43 @@ def test_lost_installed_start_ack_recovers_same_e_task_and_never_relaunches(slot
     assert observed['taskStatus'] == 'RUNNING' and observed['retired'] is False
     assert [op for op, _ in slot.states.calls].count('start') == 1
     assert len(slot.durable.state['ledger']['interactivePaidAdmissions']) == 1
+
+
+def test_actual_sdk_timestamp_shapes_and_launch_pages_survive_durable_recovery(slot):
+    stamp = datetime(2026, 10, 23, 12, 34, 56, 123456, timezone.utc)
+    slot.states.definition['creationDate'] = stamp
+    slot.ecs.definition['registeredAt'] = stamp
+    slot.states.execution['startDate'] = stamp
+    slot.states.pages[0]['events'][0]['timestamp'] = stamp
+    slot.ecs.task['createdAt'] = stamp
+    inspected = slot.worker.inspect()
+    assert inspected['lifecycle']['creationDate'] == stamp.isoformat()
+    assert inspected['taskDefinition']['taskDefinition']['registeredAt'] == stamp.isoformat()
+    observed = slot.worker.start(slot.journal, slot.launch)
+    retained = slot.journal.values('worker-observation')[-1]
+    pages = slot.journal.values('worker-history')
+    assert observed['physicalTask']['createdAt'] == stamp.isoformat()
+    assert retained['execution']['startDate'] == stamp.isoformat()
+    assert retained['launchHistory'] == pages
+    assert pages[0]['request']['executionArn'] == slot.worker.execution_arn
+    assert pages[0]['response']['events'][0]['timestamp'] == stamp.isoformat()
+    assert len(slot.journal.values('worker-start-response')) == 1
+    json.dumps(slot.durable.state, allow_nan=False)
+
+
+def test_invalid_launch_history_original_is_preserved_before_refusal(slot):
+    slot.journal.append('worker-intent', slot.launch)
+    details = slot.states.pages[0]['events'][0]['stateExitedEventDetails']
+    details['outputDetails']['truncated'] = True
+    with pytest.raises(PackError): slot.worker.observe(slot.journal)
+    assert slot.journal.values('worker-history')[0]['response']['events'][0]['stateExitedEventDetails'] == details
+    assert not slot.journal.values('worker-observation')
+    assert slot.durable.state['ledger']['interactivePaidAdmissions'][0]['state'] == 'active'
+
+
+@pytest.mark.parametrize('value', [datetime(2026, 10, 23), object(), {1, 2}])
+def test_sdk_original_refuses_ambiguous_timestamp_or_unrecognized_objects(value):
+    with pytest.raises(PackError): sdk_original({'original': value})
 
 
 @pytest.mark.parametrize('failure', ['missing-history', 'truncated-history', 'wrong-input', 'wrong-e-claim',

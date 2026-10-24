@@ -164,7 +164,7 @@ class WorkerLifecycle:
             raise PackError('worker claim has another execution identity')
         return row
 
-    def _launched_task(self):
+    def _launched_task(self, *, retain_page=None):
         # Forward history finds the single RunWorker result near the beginning,
         # without downloading every periodic DescribeTasks result. The reviewed
         # definition has one launch, no launch Retry and no redrive permission.
@@ -174,6 +174,8 @@ class WorkerLifecycle:
             if token:
                 args['nextToken'] = token
             page = self.states.get_execution_history(**args)
+            if retain_page is not None:
+                retain_page(args, page)
             events = page.get('events')
             if not isinstance(events, list) or len(events) > 100:
                 raise PackError('invalid worker execution history')
