@@ -42,6 +42,7 @@ CONTRACT_PATHS = (
     'tools/agent_e2e_backend.py',
     'tools/agent_e2e_controller.py',
     'tools/agent_e2e_campaign_budget.py',
+    'tools/agent_e2e_interactive_budget.py',
     'tools/hosted_pilot/worker_mcp_configuration.py',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
