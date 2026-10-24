@@ -192,12 +192,13 @@ class SetupHttp:
         response_ref = self.retention_ack(self.retain('response', step, copy.deepcopy(record)), record)
         return {'observation': observation, 'reference': response_ref}
 
-    def json(self, step, method, path, body=None):
+    def json(self, step, method, path, body=None, *, ensure_ascii=True):
+        require(type(ensure_ascii) is bool, 'invalid JSON transport encoding')
         require(isinstance(path, str), 'invalid setup request')
         normalized = urllib.parse.unquote(urllib.parse.urlsplit(path).path).casefold().rstrip('/')
         require(not any(part in ('.', '..') for part in normalized.split('/'))
                 and normalized != '/api/v1/admin/import/upload', 'fixture import requires guarded upload')
-        encoded = None if body is None else json.dumps(body, allow_nan=False, separators=(',', ':')).encode()
+        encoded = None if body is None else json.dumps(body, ensure_ascii=ensure_ascii, allow_nan=False, separators=(',', ':')).encode()
         return self._request(step, method, path, body=encoded)
 
     def upload(self, step, raw, *, table, schema, srid):
