@@ -98,6 +98,8 @@ def declaration(interactive, tmp_path):
         'issuedAgentKey': issued_ref, 'nativeBootstrap': completed, 'mcpBootstrap': {'key': 'original-mcp', 'sha256': BASIS},
         'producer': {'fixture': True}, 'sourceConfiguration': {'fixture': True}, 'plan': {'fixture': True},
         'proof': {'nativeEndpoint': value['endpoint']}, 'activation': False, 'qualification': False}
+    from test_agent_e2e_runtime_index import runtime_proof_fixture
+    verified['proof']['runtime'] = runtime_proof_fixture(verified['descriptor']['image'])
     calls = []
     def verify(ref, **kwargs):
         calls.append((copy.deepcopy(ref), kwargs))
@@ -143,13 +145,18 @@ def test_changed_source_cannot_select_another_funding_model_or_worker_authority(
     with pytest.raises(PackError): declaration.load()
 
 
-@pytest.mark.parametrize('change', ['other-origin', 'other-agent', 'other-bootstrap', 'activated', 'qualified'])
+@pytest.mark.parametrize('change', ['other-origin', 'other-agent', 'other-bootstrap', 'activated', 'qualified', 'runtime-missing', 'runtime-older'])
 def test_worker_proof_must_bind_original_inactive_issuance_and_exact_origin(declaration, change):
     if change == 'other-origin': declaration.verified['proof']['nativeEndpoint'] = 'https://api.pilot.demo.honua.io'
     elif change == 'other-agent': declaration.verified['issuedAgentKey']['sha256'] = 'sha256:'+'9'*64
     elif change == 'other-bootstrap': declaration.verified['nativeBootstrap']['key'] = 'other/completed'
     elif change == 'activated': declaration.verified['activation'] = True
-    else: declaration.verified['qualification'] = True
+    elif change == 'qualified': declaration.verified['qualification'] = True
+    elif change == 'runtime-missing': del declaration.verified['proof']['runtime']
+    else:
+        proof = declaration.verified['proof']['runtime']
+        proof['index']['files']['agent_e2e_mcp_runner.py'] = 'sha256:'+'f'*64
+        proof['runtimeBundleDigest'] = canonical_digest(proof['index'])
     with pytest.raises(PackError): declaration.load()
 
 

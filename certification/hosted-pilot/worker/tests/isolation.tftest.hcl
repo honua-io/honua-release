@@ -18,6 +18,16 @@ mock_provider "aws" {
 override_module {
   target = module.worker
   outputs = {
+    installed_worker_slot = {
+      schema                      = "honua.installed-worker-slot/v1"
+      candidateKey                = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      runtimeId                   = "reviewed-runtime"
+      slotId                      = "offline-attempt"
+      originalFundingExpiresEpoch = 2000006000
+      maxExecutionSeconds         = 6000
+      image                       = "123456789012.dkr.ecr.us-east-1.amazonaws.com/honua-pilot-offline-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      taskDefinitionArn           = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-agent-offline-attempt:1"
+    }
     controller_policy = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"sqs:SendMessage\",\"Resource\":\"arn:aws:sqs:us-east-1:123456789012:honua-agent-offline-attempt-commands.fifo\"}]}"
     lifecycle = {
       state_machine_arn   = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-agent-offline-attempt"
@@ -118,4 +128,38 @@ run "wildcard_claim_administrator_is_refused" {
     }
   }
   expect_failures = [var.accounting_claim_roles]
+}
+
+# These synthetic references exercise wrapper source constraints only. No actual
+# publication, quote, pending MCP, native registration or cloud apply is claimed.
+run "installed_slot_preserves_funding_and_separate_execution_liability" {
+  command = plan
+  variables {
+    installed_slot                    = { runtime_id = "reviewed-runtime", slot_id = "offline-attempt", original_funding_expires_epoch = 2000006000, max_execution_seconds = 6000 }
+    accounting_installed_worker_slots = [{ runtime_id = "reviewed-runtime", slot_id = "offline-attempt" }]
+    mcp_bootstrap_binding             = { key = "original/pending/completed", sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    worker_publication                = { sourceSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runId = 1, runAttempt = 1, artifactId = 1, artifactDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    execution_quote                   = { path = "reviewed-execution-quote.json", sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    installation_quote                = { path = "reviewed-installation-quote.json", sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    execution_liability               = { basisDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", maximumInfrastructureUsd = "2", maximumCleanupUsd = "1" }
+    issued_epoch                      = null
+    lifetime_seconds                  = null
+  }
+  assert {
+    condition     = output.worker_backend == null && output.installed_worker_slot.originalFundingExpiresEpoch == 2000006000 && output.installed_worker_slot.runtimeId == "reviewed-runtime" && output.installed_worker_slot.slotId == var.attempt_id && output.installed_worker_slot.image == var.worker_image && output.installed_worker_slot.liability == var.execution_liability && output.installed_worker_slot.liability.maximumInfrastructureUsd != var.accounting.maximumUsd.infrastructure && output.installed_worker_slot.stateMachineRoleArn == "arn:aws:iam::123456789012:role/honua-agent-offline-attempt-lifecycle"
+    error_message = "Installed allocation must preserve original funding and a distinct per-E liability, with no static launch descriptor."
+  }
+}
+run "installed_slot_refuses_missing_publication_original" {
+  command = plan
+  variables {
+    installed_slot                    = { runtime_id = "reviewed-runtime", slot_id = "offline-attempt", original_funding_expires_epoch = 2000006000, max_execution_seconds = 6000 }
+    accounting_installed_worker_slots = [{ runtime_id = "reviewed-runtime", slot_id = "offline-attempt" }]
+    mcp_bootstrap_binding             = { key = "original/pending/completed", sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    worker_publication                = null
+    execution_quote                   = { path = "reviewed-execution-quote.json", sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    installation_quote                = { path = "reviewed-installation-quote.json", sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    execution_liability               = { basisDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", maximumInfrastructureUsd = "2", maximumCleanupUsd = "1" }
+  }
+  expect_failures = [output.installed_worker_slot]
 }
