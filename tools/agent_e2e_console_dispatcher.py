@@ -16,8 +16,8 @@ from agent_e2e_worker import ReplyChunks, Worker
 
 
 class GuardedQueues:
-    def __init__(self, client, guard):
-        self.client, self.guard = client, guard
+    def __init__(self, client, guard, route):
+        self.client, self.guard, self.route = client, guard, route
 
     def send_message(self, **request):
         self.guard()
@@ -25,7 +25,9 @@ class GuardedQueues:
 
     def receive_message(self, **request):
         self.guard()
-        return self.client.receive_message(**request)
+        response = self.client.receive_message(**request)
+        messages = [message for message in response.get('Messages', []) if not self.route(message)]
+        return {**response, 'Messages': messages}
 
     def delete_message(self, **request):
         self.guard()
@@ -40,7 +42,8 @@ class McpDispatcher:
         require(isinstance(capability, str) and len(capability) == 64 and
                 all(c in '0123456789abcdef' for c in capability), 'original native execution capability missing')
         self.journal, self.worker, self.capability, self.guard = journal, worker, capability, guard
-        self.queues = GuardedQueues(worker.sqs, guard)
+        self.current_action = None
+        self.queues = GuardedQueues(worker.sqs, guard, self._route_retained_duplicate)
         # Preserve the worker protocol and command-deadline implementation.
         self.transport = Worker(self.queues, worker.config, clock=worker.clock)
 
@@ -66,6 +69,36 @@ class McpDispatcher:
         if row not in self._rows('worker-command-chunk', action_id):
             self.journal.append('worker-command-chunk', row)
 
+    def _collector(self, action_id):
+        dispatches = self._rows('worker-command-dispatch', action_id)
+        require(len(dispatches) == 1, 'original MCP dispatch identity is ambiguous')
+        binding = dispatches[0]['binding']
+        require(binding['actionId'] == action_id and binding['attemptId'] == self.journal.record['executionId'],
+                'retained MCP dispatch belongs to another execution/action')
+        collector, reply = ReplyChunks.from_binding(binding), None
+        for row in self._rows('worker-command-chunk', action_id):
+            reply = collector.accept(row['chunk'])
+        return collector, reply
+
+    def _route_retained_duplicate(self, message):
+        require(isinstance(message.get('Body'), str) and len(message['Body'].encode()) <= 60000,
+                'oversized recovered MCP reply')
+        chunk = json.loads(message['Body'])
+        require(isinstance(chunk, dict), 'invalid recovered MCP reply')
+        action_id = chunk.get('actionId')
+        if action_id == self.current_action:
+            return False  # The current bound Worker/ReplyChunks validates it.
+        # SQS receive is not acknowledgement. An older completed result can have
+        # a visible message after a crash between durable retention and delete.
+        # Route it only through its original E/action collector; foreign or
+        # contradictory bytes remain unacknowledged and stop this execution.
+        collector, prior = self._collector(action_id)
+        require(prior is not None and collector.accept(chunk) == prior,
+                'another original MCP outcome remains unresolved or changed')
+        self._chunk(action_id, chunk)
+        self.queues.delete_message(QueueUrl=self.worker.config['replyQueueUrl'], ReceiptHandle=message['ReceiptHandle'])
+        return True
+
     @staticmethod
     def _result(reply):
         require(reply is not None and reply['status'] == 'completed',
@@ -77,6 +110,7 @@ class McpDispatcher:
         action_id = intent['actionId']
         require(not self._rows('worker-command-dispatch', action_id),
                 'original MCP dispatch already intended; recover without resending')
+        self.current_action = action_id
         self.guard()
         def dispatch(binding):
             require(binding['actionId'] == action_id and binding['attemptId'] == self.journal.record['executionId'],
@@ -89,20 +123,14 @@ class McpDispatcher:
     def recover(self, intent):
         self._intent(intent)
         action_id = intent['actionId']
+        self.current_action = action_id
         dispatches = self._rows('worker-command-dispatch', action_id)
         if not dispatches:
             # No send can precede the permanent dispatch record. This resumes a
             # crash before dispatch, rather than replaying an unknown operation.
             require(not self._rows('worker-command-chunk', action_id), 'orphan MCP reply chunks lack original dispatch')
             return self.execute(intent)
-        require(len(dispatches) == 1, 'original MCP dispatch identity is ambiguous')
-        binding = dispatches[0]['binding']
-        require(binding['actionId'] == action_id and binding['attemptId'] == self.journal.record['executionId'],
-                'retained MCP dispatch belongs to another execution/action')
-        collector = ReplyChunks.from_binding(binding)
-        reply = None
-        for row in self._rows('worker-command-chunk', action_id):
-            reply = collector.accept(row['chunk'])
+        collector, reply = self._collector(action_id)
         if reply is not None:
             return self._result(reply)
         # Read-only recovery never sends a command, including after a lost

@@ -105,3 +105,61 @@ def test_crash_before_dispatch_resumes_once_from_retained_provider_intent(dispat
     _, _, intent, queue, build = dispatch
     assert build().recover(intent)['error'] is None
     assert len(queue.requests) == 1
+
+
+@pytest.mark.parametrize('corrupt_redelivery', [False, True])
+def test_visible_undeleted_old_chunk_is_routed_after_full_restart_before_next_result(dispatch, corrupt_redelivery):
+    runtime, journal, intent, queue, build = dispatch
+    # Unlike Exchange, this queue retains received messages until DELETE. A
+    # receipt changes on redelivery, as it does after SQS visibility expires.
+    messages = {}
+    original_send = queue.send_message
+    def send(**request):
+        original_send(**request)
+        for chunk in queue.pending:
+            messages[len(messages)] = {'chunk': copy.deepcopy(chunk), 'visible': True, 'delivery': 0}
+        queue.pending.clear()
+    def receive(**request):
+        for key, message in messages.items():
+            if message['visible']:
+                message['visible'] = False
+                message['delivery'] += 1
+                return {'Messages': [{'Body': json.dumps(message['chunk']),
+                    'ReceiptHandle': f"message-{key}-delivery-{message['delivery']}"}]}
+        raise AssertionError('No visible original reply remains')
+    def delete(**request):
+        receipt = request['ReceiptHandle']
+        for key, message in list(messages.items()):
+            if receipt == f"message-{key}-delivery-{message['delivery']}":
+                del messages[key]
+                queue.deleted.append(receipt)
+                return
+        raise AssertionError('A stale receipt cannot acknowledge a message')
+    queue.send_message, queue.receive_message, queue.delete_message = send, receive, delete
+    def lost_authority():
+        if journal.values('worker-command-chunk'):
+            raise PackError('authority lost before deleting original reply')
+    with pytest.raises(PackError, match='authority lost'):
+        build(guard=lost_authority).execute(intent)
+    assert len(messages) == 1 and not queue.deleted
+    runtime.durable.state = json.loads(json.dumps(runtime.durable.state))
+    restored = ExecutionJournal(runtime.durable, original(runtime))
+    assert build(selected=restored).recover(intent)['error'] is None
+    assert len(messages) == 1 and not queue.deleted
+    for message in messages.values():
+        message['visible'] = True
+        if corrupt_redelivery:
+            message['chunk']['payloadDigest'] = 'sha256:'+'f'*64
+    following = copy.deepcopy(intent)
+    following.update(actionId='second-provider-action', providerToolCallId='second-call')
+    following['action']['id'] = 'second-call'
+    restored.append('action-intent', following)
+    if corrupt_redelivery:
+        with pytest.raises(PackError, match='binding changed'):
+            build(selected=restored).execute(following)
+        assert not queue.deleted and len(messages) == 2
+    else:
+        assert build(selected=restored).execute(following)['error'] is None
+        assert not messages and len(queue.deleted) == 2
+        assert queue.deleted[0].endswith('delivery-2')
+    assert len(queue.requests) == 2  # Neither native operation is dispatched again.
