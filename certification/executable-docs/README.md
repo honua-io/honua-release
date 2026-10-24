@@ -84,18 +84,23 @@ block's ownership. Capture remains active while close callbacks drain; a cleanup
 or work that cannot drain within the original timeout fails and stops that context.
 An idle SDK pool connection is closed without removing its listeners; the installed
 public SDK must reconnect when the same client is used by a later block. There are no
-trusted-dependency exemptions. Unsupported owned unreferenced UDP sockets, child processes,
-workers, stat watchers and promise-watch iterators fail explicitly before completion.
+trusted-dependency exemptions. Unsupported owned unreferenced child processes, workers,
+stat watchers and promise-watch iterators fail explicitly before completion. A bound UDP
+socket that the block has unreferenced fails the same way. A referenced bound socket is
+not idle: it holds the event loop until the caller timeout.
+An owned UDP socket that is still unbound after `beforeExit` listeners completes the way
+native Node does, including an unbound socket the block has unreferenced. Native exit
+does not run its close callback, and neither does this completion. `process.getActiveResourcesInfo()`
+can still list `UDPWrap` for that inactive handle. The runner drops that socket's own
+event-loop ref through the public `unref()` API after listeners run. It does not subtract
+resource types from the list. It does not unref while other referenced work is still
+listed, and it does not unref a socket that `bind`, `send`, `connect`, `addMembership`
+or `addSourceSpecificMembership` has already requested. Arbitrary native-addon schedulers
+and the full Node Module API are not established by this slice.
 This is bounded resource cleanup, not native process-exit fidelity: cleanup may invoke
-user close callbacks that native process exit would not invoke. Paired native-oracle
-controls retain that difference under open #770. Arbitrary native-addon schedulers and
-the full Node Module API are not established by this slice.
-Dormant, unbound UDP sockets also fail explicitly before completion, although native
-Node permits that script to exit successfully. Node's public active-resource list still
-reports `UDPWrap` at native idle in this case; the runner does not subtract resource
-types or claim native-equivalent support. This temporary limitation remains under open
-[#770](https://github.com/honua-io/honua-release/issues/770); no governed document or
-acceptance row is waived by it.
+user close callbacks that native process exit would not invoke. The paired native-oracle
+control `test_cleanup_callbacks_are_captured_before_pass_with_explicit_native_difference`
+records that difference. No governed document or acceptance row is waived by it.
 The final `process.exitCode` is checked at completion, with Node's native 8-bit exit status
 retained; a nonzero status fails and loses the context. Each block starts with a fresh exit status.
 Completion records use atomically published files with a unique request identity on the
