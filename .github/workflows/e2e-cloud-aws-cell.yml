@@ -109,7 +109,7 @@ jobs:
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
@@ -306,7 +306,7 @@ jobs:
         with:
           prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -353,7 +353,7 @@ jobs:
       # 39705901768) would then never populate the cache.
       - name: Restore the pinned Playwright browsers
         id: pw_cache
-        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-1.61.1-chromium-ubuntu-24.04-${{ runner.arch }}
@@ -396,7 +396,7 @@ jobs:
           echo "E2E_SITE_SHA=b024902e2c4bc41bf7a5ce39d159bf65e35c9675" >> "$GITHUB_ENV"
       - name: Save the pinned Playwright browsers
         if: steps.pw_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-1.61.1-chromium-ubuntu-24.04-${{ runner.arch }}
@@ -535,7 +535,7 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: python -m pip install -r e2e/requirements.txt
@@ -653,7 +653,7 @@ jobs:
       - name: Require retirement helper trunk ancestry
         if: inputs.target == 'aws-serverless'
         run: git -C _retirement-tools merge-base --is-ancestor HEAD origin/trunk
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
