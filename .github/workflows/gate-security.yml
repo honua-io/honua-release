@@ -3,6 +3,7 @@
 #
 #   image-scan  Trivy vulnerability scan of each pinned server/console architecture (OS + app deps)
 #   repo-scan   Trivy filesystem scan of this repo: secrets, vulnerable deps, license, IaC misconfig
+#   findings    Required disposition of the existing GA-blocking security findings
 #
 # Component-level SAST (CodeQL) + each repo's own dep/secret scans live in the component repos; this
 # gate covers the shipped server/console images + the release repo itself.
@@ -47,10 +48,14 @@ on:
       overall_status:
         description: "pass | fail | blocked"
         value: ${{ jobs.report.outputs.overall_status }}
+      findings_status:
+        description: "pass only when the findings verifier succeeds and emits pass"
+        value: ${{ jobs.report.outputs.findings_status }}
 
 permissions:
   contents: read
   packages: read
+  pull-requests: read
 
 concurrency:
   group: gate-security-${{ github.ref }}-${{ inputs.platform_label }}
@@ -60,6 +65,11 @@ env:
   SEVERITY: ${{ inputs.severity || 'CRITICAL' }}
 
 jobs:
+  # Keep findings mandatory within the existing security gate. The train's preparation-only
+  # guard covers this verifier too, without adding or removing any of the 20 RC workflows.
+  findings:
+    uses: ./.github/workflows/gate-security-findings.yml
+
   # ───────────────────────────────────────────────────────────────────────────
   # image-scan — Trivy on the manifest-pinned server image.
   # ───────────────────────────────────────────────────────────────────────────
@@ -201,11 +211,12 @@ jobs:
   # report — aggregate the sec- fragments; fail per enforcement (same logic as the other gates).
   # ───────────────────────────────────────────────────────────────────────────
   report:
-    needs: [image-scan, repo-scan]
+    needs: [image-scan, repo-scan, findings]
     if: always()
     runs-on: ubuntu-latest
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
+      findings_status: ${{ steps.assemble.outputs.findings_status }}
     steps:
       - name: Download fragments
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -222,6 +233,8 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           IMAGE_RESULT: ${{ needs.image-scan.result }}
           OTHER_RESULT: ${{ needs.repo-scan.result }}
+          FINDINGS_RESULT: ${{ needs.findings.result }}
+          FINDINGS_STATUS: ${{ needs.findings.outputs.overall_status }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -273,6 +286,25 @@ jobs:
                                   elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
               "${frags[@]}" > out/gate-report.json
           fi
+          # A passing scan set cannot hide an open finding or a verifier that failed to run.
+          # Preserve the distinct findings receipt consumed by the train and finalizer.
+          FINDINGS=fail
+          if [ "$FINDINGS_RESULT" = "success" ] && [ "$FINDINGS_STATUS" = "pass" ]; then
+            FINDINGS=pass
+          fi
+          jq --arg status "$FINDINGS" '
+            .gates += [{gate:"security-findings", status:$status, decided:$status,
+                        source:"findings-verifier",
+                        why:(if $status=="pass" then "required findings verification passed"
+                             else "required findings verification did not complete with pass" end)}]
+            | .summary = {pass:([.gates[]|select(.decided=="pass")]|length),
+                          blocked:([.gates[]|select(.decided=="blocked")]|length),
+                          fail:([.gates[]|select(.decided=="fail")]|length)}
+            | .overallStatus = (if any(.gates[];.decided=="fail") then "fail"
+                                elif any(.gates[];.decided=="blocked") then "blocked" else "pass" end)
+          ' out/gate-report.json > out/gate-report-with-findings.json
+          mv out/gate-report-with-findings.json out/gate-report.json
+          echo "findings_status=$FINDINGS" >> "$GITHUB_OUTPUT"
           cat out/gate-report.json
           OVERALL=$(jq -r .overallStatus out/gate-report.json)
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"

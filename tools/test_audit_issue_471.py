@@ -34,9 +34,15 @@ def test_rel_003_promotion_passes_minting_time_to_freshness_check():
 
 
 def test_rel_004_security_findings_is_a_required_train_gate():
-    workflow = (ROOT / ".github/workflows/release-train.yml").read_text()
-    assert "gate_security_findings:" in workflow
-    assert "security-findings|$S_SECURITY_FINDINGS" in workflow
+    train = _workflow("release-train.yml")["jobs"]
+    security = _workflow("gate-security.yml")["jobs"]
+    assert train["gate_security"]["uses"] == "./.github/workflows/gate-security.yml"
+    assert train["gate_security"]["if"] == "${{ !inputs.freeze_only }}"
+    assert security["findings"]["uses"] == "./.github/workflows/gate-security-findings.yml"
+    assert "findings" in security["report"]["needs"]
+    report = next(s for s in train["report"]["steps"] if "S_SECURITY_FINDINGS" in s.get("env", {}))
+    assert report["env"]["S_SECURITY_FINDINGS"] == "${{ needs.gate_security.outputs.findings_status || 'fail' }}"
+    assert "security-findings|$S_SECURITY_FINDINGS" in report["run"]
 
 
 def _workflow(name):
@@ -84,11 +90,36 @@ def test_scan_reports_cannot_pass_partial_duplicate_or_failed_coverage(tmp_path,
            "RUN_URL": "https://example.test/run/1", "GITHUB_OUTPUT": str(tmp_path / "output"),
            "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
            "IMAGE_RESULT": "failure" if problem == "failed-image" else "success",
-           "OTHER_RESULT": "failure" if problem == "failed-other" else "success"}
+           "OTHER_RESULT": "failure" if problem == "failed-other" else "success",
+           "FINDINGS_RESULT": "success", "FINDINGS_STATUS": "pass"}
     result = _run(step["run"], tmp_path, env)
     assert result.returncode == 0, result.stderr
     report = json.loads((tmp_path / "out/gate-report.json").read_text())
     assert (report["overallStatus"] == "pass") == (problem == "none"), report
+
+
+@pytest.mark.parametrize("enforcement", ["strict", "bootstrap"])
+@pytest.mark.parametrize("result,status", [
+    ("success", "pass"), ("success", ""), ("success", "fail"), ("success", "blocked"),
+    ("failure", "pass"), ("cancelled", "pass"), ("skipped", "pass"), ("", "pass"),
+])
+def test_passing_scans_require_successful_findings_verification(tmp_path, enforcement, result, status):
+    fragments = tmp_path / "fragments"
+    fragments.mkdir()
+    for name in _fragment_names("gate-security.yml"):
+        (fragments / f"{name}.json").write_text(json.dumps({"gate": name, "status": "pass", "why": "tested"}))
+    step = _step("gate-security.yml", "report", "Assemble gate-report.json")
+    env = {"PLATFORM_LABEL": "2026.1-rc.1", "ENFORCEMENT": enforcement,
+           "RUN_URL": "https://example.test/run/1", "GITHUB_OUTPUT": str(tmp_path / "output"),
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"), "IMAGE_RESULT": "success",
+           "OTHER_RESULT": "success", "FINDINGS_RESULT": result, "FINDINGS_STATUS": status}
+    executed = _run(step["run"], tmp_path, env)
+    assert executed.returncode == 0, executed.stderr
+    expected = "pass" if (result, status) == ("success", "pass") else "fail"
+    report = json.loads((tmp_path / "out/gate-report.json").read_text())
+    assert report["overallStatus"] == expected
+    assert next(g for g in report["gates"] if g["gate"] == "security-findings")["status"] == expected
+    assert f"findings_status={expected}\n" in (tmp_path / "output").read_text()
 
 
 @pytest.mark.parametrize("workflow,job,component,architecture", [
@@ -150,6 +181,7 @@ def test_findings_permissions_are_available_through_both_train_callers():
     required = _workflow("gate-security-findings.yml")["permissions"]
     train = _workflow("release-train.yml")["permissions"]
     nightly = _workflow("nightly-certification.yml")["jobs"]["train"]["permissions"]
-    for caller in (train, nightly):
+    security = _workflow("gate-security.yml")["permissions"]
+    for caller in (security, train, nightly):
         for scope, level in required.items():
             assert caller.get(scope) in (level, "write"), f"missing caller permission: {scope}"
