@@ -316,3 +316,100 @@ run "incomplete_original_custody_identity_refused" {
   variables { bootstrap_custody_creation_tags = { ManagedBy = "honua-release-hosted-pilot-bootstrap" } }
   expect_failures = [var.bootstrap_custody_creation_tags]
 }
+
+run "default_has_no_installed_identity_writer" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_role_policy.installed_worker_identity_output) == 0
+    error_message = "Image preparation must not gain accounting-bucket writes."
+  }
+}
+run "only_apply_can_create_exact_identity_objects" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  assert {
+    condition = (
+      aws_iam_role_policy.installed_worker_identity_output[0].role == aws_iam_role.executor["apply"].id &&
+      length(jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement) == 1 &&
+      jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Action == "s3:PutObject" &&
+      toset(jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Resource) == toset([
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/installation.json",
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/review.json",
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/readiness.json"
+      ]) &&
+      jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Condition.StringEquals["s3:if-none-match"] == "*" &&
+      jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Condition.StringEquals["s3:x-amz-server-side-encryption"] == "AES256"
+    )
+    error_message = "Identity retention must be exact create-only objects, never ledger, initialization or head writes."
+  }
+}
+run "native_boundary_installation_reads_are_exact_and_optional" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveOriginalRegistrarImage"]).Resource == [aws_ecr_repository.controller.arn] &&
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveOriginalRegistrarImage"]).Action == "ecr:BatchGetImage" &&
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveExactInstalledWorkerDefinitions"]).Resource == ["arn:aws:states:${var.region}:${var.account_id}:stateMachine:honua-agent-fixed-slot"] &&
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveExactInstalledWorkerDefinitions"]).Action == "states:DescribeStateMachine"
+    )
+    error_message = "Registrar observations must remain exact read-only image and allocated base-worker definitions."
+  }
+}
+run "native_boundary_without_installation_has_no_new_image_or_definition_authority" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = alltrue([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement :
+      !contains(["ObserveOriginalRegistrarImage", "ObserveExactInstalledWorkerDefinitions"], try(statement.Sid, ""))
+    ])
+    error_message = "Legacy/default bootstrap cannot inherit installed registrar image or definition reads."
+  }
+}
+run "identity_writer_requires_accounting_foundation" {
+  command = plan
+  variables {
+    enable_agent_controller          = false
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  expect_failures = [aws_iam_role_policy.installed_worker_identity_output[0]]
+}
+run "identity_writer_rejects_namespace_escape" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "../other", slot_id = "fixed-slot" }]
+  }
+  expect_failures = [var.installed_worker_identity_scopes]
+}
+run "identity_writer_rejects_candidate_wildcard" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:*", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  expect_failures = [var.installed_worker_identity_scopes]
+}
+
+run "registrar_schedule_boundary_read_is_exact_and_nonmutating" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = (
+      one([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if try(row.Sid, "") == "ReadRegistrarSchedule"]) == {
+        Sid      = "ReadRegistrarSchedule", Effect = "Allow", Action = "scheduler:GetSchedule",
+        Resource = "arn:aws:scheduler:us-west-2:123456789012:schedule/${var.name_prefix}-agent-registration/${var.name_prefix}-agent-registration-reaper"
+      } &&
+      length([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if row.Effect == "Allow" && strcontains(jsonencode(row.Action), "scheduler:")]) == 1 &&
+      !strcontains(one([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if try(row.Sid, "") == "ReadRegistrarSchedule"]).Resource, "*") &&
+      length(aws_iam_policy.agent_boundary[0].policy) <= 6144
+    )
+    error_message = "Dispatcher boundary may inspect only this original registrar schedule; no foreign schedule, wildcard inventory or scheduler mutation."
+  }
+}

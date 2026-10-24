@@ -41,7 +41,29 @@ jobs:
           terraform fmt -check -recursive
           terraform init -backend=false -input=false -lockfile=readonly -no-color
           terraform validate -no-color
-          terraform test -no-color -json -verbose > "$RUNNER_TEMP/hosted-pilot-tests.jsonl"
+          result=0
+          terraform test -no-color -json -verbose > "$RUNNER_TEMP/hosted-pilot-tests.jsonl" || result=$?
+          if [ "$result" -ne 0 ]; then
+            python3 - "$RUNNER_TEMP/hosted-pilot-tests.jsonl" <<'PY_DIAGNOSTIC'
+          import hashlib, json, sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          print(json.dumps({'type':'terraform-test-failure', 'originalBytes':len(raw), 'originalSha256':hashlib.sha256(raw).hexdigest()}))
+          emitted = 0
+          for line in raw.splitlines():
+              try:
+                  row = json.loads(line)
+              except (ValueError, UnicodeDecodeError):
+                  continue
+              diagnostic = row.get('diagnostic', {})
+              if diagnostic.get('severity') == 'error' and emitted < 20:
+                  print(json.dumps({'type':'terraform-test-diagnostic', 'summary':str(diagnostic.get('summary', ''))[:1024], 'detail':str(diagnostic.get('detail', ''))[:8192], 'range':diagnostic.get('range')}, ensure_ascii=True))
+                  emitted += 1
+          if not emitted:
+              print('Terraform test failed without structured diagnostics; original exit remains nonzero.')
+          PY_DIAGNOSTIC
+          fi
+          exit "$result"
       - name: Verify actual pinned worker module controls with its own provider mocked
         if: matrix.root == 'certification/hosted-pilot/worker'
         working-directory: ${{ matrix.root }}
@@ -69,6 +91,8 @@ jobs:
         run: |
           python3 -m pip install --require-hashes -r certification/hosted-pilot/controller/requirements.txt
           python3 tools/check_agent_e2e_definition_digest.py
+          HONUA_SHARED_GRAPH_OUTPUT="$RUNNER_TEMP/shared-retirement-graph" python3 tools/check_shared_retirement_graph.py
           python3 -m pip install 'pytest>=8,<9' 'pyyaml>=6,<7'
           python3 -m pytest tools/hosted_pilot/fixture_import_handoff_test.py -k independently_replays -q
+          python3 -m pytest tools/hosted_pilot/installed_evaluation_binding_test.py -q
           python3 -m pytest tools/test_agent_e2e_campaign_budget.py tools/test_agent_e2e_campaign.py tools/test_agent_e2e_controller.py tools/test_agent_e2e_gate.py tools/test_agent_e2e_budget.py tools/test_agent_e2e_interactive_budget.py tools/test_agent_e2e_console_runtime.py tools/test_agent_e2e_console_loop.py tools/test_agent_e2e_console_dispatcher.py tools/test_agent_e2e_installed_driver.py tools/test_agent_e2e_setup_http.py tools/test_agent_e2e_state.py tools/test_agent_e2e_mcp_worker.py tools/test_agent_e2e_runtime_configuration.py tools/test_agent_e2e_model_runtime.py tools/test_agent_e2e_execution_witness.py tools/test_agent_e2e_backend.py tools/test_agent_e2e_operation_accounting.py -q
