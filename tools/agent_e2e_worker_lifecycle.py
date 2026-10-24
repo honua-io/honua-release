@@ -7,12 +7,87 @@ Observation/recovery never starts or redrives an execution, nor clears a claim.
 from __future__ import annotations
 
 import copy
+from decimal import Decimal, InvalidOperation
+import hashlib
 import json
 import re
 import time
+import unicodedata
 
 from agent_e2e_budget import money, validate as validate_budget
 from agent_e2e_pack import PackError, canonical_digest
+
+
+def terraform_definition_digest(raw):
+    """Hash the bounded ASL value using Terraform jsonencode(jsondecode(...)).
+
+    This resource pin is distinct from campaign canonical_digest. Terraform's
+    cty strings are NFC-normalized and its JSON encoder escapes five additional
+    characters. Parse numbers as decimal, never through binary64. The supported
+    numeric range is deliberately below cty's 512-bit precision; larger inputs
+    refuse inspection rather than silently comparing a different value.
+    """
+    def string(value):
+        return json.dumps(unicodedata.normalize('NFC', value), ensure_ascii=False)
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            # Terraform-created object keys are already NFC. Refuse a foreign
+            # decomposed key instead of relying on cty jsondecode's key lookup.
+            if key != unicodedata.normalize('NFC', key):
+                raise PackError('noncanonical lifecycle definition field')
+            if key in result:
+                raise PackError('duplicate lifecycle definition field')
+            result[key] = value
+        return result
+
+    def number(value):
+        parsed = Decimal(value)
+        digits = parsed.as_tuple().digits
+        # Remove insignificant trailing zeros without Decimal.normalize(), which
+        # would round to the caller's ambient Decimal context precision.
+        significant = len(''.join(map(str, digits)).rstrip('0'))
+        if significant > 128 or abs(parsed.adjusted()) > 1024:
+            raise PackError('unsupported lifecycle definition number range')
+        return parsed
+
+    def constant(_):
+        raise PackError('nonfinite lifecycle definition number')
+
+    def encode(value):
+        if isinstance(value, str):
+            return string(value)
+        if isinstance(value, Decimal):
+            result = format(value, 'f')
+            return result.rstrip('0').rstrip('.') if '.' in result else result
+        if value is None:
+            return 'null'
+        if type(value) is bool:
+            return 'true' if value else 'false'
+        if isinstance(value, list):
+            return '['+','.join(encode(item) for item in value)+']'
+        if isinstance(value, dict):
+            return '{'+','.join(string(key)+':'+encode(value[key]) for key in sorted(value))+'}'
+        raise PackError('unsupported lifecycle definition value')
+
+    try:
+        if not isinstance(raw, str) or len(raw.encode('utf-8')) > 1024 * 1024:
+            raise PackError('missing or oversized lifecycle definition')
+        value = json.loads(raw, object_pairs_hook=unique, parse_int=number,
+            parse_float=number, parse_constant=constant)
+        if not isinstance(value, dict):
+            raise PackError('lifecycle definition must be an object')
+        encoded = encode(value)
+        for character, escaped in (('<', r'\u003c'), ('>', r'\u003e'), ('&', r'\u0026'),
+                ('\u2028', r'\u2028'), ('\u2029', r'\u2029')):
+            encoded = encoded.replace(character, escaped)
+        data = encoded.encode('utf-8')
+        if len(data) > 1024 * 1024:
+            raise PackError('oversized encoded lifecycle definition')
+        return 'sha256:'+hashlib.sha256(data).hexdigest()
+    except (ValueError, UnicodeError, RecursionError, InvalidOperation) as error:
+        raise PackError('invalid lifecycle definition JSON') from error
 
 
 def _digest(value):
@@ -132,7 +207,7 @@ class WorkerLifecycle:
         observed = self.states.describe_state_machine(stateMachineArn=c['stateMachineArn'])
         if (observed.get('stateMachineArn') != c['stateMachineArn'] or observed.get('type') != 'STANDARD'
                 or observed.get('status') != 'ACTIVE' or observed.get('roleArn') != c['stateMachineRoleArn']
-                or canonical_digest(_json(observed.get('definition'))) != c['definitionDigest']):
+                or terraform_definition_digest(observed.get('definition')) != c['definitionDigest']):
             raise PackError('deployed worker lifecycle differs from reviewed definition')
 
     def start(self, durable, *, reservation_ids):
@@ -164,7 +239,7 @@ class WorkerLifecycle:
             raise PackError('worker claim has another execution identity')
         return row
 
-    def _launched_task(self):
+    def _launched_task(self, *, retain_page=None):
         # Forward history finds the single RunWorker result near the beginning,
         # without downloading every periodic DescribeTasks result. The reviewed
         # definition has one launch, no launch Retry and no redrive permission.
@@ -174,6 +249,8 @@ class WorkerLifecycle:
             if token:
                 args['nextToken'] = token
             page = self.states.get_execution_history(**args)
+            if retain_page is not None:
+                retain_page(args, page)
             events = page.get('events')
             if not isinstance(events, list) or len(events) > 100:
                 raise PackError('invalid worker execution history')
