@@ -104,6 +104,18 @@ def verify_network(task, identity, ec2):
     return response
 
 
+def verify_task_overrides(task, container):
+    overrides = task.get('overrides', {})
+    require(isinstance(overrides, dict) and set(overrides) <= {'containerOverrides', 'inferenceAcceleratorOverrides'} and
+            not overrides.get('inferenceAcceleratorOverrides'), 'installed task has unreviewed role/resource overrides')
+    selected = overrides.get('containerOverrides', [])
+    require(isinstance(selected, list) and len(selected) <= 1 and all(isinstance(row, dict) and set(row) == {'name'} and
+            row['name'] == container['name'] for row in selected), 'installed task has command/environment overrides')
+    actual = task.get('containers', [])
+    require(task.get('enableExecuteCommand') is False and len(actual) == 1 and actual[0].get('name') == container['name'] and
+            actual[0].get('image') == container.get('image'), 'actual installed container/image or execute-command authority differs')
+
+
 class InstalledDurable(DurableExecution):
     """One state CAS stream for the model loop and independent native heartbeat."""
     def __init__(self, *args, **kwargs):
@@ -271,6 +283,7 @@ def run(config, *, clients, task_id, source_receipt, identity_verifier, installa
                         definition.get('executionRoleArn') == identity['executionRoleArn'] and len(containers) == 1,
                         'actual controller task/credential roles differ')
                 container = containers[0]
+                verify_task_overrides(task, container)
                 key = verified['keys']['control']['issued']
                 require(container.get('command') == COMMAND and not container.get('entryPoint') and
                         container.get('user') == '10001' and container.get('readonlyRootFilesystem') is True and

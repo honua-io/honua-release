@@ -198,3 +198,15 @@ def test_worker_binding_local_reference_is_closed_metadata_before_any_retention(
                   {'key': 'bind-read-1', 'sha256': 'not-a-hash'}, {'key': 'bind-read-١', 'sha256': BASIS}):
         with pytest.raises(PackError): validate_worker_bound({**reply, 'nativeRead': value}, original)
     with pytest.raises(PackError): validate_worker_bound({**reply, 'executionId': 'another-execution'}, original)
+
+
+def test_actual_task_cannot_override_checked_command_environment_roles_or_resource_quote():
+    container = {'name': 'installed-controller', 'image': 'account.dkr.ecr.region.amazonaws.com/controller@sha256:'+'a'*64}
+    task = {'enableExecuteCommand': False, 'containers': [container.copy()],
+            'overrides': {'containerOverrides': [{'name': container['name']}]}}
+    entry.verify_task_overrides(task, container)
+    for change in ({'taskRoleArn': 'foreign'}, {'cpu': '16384'}, {'memory': '128000'},
+        {'containerOverrides': [{'name': container['name'], 'command': ['different']}]},
+        {'containerOverrides': [{'name': container['name'], 'environment': [{'name': 'ROOT_KEY', 'value': 'private'}]}]}):
+        with pytest.raises(PackError): entry.verify_task_overrides({**task, 'overrides': change}, container)
+    with pytest.raises(PackError): entry.verify_task_overrides({**task, 'enableExecuteCommand': True}, container)
