@@ -41,7 +41,29 @@ jobs:
           terraform fmt -check -recursive
           terraform init -backend=false -input=false -lockfile=readonly -no-color
           terraform validate -no-color
-          terraform test -no-color -json -verbose > "$RUNNER_TEMP/hosted-pilot-tests.jsonl"
+          result=0
+          terraform test -no-color -json -verbose > "$RUNNER_TEMP/hosted-pilot-tests.jsonl" || result=$?
+          if [ "$result" -ne 0 ]; then
+            python3 - "$RUNNER_TEMP/hosted-pilot-tests.jsonl" <<'PY_DIAGNOSTIC'
+          import hashlib, json, sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          print(json.dumps({'type':'terraform-test-failure', 'originalBytes':len(raw), 'originalSha256':hashlib.sha256(raw).hexdigest()}))
+          emitted = 0
+          for line in raw.splitlines():
+              try:
+                  row = json.loads(line)
+              except (ValueError, UnicodeDecodeError):
+                  continue
+              diagnostic = row.get('diagnostic', {})
+              if diagnostic.get('severity') == 'error' and emitted < 20:
+                  print(json.dumps({'type':'terraform-test-diagnostic', 'summary':str(diagnostic.get('summary', ''))[:1024], 'detail':str(diagnostic.get('detail', ''))[:8192], 'range':diagnostic.get('range')}, ensure_ascii=True))
+                  emitted += 1
+          if not emitted:
+              print('Terraform test failed without structured diagnostics; original exit remains nonzero.')
+          PY_DIAGNOSTIC
+          fi
+          exit "$result"
       - name: Verify actual pinned worker module controls with its own provider mocked
         if: matrix.root == 'certification/hosted-pilot/worker'
         working-directory: ${{ matrix.root }}
