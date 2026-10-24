@@ -17,7 +17,7 @@ def basis(config):
     return 'sha256:'+hashlib.sha256(canonical({key: value for key, value in config.items() if key != 'accounting'})).hexdigest()
 
 
-def verify(config, work, *, aws, require):
+def verify(config, work, *, aws, require, include_payload=False):
     accounting = config['accounting']
     state = accounting['state']
     candidate = config['candidate_digest']
@@ -51,6 +51,14 @@ def verify(config, work, *, aws, require):
     validate(ledger)
     require(ledger['candidateKey'] == candidate and payload.get('bootstrapImport', {}).get('artifactDigest') == accounting['bootstrapArtifactDigest'],
             'worker configuration cannot substitute original authenticated spending history')
+    if config.get('installed_slot') is not None:
+        require(config['claim_table_name'] == name+'-claims', 'installed worker must use the original candidate claim table')
+        from agent_e2e_interactive_budget import validate_retained_funding
+        from installed_worker_receipt import pending_binding
+        validate_retained_funding(payload)
+        require(payload['ledger'].get('interactiveAccounting', {}).get('originalExpiresEpoch') == config['installed_slot']['original_funding_expires_epoch'],
+                'installed worker cannot renew original authenticated funding expiry')
+        pending_binding(payload, config)
     operation = accounting['operation']
     require(set(operation) == {'operationId', 'liabilityBasisDigest', 'reservationIds'} and
             operation['operationId'] == 'worker-'+config['attempt_id'] and operation['liabilityBasisDigest'] == basis(config) and
@@ -64,5 +72,8 @@ def verify(config, work, *, aws, require):
         require(len(rows) == 1 and rows[0]['operationId'] == operation['operationId'] and rows[0]['purpose'] == 'shared-environment' and
                 rows[0]['kind'] == kind and rows[0]['basisDigest'] == operation['liabilityBasisDigest'] and rows[0]['state'] == 'reserved' and
                 rows[0]['actualUsd'] is None and maximum <= Decimal(rows[0]['amountUsd']), 'worker provisioning is not covered by original retained infrastructure/cleanup liability')
-    return {'candidateKey': candidate, 'generationDigest': accounting['generationDigest'], 'snapshotDigest': snapshot_digest,
+    result = {'candidateKey': candidate, 'generationDigest': accounting['generationDigest'], 'snapshotDigest': snapshot_digest,
             'operationId': operation['operationId'], 'basisDigest': operation['liabilityBasisDigest']}
+    if include_payload:
+        result['payload'] = payload
+    return result

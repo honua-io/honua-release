@@ -8,6 +8,7 @@ locals {
   lanes             = toset(["plan", "apply"])
 }
 resource "aws_kms_key" "custody" {
+  tags                    = var.bootstrap_custody_creation_tags
   description             = "Hosted pilot encrypted state and private saved plans"
   enable_key_rotation     = true
   deletion_window_in_days = 30
@@ -17,6 +18,7 @@ resource "aws_s3_bucket" "custody" {
   for_each      = toset(["state", "plans"])
   bucket        = "${local.foundation_prefix}-${each.key}-${local.account}"
   force_destroy = false
+  tags          = var.bootstrap_custody_creation_tags
   lifecycle { prevent_destroy = true }
 }
 resource "aws_s3_bucket_public_access_block" "custody" {
@@ -41,6 +43,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "custody" {
   for_each = aws_s3_bucket.custody
   bucket   = each.value.id
   rule {
+    # Membership read authority is restricted by the individual object ARN in
+    # KMS's S3 encryption context. Bucket-level context must never replace it.
+    bucket_key_enabled = false
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
       kms_master_key_id = aws_kms_key.custody.arn
@@ -119,6 +124,10 @@ resource "aws_iam_role_policy" "custody" {
     { Effect = "Deny", Action = ["iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:DeleteRolePolicy", "iam:DeleteRole"], Resource = "arn:aws:iam::${local.account}:role/${local.foundation_prefix}*" }
     ], each.key == "plan" ? [
     { Effect = "Allow", Action = "s3:PutObject", Resource = "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*", Condition = { Null = { "s3:if-none-match" = "false" } } }
+    ] : [], each.key == "apply" ? [
+    { Sid      = "WriteOriginalHumanEnrollment", Effect = "Allow", Action = "s3:PutObject",
+      Resource = ["${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/review.json", "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/human-identities-*.json"],
+    Condition = { StringEquals = { "s3:if-none-match" = "*", "s3:x-amz-server-side-encryption" = "aws:kms", "s3:x-amz-server-side-encryption-aws-kms-key-id" = aws_kms_key.custody.arn } } }
   ] : []) })
 }
 resource "aws_iam_policy" "provision" {

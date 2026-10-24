@@ -63,5 +63,6 @@ jobs:
       - name: Verify original import handoff custody and append-only request claims
         if: matrix.root == 'certification/hosted-pilot/campaign'
         run: |
-          python3 -m pip install 'pytest>=8,<9'
+          python3 -m pip install 'pytest>=8,<9' 'pyyaml>=6,<7'
           python3 -m pytest tools/hosted_pilot/fixture_import_handoff_test.py -k independently_replays -q
+          python3 -m pytest tools/test_agent_e2e_campaign_budget.py tools/test_agent_e2e_campaign.py tools/test_agent_e2e_controller.py tools/test_agent_e2e_gate.py tools/test_agent_e2e_budget.py tools/test_agent_e2e_interactive_budget.py tools/test_agent_e2e_console_runtime.py tools/test_agent_e2e_backend.py tools/test_agent_e2e_operation_accounting.py -q

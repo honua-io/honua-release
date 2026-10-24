@@ -252,12 +252,13 @@ def test_post_amendment_overrun_is_retained_and_blocks_new_work(tmp_path):
         update(path,'amend-foss4g',candidate_key=KEY)
 
 
-def test_legacy_252_gate_rejects_amended_budget_schema(tmp_path):
-    import agent_e2e_gate as gate
+def test_legacy_252_campaign_rejects_an_unbound_amended_allowance(tmp_path):
+    from agent_e2e_campaign_budget import bind_ledger
+    from agent_e2e_pack import PackError
     path=tmp_path/'ledger.json';update(path,'init',candidate_key=KEY)
     update(path,'amend-foss4g',candidate_key=KEY)
-    with pytest.raises(gate.Invalid,match='operation-aware'):
-        gate.validate_operation_reports(json.loads(path.read_text()),[],tmp_path)
+    with pytest.raises(PackError, match='unbound amended allowance'):
+        bind_ledger({'componentBindingDigest': KEY, 'totalBudgetUsd': 500}, json.loads(path.read_text()), tmp_path)
 
 
 def admit(path, index, *, now=1000, **overrides):

@@ -159,10 +159,20 @@ jobs:
           allowed-account-ids: ${{ vars.HOSTED_PILOT_ACCOUNT_ID }}
           role-session-name: pilot-apply-${{ github.run_id }}
       - name: Verify identity and apply exactly the saved plan
+        id: applied
         env:
           PILOT_REVIEW_SHA256: ${{ needs.plan.outputs.review_sha256 }}
+          PILOT_REVIEW_ARTIFACT_ID: ${{ needs.plan.outputs.review_artifact_id }}
           PILOT_PLAN_ATTEMPT: ${{ needs.plan.outputs.plan_attempt }}
         run: python3 tools/hosted_pilot/deploy.py apply --config "$PILOT_CONFIG_PATH"
+      - name: Publish private human enrollment reference when nominated
+        if: inputs.operation == 'apply' && steps.applied.outputs.human_enrollment == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-human-enrollment-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hosted-pilot-private/human-enrollment-reference.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Inspect infrastructure and refuse anonymous or forged Console identity
         if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot'
         run: python3 tools/hosted_pilot/readiness.py --infrastructure-only
@@ -172,6 +182,22 @@ jobs:
       - name: Inspect exact worker image, agent-only secret version and independent cleanup
         if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot/worker'
         run: python3 tools/hosted_pilot/worker_readiness.py
+      - name: Retain installed worker identity-only output
+        id: installed_identity
+        if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot/worker'
+        env:
+          PILOT_REVIEW_SHA256: ${{ needs.plan.outputs.review_sha256 }}
+          PILOT_REVIEW_ARTIFACT_ID: ${{ needs.plan.outputs.review_artifact_id }}
+          PILOT_PLAN_ATTEMPT: ${{ needs.plan.outputs.plan_attempt }}
+        run: python3 tools/hosted_pilot/installed_worker_receipt.py
+      - name: Publish installed worker immutable identity reference
+        if: inputs.operation == 'apply' && steps.installed_identity.outputs.installed_worker_reference == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-installed-worker-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hosted-pilot-private/installed-worker-reference.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Publish value-free infrastructure readiness
         if: inputs.operation == 'apply'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

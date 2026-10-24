@@ -146,6 +146,28 @@ run "private_sql_and_credential_custody" {
   }
 }
 
+run "task_definition_reads_use_only_region_scoped_wildcards" {
+  command = plan
+  assert {
+    condition = alltrue([for policy in [aws_iam_role_policy.dispatcher.policy, aws_iam_role_policy.controller.policy] :
+      one([for statement in jsondecode(policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+        Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+        Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+      }
+    ])
+    error_message = "DescribeTaskDefinition must be isolated to its supported region-scoped wildcard, without adding other actions."
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement : statement if statement.Action == "ecs:DescribeTasks"]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if try(toset(statement.Action), toset([])) == toset(["ecs:DescribeTasks", "ecs:StopTask"])]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "ecs:RunTask"]).Resource == aws_ecs_task_definition.fixture.arn &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "iam:PassRole"]).Resource == [aws_iam_role.fixture.arn, aws_iam_role.execution["fixture"].arn]
+    )
+    error_message = "Task reads, stopping, launching and role passing must retain their original exact resources."
+  }
+}
+
 run "installed_native_keys_use_actual_immutable_version_ids" {
   command = plan
   variables {
@@ -197,12 +219,13 @@ run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
         operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
         reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
       }
-      itemId              = "11111111-1111-1111-1111-111111111111"
-      expiresAt           = "2026-10-29T00:00:00Z"
-      targetId            = "native-target"
-      readGrants          = []
-      datasetImportScopes = ["native-target/honua_data/pilot_points"]
-      managedProcessIds   = ["analytics.buffer-aggregate-managed"]
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["11111111-1111-1111-1111-111111111111"]
     }
   }
   assert {
@@ -212,6 +235,7 @@ run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
       jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).schemaVersion == 2 &&
       jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).targetId == "native-target" &&
       toset(jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).datasetImportScopes) == toset(["native-target/honua_data/pilot_points"]) &&
+      toset(jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).studioRestoreItemIds) == toset(["11111111-1111-1111-1111-111111111111"]) &&
       aws_iam_role.native_bootstrap[0].name != aws_iam_role.controller.name &&
       length(aws_iam_role_policy.dispatch_native_bootstrap) == 1 &&
       strcontains(aws_iam_role_policy.dispatch_native_bootstrap[0].policy, "ecs:RunTask") &&
@@ -370,6 +394,14 @@ run "setup_retirement_has_separate_original_credentials_and_no_sql_or_model" {
       !strcontains(aws_iam_role_policy.setup_retirement[0].policy, "bedrock:") &&
       one([for statement in jsondecode(aws_iam_role_policy.setup_retirement[0].policy).Statement : statement if statement.Action == "dynamodb:GetItem"]).Resource == aws_dynamodb_table.claims["dispatch"].arn &&
       jsondecode(aws_ecs_task_definition.setup_retirement[0].container_definitions)[0].readonlyRootFilesystem &&
+      alltrue([for policy in [aws_iam_role_policy.setup_retirement[0].policy, aws_iam_role_policy.observe_setup_retirement[0].policy] :
+        one([for statement in jsondecode(policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+          Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+          Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+        }
+      ]) &&
+      one([for statement in jsondecode(aws_iam_role_policy.observe_setup_retirement[0].policy).Statement : statement if statement.Action == "ecs:StopTask"]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.dispatch_setup_retirement[0].policy).Statement : statement if statement.Action == "ecs:RunTask"]).Resource == aws_ecs_task_definition.setup_retirement[0].arn &&
       output.setup_retirement_handoff.configuration == local.retirement_config
     )
     error_message = "Retirement must receive only its original setup key and independent administrator; no model, SQL, minting, or task-launch privilege may enter that task."
@@ -462,7 +494,7 @@ run "worker_custody_read_is_absent_without_declared_attempts" {
     error_message = "Unconfigured custody observation cannot grant IAM or task-definition reads."
   }
 }
-run "worker_custody_read_has_only_exact_declared_roles_and_families" {
+run "worker_custody_read_has_exact_roles_and_region_scoped_definition_read" {
   command = plan
   variables { worker_attempt_ids = ["p14-first", "p14-second"] }
   assert {
@@ -470,9 +502,9 @@ run "worker_custody_read_has_only_exact_declared_roles_and_families" {
       { Effect = "Allow", Action = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],
       Resource = ["arn:aws:iam::123456789012:role/honua-agent-p14-first-worker", "arn:aws:iam::123456789012:role/honua-agent-p14-second-worker"] },
       { Effect = "Allow", Action = "ecs:DescribeTaskDefinition",
-      Resource = ["arn:aws:ecs:us-east-1:123456789012:task-definition/honua-agent-p14-first:*", "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-agent-p14-second:*"] }
+      Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
     ] })
-    error_message = "Custody may read only the two declared worker policies/task families, without launch, secret, other-role or wildcard IAM authority."
+    error_message = "Custody must retain exact worker role reads and isolate the region-scoped task-definition wildcard without launch, secrets or wildcard IAM authority."
   }
 }
 run "worker_custody_attempt_cannot_expand_to_a_role_wildcard" {
@@ -539,4 +571,124 @@ run "reject_native_mutation_in_read_grants" {
     }
   }
   expect_failures = [var.native_bootstrap]
+}
+
+run "reject_native_studio_restore_wildcard" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["*"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+
+run "reject_native_studio_restore_duplicate" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["11111111-1111-1111-1111-111111111111", "11111111-1111-1111-1111-111111111111"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+
+run "reject_native_studio_restore_empty_guid" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["00000000-0000-0000-0000-000000000000"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+run "controller_model_runtime_and_counting_member_are_pinned" {
+  command = plan
+  variables {
+    controller_model_resource_arns = [
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.offline-v1:0"
+    ]
+    controller_model = {
+      modelId               = "us.anthropic.offline-v1:0", returnedModelId = "offline-v1",
+      profileArn            = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      tokenCountingModelArn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0",
+      profileSha256         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "bedrock:CountTokens"]) == {
+        Effect = "Allow", Action = "bedrock:CountTokens", Resource = [var.controller_model.tokenCountingModelArn]
+      } &&
+      local.controller_observation.model == var.controller_model &&
+      one([for row in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].environment : row.value if row.name == "TERMINAL_MODEL_NAME"]) == var.controller_model.modelId &&
+      jsondecode(one([for row in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].environment : row.value if row.name == "HONUA_CONTROLLER_MODEL_RUNTIME"])) == var.controller_model &&
+      !strcontains(aws_ecs_task_definition.fixture.container_definitions, "HONUA_CONTROLLER_MODEL_RUNTIME")
+    )
+    error_message = "Only the approved private controller may receive the exact profile/counting identity; CountTokens cannot cover profiles, other members or arbitrary models."
+  }
+}
+
+run "missing_model_runtime_grants_no_counting_or_model_environment" {
+  command = plan
+  assert {
+    condition = (
+      !strcontains(aws_iam_role_policy.controller.policy, "bedrock:CountTokens") &&
+      !strcontains(aws_ecs_task_definition.controller.container_definitions, "HONUA_CONTROLLER_MODEL_RUNTIME") &&
+      !can(local.controller_observation.model)
+    )
+    error_message = "An unconfigured model runtime cannot receive token-counting permission or an inferred model identity."
+  }
+}
+
+run "counting_member_cannot_be_an_unreviewed_model" {
+  command = plan
+  variables {
+    controller_model_resource_arns = ["arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0"]
+    controller_model = {
+      modelId               = "us.anthropic.offline-v1:0", returnedModelId = "offline-v1",
+      profileArn            = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      tokenCountingModelArn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.unrelated-v1:0",
+      profileSha256         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+  expect_failures = [var.controller_model]
 }

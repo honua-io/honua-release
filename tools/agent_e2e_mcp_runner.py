@@ -10,7 +10,7 @@ from agent_e2e_mcp import Client, McpError
 
 def run(action, config, seconds):
     fields = {'endpoint', 'credentialKind', 'credential', 'workflowView'}
-    if (not isinstance(config, dict) or not fields <= set(config) <= fields | {'agentContext'}
+    if (not isinstance(config, dict) or not fields <= set(config) <= fields | {'agentContext', 'executionContext'}
             or config['credential'] is not None and not isinstance(config['credential'], str)):
         raise McpError('invalid-agent-mcp-configuration')
     token_key = 'HONUA_AGENT_MCP_TOKEN'
@@ -23,7 +23,8 @@ def run(action, config, seconds):
         client = Client(config['endpoint'], credential_kind=config['credentialKind'],
             credential_env=token_key if config['credential'] is not None else None,
             workflow_view=config['workflowView'], timeout=min(seconds, 120),
-            **({'agent_context': config['agentContext']} if 'agentContext' in config else {}))
+            **({'agent_context': config['agentContext']} if 'agentContext' in config else {}),
+            **({'execution_context': config['executionContext']} if 'executionContext' in config else {}))
         client.initialize()
         if action['name'] == 'mcp_list_tools' and action['input'] == {}:
             payload['result'] = client.list_tools()

@@ -56,6 +56,12 @@ workflow; see [human enrollment](HUMAN-ENROLLMENT.md). No invitations are sent.
 Application grants, the independently scoped agent, and actual human sign-in
 and approval evidence remain separate requirements.
 The two configured Server admin-role slots contain only the approver group.
+The Server receives `Identity__RequiredManagedIssuers__0` from this pool's exact
+issuer, also used for SCIM. A compatible Server must require current managed
+issuer/subject membership before granting authority; Cognito group claims alone
+must not restore missing or inactive membership. This binding requires native
+missing-member refusal controls and the corresponding installed image before
+runtime qualification. Other deployments retain the native empty-list default.
 
 ## Saved-plan workflow
 
@@ -122,15 +128,45 @@ are public. Existing IaC foundation AWS secrets stay in its workflow runner;
 no foundation AWS credential is exported to release. The exact release-root SHA
 must be on reviewed trunk and configuration must be tracked in IaC trunk.
 
-Initial bootstrap keeps plan/apply in one source-reviewed ephemeral job. It
-first saves and checks a custody-only plan, applies that exact local plan,
-persists an encrypted versioned recovery copy, and migrates state into the new
-KMS-encrypted locked backend. No IAM/application phase starts until the remote
-state object is verified. The full foundation then uses that remote backend and
-another exact local saved plan. Plan-only mode publishes value-free review
-metadata; its binary is discarded. No binary plan, Terraform state or private
-log is ever uploaded to GitHub. Normal deployment remains the separate OIDC
-saved-plan workflow described above.
+The workflow selects exactly one phase: `custody-only` or
+`remote-backed-foundation`. `mode=plan` publishes value-free metadata and destroys
+its private binary. `mode=apply` prepares a fresh saved binary in one ephemeral
+job, publishes its metadata, and waits while a separate `terraform-live-approval`
+job obtains actual human review. That protected job emits a source/run/attempt,
+phase, configuration and plan-hash-bound receipt. The original runner verifies
+native job success and human review, applies only that original binary, and stops.
+It cannot silently replan, reuse an old plan-only artifact or continue into a
+second phase. The old combined `deploy` mode is refused before cloud operations.
+
+Initial custody apply persists encrypted, versioned recovery state and migrates
+it to the new KMS-encrypted locked backend. A distinct foundation dispatch then
+requires that secured canonical state and another exact saved-plan review.
+Foundation refuses custody updates, deletion or replacement. Original creation
+identity is independently checked on the retained KMS key and both buckets, its
+successful original producer and protected source; custody keeps those tags while
+new foundation resources use the current producer identity.
+
+Approval expires within twenty minutes of preparation; its separately reserved
+execution window is at most fifteen further minutes. Both are clipped to original
+funding/infrastructure expiry. The watchdog has no AWS credentials; its fixed
+helper can cancel only its own source-bound workflow on failure or expiry, using
+`actions:write` confined to that job. A timeout or interrupted apply retains all
+liabilities and recovery evidence; it never settles costs or claims qualification.
+No binary plan, Terraform state or private log is uploaded to GitHub. Normal
+application deployment remains the separate OIDC saved-plan workflow above.
+
+A successful custody completion is retained separately from its original creator
+under an immutable content-addressed key in the existing encrypted recovery
+prefix. If that creator failed, full foundation requires the independently
+successful recovery's original native plan, real human approval, admission and
+completed apply. The creator stays failed and its tags remain unchanged. Source
+compatibility is checked; unrelated or forged recovery metadata is refused.
+
+If custody reached canonical state but completion acknowledgement was lost,
+`custody-only` can reconcile that state through another reviewed plan containing
+only reads/no-ops, with no imports or physical infrastructure changes. It cannot
+retag or maintain custody. Its metadata/state writes retain the same original
+scope, funding holds and expiry; they do not settle costs or erase failed runs.
 
 A failed initial custody apply can leave resources. Actual state is written only
 to verified private, KMS-encrypted, versioned S3. Metadata-only recovery journals
@@ -238,3 +274,72 @@ task's source, caller, workspace, turn or execution checks. Empty operation list
 supply no such authority. Older configuration versions cannot silently acquire
 mutation permissions. Actual installed workflows and retained execution evidence
 remain required after issuance.
+
+### Explicit Studio restore authority
+
+The optional `native_bootstrap.studioRestoreItemIds` list names the exact items
+whose saved-version pointers the agent may propose restoring. Its default is
+empty; composition and publication grants never imply restoration permission.
+The reviewed bootstrap issues `agent:studio-restore:<item-guid>` only for this
+list, retains the requested grants before issuance, and checks the native
+effective-permission readback. Wildcards, duplicate IDs and the empty GUID are
+rejected. The setup and observer credentials receive no restore grant.
+
+The installed server must implement the guarded native restoration contract
+(honua-server#6532). A successful issuance or offline mock run is not a P13
+qualification: retain the actual original version/hash and pointer revision,
+separate human approval, native receipt and independent observed restoration.
+
+### Installed runtime credential issuance
+
+The optional `native_bootstrap.installedRuntime` object contains `runtimeId` and
+`mutationCeilings`. Supply it together with a fourth, dedicated
+`secretArns.control` destination. The existing three-key bootstrap keeps its
+original behavior when both are absent. Installation requires the authenticated
+original interactive funding record, and every issued key keeps that record's
+exact expiry. This operation cannot renew funding or reuse an earlier partial
+issuance.
+
+The control key receives exactly `admin:read` and
+`agent:runtime-control:<runtimeId>`. Only the private controller may receive its
+immutable secret version, through `HONUA_EXTERNAL_EXECUTION_CONTROL_KEY`; the
+model worker must never receive that credential, the setup key, or their custody
+permissions. Each key has a distinct native ID. Native effective-permission
+readback must confirm the issued ID and exact grants before completion.
+
+The five Boolean ceilings are `createMap`, `createDashboard`, `compose`,
+`proposePublication`, and `proposeRestore`. Each explicitly enabled ceiling
+adds its corresponding runtime-scoped permission to the task key. Restoration
+is independent of composition/publication. The additional
+`datasetImportScopes` and `managedProcessIds` arrays must exactly preserve the
+original bootstrap scopes. Existing item-scoped permissions remain unchanged;
+none of these permissions conveys human approval.
+
+Every installed task key also carries `agent:runtime-task:<runtimeId>`, including
+an import-only installation with all five Studio ceilings disabled. This marker
+grants no operation. The native server must use it to require the current
+registered task key and exact execution/workspace/turn/generation/capability
+binding on all resource paths; omitted headers or missing registration cannot
+fall back to static-key authority. Only fixed read-only installation metadata
+(target identity and that key's own effective permissions) is available before
+registration. The three-key bootstrap without `installedRuntime` is separate.
+
+Credential issuance ends at `registration-pending`, with `qualification: false`.
+Installation then follows this order:
+
+1. Authenticate the issued task key against the original target and effective
+   permissions, and retain its immutable MCP base secret as inactive.
+2. Apply the reviewed worker IaC to obtain the actual fixed task definition,
+   task role, image digest and MCP secret version.
+3. Use a separate privileged installation operation to register those observed
+   slots, the exact issued task/control IDs, original expiry and explicit ceilings
+   with the native server. A lost registration acknowledgement uses the original
+   registration GET; it does not authorize another mutation.
+4. Activate the controller only after the original native registration GET is
+   retained and verified. Native actor, owner and credential-version fields come
+   from that server; the producer must not reconstruct them from a key ID or a
+   secret. A Secrets Manager version is separate from a native credential version.
+
+The optional credential producer is only the first installation step. It does
+not itself create the worker infrastructure, register the runtime, dispatch a
+Console turn or qualify a live AI journey.

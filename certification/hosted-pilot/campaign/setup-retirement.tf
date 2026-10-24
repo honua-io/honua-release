@@ -97,7 +97,7 @@ resource "aws_iam_role_policy" "setup_retirement" {
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.state_table_arn, Condition = { "ForAllValues:StringEquals" = { "dynamodb:LeadingKeys" = [var.candidate_digest] } } },
     { Effect = "Allow", Action = "dynamodb:GetItem", Resource = aws_dynamodb_table.claims["dispatch"].arn },
     { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = ["arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-setup-key-retirement:*", "arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-campaign-controller:*"] },
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
     { Effect = "Allow", Action = "states:DescribeExecution", Resource = local.execution_pattern }
   ] })
 }
@@ -113,7 +113,7 @@ resource "aws_iam_role_policy" "observe_setup_retirement" {
   count = local.retirement_enabled ? 1 : 0
   role  = aws_iam_role.dispatcher.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = aws_ecs_task_definition.setup_retirement[0].arn },
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
     { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${aws_s3_bucket.handoff.arn}/native/setup-key-retirement/${local.candidate_hex}/*" }
   ] })

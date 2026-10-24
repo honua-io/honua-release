@@ -250,6 +250,28 @@ import authenticated bootstrap accounting; see the
 Those histories must live in durable controller-only storage across campaigns.
 Deleting both histories is not a valid retry or a fresh spending allowance.
 
+The default campaign remains $500/$50. An explicit `budgetPolicy` containing
+only the existing `policyId: "foss4g-ai-2026-owner-2000-200"` and the actual
+`priorLedgerDigest` binds the named $2,000/$200 amendment. The source `bootstrap`
+reference must also contain its original `sourceSha`, `runId`, `runAttempt` and
+`artifactDigest`. The checked freeze job downloads that exact release artifact
+and authenticates it through the existing bootstrap verifier without AWS
+authority. Frozen inputs retain its original bytes. A v2 original records an
+expected amendment, never a claim that durable accounting was already upgraded;
+execution and qualification still require the matching actual v3 amendment,
+same candidate and retained history. A source label cannot create an allowance.
+
+The named path admits a paid case only under its exact reviewed worker attempt
+ID and original absolute expiry, through the existing four-attempt ledger.
+Expiry or a lost reply never frees capacity. Model/action checks retain the
+admission, and release requires independent successful cleanup and settlement of
+every attempt liability, including model calls. An unresolved native job,
+artifact, cleanup or charge keeps the hold; whole-campaign teardown does not
+prove per-attempt retirement. Final qualification refuses active holds and
+requires each current amended receipt's original released admission. The full
+252-case inventory and qualification scope decision remain authoritative; the
+separate 134-case pilot is unchanged.
+
 Dynamic resource IDs require independently captured creation events and reviewed
 expectation resolution; that backend is not implemented here. The gate already
 rejects arbitrary observation blobs, missing assertions, altered corpus bytes,
@@ -291,6 +313,34 @@ and partition, unchanged source/context, independent agent readback, and the exa
 immutable MCP version. The old empty fixture-preparation path remains preparation.
 Missing native author projection, ordinary-human admission, real sign-in custody,
 linked workspace membership, or scoped grants blocks actual use.
+
+The first issued-key update must use the checked saved-plan deployment: review
+the actual bootstrap `apiKeyId` and immutable secret versions into
+`issued_native_keys`. The campaign application installs that exact agent principal
+on Server and that version on Console. Independently observe the applied task
+revisions and actual human/agent targets before creating or adopting the human
+turn. An earlier workspace paired to another key is not a substitute.
+
+The external model also needs a reviewed runtime binding. Campaign Terraform's
+optional `controller_model` contains `modelId`, `returnedModelId`, `profileArn`,
+`tokenCountingModelArn` and `profileSha256`. It must match the frozen producer
+model and the installed controller environment. The profile ARN and counting
+member come from original `GetInferenceProfile` bytes, never a profile-name
+conversion. `model-profile.json` retains the actual observed Sonnet 4.5 profile;
+it does not prove inference or token-counting availability. Reviewed pricing must
+bind its exact `{path, sha256}` as `model.profile`, plus `profileArn` and
+`tokenCountingModelArn`. The explicit counting ARN must be a profile member in
+the controller region. Token quotes use that ARN; inference keeps the original
+approved profile. Missing support or permission refuses without an estimated
+token fallback, another model, or another inference endpoint.
+
+Both the controller identity policy and its independent foundation boundary must
+allow `bedrock:CountTokens` on the exact reviewed regional foundation model.
+An unset runtime grants no counting permission on the controller. Rebuild the
+source-bound controller image after changing its entry/runtime contract, then
+use checked IaC to install the exact model environment and handoff. Required
+campaign inputs, pricing, handoff, actual human custody and worker configuration
+remain source-reviewed prerequisites; this profile record supplies none of them.
 
 A case may declare controller-only `consoleConversation: {nativeContext: {key,
 sha256}, workerMcp: {key, sha256}}`, where `workerMcp` refers to the original

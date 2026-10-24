@@ -28,6 +28,6 @@ resource "aws_iam_role_policy" "browser_observation" {
   role  = aws_iam_role.controller.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "ecs:DescribeServices", Resource = var.human_browser.consoleDeployment.serviceArn },
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = var.human_browser.consoleDeployment.taskDefinitionArn }
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
   ] })
 }
