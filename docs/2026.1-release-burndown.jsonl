@@ -1,2 +1,3 @@
 {"date": "2026-09-11", "observed_at": "2026-09-11T16:09:45Z", "open": {"2026.2": 20, "must-fix-before-cut": 122, "post-cut-hardening": 32, "prove-against-candidate": 27}}
 {"date": "2026-10-04", "observed_at": "2026-10-04T02:38:34Z", "open": {"2026.2": 17, "must-fix-before-cut": 74, "post-cut-hardening": 49, "prove-against-candidate": 34}}
+{"date": "2026-10-21", "observed_at": "2026-10-21T05:30:06Z", "open": {"2026.2": 17, "must-fix-before-cut": 65, "post-cut-hardening": 62, "prove-against-candidate": 45}}
