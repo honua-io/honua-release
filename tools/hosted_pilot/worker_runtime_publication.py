@@ -114,7 +114,12 @@ def verify_publication(binding, *, archive: bytes, index_raw: bytes | None,
         repository.get('full_name') == REPOSITORY and type(repository.get('id')) is int and repository['id'] > 0 and
         head_repository.get('full_name') == REPOSITORY and head_repository.get('id') == repository['id'],
         'worker publication was not the exact successful protected publisher')
-    comparison = read('compare/'+binding['sourceSha']+'...trunk')
+    branch = read('branches/trunk')
+    branch_sha = (branch.get('commit') or {}).get('sha')
+    require(branch.get('name') == 'trunk' and branch.get('protected') is True and
+        isinstance(branch_sha, str) and re.fullmatch(r'[a-f0-9]{40}', branch_sha),
+        'worker publication requires an observed protected trunk branch')
+    comparison = read('compare/'+binding['sourceSha']+'...'+branch_sha)
     require(comparison.get('status') in ('identical', 'ahead') and
         comparison.get('merge_base_commit', {}).get('sha') == binding['sourceSha'],
         'worker publication source is not a protected trunk ancestor')

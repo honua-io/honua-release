@@ -40,6 +40,7 @@ class WorkerRuntimePublication(unittest.TestCase):
                 for position, name in enumerate((publication.BUILD_STEP, publication.RETAIN_STEP), start=6)]}
         self.jobs = {'total_count': 1, 'jobs': [self.job]}
         self.comparison = {'status': 'ahead', 'merge_base_commit': {'sha': self.source}}
+        self.branch = {'name': 'trunk', 'protected': True, 'commit': {'sha': 'f'*40}}
         self.artifact = {'id': 99, 'name': 'hosted-pilot-worker-image-42-2', 'digest': '', 'expired': False,
             'size_in_bytes': 0, 'workflow_run': {'id': 42, 'head_sha': self.source, 'head_branch': 'trunk',
                 'repository_id': 123, 'head_repository_id': 123}}
@@ -70,7 +71,8 @@ class WorkerRuntimePublication(unittest.TestCase):
         if endpoint == 'actions/runs/42/attempts/2': return copy.deepcopy(self.run)
         if endpoint == 'actions/runs/42/attempts/2/jobs?per_page=100': return copy.deepcopy(self.jobs)
         if endpoint == 'actions/artifacts/99': return copy.deepcopy(self.artifact)
-        if endpoint == 'compare/'+self.source+'...trunk': return copy.deepcopy(self.comparison)
+        if endpoint == 'branches/trunk': return copy.deepcopy(self.branch)
+        if endpoint == 'compare/'+self.source+'...'+'f'*40: return copy.deepcopy(self.comparison)
         self.fail('unexpected network endpoint: '+endpoint)
 
     def verify(self, **kwargs):
@@ -84,9 +86,9 @@ class WorkerRuntimePublication(unittest.TestCase):
         self.assertEqual(value['index'], self.index)
         self.assertEqual(value['producer']['jobId'], 43)
         self.assertEqual(value['producer']['artifactDigest'], digest_bytes(self.archive))
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 5)
         self.assertTrue(all('/zip' not in path and '/contents/' not in path for path in self.calls))
-        self.assertEqual(self.guard.call_count, 10)
+        self.assertEqual(self.guard.call_count, 12)
         self.assertEqual(publication.publication_originals(self.archive)[publication.INDEX_FILE], self.index_raw)
 
     def test_protected_ancestor_is_supported_without_whole_commit_equality(self):
@@ -101,6 +103,15 @@ class WorkerRuntimePublication(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'trunk ancestor'):
                 self.verify()
             self.comparison = original
+
+    def test_missing_protection_or_mutable_trunk_identity_refuses(self):
+        for change in ({'protected': False}, {'protected': None}, {'name': 'other'},
+            {'commit': {'sha': 'trunk'}}, {'commit': {}}):
+            original = copy.deepcopy(self.branch)
+            self.branch.update(change)
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'observed protected trunk'):
+                self.verify()
+            self.branch = original
 
     def test_workflow_source_run_attempt_event_and_fork_refuse(self):
         for change in ({'id': 41}, {'run_attempt': 1}, {'head_sha': 'e'*40}, {'head_branch': 'feature'},
@@ -209,7 +220,7 @@ class WorkerRuntimePublication(unittest.TestCase):
                 self.verify()
 
     def test_funding_or_authority_loss_ends_verification_at_each_boundary(self):
-        for boundary in range(1, 11):
+        for boundary in range(1, 13):
             self.guard = Mock(side_effect=[None]*(boundary-1)+[ValueError('original authority lost')])
             with self.subTest(boundary=boundary), self.assertRaisesRegex(ValueError, 'original authority lost'):
                 self.verify()
