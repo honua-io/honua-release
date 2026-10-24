@@ -254,6 +254,8 @@ def test_actual_task_cannot_override_checked_command_environment_roles_or_resour
 @pytest.mark.parametrize('lost_ack,wrong_principal', [(False, False), (True, False), (False, True)])
 def test_real_first_bind_joins_worker_sqlite_native_http_and_original_slot_claims(
         runtime, slot, server, tmp_path, monkeypatch, lost_ack, wrong_principal):
+    import agent_e2e_worker as request_budgets
+    monkeypatch.setattr(request_budgets, '_installed_sqs_calls', {})
     from agent_e2e_installed_container import InstalledBinding, native_binding_ack, native_binding_read
     iam, _, boundary = role_fixture()
     role_name = slot.config['taskRoleArn'].rsplit('/', 1)[1]
@@ -337,6 +339,7 @@ def test_real_first_bind_joins_worker_sqlite_native_http_and_original_slot_claim
             recovered = ExecutionJournal(runtime.durable, original(runtime))
             assert driver._binding(recovered, slot.worker, original(runtime), physical, 'a'*64)['value']['workerBinding'] == observed['value']['workerBinding']
         assert ack_calls == [E] and len(sends) == 1
+        assert list(request_budgets._installed_sqs_calls.values()) == [2 if wrong_principal else 3]
         assert len([row for row in server.seen if row[0] == 'POST' and row[1].endswith('/worker-binding')]) == 1
         assert not driver.model.client.invoke_model.called
     finally:
