@@ -112,6 +112,14 @@ def valid_agent_pack(summary: Any, binding: str | None = None) -> bool:
         return False
     try:
         from decimal import Decimal
+        from agent_e2e_campaign_budget import manifest_policy
+        # The authenticated gate already replayed the original funding history.
+        # Preserve its exact named policy; an arbitrary declared ceiling grants
+        # no allowance. Older unamended summaries retain the $500 default.
+        budget = {'totalBudgetUsd': summary.get('totalBudgetUsd', 500)}
+        if 'budgetPolicy' in summary:
+            budget['budgetPolicy'] = summary['budgetPolicy']
+        manifest_policy(budget)
         identity = summary['controller']
         hashes = ('packDigest', 'corpusDigest', 'componentBindingDigest', 'qualificationLockDigest',
                   'campaignDigest', 'inventoryDigest')
@@ -134,7 +142,8 @@ def valid_agent_pack(summary: Any, binding: str | None = None) -> bool:
                 and all(type(identity[k]) is int and identity[k] > 0 for k in ('runId', 'runAttempt'))
                 and Decimal(str(summary['totalCostUsd'])).is_finite()
                 and Decimal(str(summary['candidateLiabilityUsd'])).is_finite()
-                and Decimal(0) <= Decimal(str(summary['totalCostUsd'])) <= Decimal(str(summary['candidateLiabilityUsd'])) <= 500)
+                and Decimal(0) <= Decimal(str(summary['totalCostUsd'])) <=
+                    Decimal(str(summary['candidateLiabilityUsd'])) <= Decimal(str(budget['totalBudgetUsd'])))
     except (ValueError, KeyError, TypeError, ArithmeticError):
         return False
 

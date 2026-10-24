@@ -111,6 +111,36 @@ def test_agent_pack_missing_or_wrong_component_cannot_declare_pass(inputs):
     assert rebound['evidenceReceipts']['agent-e2e']['status'] == 'fail'
 
 
+@pytest.mark.parametrize('change', [None, 'no-policy', 'no-ceiling', 'unknown-policy',
+    'wrong-ceiling', 'wrong-history', 'missing-original', 'wrong-path', 'bad-observation',
+    'excess', 'wrong-binding', 'nonfinite', 'legacy-excess', 'null-policy'])
+def test_agent_pack_promotion_honors_only_bound_budget_amendment(inputs, change):
+    from agent_e2e_budget import FOSS4G_POLICY
+    report, paths = inputs
+    lock = paths[0].parent / 'qualification-lock.json'
+    summary = agent_summary(lock, report['generatedAt'])
+    summary.update(totalBudgetUsd=2000, totalCostUsd='600', candidateLiabilityUsd='650',
+        budgetPolicy={'policyId': FOSS4G_POLICY, 'priorLedgerDigest': 'sha256:' + 'd' * 64,
+                      'original': {'path': 'budget-bootstrap-original.json', 'sha256': 'sha256:' + 'e' * 64},
+                      'amendmentObservedAtFreeze': False})
+    if change == 'no-policy': summary.pop('budgetPolicy')
+    elif change == 'no-ceiling': summary.pop('totalBudgetUsd')
+    elif change == 'unknown-policy': summary['budgetPolicy']['policyId'] = 'caller-approved'
+    elif change == 'wrong-ceiling': summary['totalBudgetUsd'] = 3000
+    elif change == 'wrong-history': summary['budgetPolicy']['priorLedgerDigest'] = 'unbound'
+    elif change == 'missing-original': summary['budgetPolicy'].pop('original')
+    elif change == 'wrong-path': summary['budgetPolicy']['original']['path'] = '../other.json'
+    elif change == 'bad-observation': summary['budgetPolicy']['amendmentObservedAtFreeze'] = 1
+    elif change == 'excess': summary['candidateLiabilityUsd'] = '2000.01'
+    elif change == 'wrong-binding': summary['componentBindingDigest'] = 'sha256:' + '0' * 64
+    elif change == 'nonfinite': summary['candidateLiabilityUsd'] = 'NaN'
+    elif change == 'legacy-excess':
+        summary.pop('budgetPolicy'); summary.pop('totalBudgetUsd')
+    elif change == 'null-policy': summary['budgetPolicy'] = None
+    declared = nightly.declare_evidence(report, lock, [], summary)
+    assert declared['evidenceReceipts']['agent-e2e']['status'] == ('pass' if change is None else 'fail')
+
+
 SOURCE = 'f' * 40
 RUN = '4242'
 # The candidate fixture (test_platform_lock_bundle) declares this one fixture repository.
