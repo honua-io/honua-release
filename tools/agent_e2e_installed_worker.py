@@ -160,11 +160,16 @@ class InstalledSlot:
     def inspect(self):
         c = self.config
         definition = self.states.describe_state_machine(stateMachineArn=c['stateMachineArn'])
+        response = self.ecs.describe_task_definition(taskDefinition=c['taskDefinitionArn'])
+        return self._validate_installation(definition, response)
+
+    def _validate_installation(self, definition, response):
+        c = self.config
+        require(isinstance(definition, dict) and isinstance(response, dict), 'original worker installation is malformed')
         require(definition.get('stateMachineArn') == c['stateMachineArn'] and definition.get('roleArn') == c['stateMachineRoleArn'] and
                 definition.get('status') == 'ACTIVE' and definition.get('type') == 'STANDARD' and
                 terraform_definition_digest(definition.get('definition')) == c['definitionDigest'],
                 'installed lifecycle differs from reviewed source')
-        response = self.ecs.describe_task_definition(taskDefinition=c['taskDefinitionArn'])
         task = response.get('taskDefinition', {})
         containers = task.get('containerDefinitions', [])
         require(task.get('taskDefinitionArn') == c['taskDefinitionArn'] and task.get('taskRoleArn') == c['taskRoleArn'] and
@@ -196,7 +201,16 @@ class InstalledSlot:
         journal.durable._require_live_lease()
         self._authorize(journal, launch)
         require(not journal.values('worker-intent'), 'worker already intended; reconcile original execution without relaunch')
-        journal.append('worker-installation-observation', self.inspect())
+        observed = self.inspect()  # Always recheck the current pinned resources.
+        prior = journal.values('worker-installation-observation')
+        if prior:
+            require(len(prior) == 1 and isinstance(prior[0], dict) and set(prior[0]) == {'lifecycle', 'taskDefinition'},
+                'original worker installation observation is ambiguous')
+            self._validate_installation(prior[0]['lifecycle'], prior[0]['taskDefinition'])
+            # Keep the first actual original. Fresh SDK RequestIds/timestamps do
+            # not replace it or create an ambiguous second installation receipt.
+        else:
+            journal.append('worker-installation-observation', observed)
         require(self.clock() < self.input['expiresEpoch'], 'original native worker admission expired')
         journal.append('worker-intent', launch)
         self._authorize(journal, launch)
