@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import urllib.error
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -163,6 +164,10 @@ def installed(server, tmp_path, interactive):
         'slotId': 'slot-original', 'executionId': E, 'workspaceId': 'workspace-original', 'turnId': 'turn-original',
         'claimGeneration': 1, 'expiresEpoch': now+600, 'workerId': TASK, 'nativeBindingDigest': BASIS, 'capability': CAP}
     expected = {'schemaVersion': 1, **{k: v for k, v in value.items() if k not in ('protocol', 'capability')}, 'state': 'running'}
+    expected['context'] = {'workspaceId': 'workspace-original', 'targetId': 'target-original', 'viewId': 'view-original',
+        'revision': 9007199254740993, 'selectedResources': []}
+    expected['contextDigest'] = canonical_digest(expected['context'])
+    expected['acknowledgement'] = {'actorId': 'original-native-task-actor', 'credentialVersion': 'original-native-key-version'}
     server.respond = lambda *args: (200, {}, json.dumps(expected).encode())
     binding = InstalledBinding(configuration, mcp, tmp_path/'binding.sqlite', worker_id=TASK)
     yield SimpleNamespace(binding=binding, value=value, expected=expected, path=tmp_path/'binding.sqlite')
@@ -174,7 +179,8 @@ def test_actual_private_first_bind_replays_same_native_authority_without_rebindi
     reply = installed.binding.accept(installed.value)
     replay = installed.binding.accept(copy.deepcopy(installed.value))
     assert reply['workerId'] == replay['workerId'] == TASK
-    assert len(server.seen) == 2
+    assert [row[0] for row in server.seen] == ['POST', 'GET', 'GET']
+    assert server.seen[0][3] == b'{}'
     headers = {k.lower(): v for k, v in server.seen[0][2].items()}
     assert headers['x-honua-execution-capability'] == CAP and headers['x-honua-worker'] == TASK
     assert CAP not in json.dumps(reply)
@@ -183,7 +189,49 @@ def test_actual_private_first_bind_replays_same_native_authority_without_rebindi
     assert private['executionContext']['executionId'] == E
     changed = copy.deepcopy(installed.value); changed['executionId'] = 'execution-'+'5'*32
     with pytest.raises(PackError, match='cannot rebind'): installed.binding.accept(changed)
-    assert len(server.seen) == 2 and installed.path.stat().st_mode & 0o777 == 0o600
+    assert len(server.seen) == 3 and installed.path.stat().st_mode & 0o777 == 0o600
+
+
+def test_lost_actual_native_ack_reply_recovers_by_get_without_post_replay(installed, server, monkeypatch):
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    acknowledged = []
+    def respond(method, path, body):
+        if method == 'POST':
+            acknowledged.append(body)
+            return None  # Actual HTTP socket closes after the native effect.
+        assert acknowledged == [b'{}']
+        return 200, {}, json.dumps(installed.expected).encode()
+    server.respond = respond
+    installed.binding.accept(installed.value)
+    installed.binding.accept(installed.value)
+    assert [row[0] for row in server.seen] == ['POST', 'GET', 'GET']
+    assert installed.binding.db.execute('SELECT COUNT(*) FROM native_ack_intent').fetchone()[0] == 1
+    persisted = '\n'.join(installed.binding.db.iterdump())
+    assert CAP not in persisted and installed.binding.mcp['credential'] not in persisted
+
+
+def test_actual_ack_credential_refusal_is_not_reclassified_as_lost_reply(installed, server, monkeypatch):
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    server.respond = lambda *_: (401, {}, b'{"code":"credential_refused"}')
+    with pytest.raises(urllib.error.HTTPError) as error:
+        installed.binding.accept(installed.value)
+    assert getattr(error.value, 'code', None) == 401
+    assert [row[0] for row in server.seen] == ['POST']
+    assert installed.binding.binding is None and 'HONUA_AGENT_MCP_CONFIG' not in os.environ
+
+
+def test_changed_native_context_after_ack_blocks_private_mcp_installation(installed, server, monkeypatch):
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    def respond(method, *_):
+        body = copy.deepcopy(installed.expected)
+        if method == 'GET':
+            body['context']['viewId'] = 'unrelated-new-context'
+            body['contextDigest'] = canonical_digest(body['context'])
+        return 200, {}, json.dumps(body).encode()
+    server.respond = respond
+    with pytest.raises(PackError, match='context changed'):
+        installed.binding.accept(installed.value)
+    assert installed.binding.binding is None and 'HONUA_AGENT_MCP_CONFIG' not in os.environ
 
 
 def test_bind_specific_bound_does_not_reject_a_valid_large_mcp_command(installed):
@@ -215,12 +263,14 @@ def test_installed_worker_keeps_capability_off_disk_and_cannot_start_an_untruste
     executor.db.close()
 
 
-@pytest.mark.parametrize('change', ['worker', 'turn', 'capability-echo', 'claim-generation'])
+@pytest.mark.parametrize('change', ['worker', 'turn', 'capability-echo', 'claim-generation', 'context-digest', 'acknowledgement'])
 def test_first_bind_refuses_foreign_native_projection_and_disclosed_capability(installed, server, monkeypatch, change):
     monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
     if change == 'worker': installed.expected['workerId'] = TASK[:-1]+'3'
     elif change == 'turn': installed.expected['turnId'] = 'other'
     elif change == 'claim-generation': installed.expected['claimGeneration'] = 2
+    elif change == 'context-digest': installed.expected['contextDigest'] = 'sha256:'+'f'*64
+    elif change == 'acknowledgement': installed.expected.pop('acknowledgement')
     else: installed.expected['echo'] = CAP
     with pytest.raises(ValueError): installed.binding.accept(installed.value)
     assert installed.binding.binding is None and 'HONUA_AGENT_MCP_CONFIG' not in os.environ

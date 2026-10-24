@@ -43,7 +43,7 @@ class Objects:
 
 
 @pytest.fixture
-def witness(slot, runtime, server, tmp_path, monkeypatch):
+def witness(slot, runtime, server, tmp_path, monkeypatch, request):
     monkeypatch.setenv('WITNESS_REGISTRATION_FIXTURE_KEY', 'private-observer-fixture-'+'8'*32)
     objects = Objects()
     body = runtime.value
@@ -52,8 +52,11 @@ def witness(slot, runtime, server, tmp_path, monkeypatch):
         'slotId': slot.config['slotId'], 'executionId': E, 'workspaceId': 'workspace-original', 'turnId': 'turn-original',
         'claimGeneration': 1, 'expiresEpoch': slot.launch['input']['expiresEpoch'],
         'workerId': slot.ecs.task['taskArn'], 'nativeBindingDigest': BASIS,
+        'context': copy.deepcopy(body['binding']['turn']['context']),
         'contextDigest': canonical_digest(body['binding']['turn']['context']),
         'acknowledgement': {'actorId': 'actual-task-fixture', 'credentialVersion': 'actual-key-version-fixture'}}
+    if getattr(request, 'param', None) == 'wrong-task-context':
+        worker_binding['context']['viewId'] = 'not-the-acknowledged-original'
     body['workerBinding'] = worker_binding
     body['execution']['state'] = 'running'
     registered_slot = {'slotId': slot.config['slotId'], 'clusterArn': slot.config['clusterArn'],
@@ -154,6 +157,12 @@ def test_human_response_text_uses_python_canonicalization_without_js_number_roun
     assert human_context_digest('{"context":{"value":1.0,"unicode":"😀"}}') == canonical_digest({'value': 1.0, 'unicode': '😀'})
     assert human_context_digest('{"context":{"value":1.0}}') != human_context_digest('{"context":{"value":1}}')
     with pytest.raises(PackError): human_context_digest('{"context":{"value":1,"value":1.0}}')
+
+
+@pytest.mark.parametrize('witness', ['wrong-task-context'], indirect=True)
+def test_original_http_task_ack_context_must_match_its_own_digest(witness):
+    with pytest.raises(PackError, match='task-authenticated native context'):
+        project_execution(witness.reference, **witness.options)
 
 
 @pytest.mark.parametrize('change', ['human-context', 'human-execution', 'snapshot-hash', 'missing-worker-ack',
