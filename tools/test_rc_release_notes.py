@@ -25,6 +25,20 @@ def test_rc_notes_say_2026_1_is_not_a_safe_rollback_target():
     assert "no release-named immutable tag" in text
 
 
+def test_rc_notes_require_both_ai_gates_without_turning_failed_evidence_into_qualification():
+    gate_record = "| gate-agent-e2e | fail |\n| terminal-model-canary | pass |"
+    text = notes.render({"components": {}}, gate_record, "2026.1-rc.4", None, None, [])
+    assert "Both AI gates, `gate-agent-e2e` and `terminal-model-canary`, are mandatory for this RC" in text
+    assert "An incomplete campaign producer does not exempt either gate" in text
+    assert gate_record in text
+    assert "selected immutable candidate" in text
+    assert "honua-release#883" in text
+    uncertified = text.split("## Not certified in this candidate", 1)[1].split("## Known gaps", 1)[0]
+    assert "AI agent end-to-end campaign" not in uncertified
+    assert "terminal-model-canary" not in uncertified
+
+
 if __name__ == "__main__":
     test_rc_notes_say_2026_1_is_not_a_safe_rollback_target()
+    test_rc_notes_require_both_ai_gates_without_turning_failed_evidence_into_qualification()
     print("PASS test_rc_notes_say_2026_1_is_not_a_safe_rollback_target")
