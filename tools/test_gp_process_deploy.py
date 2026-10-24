@@ -537,3 +537,69 @@ def test_live_gp_dependency_resolution_is_separate_and_hash_locked():
         assert len(installs) == 1 and "--no-index" in installs[0] and "--require-hashes" in installs[0] and "--only-binary=:all:" in installs[0]
     requirements = (repo/"tools/requirements-gp.txt").read_text()
     assert ">=" not in requirements and "--hash=sha256:" in requirements
+
+
+@pytest.mark.parametrize("scratch", [None,50,100,200])
+def test_supported_checked_iac_customcode_definition_remains_admissible_without_rewriting(docs, scratch):
+    lock, _, _, _, _ = docs
+    fixture = gate.load_json(FIXTURES/"iac-customcode-definition.json")
+    assert fixture["qualification"] is False
+    definition = copy.deepcopy(fixture["definition"])
+    if scratch is not None: definition["containerProperties"]["ephemeralStorage"] = {"sizeInGiB":scratch}
+    lock["targets"][0]["jobDefinitionName"] = definition["jobDefinitionName"]
+    original = copy.deepcopy(definition)
+    calls=[]
+    def aws(args):
+        calls.append(args)
+        return {"jobDefinitions":[definition]}
+    assert deploy.verify_definition(lock,{"jobDefinitionArn":definition["jobDefinitionArn"]},aws=aws) == {
+        "kind":"aws-batch","jobDefinitionArn":definition["jobDefinitionArn"]}
+    assert definition == original
+    assert calls == [["batch","describe-job-definitions","--job-definitions",definition["jobDefinitionArn"]]]
+    assert definition["retryStrategy"] == {"attempts":1} and definition["timeout"] == {"attemptDurationSeconds":3600}
+
+
+@pytest.mark.parametrize("wrong_bytes", [False,True])
+def test_supported_native_output_http_shape_checks_independent_bytes(docs, wrong_bytes):
+    lock, _, _, _, _ = docs
+    expected=b'{"count":1}\n'
+    expected_hash="sha256:"+hashlib.sha256(expected).hexdigest()
+    fixture={"params":{"distance":5},"declaredScope":[],"expectedArtifacts":[
+        {"label":"summary.json","sha256":expected_hash,"maxBytes":4096}]}
+    requests=[]
+    class NativeContract(BaseHTTPRequestHandler):
+        def log_message(self,*args):pass
+        def reply(self,value):
+            raw=json.dumps(value).encode();self.send_response(200);self.send_header("Content-Length",str(len(raw)))
+            self.end_headers();self.wfile.write(raw)
+        def do_POST(self):
+            requests.append(("POST",self.path,self.headers.get("X-API-Key")))
+            assert self.path == deploy.BASE+"/bindings/"+lock["process"]["name"]+"/jobs"
+            assert self.headers.get("Idempotency-Key") == "independent-smoke"
+            assert json.loads(self.rfile.read(int(self.headers["Content-Length"]))) == {"params":{"distance":5},"declaredScope":[]}
+            self.reply({"jobId":"job-1"})
+        def do_GET(self):
+            requests.append(("GET",self.path,self.headers.get("X-API-Key")))
+            if self.path.endswith("/diagnostics"):
+                self.reply({"jobId":"job-1","release":{"lockDigest":gate.digest(lock),"sourceRef":lock["source"]["sha"],
+                    "processRelease":lock["process"]["name"],"bindingVersion":"4"}})
+            elif self.path.endswith("/artifacts?limit=100"):
+                self.reply({"jobId":"job-1","items":[{"label":"summary.json","availability":"available",
+                    "providerLink":"/api/geoprocessing/jobs/job-1/custom-artifacts/summary.json"}]})
+            elif self.path == "/api/geoprocessing/jobs/job-1/custom-artifacts/summary.json":
+                raw=b"unexpected" if wrong_bytes else expected
+                self.send_response(200);self.send_header("Content-Length",str(len(raw)));self.end_headers();self.wfile.write(raw)
+            else:
+                assert self.path == "/api/v1/admin/jobs/job-1"
+                self.reply({"jobId":"job-1","status":"Completed"})
+    server=ThreadingHTTPServer(("127.0.0.1",0),NativeContract);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        client=deploy.Client(f"http://127.0.0.1:{server.server_port}","private-test-key",allow_loopback_http=True)
+        if wrong_bytes:
+            with pytest.raises(deploy.DeploymentError,match="independently committed expectation"):
+                deploy.smoke(client,lock,{"bindingVersion":4},fixture,"independent-smoke")
+        else:
+            assert deploy.smoke(client,lock,{"bindingVersion":4},fixture,"independent-smoke")["artifacts"] == [{"label":"summary.json","sha256":expected_hash}]
+        assert all(key == "private-test-key" for _,_,key in requests) and len(requests) == 5
+    finally:
+        server.shutdown();server.server_close();thread.join(timeout=5)

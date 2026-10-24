@@ -54,8 +54,8 @@ exactly as above; the summary says no process was built.
 Dispatch with the environment, process, release run id, artifact name and the digest you expect.
 The workflow downloads the artifact, verifies its attestation, refuses if the bytes digest to
 anything else, copies the lock to `release/gp-process-locks/<process>/<12 hex>.json`, writes the
-pin with `previous` = the pin currently merged (the rollback target) and
-`expectedBindingVersion` = the environment's recorded binding version, validates pin against
+pin with `previous` = the verified live release and `expectedBindingVersion` = its current
+native version, validates pin against
 lock, and opens a pull request. The PR body carries the digests. Set the `RELEASE_GH_TOKEN`
 secret so the PR gets its `validate` check (a PR opened with the default token triggers no
 workflows).
@@ -84,8 +84,11 @@ Live custom-code deployment supports `deploymentTooling.kind: aws-batch` (ADR-00
 IaC must first provision the exact immutable revision and register its image/revision in the
 server's custom-code workload configuration. The workflow **describes and verifies** this
 revision; it never creates an image-only replacement that loses compute, role or retry settings.
-It requires Fargate, no task IAM role, and no ambient credential environment/secrets. The
-provider execution role remains provider-owned. Built-in Helm worker deployment is a separate
+It requires Fargate, no task IAM role, empty definition environment/secrets, and no
+mounted/shared storage or additional registry/logging secret channels. These checks match
+the maintained IaC custom-code pool, including its scratch-storage tiers; the native server
+still supplies its job-scoped broker parameters at submission. The provider execution role
+remains provider-owned. Built-in Helm worker deployment is a separate
 path; a custom-code release with Kubernetes targets is refused before activation.
 
 For a real environment, configure its GitHub Environment with `HONUA_GP_SERVER_URL` (HTTPS),
@@ -151,7 +154,10 @@ the release of jobs already admitted.
 
 Rollback additionally requires the live current and previous digests to match the reviewed pin,
 then uses the freshly read live version for compare-and-set. After a successful rollback, promote
-again from the observed live state; server binding history records the activation.
+again from the observed live state. Promotion accepts the reviewed previous release only
+when the native reverse lineage points back to the reviewed forward release, and records
+that live predecessor/version in the next pin PR. Unknown lineage is refused; later concurrent
+changes still fail deployment CAS. Server binding history records the activation.
 
 ## Reference environment
 
