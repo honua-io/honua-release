@@ -1,6 +1,9 @@
 """Execute the gate's invocation boundary; these fixtures do not qualify a campaign."""
 import os
+import json
+from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -84,3 +87,55 @@ def test_standalone_off_trunk_refuses_before_candidate_download(tmp_path):
                             env={**os.environ, 'GITHUB_REF': 'refs/heads/topic'}, cwd=tmp_path)
     assert result.returncode != 0
     assert 'only from refs/heads/trunk' in result.stdout
+
+
+@pytest.mark.parametrize('signal', ['failure', 'cancelled', 'skipped'])
+def test_early_agent_refusal_retains_actual_train_failure_report(tmp_path, signal):
+    report = workflow('release-train.yml')['jobs']['report']
+    assemble = step(report, 'Assemble platform gate-report')
+    exceptions = Path(__file__).resolve().parents[1] / 'certification/gate-exceptions.yaml'
+    (tmp_path / 'certification').mkdir()
+    (tmp_path / 'certification/gate-exceptions.yaml').write_bytes(exceptions.read_bytes())
+    (tmp_path / 'bin').mkdir()
+    (tmp_path / 'bin/python').symlink_to(sys.executable)
+    env = {**os.environ, **{key: 'success' for key in assemble['env'] if key.startswith('S_')},
+           'PATH': str(tmp_path / 'bin') + os.pathsep + os.environ['PATH'],
+           'S_AGENT_E2E': signal, 'DRY_RUN': 'false', 'PLATFORM_LABEL': '2026.1-rc.1',
+           'RUN_URL': 'https://github.com/honua-io/honua-release/actions/runs/4241',
+           'GITHUB_OUTPUT': str(tmp_path / 'output'), 'GITHUB_STEP_SUMMARY': str(tmp_path / 'summary')}
+    result = subprocess.run(['bash'], input=assemble['run'], text=True, capture_output=True,
+                            env=env, cwd=tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    original = json.loads((tmp_path / 'out/gate-report.json').read_text())
+    assert original['overallStatus'] in ('fail', 'blocked')
+    assert next(row for row in original['gates'] if row['gate'] == 'agent-e2e')['status'] != 'pass'
+    context = {'inputs.nightly': True, 'inputs.dry_run': False,
+               'steps.assemble.outputs.overall': original['overallStatus']}
+    healthy, uploaded = True, False
+    for current in report['steps'][report['steps'].index(assemble) + 1:]:
+        if not evaluate(current.get('if', 'true'), context, needs_ok=healthy):
+            continue
+        if current.get('with', {}).get('name') == 'agent-e2e-gate-report':
+            # Authentication failed before any campaign summary was uploaded.
+            # A named download of that absent artifact fails the Actions step.
+            healthy = False
+        if current.get('with', {}).get('name') == 'platform-gate-report':
+            assert (tmp_path / current['with']['path']).is_file()
+            uploaded = True
+    assert uploaded, 'An absent agent summary must not discard the assembled failed train report'
+    assert not evaluate(step(report, 'Bind the report')['if'], context)
+    assert not evaluate(step(report, 'Upload the certified candidate')['if'], context)
+    enforce = subprocess.run(['bash'], input=step(report, 'Enforce +')['run'], text=True,
+                             capture_output=True, cwd=tmp_path,
+                             env={**env, 'OVERALL': original['overallStatus']})
+    assert enforce.returncode != 0
+
+
+def test_passing_nightly_still_requires_authenticated_agent_summary():
+    report = workflow('release-train.yml')['jobs']['report']
+    context = {'inputs.nightly': True, 'inputs.dry_run': False, 'steps.assemble.outputs.overall': 'pass'}
+    download = step(report, 'Download authenticated agent E2E')
+    assert evaluate(download['if'], context)
+    assert download['with']['name'] == 'agent-e2e-gate-report'
+    assert not download.get('continue-on-error', False)
+    assert '--agent-e2e-summary agent-e2e-report/agent-e2e-summary.json' in step(report, 'Bind the report')['run']
