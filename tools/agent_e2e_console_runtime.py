@@ -19,6 +19,7 @@ from agent_e2e_interactive_budget import validate_retained_funding
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_setup_http import SetupHttp
 from agent_e2e_execution_protocol import require, identifier, execution_id, digest
+from agent_e2e_semantics import validate_response
 
 CONTROL_ENV = 'HONUA_EXTERNAL_EXECUTION_CONTROL_KEY'
 STATES = {'queued', 'claimed', 'running', 'awaiting-input', 'awaiting-approval', 'interrupted', 'completed', 'failed'}
@@ -90,7 +91,15 @@ class NativeControl:
             step = operation+'-'+str(len(records))
         scope = canonical_digest(identity)
         def retain(kind, selected, value):
-            self.authorize(reconcile=reconcile)
+            if kind == 'intent':
+                self.authorize(reconcile=reconcile)
+            else:
+                # A real reply remains evidence if the funding deadline passed
+                # while it was on the wire. It cannot authorize another call.
+                self.durable._require_live_lease()
+                original = records.get(value.get('intentReference', {}).get('key'))
+                require(isinstance(original, dict) and canonical_digest(original) == value.get('intentDigest'),
+                        'native reply lacks its unchanged original intent')
             key = canonical_digest({'scope': scope, 'kind': kind, 'step': selected})
             require(key not in records, 'original native control intent already exists; reconcile without resending')
             records[key] = copy.deepcopy(value)
@@ -158,20 +167,23 @@ class NativeControl:
             execution=value['execution']['executionId'], reconcile=True)
 
 
-EVENTS = {'native-observation', 'admission', 'reservation', 'worker-intent', 'worker-observation',
-          'model-intent', 'model-response', 'action-intent', 'action-response', 'question-intent',
+EVENTS = {'native-observation', 'admission', 'reservation', 'worker-intent', 'worker-start-response', 'worker-history',
+          'worker-observation', 'loop-binding',
+          'model-quote', 'model-intent', 'provider-response', 'model-response', 'action-intent', 'action-response', 'question-intent',
           'question-observation', 'final-response-intent', 'final-response-observation', 'effect-observation',
           'fence-observation', 'retirement-observation', 'settlement', 'slot-release-observation'}
 
 
 def validate_execution_history(record):
     fields = {'schema', 'candidateKey', 'runtimeId', 'executionId', 'workspaceId', 'turnId', 'targetId',
-              'requestDigest', 'runtimeBindingDigest', 'nativeOriginal', 'events'}
+              'requestDigest', 'runtimeBindingDigest', 'endpoint', 'nativeOriginal', 'events'}
     require(isinstance(record, dict) and set(record) == fields and
             record['schema'] == 'honua.workspace-execution-journal/v1', 'invalid retained original execution journal')
     digest(record['candidateKey']); execution_id(record['executionId'])
     for field in ('runtimeId', 'workspaceId', 'turnId', 'targetId'): identifier(record[field], field)
     digest(record['requestDigest']); digest(record['runtimeBindingDigest'])
+    require(isinstance(record['endpoint'], str) and record['endpoint'].startswith(('https://', 'http://')),
+            'original execution endpoint missing')
     require(isinstance(record['nativeOriginal'], dict) and set(record['nativeOriginal']) == {'key', 'sha256'},
             'original native execution response reference missing')
     digest(record['nativeOriginal']['sha256'])
@@ -197,6 +209,7 @@ class ExecutionJournal:
                 isinstance(raw.get('response'), dict) and raw['response'].get('httpStatus') == 200 and
                 raw['response'].get('body') == value,
                 'execution journal requires original retained native GET response')
+        validate_response(raw['response'])
         intent = durable.state.get('nativeRuntimeHttp', {}).get(raw.get('intentReference', {}).get('key'))
         require(isinstance(intent, dict) and canonical_digest(intent) == raw.get('intentReference', {}).get('sha256') and
                 canonical_digest(intent) == raw.get('intentDigest') and
@@ -213,7 +226,7 @@ class ExecutionJournal:
         identity = {'schema': 'honua.workspace-execution-journal/v1', 'candidateKey': durable.store.candidate,
             'runtimeId': value['runtimeId'], 'executionId': original_id, 'workspaceId': binding['workspaceId'],
             'turnId': binding['turn']['turnId'], 'targetId': value['targetId'], 'requestDigest': value['requestDigest'],
-            'runtimeBindingDigest': binding['runtimeBindingDigest']}
+            'runtimeBindingDigest': binding['runtimeBindingDigest'], 'endpoint': intent['endpoint']}
         records = durable.state.setdefault('interactiveExecutions', {})
         existing = records.get(original_id)
         if existing is None:
@@ -240,7 +253,7 @@ class ExecutionJournal:
     def values(self, kind):
         return [row['value'] for row in self.record['events'] if row['kind'] == kind]
 
-    def before_model(self, ordinal, request_digest, reservation_id, admission):
+    def before_model(self, ordinal, request_digest, reservation_id, admission, *, request_body=None):
         require(type(ordinal) is int and ordinal >= 0 and
                 not any(row.get('round') == ordinal for row in self.values('model-intent')),
                 'model invocation already intended; recover original response without invoking again')
@@ -253,5 +266,11 @@ class ExecutionJournal:
         require(len(rows) == 1 and rows[0]['executionId'] == self.record['executionId'] and
                 rows[0]['kind'] == 'model' and rows[0]['state'] == 'reserved' and rows[0]['actualUsd'] is None,
                 'model invocation lacks its original reserved execution liability')
-        return self.append('model-intent', {'round': ordinal, 'requestDigest': digest(request_digest),
-            'reservationId': reservation_id})
+        value = {'round': ordinal, 'requestDigest': digest(request_digest), 'reservationId': reservation_id}
+        if request_body is not None:
+            import base64
+            from agent_e2e_pack import digest_bytes
+            require(type(request_body) is bytes and digest_bytes(request_body) == request_digest,
+                    'original provider request bytes differ')
+            value['requestBodyBase64'] = base64.b64encode(request_body).decode('ascii')
+        return self.append('model-intent', value)

@@ -1,13 +1,14 @@
 """Runtime lifecycle fault tests, not deployed or live scenario qualification."""
 import copy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_state import DurableExecution, preserve_history
-from agent_e2e_worker_lifecycle import WorkerLifecycle
+from agent_e2e_worker_lifecycle import WorkerLifecycle, terraform_definition_digest
 from test_agent_e2e_state import MemoryStore
 
 
@@ -28,6 +29,34 @@ CONFIG = {
 }
 TASK = f'arn:aws:ecs:us-east-1:{ACCOUNT}:task/agent-workers/'+'c'*32
 RESERVATIONS = {'infrastructure': 'infra-1', 'cleanup': 'cleanup-1'}
+
+
+def emitted_definition():
+    return (Path(__file__).parent/'fixtures/worker-definition-digest/terraform-installed-slot.json').read_text()
+
+
+def test_original_terraform_emission_uses_resource_digest_without_changing_campaign_hashes():
+    raw = emitted_definition()
+    assert terraform_definition_digest(raw) == 'sha256:2043622fd0bd268cd5b0309bb82fc54d1c25f385719617cba1dc88b25dbd0b60'
+    assert canonical_digest(json.loads(raw)) == 'sha256:7fe6054ab345b46fd1cbc3f80a6335e44607a9d1ea1528a936ed53d17deebf83'
+    assert terraform_definition_digest(json.dumps(json.loads(raw), indent=2)) == terraform_definition_digest(raw)
+
+
+@pytest.mark.parametrize('raw', ['{"a":1,"a":2}', '{"é":1,"e\\u0301":2}', '{"e\\u0301":1}', '{"a":NaN}',
+    '{"a":1e1025}', '{"a":1e-1025}', '{"a":0.'+'1'*129+'}', '[]', '{"a":"\\ud800"}'])
+def test_definition_digest_refuses_ambiguous_or_unsupported_input(raw):
+    with pytest.raises(PackError):
+        terraform_definition_digest(raw)
+
+
+def test_static_lifecycle_inspector_accepts_only_the_original_terraform_digest(rig):
+    raw = emitted_definition()
+    rig.worker.config['definitionDigest'] = terraform_definition_digest(raw)
+    rig.states.definition['definition'] = raw
+    rig.worker.inspect_definition()
+    rig.worker.config['definitionDigest'] = canonical_digest(json.loads(raw))
+    with pytest.raises(PackError, match='reviewed definition'):
+        rig.worker.inspect_definition()
 
 
 class States:
