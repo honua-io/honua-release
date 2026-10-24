@@ -26,11 +26,14 @@ def verify(publication: dict[str, Any], request: Callable[..., dict[str, Any]]) 
     object_id_field = metadata.get("objectIdField")
     if not isinstance(object_id_field, str) or not object_id_field:
         raise ValueError("Live scratch metadata has no object-id field")
-    query = {"f": "json", "where": "1=1", "outFields": "*", "returnGeometry": "false", "resultRecordCount": 1}
+    query = {"f": "json", "where": "1=1", "outFields": "*", "returnGeometry": "true", "resultRecordCount": 1}
     features = request(route + "/query", query).get("features", [])
     if len(features) != 1:
         raise ValueError("Scratch query did not return a feature to update")
     attributes = features[0]["attributes"]
+    geometry = features[0].get("geometry")
+    if not isinstance(geometry, dict) or not geometry:
+        raise ValueError("Scratch query did not return the seeded feature geometry")
     object_id = attributes[object_id_field]
     original_note = attributes["note"]
 
@@ -46,9 +49,11 @@ def verify(publication: dict[str, Any], request: Callable[..., dict[str, Any]]) 
 
     def readback(expected: dict[str, Any]) -> None:
         rows = request(route + "/query", {"f": "json", "objectIds": object_id,
-                       "outFields": "*", "returnGeometry": "false"}).get("features", [])
+                       "outFields": "*", "returnGeometry": "true"}).get("features", [])
         if len(rows) != 1 or rows[0].get("attributes") != expected:
             raise ValueError("Scratch update did not read back the expected attributes")
+        if rows[0].get("geometry") != geometry:
+            raise ValueError("Attribute-only scratch update changed the geometry")
 
     marker = "seed-edit-proof-" + uuid.uuid4().hex
     try:
@@ -60,7 +65,7 @@ def verify(publication: dict[str, Any], request: Callable[..., dict[str, Any]]) 
     return {"status": "pass", "service": "maui-inspections", "layerId": layer_id,
             "storageMode": "managed", "objectIdField": object_id_field, "objectId": object_id,
             "capabilities": sorted(capabilities), "updateResults": updates,
-            "mutationReadBack": True, "originalNoteRestored": True}
+            "mutationReadBack": True, "originalNoteRestored": True, "geometryReadBackUnchanged": True}
 
 
 def main() -> None:

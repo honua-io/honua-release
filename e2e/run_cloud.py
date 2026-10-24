@@ -381,8 +381,11 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             if passed:
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
-            if blockers[-1] and not record.get("servingRefusal"):
-                break  # only the explicit profile gets the existing retry budget past a raw block
+            if blockers[-1] and (not record.get("servingRefusal")
+                                 or cloud_journey.profile_blocked(record, E2E_DIR / record["receipt"])):
+                # Only a profile that ran gets the retry budget past a raw block; a profile with no
+                # admissible prerequisite (a tracked limitation) would meet the same block again.
+                break
         else:
             journey["status"] = "fail"
             journey["why"] = "journey did not pass within the recorded attempt budget"
@@ -459,6 +462,20 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                     record.get("servingRefusal") for record in report["journeyAttempts"]):
                 try:
                     pinned = cloud_journey.manifest()
+                    # The teardown runner is fresh: point the target at the restored Terraform root
+                    # (both image observations read its outputs) and, on ECS, admit this runner's /32
+                    # to the cell ALB so the endpoint's own identity can be read. Without either, the
+                    # after-observation was always "unobserved" and every Redis-off ECS cell failed
+                    # here even with a passing profile (run 39772292511).
+                    if getattr(target, "_workdir", None) is None and hasattr(target, "_iac_root"):
+                        target._workdir = target._iac_root()
+                    runner_cidr = os.environ.get("HONUA_AWS_RUNNER_CIDR", "")
+                    if state["target"] == "aws-ecs" and runner_cidr and hasattr(target, "admit"):
+                        try:
+                            target.admit(state["endpoint"], runner_cidr, redis_enabled=False)
+                        except Exception as error:  # an unreadable identity then fails the check below
+                            print(f"{cell}: admitting the teardown runner raised {type(error).__name__}",
+                                  file=sys.stderr, flush=True)
                     after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"
                                    else cloud_journey.observed_lambda_image(target, pinned))
                     after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image)
@@ -470,7 +487,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                         path = E2E_DIR / record["receipt"]
                         accepted = cloud_journey.qualify_attempt(record, json.loads(path.read_bytes()), cell, raw_path=path,
                             run_id=state["runId"], run_attempt=state["runAttempt"])
-                        if record is report["journeyAttempts"][-1] and not accepted:
+                        if (record is report["journeyAttempts"][-1] and not accepted
+                                and not cloud_journey.profile_blocked(record, path)):
                             raise ValueError("final serving/refusal profile did not qualify")
                 except Exception as exc:
                     report.update(status="fail", why="serving/refusal native observation rejected: " + type(exc).__name__)
@@ -543,6 +561,10 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                     prior = report.get("why")
                     report["status"] = "fail"
                     report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
+                finally:
+                    retirement = getattr(target, "retirement_receipt", None)
+                    if retirement is not None:
+                        report["retirement"] = retirement
 
     if report.get("status") == "fail":
         return report
@@ -1512,7 +1534,14 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
                     # Owner ruling canary-http-cell-2026-10-08: plain HTTP only to this cell's own
                     # harness-provisioned ALB host, never to any other non-loopback host.
                     "--allow-http-cell", urllib.parse.urlsplit(endpoint).hostname or "",
-                    "--require-api-key", "--profile", profile, "--cell", cell, "--attempt", str(number),
+                    "--require-api-key",
+                    # The cell's application key goes as X-API-Key, never as a bearer token: a cell
+                    # composed with the tenant fixture enables OIDC (oidc_static_jwt), which routes
+                    # every bearer token to the JWT handler, so the Studio AI proxy would answer 401
+                    # (the local-docker canary's failure, fixed the same way in #795). X-API-Key
+                    # is how every other harness call already presents this key (admin_request).
+                    "--api-key-header", "x-api-key",
+                    "--profile", profile, "--cell", cell, "--attempt", str(number),
                     "--driver-command", str(E2E_DIR.parent / "certification" / "terminal-journey" / "live_driver.py"),
                     "--target", str(target),
                     *binding,
@@ -1572,8 +1601,8 @@ def _phase_update_rollback(args) -> int:
         # Original application key stays in the owned Secrets Manager handoff; never persist it.
         admin_key, _ = cloud_journey.unpack_handoff(read_secret(app_key_secret_name(cell)))
         os.environ["HONUA_ADMIN_PASSWORD"] = admin_key
+        # The controller store and its approver are hermetic and minted per run (AwsRuntime).
         runtime = AwsRuntime(target, state, admin_key=admin_key,
-            approval_key=os.environ.get("HONUA_UPDATE_ROLLBACK_APPROVAL_KEY", ""),
             serving_fixture=args.serving_fixture, controller_env=args.controller_env,
             mirror_repository=os.environ.get("HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY"), vertices=args.gp_vertices, workload_path=args.gp_workload)
         receipt = run_cell(prior, candidate, cell, args.update_rollback_mode, runtime,
@@ -1741,7 +1770,7 @@ def _phase_teardown(args) -> int:
         problems.append("the cell provisioned infrastructure but its sealed Terraform state never "
                         "reached teardown; reap it by hand (honua-iac#142)")
     secret_names = [app_key_secret_name(cell)] + ([tenant_secret_name(cell)] if
-        state.get("tenantFixtureEnabled") or os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true" else []) + ([state_secret_name(cell)] if state.get("destroyed") else [])
+        state.get("tenantFixtureEnabled") or os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true" else []) + ([state_secret_name(cell)] if state.get("destroyed") and not report.get("retirement", {}).get("originalStateKeyRetained") else [])
     for name in secret_names:
         try:
             forget_secret(name)
@@ -1790,11 +1819,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--transition-inputs", type=Path, help="retained authenticated destination input directory")
     ap.add_argument("--update-rollback-mode", choices=("rehearsal", "qualification"), default="rehearsal")
     ap.add_argument("--serving-fixture", type=Path, help="baseline extended/seed-manifest.json bound by sealed provision state")
-    ap.add_argument("--controller-env", type=Path, help="protected independent controller startup configuration; never uploaded")
+    ap.add_argument("--controller-env", type=Path, help="optional private controller startup supplement (no store, wiring or credentials); never uploaded")
     ap.add_argument("--gp-workload", type=Path, help="reviewed real GP execution+independent feature fixture bound by BOTH retained manifests")
     ap.add_argument("--gp-vertices", type=int, default=65536, help="reviewed symmetric centroid workload size; fast completion fails")
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     ap.add_argument("--cost-report", type=Path)
+    ap.add_argument("--scenario", choices=("gp_batch_native",), default=None,
+                    help="judge gp_batch_native without provisioning; a missing native receipt stays blocked, or fails under --require-real")
     ap.add_argument("--target", default="aws-serverless", choices=sorted(REGISTRY))
     ap.add_argument("--redis", choices=["on", "off"], default="off",
                     help="run the target with Redis enabled or disabled (parity must hold either way)")
@@ -1803,6 +1834,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--reference-endpoint", default=os.environ.get("HONUA_REFERENCE_ENDPOINT") or None,
                     help="a reference (local-docker) endpoint to assert parity against")
     args = ap.parse_args(argv)
+    if args.scenario == "gp_batch_native":
+        # Never fall through into provision. A native receipt is supplied by a
+        # confirmed candidate run; this flag only judges that it is absent.
+        from scenarios.gp_batch_native.scenario import evaluate
+        row = evaluate(None)
+        if args.require_real and row.get("status") == "blocked":
+            row = {**row, "status": "fail", "why": f"require_real: {row.get('why', '')}"}
+            print(json.dumps(row))
+            return 1
+        print(json.dumps(row))
+        return 0 if row.get("status") != "fail" else 1
     phases = {"provision": _phase_provision, "seal-state": _phase_seal, "journey": _phase_journey,
               "model-canary": _phase_model_canary, "update-rollback": _phase_update_rollback,
               "deliver-key": _phase_deliver_key, "admit": _phase_admit, "open-state": _phase_open,

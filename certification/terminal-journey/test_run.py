@@ -5,6 +5,7 @@ guard the two things that make this lane trustworthy: the fail-closed roster
 partition, and the stage-outcome discipline that stops a blocked journey from
 ever reading as a pass.
 """
+import copy
 import importlib.util
 import json
 import os
@@ -65,7 +66,7 @@ def build(**overrides):
     kwargs = dict(
         manifest=MANIFEST,
         journey=JOURNEY,
-        roster=gate.roster_verdict(POLICY, None, None),
+        roster=gate.roster_verdict(None, None),
         evidence_uri="test://build",
         mode="build",
         target=None,
@@ -89,46 +90,114 @@ def validate(receipt):
 # Control-plane roster partition
 # ---------------------------------------------------------------------------
 class RosterTests(unittest.TestCase):
-    def test_policy_names_exactly_eleven_audited_exclusions(self):
-        gate.validate_policy(POLICY)
+    """Data-driven roster (operator ruling on honua-release#785): server-format exports, counts reported."""
+
+    REST = json.loads((HERE / "fixtures" / "roster" / "admin-openapi-operation-ids.json").read_text())
+    MCP = json.loads((HERE / "fixtures" / "roster" / "admin-mcp-projection-manifest.json").read_text())
+    CALLS = [{"surface": "cli", "name": "createAdminApiKey"},
+             {"surface": "rest", "name": "GET /api/v1/admin/api-keys/"},
+             {"surface": "rest", "name": "POST /api/v1/admin/api-keys/k-1/revoke"},
+             {"surface": "mcp", "name": "honua_admin_api_key_list"},
+             {"surface": "mcp", "name": "honua_render_map"},
+             {"surface": "rest", "name": "GET /ogc/features/collections/1/items"}]
+
+    def pair(self):
+        return copy.deepcopy(self.REST), copy.deepcopy(self.MCP)
 
     def test_missing_upstream_rosters_is_blocked_not_pass(self):
-        self.assertEqual(gate.roster_verdict(POLICY, None, None)["status"], "blocked")
+        verdict = gate.roster_verdict(None, None)
+        self.assertEqual(verdict["status"], "blocked")
+        self.assertIn("admin-openapi-operation-ids.json", verdict["reason"])
 
-    def test_exact_partition_passes(self):
-        projected = [f"op-{i:03}" for i in range(385)]
-        excluded = [row["id"] for row in POLICY["exclusions"]]
-        rest = {"operationIds": projected + excluded}
-        mcp = {"projectedOperationIds": projected, "exclusions": excluded}
-        self.assertEqual(gate.roster_verdict(POLICY, rest, mcp)["status"], "pass")
+    def test_server_format_pair_passes_and_reports_counts(self):
+        rest, mcp = self.pair()
+        verdict = gate.roster_verdict(rest, mcp, self.CALLS)
+        self.assertEqual(verdict["status"], "pass", verdict["problems"])
+        self.assertEqual(verdict["counts"], {
+            "restCliOperations": 6, "catalogOperations": 3, "uncataloguedRestOperations": 3,
+            "mcpProjections": 2, "mcpExclusions": 1, "journeyAdminCalls": 4,
+            "journeyCallsOutsideAdminSurface": 2})
 
-    def test_duplicate_or_missing_operation_fails(self):
-        projected = [f"op-{i:03}" for i in range(385)]
-        excluded = [row["id"] for row in POLICY["exclusions"]]
-        rest = {"operationIds": projected + excluded}
-        mcp = {"projectedOperationIds": projected[:-1] + [projected[0]], "exclusions": excluded}
-        verdict = gate.roster_verdict(POLICY, rest, mcp)
+    def test_counts_are_never_asserted(self):
+        rest, mcp = self.pair()
+        rest["operations"].append({"operationId": "getLicenseStatus", "catalogOperationId": None,
+                                   "method": "GET", "path": "/license"})
+        self.assertEqual(gate.roster_verdict(rest, mcp, self.CALLS)["status"], "pass")
+
+    def test_self_inconsistent_pairs_fail(self):
+        mutations = {
+            "catalogued op neither projected nor excluded": lambda r, m: m["operations"].pop(),
+            "projected and excluded": lambda r, m: m["exclusions"]["operations"].append(
+                {"OpenApiOperationId": "listAdminApiKeys", "OperationId": "admin.api-key.list"}),
+            "projection without catalog identity": lambda r, m: m["operations"].append(
+                {"operationId": "admin.ghost", "toolName": "honua_admin_ghost"}),
+            "exclusion of unknown REST op": lambda r, m: m["exclusions"]["operations"].append(
+                {"OpenApiOperationId": "ghostOp", "OperationId": "admin.ghost.create"}),
+            "duplicate REST op": lambda r, m: r["operations"].append(dict(r["operations"][0])),
+            "field drift": lambda r, m: m["catalogFields"].append("extra"),
+            "roster not ready": lambda r, m: m["roster"].update(status="blocked"),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name):
+                rest, mcp = self.pair()
+                mutate(rest, mcp)
+                verdict = gate.roster_verdict(rest, mcp, self.CALLS)
+                self.assertEqual(verdict["status"], "fail")
+                self.assertTrue(verdict["problems"])
+
+    def test_wrong_format_fails_rather_than_passing(self):
+        verdict = gate.roster_verdict({"operationIds": ["a"]}, {"projectedOperationIds": ["a"], "exclusions": []})
         self.assertEqual(verdict["status"], "fail")
-        self.assertTrue(verdict["problems"])
+
+    def test_journey_call_outside_the_roster_fails(self):
+        for call in ({"surface": "cli", "name": "deleteEverything"},
+                     {"surface": "rest", "name": "DELETE /api/v1/admin/api-keys/k-1"},
+                     {"surface": "rest", "name": "GET /api/v1/admin/tenants"},
+                     {"surface": "mcp", "name": "honua_admin_api_key_create"}):
+            with self.subTest(call):
+                rest, mcp = self.pair()
+                verdict = gate.roster_verdict(rest, mcp, [*self.CALLS, call])
+                self.assertEqual(verdict["status"], "fail")
+                self.assertTrue(any(call["name"] in problem for problem in verdict["problems"]))
+
+    def test_exports_bind_to_the_image_source_sha(self):
+        rest = HERE / "fixtures" / "roster" / "admin-openapi-operation-ids.json"
+        mcp = HERE / "fixtures" / "roster" / "admin-mcp-projection-manifest.json"
+        source = gate.roster_source(rest, mcp, "a" * 40, MANIFEST)
+        self.assertEqual(source["sourceSha"], "a" * 40)
+        self.assertEqual(set(source["exports"]), set(gate.ADMIN_EXPORTS))
+        with self.assertRaises(gate.GateError):
+            gate.roster_source(rest, mcp, "f" * 40, MANIFEST)
+        self.assertIsNone(gate.roster_source(None, None, None, MANIFEST))
+
+    def test_fetch_reads_exports_at_the_exact_server_sha(self):
+        import io
+        import fetch_roster
+
+        class Body(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        seen = []
+        with tempfile.TemporaryDirectory() as out:
+            paths = fetch_roster.fetch("a" * 40, Path(out), lambda url, timeout: seen.append(url) or Body(b"{}"))
+            self.assertEqual(sorted(p.name for p in paths.values()),
+                             ["admin-mcp-projection-manifest.json", "admin-openapi-operation-ids.json"])
+        self.assertTrue(all(f"/honua-server/{'a' * 40}/docs/gis/data/" in url for url in seen))
+        with self.assertRaises(SystemExit):
+            fetch_roster.fetch("trunk", Path(tempfile.gettempdir()))
+
+    def test_retired_fixture_no_longer_gates(self):
+        # The 396/385/11 file stays as a historical fixture; nothing validates against it.
+        self.assertFalse(hasattr(gate, "validate_policy"))
 
     def test_roster_failure_overrides_blocked_stages_in_receipt(self):
         receipt = build(roster={"status": "fail", "problems": ["drift"]})
         self.assertEqual(receipt["status"], "fail")
         self.assertEqual(receipt["failure"]["check"], "control-plane-roster")
-
-    def test_same_size_partition_with_wrong_exclusion_fails_and_names_drift(self):
-        projected = [f"op-{i:03}" for i in range(385)]
-        excluded = [row["id"] for row in POLICY["exclusions"]]
-        swapped_secret, swapped_projection = excluded[0], projected[0]
-        rest = {"operationIds": projected + excluded}
-        mcp = {
-            "projectedOperationIds": projected[1:] + [swapped_secret],
-            "exclusions": excluded[1:] + [swapped_projection],
-        }
-        verdict = gate.roster_verdict(POLICY, rest, mcp)
-        self.assertEqual(verdict["status"], "fail")
-        self.assertTrue(any(swapped_secret in p for p in verdict["problems"]))
-        self.assertTrue(any(swapped_projection in p for p in verdict["problems"]))
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +367,18 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "blocked")
         self.assertEqual(len(receipt["stages"]), 8)
         self.assertTrue(all(s["status"] == "blocked" and s["blockedBy"] for s in receipt["stages"]))
+        self.assertNotIn("approval", receipt)
+
+    def test_observed_stage_eight_records_proposal_resolver_and_audit(self):
+        results = [stagelib.StageResult(number, f"s{number}", "cmd", "blocked", [stagelib.JOURNEY_DRIVER])
+                   for number in range(1, 9)]
+        results[7].proposal_id = "proposal-1"
+        results[7].resolved_by = "actor-approver"
+        results[7].audit_id = "audit-1"
+        receipt = build(stage_results=results)
+        self.assertEqual(receipt["approval"], {
+            "proposalId": "proposal-1", "resolvedBy": "actor-approver", "auditId": "audit-1"})
+        validate(receipt)
 
     def test_live_receipt_records_effective_target_url(self):
         receipt = build(
@@ -469,8 +550,9 @@ class ReceiptTests(unittest.TestCase):
         self.assertTrue(legacy <= set(JOURNEY["receiptOptional"]))
         self.assertTrue({"operationInstanceId", "correlationId", "auditId", "proposalId"} <= set(JOURNEY["receiptRequired"]))
         closed = {f"https://github.com/honua-io/honua-server/issues/{n}"
-                  for n in (3411, 3431, 3474, 3475, 3583, 3599, 3741)}
+                  for n in (3301, 3363, 3411, 3428, 3430, 3431, 3474, 3475, 3583, 3599, 3741, 5744)}
         self.assertFalse(closed & {b for s in JOURNEY["stages"] for b in s["blockedBy"]})
+        self.assertNotIn("3363", json.dumps(POLICY["upstreamRoster"]))
         placeholders = [c for fn in stagelib.STAGE_IMPLEMENTATIONS.values()
                         for c in fn(stagelib.Observation(), lambda number: [])]
         self.assertFalse(closed & {b for c in placeholders for b in c.blocked_by})

@@ -1,0 +1,227 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyIamOutsideCellNamespace",
+      "Effect": "Deny",
+      "Action": [
+        "iam:Create*",
+        "iam:Delete*",
+        "iam:Attach*",
+        "iam:Detach*",
+        "iam:Put*",
+        "iam:Update*",
+        "iam:Tag*",
+        "iam:Untag*",
+        "iam:PassRole",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:SetDefaultPolicyVersion",
+        "iam:AddUserToGroup",
+        "iam:ChangePassword",
+        "iam:Upload*",
+        "iam:Enable*",
+        "iam:Deactivate*",
+        "iam:ResetServiceSpecificCredential"
+      ],
+      "NotResource": [
+        "arn:aws:iam::585192672263:role/honuar*",
+        "arn:aws:iam::585192672263:role/honuan*",
+        "arn:aws:iam::585192672263:role/honuaeks*",
+        "arn:aws:iam::585192672263:policy/honuar*",
+        "arn:aws:iam::585192672263:policy/honuan*",
+        "arn:aws:iam::585192672263:policy/honuaeks*",
+        "arn:aws:iam::585192672263:instance-profile/honuar*",
+        "arn:aws:iam::585192672263:instance-profile/honuan*",
+        "arn:aws:iam::585192672263:instance-profile/honuaeks*",
+        "arn:aws:iam::585192672263:role/aws-service-role/*",
+        "arn:aws:iam::585192672263:role/honua-release-update-rollback-controller"
+      ]
+    },
+    {
+      "Sid": "DenyPrivilegedManagedPolicies",
+      "Effect": "Deny",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::aws:policy/AdministratorAccess",
+            "arn:aws:iam::aws:policy/PowerUserAccess",
+            "arn:aws:iam::aws:policy/IAMFullAccess",
+            "arn:aws:iam::aws:policy/job-function/SystemAdministrator"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyRoleChaining",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:AssumeRoleWithSAML",
+        "sts:GetFederationToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyRoleChainingExceptUpdateRollbackController",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRole"
+      ],
+      "NotResource": [
+        "arn:aws:iam::585192672263:role/honua-release-update-rollback-controller"
+      ]
+    },
+    {
+      "Sid": "DenyStandingTaggedResources",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": [
+            "cert",
+            "demo"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyStandingBuckets",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::honua-*",
+        "arn:aws:s3:::honua-*/*"
+      ]
+    },
+    {
+      "Sid": "DenyStandingEcrRepos",
+      "Effect": "Deny",
+      "Action": "ecr:*",
+      "Resource": [
+        "arn:aws:ecr:*:585192672263:repository/honua-cert-*",
+        "arn:aws:ecr:*:585192672263:repository/honua-demo-*"
+      ]
+    },
+    {
+      "Sid": "ProtectMirrorRepo",
+      "Effect": "Deny",
+      "Action": [
+        "ecr:DeleteRepository",
+        "ecr:SetRepositoryPolicy",
+        "ecr:DeleteRepositoryPolicy",
+        "ecr:PutLifecyclePolicy",
+        "ecr:DeleteLifecyclePolicy",
+        "ecr:PutImageTagMutability",
+        "ecr:BatchDeleteImage"
+      ],
+      "Resource": [
+        "arn:aws:ecr:*:585192672263:repository/honua-server"
+      ]
+    },
+    {
+      "Sid": "DenyAccountControls",
+      "Effect": "Deny",
+      "Action": [
+        "budgets:Modify*",
+        "budgets:Delete*",
+        "budgets:Update*",
+        "organizations:*",
+        "account:*",
+        "cloudtrail:Delete*",
+        "cloudtrail:Stop*",
+        "cloudtrail:Update*",
+        "cloudtrail:Put*",
+        "config:Delete*",
+        "config:Stop*",
+        "guardduty:Delete*",
+        "guardduty:Disassociate*",
+        "guardduty:Update*",
+        "iam:*OpenIDConnectProvider*",
+        "iam:*SAMLProvider*",
+        "iam:UpdateAccountPasswordPolicy",
+        "iam:DeleteAccountPasswordPolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CertificationRegionOnly",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:*",
+        "sts:*",
+        "budgets:*",
+        "ce:*",
+        "cloudfront:*",
+        "route53:*",
+        "support:*",
+        "health:*",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation",
+        "ecr-public:*",
+        "servicequotas:Get*",
+        "servicequotas:List*",
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "DenyRegistryPolicy",
+      "Effect": "Deny",
+      "Action": [
+        "ecr:PutRegistryPolicy",
+        "ecr:DeleteRegistryPolicy",
+        "ecr:PutReplicationConfiguration",
+        "ecr:PutRegistryScanningConfiguration"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "UpdateRollbackControllerInlinePoliciesOnly",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRoleTags",
+        "sts:AssumeRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::585192672263:role/honua-release-update-rollback-controller"
+      ]
+    },
+    {
+      "Sid": "BedrockInvokeOnlyCanaryModel",
+      "Effect": "Deny",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "NotResource": [
+        "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-5-5",
+        "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-5-5",
+        "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-5-5",
+        "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-5-5",
+        "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0"
+      ]
+    }
+  ]
+}

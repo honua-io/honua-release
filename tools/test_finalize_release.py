@@ -293,6 +293,28 @@ def test_release_notes_name_allowed_skipped_gate_without_claiming_every_gate_pas
     assert "Every wired release gate passed" not in notes
 
 
+def test_release_notes_say_2026_1_is_not_a_safe_rollback_target():
+    manifest, matrix = _real()
+    notes = fr.render_release_notes(manifest, matrix, "2026.1.0", _report("pass"))
+    assert "not a safe rollback target across any migration" in notes
+    assert "the only safe way back to 2026.1 is restoring the backup taken before the upgrade" in notes
+    assert "schema 135 or later for additive migrations" in notes
+    assert "never across a contract-phase migration without a restore" in notes
+    assert "honua-release#776" in notes
+    assert "no release-named immutable tag" in notes
+
+
+def test_upgrade_runbook_does_not_treat_2026_1_as_a_refusing_reader():
+    text = " ".join((Path(__file__).resolve().parents[1] / "docs" / "UPGRADE-RUNBOOK.md").read_text(encoding="utf-8").split())
+    assert "not a safe rollback target across any migration" in text
+    assert "the only safe way back to 2026.1 is restoring the backup taken before the upgrade" in text
+    assert "schema 135 or later for additive migrations" in text
+    assert "never across a contract-phase migration without a restore" in text
+    assert "this includes 2026.1" not in text
+    assert "honua-release#776" in text
+    assert "rollback-target-ineligible" in text
+
+
 def test_release_notes_do_not_claim_all_passed_for_empty_or_red_gate_rows():
     manifest, matrix = _real()
     for gates in (

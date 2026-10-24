@@ -149,13 +149,10 @@ def test_dry_run_publishes_stable_ids_and_scratch_edit_contract(tmp_path: Path):
     applied = (tmp_path / "out" / "applied.sql").read_text(encoding="utf-8")
     assert "generate_series(0, 13) AS i, generate_series(0, 22) AS j;" in applied
     assert "(1 + ((i * 3 + j) % 6))::text" in applied
-    assert "CREATE TRIGGER assign_missing_feature_srid" in applied
-    assert "BEFORE INSERT OR UPDATE OF geometry" in applied
-    assert "ST_SRID(NEW.geometry) = 0" in applied
-    assert "ST_SetSRID(NEW.geometry, target_srid)" in applied
-    assert "sl.service_name = 'maui-inspections'" in applied
-    assert "to_regclass('features')" in applied
-    assert "to_regclass('public.features')" in applied
+    # Capture the SQL actually emitted by seed.sh: it must not repair the managed writer
+    # or install a trigger that hides a product regression from the live readback proof.
+    assert "CREATE TRIGGER" not in applied
+    assert "assign_missing_feature_srid" not in applied
     assert "tmk_txt" not in applied
     for name in INSPECTION_NAMES:
         assert name in applied
@@ -165,7 +162,8 @@ def test_dry_run_publishes_stable_ids_and_scratch_edit_contract(tmp_path: Path):
 
 
 @pytest.mark.parametrize("mode,needle", [("publish", "publish maui-parcels failed (HTTP 500)"),
-                                         ("access", "access-policy maui-parcels failed (HTTP 403)")])
+                                         ("access", "access-policy maui-parcels failed (HTTP 403)"),
+                                         ("managed-ack", "did not publish managed storage")])
 def test_failed_publish_or_permission_update_writes_no_manifest(tmp_path: Path, mode: str, needle: str):
     proc = run_seed(tmp_path, SEED_DRY_FAIL=mode)
     assert proc.returncode != 0

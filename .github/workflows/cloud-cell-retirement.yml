@@ -1,0 +1,134 @@
+name: Recover disposable Lambda cell cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      original_run:
+        description: Completed original e2e-cloud-aws run ID
+        required: true
+        type: string
+      original_attempt:
+        description: Original run attempt containing the retained state
+        required: true
+        type: string
+        default: "1"
+      redis:
+        description: Original Lambda cell
+        required: true
+        type: choice
+        options: ["off", "on"]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # Share the provisioner's lock: no new qualification/rerun may recreate a
+  # cell while its original state is being inspected and retired.
+  group: e2e-cloud-aws
+  cancel-in-progress: false
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      ORIGINAL_RUN: ${{ inputs.original_run }}
+      ORIGINAL_ATTEMPT: ${{ inputs.original_attempt }}
+      REDIS: ${{ inputs.redis }}
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.0
+          terraform_wrapper: false
+      - run: python -m pip install -r e2e/requirements.txt
+      - name: Verify completed original run and immutable resource source
+        id: original
+        env:
+          RECOVERY_DIR: ${{ runner.temp }}/cell-retirement
+        run: |
+          umask 077
+          python e2e/retire_cloud_cell.py preflight --original-run "$ORIGINAL_RUN" \
+            --original-attempt "$ORIGINAL_ATTEMPT" --redis "$REDIS" --directory "$RECOVERY_DIR"
+      - name: Restore the original IaC source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: ${{ steps.original.outputs.iacSource }}
+          path: _original-iac
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      - name: Checkout the reviewed retirement helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: 1587c8ae47ee754202994049f06fbc33ead1c5d3 # reviewed honua-iac#287 trunk merge
+          path: _retirement-tools
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      - name: Require the helper to have landed on IaC trunk
+        run: git -C _retirement-tools merge-base --is-ancestor HEAD origin/trunk
+      - name: Download the original provision handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.original_run }}
+          name: cloud-cell-handoff-${{ steps.original.outputs.artifactSuffix }}
+          path: ${{ runner.temp }}/cell-retirement-handoff
+      - name: Download the original encrypted state
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.original_run }}
+          name: cloud-cell-state-${{ steps.original.outputs.artifactSuffix }}
+          path: ${{ runner.temp }}/cell-retirement-state
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Resolve input validation CIDR
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$RUNNER_IP"
+          echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+          echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+      - name: Retire only the complete original cell and retain recovery evidence
+        env:
+          RECOVERY_DIR: ${{ runner.temp }}/cell-retirement
+          HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN }}
+          HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN }}
+          HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN }}
+          HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN }}
+          HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
+          HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
+          HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
+        run: |
+          umask 077
+          python e2e/retire_cloud_cell.py retire --original-run "$ORIGINAL_RUN" \
+            --original-attempt "$ORIGINAL_ATTEMPT" --redis "$REDIS" --directory "$RECOVERY_DIR" \
+            --iac "$GITHUB_WORKSPACE/_original-iac" \
+            --helper "$GITHUB_WORKSPACE/_retirement-tools/infrastructure/terraform/validation/scripts/aws/serverless_cell_retirement.py" \
+            --handoff "$RUNNER_TEMP/cell-retirement-handoff" --bundle "$RUNNER_TEMP/cell-retirement-state/state.enc" \
+            --account-id 585192672263
+      - name: Retain public bindings and encrypted recovery state
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cell-retirement-${{ inputs.original_run }}-${{ inputs.original_attempt }}-${{ inputs.redis }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            ${{ runner.temp }}/cell-retirement/request.json
+            ${{ runner.temp }}/cell-retirement/receipt.json
+            ${{ runner.temp }}/cell-retirement/state-recovery.enc

@@ -37,11 +37,14 @@ import sdk_baselines
 from semver import parse as parse_semver
 import upgrade_lock_binding
 import validate_platform
-from verify_client_artifacts import verify_manifest
+from verify_client_artifacts import RegistryUnavailable, verify_manifest
 
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 DELAYS = (0, 10, 30, 60, 120, 60)
+# Exit status for a registry outage that outlasted the verifier's bounded retries (EX_TEMPFAIL).
+# Distinct from 1 (REFUSED): an unhealthy registry is not evidence against any pin.
+TRANSIENT_EXIT = 75
 # A keyed listing whose total_count moves while it is being paged (a check run was added under the
 # reader, which happens for minutes after a merge while workflow_run consumers report) is re-read
 # from page 1 this many times before it refuses.
@@ -316,7 +319,11 @@ class Registry:
                 raise ResolutionError(f'duplicate linux/{arch} manifest')
             child_digest = descriptor['digest']
             child = self.document(repository, child_digest, manifest=True)
-            config = self.document(repository, child['config']['digest'])
+            config_digest = (child.get('config') or {}).get('digest') if isinstance(child, dict) else None
+            if not isinstance(config_digest, str):
+                # Run 37501454457 crashed here with KeyError('config') instead of refusing.
+                raise ResolutionError(f'linux/{arch} manifest {child_digest} has no config descriptor')
+            config = self.document(repository, config_digest)
             revision = config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision')
             if revision != sha or config.get('architecture') != arch or config.get('os') != 'linux':
                 raise ResolutionError(f'linux/{arch} config is not bound to {sha}')
@@ -1131,6 +1138,15 @@ def main(argv=None):
         else:
             print(f'PASS: exact trunk candidate in {args.out_dir}; dry_run={args.dry_run}')
         return 0
+    except RegistryUnavailable as exc:
+        # Not a provenance refusal: nothing about the published bytes was learned. The night still
+        # mints nothing, but it reports the outage under its own outcome instead of REFUSED.
+        print(f'TRANSIENT-REGISTRY-UNAVAILABLE: {exc}', file=sys.stderr)
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        (args.out_dir / 'resolution-outcome.json').write_text(json.dumps(
+            {'outcome': RegistryUnavailable.outcome, 'provenanceRefusal': False, 'detail': str(exc)},
+            indent=2) + '\n')
+        return TRANSIENT_EXIT
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f'REFUSED: {exc}', file=sys.stderr)
         return 1

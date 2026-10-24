@@ -42,6 +42,7 @@ source "$HERE/../lib/common.sh"
 COMPOSE_FILE="${E2E_COMPOSE_FILE:-$HERE/../compose.candidate.yml}"
 E2E_PSQL="${E2E_PSQL:-docker compose -f $COMPOSE_FILE exec -T db psql -U honua -d honua}"
 DB_HOST="${E2E_DB_HOST:-db}"   # hostname the SERVER uses to reach PostGIS (compose service name)
+DB_PASSWORD="${E2E_DB_PASSWORD:-honua}"   # password for that connection (Production lanes mint one per run)
 
 # A failed rerun must not leave a previous success receipt beside the new failure.
 rm -f "$E2E_OUT/seed-manifest.json" "$E2E_OUT/seed-edit-proof.json" \
@@ -83,7 +84,11 @@ if [ "${SEED_DRY_RUN:-}" = "1" ]; then
         fi
         DRY_LAYER_SEQ=$((DRY_LAYER_SEQ + 1))
         HTTP_CODE=201
-        HTTP_BODY="$(jq -nc --argjson id "$DRY_LAYER_SEQ" '{data:{layerId:$id}}')"
+        HTTP_BODY="$(jq -nc --argjson id "$DRY_LAYER_SEQ" --argjson body "$data" \
+          '{data:($body + {layerId:$id})}')"
+        if [ "${SEED_DRY_FAIL:-}" = "managed-ack" ]; then
+          HTTP_BODY="$(jq '.data.storageMode = "source"' <<<"$HTTP_BODY")"
+        fi
         ;;
       *)
         HTTP_CODE=201
@@ -294,8 +299,8 @@ INSERT INTO honua_data.workbench_assets (asset_id, title, category, risk, zone, 
 SQL
 
 echo "== seed: creating data connection =="
-api_post "/api/v1/admin/connections/" "$(jq -nc --arg h "$DB_HOST" \
-  '{name:"e2e-pg",host:$h,port:5432,databaseName:"honua",username:"honua",password:"honua",provider:"PostGIS",sslRequired:false,sslMode:"Disable"}')"
+api_post "/api/v1/admin/connections/" "$(jq -nc --arg h "$DB_HOST" --arg pw "$DB_PASSWORD" \
+  '{name:"e2e-pg",host:$h,port:5432,databaseName:"honua",username:"honua",password:$pw,provider:"PostGIS",sslRequired:false,sslMode:"Disable"}')"
 CID="$(jget '.data.connectionId // .connectionId // .data.id')"
 [ -z "$CID" ] && { echo "::error:: could not create connection (HTTP $HTTP_CODE): $HTTP_BODY"; exit 1; }
 printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "create connection" --status "$HTTP_CODE"
@@ -336,6 +341,12 @@ while IFS= read -r body; do
     exit 1
   fi
   if [ "$svc" = "maui-inspections" ]; then
+    # Retain the existing trunk acknowledgement check, independently of served metadata.
+    if ! jq -e '.data.storageMode == "managed" and
+      (["Create","Update","Delete"] - (.data.capabilities // []) | length == 0)' <<<"$HTTP_BODY" >/dev/null; then
+      echo "::error:: editing fixture did not publish managed storage with explicit edit capabilities" >&2
+      exit 1
+    fi
     printf '%s' "$HTTP_BODY" > "$E2E_OUT/seed-inspections-publication.json"
   fi
   printf '%s %s\n' "$svc" "$id" >> "$id_file"
@@ -361,51 +372,8 @@ while IFS= read -r row; do
   open_anonymous "$svc" "$(layer_id_of "$svc")" "$write"
 done < <(python3 "$HERE/plan.py" access-plan | jq -c '.[]')
 
-# Attribute-only edits of the scratch service rewrite geometry as WKB with
-# SRID 0. The shared features geography index evaluates ST_Transform during
-# that write and rejects SRID 0. Stamp the layer SRID for maui-inspections
-# only, before index maintenance. Other managed layers keep the candidate's
-# edit behavior. Leave the shared column unconstrained.
-echo "== seed: assigning a layer SRID before shared-features index maintenance =="
-psql_apply <<'SQL'
-CREATE OR REPLACE FUNCTION honua.assign_missing_feature_srid()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $fn$
-DECLARE
-  target_srid integer;
-BEGIN
-  IF NEW.geometry IS NOT NULL AND ST_SRID(NEW.geometry) = 0 THEN
-    SELECT COALESCE(NULLIF(l.storage_srid, 0), NULLIF(l.srid, 0), 4326)
-      INTO target_srid
-      FROM honua.layers l
-      JOIN honua.service_layers sl ON sl.layer_id = l.layer_id
-     WHERE l.layer_id = NEW.layer_id
-       AND sl.service_name = 'maui-inspections';
-    IF FOUND THEN
-      NEW.geometry := ST_SetSRID(NEW.geometry, target_srid);
-    END IF;
-  END IF;
-  RETURN NEW;
-END;
-$fn$;
-
-DO $do$
-DECLARE
-  features_table regclass;
-BEGIN
-  features_table := COALESCE(to_regclass('features'), to_regclass('public.features'));
-  IF features_table IS NULL THEN
-    RAISE EXCEPTION 'managed features table is not visible to the seed session';
-  END IF;
-  EXECUTE format('DROP TRIGGER IF EXISTS assign_missing_feature_srid ON %s', features_table);
-  EXECUTE format(
-    'CREATE TRIGGER assign_missing_feature_srid BEFORE INSERT OR UPDATE OF geometry ON %s FOR EACH ROW EXECUTE FUNCTION honua.assign_missing_feature_srid()',
-    features_table);
-END;
-$do$;
-SQL
-
+# Exercise the stock managed writer. Seed-only triggers must not repair product behavior
+# during qualification; an unsupported attribute-only edit must fail the live proof.
 if [ "${SEED_DRY_RUN:-}" != "1" ]; then
   if ! E2E_BASE="$E2E_BASE" E2E_API_KEY="$E2E_API_KEY" \
     python3 "$HERE/verify_edit.py" --publication "$E2E_OUT/seed-inspections-publication.json" \

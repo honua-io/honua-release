@@ -1,4 +1,5 @@
 {
+  "retired": "Historical fixture. Operator ruling on honua-release#785 (2026-10-22): the roster is data-driven from the server parity exports and these pinned counts no longer gate.",
   "schemaVersion": 1,
   "contract": "admin-v1",
   "expected": {
@@ -21,7 +22,7 @@
   ],
   "upstreamRoster": {
     "status": "blocked",
-    "blockedBy": "https://github.com/honua-io/honua-server/issues/3363",
+    "reason": "authoritative exports admin-openapi-operation-ids.json and admin-mcp-projection-manifest.json are not published with the candidate",
     "requiredExports": ["admin-openapi-operation-ids.json", "admin-mcp-projection-manifest.json"]
   }
 }

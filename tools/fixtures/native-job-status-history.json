@@ -1,0 +1,110 @@
+{
+  "repository": "honua-io/honua-server",
+  "sourceCommit": "75fcce8193c9948d895278df5a22110cdd4441e4",
+  "sourceTrxSha256": "9ebd5716b6f8cb3b36855fdbedc79581f8786de8e354f40f26a9aa91307cca3c",
+  "scope": "Typed status-history projection of actual authenticated default-host FileImport GET responses from 84 passing native controls; not GP execution or candidate qualification.",
+  "projectionFields": [
+    "jobId",
+    "status",
+    "attemptCount",
+    "version",
+    "statusTransitions",
+    "statusTransitionsTruncated"
+  ],
+  "vectors": [
+    {
+      "name": "actual-job-status-history-v2-1",
+      "sourceTest": "NativeTask ExactDestinationKeyImportsHumanAttachmentThroughActualWorker(previouslyApplied136: True)",
+      "originalResponseSha256": "010e9802168baceeb089907316575278b8d1677df0ea4342199f77854ee22018",
+      "nativeKind": "FileImport",
+      "observation": {
+        "jobId": "f2e80f92a4faeaadbb4ee84440b544c1",
+        "status": "Succeeded",
+        "attemptCount": 1,
+        "version": 11,
+        "statusTransitions": [
+          {
+            "jobId": "f2e80f92a4faeaadbb4ee84440b544c1",
+            "version": 1,
+            "attemptCount": 0,
+            "occurredAt": "2026-10-23T14:44:36.056+00:00",
+            "fromStatus": null,
+            "toStatus": "Queued"
+          },
+          {
+            "jobId": "f2e80f92a4faeaadbb4ee84440b544c1",
+            "version": 3,
+            "attemptCount": 1,
+            "occurredAt": "2026-10-23T14:44:36.728+00:00",
+            "fromStatus": "Queued",
+            "toStatus": "Provisioning"
+          },
+          {
+            "jobId": "f2e80f92a4faeaadbb4ee84440b544c1",
+            "version": 4,
+            "attemptCount": 1,
+            "occurredAt": "2026-10-23T14:44:36.733+00:00",
+            "fromStatus": "Provisioning",
+            "toStatus": "Running"
+          },
+          {
+            "jobId": "f2e80f92a4faeaadbb4ee84440b544c1",
+            "version": 11,
+            "attemptCount": 1,
+            "occurredAt": "2026-10-23T14:44:37.138+00:00",
+            "fromStatus": "Running",
+            "toStatus": "Succeeded"
+          }
+        ],
+        "statusTransitionsTruncated": false
+      }
+    },
+    {
+      "name": "actual-job-status-history-v2-2",
+      "sourceTest": "NativeTask ExactDestinationKeyImportsHumanAttachmentThroughActualWorker(previouslyApplied136: False)",
+      "originalResponseSha256": "c102439363c6109b1b08f9fe5703b965215deeda134ee1aa3708724068585196",
+      "nativeKind": "FileImport",
+      "observation": {
+        "jobId": "15c67103598819c916cd2157a8bcab11",
+        "status": "Succeeded",
+        "attemptCount": 1,
+        "version": 11,
+        "statusTransitions": [
+          {
+            "jobId": "15c67103598819c916cd2157a8bcab11",
+            "version": 1,
+            "attemptCount": 0,
+            "occurredAt": "2026-10-23T14:44:17.029+00:00",
+            "fromStatus": null,
+            "toStatus": "Queued"
+          },
+          {
+            "jobId": "15c67103598819c916cd2157a8bcab11",
+            "version": 3,
+            "attemptCount": 1,
+            "occurredAt": "2026-10-23T14:44:18.067+00:00",
+            "fromStatus": "Queued",
+            "toStatus": "Provisioning"
+          },
+          {
+            "jobId": "15c67103598819c916cd2157a8bcab11",
+            "version": 4,
+            "attemptCount": 1,
+            "occurredAt": "2026-10-23T14:44:18.101+00:00",
+            "fromStatus": "Provisioning",
+            "toStatus": "Running"
+          },
+          {
+            "jobId": "15c67103598819c916cd2157a8bcab11",
+            "version": 11,
+            "attemptCount": 1,
+            "occurredAt": "2026-10-23T14:44:19.53+00:00",
+            "fromStatus": "Running",
+            "toStatus": "Succeeded"
+          }
+        ],
+        "statusTransitionsTruncated": false
+      }
+    }
+  ]
+}

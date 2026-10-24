@@ -290,6 +290,13 @@ def test_generator_refuses_a_governed_cell_on_a_preview_capability(certification
     key = ("OWSLib", "ogc-api-edr", "serve.ogc-api-edr")
     _move_cell(roster, key, "preview_cells", "cells")
     _write(certification_copy / ROSTER, roster)
+    # The pinned matrix no longer emits this Preview surface. Restore an implemented
+    # source row so the refusal is the preview ruling, not a missing requirement.
+    matrix_path = certification_copy / "sources" / "server" / "capability-matrix.v1.json"
+    matrix = _load(matrix_path)
+    capability = next(row for row in matrix["capabilities"] if row["key"] == "serve.ogc-api-edr")
+    capability["maturity"] = {"implemented": sum(capability["maturity"].values())}
+    _write(matrix_path, matrix)
 
     result = _run(certification_copy, "generate-protocol-requirements.py")
 

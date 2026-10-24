@@ -448,6 +448,11 @@
         "bearerFormat": "JWT",
         "scheme": "bearer",
         "type": "http"
+      },
+      "PortalTokenQuery": {
+        "in": "query",
+        "name": "token",
+        "type": "apiKey"
       }
     }
   },
@@ -1307,22 +1312,26 @@
           },
           {
             "description": "CQL2 filter expression",
+            "explode": false,
             "in": "query",
             "name": "filter",
             "required": false,
             "schema": {
               "type": "string"
-            }
+            },
+            "style": "form"
           },
           {
-            "description": "Filter language (default cql2-text)",
+            "description": "Filter language (default cql2-text); cql-text is a legacy desktop-client alias for cql2-text",
             "in": "query",
             "name": "filter-lang",
             "required": false,
             "schema": {
+              "default": "cql2-text",
               "enum": [
                 "cql2-text",
-                "cql2-json"
+                "cql2-json",
+                "cql-text"
               ],
               "type": "string"
             }
@@ -1503,6 +1512,9 @@
           },
           {
             "BearerAuth": []
+          },
+          {
+            "PortalTokenQuery": []
           }
         ],
         "summary": "Create a new feature in a collection",
@@ -1586,6 +1598,9 @@
           },
           {
             "BearerAuth": []
+          },
+          {
+            "PortalTokenQuery": []
           }
         ],
         "summary": "Execute batch feature operations",
@@ -1642,6 +1657,9 @@
           },
           {
             "BearerAuth": []
+          },
+          {
+            "PortalTokenQuery": []
           }
         ],
         "summary": "Delete a feature from a collection",
@@ -1845,6 +1863,9 @@
           },
           {
             "BearerAuth": []
+          },
+          {
+            "PortalTokenQuery": []
           }
         ],
         "summary": "Partially update an existing feature",
@@ -1954,6 +1975,9 @@
           },
           {
             "BearerAuth": []
+          },
+          {
+            "PortalTokenQuery": []
           }
         ],
         "summary": "Update an existing feature",

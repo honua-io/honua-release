@@ -1,0 +1,13 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+*.auto.tfvars
+backend.tf
+crash.log
+backend.tf.json
+*.tfvars.json
+!bootstrap/deployments/foss4g-images.tfvars.json
+!deployments/*.tfvars.json
+recovery-imports.tf

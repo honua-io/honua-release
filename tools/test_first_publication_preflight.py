@@ -333,10 +333,22 @@ def world_tarball() -> bytes:
     return _tarball(TARBALL_DEPS)
 
 
-def test_a_fixed_template_is_not_a_republish_blocker():
-    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": "6.9.0"})
+@pytest.mark.parametrize("maplibre_pin", ["6.4.1", "6.9.0", "6.10.0", "7.0.0"])
+def test_a_fixed_template_is_not_a_republish_blocker(maplibre_pin):
+    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": maplibre_pin})
     assert _channel(receipt, "npm:create-honua-app")["disposition"] == "published"
     assert not any(item["kind"] == "blocked-on-republish" for item in receipt["blockers"])
+
+
+@pytest.mark.parametrize("maplibre_pin", [
+    "5.12.0", "6.0.0", "6.1.0", "6.3.9", "6.4.0",
+    "6.4.1-rc.1", "^6.4.1", ">=6.0.0", "latest", "06.4.1",
+])
+def test_affected_or_unresolved_maplibre_template_pin_blocks_republish(maplibre_pin):
+    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": maplibre_pin})
+    create = _channel(receipt, "npm:create-honua-app")
+    assert create["disposition"] == "blocked-on-republish"
+    assert create["maplibre_pins"] == [maplibre_pin]
 
 
 def test_a_resolvable_off_manifest_template_sdk_pin_still_blocks_republish():
@@ -706,3 +718,68 @@ def test_public_nuget_pin_refuses_studio_bytes_that_are_not_the_named_package():
         _public_pin_receipt(_public_pin_world(bodies=wrong), _public_pin_manifest())
     with pytest.raises(preflight.PreflightError, match="not a valid .nupkg"):
         _public_pin_receipt(_public_pin_world(bodies={"Honua.Sdk.Studio": b"nupkg-bytes"}), _public_pin_manifest())
+
+
+def _scripted_urlopen(monkeypatch, outcomes):
+    """Replace urlopen with a script of HTTP statuses (int) or connection errors (Exception)."""
+    import urllib.error
+    calls = []
+
+    class _Body(io.BytesIO):
+        status = 200
+
+        def geturl(self):
+            return "https://registry.npmjs.org/x"
+
+    def urlopen(request, timeout):  # noqa: ARG001
+        calls.append(request.full_url)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        if outcome != 200:
+            raise urllib.error.HTTPError(request.full_url, outcome, "status", {}, io.BytesIO(b"{}"))
+        return _Body(b"{}")
+
+    monkeypatch.setattr(preflight.urllib.request, "urlopen", urlopen)
+    sleeps = []
+    monkeypatch.setattr(preflight, "_sleep", sleeps.append)
+    return calls, sleeps
+
+
+def test_transport_retries_a_registry_outage_then_reads(monkeypatch):
+    import urllib.error
+    calls, sleeps = _scripted_urlopen(monkeypatch, [502, urllib.error.URLError("reset"), 200])
+    response = preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+    assert response.status == 200 and len(calls) == 3 and sleeps == [5, 15]
+
+
+def test_transport_returns_the_outage_status_after_bounded_attempts(monkeypatch):
+    calls, _ = _scripted_urlopen(monkeypatch, [503] * len(preflight.REQUEST_DELAYS))
+    response = preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+    assert response.status == 503 and len(calls) == len(preflight.REQUEST_DELAYS)
+
+
+def test_transport_never_retries_a_not_found(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [404, 200])
+    assert preflight.UrllibTransport().get("https://registry.npmjs.org/x").status == 404
+    assert len(calls) == 1 and sleeps == []
+
+
+def test_transport_reports_a_persistent_connection_failure(monkeypatch):
+    import urllib.error
+    _scripted_urlopen(monkeypatch, [urllib.error.URLError("down")] * len(preflight.REQUEST_DELAYS))
+    with pytest.raises(preflight.PreflightError, match="registry probe failed"):
+        preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+
+
+def test_transport_retries_qgis_timeout_then_preserves_actual_not_found(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [522, 404])
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    assert response.status == 404 and len(calls) == 2 and sleeps == [5]
+
+
+def test_transport_preserves_persistent_qgis_timeout_as_failure(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [522] * len(preflight.REQUEST_DELAYS))
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    assert response.status == 522 and len(calls) == len(preflight.REQUEST_DELAYS)
+    assert sleeps == list(preflight.REQUEST_DELAYS[1:])

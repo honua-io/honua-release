@@ -1,0 +1,15 @@
+{
+  "schema": "honua.canary-attempt-dispatch/v1",
+  "observedAt": "2026-10-23T18:16:26.623571+00:00",
+  "reservationPath": "reservation-original.json",
+  "reservationSha256": "sha256:6eda522543d07d12824e1d129d083dbead4480adbe72e7ce6e7b6cba411ed4da",
+  "reservationOriginalUnchanged": true,
+  "runId": 40001824669,
+  "runAttempt": 1,
+  "runUrl": "https://github.com/honua-io/honua-release/actions/runs/40001824669",
+  "sourceSha": "6b39e9689c4392393d0ae810f300e607eea5283e",
+  "createdAt": "2026-10-23T18:15:34Z",
+  "status": "in_progress",
+  "aggregateReservedUsd": "334",
+  "actualUsd": null
+}

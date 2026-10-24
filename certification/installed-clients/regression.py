@@ -275,9 +275,12 @@ def publish_harness(api: AdminApi, fixture: dict[str, Any], slugs: list[str], db
         service = edits["servicePrefix"] + slug
         # Editing needs a managed publication that declares its edit capabilities. None of the
         # published SDKs' publish requests can declare them yet, so the harness publishes it.
+        # The scenario also adds and lists attachments: since honua-server#6135 (#6202) the
+        # attachment routes refuse a layer that does not declare attachment support (HTTP 400).
         published["edits"][slug] = {"service": service, "layerId": publish(
             edits["tablePrefix"] + slug, service, edits["layerName"], edits["geometryType"],
-            storageMode="managed", capabilities=["Query", "Create", "Update", "Delete"])}
+            storageMode="managed", capabilities=["Query", "Create", "Update", "Delete"],
+            supportsAttachments=True)}
     return published
 
 

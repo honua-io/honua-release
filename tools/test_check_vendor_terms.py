@@ -851,10 +851,10 @@ def test_default_consumer_lock_exception_preserves_exact_observed_coordinates_on
 def test_immutable_gp_guide_exception_is_exact_and_remains_visible():
     import hashlib
 
-    path = "certification/executable-docs/fixtures/site-geoprocessing-7d733c0.md"
+    path = "certification/executable-docs/fixtures/site-geoprocessing-99dee72.md"
     raw = (vt.ROOT / path).read_bytes()
     assert len(raw) == 4504
-    assert hashlib.sha256(raw).hexdigest() == "652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa"
+    assert hashlib.sha256(raw).hexdigest() == "b0be5ceeb94f8fc8433426dc17645dfe4d33d27acaec1c7ac63e6f3b854f87d2"
     entries = vt.load_allowlist(vt.ALLOWLIST)
     selected = [entry for entry in entries if entry.covers("honua-release", path, "Esri")]
     assert len(selected) == 1
@@ -863,10 +863,10 @@ def test_immutable_gp_guide_exception_is_exact_and_remains_visible():
     assert entry.owner == "@mikemcdougall"
     source_entry = json.loads(vt.ALLOWLIST.read_text())["entries"][entry.index]
     assert source_entry["issue"] == "honua-io/honua-release#721"
-    assert "652c7bb5" in entry.reason
+    assert "b0be5cee" in entry.reason
     for repo, candidate, content, excepted in [
         ("honua-release", path, raw, True),
-        ("honua-release", path.replace("7d733c0", "sibling"), raw, False),
+        ("honua-release", path.replace("99dee72", "sibling"), raw, False),
         ("honua-site", path, raw, False),
         ("honua-release", path, b"ArcGIS Online\n", False),
     ]:

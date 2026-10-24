@@ -1,13 +1,14 @@
 """Runtime lifecycle fault tests, not deployed or live scenario qualification."""
 import copy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_state import DurableExecution, preserve_history
-from agent_e2e_worker_lifecycle import WorkerLifecycle
+from agent_e2e_worker_lifecycle import WorkerLifecycle, terraform_definition_digest
 from test_agent_e2e_state import MemoryStore
 
 
@@ -28,6 +29,34 @@ CONFIG = {
 }
 TASK = f'arn:aws:ecs:us-east-1:{ACCOUNT}:task/agent-workers/'+'c'*32
 RESERVATIONS = {'infrastructure': 'infra-1', 'cleanup': 'cleanup-1'}
+
+
+def emitted_definition():
+    return (Path(__file__).parent/'fixtures/worker-definition-digest/terraform-installed-slot.json').read_text()
+
+
+def test_original_terraform_emission_uses_resource_digest_without_changing_campaign_hashes():
+    raw = emitted_definition()
+    assert terraform_definition_digest(raw) == 'sha256:2043622fd0bd268cd5b0309bb82fc54d1c25f385719617cba1dc88b25dbd0b60'
+    assert canonical_digest(json.loads(raw)) == 'sha256:7fe6054ab345b46fd1cbc3f80a6335e44607a9d1ea1528a936ed53d17deebf83'
+    assert terraform_definition_digest(json.dumps(json.loads(raw), indent=2)) == terraform_definition_digest(raw)
+
+
+@pytest.mark.parametrize('raw', ['{"a":1,"a":2}', '{"é":1,"e\\u0301":2}', '{"e\\u0301":1}', '{"a":NaN}',
+    '{"a":1e1025}', '{"a":1e-1025}', '{"a":0.'+'1'*129+'}', '[]', '{"a":"\\ud800"}'])
+def test_definition_digest_refuses_ambiguous_or_unsupported_input(raw):
+    with pytest.raises(PackError):
+        terraform_definition_digest(raw)
+
+
+def test_static_lifecycle_inspector_accepts_only_the_original_terraform_digest(rig):
+    raw = emitted_definition()
+    rig.worker.config['definitionDigest'] = terraform_definition_digest(raw)
+    rig.states.definition['definition'] = raw
+    rig.worker.inspect_definition()
+    rig.worker.config['definitionDigest'] = canonical_digest(json.loads(raw))
+    with pytest.raises(PackError, match='reviewed definition'):
+        rig.worker.inspect_definition()
 
 
 class States:
@@ -404,3 +433,41 @@ def test_lifecycle_not_delivered_to_worker_image(tmp_path):
     files = bundle(tmp_path/'context')['files']
     assert 'agent_e2e_worker_lifecycle.py' not in files
     assert 'agent_e2e_state.py' not in files
+
+
+def test_foss4g_worker_start_requires_matching_active_admission_not_just_old_liabilities(tmp_path):
+    from agent_e2e_budget import update
+    from agent_e2e_worker_lifecycle import validate_reservations
+    path=tmp_path/'paid-ledger.json';update(path,'init',candidate_key=CANDIDATE)
+    update(path,'amend-foss4g',candidate_key=CANDIDATE)
+    lifecycle=WorkerLifecycle(CONFIG,states=None,ecs=None,db=None,clock=lambda:1000)
+    record=lifecycle._record(RESERVATIONS)
+    for kind,rid in RESERVATIONS.items():
+        update(path,'reserve',candidate_key=CANDIDATE,reservation_id=rid,kind=kind,
+               amount=CONFIG['liability']['maximumInfrastructureUsd' if kind=='infrastructure' else 'maximumCleanupUsd'],
+               basis_digest=CONFIG['liability']['basisDigest'],campaign_id=CONFIG['context']['campaignId'],
+               case_id=CONFIG['context']['caseId'],attempt=1,campaign_mode='development')
+    ledger=json.loads(path.read_text())
+    with pytest.raises(PackError,match='admission'):validate_reservations(record,ledger,now=1000)
+    update(path,'acquire-paid-attempt',candidate_key=CANDIDATE,admission_id=CONFIG['attemptId'],
+           owner_token='controller-owner-token-0000',campaign_id=CONFIG['context']['campaignId'],
+           case_id=CONFIG['context']['caseId'],attempt=1,campaign_mode='development',expires_epoch=1100,now_epoch=1000)
+    ledger=json.loads(path.read_text());validate_reservations(record,ledger,now=1000)
+    with pytest.raises(PackError,match='admission'):validate_reservations(record,ledger,now=1100)
+    for key,value in [('attemptId','other-attempt')]:
+        with pytest.raises(PackError,match='admission'):
+            validate_reservations({**record,key:value},ledger,now=1000)
+    for key,value in [('caseId','other-case'),('campaignId','other-campaign'),('attempt',2),('campaignMode','qualification')]:
+        changed=copy.deepcopy(record);changed['context'][key]=value
+        with pytest.raises(PackError,match='admission'):validate_reservations(changed,ledger,now=1000)
+    for rid in RESERVATIONS.values():update(path,'settle',candidate_key=CANDIDATE,reservation_id=rid,amount=1)
+    update(path,'release-paid-attempt',candidate_key=CANDIDATE,admission_id=CONFIG['attemptId'],
+           owner_token='controller-owner-token-0000',cleanup_status='pass',reservation_ids=RESERVATIONS,now_epoch=1200)
+    released=json.loads(path.read_text())
+    with pytest.raises(PackError,match='admission'):
+        validate_reservations(record,released,now=1000)
+    # Even if an old caller supplies reserved-looking costs, the released
+    # admission itself cannot fund another start.
+    for row in released['entries']:row.update(state='reserved',actualUsd=None)
+    with pytest.raises((PackError,ValueError)):
+        validate_reservations(record,released,now=1000)

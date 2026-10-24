@@ -328,3 +328,51 @@ def test_the_new_exclusions_alone_are_blocked_never_pass():
                             ("honua-sdk-js", "Bounded AWS semantic workflow")):
         status, why = _classify(component, _runs_named((name, "failure")))
         assert status == "blocked", (component, why)
+
+
+def test_impact_routing_ledger_stays_excluded_until_its_promotion_window():
+    """The exclusion stays, with both fail-closed gates, links, and a review date."""
+    text = (ROOT / "certification" / "governance-checks.yaml").read_text(encoding="utf-8")
+    name = "Audit trusted impact-routing observations"
+    assert name in bt.load_governance()["honua-server"]
+    start = text.index(f'name: "{name}"')
+    why = " ".join(text[start:text.index('name: "Post exact-head Claude review evidence"', start)].split())
+    assert "receipt integrity violations" in why
+    assert "measured receipt loss over the 5% budget" in why
+    assert "Cohort drift, superseded heads" in why
+    assert "in-flight builds, and tombstoned evidence" in why
+    assert "https://github.com/honua-io/honua-server/actions/runs/39651147494" in why
+    assert "https://github.com/honua-io/honua-server/actions/runs/39471979464" in why
+    assert "https://github.com/honua-io/honua-server/actions/runs/39311450010" in why
+    assert "consecutive_green_days 2 of 7" in why
+    assert "promotion_gate_ready" in why
+    assert "2026-10-27" in why
+    assert "no longer holds" in why
+    assert "32038145537" in why
+    assert "honua-server#3521" in why
+
+
+def test_server_gp_canary_is_env_gated_but_its_harness_checks_stay_core():
+    status, why = _classify("honua-server", _runs_named(
+        ("harness-checks", "success"), ("geometry-buffer", "failure")))
+    assert status == "pass", why
+    assert "env-gated" in why and "geometry-buffer" in why
+    status, why = _classify("honua-server", _runs_named(
+        ("harness-checks", "failure"), ("geometry-buffer", "failure")))
+    assert status == "fail"
+    assert _red_names(why) == "1/1 core check-run(s) red (['failure']: ['harness-checks'])"
+
+
+def test_grpc_certify_harness_ruling_is_advisory_but_protocol_lanes_stay_core():
+    core = [("Conformance Fixtures", "success"), ("Validate Protocol Schemas", "success")]
+    # Coordinator ruling 2026-10-22 (#376): certify at tag v1.0.3 loads the previous tag's fixtures
+    # (runs 36619225117, 39745208615); grpc#148 run 39705695180 certified the 1.0.3 clients 42/42.
+    status, why = _classify("geospatial-grpc", _runs_named(*core, ("certify", "failure")))
+    assert status == "pass", why
+    assert "advisory" in why and "certify" in why
+    status, why = _classify("geospatial-grpc", _runs_named(
+        ("Conformance Fixtures", "failure"), ("Validate Protocol Schemas", "success"), ("certify", "failure")))
+    assert status == "fail"
+    assert _red_names(why) == "1/2 core check-run(s) red (['failure']: ['Conformance Fixtures'])"
+    status, why = _classify("geospatial-grpc", _runs_named(("certify", "failure")))
+    assert status == "blocked", why

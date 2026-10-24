@@ -146,6 +146,42 @@ def test_closing_refs_follow_github_keywords(body, expected):
     assert dashboard.closing_refs(body, 'honua-server') == expected
 
 
+def test_issue_less_repositories_stay_in_coverage_scans(monkeypatch):
+    repos = [
+        {'name': 'honua-server', 'private': False, 'default_branch': 'trunk', 'has_issues': True},
+        {'name': 'advisory-fork', 'private': True, 'default_branch': 'trunk', 'has_issues': False},
+    ]
+    calls = []
+
+    def pages(endpoint):
+        calls.append(endpoint)
+        if endpoint.startswith('orgs/'):
+            return repos
+        name = endpoint.split('/')[2]
+        if '/pulls?' in endpoint and name == 'advisory-fork':
+            return [{'number': 7, 'body': 'Fixes honua-io/honua-server#11', 'base': {'ref': 'trunk'}}]
+        if '/issues?' in endpoint:
+            assert name != 'advisory-fork'
+            return []
+        return []
+
+    monkeypatch.setattr(decision, 'pages', pages)
+    monkeypatch.setattr(decision, 'gh', lambda *args, payload=None: {
+        'data': {'p0': {'pullRequest': {'mergeStateStatus': 'CLEAN'}}}})
+    refreshed = decision.refresh({'issues': [], 'implementation_owners': []})
+    assert refreshed['issues'] == []
+    assert any(call.startswith('repos/honua-io/honua-server/issues?') for call in calls)
+    assert not any('/advisory-fork/issues' in call for call in calls)
+
+    calls.clear()
+    coverage = dashboard.harvest_coverage()
+    assert coverage['repos_scanned'] == ['advisory-fork', 'honua-server']
+    assert coverage['public_repos'] == ['honua-server']
+    assert coverage['closes'] == {
+        'honua-server#11': [{'repo': 'advisory-fork', 'number': 7, 'merge_state': 'CLEAN'}],
+    }
+
+
 def test_live_coverage_reads_default_branch_prs_and_batches_merge_states(monkeypatch):
     repos = [{'name': 'honua-server', 'private': False, 'default_branch': 'trunk'},
              {'name': 'honua-support', 'private': True, 'default_branch': 'main'}]

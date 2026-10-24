@@ -20,22 +20,24 @@
 # 2026.1 deployment policy: Licensing__Mode=Disabled, with runtime assertions in deployed gates.
 # No Honua Pro license envelope, minting key or edition input belongs in this train.
 name: release-train
-run-name: "release-train ${{ inputs.platform_label }} (dry_run=${{ inputs.dry_run }})"
+run-name: "release-train ${{ inputs.platform_label }} (dry_run=${{ inputs.dry_run }}, freeze_only=${{ inputs.freeze_only }})"
 
 on:
   workflow_dispatch:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
-      capacity_receipt_url: { description: "HTTPS URL of the attested candidate capacity-soak evidence ZIP", required: true, type: string }
-      dr_receipt_url: { description: "HTTPS URL of the candidate full-platform DR receipt", required: true, type: string }
+      freeze_only: { description: "Authenticate candidate inputs only; no qualification gates, release signature or publication", required: false, type: boolean, default: false }
+      capacity_receipt_url: { description: "HTTPS URL of the attested candidate capacity-soak evidence ZIP", required: false, type: string }
+      dr_receipt_url: { description: "HTTPS URL of the candidate full-platform DR receipt", required: false, type: string }
 
-  # `nightly` and `candidate_ref` are call-only: as dispatch inputs, nightly=true with
-  # dry_run=false would skip the signed frozen-lock binding a manual cut requires.
+  # Only nightly callers may adopt candidate_ref. Preparation authenticates the
+  # exact trunk source inputs and never reaches gates, reporting or promotion.
   workflow_call:
     inputs:
       platform_label: { required: true, type: string }
       dry_run: { required: false, type: boolean, default: true }
+      freeze_only: { required: false, type: boolean, default: false }
       capacity_receipt_url: { required: true, type: string }
       dr_receipt_url: { required: true, type: string }
       candidate_ref: { required: false, type: string, default: "" }
@@ -92,6 +94,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - name: Validate preparation or release invocation
+        env:
+          FREEZE_ONLY: ${{ inputs.freeze_only }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          NIGHTLY: ${{ inputs.nightly }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          CAPACITY_RECEIPT_URL: ${{ inputs.capacity_receipt_url }}
+          DR_RECEIPT_URL: ${{ inputs.dr_receipt_url }}
+        run: python tools/release_train_mode.py
       - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0"
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
@@ -99,7 +110,7 @@ jobs:
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
       - name: Bind the complete atomic platform lock before qualification
-        if: inputs.dry_run == false && !inputs.nightly
+        if: inputs.dry_run == false && !inputs.nightly && !inputs.freeze_only
         env:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
         run: |
@@ -112,7 +123,7 @@ jobs:
           cmp platform-lock.json frozen-lock/platform-lock.json
 
       - name: Generate the unsigned nightly qualification lock
-        if: inputs.nightly && inputs.dry_run == false
+        if: (inputs.nightly || inputs.freeze_only) && inputs.dry_run == false
         env:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
         run: |
@@ -157,6 +168,7 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run }}
           NIGHTLY: ${{ inputs.nightly }}
+          FREEZE_ONLY: ${{ inputs.freeze_only }}
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
@@ -164,7 +176,7 @@ jobs:
           ARGS=()
           if [ "$DRY_RUN" = "false" ]; then
             ARGS+=(--exact-candidate)
-            if [ "$NIGHTLY" = "true" ]; then
+            if [ "$NIGHTLY" = "true" ] || [ "${FREEZE_ONLY:-false}" = "true" ]; then
               ARGS+=(--deployment-phase candidate-precut --deployment-qualification certification/deployment-qualification.json)
             fi
           fi
@@ -214,13 +226,13 @@ jobs:
       # workflow run, never to a release; nothing here tags or publishes it.
       - name: Attest the frozen atomic candidate identity
         id: lock_attestation
-        if: ${{ !inputs.nightly }}
+        if: ${{ !inputs.nightly && !inputs.freeze_only }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: frozen-lock/platform-lock.json
 
       - name: Attest nightly qualification inputs (the release lock remains unsigned)
-        if: inputs.nightly
+        if: inputs.nightly || inputs.freeze_only
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -229,10 +241,15 @@ jobs:
 
       # Both modes retain provenance for the exact lock consumed by rollback certification.
       - name: Retain the candidate signature bundle
-        if: ${{ !inputs.nightly }}
+        if: ${{ !inputs.nightly && !inputs.freeze_only }}
         env:
           BUNDLE_PATH: ${{ steps.lock_attestation.outputs.bundle-path }}
         run: cp "$BUNDLE_PATH" frozen-lock/platform-lock.sigstore.json
+      - name: Record preparation without a qualification or release claim
+        if: inputs.freeze_only
+        run: |
+          python tools/release_train_mode.py --preparation-receipt frozen-lock/preparation-status.json
+          echo 'Candidate inputs authenticated. All qualification gates remain unrun; no release signature or publication was produced.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-manifest
@@ -247,6 +264,7 @@ jobs:
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 
   gate_manifest:               # Phase 0 source-of-truth: validate manifest + matrix, enforce drift
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/manifest-validate.yml
     with:
@@ -257,6 +275,7 @@ jobs:
     # (structure + coherence still run, and fail on an incoherent pinned set).
 
   gate_build_test:             # a) per-repo full suites — confirm each pinned SHA's CI is green (consume continuous-green)
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/gate-build-test.yml
     with:
@@ -266,6 +285,7 @@ jobs:
     secrets: inherit
 
   gate_artifact_consume:       # d) install/consume published artifacts (closes sdk-js#310, iac#81, grpc#45)
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/gate-artifact-consume.yml
     with:
@@ -276,6 +296,7 @@ jobs:
     secrets: inherit            # passes RELEASE_GH_TOKEN for the LOCAL-build fallback / staging auth
 
   gate_e2e:                    # cross-component seam scenarios on local-docker (Phase A; #7)
+    if: ${{ !inputs.freeze_only }}
     needs: [gate_manifest, gate_artifact_consume]
     uses: ./.github/workflows/e2e-local-docker.yml
     with:
@@ -285,6 +306,7 @@ jobs:
     secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
 
   gate_cloud_parity:           # e) Slice-2 cloud CERT — six serialized runtime cells
+    if: ${{ !inputs.freeze_only }}
     needs: [freeze, gate_e2e]  #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
     uses: ./.github/workflows/e2e-cloud-aws.yml
     with:
@@ -303,6 +325,7 @@ jobs:
     secrets: inherit            # RELEASE_GH_TOKEN for the honua-iac dispatch wrapper + cross-repo checkout
 
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
+    if: ${{ !inputs.freeze_only }}
     needs: [gate_build_test, gate_contract]
     uses: ./.github/workflows/certification.yml
     with:
@@ -313,6 +336,7 @@ jobs:
     secrets: inherit
 
   gate_security:               # e) Trivy image + repo scan (vuln/secret/license/IaC). Phase 3.
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/gate-security.yml
     with:
@@ -322,6 +346,7 @@ jobs:
     secrets: inherit
 
   gate_contract:               # b) proto breaking-change via buf (REST/SDK-API diff blocked). Phase 2.
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/gate-contract.yml
     with:
@@ -331,6 +356,7 @@ jobs:
     secrets: inherit
 
   gate_contract_live:          # R27: boot the exact candidate image@digest and refuse when its advertised
+    if: ${{ !inputs.freeze_only }}
     needs: freeze              #   /api/v1/admin/capabilities contract versions differ from the declaration
     uses: ./.github/workflows/gate-contract-live.yml
     with:
@@ -340,6 +366,7 @@ jobs:
     secrets: inherit            # RELEASE_GH_TOKEN reads release/component-versions.json at the server sha
 
   gate_sbom:                   # f) SBOM per candidate artifact + aggregated platform BOM (CycloneDX/SPDX). PLAN §6.
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/gate-sbom.yml
     with:
@@ -352,6 +379,7 @@ jobs:
   # ── later-phase gates (real bodies; blocked/skip honestly until their infra/creds land) ──────────
 
   gate_observability:          # g) SLO incl. GeoServices in-band error metric (server#2243/devops#113). Issue #5.
+    if: ${{ !inputs.freeze_only }}
     needs: gate_e2e
     uses: ./.github/workflows/gate-observability.yml
     with:
@@ -361,6 +389,7 @@ jobs:
     secrets: inherit            # RELEASE_GH_TOKEN for the cross-repo metric-contract checkout
 
   gate_docs:                   # h) advertised-vs-actual + advertised-GA ⊆ evidenced-GA (#59). Phase 3.
+    if: ${{ !inputs.freeze_only }}
     needs: gate_conformance
     uses: ./.github/workflows/gate-docs.yml
     with:
@@ -369,6 +398,7 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   gate_upgrade:                # i) prior-release -> candidate: compat-matrix + forward-schema + kind install/upgrade/rollback smoke
+    if: ${{ !inputs.freeze_only }}
     needs: gate_e2e
     uses: ./.github/workflows/gate-upgrade.yml
     with:
@@ -378,6 +408,7 @@ jobs:
     secrets: inherit
 
   gate_one_operation_rollback: # retained lock B -> A across serving, worker, config, capability, and schema
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/rollback-certification.yml
     with:
@@ -389,6 +420,7 @@ jobs:
       candidate_lock_artifact: candidate-manifest
 
   gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
+    if: ${{ !inputs.freeze_only }}
                                  # matrix backing #59's capability-key claims must be about this
                                  # candidate's pinned honua-server sha and not stale. Wired at freeze.
     needs: freeze
@@ -399,6 +431,7 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   gate_protocol_certification: # normalized canonical-client cells for the exact candidate
+    if: ${{ !inputs.freeze_only }}
     needs: [freeze, gate_conformance]
     uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@8a1e54dd27eb3f48cbc470e01d673481056c1f38 # v1.0.3 - trusted gate workflow (trunk, #295 squash)
     with:
@@ -423,6 +456,7 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   gate_dr:                     # complete durable inventory and restart observations, exact candidate
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/gate-dr.yml
     with:
@@ -431,6 +465,7 @@ jobs:
       candidate_bundle: true
 
   gate_capacity_soak:          # exact-candidate capacity/SLO envelope under the pre-frozen lock
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/capacity-soak.yml
     secrets:
@@ -440,12 +475,14 @@ jobs:
       evidence_bundle_url: ${{ inputs.capacity_receipt_url }}
 
   gate_executable_docs:        # every getting-started block of the public docs runs against the candidate (#379)
+    if: ${{ !inputs.freeze_only }}
     needs: freeze
     uses: ./.github/workflows/gate-executable-docs.yml
     with:
       candidate_ref: ${{ inputs.candidate_ref }}
 
   gate_terminal_journey_contract:  # the terminal journey contract lane, unchanged; its fixture revision
+    if: ${{ !inputs.freeze_only }}
     needs: freeze                  # record is one of the inputs to the nightly lock's $.fixtures (#231 WI-8)
     uses: ./.github/workflows/terminal-journey-contract.yml
 
@@ -453,7 +490,7 @@ jobs:
     needs: [freeze, gate_cloud_parity]
     # The per-cell receipts are judged even when the cloud aggregate is red: Preview cells cannot
     # block, and a missing GA receipt fails here. A skipped freeze has no candidate to judge.
-    if: ${{ !cancelled() && needs.freeze.result == 'success' }}
+    if: ${{ !inputs.freeze_only && (!cancelled() && needs.freeze.result == 'success') }}
     uses: ./.github/workflows/gate-journey.yml
     with:
       # e2e-cloud-aws runs inside this run, so its per-cell receipts carry this run's identity.
@@ -463,6 +500,7 @@ jobs:
       candidate_bundle: true
 
   gate_installed_clients:       # installed-client SDK regression (#381, #386): the published Python, JS and
+    if: ${{ !inputs.freeze_only }}
     needs: freeze                # .NET SDKs drive the exact candidate through every scenario contract
     uses: ./.github/workflows/gate-installed-clients.yml
     with:
@@ -494,7 +532,7 @@ jobs:
       - gate_journey
       - gate_executable_docs
       - gate_installed_clients
-    if: always()
+    if: ${{ !inputs.freeze_only && (always()) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

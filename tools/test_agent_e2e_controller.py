@@ -74,6 +74,7 @@ def environment(tmp_path):
     adapter.manifest = sample_manifest(tmp_path/'knowledge', pack)
     return {"pack": pack, "corpus": corpus, "case_id": "P10:A:local-docker",
             "campaign": {"campaignId": "campaign", "componentBindingDigest": KEY,
+                         "totalBudgetUsd": 500,
                          "campaignMode": "qualification", "knowledge": binding(adapter.manifest),
                          "qualificationLockDigest": BASIS, "modelId": "requested", "returnedModelId": "returned"},
             "ledger": ledger, "journal_root": tmp_path / "journals", "backend": adapter, "model": Model()}
@@ -87,6 +88,28 @@ def test_hidden_prepare_payload_not_in_model_input_and_no_qualification_claim(en
     assert "assertions" not in text and "expectedOutcome" not in text
     assert summarize(read_events(result["journal"]))["agentEncounteredCorpus"] is True
     assert summarize(read_events(result["journal"]))['providerRequests'] == [{'turn':1, 'requestId':'request-id'}]
+
+
+def test_adopted_console_turn_receives_only_original_final_provider_response(environment):
+    adapter = environment['backend']
+    original_call = adapter.call
+    def call(operation, payload, **kwargs):
+        if operation == 'conversation_response':
+            adapter.operations.append((operation, copy.deepcopy(payload)))
+            return {'status': 'delivered', 'evidenceKind': 'conversation'}
+        result = original_call(operation, payload, **kwargs)
+        if operation == 'prepare':
+            result['consoleConversation'] = True
+        return result
+    adapter.call = call
+    result = run_goal(**environment)
+    assert result['status'] == 'pass'
+    operations = [name for name, _ in adapter.operations]
+    assert operations.index('conversation_response') < operations.index('verify')
+    response = next(value['response'] for name, value in adapter.operations if name == 'conversation_response')
+    assert response['providerRequestId'] == 'request-id'
+    assert response['message']['content'] == [{'type': 'text', 'text': 'Done.'}]
+    assert response['turn'] == 1
 
 
 @pytest.mark.parametrize('observed_action', [1, 2])
@@ -249,3 +272,13 @@ def test_worker_documentation_mismatch_blocks_model_and_cleans_up(environment):
 def test_invalid_terminal_arguments_never_reach_backend(args):
     with pytest.raises(ModelFailure):
         validate_action({"type": "tool_use", "id": "one", "name": "terminal", "input": args})
+
+
+def test_legacy_dispatcher_refuses_amended_pilot_ledger_before_any_paid_work(environment):
+    update(environment['ledger'],'amend-foss4g',candidate_key=KEY)
+    result=run_goal(**environment)
+    assert result['status']=='blocked' and result['qualification'] is False
+    assert environment['backend'].operations==[]
+    assert environment['model'].inputs==[]
+    ledger=load_json(environment['ledger'])
+    assert ledger['entries']==[] and ledger['paidAdmissions']==[]
