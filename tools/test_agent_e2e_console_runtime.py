@@ -65,7 +65,9 @@ def runtime(interactive, server, monkeypatch):
         'requestDigest': BASIS, 'execution': {'executionId': E, 'state': 'queued', 'stateRevision': 0},
         'binding': {'workspaceId': 'workspace-original', 'targetId': 'target-original',
             'runtimeId': 'runtime-original', 'runtimeBindingDigest': BASIS,
-            'turn': {'turnId': 'turn-original', 'prompt': 'Actual fixture question', 'context': {'targetId': 'target-original'}}}}
+            'turn': {'turnId': 'turn-original', 'actorId': 'human-original', 'prompt': 'Actual fixture question',
+                'context': {'targetId': 'target-original'}}},
+        'submission': {'turnId': 'turn-original', 'requestDigest': BASIS, 'disposition': 'accepted', 'executionId': E}}
     server.respond = lambda *args: (200, {}, json.dumps(value).encode())
     return SimpleNamespace(durable=durable, config=config, value=value,
         control=NativeControl(durable=durable, configuration=config), now=now)

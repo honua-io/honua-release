@@ -196,7 +196,7 @@ class InstalledSlot:
         journal.durable._require_live_lease()
         self._authorize(journal, launch)
         require(not journal.values('worker-intent'), 'worker already intended; reconcile original execution without relaunch')
-        self.inspect()
+        journal.append('worker-installation-observation', self.inspect())
         require(self.clock() < self.input['expiresEpoch'], 'original native worker admission expired')
         journal.append('worker-intent', launch)
         self._authorize(journal, launch)
@@ -234,16 +234,19 @@ class InstalledSlot:
         result = {'executionArn': self.execution_arn, 'executionStatus': execution['status'],
             'taskArn': task_arn, 'launchEventId': event, 'taskStatus': 'unobserved', 'retired': False}
         if task_arn is not None:
+            claims = []
             expected = {'executionId': self.input['executionId'], 'runtimeId': self.config['runtimeId'],
                 'slotId': self.config['slotId'], 'executionArn': self.execution_arn,
                 'taskDefinitionArn': self.config['taskDefinitionArn'], 'inputDigest': canonical_digest(self.input)}
             for key in (self.claim_key, self.slot_key):
                 claim = self._claim(key)
+                claims.append({'key': key, 'row': copy.deepcopy(claim)})
                 fields = copy.deepcopy(expected)
                 if key == self.slot_key:
                     fields['activeExecutionId'] = fields.pop('executionId')
                 require(claim is not None and all(claim.get(k) == {'S': v} for k, v in fields.items()),
                         'actual installed permanent/slot claim differs')
+            result['claims'] = claims
             response = self.ecs.describe_tasks(cluster=self.config['clusterArn'], tasks=[task_arn], include=['TAGS'])
             tasks = response.get('tasks', [])
             require(not response.get('failures') and len(tasks) == 1, 'actual installed physical task unavailable')
