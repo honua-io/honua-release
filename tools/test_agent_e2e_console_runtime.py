@@ -67,7 +67,8 @@ def runtime(interactive, server, monkeypatch):
         'binding': {'workspaceId': 'workspace-original', 'targetId': 'target-original',
             'runtimeId': 'runtime-original', 'runtimeBindingDigest': BASIS,
             'turn': {'turnId': 'turn-original', 'actorId': 'human-original', 'prompt': 'Actual fixture question',
-                'context': {'targetId': 'target-original'}}},
+                'context': {'workspaceId': 'workspace-original', 'targetId': 'target-original',
+                    'viewId': 'view-original', 'revision': 0, 'selectedResources': [], 'task': None}}},
         'submission': {'turnId': 'turn-original', 'requestDigest': BASIS, 'disposition': 'accepted', 'executionId': E}}
     server.respond = lambda *args: (200, {}, json.dumps(value).encode())
     return SimpleNamespace(durable=durable, config=config, value=value,
