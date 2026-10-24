@@ -33,7 +33,10 @@ def terraform_definition_digest(raw):
     def unique(pairs):
         result = {}
         for key, value in pairs:
-            key = unicodedata.normalize('NFC', key)
+            # Terraform-created object keys are already NFC. Refuse a foreign
+            # decomposed key instead of relying on cty jsondecode's key lookup.
+            if key != unicodedata.normalize('NFC', key):
+                raise PackError('noncanonical lifecycle definition field')
             if key in result:
                 raise PackError('duplicate lifecycle definition field')
             result[key] = value
