@@ -26,8 +26,8 @@ def run(action, config, seconds):
             **({'agent_context': config['agentContext']} if 'agentContext' in config else {}),
             **({'execution_context': config['executionContext']} if 'executionContext' in config else {}))
         client.initialize()
-        if action['name'] == 'mcp_list_tools' and action['input'] == {}:
-            payload['result'] = client.list_tools()
+        if action['name'] == 'mcp_list_tools' and set(action['input']) <= {'view'}:
+            payload['result'] = client.list_tools(**action['input'])
         elif action['name'] == 'mcp_call_tool' and set(action['input']) == {'name','arguments'}:
             payload['result'] = client.call_tool(action['input']['name'], action['input']['arguments'])
         else:

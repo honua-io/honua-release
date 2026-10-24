@@ -129,6 +129,43 @@ class NativeControl:
             identifier(row.get('workspaceId'), 'workspace ID'); identifier(row.get('turnId'), 'turn ID')
         return observed
 
+    def heartbeat(self, controller_worker_id, configuration_digest):
+        """Read/CAS/independently read staging readiness; never replay a POST."""
+        require(isinstance(controller_worker_id, str) and re.fullmatch(
+            r'arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:task/[A-Za-z0-9_-]+/[0-9a-f]{32}', controller_worker_id),
+            'installed heartbeat requires actual controller ECS task identity')
+        digest(configuration_digest)
+        prior = self._call('heartbeat-read', 'GET', '/heartbeat')
+        retained = prior['value'].get('heartbeat')
+        require(retained is None or isinstance(retained, dict) and type(retained.get('stateRevision')) is int and
+                retained['stateRevision'] > 0, 'native original heartbeat revision missing')
+        body = {'controllerWorkerId': controller_worker_id,
+            'registrationDigest': self.configuration['runtimeBindingDigest'], 'configurationDigest': configuration_digest,
+            'expectedRevision': 0 if retained is None else retained['stateRevision']}
+        try:
+            self._call('heartbeat', 'POST', '/heartbeat', body=body, mutation=body)
+        except Exception:
+            # Even an explicit failure cannot be relabelled successful. Only a
+            # fresh exact native original below can establish this CAS outcome.
+            pass
+        observed = self._call('heartbeat-read', 'GET', '/heartbeat')
+        value = observed['value'].get('heartbeat')
+        require(isinstance(value, dict) and all(value.get(k) == body[k] for k in
+            ('controllerWorkerId', 'registrationDigest', 'configurationDigest')) and
+            value.get('stateRevision') == body['expectedRevision']+1,
+            'native heartbeat outcome is unknown or belongs to another controller; do not replay')
+        from datetime import datetime
+        try:
+            start = datetime.fromisoformat(value['observedAt'].replace('Z', '+00:00'))
+            end = datetime.fromisoformat(value['expiresAt'].replace('Z', '+00:00'))
+        except (ValueError, KeyError, TypeError) as error:
+            raise PackError('native heartbeat lacks server-stamped bounded freshness') from error
+        require(start.tzinfo is not None and end.tzinfo is not None and
+                0 < end.timestamp()-start.timestamp() <= 60 and start.timestamp() <= self.clock() < end.timestamp() <=
+                    self.durable.state['ledger']['interactiveAccounting']['originalExpiresEpoch'],
+                'native heartbeat is expired, future-stamped or exceeds original funding')
+        return observed
+
     def read(self, execution, workspace, turn, *, reconcile=False):
         execution_id(execution); identifier(workspace, 'workspace ID'); identifier(turn, 'turn ID')
         observed = self._call('read', 'GET', '/executions/'+execution+'?workspaceId='+workspace+'&turnId='+turn,
@@ -173,6 +210,7 @@ EVENTS = {'native-observation', 'admission', 'reservation', 'worker-intent', 'wo
           'question-observation', 'final-response-intent', 'final-response-observation', 'effect-observation',
           'fence-observation', 'retirement-observation', 'settlement', 'slot-release-observation'}
 EVENTS |= {'witness-export-intent', 'witness-export-observation'}
+EVENTS |= {'worker-command-dispatch', 'worker-command-chunk'}
 
 
 def validate_execution_history(record):

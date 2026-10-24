@@ -78,6 +78,58 @@ def original(runtime):
     return runtime.control.read(E, 'workspace-original', 'turn-original')
 
 
+@pytest.mark.parametrize('lose_ack', [False, True])
+def test_staging_heartbeat_uses_original_server_cas_and_readback(runtime, server, lose_ack):
+    heartbeat, posts = None, []
+    task = 'arn:aws:ecs:us-east-1:123456789012:task/controller/'+'a'*32
+    def respond(method, path, raw):
+        nonlocal heartbeat
+        assert path.endswith('/heartbeat')
+        if method == 'POST':
+            body = json.loads(raw)
+            posts.append(body)
+            assert body['expectedRevision'] == (0 if heartbeat is None else heartbeat['stateRevision'])
+            heartbeat = {key: body[key] for key in ('controllerWorkerId', 'registrationDigest', 'configurationDigest')}
+            heartbeat.update(stateRevision=body['expectedRevision']+1,
+                observedAt=datetime.fromtimestamp(runtime.now, timezone.utc).isoformat(),
+                expiresAt=datetime.fromtimestamp(runtime.now+60, timezone.utc).isoformat())
+            if lose_ack:
+                return None
+        return 200, {}, json.dumps({**runtime.value, 'heartbeat': heartbeat}).encode()
+    server.respond = respond
+    observed = runtime.control.heartbeat(task, BASIS)
+    assert observed['value']['heartbeat'] == heartbeat and len(posts) == 1
+    # A new periodic observation is a different CAS, with the original raw
+    # response still retained; it never reuses the lost request identity.
+    runtime.control.heartbeat(task, BASIS)
+    assert [post['expectedRevision'] for post in posts] == [0, 1]
+    assert len([row for row in runtime.durable.state['nativeRuntimeHttp'].values()
+                if row.get('method') == 'POST']) == 2
+
+
+@pytest.mark.parametrize('change', ['worker', 'registration', 'revision', 'future', 'expired'])
+def test_heartbeat_mismatched_or_stale_original_never_becomes_ready(runtime, server, change):
+    task = 'arn:aws:ecs:us-east-1:123456789012:task/controller/'+'a'*32
+    body = None
+    def respond(method, path, raw):
+        nonlocal body
+        if method == 'POST':
+            request = json.loads(raw)
+            body = {key: request[key] for key in ('controllerWorkerId', 'registrationDigest', 'configurationDigest')}
+            body.update(stateRevision=1, observedAt=datetime.fromtimestamp(runtime.now, timezone.utc).isoformat(),
+                expiresAt=datetime.fromtimestamp(runtime.now+60, timezone.utc).isoformat())
+            if change == 'worker': body['controllerWorkerId'] = task[:-1]+'b'
+            if change == 'registration': body['registrationDigest'] = 'sha256:'+'f'*64
+            if change == 'revision': body['stateRevision'] = 2
+            if change == 'future': body['observedAt'] = datetime.fromtimestamp(runtime.now+1, timezone.utc).isoformat()
+            if change == 'expired': body['expiresAt'] = datetime.fromtimestamp(runtime.now, timezone.utc).isoformat()
+        return 200, {}, json.dumps({**runtime.value, 'heartbeat': body}).encode()
+    server.respond = respond
+    with pytest.raises(PackError, match='heartbeat'):
+        runtime.control.heartbeat(task, BASIS)
+    assert len([row for row in server.seen if row[0] == 'POST']) == 1
+
+
 def test_actual_authenticated_native_original_creates_append_only_same_e_journal(runtime, server):
     observed = original(runtime)
     journal = ExecutionJournal(runtime.durable, observed)
