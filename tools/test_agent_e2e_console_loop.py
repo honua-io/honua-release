@@ -97,7 +97,10 @@ def test_genuine_final_bytes_cost_and_independent_readback_survive_lost_reply(lo
     charge = loop.runtime.durable.state['ledger']['interactiveEntries'][0]
     assert charge['actualUsd'] == '0.00045' and charge['state'] == 'settled'
     resumed = loop.build().run()
-    assert resumed == result and len(loop.provider.invocations) == len(loop.state.mutations) == 1
+    assert resumed['state'] == result['state'] and resumed['messageId'] == result['messageId']
+    assert resumed['native'] != result['native']  # A new independent GET has a new immutable original.
+    assert loop.journal.values('final-response-observation') == [{'reference': result['native'], 'messageId': result['messageId']}]
+    assert len(loop.provider.invocations) == len(loop.state.mutations) == 1
 
 
 def test_unknown_paid_invocation_stays_reserved_and_is_never_invoked_again(loop):
@@ -145,7 +148,11 @@ def test_actual_provider_question_is_native_retained_and_not_a_final_or_approval
     question = loop.runtime.value['execution']['question']
     assert question['providerRequestId'] == 'provider-original-0' and question['providerToolCallId'] == 'question-call-original'
     assert not loop.journal.values('final-response-intent')
-    assert loop.build().run() == result and len(loop.provider.invocations) == 1
+    resumed = loop.build().run()
+    assert resumed['state'] == result['state'] and resumed['questionId'] == result['questionId']
+    assert resumed['native'] != result['native']
+    assert loop.journal.values('question-observation') == [{'question': question, 'reference': result['native']}]
+    assert len(loop.provider.invocations) == 1
 
 
 def test_reply_reconstructs_original_provider_question_only_after_original_retirement_and_settlement(loop):
