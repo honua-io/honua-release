@@ -7,19 +7,28 @@ execution and permanent claim. STOPPED never releases the paid admission/slot.
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 import json
 import re
 import time
 
 from agent_e2e_console_runtime import require, identifier, execution_id, digest
 from agent_e2e_pack import canonical_digest
-from agent_e2e_worker_lifecycle import WorkerLifecycle
+from agent_e2e_worker_lifecycle import WorkerLifecycle, terraform_definition_digest
 from agent_e2e_budget import validate as validate_budget, money
 from agent_e2e_interactive_budget import validate_retained_funding
 
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
+
+
+def sdk_original(value):
+    """Preserve parsed SDK timestamps without an arbitrary string fallback."""
+    def timestamp(item):
+        require(isinstance(item, datetime) and item.tzinfo is not None, 'unsupported SDK observation value')
+        return item.isoformat()
+    return json.loads(json.dumps(value, default=timestamp, ensure_ascii=False, allow_nan=False))
 
 
 class InstalledSlot:
@@ -153,7 +162,7 @@ class InstalledSlot:
         definition = self.states.describe_state_machine(stateMachineArn=c['stateMachineArn'])
         require(definition.get('stateMachineArn') == c['stateMachineArn'] and definition.get('roleArn') == c['stateMachineRoleArn'] and
                 definition.get('status') == 'ACTIVE' and definition.get('type') == 'STANDARD' and
-                canonical_digest(json.loads(definition['definition'])) == c['definitionDigest'],
+                terraform_definition_digest(definition.get('definition')) == c['definitionDigest'],
                 'installed lifecycle differs from reviewed source')
         response = self.ecs.describe_task_definition(taskDefinition=c['taskDefinitionArn'])
         task = response.get('taskDefinition', {})
@@ -179,7 +188,7 @@ class InstalledSlot:
         require(not any(key in env for key in ('HONUA_AGENT_MCP_CONFIG', 'HONUA_NATIVE_SETUP_KEY',
                 'HONUA_EXTERNAL_EXECUTION_CONTROL_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY')),
                 'installed worker environment discloses a privileged credential')
-        return {'lifecycle': definition, 'taskDefinition': response}
+        return {'lifecycle': sdk_original(definition), 'taskDefinition': sdk_original(response)}
 
     def start(self, journal, launch):
         require(launch['input'] == self.input and launch['configurationDigest'] == canonical_digest(self.config),
@@ -195,6 +204,7 @@ class InstalledSlot:
         # not permission to retry; observe the deterministic ARN instead.
         response = self.states.start_execution(stateMachineArn=self.config['stateMachineArn'],
             name=self.name, input=canonical(self.input))
+        journal.append('worker-start-response', sdk_original(response))
         require(response.get('executionArn') == self.execution_arn, 'installed launch response identity differs')
         return self.observe(journal)
 
@@ -215,7 +225,12 @@ class InstalledSlot:
                 execution.get('status') in ('RUNNING', 'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'ABORTED'),
                 'installed execution input/history differs or is unavailable')
         # Share the established bounded original Step Functions launch reader.
-        task_arn, event = WorkerLifecycle._launched_task(self)
+        pages = []
+        def retain_page(request, response):
+            value = {'request': copy.deepcopy(request), 'response': sdk_original(response)}
+            journal.append('worker-history', value)
+            pages.append(value)
+        task_arn, event = WorkerLifecycle._launched_task(self, retain_page=retain_page)
         result = {'executionArn': self.execution_arn, 'executionStatus': execution['status'],
             'taskArn': task_arn, 'launchEventId': event, 'taskStatus': 'unobserved', 'retired': False}
         if task_arn is not None:
@@ -242,6 +257,8 @@ class InstalledSlot:
                     all([row.get('value') for row in tags if row.get('key') == key] == [value] for key, value in wanted.items()),
                     'installed worker physical task/authority differs')
             result['taskStatus'] = task['lastStatus']
-            result['physicalTask'] = copy.deepcopy(task)
-        journal.append('worker-observation', {'observation': result, 'execution': execution})
+            result['physicalTask'] = sdk_original(task)
+            result['taskResponse'] = sdk_original(response)
+        journal.append('worker-observation', {'observation': result, 'execution': sdk_original(execution),
+            'launchHistory': copy.deepcopy(pages)})
         return result

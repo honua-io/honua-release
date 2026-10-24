@@ -1,5 +1,6 @@
 """Original profile bindings and private execution contracts; no inference calls."""
 import copy
+from decimal import Decimal
 from pathlib import Path
 import sys
 from unittest.mock import Mock
@@ -15,16 +16,11 @@ from controller_entry import approved_model_environment
 from controller_handoff import model_runtime
 
 PROFILE = Path(__file__).resolve().parents[1]/'certification/agent-e2e/model-profile.json'
+PRICING = PROFILE.with_name('model-pricing.json')
 
 
 def configuration():
-    original = load_json(PROFILE)
-    return {'modelId': original['inferenceProfileId'], 'profileArn': original['inferenceProfileArn'],
-        'returnedModelId': 'claude-sonnet-4-5-20250929', 'region': 'us-east-1',
-        'tokenCountingModelArn': original['models'][0]['modelArn'],
-        'profile': {'path': 'certification/agent-e2e/model-profile.json', 'sha256': digest_bytes(PROFILE.read_bytes())},
-        'pricingDigest': 'sha256:'+'a'*64, 'inputUsdPerMillion': '3',
-        'outputUsdPerMillion': '15', 'maxOutputTokens': 1024}
+    return {**load_json(PRICING), 'pricingDigest': digest_bytes(PRICING.read_bytes()), 'maxOutputTokens': 1024}
 
 
 def pin(model):
@@ -72,6 +68,33 @@ def test_no_profile_fallback_or_guessed_token_counter():
     client = Mock()
     with pytest.raises(ControllerError, match='token-counting'): BedrockModel(model, client=client)
     client.count_tokens.assert_not_called()
+
+
+@pytest.mark.parametrize('count', [200000, 200001])
+def test_actual_geo_standard_prices_stop_at_supported_input_boundary_before_invoke(count):
+    config = configuration()
+    assert config['inputUsdPerMillion'] == '3.30' and config['outputUsdPerMillion'] == '16.50'
+    assert config['returnedModelId'] == 'claude-sonnet-4-5-20250929'
+    client = Mock()
+    client.count_tokens.return_value = {'inputTokens': count}
+    model = BedrockModel(config, client=client)
+    request = model.request([{'role': 'user', 'content': 'Original source pricing boundary'}])
+    if count == 200000:
+        _, maximum = model.quote(request)
+        assert maximum == Decimal('0.676896')
+    else:
+        with pytest.raises(ControllerError, match='no long-context pricing fallback'): model.quote(request)
+    client.invoke_model.assert_not_called()
+
+
+@pytest.mark.parametrize('field,value', [('promptCaching', True), ('batch', True),
+    ('inputTokenLimit', 200001), ('serviceTier', 'priority')])
+def test_unpriced_usage_modes_cannot_enter_standard_quote(field, value):
+    config = configuration()
+    config['pricingScope'][field] = value
+    client = Mock()
+    with pytest.raises(ControllerError, match='pricing scope'): BedrockModel(config, client=client)
+    client.count_tokens.assert_not_called(); client.invoke_model.assert_not_called()
 
 
 def test_private_child_requires_exact_installed_and_frozen_model_identity():

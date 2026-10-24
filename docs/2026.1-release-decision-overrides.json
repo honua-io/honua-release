@@ -535,6 +535,21 @@
       "authority": "https://github.com/honua-io/honua-release/issues/376",
       "ruling": "Owner-approved assisted pilot then GA. ECS and Lambda + Batch remain GA targets; Redis-on is recommended for full workflows, Redis-off is limited serving with typed refusals and never GP-executed evidence. EKS/Helm is Preview for 2026.1, superseding October 10 decisions 12/18. Studio is a usable self-hosted 2D Preview alongside full agent flows. Assisted supported-service migration and two existing JavaScript apps permit documented manual fixes. Clarification and at most one visible retry are allowed; silent wrong results, data loss, unauthorized actions and false success are unacceptable.",
       "effect": "Four required ECS/Lambda journey cells; EKS remains informational with qualification pending. Preserve required correctness/security/catalog-GP denominator, immutable-image resolver rules, gate freeze before first rc.3, separate topology proofs, two signed-lock update/rollback and 48h/seven-canary burn. #619 does not gate RC; #613\u2013#617 remains 2026.2. Weekly outcome board and three fresh-start pilot observations remain in canonical #376; date windows are decision checkpoints, not guarantees."
+    },
+    "additional-design-gp-pullins-2026-10-24": {
+      "date": "2026-10-24",
+      "authority": "https://github.com/honua-io/honua-release/issues/883",
+      "ruling": "Owner-selected additional 2026.1 GA work consists of the Studio data/interaction inspector, one Explore a dataset recipe, their Console shared-workspace integration, and the .NET bounded GP execution helper/example. The broader recipe umbrella retains Compare places and Track change over time in 2026.2. Collaboration, full layout/theme expansion and remote-failure reproduction remain 2026.2. This ruling adds only the named implementation tickets; the prior enhancement delivery record remains independently applicable.",
+      "effect": "Selected feature additions use stage/ga and post-cut-hardening for delivery after the first candidate cut and before 2026.1 GA, not an automatic 2026.1.x deferral. Existing workflow correctness fixes retain must-fix-before-cut and exact-candidate evidence retains prove-against-candidate. No new blanket first-RC gate, qualification pass, deployment or gate waiver is introduced. The 2026.1.x proposal-store and legacy rollback-baseline rulings remain unchanged.",
+      "moved": [
+        "honua-studio#131",
+        "honua-studio#135",
+        "honua-console#470",
+        "honua-sdk-dotnet#293"
+      ],
+      "retained_2026_2": [
+        "honua-server#2439"
+      ]
     }
   },
   "security_findings": [
@@ -1320,6 +1335,31 @@
     "honua-release#65": {
       "bucket": "prove-against-candidate",
       "reason": "2026-10-21 grooming: the capability sweep scenarios already run in every cloud cell; what remains is candidate-bound live AWS evidence, not implementation, and under the 2026-10-15 gate freeze it is not a new required gate."
+    },
+    "honua-studio#131": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-studio#135": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-console#470": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-sdk-dotnet#293": {
+      "bucket": "post-cut-hardening",
+      "reason": "Reviewed 2026-10-24: owner-selected 2026.1 GA enhancement, stage/ga, after first candidate cut and before GA. This is not a 2026.1.x deferral and does not add a blanket first-RC gate. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
+    },
+    "honua-server#2439": {
+      "bucket": "2026.2",
+      "reason": "Reviewed 2026-10-24: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883.",
+      "ruling": "additional-design-gp-pullins-2026-10-24"
     }
   },
   "admission_reviews": {

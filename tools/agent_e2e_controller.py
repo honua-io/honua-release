@@ -9,6 +9,7 @@ capabilities block execution rather than falling back to a local shell.
 from __future__ import annotations
 
 import argparse
+import base64
 from decimal import Decimal
 import hashlib
 import json
@@ -137,6 +138,10 @@ class BedrockModel:
                 raise ControllerError("reviewed positive model pricing is required")
         if type(config.get("maxOutputTokens")) is not int or not 1 <= config["maxOutputTokens"] <= 8192:
             raise ControllerError("invalid output token ceiling")
+        scope = config.get('pricingScope')
+        if scope is not None and scope != {'currency': 'USD', 'serviceTier': 'standard',
+                'inference': 'US geographic cross-region', 'inputTokenLimit': 200000, 'promptCaching': False, 'batch': False}:
+            raise ControllerError('unsupported reviewed model pricing scope')
 
     def request(self, messages):
         return {"anthropic_version": "bedrock-2023-05-31", "max_tokens": self.config["maxOutputTokens"],
@@ -149,13 +154,22 @@ class BedrockModel:
         count = result["inputTokens"]
         if type(count) is not int or count <= 0:
             raise ControllerError("provider did not return an input token count")
+        if count > 200000:
+            raise ControllerError('provider input exceeds reviewed standard token limit; no long-context pricing fallback')
         return body, (Decimal(count) * money(self.config["inputUsdPerMillion"]) +
                       Decimal(request["max_tokens"]) * money(self.config["outputUsdPerMillion"])) / 1000000
 
-    def invoke(self, body):
+    def invoke(self, body, *, observe_response=None):
         response = self.client.invoke_model(modelId=self.config["modelId"], body=body,
                                            contentType="application/json", accept="application/json")
-        message = json.loads(response["body"].read())
+        raw = response["body"].read()
+        if not isinstance(raw, bytes) or len(raw) > 1024 * 1024:
+            raise ControllerError('provider response exceeds bounded retention')
+        if observe_response is not None:
+            observe_response({'rawBodyBase64': base64.b64encode(raw).decode('ascii'), 'responseDigest': digest_bytes(raw),
+                'providerRequestId': response.get('ResponseMetadata', {}).get('RequestId'),
+                'requestedModelId': self.config['modelId'], 'requestDigest': digest_bytes(body)})
+        message = json.loads(raw)
         if message.get("model") != self.config["returnedModelId"]:
             raise ControllerError("actual returned model identity changed")
         usage = message["usage"]
