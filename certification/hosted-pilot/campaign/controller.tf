@@ -37,9 +37,10 @@ module "accounting" {
   controller_role_arn = aws_iam_role.controller.arn
   # Dispatcher IAM grants only GetObjectVersion/GetItem on retained state. Its
   # explicit resource-policy exception permits observation, never ledger writes.
-  state_admin_role_arns  = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn], [for role in aws_iam_role.native_bootstrap : role.arn], [for role in aws_iam_role.setup_retirement : role.arn])
-  claim_writer_role_arns = local.worker_claim_writers
-  installed_worker_slots = var.installed_worker_slots
+  state_admin_role_arns         = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn], [for role in aws_iam_role.native_bootstrap : role.arn], [for role in aws_iam_role.setup_retirement : role.arn])
+  claim_writer_role_arns        = local.worker_claim_writers
+  installed_worker_slots        = var.installed_worker_slots
+  installed_runtime_controllers = local.installed_identity_roles
 }
 resource "aws_s3_bucket" "handoff" {
   bucket        = "${var.name_prefix}-controller-${var.account_id}"

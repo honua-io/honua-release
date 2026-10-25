@@ -89,6 +89,12 @@ CONTRACT_PATHS = (
     'certification/hosted-pilot/worker/variables.tf',
     'certification/hosted-pilot/campaign/worker-bindings.tf',
     'certification/hosted-pilot/bootstrap/installed-worker-identities.tf',
+    'tools/hosted_pilot/installed_controller_identity.py',
+    'certification/hosted-pilot/campaign/installed-controller-identity.tf',
+    'certification/hosted-pilot/campaign/installed-runtime.tf',
+    'certification/hosted-pilot/bootstrap/installed-controller-boundary.tf',
+    'certification/hosted-pilot/bootstrap/installed-controller-identities.tf',
+    'certification/hosted-pilot/bootstrap/agent-boundary.tf',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
 BUNDLE_LIMIT = 128 * 1024 * 1024
