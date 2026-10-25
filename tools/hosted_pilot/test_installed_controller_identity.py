@@ -47,6 +47,8 @@ class CurrentControllerIdentity(unittest.TestCase):
             'IpRanges':[{'CidrIp':cidr}],'Ipv6Ranges':[],'UserIdGroupPairs':[],'PrefixListIds':[]}
             for proto,port,cidr in [('tcp',443,'0.0.0.0/0'),('tcp',53,'10.90.0.0/16'),('udp',53,'10.90.0.0/16')]]}
         self.ec2=MagicMock();self.ec2.describe_security_groups.side_effect=lambda **kw:{'SecurityGroups':[self.group]}
+        self.subnets=[{'SubnetId':self.identity['subnetIds'][0],'VpcId':self.identity['vpcId'],'OwnerId':'123456789012','State':'available'}]
+        self.ec2.describe_subnets.side_effect=lambda **kw:{'Subnets':copy.deepcopy(self.subnets)}
 
     def observe(self):return observe_identity(self.identity,iam=self.iam,ec2=self.ec2,guard=self.guard)
 
@@ -55,6 +57,8 @@ class CurrentControllerIdentity(unittest.TestCase):
         self.assertEqual(result['task']['policies'],self.identity['policies']['task'])
         self.assertEqual(result['execution']['trust'],self.identity['assumeRolePolicy'])
         self.ec2.describe_security_groups.assert_called_once_with(GroupIds=self.identity['securityGroupIds'])
+        self.ec2.describe_subnets.assert_called_once_with(SubnetIds=self.identity['subnetIds'])
+        self.assertEqual(result['network']['subnetIds'],self.identity['subnetIds'])
         self.assertGreaterEqual(self.guard.call_count,14)
         self.assertEqual({call[0] for call in self.iam.mock_calls},
             {'get_role','list_attached_role_policies','list_role_policies','get_role_policy'})
@@ -92,6 +96,18 @@ class CurrentControllerIdentity(unittest.TestCase):
     def test_foreign_vpc_is_not_accepted_from_matching_sg_id(self):
         self.group['VpcId']='vpc-fffffffffffffffff'
         with self.assertRaisesRegex(ValueError,'identity or ingress'):self.observe()
+
+    def test_subnets_are_observed_live_in_the_reviewed_vpc_and_account(self):
+        for flip in ({'VpcId':'vpc-fffffffffffffffff'},{'OwnerId':'999999999999'},{'State':'pending'},
+                     {'SubnetId':'subnet-fffffffffffffffff'}):
+            with self.subTest(flip=flip):
+                self.subnets=[{**self.subnets[0],**flip}]
+                with self.assertRaisesRegex(ValueError,'reviewed VPC/account subnets'):self.observe()
+        self.subnets=[]
+        with self.assertRaisesRegex(ValueError,'reviewed VPC/account subnets'):self.observe()
+        self.identity['subnetIds']=['subnet-0123456789abcdef0','subnet-0123456789abcdef0']
+        with self.assertRaisesRegex(ValueError,'exact reviewed subnets'):self.observe()
+        self.assertEqual(self.ec2.describe_subnets.call_count,5)
 
 
 class OriginalControllerIdentity(unittest.TestCase):
@@ -136,6 +152,7 @@ class OriginalControllerIdentity(unittest.TestCase):
         self.s3.get_object.side_effect=lambda **kw:{'VersionId':kw['VersionId'],'ServerSideEncryption':'AES256',
             'Body':io.BytesIO(self.objects[(kw['Key'],kw['VersionId'])])}
         self.protected=True;self.branch_name='trunk';self.status='completed';self.apply='success';self.calls=[]
+        self.compare_status='ahead';self.duplicate_step=False;self.now=self.expiry-1
         self.github=MagicMock(side_effect=self.github_reply)
 
     def store(self,name,value):
@@ -148,7 +165,7 @@ class OriginalControllerIdentity(unittest.TestCase):
             return {'name':self.branch_name,'protected':self.protected,'commit':{'sha':self.head}}
         if '/compare/' in path:
             self.assertEqual(path,'repos/'+subject.REPOSITORY+'/compare/'+self.sha+'...'+self.head)
-            return {'status':'ahead','merge_base_commit':{'sha':self.sha}}
+            return {'status':self.compare_status,'merge_base_commit':{'sha':self.sha}}
         if '/contents/' in path:
             self.assertEqual(path,'repos/'+subject.REPOSITORY+'/contents/'+self.path+'?ref='+self.sha)
             return {'encoding':'base64','content':base64.b64encode(encoded(self.configuration)).decode()}
@@ -157,14 +174,14 @@ class OriginalControllerIdentity(unittest.TestCase):
             return {'total_count':1,'jobs':[{'name':'apply' if attempt==2 else 'plan','run_id':11,'head_sha':self.sha,
                 'status':self.status,'conclusion':self.apply if attempt==2 else 'success','steps':[
                     {'name':name,'conclusion':'success'} for name in ('Verify identity and apply exactly the saved plan',
-                    'Retain installed controller identity-only output')]}]}
+                    'Retain installed controller identity-only output')]*(2 if self.duplicate_step else 1)}]}
         return {'id':11,'run_attempt':attempt,'head_sha':self.sha,'head_branch':'trunk','event':'workflow_dispatch',
             'path':subject.WORKFLOW,'repository':{'full_name':subject.REPOSITORY},'status':self.status,'conclusion':self.apply}
 
     def verify(self):
         with patch.object(subject,'validate_retained_funding') as funding:
             value=subject.verify_controller_identity(self.selected,durable=self.durable,runtime_id='runtime',s3=self.s3,
-                iam=self.iam,ec2=self.ec2,guard=self.guard,github=self.github,clock=lambda:self.expiry-1)
+                iam=self.iam,ec2=self.ec2,guard=self.guard,github=self.github,clock=lambda:self.now)
             funding.assert_called_once_with(self.durable.state)
             return value
 
@@ -203,6 +220,34 @@ class OriginalControllerIdentity(unittest.TestCase):
         self.carrier['plan']['review']=self.store('review.json',self.review)
         self.selected=self.store('identity.json',self.carrier)
         with self.assertRaisesRegex(ValueError,'applied roles/network differ'):self.verify()
+
+    def test_each_receipt_or_producer_binding_flip_refuses(self):
+        def restore(carrier):self.selected=self.store('identity.json',carrier)
+        flips=[('ref',lambda c:c['producer'].update(ref='refs/heads/feature'),'producer/source is invalid'),
+               ('event',lambda c:c['producer'].update(event='push'),'producer/source is invalid'),
+               ('plan attempt above apply attempt',lambda c:c['plan'].update(attempt=3),'producer/source is invalid'),
+               ('extra producer field',lambda c:c['producer'].update(actor='someone'),'producer/source is invalid'),
+               ('foreign workflow',lambda c:c['producer'].update(workflow='.github/workflows/other.yml'),'producer/source is invalid'),
+               ('extra receipt field',lambda c:c.update(note='x'),'candidate/runtime/expiry differs'),
+               ('wrong funding expiry',lambda c:c.update(originalFundingExpiresEpoch=self.expiry+1),'candidate/runtime/expiry differs'),
+               ('activation claimed',lambda c:c.update(activation=True),'candidate/runtime/expiry differs'),
+               ('foreign candidate',lambda c:c.update(candidateKey='sha256:'+'b'*64),'candidate/runtime/expiry differs')]
+        for name,flip,message in flips:
+            with self.subTest(flip=name):
+                carrier=copy.deepcopy(self.carrier);flip(carrier);restore(carrier)
+                with self.assertRaisesRegex(ValueError,message):self.verify()
+        restore(self.carrier)
+        for name,setting,message in [('behind',{'compare_status':'behind'},'not protected trunk history'),
+                                     ('diverged',{'compare_status':'diverged'},'not protected trunk history'),
+                                     ('duplicate producer step',{'duplicate_step':True},'producer step did not succeed'),
+                                     ('in-progress run',{'status':'in_progress'},'incomplete or unsuccessful'),
+                                     ('expired funding',{'now':self.expiry},'lost original funding/custody')]:
+            with self.subTest(flip=name):
+                saved={k:getattr(self,k) for k in setting};[setattr(self,k,v) for k,v in setting.items()]
+                try:
+                    with self.assertRaisesRegex(ValueError,message):self.verify()
+                finally:[setattr(self,k,v) for k,v in saved.items()]
+        self.assertEqual(self.verify()['taskRoleArn'],self.identity['taskRoleArn'])
 
     def test_current_policy_drift_cannot_hide_behind_authentic_old_apply(self):
         self.actual['task']['extra']={'Version':'2012-10-17','Statement':[{'Effect':'Allow','Action':'iam:PutRolePolicy','Resource':'*'}]}
@@ -306,6 +351,16 @@ class FiniteReadAdapter(unittest.TestCase):
     def test_pagination_or_unreviewed_arguments_refuse_before_wire(self):
         with self.assertRaisesRegex(ValueError,'read arguments'):
             self.iam.list_role_policies(RoleName='role',Marker='next')
+        self.aws.assert_not_called()
+
+    def test_only_exact_reviewed_subnets_are_requested(self):
+        client=subject.ReadCLI('ec2',region='us-east-1',aws=self.aws,guard=self.guard)
+        client.describe_subnets(SubnetIds=['subnet-0123456789abcdef0','subnet-0123456789abcdef1'])
+        self.assertEqual(self.aws.call_args.args[:4],('ec2','describe-subnets','--subnet-ids','["subnet-0123456789abcdef0", "subnet-0123456789abcdef1"]'))
+        self.aws.reset_mock()
+        for bad in ([],['subnet-0123456789abcdef0']*2,['sg-0123456789abcdef0'],['subnet-%017x'%n for n in range(7)]):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError,'exact reviewed subnets'):
+                client.describe_subnets(SubnetIds=bad)
         self.aws.assert_not_called()
 
     def test_only_exact_observed_security_group_is_requested(self):

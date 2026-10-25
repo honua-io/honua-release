@@ -35,8 +35,10 @@ variable "installed_controller_identity" {
   }
 }
 locals {
-  installed_identity            = var.installed_controller_identity
-  installed_identity_roles      = local.installed_identity == null ? [] : [{ runtime_id = local.installed_identity.runtimeId, role_arn = aws_iam_role.installed_controller[0].arn }]
+  installed_identity = var.installed_controller_identity
+  # The accounting module keys a for_each on role_arn, so the key must be known at plan time on the first
+  # apply. The configured role name is plan-known and still carries the dependency; the computed .arn is not.
+  installed_identity_roles      = local.installed_identity == null ? [] : [{ runtime_id = local.installed_identity.runtimeId, role_arn = "arn:aws:iam::${var.account_id}:role/${aws_iam_role.installed_controller[0].name}" }]
   installed_identity_tasks      = local.installed_identity == null ? [] : [for w in local.installed_identity.workers : "arn:aws:ecs:${var.region}:${var.account_id}:task/${split("/", w.clusterArn)[1]}/*"]
   installed_identity_prefix     = "agent-e2e/${local.candidate_hex}/"
   installed_identity_role_names = local.installed_identity == null ? [] : concat([aws_iam_role.installed_controller[0].arn, aws_iam_role.installed_controller_execution[0].arn], [for w in local.installed_identity.workers : w.taskRoleArn])

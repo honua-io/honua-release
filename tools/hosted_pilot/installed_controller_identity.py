@@ -34,7 +34,7 @@ class ReadCLI:
     OPERATIONS = {
         'iam': {'get_role': ('RoleName',), 'list_attached_role_policies': ('RoleName',),
                 'list_role_policies': ('RoleName',), 'get_role_policy': ('RoleName','PolicyName')},
-        'ec2': {'describe_security_groups': ('GroupIds',)},
+        'ec2': {'describe_security_groups': ('GroupIds',), 'describe_subnets': ('SubnetIds',)},
     }
 
     def __init__(self,service,*,region,aws,guard):
@@ -54,6 +54,11 @@ class ReadCLI:
                     require(isinstance(value,list) and len(value)==1 and
                             re.fullmatch(r'sg-[a-f0-9]{8,17}',str(value[0])),
                             'installed identity CLI needs one exact security group')
+                    rendered=json.dumps(value)
+                elif key=='SubnetIds':
+                    require(isinstance(value,list) and 1 <= len(value) == len(set(value)) <= 6 and
+                            all(re.fullmatch(r'subnet-[a-f0-9]{8,17}',str(item)) for item in value),
+                            'installed identity CLI needs the exact reviewed subnets')
                     rendered=json.dumps(value)
                 else:
                     require(isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9+=,.@_-]{1,'+
@@ -126,8 +131,19 @@ def network_original(ec2, identity, *, guard):
               {'protocol':'udp','from':53,'to':53,'cidr':identity['networkCidr']}]
     require(sorted(observed,key=canonical_digest) == sorted(wanted,key=canonical_digest),
             'installed controller current egress is not HTTPS/private DNS only')
+    subnets = identity['subnetIds']
+    require(isinstance(subnets, list) and 1 <= len(subnets) == len(set(subnets)) <= 6 and
+            all(re.fullmatch(r'subnet-[a-f0-9]{8,17}', str(value)) for value in subnets),
+            'installed controller needs its exact reviewed subnets')
+    guard(); answer = ec2.describe_subnets(SubnetIds=sorted(subnets)); guard()
+    rows = answer.get('Subnets')
+    require(isinstance(rows, list) and not answer.get('NextToken') and
+            sorted(row.get('SubnetId') for row in rows) == sorted(subnets) and
+            all(row.get('VpcId') == identity['vpcId'] and row.get('OwnerId') == identity['accountId'] and
+                row.get('State') == 'available' for row in rows),
+            'installed controller current subnets are not the reviewed VPC/account subnets')
     return {'securityGroupId':expected[0], 'vpcId':identity['vpcId'], 'accountId':identity['accountId'],
-            'ingress':[], 'egress':sorted(observed,key=canonical_digest)}
+            'subnetIds':sorted(subnets), 'ingress':[], 'egress':sorted(observed,key=canonical_digest)}
 
 
 def observe_identity(identity, *, iam, ec2, guard):
