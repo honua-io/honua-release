@@ -72,7 +72,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-iac
-          ref: 1587c8ae47ee754202994049f06fbc33ead1c5d3 # reviewed honua-iac#287 trunk merge
+          ref: eeca0567ea7ab7ab45dc5f426e998f2c7ff84d54 # reviewed honua-iac#299 trunk merge
           path: _retirement-tools
           fetch-depth: 0
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
