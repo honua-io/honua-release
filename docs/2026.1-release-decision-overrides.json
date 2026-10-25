@@ -3715,6 +3715,16 @@
       "body_sha256": "c1000452b444a43a770a8b8426c1d336c5445fff11c0bd9d904357ac94f42658",
       "named_promise": false,
       "reason": "Reviewed 2026-10-23: longer-term requirement remains 2026.2; the issue records its bounded .1 dependency/split and observable remaining acceptance. See release#883."
+    },
+    "honua-server#3558": {
+      "body_sha256": "cab178533043d681fac0c119cf1c40cfbb40b79a56d6c6898d99669a418dd045",
+      "named_promise": true,
+      "reason": "Operator ruling 2026-10-24: GeoServices ImageServer is GA in 2026.1 (no longer Preview). The licensed multidimensional ImageServer fixture and the licensed desktop-client SOAP acceptance named in this body are the proof floor for that GA claim (G-11 Zarr serving through ImageServer; R-03). Pulled from release/2026.2 with #5238 and #6492."
+    },
+    "honua-server#6492": {
+      "body_sha256": "1303a6d9e89b89d4b5fb394edc6599add2b31620594c7ed0495f30d566321523",
+      "named_promise": true,
+      "reason": "Operator ruling 2026-10-24: ImageServer GA in 2026.1; multidimensionalInfo must follow the reference server's dimension convention for the licensed desktop-client acceptance on #3558. Server fix landed in #6513; licensed re-capture outstanding."
     }
   }
 }
