@@ -122,7 +122,7 @@ resource "aws_iam_role_policy" "installed_controller" {
     { Effect = "Allow", Action = ["states:DescribeExecution", "states:GetExecutionHistory"], Resource = concat([for w in local.installed_identity.workers : "arn:aws:states:${var.region}:${var.account_id}:execution:${split(":", w.stateMachineArn)[6]}:worker-*"], ["arn:aws:states:${var.region}:${var.account_id}:execution:${var.name_prefix}-installed-controller:*"]) },
     { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = concat(local.installed_identity_tasks, ["arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*"]) },
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
-    { Effect = "Allow", Action = ["ec2:DescribeNetworkInterfaces", "ec2:DescribeSecurityGroups"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
+    { Effect = "Allow", Action = ["ec2:DescribeNetworkInterfaces", "ec2:DescribeSecurityGroups", "ec2:DescribeSubnets"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
     { Effect = "Allow", Action = ["iam:ListAttachedRolePolicies", "iam:ListRolePolicies", "iam:GetRolePolicy", "iam:GetRole"], Resource = local.installed_identity_role_names },
     { Effect = "Allow", Action = "sqs:SendMessage", Resource = [for w in local.installed_identity.workers : w.commandQueueArn] },
     { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage"], Resource = [for w in local.installed_identity.workers : w.replyQueueArn] },

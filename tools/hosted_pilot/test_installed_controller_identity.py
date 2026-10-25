@@ -98,16 +98,25 @@ class CurrentControllerIdentity(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'identity or ingress'):self.observe()
 
     def test_subnets_are_observed_live_in_the_reviewed_vpc_and_account(self):
+        base=copy.deepcopy(self.subnets[0])
         for flip in ({'VpcId':'vpc-fffffffffffffffff'},{'OwnerId':'999999999999'},{'State':'pending'},
                      {'SubnetId':'subnet-fffffffffffffffff'}):
             with self.subTest(flip=flip):
-                self.subnets=[{**self.subnets[0],**flip}]
+                self.subnets=[{**base,**flip}]
                 with self.assertRaisesRegex(ValueError,'reviewed VPC/account subnets'):self.observe()
-        self.subnets=[]
+        for name,rows in (('none',[]),('extra',[base,{**base,'SubnetId':'subnet-0123456789abcdef1'}])):
+            with self.subTest(rows=name):
+                self.subnets=rows
+                with self.assertRaisesRegex(ValueError,'reviewed VPC/account subnets'):self.observe()
+        self.subnets=[base]
+        self.ec2.describe_subnets.side_effect=lambda **kw:{'Subnets':[base],'NextToken':'more'}
         with self.assertRaisesRegex(ValueError,'reviewed VPC/account subnets'):self.observe()
+        self.ec2.describe_subnets.side_effect=lambda **kw:{'Subnets':[base]}
         self.identity['subnetIds']=['subnet-0123456789abcdef0','subnet-0123456789abcdef0']
         with self.assertRaisesRegex(ValueError,'exact reviewed subnets'):self.observe()
-        self.assertEqual(self.ec2.describe_subnets.call_count,5)
+        self.assertEqual(self.ec2.describe_subnets.call_count,7)
+        self.identity['subnetIds']=['subnet-0123456789abcdef0']
+        self.assertEqual(self.observe()['network']['subnetIds'],['subnet-0123456789abcdef0'])
 
 
 class OriginalControllerIdentity(unittest.TestCase):
