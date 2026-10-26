@@ -8,6 +8,8 @@ on:
       - "tools/fixtures/dr/**"
       - ".github/workflows/gate-dr.yml"
       - ".github/workflows/release-train.yml"
+      - ".github/actions/candidate-input/**"
+      - "tools/test_candidate_input_action.py"
   # The gate runs when the trunk producer (dr-drill-local-docker: weekly, on manifest pushes, or
   # dispatched) finishes, so the 24-hour freshness bound is measured against a receipt minted
   # minutes earlier. A fixed cron of its own had no receipt to read: vars.HONUA_DR_RECEIPT_URL was
@@ -91,6 +93,10 @@ jobs:
         run: python -m unittest discover -s gp-qualification/scripts/qualification -p test_gp_candidate_binding.py
       - name: Prove incomplete receipts are rejected
         run: python -m pytest tools/test_validate_dr_receipt.py -q
+      # The train's gate_dr adopts its candidate_ref here, on Windows; this is the only Windows
+      # consumer of candidate-input, so prove the real adoption shell runs on this runner.
+      - name: Prove candidate inputs adopt on this Windows runner
+        run: python -m pytest tools/test_candidate_input_action.py -q -k "existing_train_default or subdirectory or lf_on_windows"
 
   receipt:
     if: github.event_name != 'pull_request'

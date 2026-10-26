@@ -213,3 +213,46 @@ def test_symlinked_deployment_bundle_refused_before_any_adoption(history):
     result = adopt(history, candidate)
     assert result.returncode != 0
     assert (repo / 'platform-manifest.yaml').read_text() == 'original: true\n'
+
+
+def test_windows_git_toplevel_spelling_still_adopts(history, tmp_path_factory):
+    """gate-dr runs candidate-input on windows-latest, where git.exe reports the toplevel as
+    `D:/a/...` while Git Bash's `pwd -P` says `/d/a/...`. The nightly train's gate_dr passes a
+    candidate_ref, so the action must accept the checkout root however git spells it."""
+    shim = tmp_path_factory.mktemp('windows-git')
+    real = subprocess.check_output(['bash', '-c', 'command -v git'], text=True).strip()
+    (shim / 'git').write_text(
+        '#!/bin/bash\n'
+        'if [ "$*" = "rev-parse --show-toplevel" ]; then\n'
+        f'  top="$("{real}" rev-parse --show-toplevel)"; echo "D:${{top}}"; exit 0\n'
+        'fi\n'
+        f'exec "{real}" "$@"\n')
+    (shim / 'git').chmod(0o755)
+    repo, parent, scratch = history
+    candidate = snapshot(history)
+    env = {**os.environ, 'PATH': f"{shim}{os.pathsep}{os.environ['PATH']}", 'CANDIDATE_REF': candidate,
+           'RUN_SHA': parent, 'RUN_REF': 'refs/heads/trunk', 'RUN_REPOSITORY': 'honua-io/honua-release',
+           'CHECKOUT_DIRECTORY': str(repo), 'REVIEWED_RELEASE_SHA': '', 'RUNNER_TEMP': str(scratch),
+           'GITHUB_OUTPUT': str(scratch / 'outputs')}
+    result = subprocess.run(['bash', str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert (repo / 'platform-manifest.yaml').read_text() == 'candidate: true\n'
+
+
+def test_subdirectory_is_still_refused_as_a_checkout_root(history):
+    repo, parent, scratch = history
+    (repo / 'nested').mkdir()
+    env = {**os.environ, 'CANDIDATE_REF': snapshot(history), 'RUN_SHA': parent, 'RUN_REF': 'refs/heads/trunk',
+           'RUN_REPOSITORY': 'honua-io/honua-release', 'CHECKOUT_DIRECTORY': str(repo / 'nested'),
+           'REVIEWED_RELEASE_SHA': '', 'RUNNER_TEMP': str(scratch), 'GITHUB_OUTPUT': str(scratch / 'outputs')}
+    result = subprocess.run(['bash', str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode != 0
+    assert (repo / 'platform-manifest.yaml').read_text() == 'original: true\n'
+
+
+def test_adoption_shell_is_checked_out_with_lf_on_windows_runners():
+    """windows-latest checks out with core.autocrlf=true; a CRLF adopt.sh dies on `pipefail\\r`."""
+    root = SCRIPT.parents[3]
+    for path in ('.github/actions/candidate-input/adopt.sh', '.github/actions/candidate-input/action.yml'):
+        attributes = subprocess.check_output(['git', '-C', str(root), 'check-attr', 'eol', '--', path], text=True)
+        assert attributes.strip().endswith('eol: lf'), attributes

@@ -4,7 +4,10 @@ set -euo pipefail
 [[ "$CANDIDATE_REF" =~ ^[0-9a-f]{40}$ ]]
 cd "${CHECKOUT_DIRECTORY:-.}"
 checkout="$(pwd -P)"
-test "$(git rev-parse --show-toplevel)" = "$checkout"
+# The checkout root itself, not a subdirectory. Compared through --show-cdup, not by path: on
+# windows-latest (gate-dr) git.exe spells the toplevel D:/a/... while Git Bash's pwd says /d/a/...
+cdup="$(git rev-parse --show-cdup)"
+test -z "$cdup"
 case "$(git config --get remote.origin.url)" in
   https://github.com/honua-io/honua-release|https://github.com/honua-io/honua-release.git|git@github.com:honua-io/honua-release.git) ;;
   *) echo 'candidate inputs require the canonical honua-release origin'; exit 1 ;;
