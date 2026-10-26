@@ -48,14 +48,14 @@ def observe(plan_id, job_id, source, image, *, read=redis_command, census=snapsh
         submitter = audit.get("submitterSecurityContext")
         if (not isinstance(params, dict) or params.get("honua.geoprocessing.plan_id") != plan_id
                 or not isinstance(audit.get("requestedBy"), str)
-                or not audit["requestedBy"].startswith("ApiKey:api-key:")
+                or not audit["requestedBy"].startswith("apikey:api-key:")
                 or not isinstance(submitter, dict)
                 or not isinstance(submitter.get("tenantId"), str)
                 or (audit.get("tenantId") is not None
                     and audit["tenantId"] != submitter["tenantId"])
                 or submitter.get("principalId") != audit["requestedBy"]
                 or submitter.get("ownerActorId") != audit["requestedBy"]
-                or submitter.get("workspaceOwnerId") != audit["requestedBy"].removeprefix("ApiKey:api-key:")
+                or submitter.get("workspaceOwnerId") != audit["requestedBy"].removeprefix("apikey:api-key:")
                 or not isinstance(audit.get("idempotencyKey"), str)):
             raise ValueError("durable job lacks authored plan or canonical submitter")
         job = {"jobId": job_id, "recordSha256": rows[0]["sha256"],

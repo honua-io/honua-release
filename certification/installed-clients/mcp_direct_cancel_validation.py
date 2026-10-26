@@ -164,7 +164,7 @@ def checked_store(item, authored, job_id, actor, *, status=None):
             or job.get("submitterTenantId") != authored["tenantId"]
             or job.get("submitterPrincipalId") != actor
             or job.get("submitterOwnerActorId") != actor
-            or job.get("submitterWorkspaceOwnerId") != actor.removeprefix("ApiKey:api-key:")
+            or job.get("submitterWorkspaceOwnerId") != actor.removeprefix("apikey:api-key:")
             or rows[0]["binding"] != {"operationId": job_id, "status": job["status"],
                                       "createdAt": job.get("createdAt"),
                                       "idempotencyKey": job["idempotencyKey"],

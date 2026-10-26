@@ -111,7 +111,7 @@ class ManagedIdentityControls(unittest.TestCase):
                 managed, api = self.complete(directory, profile)
                 value = fixture.verify_receipt(managed.receipt, runtime(), profile)
                 self.assertEqual(value["keyId"], KEY_ID)
-                self.assertEqual(value["canonicalActorId"], "ApiKey:api-key:" + KEY_ID)
+                self.assertEqual(value["canonicalActorId"], "apikey:api-key:" + KEY_ID)
                 self.assertEqual(value["studioActorId"], KEY_ID)
                 self.assertEqual(value["workspaceOwnerId"], KEY_ID)
                 self.assertEqual(value["credentialFingerprint"].split(":")[1], SALT)
