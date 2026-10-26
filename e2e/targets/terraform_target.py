@@ -764,7 +764,11 @@ class TerraformTarget(DeployTarget):
             try:
                 retire(self, root, self._last_vars or self._vars(mode, destroy=True), mode)
             except Exception as error:
-                raise ProvisionError(f"{self.name} reviewed retirement failed: {type(error).__name__}") from error
+                # Name the AWS error code and operation (never the message, which carries ARNs): a bare
+                # "ClientError" hid an AccessDenied that stranded every Lambda cell for days.
+                code = getattr(error, "response", {}).get("Error", {}).get("Code") if hasattr(error, "response") else None
+                detail = f" ({code} on {getattr(error, 'operation_name', '?')})" if code else ""
+                raise ProvisionError(f"{self.name} reviewed retirement failed: {type(error).__name__}{detail}") from error
             return
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
