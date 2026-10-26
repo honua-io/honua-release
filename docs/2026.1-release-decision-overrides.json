@@ -615,6 +615,20 @@
         "honua-release#323"
       ],
       "basis": "Founder decision 2026-10-25, recorded on honua-release#376 on 2026-10-26"
+    },
+    "dotnet-declared-blocked-2026-10-26": {
+      "date": "2026-10-26",
+      "authority": "https://github.com/honua-io/honua-release/issues/974#issuecomment-6423533248",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "D6: nuget-sdk-ogc-tiles (honua-sdk-dotnet#405, Honua.Sdk 1.12.0 has no OGC API Tiles client) and nuget-service-layer-import-fidelity (honua-release#418, no published-.NET-SDK import-fidelity producer) ship as declared blocked installed-client cells for 2026.1: honest, the matrix and docs say .NET has no Tiles client yet; unblocks honua-release#7.",
+      "effect": "The installed-clients gate reports pass with these declared limitations and the nightly lock accepts it only when every blocked cell declares owner, reason and target and is listed here with this target. Any other blocked or failing cell still holds the lock. Both cells still execute: a pass turns them red until the matrix flips them active. Implemented in honua-release#975.",
+      "installed_client_cells": [
+        "nuget-sdk-ogc-tiles",
+        "nuget-service-layer-import-fidelity"
+      ],
+      "target": "2026.1.x",
+      "moved": [],
+      "basis": "Founder decision D6 2026-10-26, recorded on honua-release#974 on 2026-10-26"
     }
   },
   "security_findings": [

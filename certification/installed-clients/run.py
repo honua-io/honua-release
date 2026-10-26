@@ -51,6 +51,10 @@ IMPORT_BLOCKER = "https://github.com/honua-io/honua-release/issues/418"
 DECLARATION_FIELDS = ("owner", "reason", "target")
 OWNER = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 TARGET = re.compile(r"20[0-9]{2}\.[0-9]+\.(?:x|[0-9]+)")
+# A declared blocked cell is a limitation the release ships with, not a pass, and it stops holding
+# the lock ONLY when a founder ruling in the decision overrides lists it (D6, 2026-10-26).
+DECISION_OVERRIDES = ROOT / "docs/2026.1-release-decision-overrides.json"
+DECLARED_BLOCKED_RULING = "dotnet-declared-blocked-2026-10-26"
 NUGET_ORG = "https://api.nuget.org/v3/index.json"
 DOTNET_PROBE = ROOT / "e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.cs"
 _IMPORT_FIDELITY = None
@@ -861,8 +865,46 @@ def evaluate_import_fidelity(manifest: dict[str, Any], receipt: dict[str, Any] |
     return verdict["status"], verdict["reason"]
 
 
-def make_receipt(manifest: dict[str, Any], matrix: dict[str, Any], results: list[dict[str, Any]], evidence_uri: str) -> dict[str, Any]:
+def ruled_declarations(path: Path = DECISION_OVERRIDES) -> dict[str, str]:
+    """Cells a founder ruling accepts as declared limitations, mapped to the ruling's target.
+
+    Only the named ruling counts, and only when it is a founder ruling that lists cells and a target.
+    A missing or malformed ruling accepts nothing, so every blocked cell keeps holding the lock."""
+    try:
+        ruling = json.loads(path.read_text(encoding="utf-8"))["rulings"][DECLARED_BLOCKED_RULING]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return {}
+    cells, target = ruling.get("installed_client_cells"), ruling.get("target")
+    if ("founder" not in str(ruling.get("owner", "")).lower() or not isinstance(cells, list)
+            or not isinstance(target, str) or not TARGET.fullmatch(target)
+            or not all(isinstance(cell, str) and cell for cell in cells)):
+        return {}
+    return {cell: target for cell in cells}
+
+
+def declared_limitations(results: list[dict[str, Any]], ruled: dict[str, str]) -> list[dict[str, Any]] | None:
+    """The blocked results as declared limitations, or None when any blocked result is not covered:
+    it must carry owner, reason and target, and the ruling must list it with that same target."""
+    limitations = []
+    for result in results:
+        if result.get("status") != "blocked":
+            continue
+        declared = result.get("declared")
+        if (not isinstance(declared, dict) or set(declared) != set(DECLARATION_FIELDS)
+                or not all(isinstance(declared[field], str) and declared[field].strip() for field in DECLARATION_FIELDS)
+                or ruled.get(result.get("cell")) != declared["target"]):
+            return None
+        limitations.append({"cell": result["cell"], "blockedBy": result.get("blockedBy"), **declared,
+                            "ruling": DECLARED_BLOCKED_RULING})
+    return limitations
+
+
+def make_receipt(manifest: dict[str, Any], matrix: dict[str, Any], results: list[dict[str, Any]], evidence_uri: str,
+                 ruled: dict[str, str] | None = None) -> dict[str, Any]:
     server = manifest["components"]["honua-server"]
+    ruled = ruled_declarations() if ruled is None else ruled
+    status = receipt_status(results, ruled)
+    limitations = declared_limitations(results, ruled) if status == "pass" else None
     return {
         "schemaVersion": 1,
         "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -872,17 +914,22 @@ def make_receipt(manifest: dict[str, Any], matrix: dict[str, Any], results: list
         "configRevision": matrix["configRevision"],
         "authPolicyRevision": matrix["authPolicyRevision"],
         "evidenceUri": evidence_uri,
-        "status": receipt_status(results),
+        "status": status,
+        **({"declaredLimitations": limitations} if limitations else {}),
         "results": results,
     }
 
 
-def receipt_status(results: list[dict[str, Any]]) -> str:
-    """pass only when every cell passes; blocked when every active cell passes and some are blocked."""
+def receipt_status(results: list[dict[str, Any]], ruled: dict[str, str] | None = None) -> str:
+    """pass when every cell passes, or when every non-passing cell is a blocked cell declared (owner,
+    reason, target) and listed by the founder ruling: a pass with declared limitations. Blocked when
+    every active cell passes and some blocked cell is not so covered. Anything else fails."""
     statuses = {result["status"] for result in results}
     if not results or statuses - {"pass", "blocked"}:
         return "fail"
-    return "blocked" if "blocked" in statuses else "pass"
+    if "blocked" not in statuses:
+        return "pass"
+    return "pass" if declared_limitations(results, ruled or {}) is not None else "blocked"
 
 
 def run_cell(
@@ -944,7 +991,7 @@ def declaration(cell: dict[str, Any]) -> dict[str, str]:
     return {field: cell[field] for field in DECLARATION_FIELDS}
 
 
-def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any]) -> list[str]:
+def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any], ruled: dict[str, str] | None = None) -> list[str]:
     """Every expectation comes from the matrix: active cells pass, blocked cells report their blocker."""
     cells = matrix.get("cells", [])
     results = receipt.get("results", [])
@@ -970,8 +1017,12 @@ def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any]) -> list[str]
         if cell["status"] == "active" and "declared" in result:
             violations.append(f"{cell['id']}: an active cell cannot carry a blocked declaration")
     violations.extend(verify_suite_steps(cells, by_id))
-    if receipt.get("status") != receipt_status(results):
+    ruled = ruled_declarations() if ruled is None else ruled
+    if receipt.get("status") != receipt_status(results, ruled):
         violations.append(f"receipt status {receipt.get('status')!r} does not follow its cell results")
+    expected_limitations = declared_limitations(results, ruled) if receipt.get("status") == "pass" else None
+    if receipt.get("declaredLimitations") != (expected_limitations or None):
+        violations.append("receipt declaredLimitations do not follow its blocked cells and the founder ruling")
     return violations
 
 

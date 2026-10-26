@@ -178,6 +178,8 @@ jobs:
                               evidence_url: $run} ] ) as $g
             | { gate: "installed-clients", platform_label: $label, generatedAt: $ts, evidence_url: $run,
                 server: .server, gates: $g,
+                # A pass may carry declared limitations: blocked cells a founder ruling accepts (run.py).
+                declaredLimitations: (.declaredLimitations // []),
                 summary: { pass: ([$g[] | select(.status == "pass")] | length),
                            blocked: ([$g[] | select(.status == "blocked")] | length),
                            fail: ([$g[] | select(.status != "pass" and .status != "blocked")] | length) },
@@ -188,6 +190,7 @@ jobs:
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
           {
             echo "## Installed-client SDK regression: $OVERALL"
+            jq -r 'if (.declaredLimitations | length) > 0 then "Pass with declared limitations: " + ([.declaredLimitations[] | "\(.cell) (\(.owner), target \(.target), ruling \(.ruling))"] | join("; ")) else empty end' out/gate-report.json
             echo "| cell | client | status | declared (owner, target) | why |"; echo "|---|---|---|---|---|"
             jq -r '.gates[] | "| \(.gate) | \(.client) | \(.status) | \(if .declared then "\(.declared.owner), \(.declared.target)" else "" end) | \(.why | gsub("\\|"; "/") | .[0:300]) |"' out/gate-report.json
           } >> "$GITHUB_STEP_SUMMARY"

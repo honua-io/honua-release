@@ -323,7 +323,11 @@ class ImportFidelityGateTests(unittest.TestCase):
         self.assertEqual(row["status"], "blocked")
         self.assertEqual(row["blockedBy"], "https://github.com/honua-io/honua-release/issues/418")
         self.assertIn("missing evidence is not a pass", row["detail"])
-        self.assertEqual(receipt["status"], "blocked")
+        # The founder ruling (D6) lists the declared cell: a pass that carries it as a declared limitation.
+        self.assertEqual(receipt["status"], "pass")
+        self.assertEqual([item["cell"] for item in receipt["declaredLimitations"]], ["nuget-service-layer-import-fidelity"])
+        # Without the ruling the same receipt is blocked, never a pass.
+        self.assertEqual(installed.receipt_status(receipt["results"], {}), "blocked")
 
     def test_blocked_import_cell_rejects_supplied_invalid_evidence(self):
         committed, _ = self._matrices()

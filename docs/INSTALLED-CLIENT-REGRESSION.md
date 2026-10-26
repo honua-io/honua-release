@@ -192,9 +192,17 @@ HonuaFeatureLayer.queryObjectIds ids: raised HonuaHttpError (status 400)`.
   or a harness failure is red.
 - Nothing is retried.
 
-The gate reports `pass` only when every cell passes. With matrix-declared blockers it reports
-`blocked`. That is not a pass: the nightly receipt for `installed-clients` is then not `pass`, and no
-lock is minted.
+The gate reports `pass` when every cell passes. It also reports `pass` **with declared limitations**
+when every non-passing cell is a blocked cell that:
+
+- declares `owner`, `reason` and `target`, and
+- is listed, with that same target, by the founder ruling `dotnet-declared-blocked-2026-10-26` in
+  [`2026.1-release-decision-overrides.json`](2026.1-release-decision-overrides.json) (D6, 2026-10-26).
+
+The receipt and `gate-report.json` then carry `declaredLimitations` (cell, blocker, owner, reason,
+target, ruling), and the nightly lock accepts the `installed-clients` row. Any other blocked cell
+makes the gate report `blocked`, and any failure makes it `fail`: neither is a pass, and no lock is
+minted. Declared cells still execute. One that starts passing, or fails for another reason, is red.
 
 Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `Honua.Sdk 1.12.0`):
 
