@@ -304,6 +304,26 @@ def test_helm_chart_publication_is_advisory_but_chart_lint_and_smoke_stay_core()
         assert status == "fail" and core in _red_names(why), why
 
 
+def test_server_base_image_mirror_is_advisory_but_build_and_image_jobs_stay_core():
+    mirror = "Mirror .NET base images (MCR -> GHCR)"
+    core = (
+        ("Build & Format Check", "success"),
+        ("Server Tests (FeatureServer Tiles and Replica)", "success"),
+        ("Build & Push JIT (amd64)", "skipped"),
+    )
+    # 8cb074f7: imaged on 2026-10-23, then the nightly re-dispatch failed only on the
+    # public.ecr.aws 429 while mirroring the Lambda adapter base image.
+    status, why = _classify("honua-server", _runs_named(*core, (mirror, "failure")))
+    assert status == "pass", why
+    assert "advisory" in why and mirror in why
+    assert mirror in bt.load_advisory()["honua-server"]["names"]
+    # The source's own build, test shards and image build jobs still refuse.
+    for name, _ in core:
+        runs = [(n, "failure" if n == name else c) for n, c in core]
+        status, why = _classify("honua-server", _runs_named(*runs, (mirror, "failure")))
+        assert status == "fail" and name in _red_names(why), why
+
+
 def test_js_overture_live_lane_is_env_gated_and_three_engine_is_advisory_not_env_gated():
     status, why = _classify("honua-sdk-js", _runs_named(
         ("Unit tests", "success"), ("Bounded AWS semantic workflow", "failure")))
