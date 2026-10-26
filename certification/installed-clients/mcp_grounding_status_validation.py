@@ -332,9 +332,73 @@ def declared_status(output, admin_preflight, declaration=None):
                     "id": target, "runtimeProfile": None,
                     "effectiveArtifactReference": bindings["explicitTestTarget"],
                     "projectedFromRelease": False, "skewed": True}]
-                or output["execution"] != []):
+                or declared_workers(environment) != [("managed", bindings.get("declaredServing"))]
+                or not declared_execution(output["execution"], declared_workers(environment), target)):
             raise ValueError("declared status differs from the reviewed owned configuration skew")
     return {name: output[name] for name in PROJECTION}
+
+
+WORKER_KEY = re.compile(r"ControlPlane__PlatformRelease__Workers__([0-9]+)__(RuntimeProfile|ArtifactReference)")
+EXECUTION_FIELDS = {"id", "runtimeProfile", "effectiveArtifactReference", "projectedFromRelease", "skewed"}
+
+
+def declared_workers(environment):
+    """Return the reviewed release's worker images as (runtimeProfile, artifact) in index order.
+
+    honua-server refuses to boot a release that declares serving without workers
+    (PlatformReleaseValidation), so a reviewed declaration must carry them.
+    """
+    indexed = {}
+    for key, value in environment.items():
+        match = WORKER_KEY.fullmatch(key)
+        if match:
+            indexed.setdefault(int(match.group(1)), {})[match.group(2)] = value
+    if (not indexed or sorted(indexed) != list(range(len(indexed)))
+            or any(set(item) != {"RuntimeProfile", "ArtifactReference"}
+                   or not isinstance(item["ArtifactReference"], str) or not item["ArtifactReference"]
+                   or not isinstance(item["RuntimeProfile"], str)
+                   for item in indexed.values())):
+        raise ValueError("reviewed release declaration does not co-version a worker image")
+    return [(indexed[i]["RuntimeProfile"], indexed[i]["ArtifactReference"]) for i in sorted(indexed)]
+
+
+def resolve_worker(workers, runtime_profile):
+    """Mirror honua-server PlatformReleaseDefinition.ResolveWorker: an exact
+    case-insensitive profile match wins, else the first default (blank-profile) image."""
+    default = None
+    for profile, artifact in workers:
+        if not profile.strip():
+            default = default or artifact
+        elif runtime_profile and runtime_profile.strip() and profile.lower() == runtime_profile.lower():
+            return artifact
+    return default
+
+
+def declared_execution(execution, workers, target):
+    """Every execution workload must inherit exactly what the declared workers project.
+
+    The reviewed declaration owns no execution workload pins, so an explicit pin
+    (projectedFromRelease false with an artifact), any skew, or a workload that
+    resolves differently from the declared workers is not the reviewed configuration.
+    Workloads themselves come from the candidate's own ControlPlane:ExecutionWorkloads.
+    """
+    if not isinstance(execution, list):
+        return False
+    seen = set()
+    for entry in execution:
+        if not isinstance(entry, dict) or set(entry) != EXECUTION_FIELDS:
+            return False
+        identifier, profile = entry["id"], entry["runtimeProfile"]
+        if (not isinstance(identifier, str) or not identifier or identifier in seen or identifier == target
+                or (profile is not None and not isinstance(profile, str))):
+            return False
+        seen.add(identifier)
+        expected = resolve_worker(workers, profile)
+        if (entry["effectiveArtifactReference"] != expected
+                or entry["projectedFromRelease"] is not (expected is not None)
+                or entry["skewed"] is not False):
+            return False
+    return True
 
 
 def successful_tool(result):

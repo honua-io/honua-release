@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mcp_map_package_validation as wire
 from mcp_ops_events_state import SCHEMA as STORE_SCHEMA, fixture_rows, instant, setup_seed
 from mcp_ops_events_setup import SETUP_SQL
-from mcp_ops_events_config import declaration as declare_configuration
+from mcp_ops_events_config import SELECTED_KEYS as CONFIGURATION_KEYS, declaration as declare_configuration
 from mcp_render_validation import negative_output
 
 FINDINGS_URI = "honua://ops/findings"
@@ -363,7 +363,7 @@ def findings_output(result, *, resource, before, after, declaration, configurati
             or not isinstance(environment, dict) or configuration.get("environment") != environment
             or configuration.get("schema") != "honua.mcp-ops-config-observation/v1"
             or configuration.get("environmentSha256") != declaration.get("environmentSha256")
-            or configuration.get("selectedScopeEntryCount") != 8
+            or configuration.get("selectedScopeEntryCount") != len(CONFIGURATION_KEYS)
             or configuration.get("deployedTargetObserved") is not False or configuration.get("actuationRequested") is not False
             or configuration.get("runtimeBinding", {}).get("candidateSourceSha") != declaration.get("candidateSourceSha")
             or configuration.get("runtimeBinding", {}).get("candidateImage") != declaration.get("candidateImage")
@@ -434,7 +434,7 @@ def context(value, fixture, bootstrap, setup, declaration, runtime, full_identit
             or not wire.same_json(configuration["runtimeBinding"], runtime)
             or not wire.same_json(configuration["environment"], environment)
             or configuration["environmentSha256"] != declaration["environmentSha256"]
-            or type(configuration["selectedScopeEntryCount"]) is not int or configuration["selectedScopeEntryCount"] != 8
+            or type(configuration["selectedScopeEntryCount"]) is not int or configuration["selectedScopeEntryCount"] != len(CONFIGURATION_KEYS)
             or configuration["deployedTargetObserved"] is not False or configuration["actuationRequested"] is not False
             or not instant(value["startedAt"]) <= instant(configuration["observedAt"]) <= instant(value["completedAt"])):
         raise ValueError("original daemon-selected declaration was omitted, changed, or claims actuation")
