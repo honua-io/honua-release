@@ -141,6 +141,21 @@ honua-server:
       checkout at 928507999, then CS0103 for BaseUrlResolver. c19f29d's own CI workflow
       is not this file. Build & Format Check and the full-matrix lanes stay core, and a
       prebuild check with no recorded workflow path stays core too.
+  - name: "Mirror .NET base images (MCR -> GHCR)"
+    why: >-
+      Image publication automation (`.github/workflows/nightly-container-build.yml`, job
+      `mirror-base-images`). It copies the digest-pinned upstream base images named by the
+      Dockerfile ARG defaults into ghcr.io/honua-io/honua-server-base. It does not compile, test
+      or scan the pinned source. When the trunk run's selector finds no newer certified sha, it
+      re-dispatches the build at refs/tags/nightly-candidate-<sha7> every night, and each attempt
+      files this check on the candidate again. 8cb074f7 was imaged by run 39876804619
+      (2026-10-23, success). Runs 39940535619, 40083981239 and 40184295976 then failed only here:
+      public.ecr.aws answered 429 Too Many Requests on all five attempts to mirror
+      aws-lambda-adapter:0.9.1. Every image build job was skipped, so nothing was rebuilt or
+      re-tagged. The latest attempt is red, which kept the full-matrix-certified 8cb074f7 out of
+      the candidate. A sha that never got its image still refuses, because the resolver requires a
+      published SHA-bound image whose config labels and provenance name that sha. Build & Format
+      Check, the full-matrix ci.yml lanes and the image build and manifest jobs stay core.
 
 geospatial-grpc:
   - name: "certify"
