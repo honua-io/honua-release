@@ -627,7 +627,8 @@
     {
       "id": "SEC-5",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "6594"
     },
     {
       "id": "SEC-9",
