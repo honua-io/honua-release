@@ -148,6 +148,26 @@ def sync_text(value):
 
 
 class MapPackageControls(unittest.TestCase):
+    def test_large_structured_result_accepts_only_the_servers_exact_size_summary(self):
+        # honua-server elides the text block of a structured result of 1024+ characters to this
+        # line (McpToolHelpers.DefaultLargePayloadSummary); the payload stays in structuredContent.
+        value = {"results": [{"address": "380 New York St, Redlands, CA 92373 " + str(n), "score": 100} for n in range(20)]}
+        size = len(json.dumps(value, separators=(",", ":")))
+        summary = f"Structured result ({size:,} chars) returned in structuredContent; text summary elided to conserve context."
+        result = {"isError": False, "structuredContent": value, "content": [{"type": "text", "text": summary}]}
+        self.assertEqual(validation.json_tool_output(result), value)
+        for text in (summary.replace(f"{size:,}", f"{size + 7:,}"), summary.replace("elided", "omitted"),
+                     f"Structured result ({size} chars) returned in structuredContent; text summary elided to conserve context."
+                     if size >= 1000 else summary + " "):
+            changed = {**result, "content": [{"type": "text", "text": text}]}
+            with self.subTest(text=text[:40]), self.assertRaises(ValueError):
+                validation.json_tool_output(changed)
+        small = {"isError": False, "structuredContent": {"a": 1},
+                 "content": [{"type": "text", "text": "Structured result (1,050 chars) returned in structuredContent; text summary elided to conserve context."}]}
+        with self.assertRaises(ValueError): validation.json_tool_output(small)
+        no_structured = {"isError": False, "content": [{"type": "text", "text": summary}]}
+        with self.assertRaises(ValueError): validation.json_tool_output(no_structured)
+
     def test_json_numeric_round_trip_preserves_value_but_never_boolean_identity(self):
         self.assertTrue(validation.same_json({"bbox": [-90.0, 0.0, -45.0, 60.0]}, {"bbox": [-90, 0, -45, 60]}))
         self.assertFalse(validation.same_json({"bbox": [-90, False, -45, 60]}, {"bbox": [-90.0, 0.0, -45.0, 60.0]}))
