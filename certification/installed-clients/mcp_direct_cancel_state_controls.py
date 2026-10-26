@@ -14,7 +14,7 @@ class DirectCancelStateControls(unittest.TestCase):
     def setUp(self):
         self.plan = "mcp-direct-cancel-0123456789abcdef01234567"
         self.job = "gp-" + "1" * 24
-        self.actor = "ApiKey:api-key:11111111-1111-4111-8111-111111111111"
+        self.actor = "apikey:api-key:11111111-1111-4111-8111-111111111111"
         self.runtime = {"running": True, "candidateSourceSha": "1" * 40,
                         "imageReference": "ghcr.io/honua-io/honua-server@sha256:" + "2" * 64}
         self.record = {"operationId": self.job, "status": 2,
@@ -23,7 +23,7 @@ class DirectCancelStateControls(unittest.TestCase):
                        "audit": {"requestedBy": self.actor, "tenantId": None, "idempotencyKey": self.plan,
                                  "submitterSecurityContext": {"tenantId": "public", "principalId": self.actor,
                                                               "ownerActorId": self.actor,
-                                                              "workspaceOwnerId": self.actor.removeprefix("ApiKey:api-key:")}},
+                                                              "workspaceOwnerId": self.actor.removeprefix("apikey:api-key:")}},
                        "spec": {"parameters": {"honua.geoprocessing.plan_id": self.plan,
                                                "honua.geoprocessing.process_definitions": "analytics.buffer-aggregate-managed"}}}
 
@@ -45,6 +45,16 @@ class DirectCancelStateControls(unittest.TestCase):
         self.assertEqual(value["job"]["planId"], self.plan)
         self.assertEqual(value["job"]["status"], 2)
         self.assertEqual(value["job"]["artifactReferences"], [])
+
+    def test_only_the_servers_lowercase_canonical_api_key_actor_is_accepted(self):
+        # honua-server CanonicalSecurityActor.NormalizeScheme lower-cases the scheme, so a
+        # managed key's durable owner is apikey:api-key:<id> (observed on 8cb074f7).
+        actor = "ApiKey:api-key:11111111-1111-4111-8111-111111111111"
+        record = copy.deepcopy(self.record)
+        record["audit"]["requestedBy"] = actor
+        record["audit"]["submitterSecurityContext"].update(principalId=actor, ownerActorId=actor)
+        with self.assertRaises(ValueError): self.call(record)
+        self.assertEqual(self.call()["job"]["requestedBy"], self.actor)
 
     def test_mismatched_plan_actor_status_or_missing_record_refuse(self):
         for key, replacement in (("operationId", self.job + "x"), ("status", "Running")):

@@ -85,7 +85,7 @@ def journey(*, inspector=False):
                      "requestedBy": actor, "tenantId": authored["tenantId"], "idempotencyKey": plan["planId"],
                      "submitterTenantId": authored["tenantId"], "submitterPrincipalId": actor,
                      "submitterOwnerActorId": actor,
-                     "submitterWorkspaceOwnerId": actor.removeprefix("ApiKey:api-key:"),
+                     "submitterWorkspaceOwnerId": actor.removeprefix("apikey:api-key:"),
                      "processDefinitions": oracle.PROCESS, "planId": plan["planId"],
                      "artifactReferences": [], "committedEffectReferences": []}
         else:
@@ -162,7 +162,7 @@ class DirectCancelValidationControls(unittest.TestCase):
         for inspector in (False, True):
             for mutation in ("owner", "tenant", "artifact", "late", "status"):
                 value = journey(inspector=inspector)
-                if mutation == "owner": value["snapshots"]["running"]["job"]["requestedBy"] = "ApiKey:api-key:other"
+                if mutation == "owner": value["snapshots"]["running"]["job"]["requestedBy"] = "apikey:api-key:other"
                 elif mutation == "tenant":
                     value["snapshots"]["running"]["job"]["tenantId"] = "public"
                     value["snapshots"]["running"]["job"]["submitterTenantId"] = "public"

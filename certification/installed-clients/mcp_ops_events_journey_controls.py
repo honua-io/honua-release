@@ -52,7 +52,7 @@ def managed_receipt(role, runtime):
         raw = json.dumps(value).encode()
         return {"keyId": identifier, "recordBytesBase64": encoded(raw), "recordSha256": sha(raw),
             "permissions": permissions, "active": active, "hashIndexValue": identifier if active else None,
-            "activeIndexMembership": 1 if active else 0, "canonicalActorId": "ApiKey:api-key:" + identifier,
+            "activeIndexMembership": 1 if active else 0, "canonicalActorId": "apikey:api-key:" + identifier,
             "studioActorId": identifier, "workspaceOwnerId": identifier, "credentialFingerprint": fingerprint,
             "createdAt": created, "expiresAt": expires, "lastUsedAt": None,
             "revokedAt": None if active else revoked, "observedAt": active_at if active else revoked_at}

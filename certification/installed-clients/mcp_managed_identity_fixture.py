@@ -73,7 +73,7 @@ def managed_record(key_id, key, permissions, *, execute, salt, expected_name, ac
         raise ValueError("actual managed credential revocation missing")
     return {"keyId": key_id, "recordSha256": "sha256:" + hashlib.sha256(raw).hexdigest(), "recordBytesBase64": base64.b64encode(raw).decode(),
             "permissions": permissions, "active": active, "hashIndexValue": index.decode() if isinstance(index, bytes) else None, "activeIndexMembership": membership,
-            "canonicalActorId": "ApiKey:api-key:" + key_id,
+            "canonicalActorId": "apikey:api-key:" + key_id,
             "studioActorId": key_id, "workspaceOwnerId": key_id,
             "credentialFingerprint": "scrypt:" + salt + ":" + hashlib.scrypt(key.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1, dklen=32).hex(),
             "createdAt": value.get("CreatedAt"), "expiresAt": expires,
@@ -366,7 +366,7 @@ def verify_receipt(receipt, candidate_runtime, profile, *, service_id=None):
         if not isinstance(fingerprint, str) or not re.fullmatch("scrypt:" + receipt["credentialSalt"] + r":[a-f0-9]{64}", fingerprint):
             raise ValueError("managed shared-salt fingerprint malformed")
         derived = {"keyId": identifier, "recordSha256": observed["recordSha256"], "recordBytesBase64": observed["recordBytesBase64"],
-                   "permissions": permissions, "active": active, "hashIndexValue": identifier if active else None, "activeIndexMembership": 1 if active else 0, "canonicalActorId": "ApiKey:api-key:" + identifier,
+                   "permissions": permissions, "active": active, "hashIndexValue": identifier if active else None, "activeIndexMembership": 1 if active else 0, "canonicalActorId": "apikey:api-key:" + identifier,
                    "studioActorId": identifier, "workspaceOwnerId": identifier, "credentialFingerprint": fingerprint,
                    "createdAt": value.get("CreatedAt"), "expiresAt": value.get("ExpiresAt"), "lastUsedAt": value.get("LastUsedAt"),
                    "revokedAt": value.get("RevokedAt"), "observedAt": observed["observedAt"]}

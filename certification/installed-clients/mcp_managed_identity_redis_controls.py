@@ -39,7 +39,7 @@ class LiveManagedIdentityRedisControls(unittest.TestCase):
         self.assertEqual(observed["keyId"], KEY_ID)
         self.assertEqual(observed["hashIndexValue"], KEY_ID)
         self.assertEqual(observed["activeIndexMembership"], 1)
-        self.assertEqual(observed["canonicalActorId"], "ApiKey:api-key:" + KEY_ID)
+        self.assertEqual(observed["canonicalActorId"], "apikey:api-key:" + KEY_ID)
         self.assertEqual(json.loads(base64.b64decode(observed["recordBytesBase64"])), value)
         self.assertEqual(self.command("GET", self.record_key), raw)
 
