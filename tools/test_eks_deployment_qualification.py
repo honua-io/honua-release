@@ -242,7 +242,8 @@ def test_complete_verified_pair_promotes_only_reviewed_eks_architecture(cell):
     updated = dq.project_verified_matrix(matrix, {'awsEks': proof})
     assert matrix == original
     lambda_row = updated['deploy']['honua-server']['awsLambda']['architectures']['x86_64']
-    assert lambda_row['status'] == 'ga-target' and lambda_row['qualification'] == 'pending'
+    assert lambda_row == original['deploy']['honua-server']['awsLambda']['architectures']['x86_64']
+    assert lambda_row['status'] == 'preview' and lambda_row['qualification'] == 'pending'
     rows = updated['deploy']['honua-helm']['awsEks']['architectures']
     assert rows['x86_64']['qualificationReceipt'] == proof.reference()
     findings = vp.Findings()
