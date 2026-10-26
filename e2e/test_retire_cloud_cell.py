@@ -252,6 +252,91 @@ class RecoveryBindingTests(unittest.TestCase):
                 self.assertNotIn('private-init-diagnostic',(output/'receipt.json').read_text())
 
 
+    def test_retained_state_recovery_runs_end_to_end_through_perform(self):
+        # Review of #972: the persisted request carries `retainedState`, which original_request()
+        # never produces; the re-verification of the original run must still match.
+        import hashlib
+        import run_cloud
+        import cost_meter
+        import targets.terraform_target
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            iac = base / 'iac'
+            root = iac / 'infrastructure/terraform/examples/aws-serverless'
+            root.mkdir(parents=True)
+            output = base / 'output'
+            output.mkdir()
+            request = self.request()
+            key = run_cloud.STATE_SECRET_PREFIX + request['runId'] + '-1-aws-serverless-redis-off'
+            retained_key = key + '-retirement-555-1'
+            request['retainedState'] = {'stateRun': '555', 'stateRunAttempt': '1',
+                                        'stateArtifact': 'cell-retirement-' + request['runId'] + '-1-off-1',
+                                        'statePath': '.'}
+            (output / 'request.json').write_text(json.dumps(request))
+            (output / 'original-platform-manifest.yaml').write_bytes(self.manifest)
+            bundle = base / 'state-recovery.enc'
+            bundle.write_bytes(b'retained ciphertext fixture')
+            retained = base / 'receipt.json'
+            retained.write_text(json.dumps({'runId': request['runId'], 'runAttempt': '1', 'cell': request['cell'],
+                'recoveryRunId': '555', 'recoveryRunAttempt': '1', 'terraformRetired': False,
+                'recoveryStateSealed': True, 'recoveryStateKey': retained_key,
+                'recoveryStateSha256': hashlib.sha256(bundle.read_bytes()).hexdigest()}))
+            args = SimpleNamespace(directory=output, original_run=request['runId'], original_attempt='1',
+                redis='off', handoff=None, retained_receipt=retained, state_run='555', iac=iac,
+                helper=base/'helper.py', bundle=bundle, account_id='585192672263')
+            target = Mock()
+            target._iac_root.return_value = root
+            target._read_transition_vars.return_value = ['-var=redis_enabled=false']
+            session = Mock()
+            session.client.return_value.get_caller_identity.return_value = {'Account': args.account_id}
+            session.client.return_value.get_paginator.return_value.paginate.return_value = [{'SecretList': [
+                {'Name': key + '-retirement-' + request['runId'] + '-1',
+                 'CreatedDate': datetime(2026, 10, 24, tzinfo=timezone.utc)},
+                {'Name': retained_key, 'CreatedDate': datetime(2026, 10, 25, tzinfo=timezone.utc)}]}]
+            helper = Mock()
+            helper.retire.return_value = {'terraformRetired': True, 'destroyCount': 126, 'planSha256': 'c'*64}
+            state = {'resources': [
+                {'mode': 'managed', 'type': 'aws_lambda_function', 'name': 'this', 'instances': [{'attributes': {
+                    'image_uri': 'candidate-lambda', 'architectures': ['x86_64'],
+                    'tags_all': {'honua-release:cost-ceiling-usd': '20'}}}]},
+                {'mode': 'managed', 'type': 'aws_batch_job_definition', 'name': 'gp', 'instances': [{'attributes': {
+                    'container_properties': json.dumps({'image': 'candidate-batch'})}}]}]}
+
+            def open_retained(*_):
+                (root / 'terraform.tfstate').write_text(json.dumps(state))
+
+            def command(argv, **kwargs):
+                if argv[:2] == ['gh', 'api']:
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(self.metadata), '')
+                if argv[0] == 'git':
+                    result = str(iac / '.git/info/exclude') if '--git-path' in argv else request['iacSource']
+                    return subprocess.CompletedProcess(argv, 0, result, '')
+                return subprocess.CompletedProcess(argv, 0, 'init', '')
+
+            def seal(_root, destination, name):
+                destination.write_bytes(b'ciphertext-only')
+                return 'd'*64
+
+            with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/trunk', 'GITHUB_RUN_ID': '999',
+                    'GITHUB_RUN_ATTEMPT': '1'}, clear=True), \
+                 patch('retire_cloud_cell.subprocess.run', side_effect=command), \
+                 patch('boto3.Session', return_value=session), \
+                 patch.object(targets.terraform_target, 'serverless', return_value=target), \
+                 patch('retire_cloud_cell.importlib.util.module_from_spec', return_value=helper), \
+                 patch('retire_cloud_cell.importlib.util.spec_from_file_location', return_value=Mock()), \
+                 patch.object(run_cloud, 'open_state', side_effect=open_retained) as opened, \
+                 patch.object(run_cloud, 'seal_state', side_effect=seal), \
+                 patch.object(cost_meter, 'cell_cost', side_effect=RuntimeError('no handoff')), \
+                 patch('retire_cloud_cell.compute_absence', return_value={'resources': []}):
+                perform(args)
+                self.assertEqual(opened.call_args.args[1:], (bundle, retained_key))
+                helper.retire.assert_called_once()
+            receipt = json.loads((output / 'receipt.json').read_text())
+            self.assertEqual(receipt['status'], 'compute-retired-cost-and-recovery-pending')
+            self.assertEqual(receipt['retainedStateKey'], retained_key)
+            self.assertEqual(receipt['costBeforeRetirement']['status'], 'unavailable')
+
+
 if __name__ == "__main__":
     unittest.main()
 

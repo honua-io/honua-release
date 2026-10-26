@@ -239,7 +239,8 @@ def perform(args):
     latest = json.loads(subprocess.run(["gh", "api", "repos/" + REPOSITORY + "/actions/runs/" + request["runId"]],
                                       capture_output=True, text=True, check=True).stdout)
     require(original_request(latest, (args.directory / "original-platform-manifest.yaml").read_bytes(),
-                             run_id=args.original_run, attempt=args.original_attempt, redis=args.redis) == request,
+                             run_id=args.original_run, attempt=args.original_attempt, redis=args.redis) ==
+            {k: v for k, v in request.items() if k != "retainedState"},
             "original run changed after preflight")
     session = boto3.Session(region_name="us-east-1")
     account = session.client("sts").get_caller_identity()["Account"]
