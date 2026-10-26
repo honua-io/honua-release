@@ -413,6 +413,16 @@ if method == 'GET' and parts[3:5] == ['actions', 'runs']:
     if run is None:
         fail(404, 'Not Found')
     save(); print(json.dumps(run)); sys.exit(0)
+if method == 'GET' and parts[3] == 'contents':
+    workflow = parts[-1]
+    declared = state.get('workflow_inputs', {}).get(f'{repo}/{workflow}')
+    if declared is None:
+        fail(404, 'Not Found')
+    import base64
+    text = 'name: producer\non:\n  workflow_dispatch:\n    inputs:\n' + ''.join(
+        f'      {name}:\n        required: {str(required).lower()}\n        type: string\n'
+        for name, required in declared.items()) + 'jobs: {}\n'
+    save(); print(json.dumps({'encoding': 'base64', 'content': base64.b64encode(text.encode()).decode()})); sys.exit(0)
 if method == 'GET' and parts[3] == 'compare':
     base, head = parts[4].split('...')
     status = 'identical' if base == head else state['compare'].get(f'{base}...{head}', 'diverged')
@@ -443,6 +453,14 @@ def github(tmp_path):
                                   'honua-io/honua-release': {'refs/heads/trunk': REVIEWED}},
              'runs': {}, 'dispatches': [], 'next_run': 9000, 'conclusion': 'success', 'compare': {},
              'soak': [], 'soak_commit': '7' * 40,
+             # The dispatch inputs each fixture producer's workflow declares at its pin (name: required).
+             'workflow_inputs': {
+                 'honua-io/honua-server/protocol-harness-certification.yml': {
+                     'candidate_source_sha': True, 'candidate_image': True, 'candidate_cut_at': True,
+                     'nightly_dispatch_id': True, 'requirements_context': True},
+                 'honua-io/honua-sdk-python/conformance.yml': {
+                     'server_image': True, 'server_seed_ref': True, 'candidate_cut_at': True,
+                     'certification_tier': False, 'nightly_dispatch_id': True, 'requirements_revision': False}},
              'dr_receipt_url': 'https://raw.githubusercontent.com/honua-io/honua-evidence/' + '8' * 40 + '/r.json'}
 
     class GitHub:
@@ -986,6 +1004,39 @@ def test_a_producer_that_did_not_succeed_leaves_the_ledger_unbound(github, concl
     assert waited.returncode != 0
     assert 'the ledger stays unbound' in waited.stderr
     assert f"honua-sdk-python honua-io/honua-sdk-python run 9002 concluded '{conclusion}'" in waited.stderr
+
+
+def test_a_producer_that_does_not_declare_the_nightly_inputs_refuses_before_any_dispatch(github):
+    """Run 40367649673: honua-server cng-conformance.yml at the candidate declares no
+    nightly_dispatch_id, and GitHub answered 422 "Unexpected inputs provided". A producer later in the
+    plan would have been refused only after the ones before it were dispatched, so every producer's
+    workflow is read at its pin first and every mismatch is named in one refusal."""
+    state = github.load()
+    state['refs']['honua-io/honua-sdk-python'] = {'refs/heads/trunk': PYTHON_PIN}
+    state['workflow_inputs']['honua-io/honua-sdk-python/conformance.yml'] = {
+        'server_image': True, 'server_seed_ref': True, 'candidate_cut_at': True, 'certification_tier': False}
+    github.save(state)
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files())
+    assert result.returncode != 0
+    assert 'nothing was dispatched' in result.stderr
+    assert "honua-io/honua-sdk-python conformance.yml at 666666666666 does not declare ['nightly_dispatch_id']" \
+        in result.stderr
+    assert github.load()['dispatches'] == []
+
+
+def test_a_producer_missing_a_required_input_or_its_workflow_refuses_before_any_dispatch(github):
+    state = github.load()
+    state['refs']['honua-io/honua-sdk-python'] = {'refs/heads/trunk': PYTHON_PIN}
+    state['workflow_inputs']['honua-io/honua-server/protocol-harness-certification.yml']['fixture_revision'] = True
+    del state['workflow_inputs']['honua-io/honua-sdk-python/conformance.yml']
+    github.save(state)
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files())
+    assert result.returncode != 0
+    assert "protocol-harness-certification.yml at 555555555555 requires ['fixture_revision']" in result.stderr
+    assert 'honua-io/honua-sdk-python conformance.yml at 666666666666: HTTP 404' in result.stderr
+    assert github.load()['dispatches'] == []
 
 
 def test_an_unpinned_producer_refuses_before_any_dispatch(github):

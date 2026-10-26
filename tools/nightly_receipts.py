@@ -26,6 +26,7 @@ Neither receipt lookup follows a branch tip.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -240,10 +241,46 @@ def protocol_dispatch_ref(api, repository: str, pin: str) -> str:
     return ensure_candidate_tag(api, repository, pin)
 
 
+def declared_dispatch_inputs(api, repository: str, workflow: str, pin: str) -> dict:
+    """The workflow_dispatch inputs `workflow` declares at `pin`, read from the file the run will execute."""
+    import yaml  # tools/requirements-nightly.txt pins PyYAML for every nightly job
+    document = api('GET', f'repos/{repository}/contents/.github/workflows/{workflow}?ref={pin}')
+    content = (document or {}).get('content') if isinstance(document, dict) else None
+    if not isinstance(content, str) or (document or {}).get('encoding') != 'base64':
+        raise LookupError(f'{repository} has no .github/workflows/{workflow} at {pin}')
+    parsed = yaml.safe_load(base64.b64decode(content))
+    # PyYAML 1.1 reads the unquoted Actions key `on` as boolean true.
+    triggers = (parsed or {}).get('on', (parsed or {}).get(True)) if isinstance(parsed, dict) else None
+    if isinstance(triggers, (str, list)):
+        triggers = {name: None for name in ([triggers] if isinstance(triggers, str) else triggers)}
+    if not isinstance(triggers, dict) or 'workflow_dispatch' not in triggers:
+        raise LookupError(f'{repository} {workflow} at {pin} has no workflow_dispatch trigger')
+    inputs = (triggers.get('workflow_dispatch') or {}).get('inputs') or {}
+    if not isinstance(inputs, dict):
+        raise LookupError(f'{repository} {workflow} at {pin} declares malformed dispatch inputs')
+    return inputs
+
+
+def input_contract_problems(api, repository: str, workflow: str, pin: str, inputs: dict[str, str]) -> list[str]:
+    """What GitHub would refuse (422 "Unexpected inputs") or the producer would miss, before any dispatch."""
+    declared = declared_dispatch_inputs(api, repository, workflow, pin)
+    problems = []
+    undeclared = sorted(set(inputs) - set(declared))
+    if undeclared:
+        problems.append(f'{repository} {workflow} at {pin[:12]} does not declare {undeclared}')
+    missing = sorted(name for name, spec in declared.items()
+                     if isinstance(spec, dict) and spec.get('required') is True
+                     and spec.get('default') in (None, '') and name not in inputs)
+    if missing:
+        problems.append(f'{repository} {workflow} at {pin[:12]} requires {missing}')
+    return problems
+
+
 def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> list[dict]:
     """Dispatch every producer the catalog names at its pin, bound to the resolved candidate.
 
-    Refuses before the first dispatch when any producer is unpinned, so a night never runs a
+    Refuses before the first dispatch when any producer is unpinned or its workflow at the pin
+    does not accept the inputs the night sends, so a night never runs a
     partial producer set; a dispatch failure part-way refuses the night as well. Each run row
     keeps `dispatch_id`, the correlation id every producer receives as an input and echoes in
     its receipts; the bind refuses a receipt from any run not recorded here.
@@ -272,6 +309,20 @@ def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> l
         if producer.get('producer') in CONTEXT_PRODUCERS:
             inputs['requirements_context'] = producer_context(catalog, producer, candidate, pin)
         plan.append((producer, repository, pin, inputs))
+    # GitHub refuses a dispatch carrying an input the workflow at that ref does not declare, after
+    # the producers before it were already dispatched (run 40367649673: honua-server
+    # cng-conformance.yml answered 422 'Unexpected inputs provided: ["nightly_dispatch_id"]').
+    # Every producer's contract is read at its pin first, and every mismatch is named at once.
+    contract = []
+    for producer, repository, pin, inputs in plan:
+        workflow = str(producer.get('workflow') or '')
+        try:
+            contract += input_contract_problems(api, repository, workflow, pin, inputs)
+        except (ApiError, LookupError, ValueError) as exc:
+            contract.append(f'{repository} {workflow} at {pin[:12]}: {exc}')
+    if contract:
+        raise LookupError('protocol producers do not accept the nightly dispatch contract; nothing was '
+                          'dispatched: ' + '; '.join(contract))
     runs = []
     for producer, repository, pin, inputs in plan:
         workflow = str(producer.get('workflow') or '')
