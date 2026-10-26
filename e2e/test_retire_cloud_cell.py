@@ -267,7 +267,9 @@ class RecoveryBindingTests(unittest.TestCase):
             output = base / 'output'
             output.mkdir()
             request = self.request()
-            key = run_cloud.STATE_SECRET_PREFIX + request['runId'] + '-1-aws-serverless-redis-off'
+            # Secrets Manager key *names* (no secret values); literal prefix, asserted equal below.
+            key = 'honua-cloud-cell-state/' + request['runId'] + '-1-aws-serverless-redis-off'
+            self.assertTrue(key.startswith(run_cloud.STATE_SECRET_PREFIX))
             retained_key = key + '-retirement-555-1'
             request['retainedState'] = {'stateRun': '555', 'stateRunAttempt': '1',
                                         'stateArtifact': 'cell-retirement-' + request['runId'] + '-1-off-1',
