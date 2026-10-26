@@ -27,7 +27,7 @@ import urllib.request
 API = "https://api.github.com"
 
 # The gates release-train.yml calls (its `uses: ./.github/workflows/...` lines), plus the AI gates the
-# operator added to the rc set on 2026-10-22. Keep this list in step with release-train.yml; the
+# operator added to the rc set on 2026-10-22 and the founder re-tier took out of it on 2026-10-25. Keep this list in step with release-train.yml; the
 # regression test pins it against the workflow file.
 TRAIN_GATES: tuple[str, ...] = (
     "manifest-validate.yml",
@@ -59,14 +59,18 @@ AI_GATES: tuple[str, ...] = (
 # Operator triage 2026-10-22 (release#376): these gates are deferred to GA. They are reported, never
 # required, for rc.N. capacity-soak needs a producer bundle the nightly cannot yet mint; rollback-
 # certification needs a signed lock (gate-upgrade's rollback leg covers rc); gate-journey needs cloud-cell
-# receipts plus the data-driven roster. The owner's later explicit ruling keeps
-# both AI gates required for rc, including gate-agent-e2e while its producer work remains open.
+# receipts plus the data-driven roster.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
     "gate-journey.yml",
 )
-RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES + AI_GATES if g not in GA_DEFERRED)
+# Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
+# `wedge-critical-retier-2026-10-25`, honua-release#376 comment 6407009748): "The AI gates (full agent
+# gate, genuine-model canary) are out of RC admission." It supersedes the 2026-10-22 owner ruling that
+# kept both required for rc. They are still read and reported as Preview evidence, never required.
+RC_ADVISORY: tuple[str, ...] = AI_GATES
+RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED)
 
 
 def _get(url: str, token: str) -> dict:
@@ -110,12 +114,14 @@ def _slim(run: dict) -> dict:
     }
 
 
-def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float) -> dict:
+def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float,
+             advisory: tuple[str, ...] = ()) -> dict:
     """Pure verdict over fetched records: {gate: {'latest_success':…, 'latest':…}}.
 
     A gate is green when its newest successful trunk run is inside the window. Never-run gates and
-    gates whose only runs are failures are red. The aggregate is 'admissible' only when every gate
-    is green — there is no advisory tier here; advisory gates simply are not in the list.
+    gates whose only runs are failures are red. The aggregate is 'admissible' only when every
+    required gate is green. A gate named in `advisory` gets the same verdict and is reported, but
+    its red never blocks admission (`advisory_red`).
     """
     cutoff = now - dt.timedelta(days=window_days)
     gates = {}
@@ -139,13 +145,16 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float) -> 
             "last_green_build": ok.get("head_sha") if ok else None,
             "latest_run": latest.get("html_url") if latest else None,
             "latest_conclusion": latest.get("conclusion") if latest else None,
+            "advisory": name in advisory,
         }
-    red = sorted(n for n, g in gates.items() if g["verdict"] != "green")
+    red = sorted(n for n, g in gates.items() if g["verdict"] != "green" and not g["advisory"])
+    advisory_red = sorted(n for n, g in gates.items() if g["verdict"] != "green" and g["advisory"])
     return {
         "evaluated_at": now.replace(microsecond=0).isoformat(),
         "window_days": window_days,
         "admissible": not red,
         "red": red,
+        "advisory_red": advisory_red,
         "gates": gates,
     }
 
@@ -166,14 +175,18 @@ def render_markdown(result: dict) -> str:
         when = (g["last_green_at"] or "never")[:10]
         run = f"[run]({g['last_green_run']})" if g["last_green_run"] else "—"
         build = f"`{g['last_green_build']}`" if g["last_green_build"] else "—"
-        mark = "✅" if g["verdict"] == "green" else "❌"
+        mark = "✅" if g["verdict"] == "green" else ("⚠️" if g.get("advisory") else "❌")
         lines.append(f"| `{name}` | {mark} {g['reason']} | {when} | {build} | {run} |")
     head = (f"Window: {result['window_days']:g} days ending {result['evaluated_at']}. "
             f"Admissible: **{'yes' if result['admissible'] else 'no'}**"
             + (f" — red: {', '.join(result['red'])}" if result["red"] else "") + "\n\n")
     tail = ""
+    advisory = sorted(n for n, g in result["gates"].items() if g.get("advisory"))
+    if advisory:
+        tail += ("\nAdvisory (Preview evidence, reported, not required for rc under the 2026-10-25 founder "
+                 "re-tier): " + ", ".join(f"`{g}`" for g in advisory) + "\n")
     if result.get("deferred_to_ga"):
-        tail = ("\nDeferred to GA (reported, not required for rc): "
+        tail += ("\nDeferred to GA (reported, not required for rc): "
                 + ", ".join(f"`{g}`" for g in result["deferred_to_ga"]) + "\n")
     return head + "\n".join(lines) + "\n" + tail
 
@@ -187,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="workflow file to evaluate (repeatable); default: train gates + AI gates")
     ap.add_argument("--without-ai-gates", action="store_true")
     ap.add_argument("--set", choices=("rc", "ga"), default="rc",
-                    help="rc: train + AI gates minus the GA-deferred set (default); ga: every gate")
+                    help="rc: train gates minus the GA-deferred set, AI gates advisory (default); "
+                         "ga: every gate, AI gates included, required")
     ap.add_argument("--out", default="gate-window.json")
     ap.add_argument("--markdown", default=None)
     ap.add_argument("--enforce", action="store_true", help="exit 1 unless every gate is green")
@@ -198,14 +212,16 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         print("GH_TOKEN is required (anonymous Actions API calls 404)", file=sys.stderr)
         return 2
+    advisory: tuple[str, ...] = ()
     if args.gate:
         gates = tuple(args.gate)
     else:
         gates = TRAIN_GATES + (() if args.without_ai_gates else AI_GATES)
         if args.set == "rc":
             gates = tuple(g for g in gates if g not in GA_DEFERRED)
+            advisory = tuple(g for g in RC_ADVISORY if g in gates)
     records = {g: fetch_gate_runs(args.repo, g, token, args.branch) for g in gates}
-    result = evaluate(records, dt.datetime.now(dt.timezone.utc), args.window_days)
+    result = evaluate(records, dt.datetime.now(dt.timezone.utc), args.window_days, advisory=advisory)
     result["repo"], result["branch"], result["set"] = args.repo, args.branch, args.set
     result["deferred_to_ga"] = list(GA_DEFERRED) if args.set == "rc" and not args.gate else []
     with open(args.out, "w", encoding="utf-8") as fh:

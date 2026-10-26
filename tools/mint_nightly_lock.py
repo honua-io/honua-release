@@ -176,7 +176,10 @@ def published_artifact_bytes(artifact: dict) -> bytes:
     """Fetch the public package and check its locked hash before attestation lookup."""
     from resolve_trunk_candidate import retry
     from verify_client_artifacts import _request, _request_json
-    kind, coordinate, version = artifact['kind'], artifact['coordinate'], artifact['version']
+    kind, coordinate, version = artifact['kind'], artifact['coordinate'], artifact.get('version')
+    # Registry packages are addressed by version; spec and archive bytes by URL and hash alone.
+    if kind in {'npm', 'nuget', 'wheel'} and not isinstance(version, str):
+        raise ValueError(f'{kind}:{coordinate} has no released version to fetch')
     if kind == 'npm':
         metadata = retry(lambda: _request_json('https://registry.npmjs.org/'
             + urllib.parse.quote(coordinate, safe='') + '/' + urllib.parse.quote(version, safe='')))
@@ -349,7 +352,8 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 raw = artifact_bytes(artifact)
                 digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
                 rows = attestations(repo, digest)
-            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            # A malformed lock artifact is one component's refusal, not the end of the report.
+            except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
                 errors.append(f'{context}: publisher attestations unavailable: '
                               + str(getattr(exc, 'stderr', None) or exc).strip())
                 continue
@@ -466,6 +470,12 @@ def verify_reference_bundle(evidence: dict, bundle: Path, manifest: Path, matrix
                     raise ValueError('no lock minted: notes were not generated from this candidate')
 
 
+# Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
+# `wedge-critical-retier-2026-10-25`): the genuine-model canary is out of RC admission. Its nightly
+# receipt is still declared, bound to this run and lock, and retained with its honest verdict, but a
+# failed or unobserved canary does not refuse the mint. Promotion readiness is unchanged.
+ADVISORY_NIGHTLY_CLASSES = frozenset({'nightly-model-journey'})
+
 # Each receipt derives its verdict from the gate that actually consumes that class.
 CLASS_GATES = {
     'build-test': 'build-test', 'contract': 'contract', 'sbom': 'sbom',
@@ -559,7 +569,9 @@ def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
         try:
             completed = datetime.fromisoformat(receipt['completedAt'].replace('Z', '+00:00'))
             expiry = datetime.fromisoformat(receipt['freshUntil'].replace('Z', '+00:00'))
-            valid = (receipt['class'] == name and receipt['kind'] == kind and receipt['status'] == 'pass'
+            advisory = name in ADVISORY_NIGHTLY_CLASSES
+            valid = (receipt['class'] == name and receipt['kind'] == kind
+                     and (advisory or receipt['status'] == 'pass')
                      and receipt['gate'] == CLASS_GATES[name]
                      and str(receipt['runId']) == str(train['runId'])
                      and receipt['runAttempt'] == train['runAttempt']
@@ -569,7 +581,7 @@ def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
                      and declaration == {'kind': kind, 'receipt': f'promotion-receipts/{name}/receipt.json',
                                          'freshUntil': receipt['freshUntil']}
                      and (digest is None or receipt['lockDigest'] == digest))
-            if name in JOURNEYS:
+            if name in JOURNEYS and not advisory:
                 mode, required = JOURNEYS[name]
                 valid &= _journey(receipt, required, mode, receipt['lockDigest'],
                                   completed - timedelta(hours=24), completed)

@@ -467,8 +467,12 @@ jobs:
       # this job's passing deterministic receipt and bound to the lock digest. Bedrock is reached by
       # the cell's task role; this job still holds no AWS credential. The row it writes is what the
       # nightly mint retains as promotion-receipts/nightly-model-journey.
+      # Founder re-tier 2026-10-25 (wedge-critical-retier-2026-10-25): the canary is out of RC admission.
+      # A failed canary, or one that wrote no row, is retained as a fail receipt by the mint and never
+      # fails this GA cell's journey job.
       - name: Run the genuine-model canary on ${{ inputs.target }} / redis-${{ inputs.redis }}
         if: ${{ always() && inputs.enable_bedrock }}
+        continue-on-error: true
         env:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
           TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
@@ -497,6 +501,7 @@ jobs:
       # Matches the train's journey-gate-report* download, which feeds mint_nightly_lock --declare-evidence.
       - name: Upload the nightly-model-journey row
         if: ${{ always() && inputs.enable_bedrock }}
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}

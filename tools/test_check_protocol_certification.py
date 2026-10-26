@@ -1817,6 +1817,121 @@ def test_published_schemas_enforce_each_grpc_digest_algorithm_and_encoding():
     assert list(ledger_validator.iter_errors(_ledger(unknown)))
 
 
+NUGET_PIN = {"package": "Honua.Sdk", "digest": "sha256:45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d"}
+
+
+def _dotnet_cell(**identity):
+    # The receipt is built before the observed package identity is attached, exactly as the
+    # .NET producer emits it: the identity rides on the observation, not inside the receipt.
+    cell = _cell(canonical_client="Honua SDK .NET", client_lane="sdk-dotnet-certification",
+                 client_version="1.6.0", contract_revision="sdk-dotnet-certification@" + SHA,
+                 auth_policy_revision="api-key-protected-v1")
+    cell.update(identity)
+    return cell
+
+
+def test_dotnet_package_identity_is_accepted_when_it_names_the_pinned_nuget_artifact():
+    schema = Draft202012Validator(json.loads(
+        (Path(__file__).parents[1] / "certification/protocol-certification.v1.schema.json").read_text()))
+    plain = _dotnet_cell()
+    owned = _requirements(plain)
+    carried = _dotnet_cell(client_package=NUGET_PIN["package"], client_package_digest=NUGET_PIN["digest"])
+    # Producers that send no package identity are unchanged.
+    assert cert._valid_receipt(plain, requirements_revision="requirements-test-v1")
+    assert _evaluate(_ledger(plain), "nightly", requirements=owned, now=NOW)["overall_status"] == "pass"
+    # A .NET result carrying the pinned package id and nupkg digest is accepted and verified.
+    assert cert._valid_receipt(carried, requirements_revision="requirements-test-v1")
+    assert not list(schema.iter_errors(_ledger(carried)))
+    for tier, kwargs in (("nightly", {}), ("nightly", {"expected_client_artifacts": {"sdk-dotnet": NUGET_PIN}}),
+                         ("release", {"expected_client_artifacts": {"sdk-dotnet": NUGET_PIN}})):
+        report = _evaluate(_ledger(carried), tier, requirements=owned, now=NOW, expected_source_sha=SHA, **kwargs)
+        assert report["overall_status"] == "pass", (tier, report["findings"])
+    # Governed rows still cannot carry observed .NET identity.
+    governed = copy.deepcopy(owned)
+    governed["requirements"][0]["client_package_digest"] = NUGET_PIN["digest"]
+    assert _evaluate(_ledger(plain), "nightly", requirements=governed, now=NOW)["overall_status"] == "fail"
+
+
+def test_dotnet_package_identity_that_differs_from_the_pin_is_refused():
+    schema = Draft202012Validator(json.loads(
+        (Path(__file__).parents[1] / "certification/protocol-certification.v1.schema.json").read_text()))
+    owned = _requirements(_dotnet_cell())
+    pinned = {"expected_client_artifacts": {"sdk-dotnet": NUGET_PIN}}
+    other_digest = "sha256:" + "0" * 64
+    # Shape errors: refused by the receipt check, the ledger evaluation and the published schema.
+    for identity in ({"client_package": "Honua.Sdk"},
+                     {"client_package_digest": NUGET_PIN["digest"]},
+                     {"client_package": None, "client_package_digest": None},
+                     {"client_package": "Honua.Sdk.Core", "client_package_digest": NUGET_PIN["digest"]},
+                     {"client_package": "honua.sdk", "client_package_digest": NUGET_PIN["digest"]},
+                     {"client_package": "Honua.Sdk", "client_package_digest": NUGET_PIN["digest"].upper()},
+                     {"client_package": "Honua.Sdk", "client_package_digest": "sha512-" + base64.b64encode(b"x" * 64).decode()},
+                     {"client_package": {"filename": "honua_sdk-1.6.0-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"},
+                      "client_package_digest": NUGET_PIN["digest"]}):
+        cell = _dotnet_cell(**identity)
+        assert not cert._valid_receipt(cell, requirements_revision="requirements-test-v1"), identity
+        assert _evaluate(_ledger(cell), "nightly", requirements=owned, now=NOW)["overall_status"] == "fail", identity
+        assert list(schema.iter_errors(_ledger(cell))), identity
+    # Well-formed but not the pinned artifact: refused once the pin is supplied.
+    repacked = _dotnet_cell(client_package="Honua.Sdk", client_package_digest=other_digest)
+    report = _evaluate(_ledger(repacked), "nightly", requirements=owned, now=NOW, **pinned)
+    assert report["overall_status"] == "fail"
+    assert any("differs from the pinned NuGet artifact" in item["why"] for item in report["findings"])
+    # Release never accepts carried identity it cannot verify against the pin.
+    carried = _dotnet_cell(client_package="Honua.Sdk", client_package_digest=NUGET_PIN["digest"])
+    report = _evaluate(_ledger(carried), "release", requirements=owned, now=NOW, expected_source_sha=SHA)
+    assert report["overall_status"] == "fail"
+    assert any("needs the pinned NuGet artifact" in item["why"] for item in report["findings"])
+    # The receipt identity stays closed: the producer does not bind package fields into it.
+    for field, value in (("client_package", "Honua.Sdk"), ("client_package_digest", NUGET_PIN["digest"])):
+        changed = copy.deepcopy(carried)
+        changed["evidence_receipt"]["identity"][field] = value
+        assert not cert._valid_receipt(changed, requirements_revision="requirements-test-v1"), field
+    # Other non-gRPC, non-Python lanes keep the #657/#663 refusal.
+    other = _cell(canonical_client="Honua SDK .NET", client_lane="sdk-dotnet", client_version="1.6.0")
+    other.update(client_package="Honua.Sdk", client_package_digest=NUGET_PIN["digest"])
+    assert not cert._valid_receipt(other, requirements_revision="requirements-test-v1")
+    assert _evaluate(_ledger(other), "nightly", now=NOW)["overall_status"] == "fail"
+
+
+def test_dotnet_pin_comes_from_the_manifest_that_governs_the_catalog_rows():
+    root = Path(__file__).parents[1]
+    pinned = cert.pinned_client_artifacts(root / "platform-manifest.yaml")["sdk-dotnet"]
+    rows = [row for row in json.loads((root / "certification/protocol-certification-requirements.v1.json").read_text())
+            ["requirements"] if row["client_lane"] == cert.NUGET_SDK_LANE]
+    assert pinned["package"] == cert.NUGET_SDK_PACKAGE
+    assert rows and {row["client_version"] for row in rows} == {pinned["version"]}
+    assert cert.pinned_client_artifacts(root / "no-such-manifest.yaml") is None
+    owned = _requirements(_dotnet_cell())
+    carried = _dotnet_cell(client_package="Honua.Sdk", client_package_digest=pinned["digest"])
+    # The pin binds the version too: the same digest is not the pinned artifact of another version.
+    report = _evaluate(_ledger(carried), "nightly", requirements=owned, now=NOW,
+                       expected_client_artifacts={"sdk-dotnet": pinned})
+    assert report["overall_status"] == "fail"
+    report = _evaluate(_ledger(carried), "nightly", requirements=owned, now=NOW,
+                       expected_client_artifacts={"sdk-dotnet": {**pinned, "version": "1.6.0"}})
+    assert report["overall_status"] == "pass", report["findings"]
+
+
+def test_dotnet_pin_overrides_layer_over_the_manifest_one_field_at_a_time():
+    manifest = Path(__file__).parents[1] / "platform-manifest.yaml"
+    pinned = cert.pinned_client_artifacts(manifest)["sdk-dotnet"]
+    assert cert.expected_nuget_pin(manifest) == {"sdk-dotnet": pinned}
+    assert cert.expected_nuget_pin(manifest, digest="sha256:" + "0" * 64)["sdk-dotnet"] == {
+        **pinned, "digest": "sha256:" + "0" * 64}
+    assert cert.expected_nuget_pin(manifest, package="Honua.Sdk")["sdk-dotnet"] == pinned
+    absent = Path(__file__).parent / "no-such-manifest.yaml"
+    assert cert.expected_nuget_pin(absent) is None
+    assert cert.expected_nuget_pin(absent, digest=pinned["digest"])["sdk-dotnet"] == {
+        "package": None, "digest": pinned["digest"], "version": None}
+    # A digest-only override still accepts the observation matching the pinned artifact.
+    carried = _dotnet_cell(client_package="Honua.Sdk", client_package_digest=pinned["digest"])
+    expected = cert.expected_nuget_pin(manifest, digest=pinned["digest"], version="1.6.0")
+    report = _evaluate(_ledger(carried), "nightly", requirements=_requirements(_dotnet_cell()), now=NOW,
+                       expected_client_artifacts=expected)
+    assert report["overall_status"] == "pass", report["findings"]
+
+
 def test_python_wheel_identity_is_governed_not_just_self_consistent():
     cell = _cell(canonical_client="Honua SDK Python", client_lane="sdk-python-certification",
                  client_version="0.1.10", contract_revision="sdk-python-certification@" + SHA)

@@ -7,13 +7,16 @@ release, package integrity, source SHA, immutable server image, fixture/config/a
 operation, target, and durable CI evidence URI.
 
 `matrix.json` is the only source of expected outcomes. A cell with `status: active` must pass. A
-cell with `status: blocked` must name the issue that blocks it in `blockedBy`. It still runs on
+cell with `status: blocked` must name the issue that blocks it in `blockedBy` and declare an `owner`
+(GitHub login), a `reason` and a `target` release line such as `2026.1.x`. It still runs on
 every execution and is reported `blocked` only when its specific named blocker is observed.
 Installation, integrity, infrastructure, handshake, and supplied-evidence validation failures
 remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v1` catalog;
 the import-fidelity blocker requires an absent complete passing receipt until live qualification finishes. If a blocked cell starts
 passing, it is reported as a failure until the matrix row is set back to `active`, so a fix is
-observed rather than assumed. `run.py` exits 0 only when every active cell passes and no blocked
+observed rather than assumed. The receipt is `pass` with `declaredLimitations` when every blocked
+cell is declared and listed by the founder ruling `dotnet-declared-blocked-2026-10-26` in
+`docs/2026.1-release-decision-overrides.json`; any other blocked cell makes it `blocked`. `run.py` exits 0 only when every active cell passes and no blocked
 cell passes silently or fails for an unexpected reason. `run.py --verify-receipt <receipt>` checks a receipt against the matrix, and
 the workflow asserts nothing else.
 

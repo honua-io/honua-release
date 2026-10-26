@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import copy
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -573,3 +574,24 @@ def test_unreferenced_profile_artifact_cannot_be_omitted_from_history(intake):
     path = (intake.directory(cell) / report['journeyAttempts'][0]['receipt']).parent
     (path / 'serving-refusal-unrecorded.json').write_text('{"status":"pass"}')
     assert_red(intake, 'sidecar omitted from attempt history')
+
+
+def _expression(condition, *, event, workflow):
+    """Evaluate a simple Actions `if:` over github.event_name / github.workflow."""
+    text = condition.strip().removeprefix("${{").removesuffix("}}").strip()
+    text = text.replace("github.event_name", repr(event)).replace("github.workflow", repr(workflow))
+    text = text.replace("&&", " and ").replace("||", " or ").replace("!=", " != ")
+    text = re.sub(r"!(?!=)", " not ", text)
+    return eval(text, {"__builtins__": {}}, {})  # noqa: S307 - literals only
+
+
+@pytest.mark.parametrize("event", ["workflow_dispatch", "schedule"])
+def test_train_call_never_runs_the_standalone_candidate_job(event):
+    """Inside the train, github.event_name is the caller's: a hand-dispatched nightly is
+    workflow_dispatch too. The standalone job would then upload a second `candidate-manifest`
+    into the run that freeze already uploaded it to, fail, and skip the journey gate."""
+    workflow = yaml.safe_load((checker.ROOT / ".github/workflows/gate-journey.yml").read_text())
+    condition = workflow["jobs"]["candidate"]["if"]
+    assert not _expression(condition, event=event, workflow="nightly-certification")
+    assert not _expression(condition, event=event, workflow="release-train")
+    assert _expression(condition, event="workflow_dispatch", workflow="gate-journey")

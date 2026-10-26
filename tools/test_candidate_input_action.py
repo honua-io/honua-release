@@ -213,3 +213,39 @@ def test_symlinked_deployment_bundle_refused_before_any_adoption(history):
     result = adopt(history, candidate)
     assert result.returncode != 0
     assert (repo / 'platform-manifest.yaml').read_text() == 'original: true\n'
+
+
+def test_adopts_on_git_for_windows_where_toplevel_is_a_drive_path(history, tmp_path):
+    """gate-dr adopts the candidate on windows-latest, where bash `pwd -P` is /d/a/... but Git for
+    Windows answers `rev-parse --show-toplevel` as D:/a/...; the same checkout must still adopt."""
+    shim = tmp_path / 'git-for-windows'
+    shim.mkdir()
+    real = subprocess.check_output(['bash', '-c', 'command -v git'], text=True).strip()
+    (shim / 'git').write_text(
+        '#!/bin/bash\n'
+        f'out="$("{real}" "$@")" || exit $?\n'
+        'for arg in "$@"; do [ "$arg" = --show-toplevel ] && out="X:${out}"; done\n'
+        '[ -n "$out" ] && printf "%s\\n" "$out"\n'
+        'exit 0\n')
+    (shim / 'git').chmod(0o755)
+    candidate = snapshot(history)
+    repo, parent, scratch = history
+    env = {**os.environ, 'PATH': f"{shim}:{os.environ['PATH']}", 'CANDIDATE_REF': candidate,
+           'RUN_SHA': parent, 'RUN_REF': 'refs/heads/trunk', 'RUN_REPOSITORY': 'honua-io/honua-release',
+           'CHECKOUT_DIRECTORY': str(repo), 'REVIEWED_RELEASE_SHA': '',
+           'RUNNER_TEMP': str(scratch), 'GITHUB_OUTPUT': str(scratch / 'outputs')}
+    result = subprocess.run(['bash', str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (repo / 'platform-manifest.yaml').read_text() == 'candidate: true\n'
+
+
+def test_refuses_a_checkout_subdirectory(history):
+    repo, _, _ = history
+    (repo / 'tools').mkdir()
+    candidate = snapshot(history)
+    result = subprocess.run(['bash', str(SCRIPT)], capture_output=True, text=True, timeout=30, env={
+        **os.environ, 'CANDIDATE_REF': candidate, 'RUN_SHA': history[1], 'RUN_REF': 'refs/heads/trunk',
+        'RUN_REPOSITORY': 'honua-io/honua-release', 'CHECKOUT_DIRECTORY': str(repo / 'tools'),
+        'REVIEWED_RELEASE_SHA': '', 'RUNNER_TEMP': str(history[2]), 'GITHUB_OUTPUT': str(history[2] / 'outputs')})
+    assert result.returncode != 0
+    assert (repo / 'platform-manifest.yaml').read_text() == 'original: true\n'
