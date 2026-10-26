@@ -1,6 +1,6 @@
 {
   "schemaVersion": "honua.expected-ga-manifest.v1",
-  "_comment": "Reviewed expected-GA POLICY for the live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest, honua-release#61). Every `expectedGa` id (minus `excluded`) must be advertised supported=true; when the check runs authenticated (an admin X-API-Key) the same ids must also be available=true, except the `availabilityGated` ids, which the candidate supports but a bare deployment leaves off by configuration or dependency. This file holds no boot observation. What a boot of the candidate server actually advertised is generated per candidate into e2e/expected-ga-observation.json by tools/expected_ga_snapshot.py (the nightly runs it on the resolved server before the bind), bound to the candidate's honua-server sha, image index digest and booted child digest. tools/validate_platform.py and the cell check refuse an observation of any other server, and validate refuses a policy id the bound boot did not advertise supported=true (honua-release#183). History: this list was last re-checked against fresh boots of 8cb074f (2026-10-23, 80 ids), 199bce7 and 4709145 (2026-10-22); the 4709145 refresh added import.background and import.objectStore against the 0e03bdd set.",
+  "_comment": "2026-10-26 policy change (ruling gp-preview-floor-2026-10-26, founder decision D8, honua-release#949): sync.offline and realtime.feature-streams are removed from expectedGa and availabilityGated because both are lifecycle=preview and a GA-named list carries only GA ids; jobs.runner stays GA because background imports depend on it. Reviewed expected-GA POLICY for the live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest, honua-release#61). Every `expectedGa` id (minus `excluded`) must be advertised supported=true; when the check runs authenticated (an admin X-API-Key) the same ids must also be available=true, except the `availabilityGated` ids, which the candidate supports but a bare deployment leaves off by configuration or dependency. This file holds no boot observation. What a boot of the candidate server actually advertised is generated per candidate into e2e/expected-ga-observation.json by tools/expected_ga_snapshot.py (the nightly runs it on the resolved server before the bind), bound to the candidate's honua-server sha, image index digest and booted child digest. tools/validate_platform.py and the cell check refuse an observation of any other server, and validate refuses a policy id the bound boot did not advertise supported=true (honua-release#183). History: this list was last re-checked against fresh boots of 8cb074f (2026-10-23, 80 ids), 199bce7 and 4709145 (2026-10-22); the 4709145 refresh added import.background and import.objectStore against the 0e03bdd set.",
   "expectedGa": [
     "package.metadata-v2",
     "package.release-package",
@@ -12,8 +12,6 @@
     "temporal.histogram",
     "temporal.time-series-tiles",
     "temporal.animation-api",
-    "sync.offline",
-    "realtime.feature-streams",
     "alerts.geofence",
     "jobs.runner",
     "ai.spec-apply",
@@ -57,16 +55,8 @@
   ],
   "availabilityGated": [
     {
-      "id": "sync.offline",
-      "reason": "lifecycle=preview and opt-in on this candidate (available=false / experimental-disabled by default). Asserted supported=true because the previous snapshot asserted it; availability depends on opting in."
-    },
-    {
-      "id": "realtime.feature-streams",
-      "reason": "lifecycle=preview and opt-in on this candidate (available=false / experimental-disabled by default). Asserted supported=true because the previous snapshot asserted it; availability depends on opting in."
-    },
-    {
       "id": "jobs.runner",
-      "reason": "Implemented, but available=false / dependency-unavailable on a deployment with no job backend configured (the bare cloud cells and local-docker)."
+      "reason": "Implemented, but available=false / dependency-unavailable on a deployment with no job backend configured (the bare cloud cells and local-docker). Stays GA under ruling gp-preview-floor-2026-10-26 (honua-release#949): background imports (import.background) run on the job runner, so it is not Preview with the GP catalog."
     },
     {
       "id": "gitops.release-manifest",

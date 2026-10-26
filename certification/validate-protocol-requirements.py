@@ -182,6 +182,70 @@ def validate_mcp_authorization(catalog: dict) -> None:
         raise ValueError("MCP requirements differ from the complete selected-client authorization policy")
 
 
+GP_PREVIEW_FLOOR_RULING = "gp-preview-floor-2026-10-26"
+# The tier each GP lane carried before the ruling (nightly unless listed), restored only so the
+# lane-specific structural checks below see the rows they re-derive. It grants no requirement.
+GP_PRE_RULING_TIER = {"sdk-python-certification": "pr"}
+
+
+def validate_gp_preview_floor(catalog: dict) -> dict:
+    """Check the GP Preview ruling (honua-release#949) and return the catalog as governed before it.
+
+    Every row on a ruled GP capability matches exactly one floor or preview entry. Floor rows stay
+    supported and required at pr or nightly; preview rows are maturity=preview, required_tier=release,
+    which the protocol gate requires at no tier. No other capability may carry maturity=preview.
+    """
+    ruling = json.loads((ROOT / "sources" / "gp-preview-floor.v1.json").read_text(encoding="utf-8"))
+    if ruling.get("schema") != "honua.gp-preview-floor-ruling/v1" or ruling.get("id") != GP_PREVIEW_FLOOR_RULING:
+        raise ValueError("GP preview ruling has an unexpected schema or id.")
+    keys = set(ruling["capability_keys"])
+    entries = [("floor", entry) for entry in ruling["floor"]] + [("preview", entry) for entry in ruling["preview"]]
+
+    def selects(entry: dict, row: dict) -> bool:
+        return (
+            row["capability_key"] == entry["capability_key"] and row["surface"] == entry["surface"]
+            and (entry["operations"] == "*" or row["operation"] in entry["operations"])
+            and ("lanes" not in entry or row["client_lane"] in entry["lanes"])
+        )
+
+    used: set[int] = set()
+    floor = 0
+    governed = []
+    for row in catalog["requirements"]:
+        if row["capability_key"] not in keys:
+            if row["maturity"] == "preview":
+                raise ValueError(f"Row {row['capability_key']}/{row['operation']} is Preview outside the GP ruling.")
+            governed.append(row)
+            continue
+        matches = [index for index, (_, entry) in enumerate(entries) if selects(entry, row)]
+        if len(matches) != 1:
+            raise ValueError(
+                f"GP row {row['surface']}/{row['operation']}/{row['client_lane']} matches "
+                f"{len(matches)} {GP_PREVIEW_FLOOR_RULING} entries."
+            )
+        used.add(matches[0])
+        kind = entries[matches[0]][0]
+        if kind == "floor":
+            floor += 1
+            if row["maturity"] != "supported" or row["required_tier"] not in {"pr", "nightly"}:
+                raise ValueError(f"GP floor row {row['surface']}/{row['operation']} must stay supported and required.")
+            governed.append(row)
+        else:
+            if (row["maturity"], row["required_tier"]) != ("preview", "release"):
+                raise ValueError(
+                    f"GP Preview row {row['surface']}/{row['operation']} must be maturity=preview, required_tier=release."
+                )
+            governed.append({
+                **row, "maturity": "supported",
+                "required_tier": GP_PRE_RULING_TIER.get(row["client_lane"], "nightly"),
+            })
+    if len(used) != len(entries):
+        raise ValueError(f"{GP_PREVIEW_FLOOR_RULING} has entries that match no catalog row.")
+    if not floor:
+        raise ValueError(f"{GP_PREVIEW_FLOOR_RULING} keeps no required GP safety floor.")
+    return {**catalog, "requirements": governed}
+
+
 def main() -> None:
     catalog = json.loads((ROOT / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8"))
     schema = json.loads((ROOT / "protocol-certification-requirements.v1.schema.json").read_text(encoding="utf-8"))
@@ -222,6 +286,7 @@ def main() -> None:
         for cell in bounded_roster["cells"]
     }
     jsonschema.validate(catalog, schema)
+    catalog = validate_gp_preview_floor(catalog)
     validate_geometry_client_addressability(catalog)
     validate_mcp_authorization(catalog)
     if catalog["receipt_schema_min"] not in {"v1", "v2"}:

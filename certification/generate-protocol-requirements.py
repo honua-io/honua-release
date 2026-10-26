@@ -595,6 +595,63 @@ def dotnet_release_profile(contract: dict) -> dict[str, int]:
     return {"denominator": denominator, "excluded": len(excluded_ids), "non_addressable": non_addressable}
 
 
+GP_PREVIEW_FLOOR_RULING = "gp-preview-floor-2026-10-26"
+
+
+def gp_entry_selects(entry: dict, row: dict) -> bool:
+    if row["capability_key"] != entry["capability_key"] or row["surface"] != entry["surface"]:
+        return False
+    if entry["operations"] != "*" and row["operation"] not in entry["operations"]:
+        return False
+    return "lanes" not in entry or row["client_lane"] in entry["lanes"]
+
+
+def apply_gp_preview_floor(requirements: list[dict[str, Any]]) -> dict[str, int]:
+    """Label every GP catalog row Preview except its explicitly classified safety floor.
+
+    Founder decision D8 (honua-release#949): the GP catalog is Preview for 2026.1, but rows whose
+    failure is a security or correctness bug stay supported and required. Every GP row must match
+    exactly one floor or preview entry, and every entry must match a row, so a new GP row fails
+    generation until it is classified; nothing on another surface is touched.
+    """
+    ruling = load(SOURCES / "gp-preview-floor.v1.json")
+    if ruling.get("schema") != "honua.gp-preview-floor-ruling/v1" or ruling.get("id") != GP_PREVIEW_FLOOR_RULING:
+        raise ValueError(f"GP preview ruling must be schema honua.gp-preview-floor-ruling/v1 id {GP_PREVIEW_FLOOR_RULING}")
+    keys = set(ruling["capability_keys"])
+    preview_row = ruling["preview_row"]
+    if (preview_row.get("maturity"), preview_row.get("required_tier")) != ("preview", "release"):
+        raise ValueError("GP preview rows must be maturity=preview, required_tier=release (required at no tier)")
+    entries = [("floor", entry) for entry in ruling["floor"]] + [("preview", entry) for entry in ruling["preview"]]
+    for _, entry in entries:
+        if entry["capability_key"] not in keys or not entry.get("reason"):
+            raise ValueError(f"GP preview ruling entry is outside the ruling or has no reason: {entry}")
+    used: set[int] = set()
+    counts = {"floor": 0, "preview": 0}
+    for row in requirements:
+        if row["capability_key"] not in keys:
+            continue
+        matches = [(index, kind) for index, (kind, entry) in enumerate(entries) if gp_entry_selects(entry, row)]
+        if len(matches) != 1:
+            raise ValueError(
+                f"GP row {row['capability_key']}/{row['surface']}/{row['operation']}/{row['client_lane']} "
+                f"matches {len(matches)} {GP_PREVIEW_FLOOR_RULING} entries; classify it exactly once"
+            )
+        index, kind = matches[0]
+        used.add(index)
+        counts[kind] += 1
+        if row["maturity"] != "supported":
+            raise ValueError(f"GP row {row['surface']}/{row['operation']} is not supported before the ruling")
+        if kind == "preview":
+            row["maturity"] = preview_row["maturity"]
+            row["required_tier"] = preview_row["required_tier"]
+    unused = [entries[index][1] for index in range(len(entries)) if index not in used]
+    if unused:
+        raise ValueError(f"{GP_PREVIEW_FLOOR_RULING} entries match no generated row: {unused}")
+    if not counts["floor"]:
+        raise ValueError(f"{GP_PREVIEW_FLOOR_RULING} must keep a required GP safety floor")
+    return counts
+
+
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
     python_wheel = selected_python_wheel(revisions)
@@ -1255,13 +1312,14 @@ def main() -> None:
         row["client_driver"] = "pyqgis"
         row["release_bucket"] = MUST_FIX
     summary = desktop_driver_summary(requirements, driver_order)
+    gp_counts = apply_gp_preview_floor(requirements)
 
     requirements.sort(key=lambda row: (
         row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"]
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-19-complete.25",
+        "revision": "2026-10-26-complete.26",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,
@@ -1300,7 +1358,13 @@ def main() -> None:
             "(FeatureServer, MapServer, connect, add layer, render, identify, query, FeatureServer edit, and the auth modes; "
             "QGIS UI also WMS, WFS, WCS and WFS-T edit). Every other UI cell is "
             "prove-against-candidate. Counts per bucket per driver are in desktop_driver_summary. "
-            "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
+            "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported. "
+            f"The GP Preview ruling ({GP_PREVIEW_FLOOR_RULING}, honua-release#949) labels "
+            f"{gp_counts['preview']} GP catalog rows maturity=preview and required_tier=release, so they are "
+            "reported at every tier and required at none. "
+            f"{gp_counts['floor']} GP safety-floor rows (owner isolation, route-binding refusals, input "
+            "validation, resource bounds and typed refusals) stay supported and required. Each row's "
+            "classification and reason is in sources/gp-preview-floor.v1.json."
         ),
         "source_revisions": revisions,
         "desktop_driver_summary": summary,
