@@ -69,6 +69,11 @@ jobs:
       - name: Verify regenerated release decision
         run: python3 tools/release_decision_record.py --check
 
+      # tools/test_tag_signing_gitsign.py verifies a real keyless tag signature; with CI=true a
+      # missing gitsign fails the suite instead of skipping it (#236, founder decision D11).
+      - name: Install gitsign (keyless tag verification)
+        run: bash tools/install_gitsign.sh "$RUNNER_TEMP/gitsign-bin"
+
       - name: Self-test the tools gates
         run: python -m pytest tools/ e2e/test_licensing.py e2e/test_upgrade_chaos.py e2e/test_cloud.py e2e/test_deterministic_refusal_profile.py e2e/test_cost_meter.py e2e/test_aws_eks.py e2e/test_large_import.py e2e/test_retire_cloud_cell.py -q
 

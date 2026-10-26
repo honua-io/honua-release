@@ -112,9 +112,8 @@ the protected `refs/tags/honua-2026.1.*` namespace. A calendar candidate `2026.1
 publishes `honua-2026.1.0` (the release title stays `Honua 2026.1`). An explicit patch
 candidate `2026.1.Z-rc.N` publishes `honua-2026.1.Z`; appending another `.0` would name
 `honua-2026.1.Z.0`, which is not the contract tag. Promotion asks the preserved producer
-for that name and then verifies the signed remote tag. It does not sign or create the tag.
-The command does not require a nominated signer; `sign` and `verify` still fail closed
-until one is recorded.
+for that name, signs that tag at the certified commit and pushes it (see below), then
+verifies the published remote tag before it creates the Release.
 
 `certification/release-controls/tag-signing-policy.json` is the trust policy, and
 `tools/tag_signing.py` is the producer and verifier. Together they close the "implement a
@@ -131,10 +130,25 @@ Three things are routinely mistaken for a signed tag, and all three are refused:
   promotion now requires the already published signed tag and passes `--verify-tag`.
 
 A qualified publication tag is an annotated tag object whose signature verifies against a signer
-the trust policy names by fingerprint. The policy holds **fingerprints only**; public key
-material stays in an operator-supplied allowed-signers file that is never committed, and any
-principal in that file whose fingerprint the policy does not name is rejected — widening the
-operator's trust material cannot widen the policy.
+the trust policy names.
+
+**Keyless (founder decision D11, 2026-10-26).** honua-release's signer is
+`honua-release-promote`: format `gitsign`, issuer `https://token.actions.githubusercontent.com`,
+identity `https://github.com/honua-io/honua-release/.github/workflows/promote.yml@refs/heads/trunk`.
+After release-promotion approval and the all-green finalize, `promote.yml` installs the pinned,
+checksum-verified gitsign (`tools/install_gitsign.sh`). It runs `tag_signing.py sign`, which
+writes `git tag -s` through gitsign, so Fulcio certifies the workflow's own OIDC identity and
+Rekor logs the signature. Then it pushes the tag. `verify-remote` fetches only the published
+ref into a fresh repository and runs `gitsign verify-tag` with that exact identity and issuer.
+It refuses an unsigned or lightweight tag, a tampered tag, a signature by any other identity or
+issuer, and a tag that does not point at the certified commit. There is no key to nominate,
+store or rotate, and the policy refuses a loose keyless signer: another issuer, an identity
+pattern, or a fingerprint. Customer verification commands are in `docs/VERIFYING-RELEASE-TAGS.md`.
+
+**Keyed (ssh/openpgp).** The policy holds **fingerprints only**. Public key material stays in
+an operator-supplied allowed-signers file that is never committed, and any principal in that
+file whose fingerprint the policy does not name is rejected. Widening the operator's trust
+material cannot widen the policy.
 
 ```sh
 python3 tools/tag_signing.py check-policy
@@ -168,12 +182,19 @@ than depending on an operator running `check-policy`. `audit` is itself an opera
 no workflow runs, so the same parity check also runs unconditionally in the branch-protected
 `validate` job (`.github/workflows/manifest-validate.yml`): a drifted trust policy cannot land.
 
-The committed policy nominates **no signer**, so every command above fails closed today and the
-audit stays red for all five repositories with native publication tags (`geospatial-grpc`,
-`honua-helm`, `honua-release`, `honua-sdk-dotnet`, `honua-sdk-python`). The trust policy's tag
+The committed policy nominates a signer only for honua-release, the keyless promote identity.
+The other four repositories with native publication tags (`geospatial-grpc`, `honua-helm`,
+`honua-sdk-dotnet`, `honua-sdk-python`) still nominate none, so every command for them fails
+closed. The audit's signed-tag control for honua-release still needs the actual-candidate
+receipt, which can exist only after promotion has signed that candidate's tag. The trust policy's tag
 namespaces are checked against `policy.json`, so the two cannot drift apart.
 
-Regression evidence lives in `tools/test_tag_signing.py`. It does not mock signatures: each test
+Keyless regression evidence lives in `tools/test_tag_signing_gitsign.py`. It uses one real,
+Rekor-logged gitsign signature made by another GitHub Actions workflow
+(`tools/fixtures/gitsign/`). That signature verifies against its true identity and is refused
+for the promote identity, both directly and through the executed promote guard step.
+Unsigned, lightweight and tampered tags are refused as well. Keyed regression evidence lives
+in `tools/test_tag_signing.py`. It does not mock signatures: each test
 builds a throwaway repository, generates an ephemeral SSH key inside the test's temporary
 directory, and makes git produce a real signed tag object. Fingerprints are computed
 independently with `ssh-keygen -lf`, and the tamper test rewrites signed tag bytes and rehashes

@@ -1,4 +1,5 @@
 """Trust-boundary contracts for release workflow triggers and gates."""
+import json
 import os
 import re
 import shutil
@@ -602,9 +603,11 @@ def test_promotion_verifies_current_trust_and_never_creates_a_lightweight_tag():
     candidate_checkout = next(i for i, s in enumerate(steps)
                               if (s.get("with") or {}).get("ref") == "${{ steps.train.outputs.source_sha }}")
     finalize = next(i for i, s in enumerate(steps) if s.get("id") == "finalize")
+    install = next(i for i, s in enumerate(steps) if "tools/install_gitsign.sh" in s.get("run", ""))
+    producer = next(i for i, s in enumerate(steps) if 'tag_signing.py" sign' in s.get("run", ""))
     guard = next(i for i, s in enumerate(steps) if "verify-remote" in s.get("run", ""))
     publish = next(i for i, s in enumerate(steps) if "gh release create" in s.get("run", ""))
-    assert preserve < candidate_checkout < finalize < guard < publish
+    assert preserve < install < candidate_checkout < finalize < producer < guard < publish
     assert 'cp tools/tag_signing.py' in steps[preserve]['run']
     assert '{policy,tag-signing-policy}.json' in steps[preserve]['run']
     assert 'publication-tag honua-release' in steps[finalize]['run']
@@ -615,6 +618,19 @@ def test_promotion_verifies_current_trust_and_never_creates_a_lightweight_tag():
     assert steps[guard]['env']['PUBLICATION_TAG'] == '${{ steps.finalize.outputs.tag }}'
     assert not _neutralised(steps[guard])
     assert 'if' not in steps[guard]
+    # D11: the guard verifies keyless (gitsign) against the trust policy; no operator key material.
+    assert 'allowed-signers' not in steps[guard]['run']
+    assert 'RELEASE_TAG_ALLOWED_SIGNERS' not in json.dumps(steps)
+    # The producer signs with the preserved tool, keyless, at the certified commit, then pushes.
+    sign = steps[producer]
+    assert not _neutralised(sign) and 'if' not in sign
+    assert '$RUNNER_TEMP/publication-trust/tools/tag_signing.py" sign' in sign['run']
+    assert sign['env']['CERTIFIED_SHA'] == '${{ steps.train.outputs.source_sha }}'
+    assert sign['env']['PUBLICATION_TAG'] == '${{ steps.finalize.outputs.tag }}'
+    assert '--target "$CERTIFIED_SHA"' in sign['run']
+    assert 'git push origin "refs/tags/$PUBLICATION_TAG"' in sign['run']
+    assert 'gpg' not in sign['run'] and 'signingkey' not in sign['run']
+    assert _workflow("promote.yml")["permissions"]["id-token"] == "write"
     command = steps[publish]['run']
     assert '--verify-tag' in command
     assert '--target' not in command

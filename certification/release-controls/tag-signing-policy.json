@@ -2,14 +2,23 @@
   "schema_version": 1,
   "issue": "honua-io/honua-release#236",
   "owner": "mikemcdougall",
-  "statement": "A qualified publication tag is an annotated tag object whose signature verifies against a signer named here by fingerprint. GitHub required_signatures verifies commits, ruleset update/deletion rules give immutability, and gh release create writes a lightweight tag; none of the three is a signed tag.",
+  "decision": "Founder decision D11 (2026-10-26): honua-release platform publication tags are signed keyless with gitsign by promote.yml's GitHub Actions OIDC identity on trunk. No signing key exists to nominate, hold or rotate.",
+  "statement": "A qualified publication tag is an annotated tag object whose signature verifies against a signer named here: a Sigstore keyless workflow identity (gitsign) or a key fingerprint. GitHub required_signatures verifies commits, ruleset update/deletion rules give immutability, and gh release create writes a lightweight tag; none of the three is a signed tag.",
   "signature_formats": [
+    "gitsign",
     "ssh",
     "openpgp"
   ],
-  "key_material": "Fingerprints only. Public keys live in an operator-supplied allowed-signers file that is never committed; tools/tag_signing.py refuses any principal in that file whose fingerprint is absent here.",
-  "blocked_on": "No publication signing key has been nominated. Until the release owner adds one authorized signer, no publication tag can be produced or trusted, and #236's signed-tag criterion stays unmet.",
-  "signers": [],
+  "key_material": "gitsign signers are keyless: the policy names the exact Fulcio certificate identity (the signing workflow) and OIDC issuer, and gitsign verify-tag checks both plus the Rekor entry. ssh/openpgp signers are named by fingerprint only; their public keys live in an operator-supplied allowed-signers file that is never committed, and tools/tag_signing.py refuses any principal in that file whose fingerprint is absent here.",
+  "blocked_on": "geospatial-grpc, honua-helm, honua-sdk-dotnet and honua-sdk-python still nominate no signer; their native publication tags cannot be produced or trusted until each repository's tag-creating workflow is given a keyless identity here.",
+  "signers": [
+    {
+      "id": "honua-release-promote",
+      "format": "gitsign",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "identity": "https://github.com/honua-io/honua-release/.github/workflows/promote.yml@refs/heads/trunk"
+    }
+  ],
   "repositories": {
     "geospatial-grpc": {
       "tag_refs": [
@@ -29,8 +38,10 @@
       "tag_refs": [
         "refs/tags/honua-2026.1.*"
       ],
-      "signers": [],
-      "qualification": "platform publication tags; signer not nominated. publication-tag names the GA tag (honua-2026.1.0 for 2026.1-rc.N, honua-2026.1.Z for 2026.1.Z-rc.N). Promotion verifies that already published signed tag and does not create one."
+      "signers": [
+        "honua-release-promote"
+      ],
+      "qualification": "platform publication tags. publication-tag names the GA tag (honua-2026.1.0 for 2026.1-rc.N, honua-2026.1.Z for 2026.1.Z-rc.N). promote.yml signs that annotated tag with gitsign at the certified commit after release-promotion approval, pushes it, then verifies the published tag with gitsign verify-tag against this identity before creating the Release."
     },
     "honua-sdk-dotnet": {
       "tag_refs": [

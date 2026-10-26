@@ -10,13 +10,19 @@ are not it, and this tool refuses all three:
     no tag object, so there is nothing that could carry a signature.
 
 A qualified publication tag is an annotated tag object whose signature verifies against a
-signer this repository's trust policy names by fingerprint. The trust policy holds fingerprints
-only; the public key material stays in an operator-supplied allowed-signers file that is never
-committed, and every principal in that file must already be named in the policy.
+signer this repository's trust policy names. Two kinds of signer exist:
 
-The policy currently names **no** signer: the release owner has not nominated a publication
-signing key. Every command therefore fails closed today. That is the honest state of #236's
-signing prerequisite, and it is the one input this repository cannot manufacture for itself.
+  * `gitsign` (founder decision D11, 2026-10-26): Sigstore keyless. The signer is a workflow
+    identity, not a key. The policy names the exact Fulcio certificate identity (the signing
+    workflow's `https://github.com/<owner>/<repo>/<path>@<ref>`) and the OIDC issuer
+    `https://token.actions.githubusercontent.com`; `gitsign verify-tag` checks the signature,
+    the certificate claims and the Rekor transparency-log entry. No key material exists to hold.
+  * `ssh` / `openpgp`: a key named by fingerprint. The public key stays in an operator-supplied
+    allowed-signers file that is never committed, and every principal in that file must already
+    be named in the policy.
+
+honua-release's platform publication tags are signed by promote.yml's own OIDC identity. The
+other native-tag repositories still nominate no signer, so every command for them fails closed.
 """
 from __future__ import annotations
 
@@ -26,7 +32,9 @@ import fnmatch
 import hashlib
 import json
 from pathlib import Path
+import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -38,7 +46,17 @@ TRUST_POLICY = CONTROLS / "tag-signing-policy.json"
 CONTROL_POLICY = CONTROLS / "policy.json"
 RECEIPT_SCHEMA = "honua.signed-tag-receipt/v1"
 ISSUE = "honua-io/honua-release#236"
-FORMATS = ("ssh", "openpgp")
+FORMATS = ("ssh", "openpgp", "gitsign")
+# Keyless publication signatures must come from a GitHub Actions workflow identity.
+GITSIGN_ISSUER = "https://token.actions.githubusercontent.com"
+GITSIGN_IDENTITY = re.compile(
+    r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml"
+    r"@refs/(?:heads|tags)/[A-Za-z0-9_./-]+$")
+# `gitsign verify-tag` prints the verified certificate's SAN and issuer after checking them.
+GITSIGN_GOOD = re.compile(r"Good signature from \[(?P<identity>[^\]]+)\]\((?P<issuer>[^)]+)\)")
+GITSIGN_TLOG = re.compile(r"^tlog index: (?P<index>[0-9]+)$", re.MULTILINE)
+SIGNATURE_BLOCKS = ("-----BEGIN SIGNED MESSAGE-----", "-----BEGIN SSH SIGNATURE-----",
+                    "-----BEGIN PGP SIGNATURE-----")
 SHA1 = re.compile(r"^[0-9a-f]{40}$")
 # Promotable labels are N.N-rc.N (initial calendar release) or N.N.N-rc.N (explicit patch).
 CANDIDATE_LABEL = re.compile(r"^(?P<version>[0-9]+\.[0-9]+(?:\.[0-9]+)?)-rc\.(?:[1-9][0-9]*)$")
@@ -70,13 +88,23 @@ def load_policy(path: Path = TRUST_POLICY) -> dict[str, Any]:
             raise SigningError("each signer must be a mapping")
         if signer.get("format") not in FORMATS:
             raise SigningError(f"signer format must be one of {', '.join(FORMATS)}")
+        if not signer.get("id") or signer["id"] in seen:
+            raise SigningError("each signer needs a unique id")
+        seen.add(signer["id"])
+        if signer["format"] == "gitsign":
+            if signer.get("issuer") != GITSIGN_ISSUER:
+                raise SigningError(f"gitsign signer {signer['id']!r} must name issuer {GITSIGN_ISSUER}")
+            if not GITSIGN_IDENTITY.fullmatch(str(signer.get("identity", ""))):
+                raise SigningError(f"gitsign signer {signer['id']!r} needs an exact GitHub workflow "
+                                   "identity (https://github.com/<owner>/<repo>/.github/workflows/"
+                                   "<file>@refs/heads/<branch>)")
+            if "fingerprint" in signer:
+                raise SigningError(f"gitsign signer {signer['id']!r} is keyless and names no fingerprint")
+            continue
         fingerprint = str(signer.get("fingerprint", ""))
         expected = (r"SHA256:[A-Za-z0-9+/=]{43,}" if signer["format"] == "ssh" else r"[0-9A-F]{40}")
         if not re.fullmatch(expected, fingerprint):
             raise SigningError(f"signer {signer.get('id')!r} needs a {signer['format']} fingerprint")
-        if not signer.get("id") or signer["id"] in seen:
-            raise SigningError("each signer needs a unique id")
-        seen.add(signer["id"])
     for name, entry in repositories.items():
         if not isinstance(entry, dict) or not isinstance(entry.get("tag_refs"), list):
             raise SigningError(f"{name}: trust policy entry needs tag_refs")
@@ -183,6 +211,41 @@ def parse_verification(output: str, fmt: str) -> str:
     return match.group("fingerprint")
 
 
+def gitsign_binary() -> str:
+    binary = os.environ.get("GITSIGN") or shutil.which("gitsign")
+    if not binary:
+        raise SigningError("gitsign is required to sign or verify a keyless publication tag; "
+                           "install the pinned release with tools/install_gitsign.sh")
+    return binary
+
+
+def verify_gitsign(repo: Path, tag: str, signers: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
+    """Return the first authorized workflow identity whose certificate claims the tag satisfies.
+
+    `gitsign verify-tag` checks the CMS signature over the tag payload, the Fulcio chain, the
+    certificate's SAN and issuer against the expected claims, and the Rekor entry. Its "Good
+    signature" line is then compared with the policy again, so a verifier that printed success
+    for some other identity still could not satisfy this check.
+    """
+    binary = gitsign_binary()
+    errors = []
+    for signer in signers:
+        result = subprocess.run(
+            [binary, "verify-tag", tag,
+             "--certificate-identity", signer["identity"],
+             "--certificate-oidc-issuer", signer["issuer"]],
+            cwd=repo, capture_output=True, text=True)
+        output = result.stdout + result.stderr
+        good = GITSIGN_GOOD.search(output)
+        if (result.returncode == 0 and good and good.group("identity") == signer["identity"]
+                and good.group("issuer") == signer["issuer"]):
+            tlog = GITSIGN_TLOG.search(output)
+            return signer, tlog.group("index") if tlog else ""
+        errors.append((output.strip().splitlines() or ["no output"])[-1])
+    raise SigningError("tag signature is not from an authorized publication identity: "
+                       + "; ".join(errors))
+
+
 def verify_tag(repo: Path, tag: str, policy: dict[str, Any], repository: str,
                allowed_signers: Path | None = None,
                policy_path: Path = TRUST_POLICY) -> dict[str, Any]:
@@ -202,6 +265,21 @@ def verify_tag(repo: Path, tag: str, policy: dict[str, Any], repository: str,
                            "tag carries no signature")
     tag_object = git(repo, "rev-parse", tag).stdout.strip()
     target = git(repo, "rev-parse", f"{tag}^{{}}").stdout.strip()
+    if not any(block in git(repo, "cat-file", "tag", tag_object).stdout for block in SIGNATURE_BLOCKS):
+        raise SigningError(f"{tag} is an unsigned annotated tag; its signature did not verify "
+                           "because it carries none")
+    if fmt == "gitsign":
+        signer, tlog_index = verify_gitsign(repo, tag, signers)
+        return {
+            "schema": RECEIPT_SCHEMA, "issue": ISSUE, "repository": repository, "tag": tag,
+            "tagObject": tag_object, "target": target,
+            "targetType": git(repo, "cat-file", "-t", target).stdout.strip(),
+            "signature": {"format": fmt, "identity": signer["identity"],
+                          "issuer": signer["issuer"], "signerId": signer["id"],
+                          "rekorLogIndex": tlog_index},
+            "policySha256": digest(policy_path),
+            "verifiedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
     command = ["-c", "gpg.format=" + ("ssh" if fmt == "ssh" else "openpgp")]
     if fmt == "ssh":
         command += ["-c", f"gpg.ssh.allowedSignersFile={allowed_signers}"]
@@ -236,6 +314,12 @@ def sign_tag(repo: Path, tag: str, target: str, message: str, policy: dict[str, 
         raise SigningError(f"{target} is not a commit in this repository")
     if git(repo, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}", check=False).returncode == 0:
         raise SigningError(f"{tag} already exists; publication tags are immutable and never moved")
+    if signers[0]["format"] == "gitsign":
+        # Keyless: gitsign obtains a Fulcio certificate for the ambient OIDC identity (the running
+        # workflow). Nothing here can choose that identity; verify_tag refuses any other one.
+        git(repo, "-c", "gpg.format=x509", "-c", f"gpg.x509.program={gitsign_binary()}",
+            "tag", "-s", "-a", "-m", message, tag, target)
+        return verify_tag(repo, tag, policy, repository, allowed_signers, policy_path)
     configured = git(repo, "config", "--get", "user.signingkey", check=False).stdout.strip()
     if not configured:
         raise SigningError("no user.signingkey is configured for the publication signer")
@@ -266,13 +350,16 @@ def verify_remote_tag(remote: str, tag: str, target: str, policy: dict[str, Any]
         raise SigningError("a publication tag must name an immutable 40-character target revision")
     with tempfile.TemporaryDirectory(prefix="honua-publication-tag-") as directory:
         repo = Path(directory)
-        git(repo, "init", "--bare", "--quiet")
+        # Not bare: gitsign opens a work-tree repository. Nothing is checked out.
+        git(repo, "init", "--quiet")
         ref = f"refs/tags/{tag}"
         git(repo, "check-ref-format", ref)
         for delay in (0, 10, 30, 60, 120, 60):
             if delay:
                 time.sleep(delay)
-            fetched = git(repo, "fetch", "--no-tags", "--", remote, f"{ref}:{ref}", check=False)
+            # Only the tag object and its target commit are needed to verify the signature.
+            fetched = git(repo, "fetch", "--no-tags", "--depth=1", "--filter=tree:0", "--",
+                          remote, f"{ref}:{ref}", check=False)
             if fetched.returncode == 0:
                 break
             error = fetched.stderr.lower()
@@ -330,7 +417,11 @@ def qualify_receipt(repository: str, tag_refs: list[str], receipt: Any,
         signers = authorized_signers(policy, repository)
     except (OSError, SigningError, json.JSONDecodeError) as exc:
         return str(exc)
-    if signature.get("fingerprint") not in {signer["fingerprint"] for signer in signers}:
+    if signature["format"] == "gitsign":
+        if not any(signer.get("format") == "gitsign" and signer["identity"] == signature.get("identity")
+                   and signer["issuer"] == signature.get("issuer") for signer in signers):
+            return "receipt identity is not an authorized publication signer"
+    elif signature.get("fingerprint") not in {signer.get("fingerprint") for signer in signers}:
         return "receipt fingerprint is not an authorized publication signer"
     # A namespace pattern is not a release identity: `refs/tags/v*` matches any old signed tag.
     if not isinstance(expected, dict) or not expected.get("tag") or not SHA1.fullmatch(

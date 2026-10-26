@@ -83,10 +83,10 @@ def head(repo: Path) -> str:
 
 # --- the committed trust policy ---------------------------------------------------------------
 
-def test_committed_policy_is_valid_and_nominates_no_signer():
-    """Honest state of #236: the machinery is complete, the trust anchor is an operator input."""
+def test_committed_policy_is_valid_and_nominates_only_the_keyless_promote_identity():
+    """D11: honua-release is signed keyless by promote.yml; no key fingerprint is nominated."""
     committed = load_policy()
-    assert committed["signers"] == []
+    assert [(s["id"], s["format"]) for s in committed["signers"]] == [("honua-release-promote", "gitsign")]
     assert check_namespaces(committed) == []
 
 
@@ -261,13 +261,14 @@ def test_openpgp_status_parsing_reads_the_fingerprint_not_the_verdict_text():
 
 
 def test_cli_reports_the_blocked_trust_anchor(capsys, repo):
-    assert tag_signing.main(["verify", REPOSITORY, TAG, "--git-dir", str(repo)]) == 1
+    """Native-tag repositories other than honua-release still nominate no signer."""
+    assert tag_signing.main(["verify", "honua-helm", "chart-v1.0.0", "--git-dir", str(repo)]) == 1
     assert "no publication signing key is nominated" in capsys.readouterr().out
 
 
 def test_cli_check_policy_passes_on_the_committed_policy(capsys):
     assert tag_signing.main(["check-policy"]) == 0
-    assert "0 signer(s) nominated" in capsys.readouterr().out
+    assert "1 signer(s) nominated" in capsys.readouterr().out
 
 
 # --- a receipt only qualifies against the policy that authorized the signer ----------------------
@@ -507,65 +508,30 @@ def test_remote_verification_refuses_unqualified_publication(repo, signer, publi
                                      policy(signer), REPOSITORY, signer['allowed'])
 
 
-@pytest.mark.parametrize('failure', [None, 'wrong-target', 'no-trust', 'no-signer'])
 @pytest.mark.parametrize('label,expected_tag,expected_base', [
     ('2026.1-rc.1', 'honua-2026.1.0', '2026.1'),
     ('2026.1.2-rc.3', 'honua-2026.1.2', '2026.1.2'),
 ])
-def test_promotion_executes_remote_tag_guard(tmp_path, repo, signer, publication_remote, failure,
-                                            label, expected_tag, expected_base):
-    """Execute the actual promotion step on a real signed remote; assert its receipt and exit."""
-    target = head(repo)
+def test_promotion_names_the_publication_tag_from_the_preserved_producer(tmp_path, label, expected_tag,
+                                                                         expected_base):
+    """Execute promote.yml's preserve step and finalize's tag calculation.
+
+    The guard that verifies the published tag is executed against a real keyless signature in
+    tools/test_tag_signing_gitsign.py.
+    """
     root = tag_signing.ROOT
     steps = yaml.safe_load((root / '.github/workflows/promote.yml').read_text())['jobs']['promote']['steps']
     finalize = next(s for s in steps if s.get('id') == 'finalize')
     preserve = next(s for s in steps if s.get('name') == 'Preserve current publication trust policy and verifier')
-    guard = next(s for s in steps if 'verify-remote' in s.get('run', ''))
     temp = tmp_path / 'runner'
     temp.mkdir()
     output = tmp_path / 'finalize-output'
     env = {**os.environ, 'RUNNER_TEMP': str(temp), 'GITHUB_OUTPUT': str(output),
            'PLATFORM_LABEL': label}
-    # The tag name comes from the preserved current producer, before the candidate checkout.
     subprocess.run(['bash', '-c', preserve['run']], cwd=root, env=env, check=True, capture_output=True)
     calculation = finalize['run'].split('# finalize_release.py', 1)[0]
     calculation = calculation.replace('python "$RUNNER_TEMP', f'"{sys.executable}" "$RUNNER_TEMP')
     subprocess.run(['bash', '-c', calculation], cwd=tmp_path, env=env, check=True, capture_output=True)
     outputs = dict(line.split('=', 1) for line in output.read_text().splitlines())
-    tag = outputs['tag']
-    assert tag == expected_tag
+    assert outputs['tag'] == expected_tag
     assert outputs['base'] == expected_base
-    tag_object = publish_signed(repo, signer, publication_remote, tag=tag)
-    env.update({'PUBLICATION_TAG': tag,
-                'CERTIFIED_SHA': target, 'PUBLICATION_REMOTE': str(publication_remote),
-                'RELEASE_TAG_ALLOWED_SIGNERS': signer['allowed'].read_text()})
-    subprocess.run(['bash', '-c', preserve['run']], cwd=root, env=env, check=True, capture_output=True)
-    trust = temp / 'publication-trust/certification/release-controls/tag-signing-policy.json'
-    trusted = json.loads(trust.read_text())
-    if failure != 'no-signer':
-        trusted['signers'] = policy(signer)['signers']
-        trusted['repositories'][REPOSITORY]['signers'] = ['release-owner']
-    trust.write_text(json.dumps(trusted), encoding='utf-8')
-    if failure == 'wrong-target':
-        env['CERTIFIED_SHA'] = 'a' * 40
-    if failure == 'no-trust':
-        env['RELEASE_TAG_ALLOWED_SIGNERS'] = ''
-    # setup-python supplies `python` on Actions; use this interpreter on the local host.
-    command = guard['run'].replace('python "$RUNNER_TEMP', f'"{sys.executable}" "$RUNNER_TEMP')
-    result = subprocess.run(['bash', '-c', command], cwd=tmp_path, env=env,
-                            text=True, capture_output=True)
-    receipt_path = tmp_path / 'signed-tag-receipt.json'
-    if failure:
-        assert result.returncode != 0, result.stdout + result.stderr
-        expected = {'wrong-target': 'exact certified candidate',
-                    'no-trust': 'needs RELEASE_TAG_ALLOWED_SIGNERS public trust material',
-                    'no-signer': 'no publication signing key is nominated'}[failure]
-        assert expected in result.stdout + result.stderr
-        assert not receipt_path.exists()
-    else:
-        assert result.returncode == 0, result.stdout + result.stderr
-        receipt = json.loads(receipt_path.read_text())
-        assert receipt['tag'] == tag == expected_tag
-        assert receipt['target'] == target
-        assert receipt['tagObject'] == tag_object
-        assert receipt['signature']['fingerprint'] == signer['fingerprint']
