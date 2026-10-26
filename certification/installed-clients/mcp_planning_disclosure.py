@@ -120,13 +120,65 @@ def unmatched_demo(result, context):
     return output
 
 
-def process_catalog(result):
+# honua-server pages resources/read (64,000 characters by default) and returns a
+# nextCursor; the catalog is read page by page and joined before parsing.
+CATALOG_PAGE_LIMIT = 32
+
+
+def catalog_page(result):
     items = result.get("contents") if isinstance(result, dict) else None
     if (not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict)
+            or set(result) - {"contents", "nextCursor", "_meta"}
             or set(items[0]) != {"uri", "mimeType", "text"} or items[0]["uri"] != CATALOG
-            or items[0]["mimeType"] != "application/json"):
+            or items[0]["mimeType"] != "application/json" or not isinstance(items[0]["text"], str) or not items[0]["text"]):
         raise ValueError("planning handoff did not read the actual process catalog")
-    catalog = strict_json(items[0]["text"])
+    cursor = result.get("nextCursor")
+    if cursor is not None and (not isinstance(cursor, str) or not cursor or len(cursor) > 1024):
+        raise ValueError("process catalog continuation cursor is invalid")
+    return items[0]["text"], cursor
+
+
+def catalog_cursors(results):
+    cursors = []
+    for index, result in enumerate(results[:CATALOG_PAGE_LIMIT]):
+        try:
+            _, cursor = catalog_page(result)
+        except ValueError:
+            if index:
+                raise ValueError("process catalog continuation was not read to its last page") from None
+            raise
+        if cursor is None:
+            return cursors
+        if cursor in cursors:
+            raise ValueError("process catalog continuation repeated a cursor")
+        cursors.append(cursor)
+    raise ValueError("process catalog continuation was not read to its last page")
+
+
+def expected_calls(calls, cursors):
+    """The authored calls with one resources/read per actual continuation cursor after the catalog."""
+    expanded = []
+    for call in calls:
+        expanded.append(call)
+        if call["id"] == "catalog":
+            expanded += [{"id": f"catalog-page-{index + 2}", "method": "resources/read",
+                          "params": {"uri": CATALOG, "cursor": cursor}, "credentialRole": "full",
+                          "authenticated": True, "expectation": "catalog-page"}
+                         for index, cursor in enumerate(cursors)]
+    return expanded
+
+
+def process_catalog(results):
+    pages = [results] if isinstance(results, dict) else results
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("planning handoff did not read the actual process catalog")
+    texts = []
+    for index, result in enumerate(pages):
+        text, cursor = catalog_page(result)
+        if (cursor is None) is not (index == len(pages) - 1):
+            raise ValueError("process catalog pages do not end exactly at the last continuation")
+        texts.append(text)
+    catalog = strict_json("".join(texts))
     processes = catalog.get("processes") if isinstance(catalog, dict) else None
     if not isinstance(catalog, dict) or catalog.get("status") != "ok" or not isinstance(processes, list):
         raise ValueError("process catalog is incomplete")
@@ -180,11 +232,16 @@ def judge(fixture_bytes, bootstrap, observed):
     if not same_json(snapshots[0]["value"], snapshots[1]["value"]):
         raise ValueError("read-only planning/validation changed durable jobs or results")
     actual_calls = observed["calls"]
-    if not isinstance(actual_calls, list) or len(actual_calls) != len(authored["calls"]):
+    if not isinstance(actual_calls, list) or not actual_calls:
         raise ValueError("planning omitted an authored primary, handoff or refusal")
+    cursors = catalog_cursors([call.get("result") if isinstance(call, dict) else None for call in actual_calls])
+    calls = expected_calls(authored["calls"], cursors)
+    if len(actual_calls) != len(calls):
+        raise ValueError("planning omitted an authored primary, handoff or refusal")
+    catalog_pages = [call["result"] for call in actual_calls[:len(cursors) + 1]]
     sessions = set()
     previous = instant(snapshots[0]["completedAt"])
-    for expected, actual in zip(authored["calls"], actual_calls, strict=True):
+    for expected, actual in zip(calls, actual_calls, strict=True):
         if (not isinstance(actual, dict) or set(actual) != set(expected) | {"wire", "client", "result", "startedAt", "completedAt"}
                 or any(not same_json(actual[key], value) for key, value in expected.items())):
             raise ValueError("planning call differs from the original authored request")
@@ -203,7 +260,9 @@ def judge(fixture_bytes, bootstrap, observed):
         client_observation(actual["client"], frame, actual["wire"], observed["canonicalClient"], observed["clientVersion"])
         result, expectation = actual["result"], expected["expectation"]
         if expectation == "catalog":
-            process_catalog(result)
+            process_catalog(catalog_pages)
+        elif expectation == "catalog-page":
+            catalog_page(result)
         elif expectation == "demo":
             matched_demo(result, expected["params"]["arguments"]["context"])
         elif expectation == "unmatched":
