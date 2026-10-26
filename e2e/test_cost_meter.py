@@ -382,4 +382,17 @@ def test_cells_pass_the_run_tags_only_to_a_root_that_declares_them(tmp_path, mon
     (flag,) = target._tag_vars(True)
     assert flag.startswith("-var=tags=") and json.loads(flag.split("=", 2)[2]) == {
         "honua-release:run-id": "987654321", "honua-release:cell": "aws-ecs/redis-on",
-        "honua-release:cost-ceiling-usd": "20"}
+        "honua-release:cost-ceiling-usd": "20",
+        # release-cell reaper contract (honua-release-cell-reaper role + sweep --owner-tag release-cell)
+        "Owner": "release-cell", "ValidationRunId": "gha-987654321-aws-ecs-redis-on"}
+
+
+def test_cell_reaper_tags_name_this_repositorys_run_in_the_sweep_format():
+    import re
+    from targets import terraform_target
+    tags = terraform_target.reaper_tags("40193767380", "aws-serverless", False)
+    assert tags == {"Owner": "release-cell", "ValidationRunId": "gha-40193767380-aws-serverless-redis-off"}
+    # sweep-orphaned-validation-infra.sh only reaps `^gha-([0-9]+)-` and resolves that id in --repo.
+    assert re.match(r"^gha-([0-9]+)-", tags["ValidationRunId"]).group(1) == "40193767380"
+    # Owner/ValidationRunId must never collide with protected standing/demo tags.
+    assert not {"Environment", "Lifecycle"} & set(tags)

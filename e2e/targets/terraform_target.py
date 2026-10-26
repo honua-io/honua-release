@@ -26,6 +26,19 @@ from pathlib import Path
 from .base import Availability, DeployTarget, ProvisionError
 
 
+# The release-cell reaper contract (honua-iac bootstrap/aws-release-cells "Caller migration"): the
+# honua-release-cell-reaper role may delete only resources tagged Owner=release-cell with a
+# ValidationRunId, and sweep-orphaned-validation-infra.sh --owner-tag release-cell reaps only those
+# whose `gha-<run id>-` names a completed run of this repository. The values are fixed for the life
+# of a run, so re-applies (update/rollback transitions, teardown) never see a tag diff.
+RELEASE_CELL_OWNER = "release-cell"
+
+
+def reaper_tags(run_id, target: str, redis_enabled: bool) -> dict:
+    stack = target.removeprefix("aws-") + "-redis-" + ("on" if redis_enabled else "off")
+    return {"Owner": RELEASE_CELL_OWNER, "ValidationRunId": f"gha-{run_id}-aws-{stack}"}
+
+
 @dataclass(frozen=True)
 class TfTargetSpec:
     name: str
@@ -401,6 +414,7 @@ class TerraformTarget(DeployTarget):
         from cost_meter import run_tags
         tags = run_tags(self.run_id, f"{self.name}/redis-{'on' if redis_enabled else 'off'}",
                         os.environ.get("HONUA_CLOUD_COST_CEILING_USD"))
+        tags.update(reaper_tags(self.run_id, self.name, redis_enabled))
         return [f"-var=tags={json.dumps(tags, separators=(',', ':'))}"]
 
     def _redis_on_scale_vars(self, name_prefix: str) -> list[str]:

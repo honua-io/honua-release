@@ -1428,3 +1428,53 @@ def test_update_rollback_authentication_admits_both_builds_before_cloud_identity
     assert "for cell in sorted(GA_CELLS):" in guard["run"] and "preflight(prior,candidate,cell,mode)" in guard["run"]
     cloud = workflow["jobs"]["cloud"]
     assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "both"
+
+
+def test_release_cell_reaper_runs_nightly_under_its_dedicated_role_and_never_skips_green():
+    # Seven aws-serverless cells stranded 10-23..25 and filled the VPC quota: no reaper covered
+    # release cells (honua-iac's covers Owner=terraform-validation and was itself skipped).
+    workflow = _workflow("release-cell-reaper.yml")
+    triggers = _triggers(workflow)
+    assert triggers.get("schedule"), "the reaper must run on a schedule"
+    dispatch = triggers["workflow_dispatch"]["inputs"]
+    assert dispatch["dry_run"]["default"] is True
+    job = workflow["jobs"]["reap"]
+    assert job["environment"] == "aws-cell-reaper"          # the role's OIDC trust subject
+    assert job["permissions"]["id-token"] == "write"
+    assert "if" not in job, "an unconfigured reaper must fail visibly, not skip green"
+    steps = job["steps"]
+    require = _step_text(steps[0])
+    assert "HONUA_AWS_CELL_REAPER_ROLE_ARN" in str(job["env"]) and "exit 1" in require and "::error" in require
+    assert "role/honua-release-cell-reaper" in require
+    assume = next(step for step in steps if "configure-aws-credentials" in str(step.get("uses", "")))
+    assert assume["with"]["role-to-assume"] == "${{ vars.HONUA_AWS_CELL_REAPER_ROLE_ARN }}"
+    checkout = next(step for step in steps if step.get("with", {}).get("repository") == "honua-io/honua-iac")
+    assert re.fullmatch(r"[0-9a-f]{40}", checkout["with"]["ref"])
+    commands = "\n".join(_step_text(step) for step in steps)
+    assert "merge-base --is-ancestor HEAD origin/trunk" in commands
+    assert "cloud-cell-retirement.yml/runs?status=" in commands
+    sweep = next(step for step in steps if step.get("name") == "Sweep orphaned release cells")
+    text = _step_text(sweep)
+    for arg in ("--owner-tag release-cell", '--repo "$GITHUB_REPOSITORY"', "--workflow e2e-cloud-aws.yml",
+                "--max-delete", "--dry-run"):
+        assert arg in text
+    assert "GRACE_HOURS >= 4" in text
+    assert sweep["env"]["DRY_RUN"] == "${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}"
+
+
+def test_release_cells_carry_the_owner_the_reaper_sweeps():
+    sys.path.insert(0, str(REPO_ROOT / "e2e"))
+    from targets import terraform_target
+    sweep = _step_text(next(step for step in _workflow("release-cell-reaper.yml")["jobs"]["reap"]["steps"]
+                            if step.get("name") == "Sweep orphaned release cells"))
+    assert f"--owner-tag {terraform_target.RELEASE_CELL_OWNER}" in sweep
+
+
+def test_release_cell_reaper_holds_the_cell_lock_for_the_whole_sweep():
+    # Review of #973: a one-time "is a recovery active?" check cannot stop a cloud-cell-retirement
+    # recovery (or a new cell) from starting mid-sweep and racing native deletion against a
+    # Terraform-state retirement. The reaper must share the cell workflows' concurrency group.
+    groups = {name: _workflow(name).get("concurrency", {}).get("group")
+              for name in ("release-cell-reaper.yml", "cloud-cell-retirement.yml", "e2e-cloud-aws.yml")}
+    assert len(set(groups.values())) == 1 and None not in groups.values(), groups
+    assert _workflow("release-cell-reaper.yml")["concurrency"]["cancel-in-progress"] is False
