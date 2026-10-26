@@ -56,8 +56,9 @@ def render(manifest: dict, gate_md: str, label: str, server_image: str | None, s
     parts.append("Every release-train gate has at least one green run on `trunk` within the same 7-day window, "
                  "against any build (release#376 owner amendment, 2026-10-22). Gates were **not** required to agree on "
                  "one pinned digest; that is the GA rule, which 2026.1 GA converges toward.\n")
-    parts.append("Both AI gates, `gate-agent-e2e` and `terminal-model-canary`, are mandatory for this RC. "
-                 "An incomplete campaign producer does not exempt either gate. The gate-window record describes "
+    parts.append("The AI gates, `gate-agent-e2e` and `terminal-model-canary`, are out of RC admission under the "
+                 "2026-10-25 founder re-tier (honua-release#376); their runs are reported as Preview evidence in the "
+                 "gate record and never admit or refuse this candidate. The gate-window record describes "
                  "admission; installed and live qualification separately requires evidence against the selected "
                  "immutable candidate and the acceptance criteria tracked in honua-release#883.\n")
     parts.append("\n## Components\n\n| Component | Version | Pinned commit | Artifact / image |\n|---|---|---|---|")

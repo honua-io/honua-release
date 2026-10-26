@@ -65,25 +65,40 @@ def test_gate_list_matches_release_train_uses():
 def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
     assert set(w.GA_DEFERRED) <= set(w.TRAIN_GATES + w.AI_GATES)
     assert not set(w.GA_DEFERRED) & set(w.RC_GATES)
-    assert "gate-build-test.yml" in w.RC_GATES and "terminal-model-canary.yml" in w.RC_GATES
+    assert "gate-build-test.yml" in w.RC_GATES
 
 
-def test_default_rc_set_requires_twenty_gates_including_both_ai_gates():
-    assert len(w.RC_GATES) == 20
+def test_rc_set_requires_eighteen_train_gates_and_reports_both_ai_gates_as_advisory():
+    """Founder re-tier 2026-10-25 (wedge-critical-retier-2026-10-25, honua-release#376
+    comment 6407009748): the AI gates are out of RC admission. They are still read and reported."""
+    assert len(w.RC_GATES) == 18
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
-    assert {"gate-agent-e2e.yml", "terminal-model-canary.yml"} <= set(w.RC_GATES)
+    assert not set(w.AI_GATES) & set(w.RC_GATES)
+    assert w.RC_ADVISORY == w.AI_GATES
     assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-journey.yml"}
 
 
-def test_each_missing_ai_gate_prevents_rc_admission_with_all_other_gates_green():
+def test_a_red_ai_gate_is_reported_but_does_not_block_rc_admission():
     for missing in ("gate-agent-e2e.yml", "terminal-model-canary.yml"):
         for latest_success, latest in ((None, None), (None, _run(0.1, "failure")),
                                        (_run(7.01), _run(7.01))):
-            records = {gate: {"latest_success": _run(1), "latest": _run(1)} for gate in w.RC_GATES}
+            records = {gate: {"latest_success": _run(1), "latest": _run(1)}
+                       for gate in w.RC_GATES + w.RC_ADVISORY}
             records[missing] = {"latest_success": latest_success, "latest": latest}
-            result = w.evaluate(records, NOW, 7)
-            assert result["admissible"] is False, (missing, latest)
-            assert result["red"] == [missing]
+            result = w.evaluate(records, NOW, 7, advisory=w.RC_ADVISORY)
+            assert result["admissible"] is True, (missing, latest)
+            assert result["red"] == []
+            assert result["advisory_red"] == [missing]
+            assert result["gates"][missing]["advisory"] is True
+            md = w.render_markdown(result)
+            assert f"| `{missing}` | ⚠️" in md and "Advisory (Preview evidence" in md
+
+
+def test_a_red_required_gate_still_blocks_with_the_ai_gates_green():
+    records = {gate: {"latest_success": _run(1), "latest": _run(1)} for gate in w.RC_GATES + w.RC_ADVISORY}
+    records["gate-build-test.yml"] = {"latest_success": None, "latest": None}
+    result = w.evaluate(records, NOW, 7, advisory=w.RC_ADVISORY)
+    assert result["admissible"] is False and result["red"] == ["gate-build-test.yml"]
 
 
 def test_rc_release_uses_default_required_set_and_enforces_before_publish():

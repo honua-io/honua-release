@@ -466,6 +466,12 @@ def verify_reference_bundle(evidence: dict, bundle: Path, manifest: Path, matrix
                     raise ValueError('no lock minted: notes were not generated from this candidate')
 
 
+# Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
+# `wedge-critical-retier-2026-10-25`): the genuine-model canary is out of RC admission. Its nightly
+# receipt is still declared, bound to this run and lock, and retained with its honest verdict, but a
+# failed or unobserved canary does not refuse the mint. Promotion readiness is unchanged.
+ADVISORY_NIGHTLY_CLASSES = frozenset({'nightly-model-journey'})
+
 # Each receipt derives its verdict from the gate that actually consumes that class.
 CLASS_GATES = {
     'build-test': 'build-test', 'contract': 'contract', 'sbom': 'sbom',
@@ -559,7 +565,9 @@ def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
         try:
             completed = datetime.fromisoformat(receipt['completedAt'].replace('Z', '+00:00'))
             expiry = datetime.fromisoformat(receipt['freshUntil'].replace('Z', '+00:00'))
-            valid = (receipt['class'] == name and receipt['kind'] == kind and receipt['status'] == 'pass'
+            advisory = name in ADVISORY_NIGHTLY_CLASSES
+            valid = (receipt['class'] == name and receipt['kind'] == kind
+                     and (advisory or receipt['status'] == 'pass')
                      and receipt['gate'] == CLASS_GATES[name]
                      and str(receipt['runId']) == str(train['runId'])
                      and receipt['runAttempt'] == train['runAttempt']
@@ -569,7 +577,7 @@ def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
                      and declaration == {'kind': kind, 'receipt': f'promotion-receipts/{name}/receipt.json',
                                          'freshUntil': receipt['freshUntil']}
                      and (digest is None or receipt['lockDigest'] == digest))
-            if name in JOURNEYS:
+            if name in JOURNEYS and not advisory:
                 mode, required = JOURNEYS[name]
                 valid &= _journey(receipt, required, mode, receipt['lockDigest'],
                                   completed - timedelta(hours=24), completed)

@@ -1859,6 +1859,10 @@ def test_cloud_canary_workflow_preserves_opt_in_and_distinct_cell_artifacts():
         assert cell in step["run"]
     upload = next(step for step in steps if step.get("name") == "Upload the nightly-model-journey row")
     assert upload["with"]["name"] == "journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}"
+    # Founder re-tier 2026-10-25: the canary is advisory Preview evidence. Its failure, or a row it
+    # never wrote, records an honest fail receipt and never fails the GA cell's journey job.
+    assert step["continue-on-error"] is True
+    assert upload["continue-on-error"] is True
 
 
 def test_cloud_target_reaches_driver_setup_without_claiming_unexecuted_model_success(tmp_path, monkeypatch):

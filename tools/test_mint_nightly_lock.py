@@ -695,15 +695,16 @@ def test_minted_layout_retains_every_declared_receipt_and_no_qualifying_receipt(
     assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == len(NIGHTLY_EXPECTED) == 13
 
 
-@pytest.mark.parametrize('mutation', ['missing-class', 'wrong-lock', 'missing-model', 'forged-qualifying', 'expiry'])
+@pytest.mark.parametrize('mutation', ['missing-class', 'wrong-lock', 'model-other-lock', 'forged-qualifying', 'expiry'])
 def test_receipt_gaps_refuse_before_signing(inputs, tmp_path, mutation):
     report, paths = inputs
     if mutation == 'missing-class':
         del report['evidenceReceipts']['contract']
     elif mutation == 'wrong-lock':
         report['evidenceReceipts']['contract']['lockDigest'] = 'sha256:' + 'a' * 64
-    elif mutation == 'missing-model':
-        report['evidenceReceipts']['nightly-model-journey']['cells'] = []
+    elif mutation == 'model-other-lock':
+        # Advisory evidence is still retained only when it is bound to this lock and run.
+        report['evidenceReceipts']['nightly-model-journey']['lockDigest'] = 'sha256:' + 'a' * 64
     elif mutation == 'forged-qualifying':
         report['evidenceDeclarations']['cite']['receipt'] = 'forged.json'
     elif mutation == 'expiry':
@@ -718,6 +719,23 @@ def test_missing_model_observation_cannot_be_turned_into_a_passing_receipt(input
     assert declared['evidenceReceipts']['deterministic-journey']['status'] == 'fail'
     assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
     refuses_before_signing(declared, paths, tmp_path, 'nightly receipt')
+
+
+def test_a_failed_genuine_model_canary_is_retained_as_fail_and_does_not_refuse_the_mint(inputs):
+    """Founder re-tier 2026-10-25 (wedge-critical-retier-2026-10-25): the genuine-model canary is out
+    of RC admission. Its receipt is still declared, bound and retained with its honest verdict."""
+    report, _ = inputs
+    assert nightly.ADVISORY_NIGHTLY_CLASSES == frozenset({'nightly-model-journey'})
+    for change in ('no-cells', 'fail'):
+        changed = json.loads(json.dumps(report))
+        receipt = changed['evidenceReceipts']['nightly-model-journey']
+        if change == 'no-cells':
+            receipt['cells'] = []
+        receipt['status'] = 'fail'
+        assert nightly.evidence_failures(changed) == []
+    deterministic = json.loads(json.dumps(report))
+    deterministic['evidenceReceipts']['deterministic-journey']['status'] = 'fail'
+    assert 'deterministic-journey: invalid or missing nightly receipt' in nightly.evidence_failures(deterministic)
 
 
 @pytest.mark.parametrize('bound', [None, 'sha256:' + 'b' * 64])
