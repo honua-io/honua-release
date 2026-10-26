@@ -201,9 +201,13 @@ Current blockers (candidate `nightly-87966c3`, pins JS 0.1.14 / MCP 0.1.14 / Pyt
 | `npm-sdk-geoservices` | `ids`, `count` | [honua-sdk-js#1894](https://github.com/honua-io/honua-sdk-js/issues/1894): `outFields=OBJECTID` is rejected on layers whose object-id field is not `OBJECTID` |
 | `pypi-sdk-ogc-tiles` | `raster-tile` | [honua-sdk-python#255](https://github.com/honua-io/honua-sdk-python/issues/255): `OgcTilesClient.tile` cannot request PNG |
 | `nuget-sdk-ogc-tiles` | all | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client |
-| `interop-publish-query-edit` | `edit`, `read-back` | [honua-sdk-dotnet#410](https://github.com/honua-io/honua-sdk-dotnet/issues/410): `PublishLayerRequest` cannot declare a storage mode or edit capabilities, so the JS SDK's edit of the layer the .NET SDK published is refused (400) and the .NET read-back sees the unedited row |
-| `interop-proposal-approval` | `published-url` | [honua-sdk-dotnet#411](https://github.com/honua-io/honua-sdk-dotnet/issues/411): `Honua.Sdk` has no reader for a published Studio route |
 | `interop-api-key-revocation` | `mcp-revoked` | [honua-server#5435](https://github.com/honua-io/honua-server/issues/5435): the candidate answers the revoked key's MCP session with a JSON-RPC error whose `id` is `null` (HTTP 200), so the proxy's call never returns. The three SDKs are refused on their first call |
+
+Honua.Sdk 1.12.0 (pinned since the 2026-10-22 rc re-pin) carries honua-sdk-dotnet#424, which closed
+[#410](https://github.com/honua-io/honua-sdk-dotnet/issues/410) (`PublishLayerRequest.StorageMode` /
+`Capabilities`) and [#411](https://github.com/honua-io/honua-sdk-dotnet/issues/411)
+(`IHonuaStudioPackageClient.GetPublishedArtifactAsync`). The .NET interop runner uses both, so
+`interop-publish-query-edit` and `interop-proposal-approval` are active with no blocked steps.
 
 The SDK re-pin or server re-pin that carries a fix must flip the matching `blockedSteps` entry in the
 same PR, or the gate turns red.

@@ -61,7 +61,7 @@ RUNNER_CALLS = {
     "HonuaStudioLifecycleClient.publicationRequests.poll": ("honua-sdk-js", "studio.publicationRequests.poll("),
     "IHonuaStudioPackageClient.GetContentItemPointersAsync": ("honua-sdk-dotnet", ".GetContentItemPointersAsync("),
     "IHonuaStudioPackageClient.GetVersionAsync": ("honua-sdk-dotnet", ".GetVersionAsync("),
-    "(no published Studio route reader in Honua.Sdk)": ("honua-sdk-dotnet", "throw new NotSupportedException("),
+    "IHonuaStudioPackageClient.GetPublishedArtifactAsync": ("honua-sdk-dotnet", ".GetPublishedArtifactAsync("),
     "honua_sdk.HonuaClient(api_key).feature_server(...).query": ("honua-sdk-python-wheel", "HonuaClient(BASE, api_key=handle.read().strip())"),
     "HonuaClient({apiKey}).featureLayer().queryFeatures": ("honua-sdk-js", "new HonuaClient({ baseUrl: base, apiKey: readFileSync(args.secretFile"),
     "IHonuaFeatureServerClient.QueryAsync (HonuaSdkOptions.ApiKey)": ("honua-sdk-dotnet", "identity = Provider("),
@@ -101,8 +101,25 @@ def obs(scenario, step, **payload):
     return {"scenario": scenario, "step": step, "api": api, **payload}
 
 
-def evaluate(cell_id, observations, plan_=None):
-    cell = CELLS[cell_id]
+# The blocked declarations the matrix carried before Honua.Sdk 1.12.0 (honua-sdk-dotnet#424). They keep the
+# fail-closed blocked-seam rules under test now that no interop cell declares a blocker.
+HISTORICAL_BLOCKED = {
+    "interop-publish-query-edit": {"edit": {
+        "blockedBy": "https://github.com/honua-io/honua-sdk-dotnet/issues/410",
+        "signature": "applyEdits\\(updates\\)`: raised HonuaHttpError \\(status 400\\)$"}, "read-back": {
+        "blockedBy": "https://github.com/honua-io/honua-sdk-dotnet/issues/410",
+        "signature": "differ from fixture \\{'gid': 2, 'name': 'ridge-moved', 'rank': 25\\}$"}},
+}
+
+
+def blocked_cell(cell_id):
+    steps = HISTORICAL_BLOCKED[cell_id]
+    return dict(CELLS[cell_id], status="blocked", blockedBy=sorted({entry["blockedBy"] for entry in steps.values()}),
+                blockedSteps=steps)
+
+
+def evaluate(cell_id, observations, plan_=None, cell=None):
+    cell = cell or CELLS[cell_id]
     return judge.evaluate_cell(cell, SCENARIOS[cell["scenario"]], observations, FIXTURE, plan_ or plan(), LABELS, regression.scrub)
 
 
@@ -222,17 +239,15 @@ class ContractTests(unittest.TestCase):
 
     def test_matrix_blocks_only_the_observed_seams(self):
         self.assertEqual(CELLS["interop-import-render-buffer"]["status"], "active")
-        self.assertEqual(set(CELLS["interop-publish-query-edit"]["blockedSteps"]), {"edit", "read-back"})
+        # Honua.Sdk 1.12.0 carries honua-sdk-dotnet#424: PublishLayerRequest declares a managed, editable layer
+        # (#410) and IHonuaStudioPackageClient reads the final publication route (#411). No interop step is blocked.
+        for cell_id in ("interop-publish-query-edit", "interop-proposal-approval"):
+            self.assertEqual(CELLS[cell_id]["status"], "active", cell_id)
+            self.assertNotIn("blockedSteps", CELLS[cell_id], cell_id)
+            self.assertNotIn("blockedBy", CELLS[cell_id], cell_id)
         # honua-server#5435 is in the 3ecd214 pin: a revoked session is refused, so the cell is active.
         self.assertEqual(CELLS["interop-api-key-revocation"]["status"], "active")
         self.assertNotIn("blockedSteps", CELLS["interop-api-key-revocation"])
-        # honua-server#5433 is in the 798d517 pin: the proposal, both approvals and the published pointer pass.
-        # honua-server#5794 is in the 0e03bdd pin and Honua.Sdk 1.11.0 carries honua-sdk-dotnet#425, so
-        # publication-url and published-content pass too; only the .NET published-route reader is missing.
-        approval = CELLS["interop-proposal-approval"]["blockedSteps"]
-        self.assertEqual(set(approval), {"published-url"})
-        self.assertEqual(approval["published-url"]["blockedBy"], "https://github.com/honua-io/honua-sdk-dotnet/issues/411")
-        self.assertTrue(all(issue not in entry["blockedBy"] for entry in approval.values() for issue in ("5433", "5449", "5788")))
 
 
 class OracleTests(unittest.TestCase):
@@ -430,8 +445,9 @@ class OracleTests(unittest.TestCase):
 class SeamTests(unittest.TestCase):
     def test_a_failing_consumer_names_both_sides_of_the_seam(self):
         observations, _ = handoff_observations()
+        # The cell is active, so the refused edit and the unedited read-back are red, not blocked.
         status, detail, rows = evaluate("interop-publish-query-edit", observations)
-        self.assertEqual(status, "blocked", detail)
+        self.assertEqual(status, "fail", detail)
         edit = next(row for row in rows if row["step"] == "edit")
         self.assertEqual(edit["client"], "@honua/sdk-js 0.1.12")
         self.assertIn("Honua.Sdk 1.10.1 `IHonuaAdminClient.PublishLayerAsync`", edit["oracle"])
@@ -444,15 +460,20 @@ class SeamTests(unittest.TestCase):
     def test_a_blocked_seam_that_starts_passing_or_fails_differently_is_red(self):
         observations, edited = handoff_observations()
         sid = "interop-publish-query-edit"
+        declared = blocked_cell(sid)
+        self.assertEqual(evaluate(sid, observations, cell=declared)[0], "blocked")
         fixed = dict(observations)
         fixed[(sid, "edit")] = obs(sid, "edit", observed={"results": [{"success": True, "objectId": 2, "code": None}]})
         fixed[(sid, "read-back")] = obs(sid, "read-back", observed={"features": edited})
-        status, detail, _ = evaluate(sid, fixed)
+        status, detail, _ = evaluate(sid, fixed, cell=declared)
         self.assertEqual(status, "fail")
         self.assertIn("set it active", detail)
+        # The active cell (Honua.Sdk 1.12.0 publishes a managed, editable layer) passes the same observations.
+        status, detail, _ = evaluate(sid, fixed)
+        self.assertEqual(status, "pass", detail)
         other = dict(observations)
         other[(sid, "edit")] = obs(sid, "edit", error={"type": "HonuaHttpError", "status": 500})
-        status, detail, _ = evaluate(sid, other)
+        status, detail, _ = evaluate(sid, other, cell=declared)
         self.assertEqual(status, "fail")
         self.assertIn("was not observed", detail)
 
@@ -468,15 +489,15 @@ class SeamTests(unittest.TestCase):
         self.assertIn("contract names", detail)
 
     def test_the_declared_signatures_match_the_recorded_summaries(self):
-        """The 0e03bdd shape: honua-server#5794 serves publicationUrl and contentHashInput and Honua.Sdk 1.11.0
-        reports the input, so everything through published-content passes; only published-url is blocked."""
+        """honua-server#5794 serves publicationUrl and contentHashInput, and Honua.Sdk 1.12.0 reads the final
+        publication route (honua-sdk-dotnet#411), so every step passes; a missing reader is now red."""
         sid, p = "interop-proposal-approval", plan()
         steps = [step["id"] for step in SCENARIOS[sid]["steps"]]
         body = p["proposal"]["envelope"]["body"]
         canonical = json.dumps({"family": "map", "body": body}).encode()
         digest = hashlib.sha256(canonical).hexdigest()
         encoded = base64.b64encode(canonical).decode()
-        url = "http://c" + p["proposal"]["route"]
+        url = "/api/v1/studio/published" + p["proposal"]["route"]
         version = {"itemId": "i", "versionId": "v", "contentHash": digest}
         observations = {
             (sid, "create-draft"): obs(sid, "create-draft", observed={"draftId": "d", "itemId": "i", "family": "map", "validation": "valid"}),
@@ -493,13 +514,26 @@ class SeamTests(unittest.TestCase):
             (sid, "published-pointer"): obs(sid, "published-pointer", observed={"publishedVersionId": "v"}),
             (sid, "published-content"): obs(sid, "published-content", observed={
                 "family": "Map", "contentHash": digest, "body": body, "contentHashInput": encoded}),
-            (sid, "published-url"): obs(sid, "published-url", unsupported=(
-                "Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)")),
+            (sid, "published-url"): obs(sid, "published-url", observed={
+                "url": url, "versionId": "v", "family": "Map", "contentHash": digest, "body": body, "contentHashInput": encoded}),
         }
         status, detail, rows = evaluate(sid, observations, p)
-        self.assertEqual(status, "blocked", detail)
+        self.assertEqual(status, "pass", detail)
         self.assertEqual([row["step"] for row in rows], steps)
-        self.assertEqual({row["step"] for row in rows if row["status"] == "blocked"}, {"published-url"})
+        # A missing reader is no longer a declared blocker.
+        drift = dict(observations)
+        drift[(sid, "published-url")] = obs(sid, "published-url", unsupported=(
+            "Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)"))
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
+        # The .NET reader must read the URL the JS SDK polled, and that URL must serve the saved content.
+        drift = dict(observations)
+        drift[(sid, "published-url")] = obs(sid, "published-url", observed=dict(
+            observations[(sid, "published-url")]["observed"], url="/api/v1/studio/published/elsewhere"))
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
+        drift = dict(observations)
+        drift[(sid, "published-url")] = obs(sid, "published-url", observed=dict(
+            observations[(sid, "published-url")]["observed"], contentHash="c" * 64))
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
         # The pre-#5794 shapes are no longer declared blockers: a read without the final URL or without the
         # canonical hash input is red.
         drift = dict(observations)

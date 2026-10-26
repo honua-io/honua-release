@@ -165,13 +165,10 @@ class MatrixExpectationTests(unittest.TestCase):
                 "npm-cli-workflow": ("active", None),
                 "pypi-cli-workflow": ("active", None),
                 "npm-mcp-workflow": ("active", None),
-                "interop-publish-query-edit": ("blocked", [
-                    "https://github.com/honua-io/honua-sdk-dotnet/issues/410",
-                ]),
+                # Honua.Sdk 1.12.0 carries honua-sdk-dotnet#424 (#410, #411): both interop cells are active.
+                "interop-publish-query-edit": ("active", None),
                 "interop-import-render-buffer": ("active", None),
-                "interop-proposal-approval": ("blocked", [
-                    "https://github.com/honua-io/honua-sdk-dotnet/issues/411",
-                ]),
+                "interop-proposal-approval": ("active", None),
                 "interop-api-key-revocation": ("active", None),
             },
         )
