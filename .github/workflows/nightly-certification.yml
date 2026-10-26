@@ -144,56 +144,12 @@ jobs:
           path: resolved-candidate/resolution-outcome.json
           if-no-files-found: ignore
 
-  lambda_deployment:
-    needs: resolve
-    runs-on: ubuntu-latest
-    timeout-minutes: 70
-    permissions:
-      contents: write
-      actions: read
-    outputs:
-      prepared_ref: ${{ steps.snapshot.outputs.prepared_ref }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -r tools/requirements-nightly.txt
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: resolved-candidate
-          path: prepared-deployment
-      - name: Execute bound Lambda pre-cut proof
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
-        run: |
-          python tools/nightly_deployments.py lambda \
-            --manifest prepared-deployment/platform-manifest.yaml \
-            --operating-envelope docs/2026.1-operating-envelope.md --out-dir lambda-proof
-          cp lambda-proof/platform-manifest.yaml prepared-deployment/platform-manifest.yaml
-          cp lambda-proof/lambda-record.json prepared-deployment/lambda-record.json
-      - name: Publish unadmitted deployment data with the observed ECR pin
-        id: snapshot
-        run: |
-          set -euo pipefail
-          cp prepared-deployment/platform-manifest.yaml platform-manifest.yaml
-          cp prepared-deployment/compatibility-matrix.yaml compatibility-matrix.yaml
-          cp prepared-deployment/deployment-preparation.json deployment-preparation.json
-          git add platform-manifest.yaml compatibility-matrix.yaml deployment-preparation.json
-          tree="$(git write-tree)"
-          sha="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
-            GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
-            git commit-tree "$tree" -p "$GITHUB_SHA" -m 'chore: prepare unadmitted deployment inputs')"
-          git push origin "${sha}:refs/prepared-deployments/${sha}"
-          echo "prepared_ref=${sha}" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: prepared-deployment
-          path: prepared-deployment/
-          if-no-files-found: error
-
+  # Founder decision 2026-10-25 (2026.1 wedge-critical re-tier): Lambda is Preview, like EKS
+  # (2026-10-16). Neither Preview target's qualification proof gates candidate admission; the
+  # standalone Lambda and EKS producers still retain raw evidence. AWS ECS stays GA and is judged
+  # by the train's cloud cells. A target the matrix re-scopes to ga-target is required again.
   deployment_qualification:
-    needs: lambda_deployment
+    needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 330
     permissions:
@@ -207,10 +163,8 @@ jobs:
       - run: python -m pip install -r tools/requirements-nightly.txt
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: prepared-deployment
+          name: resolved-candidate
           path: prepared-deployment
-      # EKS is Preview under the 2026-10-16 owner amendment. Its standalone cloud
-      # producer retains raw evidence; it does not block candidate admission or become a pass.
       - name: Verify and join actual deployment proof
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -219,12 +173,17 @@ jobs:
             --manifest prepared-deployment/platform-manifest.yaml \
             --matrix prepared-deployment/compatibility-matrix.yaml \
             --operating-envelope docs/2026.1-operating-envelope.md \
-            --lambda-record prepared-deployment/lambda-record.json \
             --out qualification/deployment-qualification.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: deployment-qualification
           path: qualification/
+          if-no-files-found: error
+      # protocol_ledger and aws-update-rollback (rehearsal) read the unadmitted inputs by this name.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prepared-deployment
+          path: prepared-deployment/
           if-no-files-found: error
 
   # honua-release#386: the night produces the protocol-certification ledger for the candidate it

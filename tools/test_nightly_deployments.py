@@ -106,3 +106,37 @@ def test_assembly_refuses_missing_eks_when_scope_is_ga(tmp_path):
     record.write_text('{}')
     with pytest.raises(ValueError, match='requires both complete'):
         nightly.assemble(tmp_path / 'unused', source, tmp_path / 'unused', record, None, tmp_path / 'out')
+
+
+def test_preview_lambda_assembly_needs_no_lambda_record(tmp_path, monkeypatch):
+    import nightly_deployments as nightly
+    import yaml
+    import validate_platform as vp
+    matrix = vp._load_yaml(vp.MATRIX_PATH)
+    assert matrix['deploy']['honua-server']['awsLambda']['architectures']['x86_64']['releaseScope'] == 'preview'
+    paths = {name: tmp_path / name for name in ('manifest', 'matrix', 'envelope', 'out')}
+    paths['manifest'].write_text(yaml.safe_dump(manifest()))
+    paths['matrix'].write_text(yaml.safe_dump(matrix))
+    paths['envelope'].write_bytes(b'policy')
+    seen = []
+    def verify(bundle, candidate, envelope):
+        seen.append(bundle['records'])
+        return {}
+    monkeypatch.setattr(qualification, 'verify_bundle', verify)
+    nightly.assemble(paths['manifest'], paths['matrix'], paths['envelope'], None, None, paths['out'])
+    assert seen == [{}]
+    assert json.loads(paths['out'].read_text())['records'] == {}
+    assert yaml.safe_load((tmp_path / 'compatibility-matrix.yaml').read_text()) == matrix
+
+
+def test_assembly_refuses_missing_lambda_when_scope_is_ga(tmp_path):
+    import nightly_deployments as nightly
+    import yaml
+    import validate_platform as vp
+    matrix = vp._load_yaml(vp.MATRIX_PATH)
+    matrix['deploy']['honua-server']['awsLambda']['architectures']['x86_64']['releaseScope'] = 'ga-target'
+    source = tmp_path / 'matrix.yaml'
+    source.write_text(yaml.safe_dump(matrix))
+    with pytest.raises(ValueError, match='actual Lambda pre-cut proof'):
+        nightly.assemble(tmp_path / 'unused', source, tmp_path / 'unused', None, None, tmp_path / 'out')
+    assert not (tmp_path / 'out').exists()
