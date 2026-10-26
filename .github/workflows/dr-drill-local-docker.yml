@@ -29,8 +29,11 @@ permissions:
   contents: read
   packages: read
 
+# One running and one pending run per group, and a newer arrival cancels the pending one even with
+# cancel-in-progress false. The nightly's candidate drill gets its own group so a pull request or
+# trunk-manifest drill can never cancel it while it waits; trunk producer runs stay serialised.
 concurrency:
-  group: dr-drill-local-docker
+  group: dr-drill-local-docker-${{ inputs.candidate_ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
