@@ -8,6 +8,8 @@ on:
       - "tools/fixtures/dr/**"
       - ".github/workflows/gate-dr.yml"
       - ".github/workflows/release-train.yml"
+      - ".github/actions/candidate-input/**"
+      - ".gitattributes"
   # The gate runs when the trunk producer (dr-drill-local-docker: weekly, on manifest pushes, or
   # dispatched) finishes, so the 24-hour freshness bound is measured against a receipt minted
   # minutes earlier. A fixed cron of its own had no receipt to read: vars.HONUA_DR_RECEIPT_URL was
@@ -49,6 +51,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # windows-latest checks out with core.autocrlf=true; the train's gate_dr runs the
+      # candidate-input shell here, and a CRLF script dies on `set: pipefail\r`. Prove it is LF on
+      # this runner before relying on it (no other Windows job uses the action).
+      - name: Prove the candidate-input shell is checked out with LF line endings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in .github/actions/candidate-input/*.sh; do
+            if grep -q $'\r' "$file"; then echo "::error::$file was checked out with CRLF line endings"; exit 1; fi
+          done
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
