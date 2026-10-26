@@ -4,7 +4,9 @@ The pinned portal-sharing matrix snapshot ece4c3a2f68557fe8329e9932de36193d07328
 says accepted groups and shares are process-local and lost on restart. That sentence
 is the frozen snapshot. Server trunk commit 4bd08872fb47429bd4623e8477c9761b083cf25e
 persists accepted groups and item shares in PostgreSQL. This module does not rewrite
-the snapshot, does not call a server, and does not claim an exact-candidate pass.
+the snapshot and does not call a server. The live producer is
+certification/portal-group-sharing/produce.py; a document passes only when the caller
+binds it to the candidate it names.
 
 Everyone and organization requests stay in notSharedWith and are not grants. Owner,
 admin, tenant, scoped-key, and layer policy remain enforced. Absence of retained
@@ -36,13 +38,30 @@ CORRECTION = (
 )
 
 
-def qualify(document):
-    """Judge retained observations. Never returns a candidate pass."""
+def qualify(document, candidate=None):
+    """Judge retained observations.
+
+    Without ``candidate`` a complete document stays nonpass: nothing binds it to the candidate
+    being certified. With ``candidate`` ({"sourceSha", "image"} of the minted lock, or of the
+    manifest pin for development evidence) a complete document passes only when it names exactly
+    that source and image digest; any other binding is refused.
+    """
     if not isinstance(document, dict):
         return {"status": "nonpass", "reason": "no-retained-observations"}
     reason = _shape_error(document)
     if reason:
         return {"status": "refused", "reason": reason}
+    if candidate is not None:
+        if (not isinstance(candidate, dict)
+                or document["candidateSourceSha"] != candidate.get("sourceSha")
+                or document["candidateImage"] != candidate.get("image")):
+            return {"status": "refused", "reason": "candidate-mismatch"}
+        return {
+            "status": "pass",
+            "reason": "candidate-bound-observations",
+            "candidateSourceSha": document["candidateSourceSha"],
+            "candidateImage": document["candidateImage"],
+        }
     return {
         "status": "nonpass",
         "reason": "exact-candidate-execution-not-claimed",

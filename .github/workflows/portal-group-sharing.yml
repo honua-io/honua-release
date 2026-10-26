@@ -1,0 +1,73 @@
+# Durable portal group sharing and cross-caller readback (honua-release#691).
+#
+# Boots the pinned honua-server image twice against one PostgreSQL store and drives the supported
+# Esri sharing surface with named users (generateToken), a private group, share/unshare, two
+# restarts and the second instance. tools/portal_group_sharing.py judges the observations.
+#
+# On a pull request or a plain dispatch the binding is platform-manifest.yaml: development
+# evidence for the pinned server. With candidate_ref (the train, or a dispatch naming a minted
+# nightly snapshot) the candidate-input action adopts that snapshot's manifest, so the receipt is
+# bound to the exact candidate.
+name: portal-group-sharing
+
+on:
+  pull_request:
+    paths:
+      - certification/portal-group-sharing/**
+      - tools/portal_group_sharing.py
+      - tools/test_portal_group_sharing.py
+      - e2e/harness/compose.candidate.yml
+      - .github/workflows/portal-group-sharing.yml
+  workflow_dispatch:
+    inputs:
+      candidate_ref: { required: false, type: string, default: "" }
+  workflow_call:
+    inputs:
+      candidate_ref: { required: false, type: string, default: "" }
+    outputs:
+      status:
+        description: "pass | fail"
+        value: ${{ jobs.produce.outputs.status }}
+
+permissions:
+  contents: read
+  packages: read          # pull the pinned honua-server image from ghcr
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      status: ${{ steps.run.outputs.status || 'fail' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt pytest
+      - name: Self-test the producer and judge
+        run: python -m pytest certification/portal-group-sharing/test_produce.py tools/test_portal_group_sharing.py -q
+      - name: Share, restart, read through the second instance, unshare and judge
+        id: run
+        run: |
+          set -uo pipefail
+          python certification/portal-group-sharing/produce.py --manifest platform-manifest.yaml \
+            --output artifacts/portal-group-sharing/observations.json \
+            --transcript artifacts/portal-group-sharing/transcript.json || code=$?
+          if [ "${code:-0}" = 0 ]; then echo "status=pass" >> "$GITHUB_OUTPUT"; else echo "status=fail" >> "$GITHUB_OUTPUT"; fi
+          exit "${code:-0}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: portal-group-sharing
+          path: artifacts/portal-group-sharing/
+          if-no-files-found: ignore
