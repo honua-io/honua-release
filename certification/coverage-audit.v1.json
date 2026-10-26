@@ -1,6 +1,6 @@
 {
   "schema": "honua.coverage-audit-input/v1",
-  "revision": "2026-10-18.2",
+  "revision": "2026-10-26.1",
   "tracking_issue": "https://github.com/honua-io/honua-release/issues/652",
   "scope": "All governed rows inventoried; licensed desktop implementation remains external. Source review does not qualify a candidate or change supported scope. The bounded deeper reviews remain partial-source-review: sampled source assertions and existing proof obligations only, not exhaustive execution, AWS qualification or a new release gate.",
   "reviewed_sources": {
@@ -673,6 +673,124 @@
         "https://github.com/honua-io/honua-migrate/pull/203"
       ],
       "implementation_note": "Independent Chromium observer merged at206fbc84e53b552945186e6339ce51006a4cff9a; final19observer controls and402existing migration tests passed. It binds actual app requests to an import receipt and frozen behavior input, and rejects fallback, cross-step and unfinished requests. Synthetic control fixtures are not actual admitted-app execution; the required fresh apps, package identities and qualification remain."
+    },
+    {
+      "id": "NC-23",
+      "priority": "P1",
+      "title": "GP catalog rows still count toward the GA denominator after the Preview re-tier",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/949",
+      "status": "open",
+      "selectors": {
+        "capability_key": [
+          "*.gp-server",
+          "process.geoprocessing",
+          "process.ogc-api-processes",
+          "printing.pdf-output",
+          "sdk-dotnet.processes",
+          "geoprocessing"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/certification/protocol-certification-requirements.v1.json#L13667",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/e2e/expected-ga-manifest.json#L23-L26",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-RELEASE-PLAN.md#L39"
+      ],
+      "impact": "150 GP rows are supported/nightly in the release denominator and expected-GA asserts jobs.runner, while the 2026-10-25 re-tier makes the GP catalog Preview. A Preview surface can block a GA mint or be read as GA credit. expected-GA also lists two preview-lifecycle ids.",
+      "acceptance": "Record a GP Preview ruling in the requirement generator, regenerate the catalog without dropping other cells, keep the GP authorization/correctness floor facets required, decide jobs.runner explicitly and keep expected-GA to GA ids.",
+      "dimension": "operation-coverage",
+      "release_tier": "preview",
+      "verification_receipt": null,
+      "related_issues": [
+        "https://github.com/honua-io/honua-release/issues/652",
+        "https://github.com/honua-io/honua-release/issues/376"
+      ]
+    },
+    {
+      "id": "NC-24",
+      "priority": "P1",
+      "title": "Server capability labels and deploy guide present Preview GP, Lambda and arm64 surfaces as GA or supported",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6569",
+      "status": "open",
+      "selectors": {
+        "capability_key": [
+          "process.geoprocessing",
+          "process.ogc-api-processes",
+          "serve.wps"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/gis/data/capability-keys.v1.json#L491",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/src/Honua.Core/Features/Capabilities/CapabilityRegistry.cs#L332",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/guides/deploy/cloud-deployments.md#L130",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/guides/deploy/cloud-deployments.md#L133"
+      ],
+      "impact": "GP keys carry no status and report implemented; the registries have no lifecycle field and architecture tests prove only test existence; the deploy guide calls Lambda GA and advertises an uncertified arm64 Lambda tag. honua-evidence inherits the GA label.",
+      "acceptance": "Label GP surfaces Preview for 2026.1 without behavior change, add a tier column to the deploy guide and mark arm64 unsupported.",
+      "dimension": "assertions",
+      "release_tier": "preview",
+      "verification_receipt": null,
+      "related_issues": [
+        "https://github.com/honua-io/honua-release/issues/652",
+        "https://github.com/honua-io/honua-release/issues/376"
+      ]
+    },
+    {
+      "id": "NC-25",
+      "priority": "P1",
+      "title": "The GA Compose topology has no runtime upgrade/rollback gate or runbook",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/950",
+      "status": "open",
+      "selectors": {
+        "capability_key": [
+          "deploy.rollback"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/.github/workflows/gate-upgrade.yml#L6",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/UPGRADE-RUNBOOK.md#L36",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/BURN-IN-PROMOTION.md#L40"
+      ],
+      "impact": "The required upgrade gate's runtime fragment runs Helm on kind, now Preview; update/rollback promotion evidence covers only the aws-ecs cells. A Compose customer's upgrade and rollback path is unproven and undocumented.",
+      "acceptance": "Add a Compose trunk-candidate upgrade/rollback fragment with the kind-upgrade receipt shape and fail-closed rules, document it, and decide kind-upgrade's tier explicitly.",
+      "dimension": "live-evidence",
+      "release_tier": "ga",
+      "catalog_gap_reason": "The protocol requirement catalog has no deployment upgrade rows; the gap is a gate/runbook gap recorded here without changing the denominator.",
+      "verification_receipt": null,
+      "related_issues": [
+        "https://github.com/honua-io/honua-release/issues/652",
+        "https://github.com/honua-io/honua-release/issues/376"
+      ]
+    },
+    {
+      "id": "NC-26",
+      "priority": "P2",
+      "title": "Compose quickstarts do not enforce the x86_64-only ruling",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/951",
+      "status": "open",
+      "selectors": {
+        "capability_key": [
+          "install.compose"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/CUSTOMER-INSTALL.md#L52",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/INSTALL-2026.1.md#L32",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/platform-manifest.yaml#L409"
+      ],
+      "impact": "The documented Compose files pin the multi-architecture index with no platform, so arm64 hosts silently run the unqualified arm64 child.",
+      "acceptance": "Run the documented GA Compose path on linux/amd64, state that arm64 is unsupported in 2026.1 and regenerate the executable-docs inventory.",
+      "dimension": "assertions",
+      "release_tier": "ga",
+      "catalog_gap_reason": "The protocol requirement catalog has no installation rows; the selector records the install-path gap without changing the denominator.",
+      "verification_receipt": null,
+      "related_issues": [
+        "https://github.com/honua-io/honua-release/issues/652",
+        "https://github.com/honua-io/honua-release/issues/376"
+      ]
     }
   ],
   "workstreams": [
@@ -822,7 +940,7 @@
       },
       "review_limits": [
         "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
-        "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
+        "Existing NC01–12 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
         "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
         "No fresh candidate or AWS qualification; no current CITE rate inferred from source. The 2026-10-18 supplement extends the bounded review to WCS/WPS/STAC/gRPC; source review remains partial."
       ],
@@ -1210,7 +1328,7 @@
     },
     {
       "stage": "aws-acceptance",
-      "requirement": "ECS and serverless crossed with Redis on/off; real durable workflows on, only declared typed refusals off. EKS/Helm Preview cannot substitute."
+      "requirement": "AWS ECS crossed with Redis on/off (the GA cells under the 2026-10-25 re-tier); real durable workflows on, only declared typed refusals off. Lambda and EKS/Helm are Preview and cannot substitute."
     },
     {
       "stage": "strict-mint",
@@ -1252,6 +1370,10 @@
       {
         "path": "certification/audits/2026-10-17/deploy-isolation-raster.json",
         "sha256": "94a0fab368768a061b243ddf45ab2a54477138521dbfbeef003a922b8c9c572e"
+      },
+      {
+        "path": "certification/audits/2026-10-26/tier-alignment.json",
+        "sha256": "db0d152fc0b8fece95933df89b5c8ab161660c3ca212adb1d778eead8495cbb7"
       }
     ],
     "new_findings": "NC-13 through NC-22; NC-01 through NC-12 retained without modification.",
@@ -1345,6 +1467,7 @@
         "issue": "https://github.com/honua-io/honua-server/issues/6306",
         "status": "Source implementation landed in server6312; current-candidate canonical-client qualification remains unverified."
       }
-    ]
+    ],
+    "tier_alignment": "2026-10-26 tier-alignment review against the 2026-10-25 founder re-tier adds NC-23 through NC-26; NC-01 through NC-22 retained without modification. Execution and qualification remain not-evaluated."
   }
 }

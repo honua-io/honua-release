@@ -189,7 +189,8 @@ the run id (the Actions run id is public). Teardown on a fresh runner passes a t
 `terraform destroy` evaluates but never applies.
 
 ### The Lambda + Batch cell, and its migration before serving
-`aws-serverless` is the 2026.1 Lambda + AWS Batch GA cell. When the pinned honua-iac root declares
+`aws-serverless` is the 2026.1 Lambda + AWS Batch cell. It is informational Preview under the
+2026-10-25 founder re-tier; the two `aws-ecs` cells are the required GA cells. When the pinned honua-iac root declares
 them (honua-iac `feat/lambda-batch-ga-cell`), the cell applies `enable_gp_batch=true`,
 `use_batch_service_linked_role=true` and `gp_batch_image=$HONUA_GP_BATCH_IMAGE`. The workflow sets that
 image from the manifest: `components.honua-server.image`'s repository at `platformDigests.amd64`

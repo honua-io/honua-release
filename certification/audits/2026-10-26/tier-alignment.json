@@ -1,0 +1,256 @@
+{
+  "schema": "honua.coverage-audit-source-review/v1",
+  "id": "tier-alignment-2026.1",
+  "tracking_issue": "https://github.com/honua-io/honua-release/issues/652",
+  "observed_at": "2026-10-26",
+  "meaning": "Read-only alignment of 2026.1 labels, gates and evidence with the founder tier ruling. A gap list, not a pass rate; no test was executed and no candidate is qualified by it.",
+  "ruling": {
+    "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748",
+    "date": "2026-10-25",
+    "ga": [
+      "Docker Compose on-prem",
+      "AWS ECS (aws-ecs Redis off/on)"
+    ],
+    "preview": [
+      "AWS Lambda",
+      "Helm on EKS and other Kubernetes",
+      "GP catalog"
+    ],
+    "architecture": "x86_64 only",
+    "tenancy": "single-tenant",
+    "preview_rule": "Preview surfaces need honest labels and their security/isolation/integrity floors, not GA evidence. GP authorization and correctness fixes stay on the 2026.1 floor (honua-release#323)."
+  },
+  "reviewed_sources": {
+    "release": {
+      "repository": "honua-io/honua-release",
+      "commit": "b2e2ada06c0b4073cad2b29c7a245183cc3f998f"
+    },
+    "server_trunk": {
+      "repository": "honua-io/honua-server",
+      "commit": "e506dd49314870e8304561cc9589fe9b349ee75d"
+    },
+    "server_pinned": {
+      "repository": "honua-io/honua-server",
+      "commit": "8cb074f77d01c0a00617ebe426460aa24c7d890b"
+    },
+    "evidence": {
+      "repository": "honua-io/honua-evidence",
+      "commit": "0762ca5a801f7c1fff21e85e72ed53db2a340ada",
+      "note": "default-branch head on 2026-10-25; capability matrix generated from server 4279e2ec571c"
+    }
+  },
+  "status_layers": {
+    "assertion_quality": "Whether labels/assertions say the right thing (reviewed here).",
+    "test_execution": "Whether the governed tests ran against the candidate. Always not-evaluated in this artifact.",
+    "release_qualification": "Whether a selected lock is qualified. Always not-evaluated; missing evidence never passes."
+  },
+  "already_aligned": [
+    {
+      "item": "Lambda x86_64 is preview/pending in compatibility-matrix.yaml and no longer gates bind",
+      "evidence": "https://github.com/honua-io/honua-release/pull/940"
+    },
+    {
+      "item": "Journey gate, promotion readiness and update/rollback require only the two aws-ecs cells",
+      "evidence": "https://github.com/honua-io/honua-release/pull/941"
+    },
+    {
+      "item": "EKS/Helm is preview/pending in compatibility-matrix.yaml",
+      "evidence": "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/compatibility-matrix.yaml"
+    },
+    {
+      "item": "ARM64 Fargate is excluded; awsEcsArchitecture x86_64",
+      "evidence": "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/platform-manifest.yaml#L409-L421"
+    },
+    {
+      "item": "Server architecture tests require an integration test for every EndpointRegistry and OperationRegistry entry (existence only, not lifecycle)",
+      "evidence": "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/tests/dotnet/Honua.Architecture.Tests/ApiSurfaceCoverageTests.cs#L18-L29"
+    },
+    {
+      "item": "Classic and OGC API CITE suites recorded 1138/1138 across 14 suites at source 2882cf07 (historical, not candidate-bound)",
+      "evidence": "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/cite-status.md#L19-L28"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "TA-01",
+      "ruling": "Lambda Preview; GA cells are aws-ecs only",
+      "title": "Release docs still described Lambda as a GA target and four required GA cells",
+      "evidence": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-operating-envelope.md#L113",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-operating-envelope.md#L138",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-operating-envelope.md#L305",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-RELEASE-PLAN.md#L32",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/RELEASE-CUT-CHECKLIST.md#L10",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/RELEASE-CUT-CHECKLIST.md#L78-L92",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-release-decision-record.md#L82",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/e2e/README.md#L192",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-release-decision-maintenance.md#L62"
+      ],
+      "disposition": "fixed-in-this-change",
+      "owner": "honua-io/honua-release",
+      "issue": null,
+      "coverage_audit_finding": null,
+      "status": {
+        "assertion_quality": "findings-recorded",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      },
+      "note": "Historical Lambda GA bill and validation pages gain a superseded banner instead of a rewrite."
+    },
+    {
+      "id": "TA-02",
+      "ruling": "GP catalog Preview; Compose GA",
+      "title": "Release docs still described whole-catalog GP as GA and named local Docker rather than Compose as the GA topology",
+      "evidence": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-operating-envelope.md#L8",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-operating-envelope.md#L29",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-release-decision-record.md#L7",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-terminal-arc-acceptance.md#L16",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-RELEASE-PLAN.md#L39"
+      ],
+      "disposition": "fixed-in-this-change",
+      "owner": "honua-io/honua-release",
+      "issue": null,
+      "coverage_audit_finding": null,
+      "status": {
+        "assertion_quality": "findings-recorded",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      }
+    },
+    {
+      "id": "TA-03",
+      "ruling": "all",
+      "title": "The 2026-10-25 re-tier was not recorded in the decision overrides, and the coverage-audit AWS stage still required serverless cells",
+      "evidence": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/2026.1-release-decision-overrides.json",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/certification/coverage-audit.v1.json#L1213"
+      ],
+      "disposition": "fixed-in-this-change",
+      "owner": "honua-io/honua-release",
+      "issue": null,
+      "coverage_audit_finding": null,
+      "status": {
+        "assertion_quality": "findings-recorded",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      }
+    },
+    {
+      "id": "TA-04",
+      "ruling": "GP catalog Preview",
+      "title": "The requirement catalog keeps 150 GP rows as supported/nightly in the GA denominator; expected-GA asserts jobs.runner and lists two preview-lifecycle ids",
+      "evidence": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/certification/protocol-certification-requirements.v1.json#L13667",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/e2e/expected-ga-manifest.json#L23-L26"
+      ],
+      "disposition": "child-issue",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/949",
+      "coverage_audit_finding": "NC-23",
+      "status": {
+        "assertion_quality": "findings-recorded",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      },
+      "note": "Gate-denominator change: needs a recorded Preview ruling in the generator while keeping GP auth/correctness floor rows required."
+    },
+    {
+      "id": "TA-05",
+      "ruling": "GP catalog Preview; Lambda/Helm Preview; x86_64 only",
+      "title": "Server labels GP keys GA (no status, Implemented), registries carry no lifecycle, and the deploy guide calls Lambda GA and offers an arm64 Lambda tag",
+      "evidence": [
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/gis/data/capability-keys.v1.json#L491",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/gis/data/capability-keys.v1.json#L771",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/src/Honua.Core/Features/Capabilities/CapabilityRegistry.cs#L332",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/guides/deploy/cloud-deployments.md#L130",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/guides/deploy/cloud-deployments.md#L133"
+      ],
+      "disposition": "child-issue",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6569",
+      "coverage_audit_finding": "NC-24",
+      "status": {
+        "assertion_quality": "findings-recorded",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      },
+      "note": "honua-evidence's matrix follows the server labels."
+    },
+    {
+      "id": "TA-06",
+      "ruling": "Compose GA",
+      "title": "No runtime upgrade/rollback gate or runbook for the GA Compose topology; the required upgrade gate runs Helm on kind (Preview)",
+      "evidence": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/.github/workflows/gate-upgrade.yml#L6",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/UPGRADE-RUNBOOK.md#L36",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/BURN-IN-PROMOTION.md#L40"
+      ],
+      "disposition": "child-issue",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/950",
+      "coverage_audit_finding": "NC-25",
+      "status": {
+        "assertion_quality": "findings-recorded",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      }
+    },
+    {
+      "id": "TA-07",
+      "ruling": "x86_64 only",
+      "title": "Compose quickstarts pin the multi-architecture index without a platform, so arm64 hosts silently run the unqualified arm64 child",
+      "evidence": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/CUSTOMER-INSTALL.md#L52",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/docs/INSTALL-2026.1.md#L32",
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/platform-manifest.yaml#L409"
+      ],
+      "disposition": "child-issue",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/951",
+      "coverage_audit_finding": "NC-26",
+      "status": {
+        "assertion_quality": "findings-recorded",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      }
+    },
+    {
+      "id": "TA-08",
+      "ruling": "GA evidence (protocol)",
+      "title": "CITE evidence is from server 2882cf07 (136 commits before the pinned 8cb074f) and the honua-evidence matrix from 4279e2ec; neither is bound to the candidate. OGC API Records (GA scope) has no CITE row",
+      "evidence": [
+        "https://github.com/honua-io/honua-server/blob/8cb074f77d01c0a00617ebe426460aa24c7d890b/docs/cite-status.md#L22",
+        "https://github.com/honua-io/honua-server/blob/e506dd49314870e8304561cc9589fe9b349ee75d/docs/cite-status.md#L19-L28"
+      ],
+      "disposition": "existing-owner",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/157",
+      "coverage_audit_finding": null,
+      "status": {
+        "assertion_quality": "not-applicable",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      },
+      "note": "The qualifying `cite` class already requires lock-bound CITE during the burn (BURN-IN-PROMOTION); stale scheduled evidence is honua-server#4235. No new issue."
+    },
+    {
+      "id": "TA-09",
+      "ruling": "GA evidence (execution)",
+      "title": "Exact-candidate client matrix, ECS product journeys and Windows licensed receipts are not executed against a selected lock",
+      "evidence": [
+        "https://github.com/honua-io/honua-release/blob/b2e2ada06c0b4073cad2b29c7a245183cc3f998f/certification/coverage-audit-summary.v1.json"
+      ],
+      "disposition": "existing-owner",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/652",
+      "coverage_audit_finding": null,
+      "status": {
+        "assertion_quality": "not-applicable",
+        "test_execution": "not-evaluated",
+        "release_qualification": "not-evaluated"
+      },
+      "note": "Remaining #652 acceptance items 3-6; owned by the candidate train (#376/#381) and the external Windows lane."
+    }
+  ]
+}
