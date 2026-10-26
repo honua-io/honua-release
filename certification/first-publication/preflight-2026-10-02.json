@@ -1,12 +1,12 @@
 {
   "blockers": [
     {
-      "boundary": "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request (a private repository is not distinguishable from a missing one) and https://plugins.qgis.org/plugins/honua/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). No signing secret is recorded here.",
+      "boundary": "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request (a private repository is not distinguishable from a missing one) and https://plugins.qgis.org/plugins/honua_gis_assistant/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). No signing secret is recorded here.",
       "channels": [
         "qgis:honua-qgis-plugin"
       ],
       "kind": "blocked-on-operator",
-      "publication": "QGIS plugin honua"
+      "publication": "QGIS plugin honua_gis_assistant"
     },
     {
       "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.2.6 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.2.6 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.2.6': 200}; the platform manifest pins @honua/sdk-js 0.2.10. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
@@ -720,10 +720,10 @@
       "http_status": 404,
       "id": "qgis:honua-qgis-plugin",
       "plugin_http_status": 404,
-      "publication": "QGIS plugin honua",
+      "publication": "QGIS plugin honua_gis_assistant",
       "urls": [
         "https://api.github.com/repos/honua-io/honua-qgis-plugin",
-        "https://plugins.qgis.org/plugins/honua/"
+        "https://plugins.qgis.org/plugins/honua_gis_assistant/"
       ]
     },
     {

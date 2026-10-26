@@ -196,7 +196,7 @@ class World:
             return 403, b'{"errors":[{"code":"DENIED"}]}'
         if url == "https://api.github.com/repos/honua-io/honua-qgis-plugin":
             return 404, b'{"message":"Not Found"}'
-        if url == "https://plugins.qgis.org/plugins/honua/":
+        if url == "https://plugins.qgis.org/plugins/honua_gis_assistant/":
             return 404, b"missing"
         if url == "https://registry.terraform.io/v1/modules/honua-io":
             return 404, b'{"errors":["No module versions found"]}'
@@ -249,14 +249,14 @@ def test_fixture_world_names_the_operator_boundaries_without_invented_digests():
     assert "nuget.org Honua.Sdk 1.6.0" in publications
     assert "npmjs @honua-io/embed" in publications
     assert "oci://ghcr.io/honua-io/charts/honua" in publications
-    assert "QGIS plugin honua" in publications
+    assert "QGIS plugin honua_gis_assistant" in publications
     embed = next(blocker for blocker in receipt["blockers"] if blocker["publication"] == "npmjs @honua-io/embed")
-    assert "npm.pkg.github.com" in embed["boundary"]
+    assert "npmjs.com" in embed["boundary"] and "NPM_BOOTSTRAP_TOKEN" in embed["boundary"]
     assert "NUGET_API_KEY" not in embed["boundary"]
     mobile_blocker = next(
         blocker for blocker in receipt["blockers"] if blocker["publication"].startswith("nuget.org Honua.Mobile")
     )
-    assert "nuget.pkg.github.com/honua-io/index.json" in mobile_blocker["boundary"]
+    assert "Trusted Publishing" in mobile_blocker["boundary"] and "mobile-dotnet-v*" in mobile_blocker["boundary"]
     helm = next(blocker for blocker in receipt["blockers"] if blocker["kind"] == "blocked-on-candidate")
     assert "v<semver>-aot" in helm["boundary"]
     assert _channel(receipt, "iac:git-archive")["disposition"] == "supported-by-git-url"
@@ -848,12 +848,12 @@ def test_transport_reports_a_persistent_connection_failure(monkeypatch):
 
 def test_transport_retries_qgis_timeout_then_preserves_actual_not_found(monkeypatch):
     calls, sleeps = _scripted_urlopen(monkeypatch, [522, 404])
-    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua_gis_assistant/")
     assert response.status == 404 and len(calls) == 2 and sleeps == [5]
 
 
 def test_transport_preserves_persistent_qgis_timeout_as_failure(monkeypatch):
     calls, sleeps = _scripted_urlopen(monkeypatch, [522] * len(preflight.REQUEST_DELAYS))
-    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua_gis_assistant/")
     assert response.status == 522 and len(calls) == len(preflight.REQUEST_DELAYS)
     assert sleeps == list(preflight.REQUEST_DELAYS[1:])

@@ -99,15 +99,20 @@ ALLOWED_HOSTS = {
 }
 
 MOBILE_NUGET_BOUNDARY = (
-    "honua-mobile .github/workflows/publish-dotnet-mobile.yml job 'Publish to GitHub Packages' "
-    "pushes only to https://nuget.pkg.github.com/honua-io/index.json using secrets.GITHUB_TOKEN. "
-    "That workflow has no nuget.org Trusted Publishing step. honua-release has no credential that "
-    "can publish Honua.Mobile.Sdk, Honua.Mobile.Offline, or Honua.Mobile.Maui."
+    "honua-mobile .github/workflows/publish-dotnet-mobile.yml publishes Honua.Mobile.Sdk, "
+    "Honua.Mobile.Offline, and Honua.Mobile.Maui to nuget.org only from signed mobile-dotnet-v* tags, "
+    "through nuget.org Trusted Publishing (NuGet/login, policy owner makanikai) in environment public-nuget. "
+    "Publication needs that nuget.org Trusted Publishing policy for honua-io/honua-mobile "
+    "publish-dotnet-mobile.yml and a public-nuget deployment rule that admits mobile-dotnet-v* tags. "
+    "honua-release has no credential that can publish these packages."
 )
 MOBILE_NPM_BOUNDARY = (
-    "honua-mobile .github/workflows/publish-npm-embed.yml job 'Publish to GitHub Packages' runs "
-    "npm publish against https://npm.pkg.github.com using NODE_AUTH_TOKEN from secrets.GITHUB_TOKEN. "
-    "That workflow has no npmjs publish. honua-release has no credential that can publish @honua-io/embed."
+    "honua-mobile .github/workflows/publish-npm-embed.yml publishes @honua-io/embed to npmjs.com only from "
+    "signed mobile-embed-v* tags in environment public-npm, using npm Trusted Publishing with provenance. "
+    "npm attaches a trusted publisher only to an existing package, so the first publish needs a short-lived "
+    "NPM_BOOTSTRAP_TOKEN environment secret (deleted afterwards), owner control of the @honua-io npm scope, "
+    "and a public-npm deployment rule that admits mobile-embed-v* tags. honua-release has no credential that "
+    "can publish @honua-io/embed."
 )
 HELM_BOUNDARY = (
     "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so "
@@ -117,14 +122,17 @@ HELM_BOUNDARY = (
 )
 QGIS_REPO_URL = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
 QGIS_PUBLIC_REPO_URL = "https://github.com/honua-io/honua-qgis-plugin"
-QGIS_PLUGIN_URL = "https://plugins.qgis.org/plugins/honua/"
+# plugins.qgis.org keys a plugin by its ZIP's top-level package folder, not its display name.
+# honua-qgis-plugin scripts/package.py builds honua_gis_assistant-<version>.zip with the single
+# top-level folder honua_gis_assistant/, so that is the listing slug.
+QGIS_PLUGIN_URL = "https://plugins.qgis.org/plugins/honua_gis_assistant/"
 # Anonymous api.github.com denials on shared CI addresses are rate-limit or abuse blocks.
 # Retry them, then give up. A 403 is never itself evidence the repository is private.
 QGIS_DENIAL_RETRY_DELAYS = (10, 30, 60, 120, 80)
 QGIS_BOUNDARY = (
     "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request "
     "(a private repository is not distinguishable from a missing one) and "
-    "https://plugins.qgis.org/plugins/honua/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; "
+    "https://plugins.qgis.org/plugins/honua_gis_assistant/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; "
     "it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, "
     "history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). "
     "No signing secret is recorded here."
@@ -963,7 +971,7 @@ def build_receipt(
         raise PreflightError("QGIS visibility changed; inspect the listing before recording publication")
     channels.append(_channel(
         "qgis:honua-qgis-plugin",
-        "QGIS plugin honua",
+        "QGIS plugin honua_gis_assistant",
         "blocked-on-operator",
         http_status=qgis_repo.status,
         plugin_http_status=qgis_plugin.status,
@@ -1066,7 +1074,7 @@ def _blockers(channels: list[dict]) -> list[dict]:
             ["helm:oci://ghcr.io/honua-io/charts/honua"],
         )
     if by_id["qgis:honua-qgis-plugin"]["disposition"] == "blocked-on-operator":
-        add("blocked-on-operator", "QGIS plugin honua", QGIS_BOUNDARY, ["qgis:honua-qgis-plugin"])
+        add("blocked-on-operator", "QGIS plugin honua_gis_assistant", QGIS_BOUNDARY, ["qgis:honua-qgis-plugin"])
     missing_sdk = [
         f"nuget:{package_id}"
         for package_id in SDK_PACKAGE_IDS
