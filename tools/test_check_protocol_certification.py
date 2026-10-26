@@ -2033,6 +2033,39 @@ def test_passing_mcp_cells_refuse_mislabeled_sessions_policy_cohort_and_source()
     )
 
 
+def test_passing_mcp_cells_refuse_an_authenticated_caller_labeled_anonymous():
+    """A caller's credential mode is a property of that caller, not of each row.
+
+    The authenticated caller's identity reappearing under an anonymous label is an
+    authenticated call recorded as anonymous, and the reverse borrows authority.
+    """
+    sdk, _inspector = _mcp_package_versions()
+
+    def evaluate(observations):
+        cell = _mcp_cell(
+            "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+            "tools/call:geocode_address", "mcp-protected-operation-v1", observations,
+        )
+        report = _evaluate(_ledger(cell), "nightly", requirements=_requirements(cell), now=NOW)
+        return report["overall_status"], " ".join(item["why"] for item in report["findings"])
+
+    relabeled = _mcp_protected_observations()
+    relabeled["no-authenticated-session-reuse"] = _mcp_obs(
+        "no-authenticated-session-reuse", "tools/call:geocode_address",
+        "refused", "anonymous", "session-reuse", "caller-auth")
+    status, why = evaluate(relabeled)
+    assert status == "fail"
+    assert "anonymous label on an authenticated caller" in why
+
+    borrowed = _mcp_protected_observations()
+    borrowed["caller-session-binding"] = _mcp_obs(
+        "caller-session-binding", "tools/call:geocode_address",
+        "refused", "authenticated", "session-auth", "caller-anon")
+    status, why = evaluate(borrowed)
+    assert status == "fail"
+    assert "anonymous label on an authenticated caller" in why
+
+
 def test_nonpassing_mcp_cell_does_not_require_authorization_observations():
     _sdk, inspector = _mcp_package_versions()
     in_scope = _cell(required_tier="pr")

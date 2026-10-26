@@ -828,7 +828,16 @@ def _mcp_pass_observation_error(cell: dict) -> str | None:
         digests.append(observations[name]["response"]["digest"])
     if len(set(digests)) != len(digests):
         return "copied MCP observation response"
-    return _mcp_profile_error(decision, observations)
+    profile_error = _mcp_profile_error(decision, observations)
+    # Credential mode belongs to the caller. One caller identity observed both
+    # authenticated and anonymous means an authenticated call was recorded as
+    # anonymous (or an anonymous caller borrowed authority).
+    modes: dict[str, set[str]] = {}
+    for item in observations.values():
+        modes.setdefault(item["caller_id"], set()).add(item["credential_mode"])
+    if any(len(seen) > 1 for seen in modes.values()):
+        return profile_error or "anonymous label on an authenticated caller"
+    return profile_error
 
 
 _portal_module = None
