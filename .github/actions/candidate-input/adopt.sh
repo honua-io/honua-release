@@ -3,8 +3,12 @@ set -euo pipefail
 
 [[ "$CANDIDATE_REF" =~ ^[0-9a-f]{40}$ ]]
 cd "${CHECKOUT_DIRECTORY:-.}"
-checkout="$(pwd -P)"
-test "$(git rev-parse --show-toplevel)" = "$checkout"
+# The checkout directory must be the work tree's top level. Compare Git's own answer rather than
+# `pwd -P` against --show-toplevel: on windows-latest (gate-dr) bash says /d/a/... while Git for
+# Windows says D:/a/..., so a path comparison refuses the very checkout it should adopt.
+test "$(git rev-parse --is-inside-work-tree)" = true
+test -z "$(git rev-parse --show-prefix)"
+checkout="$(git rev-parse --show-toplevel)"
 case "$(git config --get remote.origin.url)" in
   https://github.com/honua-io/honua-release|https://github.com/honua-io/honua-release.git|git@github.com:honua-io/honua-release.git) ;;
   *) echo 'candidate inputs require the canonical honua-release origin'; exit 1 ;;
