@@ -124,8 +124,15 @@ administrator policy is supplied for the deployment executor.
 The concrete foundation workflow patch is
 `bootstrap/foundation-bootstrap-workflow.yml`, installed as
 `.github/workflows/hosted-pilot-bootstrap.yml` in `honua-iac`. Both repositories
-are public. Existing IaC foundation AWS secrets stay in its workflow runner;
-no foundation AWS credential is exported to release. The exact release-root SHA
+are public. Only its `bootstrap` job may mint a GitHub OIDC token; it assumes
+the role in IaC repository variable `HONUA_AWS_HOSTED_PILOT_BOOTSTRAP_ROLE_ARN`
+(the `hosted_pilot_bootstrap_role_arn` output of IaC component
+`aws-github-oidc`, trusted only for
+`repo:honua-io/honua-iac:environment:terraform-ephemeral`) and fails before any
+AWS call when that variable is unset. There is no static-key fallback: no job
+reads `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets, and those secrets and
+their IAM access key are deleted after one successful `mode=plan` run. No
+foundation AWS credential is exported to release. The exact release-root SHA
 must be on reviewed trunk and configuration must be tracked in IaC trunk.
 
 The workflow selects exactly one phase: `custody-only` or
