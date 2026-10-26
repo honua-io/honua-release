@@ -141,6 +141,19 @@ honua-server:
       checkout at 928507999, then CS0103 for BaseUrlResolver. c19f29d's own CI workflow
       is not this file. Build & Format Check and the full-matrix lanes stay core, and a
       prebuild check with no recorded workflow path stays core too.
+  - workflow: ".github/workflows/server-test-prebuild-parity.yml"
+    why: >-
+      Server Test Prebuild Parity Observation, the parity sibling of the observer above. Its
+      header calls it a read-only post-verification shadow that publishes no status and has no
+      merge or dispatch authority. It is triggered by `workflow_run` of PR Gate. GitHub files its
+      checks on the default-branch SHA, while its jobs build the pull-request head that
+      PR Gate ran on. 08ace249 (full-matrix run 40317136321 green, image nightly-08ace24) was
+      skipped by nightly run 40354887147 for "Independent prebuild baseline / ai" and
+      "Opportunistic prebuild candidate / ai". Run 40318181771 checked out e0807412 (PR #6593)
+      and run 40317711085 checked out 91ca40d (PR #6589). Neither commit is in 08ace249's
+      history. Both failed with "TRX evidence contains no executed tests". Build & Format Check
+      and the full-matrix lanes stay core, and a parity check with no recorded workflow path
+      stays core too.
   - name: "Mirror .NET base images (MCR -> GHCR)"
     why: >-
       Image publication automation (`.github/workflows/nightly-container-build.yml`, job
