@@ -2,33 +2,33 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-19-complete.25",
-  "requirements_digest": "sha256:2b0f2a37bcedb3f4edd4e1dff23a12f8a5ed882c9ebe8e8a1f344ce3e17e9c93",
+  "requirements_digest": "sha256:d0fb5d564e10e02a4888c45ff40a219731c35c2d692c6496712f8f38363fabaa",
   "production_digest": "sha256:4fdbb21537df908716559387024620fa7bf521d3f2499c1075ee06bc3cef4b86",
   "audit_digest": "sha256:5eba961660cb02206b34f00b640c433c9dfb0d6b98b989b47ccd7f2c342dc66d",
-  "rows_digest": "sha256:1ef1072f93ce9f4fc8c0f19786dd14e91dc36f363285228f4d3eaa63cf1ccc1d",
-  "rows": 2716,
-  "non_licensed_rows": 2381,
+  "rows_digest": "sha256:6f38bcd5456a530be59bdb223afb67be2d2783ff138a5a7ab771a71320abce51",
+  "rows": 2731,
+  "non_licensed_rows": 2396,
   "external_licensed_rows": 335,
   "non_licensed_registration": {
     "not-addressable": 394,
-    "registered": 1255,
+    "registered": 1270,
     "unproduced": 732
   },
   "non_licensed_assertion_review": {
     "findings-recorded": 583,
-    "not-reviewed": 1798
+    "not-reviewed": 1813
   },
   "finding_matches": {
     "NC-01": 82,
     "NC-02": 1,
     "NC-03": 255,
-    "NC-04": 373,
-    "NC-05": 2716,
+    "NC-04": 388,
+    "NC-05": 2731,
     "NC-06": 95,
     "NC-07": 55,
     "NC-08": 1,
-    "NC-09": 2716,
-    "NC-10": 2716,
+    "NC-09": 2731,
+    "NC-10": 2731,
     "NC-11": 82,
     "NC-12": 20,
     "NC-17": 311,
@@ -119,7 +119,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-sdk-dotnet",
-        "commit": "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
+        "commit": "aada6d8987db0802a3c9de0d976f471afa943c0a"
       },
       "same_revision": false
     },
@@ -131,7 +131,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-sdk-js",
-        "commit": "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
+        "commit": "965c013637722cb70d1a781c3d2d4f6537e6bf44"
       },
       "same_revision": false
     },
