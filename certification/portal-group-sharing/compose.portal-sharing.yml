@@ -2,7 +2,7 @@
 #
 # - Named principals: the candidate trusts a generic OIDC issuer whose HS256 signing key is minted per
 #   run (PORTAL_SHARING_SIGNING_KEY), as the installed-client run does. produce.py mints one bearer per
-#   named user and exchanges it through /sharing/rest/generateToken, the supported Esri client path.
+#   named user and exchanges it through /sharing/rest/generateToken, the supported GeoServices client path.
 # - The second instance ("replica") runs the same image and configuration against the same PostgreSQL
 #   and Redis. It starts after the first instance is ready, so only one instance applies migrations.
 # - The db healthcheck probes TCP for the reason documented in compose.sdk-regression.yml.

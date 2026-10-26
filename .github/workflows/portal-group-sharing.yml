@@ -1,7 +1,7 @@
 # Durable portal group sharing and cross-caller readback (honua-release#691).
 #
 # Boots the pinned honua-server image twice against one PostgreSQL store and drives the supported
-# Esri sharing surface with named users (generateToken), a private group, share/unshare, two
+# GeoServices sharing surface with named users (generateToken), a private group, share/unshare, two
 # restarts and the second instance. tools/portal_group_sharing.py judges the observations.
 #
 # On a pull request or a plain dispatch the binding is platform-manifest.yaml: development

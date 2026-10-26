@@ -2,7 +2,7 @@
 """Live producer for durable portal group sharing and cross-caller readback (honua-release#691).
 
 Boots the pinned server image twice against one PostgreSQL store (``server`` and ``replica``),
-then drives the supported Esri client surface: ``/sharing/rest/generateToken`` for named users,
+then drives the supported GeoServices sharing surface: ``/sharing/rest/generateToken`` for named users,
 ``/sharing/rest/community`` for groups and ``/sharing/rest/content/items/{id}/share|unshare``.
 Every reading is a real response from the candidate:
 
