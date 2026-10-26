@@ -54,6 +54,17 @@ from licensing import assert_disabled
 from resp import Resp  # noqa: E402  (local helper, imported after sys.path setup)
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def pinned_image(reference: str, digest: str) -> str:
+    """`<repository>@<digest>` for a manifest image named by tag, by digest, or by both.
+
+    Checked-in pins name the server by tag; the nightly's resolved candidate names it by digest.
+    """
+    repository = str(reference).split("@", 1)[0]
+    if ":" in repository.rsplit("/", 1)[-1]:
+        repository = repository.rsplit(":", 1)[0]
+    return f"{repository}@{digest}"
 COMPOSE_FILE = ROOT / "e2e" / "dr-drill" / "compose.full-platform.yml"
 MANIFEST = ROOT / "platform-manifest.yaml"
 ADMIN_KEY = os.environ.get("HONUA_DR_ADMIN_KEY", "honua-dr-drill-admin-key")
@@ -129,7 +140,7 @@ class Stack:
         self.release = manifest["platformRelease"]
         self.server_sha = server["sha"]
         self.image_digest = server["digest"]
-        self.image = f"{server['image'].split(':')[0]}@{server['digest']}"
+        self.image = pinned_image(server["image"], server["digest"])
         recovery = manifest.get("disasterRecovery")
         if not isinstance(recovery, dict):
             raise SystemExit("platform-manifest.yaml declares no disasterRecovery inventory; the drill "

@@ -22,7 +22,11 @@ readarray -t LOCK < <(python3 - "$ROOT/platform-manifest.yaml" <<'PY'
 import sys, yaml
 m=yaml.safe_load(open(sys.argv[1]))
 s=m['components']['honua-server']
-print(m['platformRelease']); print(s['sha']); print(s['image']+'@'+s['digest']); print(s['digest']); print(s['dbSchema'])
+# The candidate names its image by digest, trunk pins by tag; run exactly <repository>@<digest>.
+repository=str(s['image']).split('@', 1)[0]
+if ':' in repository.rsplit('/', 1)[-1]:
+    repository=repository.rsplit(':', 1)[0]
+print(m['platformRelease']); print(s['sha']); print(repository+'@'+s['digest']); print(s['digest']); print(s['dbSchema'])
 PY
 )
 RELEASE=${LOCK[0]}; CANDIDATE_SHA=${LOCK[1]}; export HONUA_SERVER_IMAGE=${LOCK[2]}; IMAGE_DIGEST=${LOCK[3]}; EXPECTED_SCHEMA=${LOCK[4]}
