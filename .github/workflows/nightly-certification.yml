@@ -259,14 +259,19 @@ jobs:
         run: python tools/nightly_receipts.py wait-protocol --runs "${RUNNER_TEMP}/protocol-runs.json" --timeout 14400
       # aggregate.yml harvests producer runs at the staged catalog's pins for exactly this
       # candidate and commits the ledger to honua-evidence trunk. Its Pages deploy job can park on
-      # an environment, so the night waits for the aggregate job alone.
+      # an environment, so the night waits for the aggregate job alone. The dispatch uses the same
+      # release token as every other cross-repository dispatch of the night; it needs Actions
+      # read/write on honua-io/honua-evidence.
       - name: Aggregate tonight's producer runs into honua-evidence
         id: aggregate
         env:
-          GH_TOKEN: ${{ secrets.HONUA_RELEASE_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           REQUIREMENTS_REVISION: ${{ steps.stage.outputs.requirements_revision }}
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::RELEASE_GH_TOKEN is required to dispatch honua-evidence aggregation"; exit 1
+          fi
           since="$(date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ)"
           run_id="$(python tools/nightly_receipts.py dispatch-aggregate --repository honua-io/honua-evidence \
             --requirements-revision "$REQUIREMENTS_REVISION" --manifest platform-manifest.yaml)"
