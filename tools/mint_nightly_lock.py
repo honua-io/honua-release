@@ -176,7 +176,10 @@ def published_artifact_bytes(artifact: dict) -> bytes:
     """Fetch the public package and check its locked hash before attestation lookup."""
     from resolve_trunk_candidate import retry
     from verify_client_artifacts import _request, _request_json
-    kind, coordinate, version = artifact['kind'], artifact['coordinate'], artifact['version']
+    kind, coordinate, version = artifact['kind'], artifact['coordinate'], artifact.get('version')
+    # Registry packages are addressed by version; spec and archive bytes by URL and hash alone.
+    if kind in {'npm', 'nuget', 'wheel'} and not isinstance(version, str):
+        raise ValueError(f'{kind}:{coordinate} has no released version to fetch')
     if kind == 'npm':
         metadata = retry(lambda: _request_json('https://registry.npmjs.org/'
             + urllib.parse.quote(coordinate, safe='') + '/' + urllib.parse.quote(version, safe='')))
@@ -349,7 +352,8 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 raw = artifact_bytes(artifact)
                 digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
                 rows = attestations(repo, digest)
-            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            # A malformed lock artifact is one component's refusal, not the end of the report.
+            except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
                 errors.append(f'{context}: publisher attestations unavailable: '
                               + str(getattr(exc, 'stderr', None) or exc).strip())
                 continue
