@@ -609,7 +609,8 @@
     {
       "id": "SEC-4",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5398"
     },
     {
       "id": "SEC-5",
@@ -619,42 +620,50 @@
     {
       "id": "SEC-9",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5082"
     },
     {
       "id": "SEC-13",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5381"
     },
     {
       "id": "SEC-14",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5414"
     },
     {
       "id": "SEC-16",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5376"
     },
     {
       "id": "SEC-18",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5397"
     },
     {
       "id": "SEC-21",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5080"
     },
     {
       "id": "SEC-23",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5379"
     },
     {
       "id": "SEC-28",
       "repo": "honua-io/honua-server",
-      "status": "open"
+      "status": "fixed",
+      "fixedBy": "5375"
     }
   ],
   "exceptions": {
