@@ -251,7 +251,7 @@ def test_fixture_world_names_the_operator_boundaries_without_invented_digests():
     assert "oci://ghcr.io/honua-io/charts/honua" in publications
     assert "QGIS plugin honua_gis_assistant" in publications
     embed = next(blocker for blocker in receipt["blockers"] if blocker["publication"] == "npmjs @honua-io/embed")
-    assert "npmjs.com" in embed["boundary"] and "NPM_BOOTSTRAP_TOKEN" in embed["boundary"]
+    assert "publishes @honua-io/embed to npmjs.com only from signed mobile-embed-v* tags" in embed["boundary"] and "NPM_BOOTSTRAP_TOKEN" in embed["boundary"]
     assert "NUGET_API_KEY" not in embed["boundary"]
     mobile_blocker = next(
         blocker for blocker in receipt["blockers"] if blocker["publication"].startswith("nuget.org Honua.Mobile")
