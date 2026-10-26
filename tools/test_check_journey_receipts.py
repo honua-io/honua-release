@@ -149,12 +149,12 @@ def test_hand_built_fixtures_validate_against_owned_schema():
         validator.validate(failed_receipt(cell))
 
 
-def test_all_four_exact_candidate_cells_pass_and_record_driver(intake):
+def test_both_ecs_exact_candidate_cells_pass_and_record_driver(intake):
     intake.write(checker.GA_CELLS[1], drivers=["genuine-model"])
     result = intake.evaluate()
     assert result["status"] == "pass"
     ga = [r for r in result["cells"] if r["counted"]]
-    assert len(ga) == 4
+    assert [r["cell"] for r in ga] == ["aws-ecs/redis-off", "aws-ecs/redis-on"]
     assert ga[0]["drivers"] == ["deterministic"]
     assert ga[0]["attempts"][0]["completedAt"] == STAMP
     assert ga[1]["drivers"] == ["genuine-model"]
@@ -224,7 +224,8 @@ def test_wrong_receipt_candidate_or_cell_is_red(intake, field):
         data[field] = json.loads(json.dumps(CLIENTS))
         data[field]["honua-sdk-js"]["version"] = "old"
     else:
-        data[field]["id"] = checker.GA_CELLS[2]
+        # A Lambda Preview receipt cannot stand in for an ECS GA cell.
+        data[field]["id"] = "aws-serverless/redis-off"
     intake.write(cell, [data])
     assert_red(intake, "wrong candidate or receipt cell")
 
@@ -367,12 +368,15 @@ def test_preview_never_blocks_or_counts(preview_intake, status):
     result = intake.evaluate()
     assert result["status"] == "pass"
     preview = [r for r in result["cells"] if r["evidenceTier"] == "Preview"]
-    assert len(preview) == 2 and not any(r["counted"] for r in preview)
+    assert len(preview) == 4 and not any(r["counted"] for r in preview)
+    assert {r["cell"].split("/")[0] for r in preview} == {"aws-serverless", "aws-eks"}
 
 
-def test_rc3_eks_preview_is_explicit_and_cannot_change_ga_denominator():
-    assert checker.PREVIEW_CELLS == ("aws-eks/redis-off", "aws-eks/redis-on")
-    assert set(checker.GA_CELLS) == {f"{target}/redis-{mode}" for target in ("aws-ecs", "aws-serverless") for mode in ("off", "on")}
+def test_lambda_and_eks_preview_are_explicit_and_cannot_change_ga_denominator():
+    # Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target; Lambda joins EKS as Preview.
+    assert checker.PREVIEW_CELLS == ("aws-serverless/redis-off", "aws-serverless/redis-on",
+                                     "aws-eks/redis-off", "aws-eks/redis-on")
+    assert checker.GA_CELLS == ("aws-ecs/redis-off", "aws-ecs/redis-on")
     assert not any("aws-mixed" in cell for cell in (*checker.GA_CELLS, *checker.PREVIEW_CELLS))
 
 
@@ -471,13 +475,27 @@ def test_each_cell_passes_on_its_own_targets_evidence_and_not_on_ecs_evidence(in
 
 
 def test_the_verdict_names_the_number_of_cells_it_certified(intake):
-    assert intake.evaluate()["why"] == "all 4 GA journeys passed for the exact candidate"
+    assert intake.evaluate()["why"] == "all 2 GA journeys passed for the exact candidate"
 
 
-def test_promotion_still_requires_only_the_four_ecs_and_lambda_cells():
-    # Both gates consume the explicitly reviewed ECS/Lambda scope; EKS stays visible as Preview.
+def test_promotion_requires_only_the_two_ecs_cells():
+    # Both gates consume the same ECS-only GA scope; Lambda and EKS stay visible as Preview.
     import check_promotion_readiness as promotion
-    assert promotion.GA_CELLS == frozenset(c for c in checker.GA_CELLS if not c.startswith("aws-eks/"))
+    assert promotion.GA_CELLS == frozenset(checker.GA_CELLS) == frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
+    assert not promotion.GA_CELLS & set(checker.PREVIEW_CELLS)
+
+
+def test_failing_lambda_preview_cells_do_not_block_the_ecs_gate(preview_intake):
+    intake = preview_intake
+    for cell in ("aws-serverless/redis-off", "aws-serverless/redis-on"):
+        report = intake.write(cell)
+        report["status"] = "fail"
+        intake.save(cell, report)
+    result = intake.evaluate()
+    assert result["status"] == "pass"
+    rows = {r["cell"]: r for r in result["cells"]}
+    assert rows["aws-serverless/redis-on"]["evidenceTier"] == "Preview"
+    assert rows["aws-serverless/redis-on"]["counted"] is False
 
 
 @pytest.mark.parametrize("first_status", ["blocked", "pass"])

@@ -8,7 +8,7 @@ rulings R18–R21, and [the cut checklist](RELEASE-CUT-CHECKLIST.md). Gates can 
 
 An all-green nightly strict train resolves component `origin/trunk` heads, produces its own nightly
 evidence and mints a signed `2026.1-rc.N` lock. Its journey requirement is the deterministic driver on
-all four GA cells, plus the genuine model on ECS with Redis off. A red night mints nothing.
+both GA cells (AWS ECS, Redis off and on), plus the genuine model on ECS with Redis off. A red night mints nothing.
 
 The release captain selects one certified lock as the promotion candidate, deploys its exact artifacts
 to the demo and records its byte digest, minting run ID and UTC deployment time (`burnStartedAt`) in
@@ -44,12 +44,15 @@ Qualifying classes are produced against the selected lock during its burn. Every
 bind the selected digest; evidence from another lock cannot be carried forward. Additional consumed
 classes require an explicit tier declaration and a retained receipt too.
 
-GA cells are `aws-ecs/redis-off`, `aws-ecs/redis-on`, `aws-serverless/redis-off` and `aws-serverless/redis-on`:
+GA cells are `aws-ecs/redis-off` and `aws-ecs/redis-on`. Under the 2026-10-25 founder re-tier, AWS ECS is
+the only GA cloud target; Lambda (`aws-serverless/*`) and EKS (`aws-eks/*`) cells are informational
+Preview, are never counted and never block. (The `lambda-certification` class name is historical: its
+verdict is the `cloud-parity` gate, which now certifies the ECS cells only.)
 
-- `deterministic-journey`: deterministic passes on all four GA cells.
+- `deterministic-journey`: deterministic passes on both GA cells.
 - `nightly-model-journey`: a genuine-model pass on ECS with Redis off.
-- `genuine-model-journey`: genuine-model passes on all four GA cells during the burn.
-- `update-rollback`: passing update and rollback proof on each of the four GA cells, using signed
+- `genuine-model-journey`: genuine-model passes on both GA cells during the burn.
+- `update-rollback`: passing update and rollback proof on each GA cell, using signed
   rc.3 → rc.N → rc.3 locks, a GP job in flight that finishes exactly once, and the schema rollback
   boundary. Each cell records its own `updateStatus` and `rollbackStatus`, and both must pass.
 
@@ -146,7 +149,7 @@ The checker reads these paths under `--evidence-dir`:
 A class receipt repeats the record reference fields and adds `kind` and `freshUntil`. Journey receipts
 add `cells` with the attempt ledger above. The update/rollback receipt adds top-level `updateStatus` and
 `rollbackStatus`, `fromLockDigest` (retained lock), `toLockDigest` (selected candidate lock),
-and `cells`, exactly one for each of the four GA cells. The two lock digests must differ and
+and `cells`, exactly one for each GA cell. The two lock digests must differ and
 `toLockDigest` must equal the receipt's `lockDigest`. A first-release self-rollback does not qualify.
 Each cell requires:
 

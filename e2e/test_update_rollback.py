@@ -160,7 +160,7 @@ def test_exactly_once_requires_independent_events_and_stable_output(negative):
 
 def test_rehearsal_does_not_get_promotion_evidence_credit():
     cells = []
-    for cell in sorted(proof.CELLS):
+    for cell in sorted(proof.GA_CELLS):
         result = run(cell=cell, mode="rehearsal")
         result["cleanup"] = result["cost"] = {"status": "pass"}
         cells.append(result)
@@ -172,7 +172,7 @@ def test_rehearsal_does_not_get_promotion_evidence_credit():
 @pytest.mark.parametrize("missing", ["cleanup", "cost", "cell", "binding"])
 def test_no_partial_aggregate_or_unbound_cleanup(missing):
     cells = []
-    for cell in sorted(proof.CELLS):
+    for cell in sorted(proof.GA_CELLS):
         row = run(cell=cell)
         row["cleanup"] = row["cost"] = {"status": "pass"}
         cells.append(row)
@@ -180,6 +180,32 @@ def test_no_partial_aggregate_or_unbound_cleanup(missing):
     if missing == "cell": cells.pop()
     if missing == "binding": cells[0]["runAttempt"] = "2"
     with pytest.raises(proof.ProofError): proof.aggregate(cells)
+
+
+def test_ga_aggregate_is_the_two_ecs_cells_and_refuses_lambda_preview_rows():
+    # Founder re-tier 2026-10-25: AWS ECS is the only GA target; a Lambda cell still runs as Preview.
+    assert proof.GA_CELLS == {"aws-ecs/redis-off", "aws-ecs/redis-on"}
+    assert {"aws-serverless/redis-off", "aws-serverless/redis-on"} <= proof.CELLS
+    cells = []
+    for cell in sorted(proof.GA_CELLS):
+        row = run(cell=cell)
+        row["cleanup"] = row["cost"] = {"status": "pass"}
+        cells.append(row)
+    assert {row["cell"] for row in proof.aggregate(cells)["cells"]} == proof.GA_CELLS
+    extra = run(cell="aws-serverless/redis-on")
+    extra["cleanup"] = extra["cost"] = {"status": "pass"}
+    with pytest.raises(proof.ProofError): proof.aggregate([*cells, extra])
+    with pytest.raises(proof.ProofError): proof.aggregate([cells[0], extra])
+
+
+def test_ecs_preflight_does_not_require_a_distinct_lambda_build():
+    prior, candidate = release("a"), release("b")
+    same_lambda = proof.Release(**{**candidate.__dict__, "lambda_digest": prior.lambda_digest})
+    for cell in sorted(proof.GA_CELLS):
+        proof.preflight(prior, same_lambda, cell, "qualification")
+    for cell in ("aws-serverless/redis-off", "aws-serverless/redis-on"):
+        with pytest.raises(proof.ProofError, match="two distinct immutable server builds"):
+            proof.preflight(prior, same_lambda, cell, "qualification")
 
 
 def test_finalize_binds_actual_teardown_and_meter_to_same_run():
@@ -338,7 +364,7 @@ def test_collector_rehearsal_and_qualification_share_execution_floor_without_inv
     import collect_update_rollback as collector
     for mode in ("rehearsal", "qualification"):
         root = tmp_path / mode
-        for cell in proof.CELLS:
+        for cell in proof.GA_CELLS:
             result = run(cell=cell, mode=mode)
             result["cleanup"] = result["cost"] = {"status": "pass"}
             path = root / cell / "update-rollback-cell.json"

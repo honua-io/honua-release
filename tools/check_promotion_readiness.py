@@ -78,9 +78,10 @@ EVIDENCE_CLASSES = {
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
     **dict.fromkeys(("genuine-model-journey", "update-rollback", COMPATIBILITY_CERTIFICATE_CLASS, "cite"), "qualifying"),
 }
-# Owner amendment 2026-10-16: ECS/Lambda are GA; EKS/Helm is informational Preview.
-# Preview evidence cannot replace any required cell or establish GP execution on Redis-off.
-GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on"})
+# Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target. Lambda (aws-serverless) joins
+# EKS/Helm (owner amendment 2026-10-16) as informational Preview. Preview evidence cannot replace
+# any required cell or establish GP execution on Redis-off.
+GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
 # Policy maximum between a receipt's completion and its freshUntil. A producer may set a
 # shorter bound but never a longer one, so the promotion window always closes. A declared
 # class without a maximum here refuses.
@@ -183,8 +184,10 @@ def _update_rollback_target_images(lock_path: Path, manifest_path: Path) -> dict
         raise ReadinessError("candidate server image pins are missing")
     images = [artifact for artifact in artifacts if isinstance(artifact, dict) and artifact.get("kind") == "image"]
     ecs, lambda_mirror = server.get("digest"), server.get("awsLambdaEcrDigest")
+    # The Lambda mirror pin is required only while a GA cell deploys it.
+    needs_lambda = any(cell.startswith("aws-serverless/") for cell in GA_CELLS)
     if (len(images) != 1 or not _is_digest(ecs) or images[0].get("digest") != ecs
-            or not _is_digest(lambda_mirror)):
+            or needs_lambda and not _is_digest(lambda_mirror)):
         raise ReadinessError("candidate ECS image or Lambda mirror pin is missing or inconsistent")
     return {cell: lambda_mirror if cell.startswith("aws-serverless/") else ecs for cell in GA_CELLS}
 

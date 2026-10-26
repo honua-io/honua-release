@@ -23,10 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / "certification/terminal-journey"
 EVIDENCE = ROOT / "e2e/cloud-evidence"
 # Owner amendment 2026-10-16 supersedes decisions 12/18: EKS is informational Preview.
-GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
-                 for redis in ("off", "on"))
+# Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target; Lambda (aws-serverless) is Preview.
+GA_CELLS = tuple(f"aws-ecs/redis-{redis}" for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-PREVIEW_TARGETS: tuple[str, ...] = ("aws-eks",)
+PREVIEW_TARGETS: tuple[str, ...] = ("aws-serverless", "aws-eks")
 
 
 def drivers():

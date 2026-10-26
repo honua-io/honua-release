@@ -1,6 +1,7 @@
-# AWS promise journeys: four required GA cells, {aws-ecs, aws-serverless} x Redis off/on, plus EKS Preview, where
+# AWS promise journeys: two required GA cells, aws-ecs x Redis off/on, plus Lambda and EKS Preview, where
 # aws-serverless is Lambda + AWS Batch geoprocessing and aws-eks is the Helm chart on EKS (bring-your-own
-# Kubernetes, honua-release#203; the 2026-10-16 owner amendment supersedes decisions 12/18). The mixed
+# Kubernetes, honua-release#203; the 2026-10-16 owner amendment supersedes decisions 12/18; the founder
+# re-tier of 2026-10-25 moves Lambda to Preview and keeps ECS as the only GA cloud target). The mixed
 # ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC root does not exist yet (restore it when
 # honua-iac#209 lands).
 # Every cell retains attempts, records its live cost estimate before teardown, and always runs its teardown job.
@@ -364,10 +365,11 @@ jobs:
       max-parallel: 1
       matrix:
         # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-        # Operator ruling 2026-10-22: Preview deployment targets (aws-eks, per the 2026-10-16 amendment)
-        # do not run in the cloud gate and never block it; `all` is the GA cells only and the report
-        # names the EKS cells "not certified (preview)". An explicit target=aws-eks dispatch still runs it.
-        target: ${{ fromJSON(inputs.update_rollback_run_id != '' && '["aws-serverless","aws-ecs"]' || (inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs"]' || format('["{0}"]', inputs.target)) }}
+        # Operator ruling 2026-10-22: Preview deployment targets (aws-eks per the 2026-10-16 amendment,
+        # aws-serverless per the 2026-10-25 re-tier) do not run in the cloud gate and never block it;
+        # `all` is the GA cells only and the report names the Preview cells "not certified (preview)".
+        # An explicit target=aws-serverless or target=aws-eks dispatch still runs it, as Preview.
+        target: ${{ fromJSON(inputs.update_rollback_run_id != '' && '["aws-ecs"]' || (inputs.target == '' || inputs.target == 'all') && '["aws-ecs"]' || format('["{0}"]', inputs.target)) }}
         redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     permissions:
@@ -379,8 +381,9 @@ jobs:
       target: ${{ matrix.target }}
       redis: ${{ matrix.redis }}
       # A reusable-workflow call cannot carry continue-on-error; the cell's own jobs would, for a
-      # Preview cell. EKS is informational under the explicit 2026-10-16 scope amendment.
-      preview: ${{ matrix.target == 'aws-eks' }}
+      # Preview cell. EKS is informational under the explicit 2026-10-16 scope amendment, and Lambda
+      # under the 2026-10-25 re-tier.
+      preview: ${{ matrix.target == 'aws-eks' || matrix.target == 'aws-serverless' }}
       candidate_ref: ${{ inputs.candidate_ref }}
       prepared_ref: ${{ inputs.prepared_ref }}
       require_real: ${{ inputs.require_real || false }}
@@ -393,7 +396,7 @@ jobs:
       lambda_image: ${{ needs.candidate.outputs.lambda_image }}
       lambda_architecture: ${{ needs.candidate.outputs.lambda_architecture }}
       gp_batch_image: ${{ needs.candidate.outputs.gp_batch_image }}
-      # Bedrock is billed: opt-in for the selected four GA cells; never EKS Preview.
+      # Bedrock is billed: opt-in for the ECS GA cells (or an explicitly dispatched Lambda Preview cell); never EKS Preview.
       enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && (matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}
       lock_digest: ${{ inputs.lock_digest || '' }}
       update_rollback_run_id: ${{ inputs.update_rollback_run_id || '' }}
@@ -405,7 +408,7 @@ jobs:
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
   iac-live:
-    # Supplemental Preview infrastructure evidence; GA certification is the six journey cells.
+    # Supplemental Preview infrastructure evidence; GA certification is the two aws-ecs journey cells.
     continue-on-error: true
     name: "iac-live (terraform-manual-validation, run_live=aws)"
     needs: candidate
@@ -560,7 +563,7 @@ jobs:
           set -euo pipefail
           # Every cell the parity matrix dispatched (an explicitly requested Preview included) must
           # account for its cost. `all` dispatches the GA targets only (operator ruling 2026-10-22).
-          TARGETS="aws-serverless aws-ecs"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
+          TARGETS="aws-ecs"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
           MODES="off on"; [ "$REQUESTED_REDIS" = both ] || MODES="$REQUESTED_REDIS"
           CELLS=""
           for t in $TARGETS; do for r in $MODES; do CELLS="${CELLS:+$CELLS,}$t/redis-$r"; done; done
@@ -598,14 +601,16 @@ jobs:
              --arg iac "$REQUESTED_IAC_LIVE" \
              '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
                     notCertified:(if $target == "all" then
-                      [{cell:"aws-eks/redis-off", status:"not certified (preview)"},
+                      [{cell:"aws-serverless/redis-off", status:"not certified (preview)"},
+                       {cell:"aws-serverless/redis-on", status:"not certified (preview)"},
+                       {cell:"aws-eks/redis-off", status:"not certified (preview)"},
                        {cell:"aws-eks/redis-on", status:"not certified (preview)"}] else [] end),
                     certifying:false,
                     certifyingScope:($full == "true"),
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
               | if .status == "pass" and $full != "true" then
                   .status = "blocked"
-                  | .why = "focused dispatch is diagnostic only; all four GA target x Redis cells are required for certification"
+                  | .why = "focused dispatch is diagnostic only; both GA aws-ecs x Redis cells are required for certification"
                 else . end' \
              merged.json > out/gate-report-cloud.json
 

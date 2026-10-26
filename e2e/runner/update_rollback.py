@@ -29,6 +29,9 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOKEN = re.compile(r"[A-Za-z0-9_.:-]{1,200}\Z")
 CELLS = {f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless") for redis in ("on", "off")}
+# Founder re-tier 2026-10-25: only the AWS ECS cells are GA. A Lambda (aws-serverless) cell can still
+# run as Preview, but the aggregate promotion proof is the GA set.
+GA_CELLS = {f"aws-ecs/redis-{redis}" for redis in ("on", "off")}
 ACTUATORS = {"aws-ecs/redis-off": "terraform-exact-apply", "aws-ecs/redis-on": "honua-aws-ecs-alb",
              "aws-serverless/redis-off": "honua-gitops-aws-lambda", "aws-serverless/redis-on": "honua-gitops-aws-lambda"}
 
@@ -273,7 +276,8 @@ class DeployApi:
 def preflight(prior, candidate, cell, mode):
     require(cell in CELLS, "unsupported update/rollback cell")
     require(prior.source != candidate.source and prior.image != candidate.image
-            and prior.lambda_digest != candidate.lambda_digest, "two distinct immutable server builds required")
+            and (not cell.startswith("aws-serverless/") or prior.lambda_digest != candidate.lambda_digest),
+            "two distinct immutable server builds required")
     if mode == "qualification":
         require(prior.lock_digest and candidate.lock_digest and prior.lock_digest != candidate.lock_digest,
                 "qualification requires two distinct certified signed locks")
@@ -426,9 +430,9 @@ def finalize_cell(receipt, cloud_report):
 
 
 def aggregate(cells):
-    """Four independently finalized cells; rehearsal never emits the promotion evidence class."""
-    require(isinstance(cells, list) and len(cells) == 4 and {r.get("cell") for r in cells} == CELLS,
-            "exactly four unique GA update/rollback cells required")
+    """Every independently finalized GA cell; rehearsal never emits the promotion evidence class."""
+    require(isinstance(cells, list) and len(cells) == len(GA_CELLS) and {r.get("cell") for r in cells} == GA_CELLS,
+            "exactly one update/rollback cell per GA cell required")
     binding = {(r.get("mode"), r.get("fromLockDigest"), r.get("toLockDigest"), r.get("runId"), r.get("runAttempt"),
                 json.dumps(r.get("prior"), sort_keys=True), json.dumps(r.get("candidate"), sort_keys=True)) for r in cells}
     require(len(binding) == 1, "update/rollback cells do not bind the same builds, locks and workflow attempt")
