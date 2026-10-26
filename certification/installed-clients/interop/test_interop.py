@@ -469,6 +469,11 @@ class HandoffIdsTests(unittest.TestCase):
         self.assertFalse(judge.oracle_handoff_ids({"ids": [7, 7, 7]}, FIXTURE, same)[0])
         self.assertFalse(judge.oracle_handoff_ids(ids, FIXTURE, None)[0])
 
+    def test_the_query_observation_carries_the_object_ids_it_hands_on(self):
+        # Gate run 40290299921: the orchestrator handed object ids to the editor but dropped them from the
+        # emitted observation, so the ids oracle had nothing to compare against.
+        self.assertIn('("attributes", "x", "y", "objectId")', SOURCES["orchestrator"])
+
 
 class SeamTests(unittest.TestCase):
     def test_a_failing_consumer_names_both_sides_of_the_seam(self):

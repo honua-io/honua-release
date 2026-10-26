@@ -367,7 +367,9 @@ class Interop:
             rows = observed.get("features") or []
             state["oidField"] = observed.get("objectIdField")
             state["oids"] = {row.get("attributes", {}).get("gid"): row.get("objectId") for row in rows}
-            return {"features": [{key: row.get(key) for key in ("attributes", "x", "y")} for row in rows]}
+            # The object ids travel in the observation too: the ids step is judged against them (managed layer).
+            return {"features": [{key: row.get(key) for key in ("attributes", "x", "y", "objectId")} for row in rows],
+                    "objectIdField": state["oidField"]}
         step(scenario, "query", query, state, ("layer",))
         step(scenario, "ids", lambda: outcome(self.python.call("query-ids", service=handoff["service"], layerId=state["layer"])),
              state, ("layer",))
