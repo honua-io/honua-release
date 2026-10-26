@@ -76,7 +76,7 @@ API = {
         "publication-url": "HonuaStudioLifecycleClient.publicationRequests.poll",
         "published-pointer": "IHonuaStudioPackageClient.GetContentItemPointersAsync",
         "published-content": "IHonuaStudioPackageClient.GetVersionAsync",
-        "published-url": "(no published Studio route reader in Honua.Sdk)",
+        "published-url": "IHonuaStudioPackageClient.GetPublishedArtifactAsync",
     },
     "interop-api-key-revocation": {
         "mint": "honua admin secure createAdminApiKey --secret-output --yes",
@@ -367,7 +367,9 @@ class Interop:
             rows = observed.get("features") or []
             state["oidField"] = observed.get("objectIdField")
             state["oids"] = {row.get("attributes", {}).get("gid"): row.get("objectId") for row in rows}
-            return {"features": [{key: row.get(key) for key in ("attributes", "x", "y")} for row in rows]}
+            # The object ids travel in the observation too: the ids step is judged against them (managed layer).
+            return {"features": [{key: row.get(key) for key in ("attributes", "x", "y", "objectId")} for row in rows],
+                    "objectIdField": state["oidField"]}
         step(scenario, "query", query, state, ("layer",))
         step(scenario, "ids", lambda: outcome(self.python.call("query-ids", service=handoff["service"], layerId=state["layer"])),
              state, ("layer",))
@@ -578,8 +580,8 @@ class Interop:
         step(scenario, "published-pointer", pointer, state, ("version", "resolved"))
         step(scenario, "published-content", lambda: outcome(self.dotnet.call(
             "studio-version", itemId=state["version"]["itemId"], versionId=state["published"])), state, ("published",))
-        # No dependency gate: the missing .NET reader (honua-sdk-dotnet#411) surfaces whatever the upstream steps did.
-        # A reader handed no polled URL refuses, and the judge compares the URL it read with the one the JS SDK polled.
+        # No dependency gate: the .NET reader (Honua.Sdk 1.12.0, honua-sdk-dotnet#411) surfaces whatever the upstream
+        # steps did. A reader handed no polled URL refuses, and the judge compares the URL it read with the one the JS SDK polled.
         step(scenario, "published-url", lambda: outcome(self.dotnet.call(
             "studio-published-url", url=state.get("publicationUrl"))), state)
 

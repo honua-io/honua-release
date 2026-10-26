@@ -77,6 +77,10 @@ async Task<JsonObject> PublishLayer(JsonObject args)
         Srid = 4326,
         PrimaryKey = "gid",
         ServiceName = Text(args, "service"),
+        // Honua.Sdk 1.12.0 (honua-sdk-dotnet#410): a managed publication that declares its edit capabilities,
+        // so the JS SDK can edit the layer this client publishes.
+        StorageMode = "managed",
+        Capabilities = ["Query", "Create", "Update", "Delete"],
         Enabled = true,
     });
     return new JsonObject
@@ -125,7 +129,7 @@ async Task<JsonObject> StudioPointers(JsonObject args)
 }
 
 // IHonuaStudioPackageClient.GetVersionAsync. The judge recomputes contentHash from "contentHashInput" (base64 canonical
-// hash input bytes). Honua.Sdk 1.11.0 exposes it as StudioContentVersion.ContentHashInput (honua-sdk-dotnet#425) from
+// hash input bytes). Honua.Sdk 1.11.0 and later expose it as StudioContentVersion.ContentHashInput (honua-sdk-dotnet#425) from
 // the server's version read (honua-server#5794); a server or SDK without it reports null, which the judge refuses.
 async Task<JsonObject> StudioVersion(JsonObject args)
 {
@@ -140,11 +144,48 @@ async Task<JsonObject> StudioVersion(JsonObject args)
     };
 }
 
-Task<JsonObject> StudioPublishedUrl(JsonObject args) =>
-    // Honua.Sdk 1.10.1 reads Studio drafts, versions and pointers, but has no reader for the
-    // final publication route (/api/v1/studio/published/{route}) in any Honua.Sdk.* package. A reader must
-    // read args.url, the exact URL the JS SDK polled, refuse a missing one, and echo it as "url" (the judge compares).
-    throw new NotSupportedException("Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)");
+// IHonuaStudioPackageClient.GetPublishedArtifactAsync (Honua.Sdk 1.12.0, honua-sdk-dotnet#411). The reader consumes
+// args.url, the exact publication URL the JS SDK polled, and refuses a missing one. The server names that URL as
+// the root-relative published-route resolver path (StudioPublishedRoutes.BuildActiveUrl: "/api/v1/studio/published"
+// plus each escaped route segment); the SDK takes the governed route, so the path is unescaped back to it. An
+// absolute URL must name the candidate origin. The URL is echoed as "url" for the judge to compare.
+const string PublishedBasePath = "/api/v1/studio/published/";
+
+async Task<JsonObject> StudioPublishedUrl(JsonObject args)
+{
+    var url = args["url"]?.GetValue<string>();
+    if (string.IsNullOrWhiteSpace(url))
+    {
+        throw new ArgumentException("no publication URL was handed over by the JS SDK poll");
+    }
+    var path = url;
+    if (Uri.TryCreate(url, UriKind.Absolute, out var absolute) && absolute.Scheme is "http" or "https")
+    {
+        if (!string.Equals(absolute.GetLeftPart(UriPartial.Authority), baseUrl.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("the publication URL names another origin than the candidate");
+        }
+        path = absolute.AbsolutePath;
+    }
+    if (!path.StartsWith(PublishedBasePath, StringComparison.Ordinal) || path.Contains('?') || path.Contains('#'))
+    {
+        throw new ArgumentException("the publication URL is not a published Studio route");
+    }
+    var route = "/" + string.Join('/', path[PublishedBasePath.Length..].Split('/').Select(Uri.UnescapeDataString));
+    var artifact = await root.GetRequiredService<IHonuaStudioPackageClient>().GetPublishedArtifactAsync(route);
+    return new JsonObject
+    {
+        ["url"] = url,
+        ["route"] = artifact.Route,
+        ["publicationId"] = artifact.PublicationId.ToString(),
+        ["itemId"] = artifact.ItemId.ToString(),
+        ["versionId"] = artifact.VersionId.ToString(),
+        ["contentHash"] = artifact.ContentHash,
+        ["contentHashInput"] = artifact.ContentHashInput,
+        ["family"] = artifact.Envelope.Family.ToString(),
+        ["body"] = artifact.Envelope.Body is { } body ? JsonNode.Parse(body.GetRawText()) : null,
+    };
+}
 
 async Task<int> IdentityQuery(JsonObject args) =>
     (await identity!.GetRequiredService<IHonuaFeatureServerClient>().QueryAsync(Text(args, "service"), Int(args, "layerId"), everything)).Features?.Count ?? 0;

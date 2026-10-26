@@ -123,7 +123,7 @@
     {
       "id": "published-url",
       "client": "honua-sdk-dotnet",
-      "api": "(no published Studio route reader in Honua.Sdk)",
+      "api": "IHonuaStudioPackageClient.GetPublishedArtifactAsync",
       "oracle": "interop-published-url",
       "consumes": [
         {
