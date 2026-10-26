@@ -6,7 +6,7 @@ import hashlib
 import json
 import unittest
 
-from mcp_grounding_status_state import admin_release_projection, graph_resource
+from mcp_grounding_status_state import DATASET_CATALOG_SQL, admin_release_projection, dataset_catalog, graph_resource
 from mcp_grounding_status_validation import (clarification_output, declared_status,
                                              grounding_output, process_catalog_resource, catalog_cursors,
                                              scenario, source_context)
@@ -17,6 +17,11 @@ AREA = {"serviceId": "service-42", "serviceName": "sdkreg-area", "layerId": 9,
         "storageLayerId": 7, "connectionId": "connection-42", "locator": "honua_data.sdkreg_area"}
 METADATA = AREA | {"revision": 12, "resourceId": "resource-42", "resourceName": "area",
                    "resourceType": "feature-dataset"}
+# Readable datasets as honua-server 8cb074f7 exposes them on the certification seed: two
+# resources share storage layer 1, and an unowned published service sits beside the owned one.
+DATASETS = {"layers": [{"id": "7", "name": "area"}, {"id": "1", "name": "Mixed Geometry Test Layer"},
+                       {"id": "1", "name": "Mixed Geometry Test Layer imagery"}],
+            "services": ["sdkreg-area", "sdkreg-sites"]}
 CATALOG = {"status": "ok", "catalogVersion": "honua.process_catalog.v1", "processes": [{"processId": "geometry.buffer",
             "displayName": "Buffer geometry", "executionKind": "Job", "entryPoints": ["job"],
             "supportedExecutionModes": ["Async"]}]}
@@ -109,10 +114,23 @@ class GroundingStatusControls(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaises(ValueError): graph_resource(AREA, execute=lambda _: json.dumps(bad))
 
+    def test_readable_dataset_catalog_readback_is_bounded_and_exact(self):
+        self.assertEqual(dataset_catalog(execute=lambda _: json.dumps(DATASETS)), DATASETS)
+        self.assertIn("'raster-dataset'", DATASET_CATALOG_SQL)
+        for bad in ([], {"layers": []}, {"layers": [{"id": "x", "name": "a"}], "services": []},
+                    {"layers": [{"id": "1", "name": ""}], "services": []},
+                    {"layers": [{"id": "1", "name": "a"}, {"id": "1", "name": "a"}], "services": []},
+                    {"layers": [], "services": ["s", "s"]}, {"layers": [], "services": [], "extra": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                dataset_catalog(execute=lambda _, bad=bad: json.dumps(bad))
+
     def test_owned_graph_and_actual_job_catalog_are_required(self):
-        context = source_context(AREA, METADATA, CATALOG)
+        context = source_context(AREA, METADATA, CATALOG, DATASETS)
         self.assertEqual(context["datasetIds"], {"7", "sdkreg-area"})
-        self.assertEqual(context["datasetNames"], {"7": "area", "sdkreg-area": "sdkreg-area"})
+        self.assertEqual(context["datasetIds"], {"7", "sdkreg-area"})
+        self.assertEqual(context["datasetNames"], {"7": frozenset({"area"}), "sdkreg-area": frozenset({"sdkreg-area"}),
+            "1": frozenset({"Mixed Geometry Test Layer", "Mixed Geometry Test Layer imagery"}),
+            "sdkreg-sites": frozenset({"sdkreg-sites"})})
         self.assertEqual(context["processNames"], {"geometry.buffer": "Buffer geometry"})
         for change in (lambda m, c: m.update(resourceType="table"),
                        lambda m, c: m.update(storageLayerId=8),
@@ -121,7 +139,7 @@ class GroundingStatusControls(unittest.TestCase):
             with self.subTest(change=change):
                 metadata, catalog = copy.deepcopy(METADATA), copy.deepcopy(CATALOG)
                 change(metadata, catalog)
-                with self.assertRaises(ValueError): source_context(AREA, metadata, catalog)
+                with self.assertRaises(ValueError): source_context(AREA, metadata, catalog, DATASETS)
 
     def test_process_catalog_must_be_one_json_resource_with_exact_uri(self):
         result = {"contents": [{"uri": "honua://catalog/processes", "mimeType": "application/json",
@@ -134,6 +152,34 @@ class GroundingStatusControls(unittest.TestCase):
             invalid = copy.deepcopy(result)
             change(invalid)
             with self.assertRaises(ValueError): process_catalog_resource(invalid)
+
+    def test_shortlist_may_rank_any_independently_observed_readable_dataset(self):
+        context = source_context(AREA, METADATA, CATALOG, DATASETS)
+        def with_sources(value):
+            value["draftIntent"]["provenance"]["sources"] = [
+                {"sourceId": d["id"], "description": d["displayName"]} for d in value["candidates"]["datasets"]]
+            return value
+        output = grounded()
+        output["candidates"]["datasets"] += [candidate("1", "Dataset", .5), candidate("sdkreg-sites", "Dataset", .5)]
+        output["candidates"]["datasets"][2]["displayName"] = "Mixed Geometry Test Layer imagery"
+        self.assertEqual(grounding_output(with_sources(output), context, "Buffer sdkreg-area geometry"), "grounding-123")
+        for change in (lambda d: d.append(candidate("99", "Dataset", .1)),
+                       lambda d: d.append(candidate("sdkreg-unpublished", "Dataset", .1)),
+                       lambda d: d[2].update(displayName="Some other layer"),
+                       lambda d: d.append(dict(d[2]))):
+            changed = copy.deepcopy(output)
+            change(changed["candidates"]["datasets"])
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "Dataset candidates"):
+                grounding_output(with_sources(changed), context, "Buffer sdkreg-area geometry")
+
+    def test_observed_readable_datasets_must_include_the_owned_layer_and_service(self):
+        for change in (lambda d: d["layers"].pop(0), lambda d: d["services"].remove("sdkreg-area"),
+                       lambda d: d["layers"][0].update(name="renamed"), lambda d: d["services"].append("7"),
+                       lambda d: d.update(extra=[]), lambda d: d["layers"].append({"id": "2"})):
+            datasets = copy.deepcopy(DATASETS)
+            change(datasets)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                source_context(AREA, METADATA, CATALOG, datasets)
 
     def test_paged_catalog_is_joined_only_across_a_complete_continuation(self):
         text = json.dumps(CATALOG)
@@ -150,7 +196,7 @@ class GroundingStatusControls(unittest.TestCase):
         with self.assertRaises(ValueError): catalog_cursors([page(text, "same"), page(text, "same"), page(text)])
 
     def test_shortlist_and_provenance_must_name_owned_graph_and_process(self):
-        context = source_context(AREA, METADATA, CATALOG)
+        context = source_context(AREA, METADATA, CATALOG, DATASETS)
         good = grounded()
         self.assertEqual(grounding_output(good, context, good["draftIntent"]["goal"]), "grounding-123")
         for change in (lambda o: o["candidates"]["datasets"].clear(),
@@ -189,7 +235,7 @@ class GroundingStatusControls(unittest.TestCase):
         after["draftIntent"]["workflowFamily"] = "PublishData"
         after["draftIntent"]["provenance"]["clarificationsAnswered"] = ["workflow_family"]
         after["clarification"] = {"intentId": "grounding-123", "questions": [{"questionId": "publish.source"}]}
-        context = source_context(AREA, METADATA, CATALOG)
+        context = source_context(AREA, METADATA, CATALOG, DATASETS)
         self.assertEqual(clarification_output(before, after, "sdkreg-area", context), "grounding-123")
         for kind, invented in (("datasets", candidate("missing-layer", "Dataset", .95)),
                                ("processes", candidate("missing.process", "Process", .95))):

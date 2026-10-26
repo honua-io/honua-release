@@ -94,6 +94,45 @@ def graph_resource(owned_area, *, execute):
     return rows[0]
 
 
+DATASET_CATALOG_SQL = """WITH snap AS (SELECT s.document AS d FROM honua.metadata_v2_current a JOIN honua.metadata_v2_snapshots s ON s.environment=a.environment AND s.revision=a.revision),
+pubs AS (SELECT p FROM snap CROSS JOIN LATERAL jsonb_array_elements(snap.d->'publications') p),
+binds AS (SELECT b FROM snap CROSS JOIN LATERAL jsonb_array_elements(snap.d->'storageBindings') b),
+res AS (SELECT r FROM snap CROSS JOIN LATERAL jsonb_array_elements(snap.d->'resources') r
+        WHERE r->>'type' IN ('feature-dataset','table','raster-dataset','tile-dataset')),
+layers AS (SELECT DISTINCT COALESCE(pb.b->>'storageLayerId', rb.b->>'storageLayerId') AS id,
+                  COALESCE(NULLIF(res.r#>>'{metadata,name}',''), res.r#>>'{metadata,id}') AS name
+           FROM res JOIN pubs ON pubs.p->>'resourceId'=res.r#>>'{metadata,id}'
+           LEFT JOIN binds pb ON pb.b#>>'{metadata,id}'=pubs.p->>'storageBindingId'
+           LEFT JOIN binds rb ON rb.b->>'resourceId'=res.r#>>'{metadata,id}'),
+services AS (SELECT DISTINCT svc#>>'{metadata,name}' AS name FROM snap CROSS JOIN LATERAL jsonb_array_elements(snap.d->'services') svc
+             WHERE EXISTS (SELECT 1 FROM pubs WHERE pubs.p->>'serviceId'=svc#>>'{metadata,id}'))
+SELECT json_build_object(
+  'layers', COALESCE((SELECT json_agg(json_build_object('id', id, 'name', name) ORDER BY id, name) FROM layers WHERE id IS NOT NULL AND name IS NOT NULL AND name <> ''), '[]'::json),
+  'services', COALESCE((SELECT json_agg(name ORDER BY name) FROM services WHERE name IS NOT NULL AND name <> ''), '[]'::json))::text;"""
+DATASET_TYPES = ("feature-dataset", "table", "raster-dataset", "tile-dataset")
+
+
+def dataset_catalog(*, execute):
+    """Every readable dataset the candidate can rank, read independently from Metadata V2.
+
+    honua-server ranks one Dataset candidate per published dataset resource (ID = its
+    storage layer ID, name = its resource name) and one per published service (ID = name).
+    Several resources can share a storage layer, so an ID can carry more than one name.
+    """
+    value = strict_json(execute(DATASET_CATALOG_SQL))
+    layers, services = (value.get("layers"), value.get("services")) if isinstance(value, dict) else (None, None)
+    if (not isinstance(value, dict) or set(value) != {"layers", "services"}
+            or not isinstance(layers, list) or not isinstance(services, list)
+            or len(layers) > 4096 or len(services) > 4096
+            or any(not isinstance(item, dict) or set(item) != {"id", "name"}
+                   or not isinstance(item["id"], str) or not re.fullmatch(r"[0-9]{1,10}", item["id"])
+                   or not isinstance(item["name"], str) or not item["name"].strip() for item in layers)
+            or any(not isinstance(name, str) or not name.strip() for name in services)
+            or len({(item["id"], item["name"]) for item in layers}) != len(layers) or len(set(services)) != len(services)):
+        raise ValueError("readable dataset catalog readback is malformed")
+    return {"layers": layers, "services": services}
+
+
 def database_query(sql, password, *, run=subprocess.run):
     if not isinstance(password, str) or not password:
         raise ValueError("graph readback requires the owned private database credential")
@@ -122,10 +161,10 @@ def main():
         before = inspect_candidate(authored["candidateSourceSha"], authored["candidateImage"])
         if before != authored["runtimeBinding"]:
             raise ValueError("grounding graph belongs to another candidate runtime")
+        execute = lambda sql: database_query(sql, os.environ.get("HONUA_CERT_DB_PASSWORD"))
         observation = (admin_release_projection(os.environ.get("HONUA_MCP_API_KEY"), args.credential_salt)
-                       if args.admin_preflight else
-                       graph_resource(bootstrap["ownedArea"], execute=lambda sql: database_query(
-                           sql, os.environ.get("HONUA_CERT_DB_PASSWORD"))))
+                       if args.admin_preflight else graph_resource(bootstrap["ownedArea"], execute=execute))
+        datasets = None if args.admin_preflight else dataset_catalog(execute=execute)
         after = inspect_candidate(authored["candidateSourceSha"], authored["candidateImage"])
         if after != before:
             raise ValueError("grounding candidate changed during graph readback")
@@ -143,6 +182,7 @@ def main():
                               {"platformRelease": observation["platformRelease"]} if args.admin_preflight else observation),
                           **({"credentialFingerprint": observation["credentialFingerprint"],
                               "responseSha256": observation["responseSha256"]} if args.admin_preflight else {}),
+                          **({} if args.admin_preflight else {"datasets": datasets}),
                           "candidateSourceSha": authored["candidateSourceSha"],
                           "candidateImage": authored["candidateImage"],
                           "fixtureSha256": authored["fixtureSha256"],
