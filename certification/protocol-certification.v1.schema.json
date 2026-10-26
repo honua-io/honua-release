@@ -28,6 +28,7 @@
     }
   },
   "$defs": {
+    "nugetPackage": {"description": "Installed NuGet package id a .NET certification observation may carry (D7, 2026-10-26).", "const": "Honua.Sdk"},
     "pythonWheel": {"type": "object", "additionalProperties": false, "required": ["filename", "sha256", "source"], "properties": {"filename": {"type": "string", "pattern": "^honua_sdk-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-any\\.whl$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "source": {"const": "pypi"}}},
     "cell": {
       "type": "object",
@@ -58,7 +59,7 @@
         "client_lane": { "type": "string", "minLength": 1 },
         "client_version": { "type": "string", "minLength": 1 },
           "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
-          "client_package": { "$ref": "#/$defs/pythonWheel" },
+          "client_package": { "anyOf": [{ "$ref": "#/$defs/pythonWheel" }, { "$ref": "#/$defs/nugetPackage" }] },
         "client_version_observed": {
           "description": "The exact client version a receipt observed, when client_version names a release line <major>.<minor>.x (R38, honua-release#376).",
           "type": "string",
@@ -235,7 +236,7 @@
         "exercised_capabilities": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url"]
       },
       "allOf": [
-        {"if": {"properties": {"client_lane": {"const": "sdk-python-certification"}}, "required": ["client_lane"]}, "else": {"properties": {"client_package": false, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false}}}}}}, "then": {"if": {"properties": {"result": {"enum": ["pass", "fail"]}}, "required": ["result"]}, "then": {"required": ["client_package"], "properties": {"evidence_receipt": {"properties": {"identity": {"required": ["client_package"]}}}}}}},
+        {"if": {"properties": {"client_lane": {"const": "sdk-python-certification"}}, "required": ["client_lane"]}, "else": {"if": {"properties": {"client_lane": {"const": "sdk-dotnet-certification"}}, "required": ["client_lane"]}, "then": {"properties": {"client_package": {"$ref": "#/$defs/nugetPackage"}, "client_package_digest": {"pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"}, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false, "client_package_digest": false}}}}}, "dependentRequired": {"client_package": ["client_package_digest"], "client_package_digest": ["client_package"]}}, "else": {"properties": {"client_package": false, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false}}}}}}}, "then": {"properties": {"client_package": {"$ref": "#/$defs/pythonWheel"}}, "if": {"properties": {"result": {"enum": ["pass", "fail"]}}, "required": ["result"]}, "then": {"required": ["client_package"], "properties": {"evidence_receipt": {"properties": {"identity": {"required": ["client_package"]}}}}}}},
         {
           "if": {
             "properties": {
@@ -310,10 +311,14 @@
               "evidence_receipt": { "properties": { "identity": { "required": ["client_package_digest"] } } }
             }
           },
-          "else": { "properties": {
-            "client_package_digest": false,
-            "evidence_receipt": { "properties": { "identity": { "properties": { "client_package_digest": false } } } }
-          } }
+          "else": {
+            "if": { "properties": { "client_lane": { "const": "sdk-dotnet-certification" } }, "required": ["client_lane"] },
+            "then": true,
+            "else": { "properties": {
+              "client_package_digest": false,
+              "evidence_receipt": { "properties": { "identity": { "properties": { "client_package_digest": false } } } }
+            } }
+          }
         },
         {
           "if": {

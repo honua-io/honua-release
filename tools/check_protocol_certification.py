@@ -119,6 +119,12 @@ def _owned_source_name(cell: dict) -> str:
         return "esri-compat"
     return "server"
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
+# D7 (2026-10-26): the .NET certification producer records the installed NuGet package's
+# name and digest on each observation. They are observed identity, never governed requirement
+# fields: a row cannot carry them, a cell may, and a cell that does must name the pinned package.
+NUGET_SDK_LANE = "sdk-dotnet-certification"
+NUGET_SDK_PACKAGE = "Honua.Sdk"
+NUGET_IDENTITY_FIELDS = ("client_package", "client_package_digest")
 UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
 UNASSIGNED_SDK_OPERATION_PREFIX = "UNASSIGNED SDK OPERATION CONTRACT:"
 UNASSIGNED_PROTOCOL_HARNESS_PREFIX = "UNASSIGNED PROTOCOL HARNESS CONTRACT:"
@@ -167,8 +173,10 @@ def load_ledger(path: str | Path) -> tuple[dict | None, str | None]:
 
 
 def _requirement_signature(value: dict) -> tuple[object, ...]:
+    observed_only = set(NUGET_IDENTITY_FIELDS) if value.get("client_lane") == NUGET_SDK_LANE else set()
     return tuple(
-        tuple(value[field]) if field in {"scenario_facets", "test_ids"} and isinstance(value.get(field), list)
+        None if field in observed_only
+        else tuple(value[field]) if field in {"scenario_facets", "test_ids"} and isinstance(value.get(field), list)
         else json.dumps(value[field], sort_keys=True) if field in {"budget_expectations", "client_package"} and isinstance(value.get(field), dict)
         else value.get(field)
         for field in sorted(REQUIREMENT_ID_FIELDS)
@@ -319,6 +327,56 @@ def _valid_python_wheel(value: object, version: object) -> bool:
     )
 
 
+def _valid_nuget_identity(cell: dict, expected: dict | None = None) -> bool:
+    """A .NET certification cell may omit the installed package identity. When it carries
+    either field it carries both: the pinned NuGet package id and a canonical SHA-256 of
+    the nupkg, equal to the expected pin whenever one is supplied."""
+    if cell.get("client_lane") != NUGET_SDK_LANE:
+        return False
+    carried = [field for field in NUGET_IDENTITY_FIELDS if field in cell]
+    if not carried:
+        return True
+    package, digest = cell.get("client_package"), cell.get("client_package_digest")
+    if (len(carried) != len(NUGET_IDENTITY_FIELDS) or package != NUGET_SDK_PACKAGE
+            or not isinstance(digest, str) or DIGEST_RE.fullmatch(digest) is None):
+        return False
+    if expected is not None:
+        return (package == expected.get("package") and digest == expected.get("digest")
+                and (expected.get("version") is None or cell.get("client_version") == expected["version"]))
+    return True
+
+
+def expected_nuget_pin(manifest_path: Path, *, package: str | None = None, digest: str | None = None,
+                       version: str | None = None) -> dict[str, dict[str, str]] | None:
+    """The manifest pin with each explicitly supplied field layered over it. A field that is
+    neither supplied nor pinned stays None, so carried identity cannot match it."""
+    pinned = (pinned_client_artifacts(manifest_path) or {}).get("sdk-dotnet")
+    supplied = {field: value for field, value in (("package", package), ("digest", digest), ("version", version))
+                if value}
+    if pinned is None and not (supplied.keys() & {"package", "digest"}):
+        return None
+    merged = {**{"package": None, "digest": None, "version": None}, **(pinned or {}), **supplied}
+    return {"sdk-dotnet": merged}
+
+
+def pinned_client_artifacts(manifest_path: Path) -> dict[str, dict[str, str]] | None:
+    """The NuGet artifact pinned by the platform manifest at this checker's own revision: the
+    revision whose catalog governs the .NET rows. Without PyYAML or the manifest (a retained
+    standalone copy), no pin is known: carried identity is then shape-checked, and release
+    certification refuses it."""
+    try:
+        import yaml
+    except ImportError:
+        return None
+    if not manifest_path.is_file():
+        return None
+    artifact = ((yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {})
+                .get("clientArtifacts", {}).get("honua-sdk-dotnet"))
+    if not isinstance(artifact, dict):
+        return None
+    return {"sdk-dotnet": {field: artifact.get(field) for field in ("package", "version", "digest")}}
+
+
 def _valid_client_package_digest(lane: str, value: object) -> bool:
     if lane == "grpc-typescript":
         if not isinstance(value, str) or not value.startswith("sha512-"):
@@ -341,7 +399,11 @@ def _valid_receipt(
     facet_results = cell.get("facet_results")
     receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
     identity_fields = set(RECEIPT_ID_FIELDS)
-    if str(cell.get("client_lane", "")).startswith("grpc-"):
+    if cell.get("client_lane") == NUGET_SDK_LANE:
+        # Observed installed-package identity; the receipt identity is unchanged.
+        if not _valid_nuget_identity(cell):
+            return False
+    elif str(cell.get("client_lane", "")).startswith("grpc-"):
         if not _valid_client_package_digest(cell["client_lane"], cell.get("client_package_digest")):
             return False
         identity_fields.add("client_package_digest")
@@ -351,7 +413,7 @@ def _valid_receipt(
         if not _valid_python_wheel(cell.get("client_package"), cell.get("client_version")):
             return False
         identity_fields.add("client_package")
-    elif "client_package" in cell:
+    elif "client_package" in cell and cell.get("client_lane") != NUGET_SDK_LANE:
         return False
     if isinstance(cell.get("test_ids"), list):
         identity_fields.add("test_ids")
@@ -899,6 +961,7 @@ def evaluate(
     expected_cut_at: str | datetime | None = None,
     expected_component_source_shas: dict[str, str] | None = None,
     expected_client_versions: dict[str, str] | None = None,
+    expected_client_artifacts: dict[str, dict[str, str]] | None = None,
     now: datetime | None = None,
     requirements: dict | None = None,
     receipt_root: Path | None = None,
@@ -1110,7 +1173,22 @@ def evaluate(
             fail(prefix, f"unknown fields: {', '.join(extra)}")
         if missing:
             continue
-        if str(raw.get("client_lane", "")).startswith("grpc-") and not _valid_client_package_digest(
+        if raw.get("client_lane") == NUGET_SDK_LANE:
+            if any(field in raw for field in NUGET_IDENTITY_FIELDS):
+                pinned = (expected_client_artifacts or {}).get("sdk-dotnet")
+                if not _valid_nuget_identity(raw):
+                    fail(prefix + ".client_package",
+                         f"a .NET cell that carries package identity must carry both the {NUGET_SDK_PACKAGE} "
+                         "package id and a canonical sha256 nupkg digest")
+                elif pinned is not None and not _valid_nuget_identity(raw, pinned):
+                    fail(prefix + ".client_package",
+                         f"observed .NET package {raw.get('client_package')!r} {raw.get('client_package_digest')!r} "
+                         f"for {raw.get('client_version')!r} differs from the pinned NuGet artifact "
+                         f"{pinned.get('package')!r} {pinned.get('version')!r} {pinned.get('digest')!r}")
+                elif pinned is None and tier == "release":
+                    fail(prefix + ".client_package",
+                         "release certification needs the pinned NuGet artifact to verify carried .NET package identity")
+        elif str(raw.get("client_lane", "")).startswith("grpc-") and not _valid_client_package_digest(
             raw["client_lane"], raw.get("client_package_digest")
         ):
             fail(prefix + ".client_package_digest", "gRPC cells must bind the installed published artifact digest")
@@ -1175,7 +1253,7 @@ def evaluate(
             if (not _valid_python_wheel(expected_wheel, raw.get("client_version"))
                     or raw.get("client_package") != expected_wheel):
                 fail(prefix + ".client_package", "executed Python evidence lacks or differs from the governed published wheel")
-        elif "client_package" in raw and raw.get("client_lane") != "sdk-python-certification":
+        elif "client_package" in raw and raw.get("client_lane") not in {"sdk-python-certification", NUGET_SDK_LANE}:
             fail(prefix + ".client_package", "wheel identity is only permitted for the Python certification lane")
         required_bucket = owned_requirement.get("release_bucket") if isinstance(owned_requirement, dict) else None
         if required_bucket is not None and "release_bucket" not in raw:
@@ -1503,6 +1581,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-sdk-js-version")
     parser.add_argument("--expected-sdk-python-version")
     parser.add_argument("--expected-sdk-dotnet-version")
+    parser.add_argument("--expected-sdk-dotnet-package",
+                        help="pinned NuGet package id; overrides clientArtifacts.honua-sdk-dotnet in --manifest")
+    parser.add_argument("--expected-sdk-dotnet-digest",
+                        help="pinned nupkg sha256; overrides clientArtifacts.honua-sdk-dotnet in --manifest")
+    parser.add_argument("--manifest", default=str(Path(__file__).resolve().parents[1] / "platform-manifest.yaml"),
+                        help="platform manifest whose clientArtifacts pin the installed .NET package")
     parser.add_argument("--expected-geospatial-grpc-sha")
     parser.add_argument("--expected-geospatial-mcp-sha")
     parser.add_argument("--requirements", help="exact pinned requirements catalog to evaluate")
@@ -1537,6 +1621,9 @@ def main(argv: list[str] | None = None) -> int:
             "sdk-python": args.expected_sdk_python_version,
             "sdk-dotnet": args.expected_sdk_dotnet_version,
         },
+        expected_client_artifacts=expected_nuget_pin(
+            Path(args.manifest), package=args.expected_sdk_dotnet_package,
+            digest=args.expected_sdk_dotnet_digest, version=args.expected_sdk_dotnet_version),
         now=now,
         requirements=requirements,
         receipt_root=Path(args.matrix).resolve().parent / "sha256",

@@ -24,6 +24,9 @@ def inputs():
     return yaml.safe_load((HERE.parents[1] / "platform-manifest.yaml").read_text()), json.loads((HERE / "matrix.json").read_text())
 
 
+DECLARED = {"owner": "mikemcdougall", "reason": "fixture blocker", "target": "2026.1.x"}
+
+
 def legacy_inputs():
     """The committed matrix without the SDK regression cells, which test_regression.py covers."""
     manifest, matrix = inputs()
@@ -35,7 +38,7 @@ def reblocked_setup_inputs():
     """legacy_inputs with the setup-view cell blocked again, as it was before 0.1.13 fixed sdk-js#1875."""
     manifest, matrix = legacy_inputs()
     cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
-    cell.update(status="blocked", blockedBy=mod.SETUP_BLOCKER)
+    cell.update(status="blocked", blockedBy=mod.SETUP_BLOCKER, **DECLARED)
     return manifest, matrix
 
 
@@ -204,6 +207,8 @@ class MatrixExpectationTests(unittest.TestCase):
             ({"status": "blocked", "blockedBy": "#1875"}, "blocking issue URL"),
             ({"status": "active", "blockedBy": "https://github.com/honua-io/honua-sdk-js/issues/1875"}, "cannot carry"),
             ({"status": "skipped"}, "active or blocked"),
+            ({"owner": "mikemcdougall"}, "cannot carry a blocked declaration"),
+            ({"target": "2026.1.x"}, "cannot carry a blocked declaration"),
             ({"driver": "npm-mcp"}, "every executable"),
             ({"driver": "npm-mcp", "executables": {"honua-mcp": "version"}}, "every executable"),
             ({"driver": "npm-mcp-setup-view"}, "positive toolCount"),
@@ -217,7 +222,33 @@ class MatrixExpectationTests(unittest.TestCase):
                 with self.assertRaisesRegex(mod.CertificationError, message):
                     mod.validate_cell(cell)
 
-    def test_all_active_passing_exits_zero_with_blocked_cells_reported(self):
+    def test_blocked_cells_must_declare_owner_reason_and_target(self):
+        blocked = {"id": "c", "artifact": "honua-sdk-dotnet", "driver": "nuget-import-fidelity", "scenario": "s",
+                   "status": "blocked", "blockedBy": mod.IMPORT_BLOCKER, **DECLARED}
+        mod.validate_cell(blocked)
+        for change in ({"owner": None}, {"owner": ""}, {"owner": "@mikemcdougall"}, {"owner": "a team"},
+                       {"reason": None}, {"reason": "  "}, {"target": None}, {"target": "2026.1"},
+                       {"target": "next"}, {"target": "2026.1.x.1"}, {"target": "2026.1.X"}):
+            cell = {**blocked, **change}
+            for field, value in change.items():
+                if value is None:
+                    cell.pop(field)
+            with self.subTest(change=change), self.assertRaisesRegex(mod.CertificationError, "owner .* reason .* target"):
+                mod.validate_cell(cell)
+
+    def test_committed_matrix_declares_the_two_dotnet_cells_blocked_for_2026_1(self):
+        # Founder decision D6 (2026-10-26): exactly these cells stay declared blocked for 2026.1.
+        _, matrix = inputs()
+        blocked = {cell["id"]: cell for cell in matrix["cells"] if cell["status"] == "blocked"}
+        self.assertEqual(set(blocked), {"nuget-sdk-ogc-tiles", "nuget-service-layer-import-fidelity"})
+        self.assertEqual(blocked["nuget-sdk-ogc-tiles"]["blockedBy"], ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"])
+        self.assertEqual(blocked["nuget-service-layer-import-fidelity"]["blockedBy"], mod.IMPORT_BLOCKER)
+        for cell in blocked.values():
+            self.assertEqual(cell["target"], "2026.1.x")
+            self.assertTrue(cell["owner"] and cell["reason"].strip())
+            mod.validate_cell(cell)
+
+    def test_receipt_carries_each_blocked_declaration(self):
         manifest, matrix = legacy_inputs()
         with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
             mod, "install_npm", return_value=(True, "ok")
@@ -225,7 +256,134 @@ class MatrixExpectationTests(unittest.TestCase):
             mod, "install_nuget", return_value=(True, "ok")
         ), mock.patch.object(mod, "probe_setup_view", return_value=(True, "25 tools")):
             receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
-        self.assertEqual(receipt["status"], "blocked")
+        row = next(r for r in receipt["results"] if r["cell"] == "nuget-service-layer-import-fidelity")
+        cell = next(c for c in matrix["cells"] if c["id"] == row["cell"])
+        self.assertEqual(row["declared"], {field: cell[field] for field in ("owner", "reason", "target")})
+        self.assertTrue(all("declared" not in r for r in receipt["results"] if r["status"] == "pass"))
+        self.assertEqual(mod.verify_receipt(matrix, receipt), [])
+        stripped = copy.deepcopy(receipt)
+        next(r for r in stripped["results"] if r["cell"] == row["cell"]).pop("declared")
+        self.assertIn("nuget-service-layer-import-fidelity: blocked cell must carry its matrix declaration (owner, reason, target)",
+                      mod.verify_receipt(matrix, stripped))
+        retargeted = copy.deepcopy(receipt)
+        next(r for r in retargeted["results"] if r["cell"] == row["cell"])["declared"]["target"] = "2026.2.x"
+        self.assertIn("nuget-service-layer-import-fidelity: blocked cell must carry its matrix declaration (owner, reason, target)",
+                      mod.verify_receipt(matrix, retargeted))
+
+    @staticmethod
+    def _lock_blocks_installed_clients(gate_status):
+        """What the nightly lock says about the installed-clients row the gate report emits."""
+        tools = str(Path(mod.ROOT) / "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        import mint_nightly_lock
+        rows = [{"gate": name, "status": "pass", "why": ""} for name in sorted(mint_nightly_lock.REQUIRED_NIGHTLY_GATES)]
+        next(row for row in rows if row["gate"] == "installed-clients")["status"] = gate_status
+        errors = mint_nightly_lock.failures({"gates": rows})
+        return any(error.startswith("installed-clients:") for error in errors)
+
+    @staticmethod
+    def _full_results(matrix, **overrides):
+        """Every committed cell at its expected outcome: actives pass, blocked cells report their blocker."""
+        results = []
+        for cell in matrix["cells"]:
+            row = {"cell": cell["id"], "status": "blocked" if cell["status"] == "blocked" else "pass"}
+            if cell["status"] == "blocked":
+                row.update(blockedBy=cell["blockedBy"], declared=mod.declaration(cell))
+            row.update(overrides.get(cell["id"], {}))
+            results.append(row)
+        return results
+
+    def test_committed_ruling_lists_exactly_the_declared_cells(self):
+        _, matrix = inputs()
+        ruled = mod.ruled_declarations()
+        blocked = {cell["id"]: cell["target"] for cell in matrix["cells"] if cell["status"] == "blocked"}
+        self.assertEqual(ruled, blocked)
+        self.assertEqual(set(ruled), {"nuget-sdk-ogc-tiles", "nuget-service-layer-import-fidelity"})
+
+    def test_green_the_two_real_declared_cells_pass_with_limitations_and_the_lock_accepts(self):
+        _, matrix = inputs()
+        results = self._full_results(matrix)
+        status = mod.receipt_status(results, mod.ruled_declarations())
+        self.assertEqual(status, "pass")
+        limitations = mod.declared_limitations(results, mod.ruled_declarations())
+        self.assertEqual({item["cell"] for item in limitations}, {"nuget-sdk-ogc-tiles", "nuget-service-layer-import-fidelity"})
+        self.assertTrue(all(item["target"] == "2026.1.x" and item["owner"] and item["reason"]
+                            and item["ruling"] == "dotnet-declared-blocked-2026-10-26" for item in limitations))
+        self.assertFalse(self._lock_blocks_installed_clients(status))
+
+    def test_red_an_undeclared_blocked_cell_holds_the_lock(self):
+        _, matrix = inputs()
+        # The matrix refuses it outright ...
+        cell = {**next(c for c in matrix["cells"] if c["id"] == "nuget-sdk-ogc-tiles")}
+        for field in ("owner", "reason", "target"):
+            cell.pop(field)
+        with self.assertRaisesRegex(mod.CertificationError, "owner .* reason .* target"):
+            mod.validate_cell(cell)
+        # ... and a result without its declaration is not covered even though the ruling names the cell.
+        results = self._full_results(matrix)
+        next(row for row in results if row["cell"] == "nuget-sdk-ogc-tiles").pop("declared")
+        status = mod.receipt_status(results, mod.ruled_declarations())
+        self.assertEqual(status, "blocked")
+        self.assertTrue(self._lock_blocks_installed_clients(status))
+        # So does any other blocked cell: active npm-sdk-auth reporting blocked by a declared-looking blocker.
+        results = self._full_results(matrix, **{"npm-sdk-auth": {
+            "status": "blocked", "blockedBy": ["https://github.com/honua-io/honua-sdk-js/issues/1"],
+            "declared": {"owner": "mikemcdougall", "reason": "not ruled", "target": "2026.1.x"}}})
+        self.assertEqual(mod.receipt_status(results, mod.ruled_declarations()), "blocked")
+
+    def test_red_a_declared_cell_missing_its_ruling_holds_the_lock(self):
+        _, matrix = inputs()
+        results = self._full_results(matrix)
+        ruled = mod.ruled_declarations()
+        for missing in ({cell: target for cell, target in ruled.items() if cell != "nuget-sdk-ogc-tiles"},
+                        {cell: "2026.2.x" for cell in ruled},  # the ruling's target differs
+                        {}):
+            with self.subTest(ruled=missing):
+                status = mod.receipt_status(results, missing)
+                self.assertEqual(status, "blocked")
+                self.assertTrue(self._lock_blocks_installed_clients(status))
+        with tempfile.TemporaryDirectory() as tmp:
+            overrides = json.loads(mod.DECISION_OVERRIDES.read_text())
+            ruling = overrides["rulings"].pop(mod.DECLARED_BLOCKED_RULING)
+            path = Path(tmp) / "overrides.json"
+            path.write_text(json.dumps(overrides))
+            self.assertEqual(mod.ruled_declarations(path), {})
+            overrides["rulings"][mod.DECLARED_BLOCKED_RULING] = {**ruling, "owner": "release captain"}
+            path.write_text(json.dumps(overrides))
+            self.assertEqual(mod.ruled_declarations(path), {})  # only a founder ruling counts
+
+    def test_red_a_failing_cell_still_fails_beside_declared_cells(self):
+        _, matrix = inputs()
+        results = self._full_results(matrix, **{"nuget-sdk-auth": {"status": "fail"}})
+        status = mod.receipt_status(results, mod.ruled_declarations())
+        self.assertEqual(status, "fail")
+        self.assertTrue(self._lock_blocks_installed_clients(status))
+
+    def test_verify_receipt_binds_declared_limitations(self):
+        manifest, matrix = legacy_inputs()
+        results = self._full_results(matrix)
+        ruled = mod.ruled_declarations()
+        good = {"status": "pass", "declaredLimitations": mod.declared_limitations(results, ruled), "results": results}
+        self.assertEqual(mod.verify_receipt(matrix, good), [])
+        for broken in ({**good, "declaredLimitations": None}, {**good, "declaredLimitations": []},
+                       {**good, "status": "blocked"}):
+            with self.subTest(broken=broken.get("status")):
+                self.assertTrue(mod.verify_receipt(matrix, {k: v for k, v in broken.items() if v is not None}))
+        self.assertTrue(mod.verify_receipt(matrix, good, ruled={}))
+
+    def test_all_active_passing_with_ruled_declared_cell_passes_with_its_limitation(self):
+        manifest, matrix = legacy_inputs()
+        with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
+            mod, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
+            mod, "install_nuget", return_value=(True, "ok")
+        ), mock.patch.object(mod, "probe_setup_view", return_value=(True, "25 tools")):
+            receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
+        # The founder ruling lists the blocked import-fidelity cell: a pass with a declared limitation.
+        self.assertEqual(receipt["status"], "pass")
+        self.assertEqual([item["cell"] for item in receipt["declaredLimitations"]], ["nuget-service-layer-import-fidelity"])
+        self.assertEqual(receipt["declaredLimitations"][0]["ruling"], mod.DECLARED_BLOCKED_RULING)
         self.assertEqual(
             [r["status"] for r in receipt["results"]],
             ["pass", "pass", "pass", "pass", "pass", "pass", "blocked", *(["pass"] * 6)],
@@ -299,19 +457,20 @@ class MatrixExpectationTests(unittest.TestCase):
     def test_verify_receipt_requires_every_matrix_cell(self):
         _, matrix = legacy_inputs()
         results = [
-            {"cell": c["id"], "status": "blocked" if c["status"] == "blocked" else "pass", "blockedBy": c.get("blockedBy")}
+            {"cell": c["id"], "status": "blocked" if c["status"] == "blocked" else "pass", "blockedBy": c.get("blockedBy"),
+             **({"declared": mod.declaration(c)} if c["status"] == "blocked" else {})}
             for c in matrix["cells"]
         ]
         receipt = {"status": "blocked", "results": results[:-1]}
         self.assertIn(
             "receipt cells do not match the matrix cells one-to-one and in order",
-            mod.verify_receipt(matrix, receipt),
+            mod.verify_receipt(matrix, receipt, ruled={}),
         )
         wrong_blocker = copy.deepcopy(results)
         next(row for row in wrong_blocker if row["cell"] == "nuget-service-layer-import-fidelity")["blockedBy"] = "https://github.com/honua-io/honua-release/issues/57"
-        self.assertEqual(len(mod.verify_receipt(matrix, {"status": "blocked", "results": wrong_blocker})), 1)
+        self.assertEqual(len(mod.verify_receipt(matrix, {"status": "blocked", "results": wrong_blocker}, ruled={})), 1)
         self.assertEqual(
-            mod.verify_receipt(matrix, {"status": "pass", "results": results}),
+            mod.verify_receipt(matrix, {"status": "pass", "results": results}, ruled={}),
             ["receipt status 'pass' does not follow its cell results"],
         )
 
