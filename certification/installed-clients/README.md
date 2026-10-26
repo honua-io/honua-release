@@ -7,7 +7,8 @@ release, package integrity, source SHA, immutable server image, fixture/config/a
 operation, target, and durable CI evidence URI.
 
 `matrix.json` is the only source of expected outcomes. A cell with `status: active` must pass. A
-cell with `status: blocked` must name the issue that blocks it in `blockedBy`. It still runs on
+cell with `status: blocked` must name the issue that blocks it in `blockedBy` and declare an `owner`
+(GitHub login), a `reason` and a `target` release line such as `2026.1.x`. It still runs on
 every execution and is reported `blocked` only when its specific named blocker is observed.
 Installation, integrity, infrastructure, handshake, and supplied-evidence validation failures
 remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v1` catalog;

@@ -24,6 +24,9 @@ def inputs():
     return yaml.safe_load((HERE.parents[1] / "platform-manifest.yaml").read_text()), json.loads((HERE / "matrix.json").read_text())
 
 
+DECLARED = {"owner": "mikemcdougall", "reason": "fixture blocker", "target": "2026.1.x"}
+
+
 def legacy_inputs():
     """The committed matrix without the SDK regression cells, which test_regression.py covers."""
     manifest, matrix = inputs()
@@ -35,7 +38,7 @@ def reblocked_setup_inputs():
     """legacy_inputs with the setup-view cell blocked again, as it was before 0.1.13 fixed sdk-js#1875."""
     manifest, matrix = legacy_inputs()
     cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
-    cell.update(status="blocked", blockedBy=mod.SETUP_BLOCKER)
+    cell.update(status="blocked", blockedBy=mod.SETUP_BLOCKER, **DECLARED)
     return manifest, matrix
 
 
@@ -204,6 +207,8 @@ class MatrixExpectationTests(unittest.TestCase):
             ({"status": "blocked", "blockedBy": "#1875"}, "blocking issue URL"),
             ({"status": "active", "blockedBy": "https://github.com/honua-io/honua-sdk-js/issues/1875"}, "cannot carry"),
             ({"status": "skipped"}, "active or blocked"),
+            ({"owner": "mikemcdougall"}, "cannot carry a blocked declaration"),
+            ({"target": "2026.1.x"}, "cannot carry a blocked declaration"),
             ({"driver": "npm-mcp"}, "every executable"),
             ({"driver": "npm-mcp", "executables": {"honua-mcp": "version"}}, "every executable"),
             ({"driver": "npm-mcp-setup-view"}, "positive toolCount"),
@@ -216,6 +221,52 @@ class MatrixExpectationTests(unittest.TestCase):
                 cell.update(change)
                 with self.assertRaisesRegex(mod.CertificationError, message):
                     mod.validate_cell(cell)
+
+    def test_blocked_cells_must_declare_owner_reason_and_target(self):
+        blocked = {"id": "c", "artifact": "honua-sdk-dotnet", "driver": "nuget-import-fidelity", "scenario": "s",
+                   "status": "blocked", "blockedBy": mod.IMPORT_BLOCKER, **DECLARED}
+        mod.validate_cell(blocked)
+        for change in ({"owner": None}, {"owner": ""}, {"owner": "@mikemcdougall"}, {"owner": "a team"},
+                       {"reason": None}, {"reason": "  "}, {"target": None}, {"target": "2026.1"},
+                       {"target": "next"}, {"target": "2026.1.x.1"}, {"target": "2026.1.X"}):
+            cell = {**blocked, **change}
+            for field, value in change.items():
+                if value is None:
+                    cell.pop(field)
+            with self.subTest(change=change), self.assertRaisesRegex(mod.CertificationError, "owner .* reason .* target"):
+                mod.validate_cell(cell)
+
+    def test_committed_matrix_declares_the_two_dotnet_cells_blocked_for_2026_1(self):
+        # Founder decision D6 (2026-10-26): exactly these cells stay declared blocked for 2026.1.
+        _, matrix = inputs()
+        blocked = {cell["id"]: cell for cell in matrix["cells"] if cell["status"] == "blocked"}
+        self.assertEqual(set(blocked), {"nuget-sdk-ogc-tiles", "nuget-service-layer-import-fidelity"})
+        self.assertEqual(blocked["nuget-sdk-ogc-tiles"]["blockedBy"], ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"])
+        self.assertEqual(blocked["nuget-service-layer-import-fidelity"]["blockedBy"], mod.IMPORT_BLOCKER)
+        for cell in blocked.values():
+            self.assertEqual(cell["target"], "2026.1.x")
+            self.assertTrue(cell["owner"] and cell["reason"].strip())
+            mod.validate_cell(cell)
+
+    def test_receipt_carries_each_blocked_declaration(self):
+        manifest, matrix = legacy_inputs()
+        with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
+            mod, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
+            mod, "install_nuget", return_value=(True, "ok")
+        ), mock.patch.object(mod, "probe_setup_view", return_value=(True, "25 tools")):
+            receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
+        row = next(r for r in receipt["results"] if r["cell"] == "nuget-service-layer-import-fidelity")
+        cell = next(c for c in matrix["cells"] if c["id"] == row["cell"])
+        self.assertEqual(row["declared"], {field: cell[field] for field in ("owner", "reason", "target")})
+        self.assertTrue(all("declared" not in r for r in receipt["results"] if r["status"] == "pass"))
+        self.assertEqual(mod.verify_receipt(matrix, receipt), [])
+        stripped = copy.deepcopy(receipt)
+        next(r for r in stripped["results"] if r["cell"] == row["cell"]).pop("declared")
+        self.assertEqual(len(mod.verify_receipt(matrix, stripped)), 1)
+        retargeted = copy.deepcopy(receipt)
+        next(r for r in retargeted["results"] if r["cell"] == row["cell"])["declared"]["target"] = "2026.2.x"
+        self.assertEqual(len(mod.verify_receipt(matrix, retargeted)), 1)
 
     def test_all_active_passing_exits_zero_with_blocked_cells_reported(self):
         manifest, matrix = legacy_inputs()
@@ -299,7 +350,8 @@ class MatrixExpectationTests(unittest.TestCase):
     def test_verify_receipt_requires_every_matrix_cell(self):
         _, matrix = legacy_inputs()
         results = [
-            {"cell": c["id"], "status": "blocked" if c["status"] == "blocked" else "pass", "blockedBy": c.get("blockedBy")}
+            {"cell": c["id"], "status": "blocked" if c["status"] == "blocked" else "pass", "blockedBy": c.get("blockedBy"),
+             **({"declared": mod.declaration(c)} if c["status"] == "blocked" else {})}
             for c in matrix["cells"]
         ]
         receipt = {"status": "blocked", "results": results[:-1]}

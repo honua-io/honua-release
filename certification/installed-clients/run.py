@@ -46,6 +46,11 @@ EXECUTABLE_CONTRACTS = {"help", "mcp-stdio", "mcp-proxy"}
 BLOCKER = re.compile(r"https://github\.com/honua-io/[A-Za-z0-9_.-]+/issues/[0-9]+")
 SETUP_BLOCKER = "https://github.com/honua-io/honua-sdk-js/issues/1875"
 IMPORT_BLOCKER = "https://github.com/honua-io/honua-release/issues/418"
+# A blocked cell is a declaration, not only a blocker link: who owns closing it, why it is blocked
+# and the release line that owes the fix (founder decision D6, 2026-10-26).
+DECLARATION_FIELDS = ("owner", "reason", "target")
+OWNER = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
+TARGET = re.compile(r"20[0-9]{2}\.[0-9]+\.(?:x|[0-9]+)")
 NUGET_ORG = "https://api.nuget.org/v3/index.json"
 DOTNET_PROBE = ROOT / "e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.cs"
 _IMPORT_FIDELITY = None
@@ -129,10 +134,19 @@ def validate_cell(cell: dict[str, Any]) -> None:
     if status == "active":
         if "blockedBy" in cell:
             raise CertificationError(f"{cell_id}: an active cell cannot carry blockedBy")
+        if any(field in cell for field in DECLARATION_FIELDS):
+            raise CertificationError(f"{cell_id}: an active cell cannot carry a blocked declaration")
     elif status == "blocked":
         blockers = cell.get("blockedBy") if cell["driver"] in SUITE_DRIVERS else [cell.get("blockedBy", "")]
         if not isinstance(blockers, list) or not blockers or not all(BLOCKER.fullmatch(str(url)) for url in blockers):
             raise CertificationError(f"{cell_id}: a blocked cell must name its blocking issue URL(s)")
+        owner, reason, target = (cell.get(field) for field in DECLARATION_FIELDS)
+        if (not isinstance(owner, str) or not OWNER.fullmatch(owner)
+                or not isinstance(reason, str) or not reason.strip()
+                or not isinstance(target, str) or not TARGET.fullmatch(target)):
+            raise CertificationError(
+                f"{cell_id}: a blocked cell must declare an owner (GitHub login), a reason and a target "
+                "release line such as 2026.1.x")
     else:
         raise CertificationError(f"{cell_id}: status must be active or blocked, not {status!r}")
     if cell["driver"] == "npm-companion":
@@ -926,6 +940,10 @@ def classify(cell: dict[str, Any], observed: str, detail: str) -> tuple[str, str
     return "fail", detail
 
 
+def declaration(cell: dict[str, Any]) -> dict[str, str]:
+    return {field: cell[field] for field in DECLARATION_FIELDS}
+
+
 def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any]) -> list[str]:
     """Every expectation comes from the matrix: active cells pass, blocked cells report their blocker."""
     cells = matrix.get("cells", [])
@@ -947,6 +965,10 @@ def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any]) -> list[str]
                 f"{cell['id']}: blocked cell must report blocked by {cell['blockedBy']}, "
                 f"got {result.get('status')}: {result.get('detail')}"
             )
+        if cell["status"] == "blocked" and result.get("declared") != declaration(cell):
+            violations.append(f"{cell['id']}: blocked cell must carry its matrix declaration (owner, reason, target)")
+        if cell["status"] == "active" and "declared" in result:
+            violations.append(f"{cell['id']}: an active cell cannot carry a blocked declaration")
     violations.extend(verify_suite_steps(cells, by_id))
     if receipt.get("status") != receipt_status(results):
         violations.append(f"receipt status {receipt.get('status')!r} does not follow its cell results")
@@ -1010,6 +1032,7 @@ def execute(
                 result["steps"] = steps
             if cell["status"] == "blocked":
                 result["blockedBy"] = cell["blockedBy"]
+                result["declared"] = declaration(cell)
             results.append(result)
     receipt = make_receipt(manifest, matrix, results, evidence_uri)
     if endpoint_context is not None:

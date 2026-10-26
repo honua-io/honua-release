@@ -182,6 +182,9 @@ HonuaFeatureLayer.queryObjectIds ids: raised HonuaHttpError (status 400)`.
 - An `active` cell must pass every step.
 - A `blocked` cell names each blocked step's issue and the signature (a regex on the oracle summary)
   that must be observed. Every other step must still pass.
+- A `blocked` cell is also a declaration: `owner` (the GitHub login accountable for closing it),
+  `reason`, and `target`, the release line that owes the fix (for example `2026.1.x`). `run.py`
+  refuses a blocked cell without all three, and the receipt and `gate-report.json` row carry them.
 - A blocked step that starts passing turns the cell red until the matrix flips it to `active`. A fix
   is observed, never assumed.
 - A blocked step that fails for a different reason is red.
@@ -193,15 +196,15 @@ The gate reports `pass` only when every cell passes. With matrix-declared blocke
 `blocked`. That is not a pass: the nightly receipt for `installed-clients` is then not `pass`, and no
 lock is minted.
 
-Current blockers (candidate `nightly-87966c3`, pins JS 0.1.14 / MCP 0.1.14 / Python 0.1.13 + admin 0.1.10 / .NET 1.10.3):
+Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `Honua.Sdk 1.12.0`):
 
-| Cell | Blocked steps | Blocker |
-|---|---|---|
-| all three `*-sdk-geoservices` | `apply-edits-update`, `edits-state` | [honua-server#5407](https://github.com/honua-io/honua-server/issues/5407): attribute-only update on a managed layer returns 500 |
-| `npm-sdk-geoservices` | `ids`, `count` | [honua-sdk-js#1894](https://github.com/honua-io/honua-sdk-js/issues/1894): `outFields=OBJECTID` is rejected on layers whose object-id field is not `OBJECTID` |
-| `pypi-sdk-ogc-tiles` | `raster-tile` | [honua-sdk-python#255](https://github.com/honua-io/honua-sdk-python/issues/255): `OgcTilesClient.tile` cannot request PNG |
-| `nuget-sdk-ogc-tiles` | all | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client |
-| `interop-api-key-revocation` | `mcp-revoked` | [honua-server#5435](https://github.com/honua-io/honua-server/issues/5435): the candidate answers the revoked key's MCP session with a JSON-RPC error whose `id` is `null` (HTTP 200), so the proxy's call never returns. The three SDKs are refused on their first call |
+| Cell | Blocked steps | Blocker | Owner | Target |
+|---|---|---|---|---|
+| `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client. OGC API Tiles is not supported in the .NET SDK for 2026.1. | `mikemcdougall` | `2026.1.x` |
+| `nuget-service-layer-import-fidelity` | the cell | [honua-release#418](https://github.com/honua-io/honua-release/issues/418): no producer emits the published-.NET-SDK import-fidelity receipt | `mikemcdougall` | `2026.1.x` |
+
+Every other cell is active. The earlier blockers on the `*-sdk-geoservices`, `pypi-sdk-ogc-tiles` and
+`interop-api-key-revocation` cells were closed by the re-pins that flipped them.
 
 Honua.Sdk 1.12.0 (pinned since the 2026-10-22 rc re-pin) carries honua-sdk-dotnet#424, which closed
 [#410](https://github.com/honua-io/honua-sdk-dotnet/issues/410) (`PublishLayerRequest.StorageMode` /

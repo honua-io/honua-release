@@ -174,7 +174,8 @@ jobs:
           jq --arg label "$PLATFORM_LABEL" --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" \
              --arg status "$SUITE_STATUS" '
             ( [ .results[] | {gate: .cell, status: .status, client: (.package + " " + .version),
-                              scenario: .operationId, why: .detail, blockedBy: .blockedBy, evidence_url: $run} ] ) as $g
+                              scenario: .operationId, why: .detail, blockedBy: .blockedBy, declared: .declared,
+                              evidence_url: $run} ] ) as $g
             | { gate: "installed-clients", platform_label: $label, generatedAt: $ts, evidence_url: $run,
                 server: .server, gates: $g,
                 summary: { pass: ([$g[] | select(.status == "pass")] | length),
@@ -187,8 +188,8 @@ jobs:
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
           {
             echo "## Installed-client SDK regression: $OVERALL"
-            echo "| cell | client | status | why |"; echo "|---|---|---|---|"
-            jq -r '.gates[] | "| \(.gate) | \(.client) | \(.status) | \(.why | gsub("\\|"; "/") | .[0:300]) |"' out/gate-report.json
+            echo "| cell | client | status | declared (owner, target) | why |"; echo "|---|---|---|---|---|"
+            jq -r '.gates[] | "| \(.gate) | \(.client) | \(.status) | \(if .declared then "\(.declared.owner), \(.declared.target)" else "" end) | \(.why | gsub("\\|"; "/") | .[0:300]) |"' out/gate-report.json
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

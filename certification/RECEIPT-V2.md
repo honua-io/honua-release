@@ -87,6 +87,27 @@ The existing 14 RPCs across three clients (42 cells) and explicit 198 exclusions
 remain unchanged. Actual immutable-candidate execution is still required.
 
 
+## Installed .NET SDK package
+
+The `sdk-dotnet-certification` producer records the NuGet package it installed on each
+observation: `client_package` (the package id) and `client_package_digest` (lowercase
+`sha256:<hex>` of the nupkg). Founder decision D7 (2026-10-26) accepts these fields on
+that lane and verifies them. A producer that omits both is checked exactly as before.
+
+- A cell that carries either field carries both. `client_package` must be `Honua.Sdk`, and
+  the digest must be canonical SHA-256. `null` is not "absent": it is refused.
+- The checker compares them with the pinned NuGet artifact,
+  `clientArtifacts.honua-sdk-dotnet` (package, version and digest) in the
+  `platform-manifest.yaml` at the checker's own revision, which is the revision whose
+  catalog generated the `sdk-dotnet-certification` rows. `--expected-sdk-dotnet-package`
+  and `--expected-sdk-dotnet-digest` override it. The cell's `client_version` must equal the
+  pinned version.
+- Release certification refuses carried identity that it cannot verify against a pin.
+- These are observed fields. Governed requirement rows still cannot carry them, they are
+  not part of the requirement signature, and the v2 receipt identity stays closed: a receipt
+  identity that carries either field is refused.
+- Every other non-gRPC, non-Python lane keeps the #657/#663 refusal.
+
 ## Installed Python SDK wheel
 
 The `sdk-python-certification` lane binds `client_package` in both observation and
