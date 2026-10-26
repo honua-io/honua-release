@@ -220,6 +220,8 @@ class GroundingStatusControls(unittest.TestCase):
         declaration = {"schema": "honua.mcp-ops-config-declaration/v1",
                        "environment": {"ControlPlane__PlatformRelease__Version": "2026.1",
                                        "ControlPlane__PlatformRelease__ServingArtifactReference": serving,
+                                       "ControlPlane__PlatformRelease__Workers__0__RuntimeProfile": "managed",
+                                       "ControlPlane__PlatformRelease__Workers__0__ArtifactReference": serving,
                                        "ControlPlane__DeployTargets__0__TargetId": "cert-ops-skew",
                                        "ControlPlane__DeployTargets__0__ArtifactReference": alternate},
                        "artifactBindings": {"declaredServing": serving, "explicitTestTarget": alternate},
@@ -238,6 +240,66 @@ class GroundingStatusControls(unittest.TestCase):
                        lambda p: p["serving"][0].update(targetKind="unprojected")):
             changed = copy.deepcopy(projection); change(changed)
             with self.assertRaises(ValueError): declared_status(changed, {"platformRelease": changed}, declaration)
+
+    def test_declared_worker_projects_execution_without_skew(self):
+        # honua-server builds execution entries from ControlPlane:ExecutionWorkloads
+        # (its appsettings ship geoprocessing-local and geoprocessing-aws-batch with no
+        # runtime profile) and resolves each against PlatformRelease:Workers. The
+        # declared managed worker projects only onto a managed-profile workload.
+        declaration, projection, serving, alternate = self.reviewed_skew()
+        projection["execution"] = [
+            {"id": "geoprocessing-local", "runtimeProfile": None, "effectiveArtifactReference": None,
+             "projectedFromRelease": False, "skewed": False},
+            {"id": "geoprocessing-aws-batch", "runtimeProfile": None, "effectiveArtifactReference": None,
+             "projectedFromRelease": False, "skewed": False},
+            {"id": "managed-gp", "runtimeProfile": "Managed", "effectiveArtifactReference": serving,
+             "projectedFromRelease": True, "skewed": False}]
+        self.assertEqual(len(declared_status(projection, {"platformRelease": projection}, declaration)["execution"]), 3)
+        for change in (lambda p: p["execution"][0].update(effectiveArtifactReference=serving),
+                       lambda p: p["execution"][0].update(projectedFromRelease=True),
+                       lambda p: p["execution"][2].update(effectiveArtifactReference=alternate),
+                       lambda p: p["execution"][2].update(projectedFromRelease=False),
+                       lambda p: p["execution"][2].update(skewed=True),
+                       lambda p: p["execution"][2].update(runtimeProfile="native"),
+                       lambda p: p["execution"][1].update(id="geoprocessing-local"),
+                       lambda p: p["execution"][1].update(id="cert-ops-skew"),
+                       lambda p: p["execution"][1].update(workloadKind="unprojected"),
+                       lambda p: p["execution"].append("geoprocessing-local")):
+            changed = copy.deepcopy(projection); change(changed)
+            with self.assertRaises(ValueError): declared_status(changed, {"platformRelease": changed}, declaration)
+
+    def test_reviewed_declaration_must_co_version_the_governed_managed_worker(self):
+        declaration, projection, serving, alternate = self.reviewed_skew()
+        environment = declaration["environment"]
+        for change in (lambda e: e.pop("ControlPlane__PlatformRelease__Workers__0__ArtifactReference"),
+                       lambda e: [e.pop(k) for k in list(e) if "__Workers__" in k],
+                       lambda e: e.update(ControlPlane__PlatformRelease__Workers__0__ArtifactReference=alternate),
+                       lambda e: e.update(ControlPlane__PlatformRelease__Workers__0__RuntimeProfile="native"),
+                       lambda e: e.update(ControlPlane__PlatformRelease__Workers__1__RuntimeProfile="native",
+                                          ControlPlane__PlatformRelease__Workers__1__ArtifactReference=serving),
+                       lambda e: e.update(ControlPlane__PlatformRelease__Workers__2__RuntimeProfile="native")):
+            changed = copy.deepcopy(declaration); change(changed["environment"])
+            with self.assertRaises(ValueError): declared_status(projection, {"platformRelease": projection}, changed)
+        self.assertEqual(environment["ControlPlane__PlatformRelease__Workers__0__ArtifactReference"], serving)
+
+    def reviewed_skew(self):
+        serving = "ghcr.io/honua-io/honua-server@sha256:" + "a" * 64
+        alternate = "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64
+        declaration = {"schema": "honua.mcp-ops-config-declaration/v1",
+                       "environment": {"ControlPlane__PlatformRelease__Version": "2026.1",
+                                       "ControlPlane__PlatformRelease__ServingArtifactReference": serving,
+                                       "ControlPlane__PlatformRelease__Workers__0__RuntimeProfile": "managed",
+                                       "ControlPlane__PlatformRelease__Workers__0__ArtifactReference": serving,
+                                       "ControlPlane__DeployTargets__0__TargetId": "cert-ops-skew",
+                                       "ControlPlane__DeployTargets__0__ArtifactReference": alternate},
+                       "artifactBindings": {"declaredServing": serving, "explicitTestTarget": alternate},
+                       "expectedSkewedIds": ["cert-ops-skew"]}
+        projection = release_projection()
+        projection.update(isCoVersioned=False, skewedIds=["cert-ops-skew"],
+                          serving=[{"id": "cert-ops-skew", "runtimeProfile": None,
+                                    "effectiveArtifactReference": alternate,
+                                    "projectedFromRelease": False, "skewed": True}])
+        return declaration, projection, serving, alternate
 
 
 if __name__ == "__main__":
