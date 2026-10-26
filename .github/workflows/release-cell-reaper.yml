@@ -49,7 +49,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-cell-reaper
+  # Hold the cell lock for the WHOLE sweep: e2e-cloud-aws (provision -> teardown) and
+  # cloud-cell-retirement.yml (state-based recovery) use this group, so no recovery or new cell can
+  # start mid-sweep and race native deletion against a Terraform-state retirement. A pre-sweep
+  # status check alone cannot give that (review of #973). GitHub keeps one pending run per group: a
+  # newer queued run cancels an older pending one, so dispatch cell work one run at a time.
+  group: e2e-cloud-aws
   cancel-in-progress: false
 
 jobs:

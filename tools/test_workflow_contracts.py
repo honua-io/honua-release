@@ -1468,3 +1468,13 @@ def test_release_cells_carry_the_owner_the_reaper_sweeps():
     sweep = _step_text(next(step for step in _workflow("release-cell-reaper.yml")["jobs"]["reap"]["steps"]
                             if step.get("name") == "Sweep orphaned release cells"))
     assert f"--owner-tag {terraform_target.RELEASE_CELL_OWNER}" in sweep
+
+
+def test_release_cell_reaper_holds_the_cell_lock_for_the_whole_sweep():
+    # Review of #973: a one-time "is a recovery active?" check cannot stop a cloud-cell-retirement
+    # recovery (or a new cell) from starting mid-sweep and racing native deletion against a
+    # Terraform-state retirement. The reaper must share the cell workflows' concurrency group.
+    groups = {name: _workflow(name).get("concurrency", {}).get("group")
+              for name in ("release-cell-reaper.yml", "cloud-cell-retirement.yml", "e2e-cloud-aws.yml")}
+    assert len(set(groups.values())) == 1 and None not in groups.values(), groups
+    assert _workflow("release-cell-reaper.yml")["concurrency"]["cancel-in-progress"] is False
