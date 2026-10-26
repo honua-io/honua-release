@@ -346,6 +346,19 @@ def _valid_nuget_identity(cell: dict, expected: dict | None = None) -> bool:
     return True
 
 
+def expected_nuget_pin(manifest_path: Path, *, package: str | None = None, digest: str | None = None,
+                       version: str | None = None) -> dict[str, dict[str, str]] | None:
+    """The manifest pin with each explicitly supplied field layered over it. A field that is
+    neither supplied nor pinned stays None, so carried identity cannot match it."""
+    pinned = (pinned_client_artifacts(manifest_path) or {}).get("sdk-dotnet")
+    supplied = {field: value for field, value in (("package", package), ("digest", digest), ("version", version))
+                if value}
+    if pinned is None and not (supplied.keys() & {"package", "digest"}):
+        return None
+    merged = {**{"package": None, "digest": None, "version": None}, **(pinned or {}), **supplied}
+    return {"sdk-dotnet": merged}
+
+
 def pinned_client_artifacts(manifest_path: Path) -> dict[str, dict[str, str]] | None:
     """The NuGet artifact pinned by the platform manifest at this checker's own revision: the
     revision whose catalog governs the .NET rows. Without PyYAML or the manifest (a retained
@@ -1608,12 +1621,9 @@ def main(argv: list[str] | None = None) -> int:
             "sdk-python": args.expected_sdk_python_version,
             "sdk-dotnet": args.expected_sdk_dotnet_version,
         },
-        expected_client_artifacts=(
-            {"sdk-dotnet": {"package": args.expected_sdk_dotnet_package, "digest": args.expected_sdk_dotnet_digest,
-                            "version": args.expected_sdk_dotnet_version}}
-            if args.expected_sdk_dotnet_package or args.expected_sdk_dotnet_digest
-            else pinned_client_artifacts(Path(args.manifest))
-        ),
+        expected_client_artifacts=expected_nuget_pin(
+            Path(args.manifest), package=args.expected_sdk_dotnet_package,
+            digest=args.expected_sdk_dotnet_digest, version=args.expected_sdk_dotnet_version),
         now=now,
         requirements=requirements,
         receipt_root=Path(args.matrix).resolve().parent / "sha256",

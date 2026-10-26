@@ -1913,6 +1913,25 @@ def test_dotnet_pin_comes_from_the_manifest_that_governs_the_catalog_rows():
     assert report["overall_status"] == "pass", report["findings"]
 
 
+def test_dotnet_pin_overrides_layer_over_the_manifest_one_field_at_a_time():
+    manifest = Path(__file__).parents[1] / "platform-manifest.yaml"
+    pinned = cert.pinned_client_artifacts(manifest)["sdk-dotnet"]
+    assert cert.expected_nuget_pin(manifest) == {"sdk-dotnet": pinned}
+    assert cert.expected_nuget_pin(manifest, digest="sha256:" + "0" * 64)["sdk-dotnet"] == {
+        **pinned, "digest": "sha256:" + "0" * 64}
+    assert cert.expected_nuget_pin(manifest, package="Honua.Sdk")["sdk-dotnet"] == pinned
+    absent = Path(__file__).parent / "no-such-manifest.yaml"
+    assert cert.expected_nuget_pin(absent) is None
+    assert cert.expected_nuget_pin(absent, digest=pinned["digest"])["sdk-dotnet"] == {
+        "package": None, "digest": pinned["digest"], "version": None}
+    # A digest-only override still accepts the observation matching the pinned artifact.
+    carried = _dotnet_cell(client_package="Honua.Sdk", client_package_digest=pinned["digest"])
+    expected = cert.expected_nuget_pin(manifest, digest=pinned["digest"], version="1.6.0")
+    report = _evaluate(_ledger(carried), "nightly", requirements=_requirements(_dotnet_cell()), now=NOW,
+                       expected_client_artifacts=expected)
+    assert report["overall_status"] == "pass", report["findings"]
+
+
 def test_python_wheel_identity_is_governed_not_just_self_consistent():
     cell = _cell(canonical_client="Honua SDK Python", client_lane="sdk-python-certification",
                  client_version="0.1.10", contract_revision="sdk-python-certification@" + SHA)

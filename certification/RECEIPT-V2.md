@@ -100,7 +100,7 @@ that lane and verifies them. A producer that omits both is checked exactly as be
   `clientArtifacts.honua-sdk-dotnet` (package, version and digest) in the
   `platform-manifest.yaml` at the checker's own revision, which is the revision whose
   catalog generated the `sdk-dotnet-certification` rows. `--expected-sdk-dotnet-package`
-  and `--expected-sdk-dotnet-digest` override it. The cell's `client_version` must equal the
+  and `--expected-sdk-dotnet-digest` (and `--expected-sdk-dotnet-version`) each override only their own field of it. The cell's `client_version` must equal the
   pinned version.
 - Release certification refuses carried identity that it cannot verify against a pin.
 - These are observed fields. Governed requirement rows still cannot carry them, they are
