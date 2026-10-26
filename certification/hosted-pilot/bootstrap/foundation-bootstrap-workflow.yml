@@ -1,5 +1,20 @@
 # Install as .github/workflows/hosted-pilot-bootstrap.yml in honua-iac.
 # IaC is PUBLIC. Never upload binary plans, Terraform state or private logs.
+#
+# AWS access is a short-lived GitHub OIDC web-identity session. Only the
+# `bootstrap` job may mint an id-token; no job reads static AWS key secrets.
+# Operator steps (once per account):
+#   1. Apply infrastructure/terraform/components/aws-github-oidc with
+#      hosted_pilot_bootstrap_role_enabled = true and the reviewed executor
+#      policy in hosted_pilot_bootstrap_policy_arns. Its trust is exactly
+#      repo:honua-io/honua-iac:environment:terraform-ephemeral.
+#   2. Set repository variable HONUA_AWS_HOSTED_PILOT_BOOTSTRAP_ROLE_ARN to the
+#      hosted_pilot_bootstrap_role_arn output.
+#   3. Restrict the terraform-ephemeral environment's deployment branches to
+#      trunk (GitHub's OIDC sub carries the environment, not the ref).
+#   4. After one successful mode=plan run, delete the AWS_ACCESS_KEY_ID and
+#      AWS_SECRET_ACCESS_KEY repository/environment secrets and the IAM access
+#      key behind them.
 name: Hosted pilot foundation bootstrap
 on:
   workflow_dispatch:
@@ -76,6 +91,12 @@ jobs:
     if: github.repository == 'honua-io/honua-iac' && github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     environment: terraform-ephemeral
+    # Only this job may request a GitHub OIDC token. Job permissions replace
+    # the workflow defaults, so the read scopes are restated.
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
     # The apply step has its own smaller deadline so journal persistence and
     # upload steps still have time after a slow or interrupted deployment.
     timeout-minutes: 45
@@ -147,10 +168,16 @@ jobs:
         with:
           terraform_version: 1.13.5
           terraform_wrapper: false
+      - name: Require hosted pilot bootstrap OIDC role
+        env:
+          HONUA_AWS_HOSTED_PILOT_BOOTSTRAP_ROLE_ARN: ${{ vars.HONUA_AWS_HOSTED_PILOT_BOOTSTRAP_ROLE_ARN }}
+        run: ': "${HONUA_AWS_HOSTED_PILOT_BOOTSTRAP_ROLE_ARN:?Configure the HONUA_AWS_HOSTED_PILOT_BOOTSTRAP_ROLE_ARN repository variable (components/aws-github-oidc hosted_pilot_bootstrap_role_arn); there is no static-key fallback}"'
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.HONUA_AWS_HOSTED_PILOT_BOOTSTRAP_ROLE_ARN }}
+          role-session-name: hosted-pilot-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 3600
+          unset-current-credentials: true
           aws-region: ${{ inputs.region }}
       - name: Prepare exactly one source-reviewed phase without applying
         timeout-minutes: 8
