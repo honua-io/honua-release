@@ -110,7 +110,7 @@ def context_vector():
             "completedAt": "2026-10-19T22:00:01Z"},
         "configuration": {"schema": "honua.mcp-ops-config-observation/v1", "observedAt": "2026-10-19T22:00:00.1Z",
             "runtimeBinding": copy.deepcopy(selected_runtime), "environment": copy.deepcopy(declaration["environment"]),
-            "environmentSha256": declaration["environmentSha256"], "selectedScopeEntryCount": 8,
+            "environmentSha256": declaration["environmentSha256"], "selectedScopeEntryCount": 10,
             "deployedTargetObserved": False, "actuationRequested": False},
         "preflight": {"method": "GET", "url": "http://127.0.0.1:8080/api/v1/admin/deploy/preflight?includeDiagnostics=true",
             "status": 200, "responseText": preflight, "responseSha256": "sha256:" + hashlib.sha256(preflight.encode()).hexdigest(),
@@ -336,7 +336,7 @@ def findings_vector():
     value = {"generatedAt": generated, "findings": [item],
         "evidencePosture": {"schemaVersion": "1.0", "status": "complete", "sources": [aggregate, *sources]}}
     config = {"schema": "honua.mcp-ops-config-observation/v1", "environment": declaration["environment"],
-        "environmentSha256": declaration["environmentSha256"], "selectedScopeEntryCount": 8,
+        "environmentSha256": declaration["environmentSha256"], "selectedScopeEntryCount": 10,
         "observedAt": "2026-10-19T22:00:00Z", "deployedTargetObserved": False, "actuationRequested": False,
         "runtimeBinding": {"candidateSourceSha": declaration["candidateSourceSha"], "candidateImage": declaration["candidateImage"]}}
     preflight = {"platformRelease": {"releaseVersion": release, "releaseDeclared": True,
@@ -360,7 +360,7 @@ class FindingsSemanticControls(unittest.TestCase):
     def test_configuration_and_independent_preflight_cannot_be_substituted(self):
         mutations = (lambda v: v[2].update(environmentSha256="sha256:" + "0" * 64),
             lambda v: v[2]["environment"].update(ControlPlane__PlatformRelease__Version="foreign"),
-            lambda v: v[2].update(selectedScopeEntryCount=9), lambda v: v[2].update(actuationRequested=True),
+            lambda v: v[2].update(selectedScopeEntryCount=11), lambda v: v[2].update(actuationRequested=True),
             lambda v: v[2]["runtimeBinding"].update(candidateSourceSha="c" * 40),
             lambda v: v[3]["platformRelease"].update(skewedIds=[]),
             lambda v: v[3]["platformRelease"].update(isCoVersioned=True))
