@@ -41,15 +41,17 @@ def test_driver_fails_closed_on_missing_inputs_and_unproved_divergence():
     assert "[ \"$failures\" = 0 ]" in text
 
 
-def test_partial_failure_can_never_record_pass_without_the_candidate_runner():
+def test_partial_failure_can_pass_only_through_the_paused_candidate_runner():
     # A hand-written psql transaction only proves PostgreSQL rollback, not application migration
-    # atomicity (honua-io/honua-release#440). Until a probe interrupts a real migration inside the
-    # candidate runner, no line of the driver may record this scenario as pass.
+    # atomicity (honua-io/honua-release#440). The only pass is assert_state at the end of the probe
+    # that paused the candidate's own runner; no line records this scenario as pass directly.
     text = DRIVER.read_text(encoding="utf-8")
-    body = text.split("run_partial_failure() {", 1)[1].split("\n}\n", 1)[0]
-    assert " pass " not in body
-    assert "record partial-migration-failure blocked" in body
-    assert "honua-io/honua-release#440" in body
+    probe = text.split("partial_failure_probe() (", 1)[1].split("\n)\n", 1)[0]
+    assert "LOCK TABLE public.schema_versions IN SHARE MODE" in probe
+    assert "compose up -d --force-recreate server" in probe
+    assert probe.count('assert_state "$name"') == 1
+    assert probe.rstrip().splitlines()[-1].lstrip().startswith('assert_state "$name"')
+    assert "pg_sleep" not in probe.split("compose up -d --force-recreate server", 1)[1]
     for line in text.splitlines():
         assert not ("partial-migration-failure" in line and "record" in line and " pass " in line), line
 
@@ -216,23 +218,127 @@ capture_schema "$OUT/schema.sql"
     assert (tmp_path / "schema.sql").read_text() == "CREATE TABLE t (id integer);\n"
 
 
-def test_partial_failure_reports_blocked_and_fails_the_matrix_even_when_postgres_rolls_back(tmp_path):
-    # Every database and compose call succeeds, as it would when PostgreSQL rollback works.
-    result = run_driver(tmp_path, r'''
+def test_partial_failure_never_passes_when_postgres_only_succeeds(tmp_path):
+    # Every database and compose call succeeds, as it would when PostgreSQL rollback works but no
+    # candidate runner was ever observed paused inside a migration: vacuous, so never pass.
+    result = run_driver(tmp_path, r"""
 restore_baseline() { :; }
+migration_names() { echo m2.sql; }
 db_exec() { echo 0; }
 compose() { :; }
 sleep() { :; }
 run_partial_failure
-''')
+""", CHAOS_PARTIAL_ATTEMPTS="2")
     assert result.returncode != 0
     scenarios = json.loads((tmp_path / "scenario-matrix.json").read_text())["scenarios"]
-    assert scenarios == [{
-        "scenario": "partial-migration-failure",
-        "status": "blocked",
-        "why": "not evidence: no probe interrupts a real migration inside the candidate runner "
-               "(honua-io/honua-release#440)",
-    }]
+    assert [s["status"] for s in scenarios] == ["blocked", "blocked"]
+    assert all(s["status"] != "pass" for s in scenarios)
+
+
+# A controlled candidate runner: it pauses inside pending migration m2.sql (xid + write locks) behind
+# the harness's journal lock. FAULT injects a broken recovery after the interruption.
+PARTIAL_STUB = r"""
+for f in journal checksums schema; do printf 'pre-%s\n' "$f" > "$OUT/live-$f"; printf 'post-%s\n' "$f" > "$OUT/expected-$f.txt"; done
+mv "$OUT/expected-schema.txt" "$OUT/expected-schema.sql"
+printf 'post-journal\nm2.sql\n' > "$OUT/expected-journal.txt"
+restore_baseline() { for f in journal checksums schema; do printf 'pre-%s\n' "$f" > "$OUT/live-$f"; done; rm -f "$OUT/ups" "$OUT/interrupted"; }
+migration_names() { echo m2.sql; }
+capture_state() { cp "$OUT/live-journal" "$1"; cp "$OUT/live-checksums" "$2"; }
+capture_schema() { cp "$OUT/live-schema" "$1"; }
+sleep() { :; }
+interrupt() {
+  touch "$OUT/interrupted"
+  case "$FAULT" in
+    journaled) echo m2.sql >> "$OUT/live-journal" ;;
+    partial-schema) echo 'CREATE TABLE honua.half_done ();' >> "$OUT/live-schema" ;;
+    rows) echo changed >> "$OUT/live-checksums" ;;
+  esac
+}
+db_exec() {
+  case "$1" in
+    *"LOCK TABLE public.schema_versions IN SHARE MODE"*) echo "$1" >> "$OUT/holder-sql" ;;
+    *"l.mode = 'ShareLock'"*) echo 41 ;;
+    *pg_blocking_pids*)
+      [ -f "$OUT/ups" ] || return 0
+      case "$FAULT" in no-xid) echo '77|false|0' ;; never-paused) ;; *) echo '77|true|3' ;; esac ;;
+    *"pg_terminate_backend(77)"*) interrupt; echo t ;;
+    *pg_terminate_backend*) echo t ;;
+    *"count(*) FROM pg_stat_activity"*) echo 0 ;;
+  esac
+  return 0
+}
+compose() {
+  case "$*" in
+    'up -d --force-recreate server')
+      echo up >> "$OUT/ups"
+      if [ "$(wc -l < "$OUT/ups")" -gt 1 ] && [ "$FAULT" != no-converge ]; then
+        cp "$OUT/expected-journal.txt" "$OUT/live-journal"; cp "$OUT/expected-checksums.txt" "$OUT/live-checksums"
+        cp "$OUT/expected-schema.sql" "$OUT/live-schema"
+      fi ;;
+    'kill -s SIGKILL server') interrupt ;;
+    'logs server')
+      echo "Executing Database Server script 'm1.sql'"
+      echo "Executing Database Server script 'm2.sql'"
+      if [ -f "$OUT/interrupted" ] && [ "$FAULT" != silent ]; then echo 'Database migration failed'; fi ;;
+  esac
+  return 0
+}
+stop_server() { :; }
+server_ready() { [ "$FAULT" = ready-after-terminate ]; }
+wait_ready() { [ "$FAULT" != retry-unready ]; }
+"""
+
+
+def test_partial_failure_passes_when_the_runner_rolls_back_and_retries(tmp_path):
+    result = run_driver(tmp_path, PARTIAL_STUB + "run_partial_failure\n", FAULT="none",
+                        CHAOS_PARTIAL_ATTEMPTS="2")
+    assert result.returncode == 0, result.stdout + result.stderr
+    scenarios = json.loads((tmp_path / "scenario-matrix.json").read_text())["scenarios"]
+    assert [(s["scenario"], s["status"]) for s in scenarios] == [
+        ("partial-migration-failure:backend-terminated", "pass"),
+        ("partial-migration-failure:server-killed", "pass"),
+    ]
+    assert all("'m2.sql'" in s["why"] for s in scenarios)
+    assert "LOCK TABLE public.schema_versions IN SHARE MODE" in (tmp_path / "holder-sql").read_text()
+
+
+@pytest.mark.parametrize("fault,status,why", [
+    ("journaled", "fail", "interrupted migration 'm2.sql' was journaled"),
+    ("partial-schema", "fail", "partial schema from interrupted 'm2.sql' survived"),
+    ("rows", "fail", "seeded rows changed after interrupting 'm2.sql'"),
+    ("no-converge", "fail", "diverged after restart"),
+    ("retry-unready", "fail", "candidate did not become ready when retrying"),
+    ("no-xid", "blocked", "never observed the candidate runner paused"),
+    ("never-paused", "blocked", "never observed the candidate runner paused"),
+])
+def test_partial_failure_catches_broken_recovery(tmp_path, fault, status, why):
+    result = run_driver(tmp_path, PARTIAL_STUB + "run_partial_failure\n", FAULT=fault,
+                        CHAOS_PARTIAL_ATTEMPTS="2")
+    assert result.returncode != 0, result.stdout
+    scenarios = json.loads((tmp_path / "scenario-matrix.json").read_text())["scenarios"]
+    assert len(scenarios) == 2 and all(s["status"] == status for s in scenarios), scenarios
+    assert all(why in s["why"] for s in scenarios), scenarios
+
+
+@pytest.mark.parametrize("fault,why", [
+    ("ready-after-terminate", "server reported ready after its migration transaction was terminated"),
+    ("silent", "runner emitted no migration failure"),
+])
+def test_terminated_runner_must_own_its_failure(tmp_path, fault, why):
+    result = run_driver(tmp_path, PARTIAL_STUB + 'partial_failure_probe backend-terminated\n',
+                        FAULT=fault, CHAOS_PARTIAL_ATTEMPTS="2")
+    assert result.returncode != 0
+    scenarios = json.loads((tmp_path / "scenario-matrix.json").read_text())["scenarios"]
+    assert scenarios == [{"scenario": "partial-migration-failure:backend-terminated",
+                          "status": "fail", "why": scenarios[0]["why"]}]
+    assert why in scenarios[0]["why"]
+
+
+def test_paused_script_must_be_a_pending_candidate_migration(tmp_path):
+    result = run_driver(tmp_path, PARTIAL_STUB + 'migration_names() { echo other.sql; }\n'
+                        'partial_failure_probe server-killed\n', FAULT="none", CHAOS_PARTIAL_ATTEMPTS="2")
+    assert result.returncode != 0
+    assert "paused script 'm2.sql' is not a pending candidate migration" in result.stdout
 
 
 @pytest.mark.parametrize("historical", [True, False])
@@ -393,3 +499,38 @@ run_concurrent_start
     # only an independently observed absence can qualify completed cleanup.
     assert (result.returncode == 0) == passed,result.stderr
     assert len((tmp_path/"removed").read_text().splitlines()) == 2
+
+
+def test_reference_state_is_migrated_from_the_restored_baseline():
+    # A dump restore re-deparses CHECK expressions; the expected schema must come from the same
+    # restored-baseline path every scenario migrates, or recovery diverges on deparse noise alone.
+    text = DRIVER.read_text(encoding="utf-8")
+    prepare = text.split("prepare_fixture() {", 1)[1].split("\n}\n", 1)[0]
+    candidate = prepare.split("candidate image -> normal migration", 1)[1]
+    assert candidate.index("restore_baseline") < candidate.index('restart_image "$CANDIDATE_IMAGE"')
+    assert candidate.index('restart_image "$CANDIDATE_IMAGE"') < candidate.index('capture_schema "$EXPECTED_SCHEMA"')
+
+
+def test_failure_diagnostic_survives_pipefail_on_large_logs(tmp_path):
+    # A large real log made `compose logs | grep -q` SIGPIPE the producer and read as "no diagnostic".
+    result = run_driver(tmp_path, PARTIAL_STUB + r'''
+compose() {
+  case "$*" in
+    'logs server')
+      echo "Executing Database Server script 'm2.sql'"
+      echo 'Database migration failed: 57P01'
+      seq 1 2000000
+      return $? ;;  # like docker compose, report the producer's SIGPIPE status
+    'up -d --force-recreate server') echo up >> "$OUT/ups"
+      if [ "$(wc -l < "$OUT/ups")" -gt 1 ]; then
+        cp "$OUT/expected-journal.txt" "$OUT/live-journal"; cp "$OUT/expected-checksums.txt" "$OUT/live-checksums"
+        cp "$OUT/expected-schema.sql" "$OUT/live-schema"
+      fi ;;
+  esac
+  return 0
+}
+set -o pipefail
+partial_failure_probe backend-terminated
+''', FAULT="none", CHAOS_PARTIAL_ATTEMPTS="2")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "[PASS   ] partial-migration-failure:backend-terminated" in result.stdout
