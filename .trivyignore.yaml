@@ -1,0 +1,74 @@
+# Trivy accepted-exception ledger for gate-security (repo-scan passes it as `trivyignores`).
+#
+# Founder decision D1 (2026-10-26): security groups get no unrestricted egress unless they need it.
+# Data-tier groups (RDS, ElastiCache in the pinned honua-iac aws-ecs module) carry none. Each
+# app-tier group that still needs outbound HTTPS to 0.0.0.0/0 has exactly one entry here, scoped to
+# the one file that holds that one rule. `statement` records reason, owner, review point and
+# follow-up; Trivy reports it with the suppressed finding (`--show-suppressed --format json`).
+#
+# Rules for this file:
+#   - one entry per rule; never widen `paths` to a directory or a glob;
+#   - the honua-iac module path carries the pinned ref, so a module repin fails the gate until the
+#     exception is re-reviewed against the new module source and its path updated here;
+#   - remove an entry when honua-io/honua-iac#311 (VPC endpoints + egress allow-list/proxy for the
+#     app tier) tightens its rule.
+
+misconfigurations:
+  - id: AWS-0104
+    paths:
+      - "git::https:/github.com/honua-io/honua-iac.git/infrastructure/terraform/modules/aws-ecs?ref=9b5669ef6975289dccc62a5dbb1903cd4b630c3d/infrastructure/terraform/modules/aws-ecs/main.tf"
+    statement: >-
+      honua-iac aws-ecs aws_security_group.ecs "Outbound HTTPS" (TCP 443 to 0.0.0.0/0), Server task.
+      Reason: image pulls, OIDC discovery/JWKS, STS, S3, Secrets Manager, KMS, CloudWatch Logs,
+      geocoders and customer data sources through the NAT.
+      Owner: Mike McDougall (mike@honua.io).
+      Review: 2026.1.x.
+      Follow-up: VPC endpoints + egress allow-list/proxy for app tier, honua-io/honua-iac#311.
+      Decision: founder D1, 2026-10-26.
+
+  - id: AWS-0104
+    paths:
+      - "certification/hosted-pilot/application/console.tf"
+    statement: >-
+      hosted-pilot aws_security_group.console (TCP 443 to 0.0.0.0/0), Console task.
+      Reason: image pull, Secrets Manager, CloudWatch Logs, OIDC and Server through its public ALB
+      origin over certificate-validated HTTPS through the NAT.
+      Owner: Mike McDougall (mike@honua.io).
+      Review: 2026.1.x.
+      Follow-up: VPC endpoints + egress allow-list/proxy for app tier, honua-io/honua-iac#311.
+      Decision: founder D1, 2026-10-26.
+
+  - id: AWS-0104
+    paths:
+      - "certification/hosted-pilot/campaign/target.tf"
+    statement: >-
+      hosted-pilot aws_security_group.controller (TCP 443 to 0.0.0.0/0), trusted controller.
+      Reason: image pull, AWS APIs (STS, SQS, S3, Secrets Manager, CloudWatch Logs, Bedrock) and
+      Server through its public ALB origin through the NAT.
+      Owner: Mike McDougall (mike@honua.io).
+      Review: 2026.1.x.
+      Follow-up: VPC endpoints + egress allow-list/proxy for app tier, honua-io/honua-iac#311.
+      Decision: founder D1, 2026-10-26.
+
+  - id: AWS-0104
+    paths:
+      - "certification/hosted-pilot/campaign/worker-security-group.tf"
+    statement: >-
+      hosted-pilot aws_security_group.worker (TCP 443 to 0.0.0.0/0), agent worker.
+      Reason: image pull, AWS APIs (SQS, S3, CloudWatch Logs, Bedrock) and candidate endpoints
+      through the NAT.
+      Owner: Mike McDougall (mike@honua.io).
+      Review: 2026.1.x.
+      Follow-up: VPC endpoints + egress allow-list/proxy for app tier, honua-io/honua-iac#311.
+      Decision: founder D1, 2026-10-26.
+
+  - id: AWS-0104
+    paths:
+      - "certification/hosted-pilot/campaign/installed-controller-identity.tf"
+    statement: >-
+      hosted-pilot aws_security_group.installed_controller (TCP 443 to 0.0.0.0/0), installed poller.
+      Reason: image pull, AWS APIs and Server through its public ALB origin through the NAT.
+      Owner: Mike McDougall (mike@honua.io).
+      Review: 2026.1.x.
+      Follow-up: VPC endpoints + egress allow-list/proxy for app tier, honua-io/honua-iac#311.
+      Decision: founder D1, 2026-10-26.

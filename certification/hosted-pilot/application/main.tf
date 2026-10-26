@@ -29,7 +29,7 @@ resource "random_password" "bootstrap_admin" {
 }
 
 module "server" {
-  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=a5e5a425521fd378a87ca88abc80fa925cea5cda"
+  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=9b5669ef6975289dccc62a5dbb1903cd4b630c3d"
 
   permissions_boundary_arn    = var.permissions_boundary_arn
   existing_vpc_id             = local.application_network.vpc_id
