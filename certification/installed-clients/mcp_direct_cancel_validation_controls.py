@@ -141,6 +141,23 @@ def judge(value):
 
 
 class DirectCancelValidationControls(unittest.TestCase):
+    def test_workload_outlasts_the_denial_window_and_stays_cancellable(self):
+        # A single 0.8 m MultiPoint finished in ~3s on 8cb074f7, before the owner's cancel.
+        # The executor checks cancellation between features, so the workload is many features
+        # without a dissolve union; that ran ~69s uncancelled and cancelled within ~5s.
+        plan = oracle.authored_plan("0" * 24)
+        inputs = plan["steps"][0]["inputs"]
+        self.assertEqual(inputs["dissolve"], "false")
+        self.assertEqual(inputs["distance"], "6")
+        collection = json.loads(base64.b64decode(inputs["input"].split(",", 1)[1]))
+        features = collection["features"]
+        self.assertEqual(len(features), 16)
+        points = [tuple(point) for feature in features for point in feature["geometry"]["coordinates"]]
+        self.assertEqual(len(points), 10000)
+        self.assertEqual(len(set(points)), 10000)
+        self.assertTrue(all(feature["geometry"]["type"] == "MultiPoint" for feature in features))
+        self.assertLess(len(("plan=" + json.dumps(plan)).encode()), 120000)
+
     def test_both_original_synthetic_client_vectors_require_running_cancelled_and_empty_late_result(self):
         for inspector in (False, True):
             with self.subTest(inspector=inspector):

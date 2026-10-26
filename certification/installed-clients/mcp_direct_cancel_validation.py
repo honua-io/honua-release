@@ -38,25 +38,39 @@ def instant(value):
     return parsed
 
 
+WORKLOAD_POINTS = 10000
+WORKLOAD_FEATURES = 16
+WORKLOAD_DISTANCE = "6"
+
+
 def authored_plan(nonce):
     if not isinstance(nonce, str) or not re.fullmatch(r"[a-f0-9]{24}", nonce):
         raise ValueError("direct cancel requires fresh bounded nonce")
-    # One MultiPoint keeps 10,000 actual buffer coordinates while avoiding a
-    # megabyte of repeated Feature JSON in Inspector's single argv value.
-    points = [[n % 100, n // 100] for n in range(10000)]
-    features = [{"type": "Feature", "geometry": {"type": "MultiPoint", "coordinates": points},
-                 "properties": {}}]
+    # The job must stay Running through the ordered non-owner denials (limited, anonymous,
+    # other tenant and their store snapshots, about 22s on a slow Inspector lane) and still
+    # stop promptly once the owner cancels. The managed executor checks cancellation between
+    # features, so 10,000 coordinates are split into WORKLOAD_FEATURES MultiPoints whose
+    # overlapping 6 m buffers each take a few seconds, without a final dissolve union. On the
+    # 8cb074f7 candidate this ran about 69s uncancelled, and a cancel after 10s of Running
+    # reached Cancelled in about 5s with no artifacts. A single 0.8 m MultiPoint finished in
+    # about 3s, before the owner's cancel.
+    per = WORKLOAD_POINTS // WORKLOAD_FEATURES
+    features = [{"type": "Feature", "geometry": {"type": "MultiPoint",
+                 "coordinates": [[n % 100, n // 100] for n in range(index * per, (index + 1) * per)]},
+                 "properties": {}} for index in range(WORKLOAD_FEATURES)]
+    points = [point for feature in features for point in feature["geometry"]["coordinates"]]
     geojson = json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":"), allow_nan=False).encode()
     uri = "data:application/geo+json;base64," + base64.b64encode(geojson).decode("ascii")
     plan_id = "mcp-direct-cancel-" + nonce
     plan = {"planId": plan_id, "intentId": plan_id, "outputs": ["FeatureLayer"], "steps": [
         {"stepId": "owned-buffer", "kind": "Geoprocess", "processId": PROCESS,
-         "inputs": {"input": uri, "distance": "0.8", "unit": "meters", "dissolve": "true", "sourceCrs": "EPSG:3857"}}]}
+         "inputs": {"input": uri, "distance": WORKLOAD_DISTANCE, "unit": "meters", "dissolve": "false", "sourceCrs": "EPSG:3857"}}]}
     # Inspector passes each tool argument through argv. Keep the complete
     # authored plan below the Linux per-argument ceiling, with room for the
     # CLI's key/value framing; the live oracle still requires Running.
     inspector_plan_arg = ("plan=" + json.dumps(plan)).encode()
-    if (len(features) != 1 or len(points) != 10000 or len(geojson) > 85000 or len(inspector_plan_arg) >= 120000
+    if (len(features) != WORKLOAD_FEATURES or len(points) != WORKLOAD_POINTS or len({tuple(p) for p in points}) != WORKLOAD_POINTS
+            or len(geojson) > 85000 or len(inspector_plan_arg) >= 120000
             or len(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params":
                                {"name": "honua_execute_plan", "arguments": {"plan": plan, "idempotencyKey": plan_id}}})) >= 2 * 1024 * 1024):
         raise ValueError("direct cancel workload exceeds reviewed bounded transport")
