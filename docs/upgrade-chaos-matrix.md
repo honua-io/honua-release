@@ -57,3 +57,58 @@ saved layer validation, digest enforcement, and database-namespace cleanup. A di
 PostGIS 16-3.4 smoke test exercised the actual schema capture/assert functions: unchanged schema
 passed; independently dropping an index, constraint, column, or table failed while journal and
 seed rows still matched. These checks validate harness behavior, not a new prior/candidate matrix.
+
+## Partial migration failure through the candidate runner (2026-10-25, honua-release#440)
+
+`partial-migration-failure` now interrupts the candidate's own DbUp runner inside a real pending
+migration. It no longer sends a hand-written transaction to PostgreSQL. The runner applies every
+pending script and that script's `public.schema_versions` INSERT in one transaction
+(`.WithTransaction()` in `PostgresDatabaseMigrationRunner.BuildUpgrader`). Before the candidate
+starts, the harness holds `SHARE` on `public.schema_versions`. The runner then executes the first
+pending script's statements and blocks on its own journal INSERT, uncommitted. The probe acts only
+after it observes that pause directly:
+
+- the runner backend is waiting on a lock held by the harness, on an `insert … schema_versions`;
+- it has a transaction id and at least one granted write-mode relation lock, so the script has
+  already written;
+- the last DbUp `Executing Database Server script '<name>'` line names a pending candidate
+  migration.
+
+If it cannot observe all three, the probe records `blocked` and exits non-zero, never `pass`. A
+no-op or already-applied script cannot satisfy them.
+
+The probe interrupts twice from the same restored baseline:
+
+| Mode | Interruption | Additional runner assertion |
+| --- | --- | --- |
+| `backend-terminated` | `pg_terminate_backend` of the paused runner backend; the server process survives | the runner logs a migration failure and `/healthz/ready` stays unready |
+| `server-killed` | `SIGKILL` of the candidate container | the kill must succeed and the container must be observed not running; otherwise the mode fails |
+
+For both modes, the server is stopped before the journal lock is released, and the probe waits until
+no client backend remains. It then asserts the following against the pre-migration snapshot: the
+interrupted script has no journal row, the journal is unchanged, the schema-only dump is
+byte-identical, and the seeded row checksums are unchanged. Finally it restarts the candidate. The
+retry must become ready and converge to the reference journal, schema and seeded checksums.
+
+The reference state in `prepare_fixture` is now produced by migrating a database restored from the
+baseline dump, the same path every scenario takes. A `pg_dump` restore re-deparses CHECK expressions
+(`ARRAY[...]::text[]` becomes `ARRAY[(...)::text]`). Before this change, every restored-baseline
+recovery comparison (boundary kills, concurrent start and this probe) diverged on that difference
+alone.
+
+Validation (local Docker, 2026-10-25). These runs exercised this probe; they are not a fresh full
+matrix certification:
+
+- Prior `honua-server` 1d387ac (pushed to a disposable local registry for digest coordinates,
+  `sha256:8e666f0c…`, migrations through 133); candidate nightly 8cb074f
+  (`ghcr.io/honua-io/honua-server@sha256:2d7877c4…`, adds 134–136). `CHAOS_SCENARIO=partial-migration-failure`:
+  both modes `pass`. The runner paused inside `Honua.Server.Migrations.134_VersionCanonicalDeployments.sql`
+  with a transaction id, 8 granted write-mode relation locks (6 `AccessExclusiveLock`), and its
+  `RowExclusiveLock` on `schema_versions` ungranted. `backend-terminated` logged
+  `Database migration failed: 57P01` and stayed unready.
+- The same probe with a broken recovery injected into the real database after the interruption
+  (one committed leftover table, or a journal row for the interrupted script) recorded `fail`:
+  "partial schema from interrupted '…134…' survived" and "interrupted migration '…134…' was journaled".
+- Before the reference-state fix, the first real run interrupted and rolled back correctly but
+  failed retry convergence on CHECK-deparse differences alone. That is how the restored-baseline
+  mismatch above was found.

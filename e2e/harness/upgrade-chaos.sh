@@ -5,7 +5,8 @@
 # prior/candidate server images against the real PostGIS service from compose.candidate.yml and
 # exits non-zero whenever it cannot prove convergence, rollback compatibility, lock serialization,
 # transactional partial-failure behavior, fail-closed divergence handling, or idempotency.
-# partial-migration-failure always records blocked (non-zero) until it drives the candidate runner.
+# partial-migration-failure pauses the candidate's own runner inside a pending migration (see
+# partial_failure_probe) and records blocked, never pass, when that pause cannot be proved.
 #
 # Required inputs:
 #   HONUA_PRIOR_SERVER_IMAGE       image that owns the seeded starting schema
@@ -136,6 +137,19 @@ stop_server() {
   compose stop server >/dev/null 2>&1 || true
 }
 
+# SIGKILL the candidate server and prove it stopped. A failed or ignored kill is not an
+# interruption: a later stop_server would end the runner normally and fake crash recovery.
+sigkill_server() {
+  local i running
+  compose kill -s SIGKILL server >/dev/null 2>&1 || return 1
+  for i in $(seq 1 "${CHAOS_KILL_ATTEMPTS:-10}"); do
+    running="$(compose ps -q --status running server 2>/dev/null)" || return 1
+    [ -z "$running" ] && return 0
+    sleep 1
+  done
+  return 1
+}
+
 start_image() {
   local image="$1"
   export HONUA_SERVER_IMAGE="$image"
@@ -168,7 +182,7 @@ capture_state() {
 }
 
 assert_state() {
-  local label="$1"
+  local label="$1" passed="${2:-schema, journal and seeded data converged}"
   local journal="$OUT/$label-journal.txt" checksums="$OUT/$label-checksums.txt"
   if ! capture_state "$journal" "$checksums" || ! capture_schema "$OUT/$label-schema.sql"; then
     record "$label" fail "could not capture recovered database state"
@@ -186,7 +200,7 @@ assert_state() {
     record "$label" fail "seeded data checksum/count changed; see $checksums"
     return 1
   fi
-  record "$label" pass "schema, journal and seeded data converged"
+  record "$label" pass "$passed"
 }
 
 restore_baseline() {
@@ -230,6 +244,10 @@ prepare_fixture() {
   echo "baseline seeded layer=$SRC_LAYER_ID"
 
   echo "== upgrade-chaos: candidate image -> normal migration =="
+  # Every scenario migrates a database restored from the baseline dump. A pg_dump restore re-deparses
+  # CHECK expressions (ARRAY[...]::text[] becomes ARRAY[(...)::text]), so the reference schema must be
+  # produced by the same restored-baseline path or every recovery comparison diverges on that alone.
+  restore_baseline
   restart_image "$CANDIDATE_IMAGE"
   wait_ready || { compose logs server > "$OUT/candidate-start.log" 2>&1 || true; die "candidate image did not become ready"; }
   capture_state "$EXPECTED_JOURNAL" "$EXPECTED_CHECKSUMS"
@@ -275,7 +293,10 @@ kill_at_boundary() {
   for i in $(seq 1 "${CHAOS_BOUNDARY_ATTEMPTS:-120}"); do
     if compose logs server 2>&1 | grep -F -- "$BOUNDARY_LOG_PATTERN" | grep -F -- "$migration" >/dev/null; then
       found=1
-      compose kill -s SIGKILL server >/dev/null 2>&1 || true
+      if ! sigkill_server; then
+        record "$name" fail "SIGKILL at migration boundary '$migration' failed or the server kept running"
+        return 1
+      fi
       break
     fi
     sleep 1
@@ -377,13 +398,186 @@ wait_for_journal() {
   return 1
 }
 
+# The candidate's DbUp runner applies every pending script and its public.schema_versions INSERT in
+# ONE transaction (.WithTransaction()). Holding SHARE on the journal table therefore pauses the real
+# runner deterministically after the first pending script's statements have executed and before its
+# journal row or COMMIT: the runner backend is observed waiting on that lock with a transaction id and
+# write locks already held. That pause, not log timing, is the interruption point.
+partial_holder_pid() {
+  db_exec "SELECT l.pid FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = '$1' AND a.datname = current_database() AND l.locktype = 'relation' AND l.relation = 'public.schema_versions'::regclass AND l.mode = 'ShareLock' AND l.granted"
+}
+
+partial_paused_runner() {
+  # pid|xid assigned|granted write-mode relation locks, for the backend blocked on the journal INSERT.
+  db_exec "SELECT a.pid || '|' || (a.backend_xid IS NOT NULL) || '|' || (SELECT count(*) FROM pg_locks l WHERE l.pid = a.pid AND l.granted AND l.locktype = 'relation' AND l.mode IN ('RowExclusiveLock', 'ShareUpdateExclusiveLock', 'ShareLock', 'ShareRowExclusiveLock', 'ExclusiveLock', 'AccessExclusiveLock')) FROM pg_stat_activity a WHERE $1 = ANY(pg_blocking_pids(a.pid)) AND a.wait_event_type = 'Lock' AND a.query ILIKE '%insert%schema_versions%' AND a.datname = current_database()"
+}
+
+partial_interrupted_script() {
+  compose logs server 2>&1 | grep -F -- "$BOUNDARY_LOG_PATTERN" | tail -n 1 | sed -nE "s/.*'([^']+)'.*/\1/p"
+}
+
+partial_client_backends() {
+  db_exec "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid()"
+}
+
+partial_failure_probe() (
+  # Subshell EXIT cleanup always releases the journal-lock holder, mirroring concurrent startup.
+  local mode="$1" name="partial-migration-failure:$1"
+  local pre="$OUT/partial-$1-pre" post="$OUT/partial-$1-interrupted"
+  local cleanup_owner="$BASHPID" holder_name holder_pid="" runner="" runner_pid="" script="" i
+  local attempts="${CHAOS_PARTIAL_ATTEMPTS:-25}" hold="${CHAOS_PARTIAL_HOLD_SECONDS:-300}"
+  holder_name="honua-chaos-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" || return 1
+  [[ "$holder_name" =~ ^honua-chaos-[0-9a-f]{32}$ ]] || return 1
+  release_partial_holder() {
+    [ -n "$PARTIAL_JOB_PID" ] || return 0
+    local failed=0 remaining=""
+    db_exec "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = '$holder_name' AND datname = current_database() AND usename = current_user AND pid <> pg_backend_pid();" >/dev/null 2>&1 || failed=1
+    wait "$PARTIAL_JOB_PID" >/dev/null 2>&1 || true
+    PARTIAL_JOB_PID=""
+    remaining="$(db_exec "SELECT count(*) FROM pg_stat_activity WHERE application_name = '$holder_name' AND datname = current_database() AND usename = current_user;")" || failed=1
+    [ "$remaining" = 0 ] || failed=1
+    [ "$failed" = 0 ]
+  }
+  trap 'if [ "$BASHPID" = "$cleanup_owner" ]; then release_partial_holder || true; fi' EXIT
+
+  echo "== scenario: interrupt the candidate runner inside a pending migration ($mode) =="
+  restore_baseline
+  if [ -z "$(migration_names)" ]; then
+    record "$name" blocked "candidate has no pending migration over the prior baseline to interrupt"
+    return 1
+  fi
+  if ! capture_state "$pre-journal.txt" "$pre-checksums.txt" || ! capture_schema "$pre-schema.sql"; then
+    record "$name" fail "could not capture the pre-migration baseline"
+    return 1
+  fi
+
+  (trap - EXIT; db_exec "SET application_name = '$holder_name'; SET statement_timeout = '$((hold + 30))s'; BEGIN; LOCK TABLE public.schema_versions IN SHARE MODE; SELECT pg_sleep($hold); COMMIT;") > "$OUT/partial-$mode-holder.log" 2>&1 &
+  PARTIAL_JOB_PID=$!
+  for i in $(seq 1 "$attempts"); do
+    holder_pid="$(partial_holder_pid "$holder_name" 2>/dev/null)" || holder_pid=""
+    [[ "$holder_pid" =~ ^[0-9]+$ ]] && break
+    holder_pid=""
+    sleep 1
+  done
+  if [ -z "$holder_pid" ]; then
+    record "$name" blocked "could not hold SHARE on public.schema_versions to pause the candidate runner"
+    return 1
+  fi
+
+  export HONUA_SERVER_IMAGE="$CANDIDATE_IMAGE"
+  compose up -d --force-recreate server >/dev/null || { record "$name" fail "candidate server could not be started"; return 1; }
+  for i in $(seq 1 "$attempts"); do
+    runner="$(partial_paused_runner "$holder_pid" 2>/dev/null)" || runner=""
+    script="$(partial_interrupted_script)" || script=""
+    if [[ "$runner" =~ ^[0-9]+\|true\|[1-9][0-9]*$ ]] && [ -n "$script" ]; then break; fi
+    runner=""
+    sleep 1
+  done
+  if [ -z "$runner" ]; then
+    compose logs server > "$OUT/partial-$mode-server.log" 2>&1 || true
+    record "$name" blocked "never observed the candidate runner paused before journaling with uncommitted migration writes (xid and write locks)"
+    return 1
+  fi
+  runner_pid="${runner%%|*}"
+  if ! migration_names | grep -Fxq -- "$script"; then
+    compose logs server > "$OUT/partial-$mode-server.log" 2>&1 || true
+    record "$name" blocked "paused script '$script' is not a pending candidate migration"
+    return 1
+  fi
+  db_exec "SELECT l.locktype, l.relation, l.mode, l.granted FROM pg_locks l WHERE l.pid = $runner_pid ORDER BY 1, 2, 3" > "$OUT/partial-$mode-runner-locks.txt" 2>&1 || true
+  printf 'script=%s\nrunner=%s\n' "$script" "$runner" > "$OUT/partial-$mode-interruption.txt"
+
+  case "$mode" in
+    server-killed)
+      if ! sigkill_server; then
+        compose logs server > "$OUT/partial-$mode-server.log" 2>&1 || true
+        record "$name" fail "SIGKILL of the paused candidate runner failed or the server kept running"
+        return 1
+      fi ;;
+    backend-terminated)
+      if [ "$(db_exec "SELECT pg_terminate_backend($runner_pid)")" != t ]; then
+        record "$name" fail "could not terminate the paused runner backend $runner_pid"
+        return 1
+      fi ;;
+    *) record "$name" fail "unknown interruption mode"; return 1 ;;
+  esac
+
+  if [ "$mode" = backend-terminated ]; then
+    # The runner process survives this interruption, so it owns the failure: it must stay unready.
+    local diagnosed=0
+    for i in $(seq 1 "$attempts"); do
+      # Capture first: under pipefail, grep -q closing the pipe early would SIGPIPE compose logs.
+      compose logs server > "$OUT/partial-$mode-server.log" 2>&1 || true
+      if grep -Eiq 'migration[^[:cntrl:]]*fail' "$OUT/partial-$mode-server.log"; then diagnosed=1; break; fi
+      sleep 1
+    done
+    if [ "$diagnosed" != 1 ]; then
+      record "$name" fail "runner emitted no migration failure after its transaction was terminated"
+      return 1
+    fi
+    if server_ready; then
+      record "$name" fail "server reported ready after its migration transaction was terminated"
+      return 1
+    fi
+  else
+    compose logs server > "$OUT/partial-$mode-server.log" 2>&1 || true
+  fi
+
+  # Stop every runner (including any background retry) before releasing the journal lock, so the
+  # state captured below is what the interruption left behind, not a later successful retry.
+  stop_server
+  if ! release_partial_holder; then
+    record "$name" fail "could not release the journal lock holder"
+    return 1
+  fi
+  for i in $(seq 1 "$attempts"); do
+    [ "$(partial_client_backends 2>/dev/null)" = 0 ] && break
+    sleep 1
+  done
+  if [ "$(partial_client_backends 2>/dev/null)" != 0 ]; then
+    record "$name" fail "interrupted runner backend never ended"
+    return 1
+  fi
+
+  if ! capture_state "$post-journal.txt" "$post-checksums.txt" || ! capture_schema "$post-schema.sql"; then
+    record "$name" fail "could not capture post-interruption state"
+    return 1
+  fi
+  if grep -Fxq -- "$script" "$post-journal.txt"; then
+    record "$name" fail "interrupted migration '$script' was journaled"
+    return 1
+  fi
+  if ! cmp -s "$pre-journal.txt" "$post-journal.txt"; then
+    record "$name" fail "migration journal changed after interrupting '$script'; see $post-journal.txt"
+    return 1
+  fi
+  if ! cmp -s "$pre-schema.sql" "$post-schema.sql"; then
+    diff -u "$pre-schema.sql" "$post-schema.sql" > "$OUT/partial-$mode-schema.diff" || true
+    record "$name" fail "partial schema from interrupted '$script' survived; see $OUT/partial-$mode-schema.diff"
+    return 1
+  fi
+  if ! cmp -s "$pre-checksums.txt" "$post-checksums.txt"; then
+    record "$name" fail "seeded rows changed after interrupting '$script'; see $post-checksums.txt"
+    return 1
+  fi
+
+  compose up -d --force-recreate server >/dev/null || { record "$name" fail "candidate server could not be restarted"; return 1; }
+  if ! wait_ready; then
+    compose logs server > "$OUT/partial-$mode-retry.log" 2>&1 || true
+    record "$name" fail "candidate did not become ready when retrying after interrupting '$script'"
+    return 1
+  fi
+  assert_state "$name" "runner paused inside '$script' after its writes; $mode left the prior journal, schema and rows; retry converged"
+)
+
 run_partial_failure() {
-  # Not evidence until honua-io/honua-release#440 lands. The former probe sent hand-written SQL
-  # straight to PostgreSQL and never ran the candidate's migration runner, so it could only prove
-  # that PostgreSQL rolls back an aborted transaction, not that application migrations are atomic
-  # or that the runner refuses to journal a failed script. No PostgreSQL-only path may record pass.
-  record partial-migration-failure blocked "not evidence: no probe interrupts a real migration inside the candidate runner (honua-io/honua-release#440)"
-  return 1
+  # Interrupts the candidate's own migration runner, never a hand-written psql transaction
+  # (honua-io/honua-release#440): no PostgreSQL-only path may record pass.
+  local failures=0 mode
+  for mode in backend-terminated server-killed; do
+    partial_failure_probe "$mode" || failures=$((failures + 1))
+  done
+  [ "$failures" = 0 ]
 }
 
 run_divergence() {
