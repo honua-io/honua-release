@@ -17,7 +17,7 @@
     },
     {
       "name": "Honua SDK Python",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "lane": "sdk-python-protocol",
       "source": "sdk-python",
       "auth_policy_revision": "anonymous-public-v1"

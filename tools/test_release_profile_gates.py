@@ -16,7 +16,7 @@ CERTIFICATION = ROOT / "certification"
 CATALOG = "protocol-certification-requirements.v1.json"
 DEMOTED = ("alerts.evaluation", "fieldops.offline-sync", "serve.sensorthings")
 PYTHON_CLIENT = "Honua SDK Python"
-PYTHON_VERSION = "0.1.18"
+PYTHON_VERSION = "0.1.19"
 
 
 def load(path: Path) -> dict:
