@@ -446,7 +446,7 @@ def anonymous_discovery(wire, session):
         if (request.get("method") != "tools/list" or request_id in identifiers
                 or (selected is not None and (not isinstance(selected, dict) or set(selected) - {"cursor", "_meta"}
                     or ("_meta" in selected and (not isinstance(selected["_meta"], dict)
-                        or any(not isinstance(key, str) or key.startswith("honua.io/") for key in selected["_meta"])))))
+                        or any(not isinstance(key, str) or key.split("/", 1)[0] == "honua.io" for key in selected["_meta"])))))
                 or (selected or {}).get("cursor") != cursor or (position == 0 and "cursor" in (selected or {}))
                 or "error" in response or not isinstance(response.get("result"), dict)
                 or not isinstance(response["result"].get("tools"), list)):

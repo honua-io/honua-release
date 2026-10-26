@@ -200,7 +200,7 @@ function unlistedAbsence(observed, initialize, name, client) {
           || (selected !== undefined && (!selected || typeof selected !== "object" || Array.isArray(selected)
             || Object.keys(selected).some(item => !["cursor", "_meta"].includes(item))
             || (selected._meta !== undefined && (!selected._meta || typeof selected._meta !== "object"
-              || Object.keys(selected._meta).some(item => item.startsWith("honua.io/"))))))
+              || Object.keys(selected._meta).some(item => item.split("/", 1)[0] === "honua.io")))))
           || selected?.cursor !== cursor || (position === 0 && selected !== undefined && Object.hasOwn(selected, "cursor"))) return false;
       identifiers.add(key);
       const frame = observedResponse(page);
