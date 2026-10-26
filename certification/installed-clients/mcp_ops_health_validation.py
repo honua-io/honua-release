@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mcp_map_package_validation as wire
 from mcp_render_validation import negative_output
 
+REQUIRED_HEALTH_CHECKS = ("database", "redis")
 SCHEMA = "honua.mcp-ops-health-scenario/v1"
 OPERATIONS = ["tools/call:ops_health", "resources/read:Ops health"]
 URI = "honua://ops/health"
@@ -193,10 +194,13 @@ def health_output(result, method, before, after, bootstrap):
                 or any(not isinstance(key, str) or not isinstance(item, str) for key, item in attestation.items())):
             raise ValueError("output-store attestation schema malformed")
         names.append(entry["name"]); statuses.append(entry["status"]); number(entry.get("durationMs"))
-    if names != sorted(set(names)) or any(name not in names for name in ("database", "redis", "self")):
-        raise ValueError("real database/Redis/self checks missing or duplicated")
+    # The owned dependencies are probed by the candidate's own database and redis checks
+    # (ProductionHealthChecks). honua-server registers a "self" check only under Aspire
+    # service defaults, which a certified candidate does not use; it proves nothing anyway.
+    if names != sorted(set(names)) or any(name not in names for name in REQUIRED_HEALTH_CHECKS):
+        raise ValueError("real database/Redis checks missing or duplicated")
     for entry in checks["entries"]:
-        if entry["name"] in ("database", "redis", "self") and entry["status"] != "Healthy":
+        if entry["name"] in REQUIRED_HEALTH_CHECKS and entry["status"] != "Healthy":
             raise ValueError("owned candidate required health check is not healthy")
     worst = max(statuses, key=("Healthy", "Degraded", "Unhealthy").index)
     if checks["status"] != worst or value["overallStatus"] != worst:
