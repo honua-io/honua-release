@@ -11,6 +11,11 @@ from mcp_map_package_validation_controls import control_wire, bind_launch
 from mcp_render_validation_controls import FIXTURE, bootstrap, runtime
 
 
+# The entries honua-server 8cb074f7 registers in a certified (non-Aspire) deployment.
+REAL_CHECK_NAMES = ("alert-dispatch", "alert-evaluation", "audit-chain-integrity", "database",
+                    "feature-change-outbox", "feature-streams", "file-upload", "plugins",
+                    "production-metrics", "redis")
+
 def timestamp(seconds):
     return (datetime(2026, 10, 19, tzinfo=timezone.utc) + timedelta(seconds=seconds)).isoformat()
 
@@ -41,7 +46,7 @@ def payload(seconds, active=True):
         "includedComponentIds": sorted(item["sourceId"] for item in components)}
     return {"generatedAt": timestamp(seconds), "overallStatus": "Healthy", "health": {"status": "Healthy", "totalDurationMs": 7,
         "entries": [{"name": name, "status": "Healthy", "description": "Controlled actual-dependency shape", "durationMs": 1}
-                    for name in ("database", "redis", "self")]},
+                    for name in REAL_CHECK_NAMES]},
         "geoprocessing": {"available": True, "totalActive": 1 if active else 0,
             "buckets": [{"status": "Provisioning", "backend": "local", "count": 1}] if active else []},
         "servingLatency": {"windowSeconds": 60, "protocols": [{"protocol": "mcp", "requestCount": 8, "errorCount": 0,
@@ -146,6 +151,22 @@ class OpsHealthControls(unittest.TestCase):
                 elif name == "changed-record": value["calls"][0]["after"]["redis"]["jobs"][0]["sha256"] = "sha256:" + "2" * 64
                 else: before["databaseProbeDurationMs"] = float("nan")
                 self.refused(value)
+
+    def test_real_dependency_checks_are_required_without_an_aspire_only_self_check(self):
+        # honua-server registers "self" only under Aspire service defaults (absent when certified).
+        value = controls()
+        names = [entry["name"] for entry in value["calls"][0]["result"]["structuredContent"]["health"]["entries"]]
+        self.assertNotIn("self", names)
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["positive"])
+        for name in ("database", "redis"):
+            def drop(body, name=name):
+                body["health"]["entries"] = [entry for entry in body["health"]["entries"] if entry["name"] != name]
+            def degrade(body, name=name):
+                next(entry for entry in body["health"]["entries"] if entry["name"] == name)["status"] = "Degraded"
+                body["health"]["status"] = body["overallStatus"] = "Degraded"
+            for transform, message in ((drop, "real database/Redis checks missing"), (degrade, "required health check is not healthy")):
+                with self.subTest(name=name, change=transform.__name__), self.assertRaisesRegex(ValueError, message):
+                    validation.judge(FIXTURE, bootstrap(), mutate_payload(controls(), transform))
 
     def test_fabricated_zero_wrong_status_backend_or_missing_real_checks_refuse(self):
         mutations = [lambda b: b["geoprocessing"].update(totalActive=0, buckets=[]),
