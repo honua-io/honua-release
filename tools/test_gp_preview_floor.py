@@ -54,7 +54,7 @@ def test_every_gp_row_is_floor_or_preview_and_none_is_dropped():
         "GP-OP-JOBS-LIST", "GP-OP-JOB-STATUS-2", "GP-OP-CANCEL-JOB", "GP-OP-JOB-RESULTS-2",
         "GP-OP-SUBMIT-JOB-2", "GP-OP-EXECUTE-TASK-2",
     }
-    # Each floor operation stays required on every Esri client, including the licensed desktop lane.
+    # Each floor operation stays required on every GeoServices client, including the licensed desktop lane.
     assert sum(row["surface"] == "gp-server" for row in floor) == 24
     assert {row["client_lane"] for row in floor if row["surface"] == "ogc-api-processes"} == {
         "cite-ogc-api-processes", "py-owslib",

@@ -17,45 +17,60 @@
     "required_tier": "release",
     "meaning": "tools/check_protocol_certification.py requires a row only at or above its required_tier, and release scope admits only supported or deprecated maturity. A Preview GP row is therefore validated and reported at every tier and required at none."
   },
-  "facet_note": "Row granularity is the only one the gate has. The esri-compat and CITE producers stamp every governed facet with the row's single result, so a floor row's positive facet stays required with its refusal facet. Splitting a row by facet needs producer changes and is out of scope for this ruling.",
+  "facet_note": "Row granularity is the only one the gate has. The GeoServices interop and CITE producers stamp every governed facet with the row's single result, so a floor row's positive facet stays required with its refusal facet. Splitting a row by facet needs producer changes and is out of scope for this ruling.",
   "floor": [
     {
       "capability_key": "esri.gp-server",
       "surface": "gp-server",
-      "operations": ["GP-OP-JOBS-LIST"],
+      "operations": [
+        "GP-OP-JOBS-LIST"
+      ],
       "floor_class": "owner-isolation",
       "reason": "Job/Read authorization and per-job ownership are enforced before any job is listed; a failure can surface another caller's jobs.",
-      "source": "https://github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/matrix/gp-server.matrix.json"
+      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "esri.gp-server",
       "surface": "gp-server",
-      "operations": ["GP-OP-JOB-STATUS-2", "GP-OP-CANCEL-JOB", "GP-OP-JOB-RESULTS-2"],
+      "operations": [
+        "GP-OP-JOB-STATUS-2",
+        "GP-OP-CANCEL-JOB",
+        "GP-OP-JOB-RESULTS-2"
+      ],
       "floor_class": "isolation-typed-refusal",
       "reason": "Route binding validation refuses a job id outside the service and task it was submitted to; a failure can read, cancel or return another task's job.",
-      "source": "https://github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/matrix/gp-server.matrix.json"
+      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "esri.gp-server",
       "surface": "gp-server",
-      "operations": ["GP-OP-SUBMIT-JOB-2"],
+      "operations": [
+        "GP-OP-SUBMIT-JOB-2"
+      ],
       "floor_class": "input-validation",
       "reason": "Submission resolves the published task against the built-in catalog and validates inputs before a job is persisted, and env:* controls are refused; a failure admits unvalidated work.",
-      "source": "https://github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/matrix/gp-server.matrix.json"
+      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "esri.gp-server",
       "surface": "gp-server",
-      "operations": ["GP-OP-EXECUTE-TASK-2"],
+      "operations": [
+        "GP-OP-EXECUTE-TASK-2"
+      ],
       "floor_class": "resource-bound-typed-refusal",
       "reason": "Synchronous execute runs only sync-eligible single-geometry tasks inline and refuses async-only tasks with a typed 400; a failure runs unbounded work on the request path or falls back silently.",
-      "source": "https://github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/matrix/gp-server.matrix.json"
+      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "process.ogc-api-processes",
       "surface": "ogc-api-processes",
-      "operations": ["process.ogc-api-processes"],
-      "lanes": ["cite-ogc-api-processes", "py-owslib"],
+      "operations": [
+        "process.ogc-api-processes"
+      ],
+      "lanes": [
+        "cite-ogc-api-processes",
+        "py-owslib"
+      ],
       "floor_class": "typed-refusal-input-validation-bounds",
       "reason": "The OGC CITE and OWSLib rows govern the negative, auth and boundary facets: typed exception responses for unknown processes and jobs, rejected invalid inputs, protected-access refusal and bounded paging.",
       "source": "certification/sources/canonical-client-assignments.v1.json"
@@ -76,19 +91,29 @@
     {
       "capability_key": "esri.gp-server",
       "surface": "gp-server",
-      "operations": ["GP-OP-EXECUTE-TASK", "GP-OP-SUBMIT-JOB", "GP-OP-JOB-STATUS", "GP-OP-JOB-RESULTS"],
+      "operations": [
+        "GP-OP-EXECUTE-TASK",
+        "GP-OP-SUBMIT-JOB",
+        "GP-OP-JOB-STATUS",
+        "GP-OP-JOB-RESULTS"
+      ],
       "reason": "PrintingTools-specific map export path. The pinned matrix records no authorization, ownership or validation decision for these operations."
     },
     {
       "capability_key": "printing.pdf-output",
       "surface": "printing-tools",
-      "operations": ["POST /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/execute"],
+      "operations": [
+        "POST /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/execute"
+      ],
       "reason": "Positive PDF export (PrintingToolsEndpointTests.Execute_PdfFormat_ReturnsPdfDocument)."
     },
     {
       "capability_key": "process.geoprocessing",
       "surface": "gpserver",
-      "operations": ["submit-job", "job-status"],
+      "operations": [
+        "submit-job",
+        "job-status"
+      ],
       "reason": "@honua/sdk-js positive submit and status contract (positive, media-schema)."
     },
     {
@@ -103,32 +128,51 @@
     {
       "capability_key": "process.geoprocessing",
       "surface": "sdk-js:process-geoprocessing",
-      "operations": ["HonuaClient.geoprocessing()", "HonuaClient.geoprocessingRunner()", "Source.protocol()", "discoverGeoServices()"],
+      "operations": [
+        "HonuaClient.geoprocessing()",
+        "HonuaClient.geoprocessingRunner()",
+        "Source.protocol()",
+        "discoverGeoServices()"
+      ],
       "reason": "SDK entrypoint parity (positive, media-schema)."
     },
     {
       "capability_key": "process.ogc-api-processes",
       "surface": "ogc-api-processes",
-      "operations": ["list-processes"],
-      "lanes": ["sdk-python-certification"],
+      "operations": [
+        "list-processes"
+      ],
+      "lanes": [
+        "sdk-python-certification"
+      ],
       "reason": "Python SDK positive process listing (positive, metadata)."
     },
     {
       "capability_key": "process.ogc-api-processes",
       "surface": "ogc-processes",
-      "operations": ["landing", "conformance", "list", "describe"],
+      "operations": [
+        "landing",
+        "conformance",
+        "list",
+        "describe"
+      ],
       "reason": "@honua/sdk-js discovery reads (positive, metadata, media-schema)."
     },
     {
       "capability_key": "process.ogc-api-processes",
       "surface": "sdk-dotnet:process-ogc-api-processes",
-      "operations": ["Honua.Sdk.Processes.IHonuaProcessesClient"],
+      "operations": [
+        "Honua.Sdk.Processes.IHonuaProcessesClient"
+      ],
       "reason": "SDK entrypoint parity (positive, media-schema)."
     },
     {
       "capability_key": "process.ogc-api-processes",
       "surface": "sdk-python:process-ogc-api-processes",
-      "operations": ["honua_sdk.geoprocessing.AsyncHonuaGeoprocessing", "honua_sdk.geoprocessing.HonuaGeoprocessing"],
+      "operations": [
+        "honua_sdk.geoprocessing.AsyncHonuaGeoprocessing",
+        "honua_sdk.geoprocessing.HonuaGeoprocessing"
+      ],
       "reason": "SDK entrypoint parity (positive, media-schema)."
     },
     {
