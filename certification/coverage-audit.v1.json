@@ -746,7 +746,7 @@
       "title": "The GA Compose topology has no runtime upgrade/rollback gate or runbook",
       "owner": "honua-io/honua-release",
       "issue": "https://github.com/honua-io/honua-release/issues/950",
-      "status": "open",
+      "status": "implementation-in-progress",
       "selectors": {
         "capability_key": [
           "deploy.rollback"
@@ -766,7 +766,11 @@
       "related_issues": [
         "https://github.com/honua-io/honua-release/issues/652",
         "https://github.com/honua-io/honua-release/issues/376"
-      ]
+      ],
+      "implementation_prs": [
+        "https://github.com/honua-io/honua-release/pull/992"
+      ],
+      "implementation_note": "Founder decision D9 (2026-10-26): gate-upgrade.yml compose-upgrade is the required GA Docker Compose upgrade/rollback fragment (kind receipt shape and fail-closed rules, linux/amd64, prior = newest published 2026.1 rc image else newest signed nightly lock, never the candidate) with a scheduled drop-seed-rows negative control; kind-upgrade is non-blocking Preview evidence; UPGRADE-RUNBOOK section 6 documents the Compose path. Local Docker runs passed the real 199bce7 -> 8cb074f pair and failed each injected defect on its own assertion. No CI run artifact is bound yet, and the cell is blocked until a published rc or signed nightly lock names a prior."
     },
     {
       "id": "NC-26",
