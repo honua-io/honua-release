@@ -1,0 +1,141 @@
+# Scheduled backstop for e2e-cloud-aws release cells whose own teardown failed.
+#
+# Each cell retires itself from its own Terraform state (e2e-cloud-aws-cell.yml teardown, or
+# cloud-cell-retirement.yml recovery). When both fail, nothing reaped the cell: seven
+# aws-serverless cells stranded 10-23..25 and filled the us-east-1 VPC quota, so every GA ECS
+# cell then died on VpcLimitExceeded. honua-iac's terraform-validation reaper only covers
+# Owner=terraform-validation and does not run here.
+#
+# This job runs honua-iac's reviewed sweep with --owner-tag release-cell against THIS repository's
+# run history, under the dedicated honua-release-cell-reaper role (honua-iac
+# bootstrap/aws-release-cells, protected environment aws-cell-reaper). What keeps it off live cells
+# is in the sweep, not here: a candidate must carry Owner=release-cell and a ValidationRunId
+# `gha-<run id>-...` (e2e/targets/terraform_target.py::reaper_tags), that run must be `completed`
+# and outside the grace window, standing/demo tags are excluded twice (the sweep's selector and the
+# role's guardrail denies), and the whole sweep defers while any e2e-cloud-aws run is in flight.
+# This job additionally defers while a cloud-cell-retirement recovery is queued or running.
+#
+# The grace window is long on purpose: state-based retirement (cloud-cell-retirement.yml) is the
+# preferred path, and a native sweep makes that cell's Terraform state stale. The reaper is for
+# cells nobody retired within two days.
+#
+# Dispatch defaults to a dry run. The schedule supplies no inputs, so the nightly run is a real
+# sweep. An unconfigured role is a RED run, never a green skip: a reaper that silently never runs
+# is how the strands went unnoticed.
+name: release-cell-reaper
+
+on:
+  schedule:
+    - cron: "41 9 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Enumerate and print the plan without deleting anything"
+        required: true
+        type: boolean
+        default: true
+      grace_hours:
+        description: "Hours the owning run must have been completed before its cell is reapable"
+        required: false
+        type: string
+        default: "48"
+      max_delete:
+        description: "Abandon the sweep if the plan exceeds this many resources"
+        required: false
+        type: string
+        default: "400"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cell-reaper
+  cancel-in-progress: false
+
+jobs:
+  reap:
+    name: Reap orphaned release cells
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: aws-cell-reaper
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      GH_TOKEN: ${{ github.token }}
+      ROLE_ARN: ${{ vars.HONUA_AWS_CELL_REAPER_ROLE_ARN }}
+    steps:
+      - name: Require the release-cell reaper role
+        run: |
+          set -euo pipefail
+          if [ -z "$ROLE_ARN" ]; then
+            msg="HONUA_AWS_CELL_REAPER_ROLE_ARN is not set: release cells have no reaper. Set it to arn:aws:iam::585192672263:role/honua-release-cell-reaper (environment aws-cell-reaper)."
+            echo "::error title=release-cell reaper not configured::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          [[ "$ROLE_ARN" =~ ^arn:aws:iam::585192672263:role/honua-release-cell-reaper$ ]] || {
+            echo "::error::HONUA_AWS_CELL_REAPER_ROLE_ARN must name the dedicated honua-release-cell-reaper role"; exit 1; }
+
+      - name: Defer while a cell recovery is queued or running
+        id: defer
+        run: |
+          set -euo pipefail
+          active=0
+          for state in queued in_progress waiting requested pending; do
+            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/cloud-cell-retirement.yml/runs?status=${state}&per_page=1" --jq '.total_count')"
+            active=$(( active + n ))
+          done
+          if [ "$active" -gt 0 ]; then
+            echo "::notice title=release-cell reaper deferred::a cloud-cell-retirement recovery is active"
+            echo "deferred: a cloud-cell-retirement recovery is active" >> "$GITHUB_STEP_SUMMARY"
+            echo "deferred=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deferred=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout the reviewed honua-iac sweep
+        if: steps.defer.outputs.deferred == 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: 7ef38b3399d0f76dcc29bd68d82e578be02086c7 # honua-iac trunk (#301); sweep-orphaned-validation-infra.sh
+          path: _honua-iac
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Require the sweep to have landed on honua-iac trunk
+        if: steps.defer.outputs.deferred == 'false'
+        run: git -C _honua-iac merge-base --is-ancestor HEAD origin/trunk
+
+      - name: Assume the release-cell reaper role
+        if: steps.defer.outputs.deferred == 'false'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_CELL_REAPER_ROLE_ARN }}
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+
+      - name: Sweep orphaned release cells
+        if: steps.defer.outputs.deferred == 'false'
+        env:
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          GRACE_HOURS: ${{ inputs.grace_hours || '48' }}
+          MAX_DELETE: ${{ inputs.max_delete || '400' }}
+        run: |
+          set -euo pipefail
+          [[ "$GRACE_HOURS" =~ ^[0-9]+$ ]] && (( GRACE_HOURS >= 4 )) || { echo "::error::grace_hours must be an integer >= 4"; exit 1; }
+          [[ "$MAX_DELETE" =~ ^[0-9]+$ ]] || { echo "::error::max_delete must be an integer"; exit 1; }
+          args=(--owner-tag release-cell
+                --repo "$GITHUB_REPOSITORY"
+                --workflow e2e-cloud-aws.yml
+                --region us-east-1
+                --grace-hours "$GRACE_HOURS"
+                --max-delete "$MAX_DELETE"
+                --summary-file "$GITHUB_STEP_SUMMARY")
+          [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          ./_honua-iac/infrastructure/terraform/validation/scripts/aws/sweep-orphaned-validation-infra.sh "${args[@]}"
