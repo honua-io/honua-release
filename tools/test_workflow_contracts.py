@@ -1118,7 +1118,7 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                         'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
-                        'executable-docs', 'installed-clients')
+                        'executable-docs', 'installed-clients', 'agent-e2e')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     train = _workflow('release-train.yml')['jobs']['report']['steps']
     binding = next(step for step in train if step.get('name') == 'Bind the report to the exact candidate and train identity')
@@ -1137,13 +1137,13 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 
 
 
-def test_report_declaration_command_emits_all_seventeen_classes(tmp_path):
+def test_report_declaration_command_emits_all_eighteen_classes(tmp_path):
     import json
     import subprocess
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                         'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
-                        'executable-docs', 'installed-clients')
+                        'executable-docs', 'installed-clients', 'agent-e2e')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     report = {'generatedAt': '2026-09-30T06:04:00Z', 'gates': [],
               'candidate': {'train': {'runId': '4242', 'runAttempt': 1},
@@ -1155,6 +1155,8 @@ def test_report_declaration_command_emits_all_seventeen_classes(tmp_path):
     lock.parent.mkdir(parents=True)
     lock.write_text('{"recorded":"lock"}')
     (tmp_path / 'journey-reports').mkdir()
+    (tmp_path / 'agent-e2e-report').mkdir()
+    (tmp_path / 'agent-e2e-report/agent-e2e-summary.json').write_text('{}')
     binding = next(s for s in _workflow('release-train.yml')['jobs']['report']['steps']
                    if s.get('name') == 'Bind the report to the exact candidate and train identity')
     command = binding['run']

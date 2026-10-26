@@ -185,6 +185,39 @@ def test_full_252_gate_accepts_only_original_named_amendment_and_released_admiss
     assert result['status'] == 'pass' and result['casesPassed'] == 252
 
 
+def test_amended_gate_preserves_policy_for_downstream_promotion(campaign):
+    from check_promotion_readiness import valid_agent_pack
+    from test_agent_e2e_gate import NOW
+    from test_mint_nightly_lock import agent_summary
+
+    ledger, manifest, trusted = gate_amend(campaign)
+    # Additional independently reported candidate infrastructure is not a case.
+    rows = [{'id': 'shared-' + kind, 'operationId': 'shared', 'purpose': 'shared-environment',
+             'kind': kind, 'amountUsd': cost, 'actualUsd': cost, 'state': 'settled',
+             'basisDigest': 'sha256:' + 'b' * 64}
+            for kind, cost in [('infrastructure', '600'), ('cleanup', '1')]]
+    ledger['operations'].extend(rows)
+    observation = write(campaign/'evidence/shared-cost.json', {'fixture': 'offline observed cost'})
+    report = write(campaign/'evidence/shared-report.json', {
+        'schemaVersion': 1, 'candidateKey': ledger['candidateKey'], 'operationId': 'shared',
+        'purpose': 'shared-environment', 'status': 'settled', 'reservations': rows,
+        'observations': [observation]})
+    write(campaign/'ledger.json', ledger)
+    trusted['budgetLedgerDigest'] = digest_bytes((campaign/'ledger.json').read_bytes())
+    trusted['operationReports'].append(report)
+    write(campaign/'trusted.json', trusted)
+
+    result = validate_complete(campaign)
+    assert result['candidateLiabilityUsd'] == '608.58'
+    assert result['casesPassed'] == 252
+    assert result['totalBudgetUsd'] == manifest['totalBudgetUsd']
+    assert result['budgetPolicy'] == manifest['budgetPolicy']
+    # Add synthetic authenticated-envelope metadata, without bypassing the real
+    # campaign/ledger gate or the real downstream summary validator.
+    summary = agent_summary(campaign/'lock.json', NOW.isoformat()) | result
+    assert valid_agent_pack(summary, manifest['componentBindingDigest'])
+
+
 @pytest.mark.parametrize('change', ['active', 'missing-admission', 'original', 'policy', 'removed-history'])
 def test_reattested_amended_gate_still_rejects_unknown_hold_or_changed_original(campaign, change):
     ledger, manifest, trusted = gate_amend(campaign)

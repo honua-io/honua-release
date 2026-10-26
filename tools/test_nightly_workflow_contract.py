@@ -23,7 +23,7 @@ WORKFLOW = ROOT / '.github/workflows/nightly-certification.yml'
 REQUIREMENTS = ROOT / 'tools/requirements-nightly.txt'
 INSTALL = 'python -m pip install -r tools/requirements-nightly.txt'
 LOCAL_DIRS = (ROOT / 'tools', ROOT / 'certification', ROOT / 'e2e',
-              ROOT / 'certification' / 'terminal-journey')
+              ROOT / 'certification' / 'terminal-journey', ROOT / 'tools' / 'hosted_pilot')
 TOOL_CALL = re.compile(r'\bpython3? (tools/[A-Za-z0-9_]+)\.py\b')
 HEREDOC = re.compile(r"python3? - <<'(\w+)'[^\n]*\n(.*?)\n\s*\1\s*$", re.S | re.M)
 
