@@ -52,9 +52,7 @@ def qualify(document, candidate=None):
     if reason:
         return {"status": "refused", "reason": reason}
     if candidate is not None:
-        if (not isinstance(candidate, dict)
-                or document["candidateSourceSha"] != candidate.get("sourceSha")
-                or document["candidateImage"] != candidate.get("image")):
+        if not _bound(document, candidate):
             return {"status": "refused", "reason": "candidate-mismatch"}
         return {
             "status": "pass",
@@ -68,6 +66,25 @@ def qualify(document, candidate=None):
         "retainedShape": True,
         "correction": CORRECTION,
     }
+
+
+def _bound(document: dict, candidate) -> bool:
+    """The document names the candidate: its source and either the exact image reference or its digest.
+
+    A producer binds the full ``image`` (tag@digest); the protocol-certification ledger knows only the
+    candidate ``imageDigest``. A candidate naming neither, or both inconsistently, binds nothing.
+    """
+    if not isinstance(candidate, dict) or document["candidateSourceSha"] != candidate.get("sourceSha"):
+        return False
+    image, digest = candidate.get("image"), candidate.get("imageDigest")
+    if image is None and digest is None:
+        return False
+    if image is not None and document["candidateImage"] != image:
+        return False
+    if digest is not None and (not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest)
+                               or document["candidateImage"].rsplit("@", 1)[-1] != digest):
+        return False
+    return True
 
 
 def _shape_error(document: dict) -> str | None:

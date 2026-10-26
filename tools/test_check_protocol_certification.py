@@ -2168,16 +2168,16 @@ def _bind_portal_payload(cell, document):
     return cell
 
 
-def test_nightly_portal_sharing_cells_call_qualify_and_do_not_pass(monkeypatch):
+def test_nightly_portal_sharing_cells_are_judged_against_the_ledger_candidate(monkeypatch):
     module = cert._portal_sharing_module()
     calls = []
     original = module.qualify
 
-    def spy(document):
+    def spy(document, candidate=None):
         calls.append(document)
-        verdict = original(document)
-        assert verdict.get("status") != "pass"
-        return verdict
+        # The checker always binds the ledger candidate; it never asks for an unbound verdict.
+        assert candidate == {"sourceSha": SHA, "imageDigest": DIGEST}
+        return original(document, candidate=candidate)
 
     monkeypatch.setattr(module, "qualify", spy)
     absent = _portal_cell()
@@ -2189,9 +2189,18 @@ def test_nightly_portal_sharing_cells_call_qualify_and_do_not_pass(monkeypatch):
     complete = _bind_portal_payload(copy.deepcopy(absent), _portal_document())
     calls.clear()
     report = _evaluate(_ledger(complete), "nightly", requirements=_requirements(complete), now=NOW)
-    assert report["overall_status"] == "fail"
-    assert any("exact-candidate-execution-not-claimed" in item["why"] for item in report["findings"])
+    assert not any("portal group sharing" in item["why"] for item in report["findings"]), report["findings"]
     assert calls and calls[0]["schema"].endswith("portal-group-sharing-observations/v1")
+
+    # Complete observations of another candidate (source or image) never qualify this ledger.
+    for field, value in (("candidateSourceSha", "c" * 40),
+                         ("candidateImage", "ghcr.io/example/server@sha256:" + "d" * 64)):
+        other = _portal_document()
+        other[field] = value
+        foreign = _bind_portal_payload(copy.deepcopy(absent), other)
+        report = _evaluate(_ledger(foreign), "nightly", requirements=_requirements(foreign), now=NOW)
+        assert report["overall_status"] == "fail"
+        assert any("portal group sharing refused: candidate-mismatch" in item["why"] for item in report["findings"])
 
     incomplete = _portal_document()
     incomplete["phases"]["shared"]["nonmember"]["feature"] = True

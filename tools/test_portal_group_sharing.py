@@ -92,3 +92,14 @@ def test_a_complete_document_passes_only_when_bound_to_the_candidate_it_names():
     broken["phases"]["unsharedAfterRestart"]["member"]["feature"] = True
     assert portal.qualify(broken, candidate=candidate)["status"] == "refused"
     assert portal.qualify(None, candidate=candidate)["status"] == "nonpass"
+
+
+def test_the_ledger_binding_names_the_candidate_by_source_and_image_digest():
+    document = _document()
+    digest = document["candidateImage"].rsplit("@", 1)[1]
+    ledger = {"sourceSha": document["candidateSourceSha"], "imageDigest": digest}
+    assert portal.qualify(document, candidate=ledger)["status"] == "pass"
+    for other in ({**ledger, "imageDigest": "sha256:" + "d" * 64}, {**ledger, "imageDigest": "b" * 64},
+                  {**ledger, "imageDigest": None}, {"sourceSha": ledger["sourceSha"]},
+                  {**ledger, "image": "ghcr.io/example/other@" + digest}):
+        assert portal.qualify(document, candidate=other) == {"status": "refused", "reason": "candidate-mismatch"}
