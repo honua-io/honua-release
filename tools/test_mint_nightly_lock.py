@@ -291,7 +291,7 @@ def test_lambda_without_attestations_reports_the_exact_upstream_blocker(inputs, 
                                   verifier=lambda *args: None)
     assert 'honua-server Lambda: missing sbom' in str(refused.value)
     assert 'honua-server Lambda: missing provenance' in str(refused.value)
-    assert 'provenance: false at line 326; sbom: false at line 327' in str(refused.value)
+    assert 'attest SBOM and provenance for the serving child digest (awsLambdaDigest)' in str(refused.value)
     assert not (tmp_path / 'collected').exists()
 
 
@@ -1168,6 +1168,17 @@ def test_unlisted_publisher_requires_explicit_workflow():
         'honua-io/trusted-builder/.github/workflows/publish.yml')
     assert nightly.signer_workflow({}, {'coordinate': '@honua/mcp-server'}, 'honua-io/honua-sdk-js').endswith(
         '/publish-mcp-server.yml')
+
+
+@pytest.mark.parametrize('repository, workflow', [
+    ('honua-io/geospatial-mcp', 'attest-spec-index.yml'),
+    ('honua-io/honua-iac', 'attest-source-archive.yml'),
+])
+def test_source_addressed_publishers_name_their_exact_attesting_workflow(repository, workflow):
+    # The pinned spec file and source archive are served by GitHub, so their
+    # signer is the per-commit verify-and-attest workflow, never the repository alone.
+    assert nightly.signer_workflow({}, {'coordinate': 'https://github.com/' + repository}, repository) == (
+        f'{repository}/.github/workflows/{workflow}')
 
 
 @pytest.mark.parametrize('missing', ['awsLambdaImage', 'awsLambdaDigest', 'both'])

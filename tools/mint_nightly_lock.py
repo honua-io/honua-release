@@ -69,6 +69,10 @@ PUBLISHER_WORKFLOWS = {
     'honua-io/honua-sdk-python': 'publish-python-sdk.yml',
     'honua-io/honua-helm': 'release.yml',
     'honua-io/geospatial-grpc': 'publish-dotnet-protocol.yml',
+    # Source-addressed artifacts: GitHub serves the bytes; these workflows verify
+    # them against the pinned commit's tree before attesting them from that commit.
+    'honua-io/geospatial-mcp': 'attest-spec-index.yml',
+    'honua-io/honua-iac': 'attest-source-archive.yml',
 }
 JS_WORKFLOWS = {'@honua/sdk-js': 'publish-js-sdk.yml',
                 **{package: 'publish-js-sdk.yml' for package in ('@honua/sdk', '@honua/sdk-esri-compat',
@@ -318,9 +322,11 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                               + str(getattr(exc, 'stderr', None) or exc).strip())
         for field, covered in coverage.items():
             if covered != subjects:
+                # The pin is the runnable child, so BuildKit's evidence index is not
+                # reachable from it: the publisher must attest the child digest itself.
                 detail = ('; honua-server .github/workflows/nightly-container-build.yml '
-                          'build-lambda-aot must publish SBOM and provenance (inventory: '
-                          'provenance: false at line 326; sbom: false at line 327)'
+                          'build-lambda-aot must attest SBOM and provenance for the serving '
+                          'child digest (awsLambdaDigest) through the GitHub attestations API'
                           if context.endswith('Lambda') else '')
                 errors.append(f'{context}: missing {field} for {", ".join(sorted(subjects - covered))}{detail}')
 
