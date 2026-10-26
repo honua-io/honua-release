@@ -1,5 +1,9 @@
 # PR #290 Lambda qualification gate validation
 
+> **Superseded scope (2026-10-25).** The [2026-10-25 founder re-tier](https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748) moved AWS Lambda to
+> **Preview** for 2026.1. This page is retained as history of the GA-target bill; it no longer
+> describes a release requirement.
+
 This supersedes the qualification-gate observations in
 [the original promotion validation](2026-09-06-lambda-ga-promotion.md).
 The branch was rebased onto trunk `ffc92bc`; trunk's generated decision files

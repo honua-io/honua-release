@@ -4,8 +4,8 @@
   "requirements_revision": "2026-10-19-complete.25",
   "requirements_digest": "sha256:c16bda8e2496d148e0bd04e15eea3875e40c6eaca327224f25b1fd8a4d2783ef",
   "production_digest": "sha256:4fdbb21537df908716559387024620fa7bf521d3f2499c1075ee06bc3cef4b86",
-  "audit_digest": "sha256:5eba961660cb02206b34f00b640c433c9dfb0d6b98b989b47ccd7f2c342dc66d",
-  "rows_digest": "sha256:0532cd0542a8cb1c052b27312ef582076094f1e46362446b680279b529dc6bf0",
+  "audit_digest": "sha256:ee3c74505d3f928b68f1e34f7128888757961405d7097ebc06a08a4475660088",
+  "rows_digest": "sha256:cce46d1b9b9e4d2612dc610e4dfa21262bbe722a9bc0116e6eb335736e37dc21",
   "rows": 2738,
   "non_licensed_rows": 2403,
   "external_licensed_rows": 335,
@@ -15,8 +15,8 @@
     "unproduced": 730
   },
   "non_licensed_assertion_review": {
-    "findings-recorded": 587,
-    "not-reviewed": 1816
+    "findings-recorded": 675,
+    "not-reviewed": 1728
   },
   "finding_matches": {
     "NC-01": 82,
@@ -36,7 +36,9 @@
     "NC-19": 22,
     "NC-20": 66,
     "NC-21": 1,
-    "NC-22": 1
+    "NC-22": 1,
+    "NC-23": 150,
+    "NC-24": 88
   },
   "source_comparison": [
     {

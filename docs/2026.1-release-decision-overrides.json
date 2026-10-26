@@ -603,6 +603,18 @@
       "retained_2026_2": [
         "honua-server#2439"
       ]
+    },
+    "wedge-critical-retier-2026-10-25": {
+      "date": "2026-10-25",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "2026.1 wedge-critical re-tier. GA topology is Docker Compose on-prem plus AWS ECS; the two aws-ecs cells (Redis off/on) stay on the RC path. AWS Lambda, EKS, Helm and the GP catalog are Preview. Architecture is x86_64 only; deployments are single-tenant (multi-tenancy stays internal under R29). The AI gates (full agent gate, genuine-model canary) are out of RC admission.",
+      "effect": "Supersedes the 2026-09-06 Lambda ruling A GA target and the GA scope of the whole-catalog GP denominator; reaffirms the 2026-10-16 EKS/Helm Preview amendment. Preview surfaces keep honest labels and their security, isolation and integrity floors, and GP authorization and correctness fixes stay on 2026.1. No gate is weakened for a GA surface. The matrix, manifest and nightly bind change is honua-release#940; the journey gate and promotion readiness change is honua-release#941. The GP requirement denominator is honua-release#949.",
+      "moved": [
+        "honua-release#282",
+        "honua-release#323"
+      ],
+      "basis": "Founder decision 2026-10-25, recorded on honua-release#376 on 2026-10-26"
     }
   },
   "security_findings": [

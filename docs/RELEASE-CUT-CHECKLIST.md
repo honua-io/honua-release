@@ -7,7 +7,9 @@ captain selects a lock to burn and qualify; promotion publishes that lock and mo
 There is no freeze train or hand re-pin cycle. Gates can fail and cannot be overridden.
 
 The M1 developer preview is not a cut. M2 requires the first certified lock `2026.1-rc.3` and the
-genuine-model journey on all four GA cells against a certified lock. M3 promotes rc.N with signed
+genuine-model journey on both GA cells (`aws-ecs` Redis off and on) against a certified lock. Under the
+2026-10-25 re-tier the GA topology is Docker Compose on-prem plus AWS ECS; Lambda, EKS, Helm and the GP
+catalog are Preview, and x86_64 is the only architecture. M3 promotes rc.N with signed
 rc.3 → rc.N → rc.3 update and rollback proof. Read `origin/trunk` or immutable revisions, never a shared
 checkout, when checking sources. The manifest and compatibility matrix describe each lock's exact scope.
 
@@ -75,21 +77,21 @@ replace the required two-revision application proof below.
 - [ ] Collect seven consecutive passing six-hour canaries bound to this digest. Retain every observed
   run since minting, including failures, so readiness cannot omit a failure. Continue canaries until
   promotion; the latest seven must meet cadence and freshness bounds.
-- [ ] During the burn, run the genuine-model journey on all four GA cells with the same complete
+- [ ] During the burn, run the genuine-model journey on both GA cells with the same complete
   two-attempt ledger and failure attribution rule. Check the cost ceiling before teardown.
-- [ ] Prove signed rc.3 → rc.N → rc.3 application update and rollback on all four cells using the existing
-  ECS and Lambda deploy backends and approved preflight/apply/rollback actuators. Keep a GP job in flight
+- [ ] Prove signed rc.3 → rc.N → rc.3 application update and rollback on both GA cells using the existing
+  ECS deploy backend and approved preflight/apply/rollback actuators. Keep a GP job in flight
   and prove it finishes exactly once, rc.3 serves on rc.N's schema or refuses cleanly, and no
   version-skew corruption occurs. Verify restored data, client import/publish/query, serving health,
   graceful draining and cleanup. Same-version traffic shifting or a manual alias flip is insufficient.
-- [ ] For Lambda, attach the exact lock, server SHA, x86_64 source/ECR digests, run URL/times,
+- [ ] For any Lambda (Preview) evidence, attach the exact lock, server SHA, x86_64 source/ECR digests, run URL/times,
   function/alias and before/after/rollback versions, executed serving assertions and teardown inventory
   and outcomes. Re-read contracts from the booted candidate. A source-built substitute or health-only
   receipt cannot discharge the bill's application upgrade/rollback items.
 - [ ] Produce fresh Esri and CITE evidence against this lock during the burn, with immutable provenance
   and bounds of at most 14 days. Every qualifying class is declared and bound to this digest; no class
   is carried forward from another lock or hand-minted outside a workflow.
-- [ ] Verify Lambda GA qualification consistency. Preparation uses `ga-target` / `pending`; supported
+- [ ] Verify Lambda Preview labeling consistency. The matrix row is `preview` / `pending`; supported
   status requires the full passed bill and a real HTTPS `qualificationReceipt` bound by
   `qualification_candidate_digest` to the exact manifest. A receipt reference alone is insufficient.
 
