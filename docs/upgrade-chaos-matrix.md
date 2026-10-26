@@ -82,7 +82,7 @@ The probe interrupts twice from the same restored baseline:
 | Mode | Interruption | Additional runner assertion |
 | --- | --- | --- |
 | `backend-terminated` | `pg_terminate_backend` of the paused runner backend; the server process survives | the runner logs a migration failure and `/healthz/ready` stays unready |
-| `server-killed` | `SIGKILL` of the candidate container | — |
+| `server-killed` | `SIGKILL` of the candidate container | the kill must succeed and the container must be observed not running; otherwise the mode fails |
 
 For both modes, the server is stopped before the journal lock is released, and the probe waits until
 no client backend remains. It then asserts the following against the pre-migration snapshot: the

@@ -275,7 +275,10 @@ compose() {
         cp "$OUT/expected-journal.txt" "$OUT/live-journal"; cp "$OUT/expected-checksums.txt" "$OUT/live-checksums"
         cp "$OUT/expected-schema.sql" "$OUT/live-schema"
       fi ;;
-    'kill -s SIGKILL server') interrupt ;;
+    'kill -s SIGKILL server')
+      [ "$FAULT" = kill-fails ] && return 1
+      interrupt ;;
+    'ps -q --status running server') [ "$FAULT" = kill-ignored ] && echo c0ffee ;;
     'logs server')
       echo "Executing Database Server script 'm1.sql'"
       echo "Executing Database Server script 'm2.sql'"
@@ -332,6 +335,40 @@ def test_terminated_runner_must_own_its_failure(tmp_path, fault, why):
     assert scenarios == [{"scenario": "partial-migration-failure:backend-terminated",
                           "status": "fail", "why": scenarios[0]["why"]}]
     assert why in scenarios[0]["why"]
+
+
+@pytest.mark.parametrize("fault", ["kill-fails", "kill-ignored"])
+def test_server_killed_requires_a_successful_sigkill_that_stops_the_server(tmp_path, fault):
+    result = run_driver(tmp_path, PARTIAL_STUB + 'partial_failure_probe server-killed\n',
+                        FAULT=fault, CHAOS_PARTIAL_ATTEMPTS="2", CHAOS_KILL_ATTEMPTS="2")
+    assert result.returncode != 0, result.stdout
+    scenarios = json.loads((tmp_path / "scenario-matrix.json").read_text())["scenarios"]
+    assert scenarios == [{"scenario": "partial-migration-failure:server-killed", "status": "fail",
+                          "why": "SIGKILL of the paused candidate runner failed or the server kept running"}]
+
+
+@pytest.mark.parametrize("kill_status,running,passed", [
+    (0, "", True), (1, "", False), (0, "c0ffee", False),
+])
+def test_boundary_kill_requires_a_successful_sigkill_that_stops_the_server(tmp_path, kill_status, running, passed):
+    result = run_driver(tmp_path, rf'''
+restore_baseline() {{ :; }}
+compose() {{
+  case "$*" in
+    'logs server') echo 'Executing Database Server script migration.sql' ;;
+    'kill -s SIGKILL server') return {kill_status} ;;
+    'ps -q --status running server') echo '{running}' | grep . ;;
+  esac
+  return 0
+}}
+sleep() {{ :; }}
+wait_ready() {{ :; }}
+assert_state() {{ :; }}
+kill_at_boundary migration.sql
+''', CHAOS_BOUNDARY_ATTEMPTS="1", CHAOS_KILL_ATTEMPTS="2")
+    assert (result.returncode == 0) is passed, result.stdout + result.stderr
+    if not passed:
+        assert "SIGKILL at migration boundary 'migration.sql' failed or the server kept running" in result.stdout
 
 
 def test_paused_script_must_be_a_pending_candidate_migration(tmp_path):

@@ -137,6 +137,19 @@ stop_server() {
   compose stop server >/dev/null 2>&1 || true
 }
 
+# SIGKILL the candidate server and prove it stopped. A failed or ignored kill is not an
+# interruption: a later stop_server would end the runner normally and fake crash recovery.
+sigkill_server() {
+  local i running
+  compose kill -s SIGKILL server >/dev/null 2>&1 || return 1
+  for i in $(seq 1 "${CHAOS_KILL_ATTEMPTS:-10}"); do
+    running="$(compose ps -q --status running server 2>/dev/null)" || return 1
+    [ -z "$running" ] && return 0
+    sleep 1
+  done
+  return 1
+}
+
 start_image() {
   local image="$1"
   export HONUA_SERVER_IMAGE="$image"
@@ -280,7 +293,10 @@ kill_at_boundary() {
   for i in $(seq 1 "${CHAOS_BOUNDARY_ATTEMPTS:-120}"); do
     if compose logs server 2>&1 | grep -F -- "$BOUNDARY_LOG_PATTERN" | grep -F -- "$migration" >/dev/null; then
       found=1
-      compose kill -s SIGKILL server >/dev/null 2>&1 || true
+      if ! sigkill_server; then
+        record "$name" fail "SIGKILL at migration boundary '$migration' failed or the server kept running"
+        return 1
+      fi
       break
     fi
     sleep 1
@@ -472,7 +488,12 @@ partial_failure_probe() (
   printf 'script=%s\nrunner=%s\n' "$script" "$runner" > "$OUT/partial-$mode-interruption.txt"
 
   case "$mode" in
-    server-killed) compose kill -s SIGKILL server >/dev/null 2>&1 || true ;;
+    server-killed)
+      if ! sigkill_server; then
+        compose logs server > "$OUT/partial-$mode-server.log" 2>&1 || true
+        record "$name" fail "SIGKILL of the paused candidate runner failed or the server kept running"
+        return 1
+      fi ;;
     backend-terminated)
       if [ "$(db_exec "SELECT pg_terminate_backend($runner_pid)")" != t ]; then
         record "$name" fail "could not terminate the paused runner backend $runner_pid"
