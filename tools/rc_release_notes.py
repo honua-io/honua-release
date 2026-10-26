@@ -46,6 +46,10 @@ def render(manifest: dict, gate_md: str, label: str, server_image: str | None, s
            gaps: list[dict], intro: str | None = None) -> str:
     title = label.replace("-", " ")
     parts = [f"# Honua {title}\n"]
+    # A hand-written narrative (release-notes/<base>.md) starts with its own H1; drop it so the rc
+    # title stays the only one.
+    if intro and intro.lstrip().startswith("# "):
+        intro = intro.lstrip().split("\n", 1)[1].strip() if "\n" in intro.lstrip() else ""
     parts.append(intro or (
         "A **release candidate** of the Honua platform: one cloud-native geospatial server that exposes "
         "PostGIS-backed data through GeoServices REST, OGC API, classic OGC WMS/WFS/WMTS/WCS, STAC, OData, "
