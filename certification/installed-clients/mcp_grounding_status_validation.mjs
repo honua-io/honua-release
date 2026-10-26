@@ -110,7 +110,8 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
         { env: { HONUA_MCP_ADMIN_API_KEY: credential }, timeout: 120_000 });
       const { launchCanonicalClient } = await import(pathToFileURL(join(directory, "mcp_fixed_client_launcher.mjs")).href);
       const managedKeys = {};
-      let intentId, cleanupFailed = false;
+      let intentId, ambiguousObserved = false, cleanupFailed = false;
+      const catalogCursors = [];
       try {
         observed.runtimeBefore = inspect(candidateSourceSha, candidateImage);
         if (!isDeepStrictEqual(observed.runtimeBefore, setup.runtimeBinding))
@@ -128,11 +129,14 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
         }
         observed.graphObservation = sourceRead("graph", managedKeys.admin, observed.credentialSalt);
         observed.preflightBefore = sourceRead("preflight", managedKeys.admin, observed.credentialSalt);
-        for (let index = 0; index < 13; index++) {
+        for (let index = 0; ; index++) {
+          // The candidate pages the catalog read; each returned cursor adds the next page's read.
           const script = launch("mcp_grounding_status_validation.py", ["--fixture", join(directory, "fixture.v1.json"),
-            "--bootstrap", bootstrapPath, "--calls", ...(intentId ? ["--call-intent-id", intentId] : [])]);
+            "--bootstrap", bootstrapPath, "--calls", ...(intentId ? ["--call-intent-id", intentId] : []),
+            ...catalogCursors.flatMap(cursor => ["--call-catalog-cursor", cursor])]);
+          if (index === script.calls.length) break;
           const expected = script.calls[index];
-          if (!expected || (index >= 3 && !intentId)) throw new Error("actual material clarification intent is absent");
+          if (!expected || (ambiguousObserved && !intentId)) throw new Error("actual material clarification intent is absent");
           const { id: name, method, params, authenticated } = expected;
           const callKey = expected.expectation === "permission_denied" ? managedKeys["limited-read"] : managedKeys.admin;
           const entry = { ...expected, wire: null, client: null, result: null };
@@ -146,7 +150,15 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
           entry.client = probe.client;
           const frame = observedResponse(probe.wire.invocation);
           entry.result = Object.hasOwn(frame, "error") ? frame : frame.result;
-          if (name === "ambiguous") intentId = entry.result?.structuredContent?.draftIntent?.intentId;
+          if (name === "ambiguous") {
+            ambiguousObserved = true;
+            intentId = entry.result?.structuredContent?.draftIntent?.intentId;
+          }
+          if (["catalog", "catalog-page"].includes(expected.expectation) && Object.hasOwn(entry.result ?? {}, "nextCursor")) {
+            const cursor = entry.result.nextCursor;
+            if (typeof cursor !== "string" || !cursor) throw new Error("process catalog continuation cursor is invalid");
+            catalogCursors.push(cursor);
+          }
           if (name === "status") observed.preflightAfter = sourceRead("preflight", managedKeys.admin, observed.credentialSalt);
         }
       } finally {
