@@ -179,7 +179,12 @@
         },
         "lifecycleStatus": {"enum": ["GA", "Preview", "Experimental", "Excluded"]},
         "supportTier": {"type": "string", "minLength": 1},
-        "artifactIdentityModel": {"enum": ["published", "source-pinned"]},
+        "artifactIdentityModel": {"enum": ["published", "source-pinned", "preview-out-of-lock"]},
+        "outOfLock": {
+          "$comment": "A founder ruling keeps this unpublished Preview component out of the lock: recorded with its tested source, never frozen or required.",
+          "type": "object", "additionalProperties": false, "required": ["ruling"],
+          "properties": {"ruling": {"type": "string", "minLength": 1}}
+        },
         "contractVersions": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
         "schemaVersions": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
         "migrationJournalSha256": {"$ref": "#/$defs/sha256"},
@@ -188,6 +193,8 @@
       "allOf": [
         {"if": {"properties": {"artifactIdentityModel": {"const": "published"}}}, "then": {"properties": {"artifacts": {"minItems": 1}}}},
         {"if": {"properties": {"artifactIdentityModel": {"const": "source-pinned"}}}, "then": {"properties": {"artifacts": {"maxItems": 0}}}},
+        {"if": {"properties": {"artifactIdentityModel": {"const": "preview-out-of-lock"}}, "required": ["artifactIdentityModel"]}, "then": {"required": ["outOfLock"], "properties": {"lifecycleStatus": {"const": "Preview"}, "artifacts": {"maxItems": 0}}}},
+        {"if": {"required": ["outOfLock"]}, "then": {"properties": {"artifactIdentityModel": {"const": "preview-out-of-lock"}}}},
         {"if": {"properties": {"schemaVersions": {"required": ["database"]}}}, "then": {"required": ["migrationJournalSha256"]}}
       ]
     },

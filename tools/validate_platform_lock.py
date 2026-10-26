@@ -186,6 +186,12 @@ def validate(lock: dict[str, Any]) -> Findings:
         artifacts = component.get("artifacts")
         if component.get("artifactIdentityModel") == "source-pinned" and artifacts == []:
             continue
+        if component.get("artifactIdentityModel") == "preview-out-of-lock" or "outOfLock" in component:
+            ruling = (component.get("outOfLock") or {}).get("ruling") if isinstance(component.get("outOfLock"), dict) else None
+            if (component.get("artifactIdentityModel") != "preview-out-of-lock" or lifecycle_status != "Preview"
+                    or not ruling or artifacts != []):
+                f.error(f"{path}.outOfLock", "only a ruled Preview component with no artifacts can stay out of the lock")
+            continue
         if not isinstance(artifacts, list) or not artifacts:
             f.error(f"{path}.artifacts", "must contain at least one released artifact")
             continue
