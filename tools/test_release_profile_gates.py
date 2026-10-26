@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -116,14 +117,13 @@ def test_moving_an_included_dotnet_operation_out_of_the_profile_omits_it(copied:
     ("maturity", "preview"),
 ])
 def test_unassigned_gap_drift_fails_validation(copied: Path, field: str, value: object) -> None:
+    # Server 8cb074f7 assigns harness rows for serve.wps and analytics.h3, so the
+    # catalog carries no real gap row; inject the governed one, then drift it.
     path = copied / CATALOG
     catalog = load(path)
-    row = next(
-        item for item in catalog["requirements"]
-        if item["capability_key"] == "serve.wps"
-        and item["operation"].startswith("UNASSIGNED PROTOCOL HARNESS CONTRACT:")
-    )
+    row = governed_gap_row(copied, "serve.wps")
     row[field] = value
+    catalog["requirements"].append(row)
     write(path, catalog)
 
     result = run(copied, "validate-protocol-requirements.py")
@@ -131,6 +131,28 @@ def test_unassigned_gap_drift_fails_validation(copied: Path, field: str, value: 
     assert result.returncode != 0
     assert "serve.wps" in result.stderr
     assert field in result.stderr
+
+
+def governed_gap_row(copied: Path, capability: str) -> dict:
+    spec = importlib.util.spec_from_file_location("copied_validator", copied / "validate-protocol-requirements.py")
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    return validator._unassigned_gap_row(capability, validator._unassigned_gap_contract(capability))
+
+
+def test_assigned_harness_capability_cannot_also_carry_a_gap_row(copied: Path) -> None:
+    path = copied / CATALOG
+    catalog = load(path)
+    assert not [row for row in catalog["requirements"]
+                if row["operation"].startswith("UNASSIGNED PROTOCOL HARNESS CONTRACT:")]
+    catalog["requirements"].append(governed_gap_row(copied, "serve.wps"))
+    write(path, catalog)
+
+    result = run(copied, "validate-protocol-requirements.py")
+
+    assert result.returncode != 0
+    assert "coexist with explicit unassigned contracts" in result.stderr
+    assert "serve.wps" in result.stderr
 
 
 def test_demoted_matrix_capabilities_have_no_supported_rows() -> None:
@@ -235,7 +257,7 @@ def test_blank_python_fixture_revision_refuses_generation(copied: Path) -> None:
 
 
 SEED = "sources/canonical-client-fixtures.v1.json"
-APPLIED_SEED = "sha256:3bba01b45aa9c90589f03b7c72cd49918a14b0700cb125fd26d987a1bc743f3e"
+APPLIED_SEED = "sha256:522454f3de0247fa5f8044a7bbc906ba57e44c34f2cece602c91688ee0e1cd63"
 
 
 def test_dotnet_certification_rows_carry_the_applied_server_seed():
@@ -244,7 +266,7 @@ def test_dotnet_certification_rows_carry_the_applied_server_seed():
     seed = load(CERTIFICATION / SEED)["server_seed"]
     server = load(CERTIFICATION / "sources/source-revisions.v1.json")["sources"]["server-certification"]
     assert seed["commit"] == server["commit"]
-    assert seed["sha256"] == APPLIED_SEED  # tests/seed/base-schema.sql at 0e03bdd
+    assert seed["sha256"] == APPLIED_SEED  # tests/seed/base-schema.sql at 8cb074f7
     fixtures = {
         row["fixture_revision"] for row in catalog["requirements"]
         if row["client_lane"] == "sdk-dotnet-certification"

@@ -3,11 +3,11 @@
   "sources": {
     "server": {
       "repository": "honua-io/honua-server",
-      "commit": "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+      "commit": "8cb074f77d01c0a00617ebe426460aa24c7d890b"
     },
     "server-certification": {
       "repository": "honua-io/honua-server",
-      "commit": "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+      "commit": "8cb074f77d01c0a00617ebe426460aa24c7d890b"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
