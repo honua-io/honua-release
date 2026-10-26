@@ -148,6 +148,31 @@ STAGED_REQUIREMENTS_FILES = ("platform-manifest.yaml", "compatibility-matrix.yam
 STAGED_REQUIREMENTS_PREFIX = "certification/sources/"
 
 
+# GitHub pages a commit's file listing (at most 100 per page) and lists no more than 3000 files.
+COMMIT_FILES_PAGE = 100
+COMMIT_FILES_LIMIT = 3000
+
+
+def _commit_files(client: APIClient, pin: Pin, first: object, refuse) -> list[str]:
+    """Every file the commit changes, read page by page. A listing that reaches GitHub's 3000-file
+    cap cannot be proven complete, so it refuses rather than judging a partial list."""
+    files: list[str] = []
+    page, response = 1, first
+    while True:
+        rows = (response or {}).get("files") if isinstance(response, dict) else None
+        if not isinstance(rows, list):
+            raise refuse(f"its file listing page {page} is not a list")
+        files.extend(str((row or {}).get("filename", "")) for row in rows)
+        if len(files) >= COMMIT_FILES_LIMIT:
+            raise refuse(f"its file listing reaches GitHub's {COMMIT_FILES_LIMIT}-file cap and cannot be "
+                         "proven complete")
+        if len(rows) < COMMIT_FILES_PAGE:
+            return files
+        page += 1
+        response = client.json(f"repos/{pin.repository}/commits/{pin.sha}"
+                               f"?per_page={COMMIT_FILES_PAGE}&page={page}")
+
+
 def _verify_staged_requirements(pin: Pin, client: APIClient, status: object) -> None:
     """The nightly binds its ledger to the catalog it staged: one data commit over reviewed trunk,
     published at refs/nightly-requirements/<sha> and never merged. It is reachable through that ref
@@ -162,7 +187,7 @@ def _verify_staged_requirements(pin: Pin, client: APIClient, status: object) -> 
     target = (ref or {}).get("object") if isinstance(ref, dict) else None
     if not isinstance(target, dict) or target.get("type") != "commit" or target.get("sha") != pin.sha:
         raise refuse(f"refs/nightly-requirements/{pin.sha} does not name that commit")
-    commit = client.json(f"repos/{pin.repository}/commits/{pin.sha}?per_page=100")
+    commit = client.json(f"repos/{pin.repository}/commits/{pin.sha}?per_page={COMMIT_FILES_PAGE}&page=1")
     parents = [str((row or {}).get("sha", "")) for row in (commit or {}).get("parents") or []] \
         if isinstance(commit, dict) else []
     if len(parents) != 1:
@@ -171,7 +196,7 @@ def _verify_staged_requirements(pin: Pin, client: APIClient, status: object) -> 
         verify_pin(Pin(f"{pin.name} parent", pin.repository, parents[0], pin.trunk), client)
     except ReachabilityError as exc:
         raise refuse(f"its parent is not reviewed trunk history: {exc}") from None
-    files = [str((row or {}).get("filename", "")) for row in (commit or {}).get("files") or []]
+    files = _commit_files(client, pin, commit, refuse)
     if not files:
         raise refuse("the staged requirements commit changes nothing")
     unexpected = [name for name in files

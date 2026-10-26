@@ -1039,8 +1039,12 @@ class StagedRequirementsClient(StubCompareClient):
             return {"ref": f"refs/nightly-requirements/{self.staged}",
                     "object": {"type": "commit", "sha": self.ref_target}}
         if path.startswith(f"repos/honua-io/honua-release/commits/{self.staged}?"):
+            # GitHub pages a commit's file listing (per_page, at most 100) and stops at 3000 files.
+            query = dict(item.split("=", 1) for item in path.split("?", 1)[1].split("&"))
+            size, page = min(int(query.get("per_page", 30)), 100), int(query.get("page", 1))
+            listed = self.files[:3000]
             return {"sha": self.staged, "parents": [{"sha": sha} for sha in self.parents],
-                    "files": [{"filename": name} for name in self.files]}
+                    "files": [{"filename": name} for name in listed[(page - 1) * size:page * size]]}
         return super().json(path)
 
 
@@ -1062,6 +1066,11 @@ def test_nightly_staged_requirements_revision_is_reachable_through_its_published
     {"parent_status": "diverged"},                        # the parent is not reviewed trunk
     {"files": ["tools/check_protocol_certification.py"]},  # it changes reviewed release code
     {"files": []},                                        # it changes nothing
+    # Release code on a later page of the file listing is still release code.
+    {"files": [f"certification/sources/s{index}.json" for index in range(100)]
+              + ["tools/check_protocol_certification.py"]},
+    # GitHub stops listing at 3000 files, so a full listing cannot prove the commit is only data.
+    {"files": [f"certification/sources/s{index}.json" for index in range(3000)]},
 ])
 def test_nightly_staged_requirements_revision_refuses_anything_else(change):
     staged, parent = "1" * 40, "2" * 40
