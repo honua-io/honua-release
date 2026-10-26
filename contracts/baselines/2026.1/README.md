@@ -148,3 +148,31 @@ hand-edited. Review of what moved:
 
 This refresh records reviewed, additive release movement; the gate keeps failing on any unreviewed
 change at the next pin.
+
+## 2026.1 SDK re-pin review (2026-10-26)
+
+The scheduled gate went red again on run 40329558780 (`honua-sdk-python` and `honua-sdk-js`
+"surface changed in ['public-api.json']") after the manifest re-pinned the JS cohort to 0.2.10
+(#947) and `honua-sdk` to 0.1.19 (#957) without refreshing these baselines. Both SDKs were
+re-extracted at the current manifest pins with `contract_surface.py update` against exact
+checkouts; no `_meta.sha` was hand-edited. `honua-server` and `honua-sdk-dotnet` extract
+byte-identically. Review of what moved:
+
+- `honua-sdk-js` @ `965c01363772` (0.2.10, from `45e2fb2c7c35`): purely additive, **0 exports
+  removed, 10 added** (7,922 → 7,932), all on `./control-plane`: the server-job import source
+  types (`DatasetImportBrowserFileSource`, `DatasetImportLocalProcessSource`,
+  `DatasetImportServerJobArtifactReference`, `DatasetImportServerJobArtifactSource`,
+  `DatasetImportServerJobSource`, `DescribeServerJobImportSource`, `ListServerJobImportSources`,
+  `ServerJobImportSourceChoice`, `ServerJobImportSourcePage`) and the
+  `DatasetImportServerJobSourceClient` value.
+- `honua-sdk-python` @ `4b5838cb5ba8` (0.1.19, from `361978e86e81`): no symbol removed.
+  Additive: a `gp` property on `HonuaClient` and `AsyncHonuaClient` (sdk-python#319); `ColumnInfo.max_length`
+  and the `TableInfo` discovery fields now default to `None` / an empty list, which only relaxes
+  required arguments (sdk-python#317). One reviewed behavioural change: the admin runtime server floor
+  `MINIMUM_SUPPORTED_SERVER_VERSION` (and the `AdminCompatibilityBaseline.minimum_server_version`
+  default) moves from `'1.0.0'` to `'2026.1.0-0'`, derived from the capability baseline
+  (sdk-python#321) and matching the platform's calendar versioning; the JS SDK made the same
+  alignment in 0.2.10 (`b081f0ce`).
+
+This refresh records reviewed release movement; the gate keeps failing on any unreviewed change at
+the next pin.
