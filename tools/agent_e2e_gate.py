@@ -455,6 +455,7 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
                 observation = read_json(evidence(evidence_root, assertion['evidence']))
                 resolved_expectation = native_bindings.resolve(aid, expectations['cases'][cid]['assertions'][aid],
                     declarations, bound_reports, {**receipt, 'modelActions': transcript['actions']})
+                native_bindings.validate_observation(aid, observation, declarations, bound_reports, receipt)
                 oracle_predicates.verify(aid, observation, resolved_expectation)
             require(observed == expected['assertions'], f'{cid}: missing independent assertions')
         else:

@@ -2,7 +2,8 @@
 
 Random proposal, audit, version and job IDs cannot be frozen before submission.
 Only each finite profile's explicit assertion fields may refer to them. A trusted controller
-collects paired immutable ScenarioHttp GET originals; the gate replays those
+collects paired immutable ScenarioHttp originals (GET reads and the finite P17
+controller-issued denial POST); the gate replays those
 same native relationships. This module never sends requests, accepts model JSON
 as an original, approves an operation, or modifies frozen expectations.
 """
@@ -41,6 +42,9 @@ def native_id(value):
 
 
 def contract(value):
+    if isinstance(value, dict) and value.get('profile') == 'honua.studio-denial-bindings/v1':
+        from agent_e2e_studio_denial_observer import contract as denial_contract
+        return denial_contract(value)
     if isinstance(value, dict) and value.get('profile') == 'honua.worker-custody-bindings/v1':
         from agent_e2e_native_custody_bindings import contract as custody_contract
         return custody_contract(value)
@@ -104,8 +108,21 @@ def validate_case(value):
     profiles = [row.get('profile') for row in contracts.values()]
     require(len(profiles) == len(set(profiles)) and (len(profiles) <= 1 or frozenset(profiles) in {
         frozenset({'honua.studio-publication-bindings/v1', 'honua.worker-custody-bindings/v1'}),
+        frozenset({'honua.studio-denial-bindings/v1', 'honua.worker-custody-bindings/v1'}),
         frozenset({'honua.studio-authoring-bindings/v1', 'honua.managed-job-bindings/v1'})}),
         'native bindings must be distinct reviewed publication/custody or authoring/job profiles')
+    if 'honua.studio-denial-bindings/v1' in profiles:
+        require('honua.worker-custody-bindings/v1' in profiles, 'P17 requires mandatory native worker custody')
+        denial = next(row for row in contracts.values() if row['profile'] == 'honua.studio-denial-bindings/v1')
+        custody = next(row for row in contracts.values() if row['profile'] == 'honua.worker-custody-bindings/v1')
+        contract(denial)
+        contract(custody)
+        require(set(value['assertions']) == {'approval.pending', 'approval.no-bypass',
+                'custody.bootstrap-revoked', 'custody.worker-replaced'}, 'P17 requires all four frozen assertions')
+        from agent_e2e_studio_denial_observer import request_markers
+        request_markers('approval.no-bypass', value['assertions']['approval.no-bypass'], contracts)
+        require(denial['relationships']['requesterPrincipalId'] == custody['relationships']['taskPrincipalId'],
+                'P17 denial and custody must bind the same actual task principal')
     used = {name: set() for name in contracts}
     for name, declaration in contracts.items():
         require(isinstance(name, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}', name), 'invalid frozen native binding name')
@@ -115,6 +132,11 @@ def validate_case(value):
     for assertion, expected in value['assertions'].items():
         require(isinstance(expected, dict), 'assertion expectation must be an object')
         for field, item in expected.items():
+            if assertion == 'approval.no-bypass' and field == 'requests' and contains_marker(item):
+                from agent_e2e_studio_denial_observer import request_markers
+                name = request_markers(assertion, expected, contracts)
+                used[name].add('proposalId')
+                continue
             reference = marker(item)
             if reference is not None:
                 name, native_field = reference
@@ -128,6 +150,8 @@ def validate_case(value):
 
 
 def allowed(assertion, field, declaration):
+    if declaration.get('profile') == 'honua.studio-denial-bindings/v1':
+        return 'proposalId' if (assertion, field) == ('approval.pending', 'proposalId') else None
     if declaration.get('profile') == 'honua.worker-custody-bindings/v1':
         from agent_e2e_native_custody_bindings import ALLOWED as custody_allowed
         return custody_allowed.get((assertion, field))
@@ -167,6 +191,9 @@ def original(pair, *, observer, candidate, path):
 
 def replay(report, declaration, context, *, complete=True):
     """Resolve from raw originals, retaining every ordinary oracle predicate."""
+    if declaration.get('profile') == 'honua.studio-denial-bindings/v1':
+        from agent_e2e_studio_denial_observer import replay as denial_replay
+        return denial_replay(report, declaration, context, complete=complete)
     if declaration.get('profile') == 'honua.worker-custody-bindings/v1':
         from agent_e2e_native_custody_bindings import replay as custody_replay
         return custody_replay(report, declaration, context, complete=complete)
@@ -281,6 +308,14 @@ def retain(durable, context, *, name, declaration, responses, stage, started_at,
 
 def resolve(assertion, expected, declarations, reports, context):
     result = copy.deepcopy(expected)
+    if assertion == 'approval.no-bypass' and contains_marker(expected.get('requests')):
+        from agent_e2e_studio_denial_observer import request_markers
+        name = request_markers(assertion, expected, declarations)
+        require(name in reports and reports[name]['name'] == name, 'P17 native denial report missing')
+        values = replay(reports[name], declarations[name], context)
+        for row in result['requests']:
+            row['resourceId'] = values['proposalId']
+        return result
     for field, value in expected.items():
         reference = marker(value)
         if reference is None:
@@ -310,3 +345,20 @@ def export(durable, context, declarations, evidence):
         replay(selected, declaration, context)
         result[name] = evidence('native-binding-'+name+'-'+selected['stage'], selected)
     return result
+
+
+def validate_observation(assertion, observation, declarations, reports, context):
+    """P17 raw response hashes and safe nondisclosure must survive export unchanged."""
+    from agent_e2e_studio_denial_observer import PROFILE as denial_profile, validate_observation as validate_denial
+    for name, declaration in declarations.items():
+        if declaration.get('profile') != denial_profile or assertion not in ('approval.pending', 'approval.no-bypass'):
+            continue
+        require(name in reports, 'P17 witness is missing')
+        custody = [(key, row) for key, row in declarations.items() if row.get('profile') == 'honua.worker-custody-bindings/v1']
+        require(len(custody) == 1 and custody[0][0] in reports, 'P17 original native custody is missing')
+        key, contract = custody[0]
+        replay(reports[key], contract, context)
+        principal = reports[key]['proof']['taskPrincipalRead']['response']['response']['body']
+        principal = principal.get('data', principal)
+        require(principal.get('principal') == declaration['relationships']['taskPrincipal'], 'P17 full custody principal differs')
+        validate_denial(assertion, observation, reports[name], declaration, context)

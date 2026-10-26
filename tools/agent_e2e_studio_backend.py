@@ -1,9 +1,9 @@
-"""Native P14 publication development producer and paid prefreeze fixture setup.
+"""Native P14 publication and P17 denial development producer and paid prefreeze fixture setup.
 
 Preparation creates only P14's saved-map starting state. A checked private
 workflow must retain its originals and review the actual IDs into source-frozen
-expectations before dispatching the campaign. Runtime actions come only from the
-model; a real distinct human approves. Unsupported custody/isolation observers
+expectations before dispatching the campaign. Model actions remain separate from the controller-issued P17 denial probe;
+P14 publication requires a distinct authorized approver. Unsupported custody/isolation observers
 remain explicit failures, so this producer cannot qualify the complete campaign.
 """
 from __future__ import annotations
@@ -119,10 +119,13 @@ def prepare_initial_fixture(*, durable, configuration):
 
 class Session(WorkerSession):
     PROFILE = 'studio-publication-native'
-    CASE_PATTERN = r'P14:[AB]:aws-ecs-redis-on'
+    CASE_PATTERN = r'P(?:14|17):[AB]:aws-ecs-redis-on'
     CONFIG_FIELDS = {'http', 'database', 'deployment', 'attempts', 'accounting', 'studio'}
     OPTIONAL_FIELDS = set()
     DATABASE = StudioFixtureDatabase
+
+    def is_denial_case(self):
+        return self.context['caseId'].startswith('P17:')
 
     def validate_observer(self, http, secrets):
         studio = self.config['studio']
@@ -137,6 +140,8 @@ class Session(WorkerSession):
             owner = os.environ.get(config['ownerCredentialEnv'])
             require(owner and owner not in (*secrets, os.environ[studio['requesterCredentialEnv']]),
                     'private tenant human owner must have separate controller-only custody')
+        require(not self.is_denial_case() or studio.get('custody') is not None,
+                'P17 requires original native worker custody')
         if 'custody' in studio:
             from agent_e2e_studio_custody_observer import validate
             validate(studio['custody'])
@@ -275,10 +280,18 @@ class Session(WorkerSession):
             requesterPrincipalId=fixture['ownerPrincipalId'], notBefore=self.value('prepare-start')['startedAt'])
         expected_case = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]
         declarations = expected_case.get('nativeBindings', {})
-        publications = [row for row in declarations.values() if row.get('profile') == 'honua.studio-publication-bindings/v1']
+        profile = 'honua.studio-denial-bindings/v1' if self.is_denial_case() else 'honua.studio-publication-bindings/v1'
+        publications = [row for row in declarations.values() if row.get('profile') == profile]
+        relationships = {key: value for key, value in binding.items() if key != 'notBefore'}
+        if self.is_denial_case():
+            from agent_e2e_native_bindings import validate_case
+            validate_case(expected_case)
+            from agent_e2e_studio_denial_observer import principal_projection
+            original = self.custody_observer().originals()['context']
+            relationships.update(targetId=original['target']['targetId'], taskPrincipal=principal_projection(original['agentPrincipal']))
         require(len(publications) == 1 and len(declarations) == (2 if self.config['studio'].get('custody') is not None else 1) and publications[0]['relationships'] ==
-                {key: value for key, value in binding.items() if key != 'notBefore'},
-                'P14 frozen relationships do not match actual prefreeze initial fixture')
+                relationships,
+                'Studio frozen relationships do not match actual prefreeze initial fixture')
         self.retain('studio-binding', binding)
         observer = self.observer_for_recovery()
         route_answers = [observer.observer.json('prepared-owner-route', 'GET', observer.path),
@@ -287,8 +300,9 @@ class Session(WorkerSession):
                 'P14 publication route already belongs to existing content')
         self.retain('route-before', [answer['reference'] for answer in route_answers])
         source = observer.version('prepared-saved-version')
-        gate.oracle_predicates.verify('source-content.unchanged', {'profile': 'honua.protected-content/v1',
-            'before': [source['snapshot']], 'after': [source['snapshot']]}, expected_case['assertions']['source-content.unchanged'])
+        if 'source-content.unchanged' in expected_case['assertions']:
+            gate.oracle_predicates.verify('source-content.unchanged', {'profile': 'honua.protected-content/v1',
+                'before': [source['snapshot']], 'after': [source['snapshot']]}, expected_case['assertions']['source-content.unchanged'])
         self.retain('source-before', source)
         # The real task credential must independently reopen the exact saved
         # version; the setup principal never becomes the task worker credential.
@@ -323,8 +337,9 @@ class Session(WorkerSession):
         observer = self.observer_for_recovery()
         after, before = observer.version('completed-saved-version'), self.value('source-before')
         observations = {assertion: None for assertion in self.case['assertions']}
-        observations['source-content.unchanged'] = {'profile': 'honua.protected-content/v1',
-            'before': [before['snapshot']], 'after': [after['snapshot']]}
+        if 'source-content.unchanged' in observations:
+            observations['source-content.unchanged'] = {'profile': 'honua.protected-content/v1',
+                'before': [before['snapshot']], 'after': [after['snapshot']]}
         selections = [row['value'] for row in self.durable.state.get('scenarioOperations', {}).values()
             if row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
                row.get('phase', '').startswith('publication-ordinal-')]
@@ -356,9 +371,28 @@ class Session(WorkerSession):
                 observations['tenant.denied'] = tenant['observation']
             except PackError:
                 self.retain('tenant-verification-refused', {'reasonCode': 'native-tenant-proof-refused'})
+        unsupported = {'approval.pending', 'approval.no-bypass'} if self.is_denial_case() else set()
         completed = datetime.now(timezone.utc).isoformat()
         native_context = {**self.context, 'startedAt': self.value('prepare-start')['startedAt'], 'completedAt': completed}
-        if len(selections) == 1:
+        if self.is_denial_case():
+            if len(selections) == 1 and self.custody_declaration()[0] in reports:
+                from agent_e2e_studio_denial_observer import PROFILE, StudioDenialObserver
+                matches = [(name, row) for name, row in declarations.items() if row.get('profile') == PROFILE]
+                require(len(matches) == 1, 'P17 requires its finite original denial declaration')
+                name, declaration = matches[0]
+                original = self.custody_observer().originals()
+                denial = StudioDenialObserver(publication=observer, requester=self.requester(role='self-approval-probe'),
+                    declaration=declaration, name=name, context=self.context,
+                    expected_principal=original['context']['agentPrincipal'])
+                witness = denial.observe(selections[0], step='completed-denial')
+                self.retain('denial-final', witness)
+                if not witness['supported']:
+                    unsupported.update({'approval.pending', 'approval.no-bypass'})
+                if witness['supported']:
+                    unsupported.difference_update({'approval.pending', 'approval.no-bypass'})
+                    reports[name] = witness['report']
+                    observations.update(witness['observations'])
+        elif len(selections) == 1:
             publication = observer.observe(selections[0], step='completed-publication')
             self.retain('publication-final', publication)
             for assertion in ('approval.separate', 'publication.public'):
@@ -368,17 +402,21 @@ class Session(WorkerSession):
             name, declaration = publications[0]
             reports[name] = observer.bind_native(publication, name=name, declaration=declaration, context=self.context,
                 started_at=native_context['startedAt'], completed_at=completed)
+        native_context['completedAt'] = datetime.now(timezone.utc).isoformat()
         failed = []
         for assertion in self.case['assertions']:
             try:
                 wanted = resolve(assertion, expected['assertions'][assertion], declarations, reports, native_context)
+                from agent_e2e_native_bindings import validate_observation
+                validate_observation(assertion, observations[assertion], declarations, reports, native_context)
                 gate.oracle_predicates.verify(assertion, observations[assertion], wanted)
             except (ValueError, TypeError, PackError):
                 failed.append(assertion)
         result = {'status': 'fail' if failed else 'pass', 'failedAssertions': failed, 'observations': observations,
             'selectedActionId': selections[0]['actionId'] if len(selections) == 1 else None,
-            'unsupportedAssertions': [name for name in self.case['assertions'] if name not in
-                ({'approval.separate', 'publication.public', 'source-content.unchanged'} |
+            'unsupportedAssertions': [name for name in self.case['assertions'] if name in unsupported or name not in
+                (({'approval.pending', 'approval.no-bypass'} if self.is_denial_case() else
+                  {'approval.separate', 'publication.public', 'source-content.unchanged'}) |
                  ({'tenant.denied'} if self.config['studio'].get('tenantIsolation') is not None else set()) |
                  ({'custody.bootstrap-revoked', 'custody.worker-replaced'} if self.config['studio'].get('custody') is not None else set()))]}
         self.retain('verification', result)
