@@ -423,6 +423,35 @@ def test_published_byte_reader_checks_the_locked_hash(monkeypatch, kind):
         nightly.published_artifact_bytes(artifact)
 
 
+@pytest.mark.parametrize('kind', ['spec', 'archive'])
+def test_source_addressed_artifacts_need_no_package_version(monkeypatch, kind):
+    # honua-iac's archive carries no released version (the lock leaves it unresolved); its bytes
+    # are addressed by URL and hash alone, so reading them must not stop on a missing version.
+    import verify_client_artifacts as client
+    package = b'source addressed bytes'
+    artifact = {'kind': kind, 'sha256': 'sha256:' + hashlib.sha256(package).hexdigest(),
+                'coordinate': 'https://github.com/honua-io/honua-iac/archive/' + 'a' * 40 + '.tar.gz'}
+    monkeypatch.setattr(client, '_request', lambda url: package)
+    assert nightly.published_artifact_bytes(artifact) == package
+
+
+@pytest.mark.parametrize('kind', ['npm', 'nuget', 'wheel'])
+def test_registry_package_without_version_is_a_reported_refusal(kind):
+    artifact = {'kind': kind, 'coordinate': 'Honua.Package', 'sha256': 'sha256:' + 'a' * 64}
+    with pytest.raises(ValueError, match='no released version'):
+        nightly.published_artifact_bytes(artifact)
+
+
+def test_collection_reports_every_component_when_one_artifact_lacks_a_version(inputs, candidate, tmp_path):
+    report, paths = inputs
+    def unversioned(artifact):
+        raise KeyError('version')
+    with pytest.raises(ValueError) as refused:
+        nightly.collect_post_gate(report, *paths, tmp_path / 'post', attestations=lambda *_: [],
+                                  artifact_bytes=unversioned)
+    assert 'post-gate reference collection refused' in str(refused.value)
+
+
 @pytest.mark.parametrize('status', ['fail', 'skipped', 'blocked', 'cancelled', 'unknown', ''])
 def test_any_red_or_incomplete_gate_mints_nothing(inputs, tmp_path, status):
     report, paths = inputs
