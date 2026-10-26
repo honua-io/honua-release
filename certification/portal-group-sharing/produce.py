@@ -86,7 +86,10 @@ def server_pin(manifest_text: str) -> dict[str, str]:
         raise ProducerError("the manifest does not pin honua-server by sha, image and sha256 index digest")
     if "@" in image:
         raise ProducerError("the manifest image must be a tag reference; the digest is bound separately")
-    return {"sourceSha": sha, "image": f"{image}@{digest}", "digest": digest}
+    amd64 = (server.get("platformDigests") or {}).get("amd64")
+    if not (isinstance(amd64, str) and amd64.startswith("sha256:") and len(amd64) == 71):
+        raise ProducerError("the manifest does not pin the x86_64 (amd64) child digest")
+    return {"sourceSha": sha, "image": f"{image}@{digest}", "digest": digest, "amd64": amd64}
 
 
 def mint_bearer(signing_key: str, subject: str, roles: list[str], tenant: str, lifetime: int = 3600) -> str:
@@ -273,8 +276,10 @@ class Producer:
         if status != 200 or revision != self.pin["sourceSha"]:
             raise ProducerError(f"{instance} does not advertise the pinned source {self.pin['sourceSha']}")
         runtime = self.stack.runtime(instance)
-        if runtime["image"] != self.pin["digest"]:
-            raise ProducerError(f"{instance} does not run the pinned index digest")
+        # Docker reports the pulled index digest or, with the containerd image store (GitHub-hosted
+        # runners), the platform child it resolved. Only the pinned index or its amd64 child qualifies.
+        if runtime["image"] not in (self.pin["digest"], self.pin["amd64"]):
+            raise ProducerError(f"{instance} runs {runtime['image']}, not the pinned index or its amd64 child")
         return f"{instance}:{runtime['container'][:12]}@{runtime['startedAt']}#{revision}"
 
     # setup
