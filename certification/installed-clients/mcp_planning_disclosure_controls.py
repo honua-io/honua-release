@@ -71,6 +71,11 @@ def journey(*, inspector=False, pages=1):
             entry["result"] = response({"isExecutable": True, "requiresApproval": False, "violations": [], "warnings": []})
         elif expectation == "invalid":
             entry["result"] = response({"status": "error", "code": "invalid_argument", "message": "Missing intent"}, error=True)
+        elif expectation == "permission_denied":
+            # The exact refusal the 8cb074f7 candidate returned to the read:* caller.
+            entry["result"] = response({"status": "error", "code": "permission_denied",
+                "message": "You do not have permission to perform 'Read' on Process.",
+                "error": {"kind": "AuthorizationDenied", "message": "You do not have permission to perform 'Read' on Process."}}, error=True)
         else:
             entry["result"] = response({"status": "error", "code": "unauthenticated", "message": "Authentication required",
                 "error": {"kind": "AuthorizationDenied", "message": "Authentication required"},
@@ -108,6 +113,17 @@ def change_result(value, index, mutate, inspector):
 
 
 class PlanningDisclosureControls(unittest.TestCase):
+    def test_read_star_caller_is_refused_the_operator_planning_demo(self):
+        value = journey()
+        scoped = next(call for call in value["calls"] if call["id"] == "scoped-demo")
+        self.assertEqual((scoped["credentialRole"], scoped["expectation"]), ("limited", "permission_denied"))
+        self.assertTrue(judge(value)["negative"])
+        # A canned demo served to the read:* caller would be a least-privilege failure.
+        full = next(call for call in value["calls"] if call["id"] == "matched-demo")
+        changed = journey()
+        next(call for call in changed["calls"] if call["id"] == "scoped-demo")["result"] = copy.deepcopy(full["result"])
+        with self.assertRaises(ValueError): judge(rebind(changed))
+
     def test_paged_catalog_is_read_to_its_last_page_and_joined(self):
         # honua-server 8cb074f7 pages the process catalog at 64,000 characters.
         for inspector in (False, True):
@@ -176,7 +192,8 @@ class PlanningDisclosureControls(unittest.TestCase):
             lambda body: body["plan"]["warnings"].append("mutable_source_cache_warning"),
         ]
         for inspector in (False, True):
-            for index in (1, 2):
+            # Only the full caller is served the canned demo; the read:* caller is refused.
+            for index in (1,):
                 for number, mutate in enumerate(mutations):
                     value = change_result(journey(inspector=inspector), index, mutate, inspector)
                     with self.subTest(inspector=inspector, caller=index, mutation=number), self.assertRaises(ValueError):
