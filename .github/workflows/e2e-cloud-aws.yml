@@ -210,8 +210,12 @@ jobs:
                   output.write(f"{name}={value}\n")
           PY
 
+      # The Lambda mirror is a prerequisite of a Lambda cell only. `all`, the nightly schedule and
+      # update/rollback run the ECS GA cells alone (2026-10-25 re-tier), so a fresh server pin whose
+      # awsLambdaEcrDigest is still the pending-ecr-mirror sentinel must not block ECS evidence. An
+      # explicit target=aws-serverless dispatch still mirrors, bootstraps the sentinel and verifies.
       - name: Configure AWS credentials for the candidate Lambda mirror
-        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' && inputs.target == 'aws-serverless' && inputs.update_rollback_run_id == '' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
@@ -219,7 +223,7 @@ jobs:
 
       - name: Mirror the exact Lambda candidate into same-region ECR
         id: lambda-ecr
-        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' && inputs.target == 'aws-serverless' && inputs.update_rollback_run_id == '' }}
         env:
           SOURCE_IMAGE: ${{ steps.pins.outputs.lambda_source }}
           SOURCE_DIGEST: ${{ steps.pins.outputs.lambda_source_digest }}

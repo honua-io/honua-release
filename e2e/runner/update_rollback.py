@@ -26,6 +26,7 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+PENDING_ECR_MIRROR = "pending-ecr-mirror"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOKEN = re.compile(r"[A-Za-z0-9_.:-]{1,200}\Z")
 CELLS = {f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless") for redis in ("on", "off")}
@@ -73,11 +74,18 @@ class Release:
     lambda_image: str
     lambda_digest: str
     version: str = ""
+    lambda_mirrored: bool = True
+
+    def _require_lambda(self, cell):
+        require(not cell.startswith("aws-serverless/") or self.lambda_mirrored,
+                "Lambda cell requires a recorded Lambda mirror digest")
 
     def image_for(self, cell):
+        self._require_lambda(cell)
         return self.lambda_image if cell.startswith("aws-serverless/") else self.image
 
     def digest_for(self, cell):
+        self._require_lambda(cell)
         return self.lambda_digest if cell.startswith("aws-serverless/") else self.image.rsplit("@", 1)[1]
 
     def public(self):
@@ -95,11 +103,14 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
     require(isinstance(source, str) and SHA.fullmatch(source), "full immutable server source commit required")
     image = immutable(server.get("image"), server.get("digest"))
     lambda_image = immutable(server.get("awsLambdaImage"), server.get("awsLambdaDigest"))
-    require(DIGEST.fullmatch(str(server.get("awsLambdaEcrDigest"))) is not None,
-            "observed Lambda mirror digest required")
     # A byte-identical mirror has the same manifest digest. A rewritten mirror needs a separately
     # authenticated mapping, which this producer deliberately does not infer from a declaration.
-    require(server["awsLambdaEcrDigest"] == server["awsLambdaDigest"], "Lambda mirror must preserve attested manifest bytes")
+    # Lambda is Preview (2026-10-25 re-tier) and update/rollback deploys ECS cells only, so a fresh
+    # pin may still carry the pending-ecr-mirror sentinel; it then cannot deploy a Lambda cell.
+    mirror = str(server.get("awsLambdaEcrDigest"))
+    lambda_mirrored = mirror != PENDING_ECR_MIRROR
+    require(not lambda_mirrored or DIGEST.fullmatch(mirror) is not None, "observed Lambda mirror digest required")
+    require(not lambda_mirrored or mirror == server["awsLambdaDigest"], "Lambda mirror must preserve attested manifest bytes")
     schema = str(server.get("dbSchema", ""))
     require(re.fullmatch(r"[1-9][0-9]*", schema) is not None, "exact database schema required")
     from check_image_attestation import check, AttestationMismatch
@@ -151,7 +162,8 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
     else:
         require(mode == "rehearsal", "unknown update/rollback mode")
     require(bool(version) and len(version) <= 100, "declared platform release version missing")
-    return Release(manifest, digest(raw), lock_digest, source, schema, image, lambda_image, server["awsLambdaEcrDigest"], version)
+    return Release(manifest, digest(raw), lock_digest, source, schema, image, lambda_image, server["awsLambdaDigest"], version,
+                   lambda_mirrored)
 
 
 def checked(run, argv, message, **kwargs):

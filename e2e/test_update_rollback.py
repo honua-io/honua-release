@@ -335,6 +335,29 @@ def test_input_authentication_binds_real_attested_lambda_parent_to_selected_chil
         assert gh[1][3] != "oci://" + selected.lambda_image
 
 
+def test_pending_lambda_mirror_admits_ecs_cells_but_refuses_lambda_cells(tmp_path):
+    """Lambda is Preview: a fresh pin's pending-ecr-mirror sentinel must not block ECS update/rollback."""
+    import yaml
+    directory, server = bundle(tmp_path)
+    server["awsLambdaEcrDigest"] = "pending-ecr-mirror"
+    (directory / "platform-manifest.yaml").write_text(
+        yaml.safe_dump({"platformRelease": "2026.1-rc.3", "components": {"honua-server": server}}))
+    def runner(argv, **kwargs):
+        if argv[:2] == ["docker", "buildx"]:
+            index = {"schemaVersion": 2, "manifests": [{"digest": "sha256:" + "c" * 64,
+                     "platform": {"os": "linux", "architecture": "amd64"}}]}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(index))
+        return SimpleNamespace(returncode=0, stdout=json.dumps(_attestation(server["sha"], argv[3].rsplit("@", 1)[1])))
+    selected = proof.load_release(directory, "rehearsal", run=runner)
+    assert not selected.lambda_mirrored
+    assert selected.digest_for("aws-ecs/redis-off") == server["digest"]
+    assert selected.public()["lambdaImageDigest"] == server["awsLambdaDigest"]
+    with pytest.raises(proof.ProofError, match="Lambda mirror"):
+        selected.digest_for("aws-serverless/redis-off")
+    with pytest.raises(proof.ProofError, match="Lambda mirror"):
+        selected.image_for("aws-serverless/redis-on")
+
+
 @pytest.mark.parametrize("deregister", [True, None, False])
 def test_lambda_saved_plan_must_retain_prior_worker_revision_before_any_apply(tmp_path, monkeypatch, deregister):
     target = serverless()
