@@ -116,6 +116,21 @@ honua-server:
       with "Expected one open PR for producer head; found 0." (094c76b4, run 37907385850). That is
       the consumer's own PR bookkeeping on a merged commit, not a verdict on the server SHA. The
       full-matrix CI workflow and Build & Format Check stay core.
+  - name: "Mirror .NET base images (MCR -> GHCR)"
+    why: >-
+      Base-image mirror job of the Nightly Container Build
+      (`.github/workflows/nightly-container-build.yml`, event workflow_dispatch). It copies
+      digest-pinned third-party base images (mcr.microsoft.com and
+      public.ecr.aws/awsguru/aws-lambda-adapter) into ghcr.io/honua-io/honua-server-base with
+      `docker buildx imagetools create`; it checks out no server source and builds or tests
+      nothing of the pinned SHA. On 8cb074f77d01 the mirror succeeded once (check-run
+      120181858619, 2026-10-23T01:07Z) and GHCR still holds lambda-adapter-0.9.1 at the pinned
+      digest sha256:46d6625e…; the later attempt (run 40083981239, 2026-10-24T10:03Z) and its
+      reruns on 2026-10-25 at 06:38Z and 07:51Z failed only because public.ecr.aws answered
+      "429 Too Many Requests" for that manifest on all five retries. That is upstream registry
+      rate limiting of the shared runner, not a verdict on the server SHA. Build & Format Check,
+      the full-matrix server test shards and the container jobs that compile and publish the
+      pinned source stay core.
   - workflow: ".github/workflows/server-test-prebuild-observe.yml"
     why: >-
       Server Test Prebuild Observation is a non-authoritative shadow measurement. Its own
