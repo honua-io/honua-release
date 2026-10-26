@@ -120,8 +120,9 @@ def test_resolve_and_mint_run_only_on_trunk():
         assert evaluate(jobs['mint']['if'], {'github.ref': ref, 'needs.train.result': 'success'}) is expected, ref
     # capacity needs the trunk-only resolve; dr and train need the bound candidate. A branch
     # dispatch reaches none of them.
-    assert jobs['lambda_deployment']['needs'] == 'resolve'
-    assert jobs['deployment_qualification']['needs'] == 'lambda_deployment'
+    # Lambda and EKS are Preview (2026-10-25 / 2026-10-16): no deployment producer gates admission.
+    assert 'lambda_deployment' not in jobs
+    assert jobs['deployment_qualification']['needs'] == 'resolve'
     assert set(jobs['protocol_ledger']['needs']) == {'resolve', 'deployment_qualification'}
     assert jobs['capacity']['needs'] == 'resolve'
     assert jobs['dr']['needs'] == 'protocol_ledger'
@@ -170,8 +171,7 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
               for name, job in jobs.items()}
     assert writes == {
         'resolve': ['contents'],               # unadmitted capacity preparation only
-        'lambda_deployment': ['contents'],       # unadmitted refs/prepared-deployments/<sha> only
-        'deployment_qualification': [],          # validates Lambda proof; Preview EKS is not dispatched
+        'deployment_qualification': [],          # joins GA-scoped proof; Preview Lambda/EKS are not dispatched
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
