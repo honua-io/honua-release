@@ -223,6 +223,9 @@ def snapshot_output(value, ingested, published, authored):
         raise ValueError("returned service/layer is not bound to the exact persisted imported source")
 
 
+IMPORTED_ATTRIBUTES_FIELD = "properties"
+
+
 def query_output(result, published, snapshot):
     # QueryFeaturesTool deliberately puts a prose summary in text content and
     # the complete typed feature representations in structuredContent.
@@ -255,8 +258,12 @@ def query_output(result, published, snapshot):
         identifier = feature["id"]
         row = expected.get(identifier)
         props = feature.get("properties")
+        # 2026.1 import contract: the imported source attributes live in the layer's single
+        # JSON `properties` field (typed-layer flattening is honua-server#6640), so the query
+        # must return that field as the exact persisted JSON object, never its text.
         if (row is None or identifier in seen or not isinstance(props, dict)
-                or any(not same_json(props.get(key), value) for key, value in row["properties"].items())
+                or not isinstance(props.get(IMPORTED_ATTRIBUTES_FIELD), dict)
+                or not same_json(props[IMPORTED_ATTRIBUTES_FIELD], row["properties"])
                 or not same_json(feature.get("geometry"), row["geometry"])):
             raise ValueError("fresh query changed an authored feature, attribute or geometry")
         seen.add(identifier)
@@ -269,7 +276,8 @@ def query_output(result, published, snapshot):
             raise ValueError("fresh query second feature representation is malformed")
         row = expected.get(feature["id"])
         if (row is None or feature["id"] in seen or not isinstance(feature["attributes"], dict)
-                or any(not same_json(feature["attributes"].get(key), item) for key, item in row["properties"].items())
+                or not isinstance(feature["attributes"].get(IMPORTED_ATTRIBUTES_FIELD), dict)
+                or not same_json(feature["attributes"][IMPORTED_ATTRIBUTES_FIELD], row["properties"])
                 or not same_json(feature["geometry"], row["geometry"])):
             raise ValueError("fresh query typed attributes/geometry conflict with the persisted authored feature")
         seen.add(feature["id"])
