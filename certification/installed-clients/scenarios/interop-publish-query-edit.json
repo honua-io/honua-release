@@ -36,7 +36,7 @@
           "handoff": "layer"
         }
       ],
-      "description": "Query the published layer's object ids; they are the fixture gids."
+      "description": "Query the published layer's object ids; they are exactly the object ids the query step read for the fixture rows."
     },
     {
       "id": "count",

@@ -123,18 +123,23 @@ def evaluate(cell_id, observations, plan_=None, cell=None):
     return judge.evaluate_cell(cell, SCENARIOS[cell["scenario"]], observations, FIXTURE, plan_ or plan(), LABELS, regression.scrub)
 
 
+MANAGED_OID_BASE = 395
+
+
 def handoff_observations():
     sid = "interop-publish-query-edit"
     rows = [{"attributes": {"gid": r["gid"], "name": r["name"], "rank": r["rank"]}, "x": r["x"], "y": r["y"]}
             for r in FIXTURE["handoff"]["features"]]
+    # A managed layer: the server assigns object ids; the gid is an attribute.
+    queried = [dict(row, objectId=MANAGED_OID_BASE + row["attributes"]["gid"]) for row in rows]
     edited = [{"attributes": {"gid": r["gid"], "name": r["name"], "rank": r["rank"]}, "x": r["x"], "y": r["y"]}
               for r in judge.edited_handoff(FIXTURE)]
     p = plan()
     return {
         (sid, "publish"): obs(sid, "publish", observed={"serviceName": p["handoff"]["service"], "layerName": "handoff",
                                                         "enabled": True, "layerId": 12}),
-        (sid, "query"): obs(sid, "query", observed={"features": rows}),
-        (sid, "ids"): obs(sid, "ids", observed={"ids": [1, 2, 3]}),
+        (sid, "query"): obs(sid, "query", observed={"features": queried, "objectIdField": "OBJECTID"}),
+        (sid, "ids"): obs(sid, "ids", observed={"ids": [row["objectId"] for row in queried]}),
         (sid, "count"): obs(sid, "count", observed={"count": len(rows)}),
         (sid, "edit"): obs(sid, "edit", error={"type": "HonuaHttpError", "status": 400}),
         (sid, "read-back"): obs(sid, "read-back", observed={"features": rows}),
@@ -440,6 +445,29 @@ class OracleTests(unittest.TestCase):
         self.assertIn("not base64-encoded JSON", summary)
         self.assertTrue(judge.oracle_published_content(
             {"family": "Map", "contentHash": digest, "body": body, "contentHashInput": encoded}, FIXTURE, p, {"contentHash": digest})[0])
+
+
+class HandoffIdsTests(unittest.TestCase):
+    def test_ids_are_the_object_ids_the_query_step_read(self):
+        observations, _ = handoff_observations()
+        sid = "interop-publish-query-edit"
+        queried = observations[(sid, "query")]["observed"]
+        ids = observations[(sid, "ids")]["observed"]
+        self.assertTrue(judge.oracle_handoff_ids(ids, FIXTURE, queried)[0])
+        # The fixture gids are not the managed layer's object ids.
+        gids = {"ids": [row["gid"] for row in FIXTURE["handoff"]["features"]]}
+        ok, detail = judge.oracle_handoff_ids(gids, FIXTURE, queried)
+        self.assertFalse(ok)
+        self.assertIn("the query step read", detail)
+        # A missing, partial or duplicated id is red.
+        for drift in ({"ids": ids["ids"][:-1]}, {"ids": ids["ids"] + [999]}, {"ids": None}):
+            self.assertFalse(judge.oracle_handoff_ids(drift, FIXTURE, queried)[0], drift)
+        # Without one distinct object id per fixture row from the query step there is nothing to compare.
+        no_oids = {"features": [dict(row, objectId=None) for row in queried["features"]]}
+        self.assertFalse(judge.oracle_handoff_ids(ids, FIXTURE, no_oids)[0])
+        same = {"features": [dict(row, objectId=7) for row in queried["features"]]}
+        self.assertFalse(judge.oracle_handoff_ids({"ids": [7, 7, 7]}, FIXTURE, same)[0])
+        self.assertFalse(judge.oracle_handoff_ids(ids, FIXTURE, None)[0])
 
 
 class SeamTests(unittest.TestCase):

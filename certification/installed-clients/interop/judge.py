@@ -491,6 +491,31 @@ def oracle_revocation_observed(observed: dict[str, Any], fixture: dict[str, Any]
                 f"{revocation['confirmations']} confirmation calls refused with an authentication status")
 
 
+def oracle_handoff_ids(observed: dict[str, Any], fixture: dict[str, Any], queried: dict[str, Any] | None) -> tuple[bool, str]:
+    """returnIdsOnly names exactly the object ids the query step read for the fixture rows.
+
+    The layer the .NET SDK publishes is managed (Honua.Sdk 1.12.0, honua-sdk-dotnet#410), so the
+    server assigns OBJECTID and the fixture gid stays an attribute. The ids are therefore checked
+    against the per-row object ids of the query step (one distinct integer per fixture gid), not
+    against the gids themselves.
+    """
+    gids = sorted(row["gid"] for row in fixture["handoff"]["features"])
+    rows = (queried or {}).get("features")
+    if not isinstance(rows, list):
+        return False, "the query step read no features, so there are no object ids to compare"
+    by_gid = {(row.get("attributes") or {}).get("gid"): row.get("objectId") for row in rows if isinstance(row, dict)}
+    expected = [by_gid.get(gid) for gid in gids]
+    if any(type(value) is not int for value in expected) or len(set(expected)) != len(gids):
+        return False, f"the query step did not read one distinct integer object id per fixture gid {gids}"
+    ok, detail = oracles.oracle_object_ids(observed, expected)
+    return ok, detail.replace("fixture expects", "the query step read")
+
+
+def _queried(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -> dict[str, Any] | None:
+    observed = observations.get((scenario, "query"), {}).get("observed")
+    return observed if isinstance(observed, dict) else None
+
+
 def _saved(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -> dict[str, Any] | None:
     observed = observations.get((scenario, "save-version"), {}).get("observed")
     return observed if isinstance(observed, dict) else None
@@ -509,7 +534,7 @@ def _draft(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -
 ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "interop-layer-published": lambda o, f, p, obs, s: _layer_published(o, p["handoff"]),
     "interop-handoff-features": lambda o, f, p, obs, s: oracles._compare_features(o, f["handoff"]["features"], ["gid", "name", "rank"], "published layer"),
-    "interop-handoff-ids": lambda o, f, p, obs, s: oracles.oracle_object_ids(o, [row["gid"] for row in f["handoff"]["features"]]),
+    "interop-handoff-ids": lambda o, f, p, obs, s: oracle_handoff_ids(o, f, _queried(obs, s)),
     "interop-handoff-count": lambda o, f, p, obs, s: oracles.oracle_count(o, len(f["handoff"]["features"])),
     "interop-edit-success": lambda o, f, p, obs, s: oracles.oracle_edit_success(o),
     "interop-edited-features": lambda o, f, p, obs, s: oracles._compare_features(o, edited_handoff(f), ["gid", "name", "rank"], "edited layer"),
