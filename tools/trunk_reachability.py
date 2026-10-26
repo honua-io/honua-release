@@ -139,6 +139,47 @@ def _branch_heads(client: APIClient, pin: Pin) -> list[str]:
     )
 
 
+REQUIREMENTS_PIN = "protocolCertification.ledger.requirementsSourceRevision"
+RELEASE_REPOSITORY = "honua-io/honua-release"
+# The files nightly-certification's stage step commits over reviewed trunk (convergence_rebind
+# --nightly-stage); anything else would let a staged commit carry unreviewed release code.
+STAGED_REQUIREMENTS_FILES = ("platform-manifest.yaml", "compatibility-matrix.yaml",
+                             "certification/protocol-certification-requirements.v1.json")
+STAGED_REQUIREMENTS_PREFIX = "certification/sources/"
+
+
+def _verify_staged_requirements(pin: Pin, client: APIClient, status: object) -> None:
+    """The nightly binds its ledger to the catalog it staged: one data commit over reviewed trunk,
+    published at refs/nightly-requirements/<sha> and never merged. It is reachable through that ref
+    when its single parent is trunk history and it changes only the staged catalog data."""
+    def refuse(reason: str) -> ReachabilityError:
+        return ReachabilityError(f"{pin.name}={pin.sha} in {pin.repository} is not reachable from "
+                                 f"{pin.trunk!r} (compare status {status!r}) and {reason}")
+    try:
+        ref = client.json(f"repos/{pin.repository}/git/ref/nightly-requirements/{pin.sha}")
+    except ReachabilityError:
+        raise refuse(f"has no refs/nightly-requirements/{pin.sha}") from None
+    target = (ref or {}).get("object") if isinstance(ref, dict) else None
+    if not isinstance(target, dict) or target.get("type") != "commit" or target.get("sha") != pin.sha:
+        raise refuse(f"refs/nightly-requirements/{pin.sha} does not name that commit")
+    commit = client.json(f"repos/{pin.repository}/commits/{pin.sha}?per_page=100")
+    parents = [str((row or {}).get("sha", "")) for row in (commit or {}).get("parents") or []] \
+        if isinstance(commit, dict) else []
+    if len(parents) != 1:
+        raise refuse("the staged requirements commit does not have exactly one parent")
+    try:
+        verify_pin(Pin(f"{pin.name} parent", pin.repository, parents[0], pin.trunk), client)
+    except ReachabilityError as exc:
+        raise refuse(f"its parent is not reviewed trunk history: {exc}") from None
+    files = [str((row or {}).get("filename", "")) for row in (commit or {}).get("files") or []]
+    if not files:
+        raise refuse("the staged requirements commit changes nothing")
+    unexpected = [name for name in files
+                  if name not in STAGED_REQUIREMENTS_FILES and not name.startswith(STAGED_REQUIREMENTS_PREFIX)]
+    if unexpected:
+        raise refuse("the staged requirements commit changes reviewed release code: " + ", ".join(unexpected))
+
+
 def verify_pin(pin: Pin, client: APIClient) -> None:
     path = (
         f"repos/{pin.repository}/compare/{urllib.parse.quote(pin.trunk, safe='')}..."
@@ -151,6 +192,9 @@ def verify_pin(pin: Pin, client: APIClient) -> None:
         )
     status = response.get("status")
     if status in {"identical", "behind"}:
+        return
+    if pin.name == REQUIREMENTS_PIN and pin.repository == RELEASE_REPOSITORY:
+        _verify_staged_requirements(pin, client, status)
         return
     branches = _branch_heads(client, pin)
     origin = f"; off-trunk branch origin: {', '.join(branches)}" if branches else ""
