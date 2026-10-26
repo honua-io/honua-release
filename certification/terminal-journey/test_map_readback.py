@@ -78,7 +78,7 @@ def setup_map(start, *, body=None):
     transport.tool = mock.Mock(return_value={"structuredContent": copy.deepcopy(SAVE)})
     observation = stages.Observation(setup_view_present=True, setup_discovery={"metadata": {}, "tools": [
         {"name": name, "inputSchema": {"type": "object"}}
-        for name in ("honua_studio_save_version", "honua_studio_update_draft")]})
+        for name in ("honua_studio_save_version", "honua_studio_update_draft", "honua_studio_create_draft")]})
     engine = executor.JourneyExecutor({"workspaceId": "workspace"}, {
         "replicaBaseUrl": replica, "execution": {"mapBody": copy.deepcopy(BODY)}}, observation, transport)
     engine.resources.update(draftId="draft", itemId="item", generation=3)
@@ -265,6 +265,38 @@ def test_native_create_cannot_misidentify_resource_family_even_when_envelope_is_
     with pytest.raises(ExecutionError, match='content or canonical identity'):
         engine.record_map_draft('honua_studio_create_draft', {'family': 'map', 'body': BODY}, wrong)
     assert engine.evidence['mapDraftReceipt']['family'] == 'map'
+
+
+@pytest.mark.parametrize('family', ['dashboard', 'Dashboard', 'app'])
+def test_model_selected_non_map_create_is_stage_feedback_before_any_candidate_write(http_map, family):
+    # Stage 6 names map+dashboard, but its composition contract (terminal_surface) is the
+    # portable map family only. A model that asks for another family gets invalid-action
+    # feedback before the candidate is written; the map draft receipt is untouched.
+    # Scheduled run 40349474852: a faithful dashboard create reached record_map_draft and
+    # was reported as a candidate omission (infrastructure) instead.
+    engine, _, _, _, _ = setup_map(http_map)
+    before = copy.deepcopy(engine.evidence['mapDraftReceipt'])
+    dashboard = copy.deepcopy(DRAFT)
+    dashboard.update(draftId='dashboard-draft', itemId='dashboard-item', family=family)
+    dashboard['envelope'] = {'family': family, 'body': {'widgets': []}}
+    engine.transport.tool.return_value = {'structuredContent': dashboard}
+    with pytest.raises(ActionRejected, match='composition contract is the map family'):
+        engine.execute(6, {'kind': 'tool_call', 'tool': 'honua_studio_create_draft', 'arguments': {
+            'family': family, 'packageKey': 'journey-dashboard', 'body': {'widgets': []}}})
+    engine.transport.tool.assert_not_called()
+    assert engine.evidence['mapDraftReceipt'] == before
+
+
+def test_map_create_still_reaches_the_candidate_and_wrong_returned_family_stays_execution_failure(http_map):
+    engine, _, _, _, _ = setup_map(http_map)
+    wrong = copy.deepcopy(DRAFT)
+    wrong['family'] = 'dashboard'
+    engine.transport.tool.return_value = {'structuredContent': wrong}
+    with pytest.raises(ExecutionError, match='content or canonical identity') as error:
+        engine.execute(6, {'kind': 'tool_call', 'tool': 'honua_studio_create_draft', 'arguments': {
+            'family': 'map', 'body': copy.deepcopy(BODY)}})
+    assert not isinstance(error.value, ActionRejected)
+    engine.transport.tool.assert_called_once()
 
 
 def test_original_wrong_family_receipt_and_matching_actual_http_cannot_qualify_map(http_map):

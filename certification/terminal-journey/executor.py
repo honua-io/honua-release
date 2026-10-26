@@ -245,6 +245,14 @@ class JourneyExecutor:
             jsonschema.validate(arguments, descriptors[0]["inputSchema"])
         except jsonschema.ValidationError as exc:
             raise ActionRejected(name, "arguments do not satisfy the observed tool schema") from exc
+        requested_family = arguments.get("family")
+        if (number == 6 and name == "honua_studio_create_draft" and requested_family is not None
+                and str(requested_family).lower() != "map"):
+            # The stage title names map+dashboard, but its composition contract (terminal_surface)
+            # is the portable map family only. Another family is model feedback before any write;
+            # a candidate that returns a non-map family for a map request stays an execution failure.
+            raise ActionRejected(name, "this stage's composition contract is the map family; "
+                                 "consult terminalSurface.compositionContract and create or update the map draft")
         fault = self.state.get("armedError")
         injected = recovered = None
         send_arguments = arguments
