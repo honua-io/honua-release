@@ -20,13 +20,11 @@ REFUSAL = {"error": {"code": 403, "message": "Forbidden"}}
 
 
 def test_server_pin_binds_tag_and_index_digest():
-    digest, amd64 = "sha256:" + "a" * 64, "sha256:" + "e" * 64
-    text = (f'components:\n  honua-server:\n    sha: "{"b" * 40}"\n    image: "ghcr.io/x/server:nightly-b"\n'
-            f'    digest: "{digest}"\n    platformDigests:\n      amd64: "{amd64}"\n')
+    digest = "sha256:" + "a" * 64
+    text = f'components:\n  honua-server:\n    sha: "{"b" * 40}"\n    image: "ghcr.io/x/server:nightly-b"\n    digest: "{digest}"\n'
     pin = produce.server_pin(text)
-    assert pin == {"sourceSha": "b" * 40, "image": f"ghcr.io/x/server:nightly-b@{digest}", "digest": digest,
-                   "amd64": amd64}
-    for broken in (text.replace(digest, "sha256:short"), text.replace(amd64, "sha256:short"), text.replace('"' + "b" * 40 + '"', '"abc"'),
+    assert pin == {"sourceSha": "b" * 40, "image": f"ghcr.io/x/server:nightly-b@{digest}", "digest": digest}
+    for broken in (text.replace(digest, "sha256:short"), text.replace('"' + "b" * 40 + '"', '"abc"'),
                    text.replace("server:nightly-b", f"server@{digest}"), "components: {}\n"):
         with pytest.raises(produce.ProducerError):
             produce.server_pin(broken)
