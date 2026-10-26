@@ -126,7 +126,9 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
     assert data["sha"] == "c19f29d1828814f0f4c372b0dce73554074ba3b1"
     status, why = _classify("honua-server", payload)
     assert status == "pass", why
-    assert why.startswith("all 120 core check-run(s) green")
+    # 116, not 120: the four green/skipped Server Test Prebuild Parity Observation checks in this
+    # capture are advisory too (server-test-prebuild-parity.yml, 2026-10-26).
+    assert why.startswith("all 116 core check-run(s) green")
     for name in PREBUILD:
         assert name in why
 
@@ -174,6 +176,51 @@ def test_a_prebuild_named_job_on_ci_yml_is_not_covered_by_the_observer_exclusion
     assert status == "fail", why
     for name in PREBUILD:
         assert name in _red_names(why)
+
+
+PARITY_FIXTURE = ROOT / "tools" / "fixtures" / "candidate-resolution-2026-10-26" / "honua-server-08ace24.json"
+PARITY_RED = ("Independent prebuild baseline / ai", "Opportunistic prebuild candidate / ai")
+PARITY_WORKFLOW = ".github/workflows/server-test-prebuild-parity.yml"
+
+
+def _parity_payload() -> tuple[dict, dict]:
+    data = json.loads(PARITY_FIXTURE.read_text(encoding="utf-8"))
+    payload = bt._enrich_action_workflow_ids({"check_runs": copy.deepcopy(data["check_runs"])},
+                                             {"workflow_runs": data["workflow_runs"]})
+    return data, payload
+
+
+def test_server_prebuild_parity_observer_is_advisory_on_the_trunk_sha_it_is_filed_on():
+    # Nightly run 40354887147 skipped 08ace249 (full-matrix run 40317136321 green, image
+    # nightly-08ace24 published) for these two reds. They are workflow_run jobs of the
+    # Server Test Prebuild Parity Observation that GitHub files on the trunk SHA while the
+    # jobs build pull-request heads: run 40318181771 checked out e0807412 (PR #6593) and
+    # run 40317711085 checked out 91ca40d (PR #6589), neither in 08ace249's history.
+    data, payload = _parity_payload()
+    assert data["sha"] == "08ace249b20bc2c27bd7326fd77cd48525719eb7"
+    red = [run for run in payload["check_runs"] if run["name"] in PARITY_RED and run["conclusion"] == "failure"]
+    assert red and {run["_workflow_path"] for run in red} == {PARITY_WORKFLOW}
+    status, why = _classify("honua-server", payload)
+    assert status == "pass", why
+    for name in PARITY_RED:
+        assert name in why
+    assert PARITY_WORKFLOW in bt.load_advisory()["honua-server"]["workflows"]
+
+
+def test_server_prebuild_parity_checks_stay_core_without_a_workflow_path_or_on_ci_yml():
+    _, payload = _parity_payload()
+    for path in (None, ".github/workflows/ci.yml"):
+        moved = copy.deepcopy(payload)
+        for run in moved["check_runs"]:
+            if run["name"] in PARITY_RED:
+                if path is None:
+                    run.pop("_workflow_path", None)
+                else:
+                    run["_workflow_path"] = path
+        status, why = _classify("honua-server", moved)
+        assert status == "fail", why
+        for name in PARITY_RED:
+            assert name in _red_names(why)
 
 
 def test_feature_server_shard_uses_the_latest_attempt_and_stays_core():
