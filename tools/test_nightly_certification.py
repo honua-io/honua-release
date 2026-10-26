@@ -906,6 +906,18 @@ def test_the_night_reads_and_writes_no_repository_variable():
     assert 'PROTOCOL_CERTIFICATION_' not in text
 
 
+def test_the_night_authenticates_only_with_the_release_token_it_provisions():
+    """Every cross-repository step of the night's own jobs uses RELEASE_GH_TOKEN, the one release secret
+    that exists. The aggregate step once read HONUA_RELEASE_AUTOMATION_TOKEN, a secret of a retired
+    workflow that was never set: its dispatch would have run with an empty token after every producer
+    had already spent its hours."""
+    text = (ROOT / '.github/workflows/nightly-certification.yml').read_text()
+    assert set(re.findall(r'secrets\.([A-Za-z0-9_]+)', text)) == {'RELEASE_GH_TOKEN'}
+    aggregate = step(workflow()['jobs']['protocol_ledger'], 'Aggregate tonight')
+    assert aggregate['env']['GH_TOKEN'] == '${{ secrets.RELEASE_GH_TOKEN }}'
+    assert 'if [ -z "${GH_TOKEN:-}" ]' in aggregate['run']
+
+
 def test_protocol_producers_run_at_their_pins_bound_to_the_candidate(github):
     state = github.load()
     state['refs']['honua-io/honua-sdk-python'] = {'refs/heads/trunk': PYTHON_PIN}
