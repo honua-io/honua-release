@@ -94,12 +94,12 @@ jobs:
           import os,sys
           from pathlib import Path
           sys.path.insert(0,"e2e")
-          from runner.update_rollback import CELLS,load_release,preflight
+          from runner.update_rollback import GA_CELLS,load_release,preflight
           root=Path(os.environ["RUNNER_TEMP"])
           mode=os.environ["MODE"]
           prior=load_release(root/"rollback-prior",mode)
           candidate=load_release(root/"rollback-candidate",mode)
-          for cell in CELLS:
+          for cell in sorted(GA_CELLS):
               preflight(prior,candidate,cell,mode)
           PYTHON
   cloud:

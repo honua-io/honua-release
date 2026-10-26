@@ -62,6 +62,23 @@ class CleanupSchedule(unittest.TestCase):
                 'DeadLetterConfig':{'Arn':self.cleanup['dead_letter_arn']},'RetryPolicy':{'MaximumEventAgeInSeconds':300,'MaximumRetryAttempts':2}}}
     def check(self):verify_schedule(self.actual,self.expected,schedule_arn=self.arn,cleanup=self.cleanup,expires_epoch=self.expiry)
     def test_exact_native_schedule_matches_original_absolute_expiry(self):self.check()
+    def test_installed_reaper_starts_at_installation_and_keeps_original_end(self):
+        self.expected.pop('start_date')
+        self.actual.pop('StartDate')
+        verify_schedule(self.actual,self.expected,schedule_arn=self.arn,cleanup=self.cleanup,
+            expires_epoch=self.expiry,installed=True)
+        self.actual['StartDate']=datetime.fromtimestamp(self.expiry,timezone.utc).isoformat()
+        with self.assertRaisesRegex(ValueError,'actual independent expiry'):
+            verify_schedule(self.actual,self.expected,schedule_arn=self.arn,cleanup=self.cleanup,
+                expires_epoch=self.expiry,installed=True)
+
+    def test_installed_reaper_cannot_extend_the_original_retention_window(self):
+        self.expected.pop('start_date')
+        self.actual.pop('StartDate')
+        self.actual['EndDate']=datetime.fromtimestamp(self.expiry+86401,timezone.utc).isoformat()
+        with self.assertRaisesRegex(ValueError,'actual independent expiry'):
+            verify_schedule(self.actual,self.expected,schedule_arn=self.arn,cleanup=self.cleanup,
+                expires_epoch=self.expiry,installed=True)
     def test_delayed_unbounded_wrong_attempt_or_role_cannot_claim_cleanup_verified(self):
         original=copy.deepcopy(self.actual)
         for change in ('expression','timezone','start','end','window','role','input','retry','dlq','completion'):

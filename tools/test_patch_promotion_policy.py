@@ -229,7 +229,7 @@ def test_patch_needs_actual_same_series_published_baseline(tmp_path, mutation):
         with pytest.raises((readiness.ReadinessError, OSError)): _decision(f)
 
 
-@pytest.mark.parametrize('cell', ['aws-ecs/redis-off', 'aws-ecs/redis-on', 'aws-serverless/redis-off', 'aws-serverless/redis-on'])
+@pytest.mark.parametrize('cell', ['aws-ecs/redis-off', 'aws-ecs/redis-on'])
 def test_patch_rollback_must_use_each_baseline_image_pin(tmp_path, cell):
     f = patch_fixture(tmp_path)
     def forge(d):

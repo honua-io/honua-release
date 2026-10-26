@@ -1556,23 +1556,25 @@ def _cloud_workflows():
             yaml.safe_load((workflows / "e2e-cloud-aws-cell.yml").read_text()))
 
 
-def test_cloud_workflow_requires_four_ga_cells_and_keeps_eks_preview():
-    # October16 owner amendment explicitly supersedes the prior EKS GA scope.
+def test_cloud_workflow_requires_two_ecs_ga_cells_and_keeps_lambda_and_eks_preview():
+    # October16 owner amendment explicitly supersedes the prior EKS GA scope; the founder re-tier of
+    # 2026-10-25 moves Lambda (aws-serverless) to Preview and keeps AWS ECS as the only GA cloud target.
     cj = run_cloud.cloud_journey
     workflow, cell = _cloud_workflows()
     job = workflow["jobs"]["parity"]
-    assert set(cj.GA_CELLS) == {f"{target}/redis-{mode}" for target in ("aws-ecs", "aws-serverless") for mode in ("off", "on")}
-    assert cj.PREVIEW_TARGETS == ("aws-eks",)
-    # Operator ruling 2026-10-22: target=all is the GA targets only; aws-eks (Preview) runs only
-    # on an explicit target=aws-eks dispatch, and the report names it "not certified (preview)".
+    assert set(cj.GA_CELLS) == {f"aws-ecs/redis-{mode}" for mode in ("off", "on")}
+    assert cj.PREVIEW_TARGETS == ("aws-serverless", "aws-eks")
+    # Operator ruling 2026-10-22: target=all is the GA targets only; a Preview target runs only on
+    # an explicit dispatch, and the report names it "not certified (preview)".
     matrix = job["strategy"]["matrix"]["target"]
-    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in matrix
-    assert '"aws-eks"' not in matrix
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-ecs\"]'" in matrix
+    assert '"aws-eks"' not in matrix and '"aws-serverless"' not in matrix
+    assert "aws-serverless" in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
     assert "aws-eks" in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' }}"
+    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' || matrix.target == 'aws-serverless' }}"
     assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 1
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
     assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}"
@@ -2756,6 +2758,7 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
 
 # ---- a journey BLOCKED by tracked limitations is blocked, not FAIL, outside require_real -----------
 SERVERLESS_OFF = "aws-serverless/redis-off"
+ECS_OFF = "aws-ecs/redis-off"
 
 
 def _blocked_receipt(cell=SERVERLESS_OFF, notices=None):
@@ -2943,14 +2946,15 @@ def test_cloud_report_keeps_a_documented_block_blocked_unless_require_real(monke
     cj = run_cloud.cloud_journey
     with tempfile.TemporaryDirectory() as directory:
         directory = Path(directory)
-        receipt = _blocked_receipt()
-        report = {"cell": SERVERLESS_OFF, "status": "blocked", "artifactDirectory": str(directory),
+        # Aggregation verdicts apply to GA cells; AWS ECS is the only GA target (2026-10-25 re-tier).
+        receipt = _blocked_receipt(cell=ECS_OFF)
+        report = {"cell": ECS_OFF, "status": "blocked", "artifactDirectory": str(directory),
                   "why": "journey blocked by tracked limitations",
                   "journeyAttempts": [_artifact(directory, receipt)],
                   "cost": {"status": "unavailable", "why": "run cost meter unavailable"}}
         lenient = cj.aggregate([report], directory, require_real=False, full_scope=False,
                                run_id="offline-run", run_attempt="2")
-        assert lenient["status"] == "blocked" and SERVERLESS_OFF in lenient["why"]
+        assert lenient["status"] == "blocked" and ECS_OFF in lenient["why"]
         assert lenient["certifying"] is False
         strict = cj.aggregate([report], directory, require_real=True, full_scope=False,
                               run_id="offline-run", run_attempt="2")
@@ -4440,7 +4444,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
     report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
-    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
+    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-serverless", "aws-eks")
     assert report["cluster"] == "c1" and report["service"] == "s1"
     task = report["tasks"][0]
     assert task["stoppedReason"] == "Essential container in task exited"

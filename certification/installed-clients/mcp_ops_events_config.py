@@ -20,8 +20,18 @@ import yaml
 
 SCHEMA = "honua.mcp-ops-config-declaration/v1"
 TARGET = "cert-ops-skew"
+# The candidate refuses to boot a platform release that declares a serving
+# artifact without at least one worker image (honua-server
+# PlatformReleaseValidation: "a platform release must co-version both planes").
+# The lean serving image is itself the worker for the `managed` runtime profile
+# (honua-server RuntimeProfiles), so the release binds that profile to the same
+# governed serving digest. The manifest pins no native GDAL worker image, so no
+# `native` worker is declared rather than inventing an unpinned reference.
+MANAGED_RUNTIME_PROFILE = "managed"
 SELECTED_KEYS = (
     "ControlPlane__PlatformRelease__Version", "ControlPlane__PlatformRelease__ServingArtifactReference",
+    "ControlPlane__PlatformRelease__Workers__0__RuntimeProfile",
+    "ControlPlane__PlatformRelease__Workers__0__ArtifactReference",
     "ControlPlane__DeployTargets__0__TargetId", "ControlPlane__DeployTargets__0__TargetKind",
     "ControlPlane__DeployTargets__0__Environment", "ControlPlane__DeployTargets__0__TargetName",
     "ControlPlane__DeployTargets__0__ArtifactReference", "ControlPlane__DeployTargets__0__RequiresApproval")
@@ -73,6 +83,8 @@ def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, can
     selected = {
         "ControlPlane__PlatformRelease__Version": manifest["platformRelease"],
         "ControlPlane__PlatformRelease__ServingArtifactReference": serving,
+        "ControlPlane__PlatformRelease__Workers__0__RuntimeProfile": MANAGED_RUNTIME_PROFILE,
+        "ControlPlane__PlatformRelease__Workers__0__ArtifactReference": serving,
         "ControlPlane__DeployTargets__0__TargetId": TARGET,
         "ControlPlane__DeployTargets__0__TargetKind": "AwsLambda",
         "ControlPlane__DeployTargets__0__Environment": "certification-disposable",

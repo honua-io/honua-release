@@ -420,10 +420,11 @@ components:
     # retained as the SAFE default — it is the architecture that was proven healthy — and the ARM64
     # question stays open in honua-release#98 rather than being silently resolved either way.
     awsEcsArchitecture: "x86_64"
-    # GA target, qualification pending: Lambda x86_64 (aws-serverless).
-    # 2026-09-06 ruling A: https://github.com/honua-io/honua-release/issues/282
-    # Gate: live exact-digest deploy, serving smoke and teardown before candidate cut;
-    # candidate-bound alias upgrade/rollback through the deploy backend before GA.
+    # Preview, qualification pending: Lambda x86_64 (aws-serverless).
+    # Founder decision 2026-10-25 (2026.1 wedge-critical re-tier) supersedes 2026-09-06 ruling A
+    # (https://github.com/honua-io/honua-release/issues/282): AWS ECS stays GA; Lambda and EKS ship
+    # Preview, so a Lambda qualification receipt is not required to select or admit a candidate.
+    # The Lambda image below is still selected and pinned by digest; security floors still apply.
     # See compatibility-matrix.yaml and docs/2026.1-operating-envelope.md for limits.
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest and verifies config/rootfs equality, recording ECR's own digest.
@@ -707,8 +708,14 @@ components:
     # and dist.integrity bind these inputs; the JS SDK check is green at that tag. 0.2.7's tag has no
     # JS SDK run and 0.2.8's (048aec0, run 39569210699) is red, so neither is taken.
     # create-honua-app stays 0.2.2 (no newer publish).
-    version: "0.2.6"
-    sha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    # 2026-10-25 cohort advance (release#233, #789 lane): 0.2.6 -> 0.2.10. js-sdk-v0.2.10 = 965c0136
+    # contains the runtime-floor change (honua-sdk-js#2228). npm gitHead and the SLSA publisher
+    # attestation of every @honua/* 0.2.10 tarball (publish-js-sdk.yml at refs/tags/js-sdk-v0.2.10)
+    # name 965c0136; @honua/mcp-server 0.2.10 names 64173dd6 (mcp-server-v0.2.10). The JS SDK
+    # check is green at 965c0136 (runs 40124624037, 40124529791). Each tarball was verified with
+    # tools/propose_client_artifact.py; dist.integrity below is the registry value.
+    version: "0.2.10"
+    sha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     artifact: "npm:@honua/sdk-js"
     contractVersions:
       connect-parity: "1.0"
@@ -986,79 +993,81 @@ clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"
-    version: "0.2.6"
-    integrity: "sha512-Hq0g50tERfIyNiw7gtoEpshAyDWG2UosRk/SBo96c/CrcwJR4pcTKiLsDOHqkPUtP3OUIa1/SaH7AV6bejHtlg=="
+    version: "0.2.10"
+    integrity: "sha512-luqpr9Xn8A7e0wUFRdSh4wTYdpVFSVQT5YxYPRSJiNu9CM/m8vAPKvkLvAy6u0Mjvl1hBKFJI0E2YMGZr/jicA=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     publicationState: "published"
     targets: [node, browser, honua-cli, honua-admin]
-    filename: "sdk-js-0.2.6.tgz"
+    filename: "sdk-js-0.2.10.tgz"
   honua-mcp-server:
     ecosystem: npm
     package: "@honua/mcp-server"
-    version: "0.2.6"
-    integrity: "sha512-82N2lefwbafZ3umcGV/3ZfmQPvyJGbthFOS8y9uQt5HCOlIcadLl6u13bM4vV/6gvd8bbAey+td50Jh3G4fnZA=="
+    version: "0.2.10"
+    integrity: "sha512-D3j29U5BfyhUN38SQ1NvzqiCTSWwepXubOXzRLzziqA/4Z6PyEjP0Jmv2b9hMJsvABy1EERsNDp6FUdpO0qQJg=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "54ae5bc51387771264d19fc3fb9a7255a6fff2ab"
+    sourceSha: "64173dd6a5101736655a8737c4adc592c9989595"
     publicationState: "published"
     targets: [node, honua-mcp-proxy]
-    filename: "mcp-server-0.2.6.tgz"
+    filename: "mcp-server-0.2.10.tgz"
   honua-sdk:
     ecosystem: "npm"
     package: "@honua/sdk"
-    version: "0.2.6"
-    integrity: "sha512-GJklpJ0SZC6Ef2zr91FEeRs0YV7AfztdXx2TdYW6+fX3BZFbmMR379gJi6xjXR32HL+s3rz0YtyZBjEFo1Vppg=="
+    version: "0.2.10"
+    integrity: "sha512-5CrY3zyY+97nnbuERfvHOOgTco4eB+ELZ2UuvYsLT8A7d23bmg8KSiKD6T7HJFfeG4zAsdggz+lw6a+DGm/cuA=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     publicationState: "published"
     targets: [node, browser]
-    filename: "sdk-0.2.6.tgz"
+    filename: "sdk-0.2.10.tgz"
   honua-sdk-esri-compat:
     ecosystem: "npm"
     package: "@honua/sdk-esri-compat"
-    version: "0.2.6"
-    integrity: "sha512-1HOppeBmYSYyuHPAaOXhXohvo3erk8iOVveal1I0r+blYOMeTXa1B5dmANe28N1AEb2iU+QQaxPLSXzjCyn4bA=="
+    version: "0.2.10"
+    integrity: "sha512-tK7PV5rAa3bVVWtE7n9iD+G1vuVIQRADaG0C7EfBmkUJpUgaKVSJz6gtemonn/nSTKSF3fTYHwX13b1WdRn1AQ=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     publicationState: "published"
     targets: [node, browser]
-    filename: "sdk-esri-compat-0.2.6.tgz"
+    filename: "sdk-esri-compat-0.2.10.tgz"
   honua-react:
     ecosystem: "npm"
     package: "@honua/react"
-    version: "0.2.6"
-    integrity: "sha512-HI+ZupSM6psakjjTNToZTwdnX0fHgp8ci+kBbVdWp3m3icF9QSoLl8SEqwWjhZsTdxSXjRH/WF2/SZv+3hCRBQ=="
+    version: "0.2.10"
+    integrity: "sha512-NtQw2Da5IwNK+xfy2lKCfHxuVjU2WSZKVrTIHkDXK56Jr28yrWs40HU6bgsq+PyXTXSQPi3V/ocJqZxw9TgiqA=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     publicationState: "published"
     targets: [node, browser]
-    filename: "react-0.2.6.tgz"
+    filename: "react-0.2.10.tgz"
   honua-geometry:
     ecosystem: "npm"
     package: "@honua/geometry"
-    version: "0.2.6"
-    integrity: "sha512-QJL+9U7jAjHqTUdYPoe2a716TvsvHZu9gkXcu1mowFTIFa4W8wMUcaAkZusDJd4sRziIJDe/FtW2gJ+hJv50OA=="
+    version: "0.2.10"
+    integrity: "sha512-KkqFsBGkUIBSAK73pwwyjKfEXbVAFHw5i5P7Ntbzkgno1RdHO4llrZNSWZ5pi8ta6Y3roH4i4xzqZDqafHJ8fA=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     publicationState: "published"
     targets: [node, browser]
-    filename: "geometry-0.2.6.tgz"
+    filename: "geometry-0.2.10.tgz"
   honua-app-platform:
     ecosystem: "npm"
     package: "@honua/app-platform"
-    version: "0.2.6"
-    integrity: "sha512-wvlLgq1q60QeKbEY+otJTZij52AhnVaWval2tuSUXPxe8BFt0uP1LKVfMPbuO8WwgIDLsiDg6XnMG7+GfyZ83w=="
+    version: "0.2.10"
+    integrity: "sha512-d4gxBGGeW1Rv42gRShHcF+tTV6lIaIkI1Mw30jiH/SFJx1lSsNAnKo/i+bLOvLJqZIpOpHs2mSc6DC4TKNeV+g=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     publicationState: "published"
     targets: [node, browser]
-    filename: "app-platform-0.2.6.tgz"
+    filename: "app-platform-0.2.10.tgz"
   create-honua-app:
     ecosystem: "npm"
     package: "create-honua-app"
     # 2026-10-22: create-honua-app 0.2.3 (release-please honua-sdk-js#2203, npm 21:57Z; npm gitHead
     # c7d517b0, dist.integrity below). Its scaffold templates move the certified fallback to
     # @honua/sdk-js 0.2.6 (honua-sdk-js#2205), so they pin the manifest's JS cohort.
+    # 2026-10-25: the cohort moved to 0.2.10 and no newer create-honua-app is published, so its
+    # templates now trail the cohort; the first-publication receipt records blocked-on-republish.
     version: "0.2.3"
     integrity: "sha512-c0BtwadHMxHbxIFKyAti3hmugy1Sb+h0/lw7o034mj+rAmDUUQiYFSmU0nZwSaQj2qBdtXSzFHou1qPD9xS2qg=="
     repository: "honua-io/honua-sdk-js"
@@ -1163,7 +1172,8 @@ evidenceSources:
     # 2026-10-14: advanced to 076b4218 after verified SDK 0.2.2 publication; runtime qualification remains separate.
     # 2026-10-16: advanced to 32ab86472 after verified SDK 0.2.3 publication (same invariant).
     # 2026-10-22: advanced to 45e2fb2c after verified SDK 0.2.6 publication (same invariant; rc re-pin).
-    producerSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
+    # 2026-10-25: advanced to 965c0136 after verified SDK 0.2.10 publication (same invariant).
+    producerSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance

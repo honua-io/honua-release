@@ -496,6 +496,7 @@ class AwsRuntime:
             previous = self.output_value("control_plane_current_revision")
             require(str(previous).isdigit() and int(previous) > 0, "published baseline Lambda version missing")
             require(self.mirror_repository, "approved same-region ECR mirror repository required")
+            require(candidate.lambda_mirrored, "Lambda cell requires a recorded Lambda mirror digest")
             image = self.mirror_repository + "@" + candidate.lambda_digest
             if self.cell.endswith("redis-on"):
                 require(self.output_value("gp_batch_prior_definitions_retained") is True,

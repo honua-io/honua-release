@@ -338,7 +338,9 @@ run "only_apply_can_create_exact_identity_objects" {
       toset(jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Resource) == toset([
         "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/installation.json",
         "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/review.json",
-        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/readiness.json"
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/readiness.json",
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/worker-publication.zip",
+        "arn:aws:s3:::honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-123456789012/agent-e2e/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/installed-workers/reviewed-runtime/fixed-slot/*/*/runtime-index.json"
       ]) &&
       jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Condition.StringEquals["s3:if-none-match"] == "*" &&
       jsondecode(aws_iam_role_policy.installed_worker_identity_output[0].policy).Statement[0].Condition.StringEquals["s3:x-amz-server-side-encryption"] == "AES256"

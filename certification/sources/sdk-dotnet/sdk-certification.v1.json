@@ -5,87 +5,16 @@
   "trackingIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
   "complete": false,
   "summary": {
-    "total": 323,
-    "exercised": 25,
-    "gap": 280,
+    "total": 324,
+    "exercised": 39,
+    "gap": 267,
     "non-addressable": 18
   },
   "releaseProfile": {
     "id": "honua-sdk-dotnet-2026.1",
     "policy": "All concrete public client operations except the explicitly enumerated 2026.1 candidate-fixture exclusions below. Exclusions are unsupported by this release profile, remain owned gaps, and are not passing evidence.",
-    "denominator": 291,
-    "excluded": [
-      {
-        "operationId": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.FindClosestFacilityAsync(ClosestFacilityRequest,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.GetDirectionsAsync(RouteDirectionsRequest,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.GetServiceAreaAsync(ServiceAreaRequest,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.GetServiceMetadataAsync(RouteServiceMetadataRequest,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient.GetSceneAsync(string,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient.ListScenesAsync(HonuaSceneListRequest?,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient.ResolveSceneAsync(string,HonuaSceneResolveRequest?,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.BatchGeocodeAsync(IReadOnlyList<string>,BatchGeocodeOptions?,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ForwardGeocodeAsync(string,ForwardGeocodeOptions?,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ReverseGeocodeAsync(double,double,ReverseGeocodeOptions?,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.SuggestAsync(string,SuggestOptions?,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Spec.IHonuaSpecClient.ApplyAsync(SpecDocumentRequest,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Spec.IHonuaSpecClient.PlanAsync(SpecDocumentRequest,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      },
-      {
-        "operationId": "Honua.Sdk.Spec.IHonuaSpecClient.ValidateAsync(SpecValidateRequest,CancellationToken)",
-        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-        "reason": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
-      }
-    ]
+    "denominator": 306,
+    "excluded": []
   },
   "operations": [
     {
@@ -751,29 +680,26 @@
       "client": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient",
       "operation": "FindClosestFacilityAsync",
       "signature": "FindClosestFacilityAsync(ClosestFacilityRequest,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingClosestFacility_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": []
+        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingClosestFacility_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingMetadataDirectionsServiceAreaAndClosestFacility_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.GetDirectionsAsync(RouteDirectionsRequest,CancellationToken)",
@@ -781,29 +707,26 @@
       "client": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient",
       "operation": "GetDirectionsAsync",
       "signature": "GetDirectionsAsync(RouteDirectionsRequest,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingDirections_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": []
+        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingDirections_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingMetadataDirectionsServiceAreaAndClosestFacility_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.GetServiceAreaAsync(ServiceAreaRequest,CancellationToken)",
@@ -811,29 +734,26 @@
       "client": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient",
       "operation": "GetServiceAreaAsync",
       "signature": "GetServiceAreaAsync(ServiceAreaRequest,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingServiceArea_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": []
+        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingServiceArea_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingMetadataDirectionsServiceAreaAndClosestFacility_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.GetServiceMetadataAsync(RouteServiceMetadataRequest,CancellationToken)",
@@ -841,29 +761,26 @@
       "client": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient",
       "operation": "GetServiceMetadataAsync",
       "signature": "GetServiceMetadataAsync(RouteServiceMetadataRequest,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingMetadata_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": []
+        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingMetadata_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.RoutingMetadataDirectionsServiceAreaAndClosestFacility_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Abstractions.Routing.IHonuaRoutingClient.OptimizeRouteAsync(RouteOptimizationRequest,CancellationToken)",
@@ -899,29 +816,26 @@
       "client": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient",
       "operation": "GetSceneAsync",
       "signature": "GetSceneAsync(string,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneGet_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Scenes.HonuaSceneClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Scenes.HonuaSceneClient": []
+        "Honua.Sdk.Scenes.HonuaSceneClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneGet_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Scenes.HonuaSceneClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneListGetAndResolve_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient.ListScenesAsync(HonuaSceneListRequest?,CancellationToken)",
@@ -929,29 +843,26 @@
       "client": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient",
       "operation": "ListScenesAsync",
       "signature": "ListScenesAsync(HonuaSceneListRequest?,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneList_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Scenes.HonuaSceneClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Scenes.HonuaSceneClient": []
+        "Honua.Sdk.Scenes.HonuaSceneClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneList_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Scenes.HonuaSceneClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneListGetAndResolve_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient.ResolveSceneAsync(string,HonuaSceneResolveRequest?,CancellationToken)",
@@ -959,29 +870,26 @@
       "client": "Honua.Sdk.Abstractions.Scenes.IHonuaSceneClient",
       "operation": "ResolveSceneAsync",
       "signature": "ResolveSceneAsync(string,HonuaSceneResolveRequest?,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneResolve_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Scenes.HonuaSceneClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Scenes.HonuaSceneClient": []
+        "Honua.Sdk.Scenes.HonuaSceneClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneResolve_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Scenes.HonuaSceneClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SceneListGetAndResolve_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Abstractions.UtilityNetworks.IHonuaUtilityNetworkTraceClient.GetTraceConfigurationsAsync(UtilityNetworkTraceConfigurationQuery,CancellationToken)",
@@ -1357,29 +1265,26 @@
       "client": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient",
       "operation": "BatchGeocodeAsync",
       "signature": "BatchGeocodeAsync(IReadOnlyList<string>,BatchGeocodeOptions?,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingBatch_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": []
+        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingBatch_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.Geocoding_ForwardReverseSuggestAndBatch_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ForwardGeocodeAsync(string,ForwardGeocodeOptions?,CancellationToken)",
@@ -1387,29 +1292,26 @@
       "client": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient",
       "operation": "ForwardGeocodeAsync",
       "signature": "ForwardGeocodeAsync(string,ForwardGeocodeOptions?,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingForward_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": []
+        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingForward_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.Geocoding_ForwardReverseSuggestAndBatch_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ReverseGeocodeAsync(double,double,ReverseGeocodeOptions?,CancellationToken)",
@@ -1417,29 +1319,26 @@
       "client": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient",
       "operation": "ReverseGeocodeAsync",
       "signature": "ReverseGeocodeAsync(double,double,ReverseGeocodeOptions?,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingReverse_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": []
+        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingReverse_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.Geocoding_ForwardReverseSuggestAndBatch_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.SuggestAsync(string,SuggestOptions?,CancellationToken)",
@@ -1447,29 +1346,26 @@
       "client": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient",
       "operation": "SuggestAsync",
       "signature": "SuggestAsync(string,SuggestOptions?,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingSuggest_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": []
+        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.GeocodingSuggest_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Admin.Geocoding.HonuaGeocodingClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.AdminProtocolIntegrationTests.Geocoding_ForwardReverseSuggestAndBatch_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Admin.HonuaAdminClient.CancelGeoservicesImportJobAsync(string,CancellationToken)",
@@ -8405,29 +8301,26 @@
       "client": "Honua.Sdk.Spec.IHonuaSpecClient",
       "operation": "ApplyAsync",
       "signature": "ApplyAsync(SpecDocumentRequest,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "mutation"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecApply_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Spec.HonuaSpecClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Spec.HonuaSpecClient": []
+        "Honua.Sdk.Spec.HonuaSpecClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecApply_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Spec.HonuaSpecClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecValidatePlanAndApplyStream_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Spec.IHonuaSpecClient.CancelAsync(string,CancellationToken)",
@@ -8491,29 +8384,26 @@
       "client": "Honua.Sdk.Spec.IHonuaSpecClient",
       "operation": "PlanAsync",
       "signature": "PlanAsync(SpecDocumentRequest,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecPlan_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Spec.HonuaSpecClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Spec.HonuaSpecClient": []
+        "Honua.Sdk.Spec.HonuaSpecClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecPlan_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Spec.HonuaSpecClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecValidatePlanAndApplyStream_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Spec.IHonuaSpecClient.ValidateAsync(SpecValidateRequest,CancellationToken)",
@@ -8521,29 +8411,26 @@
       "client": "Honua.Sdk.Spec.IHonuaSpecClient",
       "operation": "ValidateAsync",
       "signature": "ValidateAsync(SpecValidateRequest,CancellationToken)",
-      "status": "gap",
+      "status": "exercised",
       "requiredTiers": [
-        "nightly"
+        "nightly",
+        "release"
       ],
       "scenarioFacets": [
         "read-only"
       ],
-      "tests": [],
+      "tests": [
+        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecValidate_IsReachable"
+      ],
       "implementations": [
         "Honua.Sdk.Spec.HonuaSpecClient"
       ],
       "implementationTests": {
-        "Honua.Sdk.Spec.HonuaSpecClient": []
+        "Honua.Sdk.Spec.HonuaSpecClient": [
+          "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecValidate_IsReachable"
+        ]
       },
-      "releaseDenominator": "excluded",
-      "missingImplementations": [
-        "Honua.Sdk.Spec.HonuaSpecClient"
-      ],
-      "unavailableTests": [
-        "Honua.Sdk.ProtocolIntegration.Tests.SpecSceneRoutingProtocolIntegrationTests.SpecValidatePlanAndApplyStream_AreReachable"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
-      "disposition": "The pinned 2026.1 candidate does not provision this deterministic release fixture."
+      "releaseDenominator": "included"
     },
     {
       "id": "Honua.Sdk.Studio.Capabilities.IHonuaCapabilityManifestClient.GetManifestAsync(string?,string?,CancellationToken)",
@@ -8831,6 +8718,34 @@
       "client": "Honua.Sdk.Studio.Packages.IHonuaStudioPackageClient",
       "operation": "GetPackageFamiliesAsync",
       "signature": "GetPackageFamiliesAsync(CancellationToken)",
+      "status": "gap",
+      "requiredTiers": [
+        "nightly",
+        "release"
+      ],
+      "scenarioFacets": [
+        "read-only"
+      ],
+      "tests": [],
+      "implementations": [
+        "Honua.Sdk.Studio.Packages.HonuaStudioPackageClient"
+      ],
+      "implementationTests": {
+        "Honua.Sdk.Studio.Packages.HonuaStudioPackageClient": []
+      },
+      "releaseDenominator": "included",
+      "missingImplementations": [
+        "Honua.Sdk.Studio.Packages.HonuaStudioPackageClient"
+      ],
+      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
+      "disposition": "Concrete public SDK operation has no canonical live certification test."
+    },
+    {
+      "id": "Honua.Sdk.Studio.Packages.IHonuaStudioPackageClient.GetPublishedArtifactAsync(string,CancellationToken)",
+      "surface": "studio",
+      "client": "Honua.Sdk.Studio.Packages.IHonuaStudioPackageClient",
+      "operation": "GetPublishedArtifactAsync",
+      "signature": "GetPublishedArtifactAsync(string,CancellationToken)",
       "status": "gap",
       "requiredTiers": [
         "nightly",

@@ -457,10 +457,12 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
     decision = readiness.evaluate(record, lock_path=out / 'trains/4242/platform-lock.json', evidence_dir=out, now=at)[0]
     for name in nightly_paths:
         assert decision['checks']['evidence:' + name]['status'] == 'pass', decision['checks']
-    retry = json.loads((out / 'evidence/deterministic-journey/4242/receipt.json').read_text())['cells'][2]
-    assert retry['attemptCount'] == 2
-    assert retry['attempts'][0]['status'] == 'fail'
-    assert retry['attempts'][0]['failureAttribution'] == 'infrastructure'
+    # Founder re-tier 2026-10-25: the receipt carries only the ECS GA cells. The recorded run's
+    # infrastructure retry was on the aws-serverless/redis-off cell, now Preview, so it is not carried
+    # (the retry ledger itself is covered in test_check_promotion_readiness).
+    carried = json.loads((out / 'evidence/deterministic-journey/4242/receipt.json').read_text())['cells']
+    assert [row['cell'] for row in carried] == ['aws-ecs/redis-off', 'aws-ecs/redis-on']
+    assert all(row['attemptCount'] == 1 and row['attempts'][0]['status'] == 'pass' for row in carried)
     if qualifying:
         # This recorded mint exercises package publication only: its lock has no
         # honua-server image or Lambda mirror. Handwritten qualifying receipts must

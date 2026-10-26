@@ -15,6 +15,7 @@ from test_agent_e2e_console_runtime import runtime, original, slot, E
 from test_agent_e2e_interactive_budget import interactive
 from test_agent_e2e_setup_http import server
 from test_agent_e2e_budget import KEY, BASIS
+from test_agent_e2e_runtime_index import runtime_proof_fixture
 
 
 def config():
@@ -140,21 +141,39 @@ def test_no_provider_request_can_follow_a_lost_current_authority():
     assert not model.quote.called and not model.invoke.called
 
 
-def funding_driver(runtime, server):
+def funding_driver(runtime, server, *, bedrock=None):
     model = {'region': 'us-east-1', 'modelId': 'fixture-profile', 'returnedModelId': 'fixture-returned',
         'tokenCountingModelArn': 'arn:aws:bedrock:us-east-1::foundation-model/fixture-returned',
         'pricingDigest': BASIS, 'inputUsdPerMillion': '3', 'outputUsdPerMillion': '15', 'maxOutputTokens': 128}
-    descriptor = {'slotId': 'slot-original', 'maxExecutionSeconds': 600,
+    descriptor = {'slotId': 'slot-original', 'maxExecutionSeconds': 600, 'image': 'fixture-image@sha256:'+'a'*64,
         'originalFundingExpiresEpoch': runtime.durable.state['ledger']['interactiveAccounting']['originalExpiresEpoch'],
         'liability': {'basisDigest': BASIS, 'maximumInfrastructureUsd': '2', 'maximumCleanupUsd': '0.5'}}
     registration = {'schemaVersion': 1, 'runtimeId': 'runtime-original', 'targetId': 'target-original', 'candidateKey': KEY,
         'configurationDigest': BASIS, 'registrationDigest': BASIS}
     server.respond = lambda method, path, raw: (200, {}, json.dumps(registration if path.endswith('/registration') else runtime.value).encode())
     verified = {'configurationDigest': BASIS, 'runtimeId': 'runtime-original', 'targetId': 'target-original',
-        'workers': [{'descriptor': descriptor}], 'model': model}
+        'workers': [{'descriptor': descriptor, 'proof': {'runtime': runtime_proof_fixture(descriptor['image'])}}], 'model': model}
     driver = InstalledExecutionDriver(native=runtime.control, verified=verified, registration=registration,
-        states=Mock(), ecs=Mock(), db=Mock(), sqs=Mock(), iam=Mock(), bedrock=Mock(), guard=lambda: None, clock=lambda: runtime.now)
+        states=Mock(), ecs=Mock(), db=Mock(), sqs=Mock(), iam=Mock(), bedrock=bedrock or Mock(), guard=lambda: None, clock=lambda: runtime.now)
     return driver, descriptor
+
+
+@pytest.mark.parametrize('change', ['missing-proof', 'older-runner'])
+def test_unverified_runtime_stops_driver_before_admission_count_or_invoke(runtime, server, monkeypatch, change):
+    import sys
+    make_proof = runtime_proof_fixture
+    def altered(image):
+        if change == 'missing-proof': return None
+        proof = make_proof(image)
+        proof['index']['files']['agent_e2e_mcp_runner.py'] = 'sha256:'+'f'*64
+        proof['runtimeBundleDigest'] = canonical_digest(proof['index'])
+        return proof
+    monkeypatch.setattr(sys.modules[__name__], 'runtime_proof_fixture', altered)
+    ledger = copy.deepcopy(runtime.durable.state['ledger'])
+    bedrock = Mock()
+    with pytest.raises(PackError): funding_driver(runtime, server, bedrock=bedrock)
+    assert runtime.durable.state['ledger'] == ledger
+    assert not bedrock.count_tokens.called and not bedrock.invoke_model.called
 
 
 def test_original_e_financial_admission_recovers_lost_ack_without_second_attempt_or_reservation(runtime, server):
@@ -180,6 +199,26 @@ def test_original_e_financial_admission_recovers_lost_ack_without_second_attempt
     assert {row['executionId'] for row in ledger['interactiveEntries']} == {E}
     assert all(row['state'] == 'reserved' and row['actualUsd'] is None for row in ledger['interactiveEntries'])
     assert not driver.model.client.invoke_model.called
+
+
+def test_actual_native_interruption_blocks_new_admission_and_worker_start(runtime, server):
+    driver, _ = funding_driver(runtime, server)
+    captured = original(runtime)
+    ledger = copy.deepcopy(runtime.durable.state['ledger'])
+    runtime.value['execution'].update(state='interrupted', stateRevision=1)
+    with pytest.raises(PackError, match='eligible for admission'):
+        driver.execute(captured)
+    assert runtime.durable.state['ledger'] == ledger
+    assert not driver.states.start_execution.called and not driver.model.client.invoke_model.called
+
+
+def test_new_native_read_cannot_replace_the_original_execution_binding(runtime, server):
+    driver, _ = funding_driver(runtime, server)
+    captured = original(runtime)
+    runtime.value['requestDigest'] = 'sha256:'+'f'*64
+    with pytest.raises(PackError, match='authority binding'):
+        driver.execute(captured)
+    assert not driver.states.start_execution.called and not driver.model.client.invoke_model.called
 
 
 def test_native_control_unicode_question_retains_actual_utf8_wire_under_existing_limit(runtime, server):
@@ -215,6 +254,8 @@ def test_actual_task_cannot_override_checked_command_environment_roles_or_resour
 @pytest.mark.parametrize('lost_ack,wrong_principal', [(False, False), (True, False), (False, True)])
 def test_real_first_bind_joins_worker_sqlite_native_http_and_original_slot_claims(
         runtime, slot, server, tmp_path, monkeypatch, lost_ack, wrong_principal):
+    import agent_e2e_worker as request_budgets
+    monkeypatch.setattr(request_budgets, '_installed_sqs_calls', {})
     from agent_e2e_installed_container import InstalledBinding, native_binding_ack, native_binding_read
     iam, _, boundary = role_fixture()
     role_name = slot.config['taskRoleArn'].rsplit('/', 1)[1]
@@ -234,7 +275,8 @@ def test_real_first_bind_joins_worker_sqlite_native_http_and_original_slot_claim
         'pricingDigest': BASIS, 'inputUsdPerMillion': '3', 'outputUsdPerMillion': '15', 'maxOutputTokens': 128}
     driver = InstalledExecutionDriver(native=runtime.control, verified={'configurationDigest': BASIS,
         'runtimeId': 'runtime-original', 'targetId': 'target-original', 'model': model,
-        'workers': [{'descriptor': slot.config, 'proof': {'native': {'permissionsBoundaryArn': boundary}}}]},
+        'workers': [{'descriptor': slot.config, 'proof': {'native': {'permissionsBoundaryArn': boundary},
+            'runtime': runtime_proof_fixture(slot.config['image'])}}]},
         registration=registration, states=slot.states, ecs=slot.ecs, db=slot.claims, sqs=None, iam=iam,
         bedrock=Mock(), guard=lambda: None, clock=lambda: runtime.now)
     active = {}
@@ -297,6 +339,7 @@ def test_real_first_bind_joins_worker_sqlite_native_http_and_original_slot_claim
             recovered = ExecutionJournal(runtime.durable, original(runtime))
             assert driver._binding(recovered, slot.worker, original(runtime), physical, 'a'*64)['value']['workerBinding'] == observed['value']['workerBinding']
         assert ack_calls == [E] and len(sends) == 1
+        assert list(request_budgets._installed_sqs_calls.values()) == [2 if wrong_principal else 3]
         assert len([row for row in server.seen if row[0] == 'POST' and row[1].endswith('/worker-binding')]) == 1
         assert not driver.model.client.invoke_model.called
     finally:

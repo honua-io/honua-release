@@ -10,6 +10,7 @@ import base64
 import json
 import math
 import re
+import threading
 import time
 
 from agent_e2e_errors import PackError
@@ -21,6 +22,61 @@ MAX_REPLY_BYTES = 4 * 1024 * 1024
 CHUNK_BYTES = 32768
 MAX_STDOUT = 16384
 MAX_STDERR = 4096
+INSTALLED_WORKER_SQS_CALL_LIMIT = 32768
+INSTALLED_CONTROLLER_SQS_CALL_LIMIT = 65536
+_installed_sqs_calls = {}
+_installed_sqs_lock = threading.Lock()
+
+
+def installed_sqs_limits():
+    """Source bounds, including failed calls; not a quote or incurred charge."""
+    return {'workerCallsPerPhysicalExecution': INSTALLED_WORKER_SQS_CALL_LIMIT,
+            'controllerCallsPerExecutionPerPhysicalProcess': INSTALLED_CONTROLLER_SQS_CALL_LIMIT}
+
+
+class InstalledSqsBudget:
+    """Finite SDK attempts shared across reconstructed installed transports.
+
+    Worker identity is its actual physical task, including the unbound phase;
+    controller identity is original E. The process never removes a counter.
+    SDK clients must separately disable internal retries (total_max_attempts=1).
+    """
+    def __init__(self, client, *, kind, candidate_key, runtime_id, identity):
+        if (kind not in ('worker', 'controller') or
+                not isinstance(candidate_key, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', candidate_key) or
+                not isinstance(runtime_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', runtime_id) or
+                not isinstance(identity, str) or not 0 < len(identity) <= 2048 or
+                any(ord(character) < 32 for character in identity)):
+            raise PackError('original installed request-budget identity is required')
+        self._key = (kind, candidate_key, runtime_id, identity)
+        if not re.fullmatch(r'execution-[a-f0-9]{32}' if kind == 'controller' else
+                r'arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:task/[A-Za-z0-9_-]+/[a-f0-9]{32}', identity):
+            raise PackError('installed request budget requires the original native E or physical task')
+        if isinstance(client, InstalledSqsBudget):
+            if client._key != self._key:
+                raise PackError('installed request budget cannot change its original identity')
+            client = client._client
+        self._client = client
+
+    def _call(self, method, request):
+        limit = (INSTALLED_WORKER_SQS_CALL_LIMIT if self._key[0] == 'worker'
+                 else INSTALLED_CONTROLLER_SQS_CALL_LIMIT)
+        with _installed_sqs_lock:
+            used = _installed_sqs_calls.get(self._key, 0)
+            if used >= limit:
+                raise PackError('installed SQS request bound exhausted; preserve original outcome and liabilities')
+            # Reserve before wire, including calls with ambiguous failures.
+            _installed_sqs_calls[self._key] = used + 1
+        return getattr(self._client, method)(**request)
+
+    def send_message(self, **request):
+        return self._call('send_message', request)
+
+    def receive_message(self, **request):
+        return self._call('receive_message', request)
+
+    def delete_message(self, **request):
+        return self._call('delete_message', request)
 
 
 def encode(value):

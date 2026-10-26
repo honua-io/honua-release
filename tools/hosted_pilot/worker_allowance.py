@@ -1,6 +1,7 @@
 """Read original per-worker provisioning liabilities; never initialize or mutate state."""
 from __future__ import annotations
 from decimal import Decimal
+import time
 import hashlib
 import json
 from pathlib import Path
@@ -58,6 +59,8 @@ def verify(config, work, *, aws, require, include_payload=False):
         validate_retained_funding(payload)
         require(payload['ledger'].get('interactiveAccounting', {}).get('originalExpiresEpoch') == config['installed_slot']['original_funding_expires_epoch'],
                 'installed worker cannot renew original authenticated funding expiry')
+        require(time.time() < config['installed_slot']['original_funding_expires_epoch'],
+                'installed worker original funding has expired; never renew provisioning authority')
         pending_binding(payload, config)
     operation = accounting['operation']
     require(set(operation) == {'operationId', 'liabilityBasisDigest', 'reservationIds'} and

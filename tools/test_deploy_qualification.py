@@ -11,7 +11,23 @@ def candidate():
     manifest = vp._load_yaml(vp.MANIFEST_PATH)
     matrix = vp._load_yaml(vp.MATRIX_PATH)
     row = matrix["deploy"]["honua-server"]["awsLambda"]["architectures"]["x86_64"]
+    # Founder decision 2026-10-25 makes Lambda Preview. These policy tests re-scope it to GA, which
+    # must restore the complete GA bill exactly as it applied before the decision.
+    row.update(status="ga-target", releaseScope="ga-target")
     return manifest, matrix, row
+
+
+def test_live_lambda_is_preview_and_never_required_for_candidate_admission():
+    manifest = vp._load_yaml(vp.MANIFEST_PATH)
+    matrix = vp._load_yaml(vp.MATRIX_PATH)
+    row = matrix["deploy"]["honua-server"]["awsLambda"]["architectures"]["x86_64"]
+    assert (row["status"], row["releaseScope"], row["qualification"]) == ("preview", "preview", "pending")
+    assert "qualificationReceipt" not in row
+    for phase in ("ga", "candidate-precut"):
+        findings = vp.Findings()
+        vp.check_deploy_qualification(manifest, matrix, findings, exact_candidate=True,
+                                      deployment_phase=phase, deployment_qualification={})
+        assert findings.ok, (phase, findings.errors)
 
 
 def qualify(manifest, row):

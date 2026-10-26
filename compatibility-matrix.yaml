@@ -88,11 +88,11 @@ deploy:
       target: aws-serverless
       architectures:
         x86_64:
-          status: ga-target
-          releaseScope: ga-target
+          status: preview
+          releaseScope: preview
           qualification: pending
           evidenceGate: "https://github.com/honua-io/honua-release/issues/282"
-          reason: "2026-09-06 ruling A: items 1/2/5 before candidate cut; items 3/4 against candidate before GA. Live deploy, serving smoke, alias upgrade/rollback and teardown required."
+          reason: "2026-10-25 founder decision (2026.1 wedge-critical re-tier) supersedes 2026-09-06 ruling A: Lambda is Preview in 2026.1, informational and not GA qualified; AWS ECS stays GA. Security, isolation and integrity floors remain required; pending evidence is not a pass."
           operatingEnvelope: docs/2026.1-operating-envelope.md
     awsFargate:
       architectures:

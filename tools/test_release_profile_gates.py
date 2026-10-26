@@ -53,9 +53,10 @@ def test_dotnet_release_profile_is_the_catalog_denominator() -> None:
         row for row in catalog["requirements"]
         if row["client_lane"] == "sdk-dotnet-certification"
     ]
-    assert contract["releaseProfile"]["denominator"] == 291
-    assert len(excluded) == 14
-    assert len(rows) == len(included) == 291
+    # Honua.Sdk 1.12.0 (aada6d89) includes the 14 operations 1.11.x excluded as candidate fixtures.
+    assert contract["releaseProfile"]["denominator"] == 306
+    assert len(excluded) == 0
+    assert len(rows) == len(included) == 306
     assert {row["operation"] for row in rows} == included
     assert excluded.isdisjoint(included)
     assert excluded.isdisjoint({row["operation"] for row in rows})
@@ -64,9 +65,14 @@ def test_dotnet_release_profile_is_the_catalog_denominator() -> None:
 def test_dotnet_profile_disagreement_refuses_generation(copied: Path) -> None:
     path = copied / "sources/sdk-dotnet/sdk-certification.v1.json"
     contract = load(path)
-    operation_id = contract["releaseProfile"]["excluded"][0]["operationId"]
-    operation = next(row for row in contract["operations"] if row["id"] == operation_id)
-    operation["releaseDenominator"] = "included"
+    # Name an included operation as excluded without changing its own denominator.
+    operation = next(row for row in contract["operations"] if row["releaseDenominator"] == "included")
+    operation_id = operation["id"]
+    contract["releaseProfile"]["excluded"].append({
+        "operationId": operation_id,
+        "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/308",
+        "reason": "Synthetic profile disagreement for the regression.",
+    })
     write(path, contract)
 
     result = run(copied, "generate-protocol-requirements.py")
@@ -99,7 +105,7 @@ def test_moving_an_included_dotnet_operation_out_of_the_profile_omits_it(copied:
         if row["client_lane"] == "sdk-dotnet-certification"
     ]
     assert operation["id"] not in {row["operation"] for row in rows}
-    assert len(rows) == contract["releaseProfile"]["denominator"] == 290
+    assert len(rows) == contract["releaseProfile"]["denominator"] == 305
 
 
 @pytest.mark.parametrize("field,value", [

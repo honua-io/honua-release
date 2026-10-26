@@ -50,11 +50,11 @@ class LiveConfigurationProjectionControls(unittest.TestCase):
                 raise ValueError("control cleanup lost its owned container label")
             self.command(["docker", "rm", "-f", container])
 
-    def test_real_daemon_projects_only_eight_safe_values_and_counts_full_scope(self):
+    def test_real_daemon_projects_only_the_declared_safe_values_and_counts_full_scope(self):
         declaration, binding = self.container()
         observed = configuration.observe_configuration(declaration, binding)
         self.assertEqual(observed["environment"], declaration["environment"])
-        self.assertEqual(observed["selectedScopeEntryCount"], 8)
+        self.assertEqual(observed["selectedScopeEntryCount"], len(configuration.SELECTED_KEYS))
         self.assertFalse(observed["deployedTargetObserved"] or observed["actuationRequested"])
         raw = self.command(["docker", "inspect", "--format", configuration.option_template(), binding["containerId"]])
         self.assertNotIn("controlled-secret-never-project", raw)
@@ -62,7 +62,7 @@ class LiveConfigurationProjectionControls(unittest.TestCase):
         lines = raw.splitlines()
         if lines and lines[-1] == "":
             lines.pop()
-        self.assertEqual(len(lines), 16)
+        self.assertEqual(len(lines), 2 * len(configuration.SELECTED_KEYS))
 
     def test_extra_or_case_aliased_options_are_refused_without_projecting_values(self):
         for key in ("ControlPlane__DeployTargets__2__ArtifactReference", "controlplane__platformrelease__version"):

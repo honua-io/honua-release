@@ -56,7 +56,11 @@ entries (`id`, `runtimeProfile`, `effectiveArtifactReference`,
 `projectedFromRelease`, `skewed`) and `skewedIds`
 under the same inspected candidate before and after MCP invocation. Require
 the evidence posture to identify configuration projection, not observed
-deployment or health. Reject invalid tool arguments, anonymous callers, and
+deployment or health. Against the reviewed owned declaration, which co-versions
+the `managed` worker on the governed serving digest, every execution entry must
+resolve exactly as honua-server resolves workers for its runtime profile
+(`projectedFromRelease` only when a declared worker applies) with no skew and no
+explicit pin. Reject invalid tool arguments, anonymous callers, and
 OpsRead denial. A truthful undeclared release can be a valid source response;
 it does not qualify a platform release.
 

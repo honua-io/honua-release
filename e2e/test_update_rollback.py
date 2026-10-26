@@ -160,7 +160,7 @@ def test_exactly_once_requires_independent_events_and_stable_output(negative):
 
 def test_rehearsal_does_not_get_promotion_evidence_credit():
     cells = []
-    for cell in sorted(proof.CELLS):
+    for cell in sorted(proof.GA_CELLS):
         result = run(cell=cell, mode="rehearsal")
         result["cleanup"] = result["cost"] = {"status": "pass"}
         cells.append(result)
@@ -172,7 +172,7 @@ def test_rehearsal_does_not_get_promotion_evidence_credit():
 @pytest.mark.parametrize("missing", ["cleanup", "cost", "cell", "binding"])
 def test_no_partial_aggregate_or_unbound_cleanup(missing):
     cells = []
-    for cell in sorted(proof.CELLS):
+    for cell in sorted(proof.GA_CELLS):
         row = run(cell=cell)
         row["cleanup"] = row["cost"] = {"status": "pass"}
         cells.append(row)
@@ -180,6 +180,32 @@ def test_no_partial_aggregate_or_unbound_cleanup(missing):
     if missing == "cell": cells.pop()
     if missing == "binding": cells[0]["runAttempt"] = "2"
     with pytest.raises(proof.ProofError): proof.aggregate(cells)
+
+
+def test_ga_aggregate_is_the_two_ecs_cells_and_refuses_lambda_preview_rows():
+    # Founder re-tier 2026-10-25: AWS ECS is the only GA target; a Lambda cell still runs as Preview.
+    assert proof.GA_CELLS == {"aws-ecs/redis-off", "aws-ecs/redis-on"}
+    assert {"aws-serverless/redis-off", "aws-serverless/redis-on"} <= proof.CELLS
+    cells = []
+    for cell in sorted(proof.GA_CELLS):
+        row = run(cell=cell)
+        row["cleanup"] = row["cost"] = {"status": "pass"}
+        cells.append(row)
+    assert {row["cell"] for row in proof.aggregate(cells)["cells"]} == proof.GA_CELLS
+    extra = run(cell="aws-serverless/redis-on")
+    extra["cleanup"] = extra["cost"] = {"status": "pass"}
+    with pytest.raises(proof.ProofError): proof.aggregate([*cells, extra])
+    with pytest.raises(proof.ProofError): proof.aggregate([cells[0], extra])
+
+
+def test_ecs_preflight_does_not_require_a_distinct_lambda_build():
+    prior, candidate = release("a"), release("b")
+    same_lambda = proof.Release(**{**candidate.__dict__, "lambda_digest": prior.lambda_digest})
+    for cell in sorted(proof.GA_CELLS):
+        proof.preflight(prior, same_lambda, cell, "qualification")
+    for cell in ("aws-serverless/redis-off", "aws-serverless/redis-on"):
+        with pytest.raises(proof.ProofError, match="two distinct immutable server builds"):
+            proof.preflight(prior, same_lambda, cell, "qualification")
 
 
 def test_finalize_binds_actual_teardown_and_meter_to_same_run():
@@ -309,6 +335,29 @@ def test_input_authentication_binds_real_attested_lambda_parent_to_selected_chil
         assert gh[1][3] != "oci://" + selected.lambda_image
 
 
+def test_pending_lambda_mirror_admits_ecs_cells_but_refuses_lambda_cells(tmp_path):
+    """Lambda is Preview: a fresh pin's pending-ecr-mirror sentinel must not block ECS update/rollback."""
+    import yaml
+    directory, server = bundle(tmp_path)
+    server["awsLambdaEcrDigest"] = "pending-ecr-mirror"
+    (directory / "platform-manifest.yaml").write_text(
+        yaml.safe_dump({"platformRelease": "2026.1-rc.3", "components": {"honua-server": server}}))
+    def runner(argv, **kwargs):
+        if argv[:2] == ["docker", "buildx"]:
+            index = {"schemaVersion": 2, "manifests": [{"digest": "sha256:" + "c" * 64,
+                     "platform": {"os": "linux", "architecture": "amd64"}}]}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(index))
+        return SimpleNamespace(returncode=0, stdout=json.dumps(_attestation(server["sha"], argv[3].rsplit("@", 1)[1])))
+    selected = proof.load_release(directory, "rehearsal", run=runner)
+    assert not selected.lambda_mirrored
+    assert selected.digest_for("aws-ecs/redis-off") == server["digest"]
+    assert selected.public()["lambdaImageDigest"] == server["awsLambdaDigest"]
+    with pytest.raises(proof.ProofError, match="Lambda mirror"):
+        selected.digest_for("aws-serverless/redis-off")
+    with pytest.raises(proof.ProofError, match="Lambda mirror"):
+        selected.image_for("aws-serverless/redis-on")
+
+
 @pytest.mark.parametrize("deregister", [True, None, False])
 def test_lambda_saved_plan_must_retain_prior_worker_revision_before_any_apply(tmp_path, monkeypatch, deregister):
     target = serverless()
@@ -338,7 +387,7 @@ def test_collector_rehearsal_and_qualification_share_execution_floor_without_inv
     import collect_update_rollback as collector
     for mode in ("rehearsal", "qualification"):
         root = tmp_path / mode
-        for cell in proof.CELLS:
+        for cell in proof.GA_CELLS:
             result = run(cell=cell, mode=mode)
             result["cleanup"] = result["cost"] = {"status": "pass"}
             path = root / cell / "update-rollback-cell.json"

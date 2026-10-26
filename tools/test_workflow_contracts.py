@@ -1356,24 +1356,28 @@ def test_contract_live_request_timeout_still_tears_down_and_records_failure(tmp_
     assert output.read_text() == "why=GET /api/v1/admin/capabilities returned HTTP 000\n"
 
 
-def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
+def test_cloud_matrix_is_the_ecs_ga_set_and_threads_the_batch_image():
     # rc.3 fix units C2/C6: aws-mixed has no IaC root (honua-iac#209), so it is not dispatched; the
-    # Lambda+Batch cell gets the manifest's amd64 server child; Bedrock is opt-in across the four ECS/Lambda GA cells.
-    # October 16 amendment: EKS is Preview; required ECS/Lambda cells retain their bill.
+    # Lambda+Batch cell gets the manifest's amd64 server child; Bedrock is opt-in on ECS (and an explicit Lambda dispatch).
+    # October 16 amendment: EKS is Preview. Founder re-tier 2026-10-25: Lambda is Preview too and the
+    # two AWS ECS cells are the only required cloud cells.
     workflow = _workflow("e2e-cloud-aws.yml")
     text = (REPO_ROOT / ".github" / "workflows" / "e2e-cloud-aws.yml").read_text(encoding="utf-8")
     cell = _workflow("e2e-cloud-aws-cell.yml")
     triggers = _triggers(workflow)
     assert triggers["workflow_dispatch"]["inputs"]["target"]["options"] == [
         "all", "aws-serverless", "aws-ecs", "aws-eks"]
-    # Operator ruling 2026-10-22: `all` dispatches the GA targets only; aws-eks (Preview) runs
-    # only on an explicit target=aws-eks dispatch and is reported "not certified (preview)".
-    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in text
-    assert "'[\"aws-serverless\",\"aws-ecs\",\"aws-eks\"]'" not in text
-    assert 'status:"not certified (preview)"' in text
+    # Operator ruling 2026-10-22: `all` dispatches the GA targets only; Preview targets (aws-serverless,
+    # aws-eks) run only on an explicit dispatch and are reported "not certified (preview)".
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-ecs\"]'" in text
+    assert "inputs.update_rollback_run_id != '' && '[\"aws-ecs\"]'" in text
+    assert '"aws-serverless","aws-ecs"' not in text
+    for preview_cell in ("aws-serverless/redis-off", "aws-serverless/redis-on", "aws-eks/redis-off", "aws-eks/redis-on"):
+        assert f'{{cell:"{preview_cell}", status:"not certified (preview)"}}' in text
+    assert 'TARGETS="aws-ecs";' in text
     assert "aws-mixed\"" not in text and "'aws-mixed'" not in text
     parity = workflow["jobs"]["parity"]["with"]
-    assert parity["preview"] == "${{ matrix.target == 'aws-eks' }}"
+    assert parity["preview"] == "${{ matrix.target == 'aws-eks' || matrix.target == 'aws-serverless' }}"
     assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
     assert "(matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless')" in parity["enable_bedrock"]
     assert "matrix.redis" not in parity["enable_bedrock"]
@@ -1381,14 +1385,15 @@ def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
         assert triggers[trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
     assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
     assert cell["env"]["HONUA_MIGRATE_IMAGE"] == "${{ inputs.gp_batch_image }}"
-    # The receipt checker and the cloud journey agree with the matrix: EKS is Preview, no aws-mixed row.
+    # The receipt checker and the cloud journey agree with the matrix: Lambda and EKS are Preview, no aws-mixed row.
     # Read as text: this suite also runs where the checkers' own dependencies are not installed.
     receipts = (REPO_ROOT / "tools" / "check_journey_receipts.py").read_text(encoding="utf-8")
     journey = (REPO_ROOT / "e2e" / "cloud_journey.py").read_text(encoding="utf-8")
-    ga = 'GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")'
+    ga = 'GA_CELLS = tuple(f"aws-ecs/redis-{redis}" for redis in ("off", "on"))'
     assert ga in receipts and ga in journey
-    assert 'PREVIEW_CELLS: tuple[str, ...] = ("aws-eks/redis-off", "aws-eks/redis-on")' in receipts
-    assert 'PREVIEW_TARGETS: tuple[str, ...] = ("aws-eks",)' in journey
+    assert ('PREVIEW_CELLS: tuple[str, ...] = tuple(f"{target}/redis-{redis}" for target in ("aws-serverless", "aws-eks")'
+            in receipts)
+    assert 'PREVIEW_TARGETS: tuple[str, ...] = ("aws-serverless", "aws-eks")' in journey
     assert '"aws-mixed"' not in receipts and '"aws-mixed"' not in journey
     teardown = [step.get("name") for step in cell["jobs"]["teardown"]["steps"]]
     assert teardown.index("Capture cell readiness diagnostics") < next(
@@ -1422,6 +1427,6 @@ def test_update_rollback_authentication_admits_both_builds_before_cloud_identity
     guard = next(step for step in admit["steps"] if step.get("name", "").startswith("Authenticate both builds"))
     assert 'prior=load_release(root/"rollback-prior",mode)' in guard["run"]
     assert 'candidate=load_release(root/"rollback-candidate",mode)' in guard["run"]
-    assert "for cell in CELLS:" in guard["run"] and "preflight(prior,candidate,cell,mode)" in guard["run"]
+    assert "for cell in sorted(GA_CELLS):" in guard["run"] and "preflight(prior,candidate,cell,mode)" in guard["run"]
     cloud = workflow["jobs"]["cloud"]
     assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "both"

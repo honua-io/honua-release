@@ -221,6 +221,9 @@ def test_candidate_phase_preserves_pending_and_does_not_qualify_ga_or_eks(manife
                              lambda *_: (bundle["records"]["awsLambda"]["inputs"],
                                          bundle["records"]["awsLambda"]["receipt"]["rawReceipt"]))
     matrix = vp._load_yaml(vp.MATRIX_PATH)
+    # Lambda is Preview since 2026-10-25; re-scoping it to GA must restore the pre-cut proof bill.
+    matrix["deploy"]["honua-server"]["awsLambda"]["architectures"]["x86_64"].update(
+        status="ga-target", releaseScope="ga-target")
     original = copy.deepcopy(matrix)
     candidate = vp.Findings()
     vp.check_deploy_qualification(manifest, matrix, candidate, exact_candidate=True,
@@ -238,7 +241,10 @@ def test_candidate_phase_preserves_pending_and_does_not_qualify_ga_or_eks(manife
 
 def test_pre_cut_phase_without_actual_proof_is_not_a_skip(manifest):
     findings = vp.Findings()
-    vp.check_deploy_qualification(manifest, vp._load_yaml(vp.MATRIX_PATH), findings,
+    matrix = vp._load_yaml(vp.MATRIX_PATH)
+    matrix["deploy"]["honua-server"]["awsLambda"]["architectures"]["x86_64"].update(
+        status="ga-target", releaseScope="ga-target")
+    vp.check_deploy_qualification(manifest, matrix, findings,
                                  exact_candidate=True, deployment_phase="candidate-precut")
     assert any("before-execution Lambda proof is missing" in error for error in findings.errors)
 
