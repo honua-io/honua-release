@@ -96,3 +96,21 @@ def test_the_judge_binds_the_producer_document_to_its_candidate():
     assert set(produce.PRINCIPALS) >= {"owner", "member", "nonmember"}
     assert judge.qualify(document, candidate=pin)["status"] == "pass"
     assert judge.qualify(document)["status"] == "nonpass"
+
+
+def test_running_image_is_bound_by_reference_revision_and_registry_digest():
+    digest = "sha256:" + "a" * 64
+    pin = {"sourceSha": "b" * 40, "image": f"ghcr.io/x/server:nightly-b@{digest}", "digest": digest}
+    container = {"Image": "sha256:" + "f" * 64, "Config": {"Image": pin["image"]}}  # classic-store config id
+    image = {"Config": {"Labels": {"org.opencontainers.image.revision": "b" * 40}},
+             "RepoDigests": [f"ghcr.io/x/server@{digest}"]}
+    produce.verify_running_image(container, image, pin, "server")  # the local id is never compared
+    for broken_container, broken_image in (
+        ({"Config": {"Image": "ghcr.io/x/server:nightly-b"}}, image),                       # floating tag
+        (container, {**image, "Config": {"Labels": {"org.opencontainers.image.revision": "c" * 40}}}),
+        (container, {**image, "Config": {}}),                                                # no revision label
+        (container, {**image, "RepoDigests": ["ghcr.io/x/server@sha256:" + "d" * 64]}),      # another digest
+        (container, {**image, "RepoDigests": []}),
+    ):
+        with pytest.raises(produce.ProducerError):
+            produce.verify_running_image(broken_container, broken_image, pin, "server")

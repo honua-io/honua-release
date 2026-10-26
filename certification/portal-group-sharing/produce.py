@@ -142,6 +142,24 @@ def feature_visible(document: Any, expected: int) -> bool:
     raise ProducerError("feature read is neither the stored count nor a refusal")
 
 
+def verify_running_image(container: dict[str, Any], image: dict[str, Any], pin: dict[str, str], instance: str) -> None:
+    """Bind a running container to the pinned candidate, independent of Docker's image store.
+
+    The container's local image id is a config id on the classic store and the index digest on the
+    containerd store, so it is never compared with the registry digest. As in
+    installed-clients/produce_import_fidelity.py::candidate_identity, the container must name the
+    pinned tag@digest reference, its image must carry the pinned source revision label, and one of
+    the image's RepoDigests must be the pinned index digest.
+    """
+    if (container.get("Config") or {}).get("Image") != pin["image"]:
+        raise ProducerError(f"{instance} was not started from the pinned {pin['image']}")
+    revision = ((image.get("Config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision")
+    if revision != pin["sourceSha"]:
+        raise ProducerError(f"{instance} image source revision {revision!r} is not {pin['sourceSha']}")
+    if not any(isinstance(value, str) and value.endswith("@" + pin["digest"]) for value in image.get("RepoDigests") or []):
+        raise ProducerError(f"{instance} image has no registry digest equal to the pinned {pin['digest']}")
+
+
 def redact(value: Any, secrets_: list[str]) -> Any:
     text = json.dumps(value)
     for secret in sorted({s for s in secrets_ if s}, key=len, reverse=True):
@@ -209,16 +227,13 @@ class Stack:
     def container(self, service: str) -> str:
         return self.compose("ps", "-q", service, capture=True).strip()
 
-    def runtime(self, service: str) -> dict[str, str]:
+    def runtime(self, service: str) -> dict[str, Any]:
         container = self.container(service)
-        out = subprocess.run(["docker", "inspect", "-f", "{{.Id}} {{.State.StartedAt}} {{.Image}}", container],
-                             text=True, capture_output=True, check=True).stdout.split()
-        return {"container": out[0], "startedAt": out[1], "image": out[2]}
-
-    def image_id(self, reference: str) -> str:
-        """Docker's id for the pinned reference; the reference itself carries the index digest."""
-        return subprocess.run(["docker", "image", "inspect", "-f", "{{.Id}}", reference],
-                              text=True, capture_output=True, check=True).stdout.strip()
+        info = json.loads(subprocess.run(["docker", "inspect", container], text=True, capture_output=True,
+                                         check=True).stdout)[0]
+        image = json.loads(subprocess.run(["docker", "image", "inspect", info["Image"]], text=True,
+                                          capture_output=True, check=True).stdout)[0]
+        return {"container": info["Id"], "startedAt": info["State"]["StartedAt"], "info": info, "imageInfo": image}
 
     def sql(self, statement: str) -> str:
         return self.compose("exec", "-T", "db", "psql", "-At", "-v", "ON_ERROR_STOP=1", "-U", "honua", "-d", "honua",
@@ -278,10 +293,7 @@ class Producer:
         if status != 200 or revision != self.pin["sourceSha"]:
             raise ProducerError(f"{instance} does not advertise the pinned source {self.pin['sourceSha']}")
         runtime = self.stack.runtime(instance)
-        # The container's image id depends on the image store (config id on the classic store, index
-        # digest on containerd), so compare it with the id Docker resolves for the pinned tag@digest.
-        if runtime["image"] != self.stack.image_id(self.pin["image"]):
-            raise ProducerError(f"{instance} runs {runtime['image']}, not the pinned {self.pin['image']}")
+        verify_running_image(runtime["info"], runtime["imageInfo"], self.pin, instance)
         return f"{instance}:{runtime['container'][:12]}@{runtime['startedAt']}#{revision}"
 
     # setup
