@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finalize actual cell cleanup/cost and collect the four-cell AWS transition proof."""
+"""Finalize actual cell cleanup/cost and collect the GA-cell (AWS ECS) transition proof."""
 from __future__ import annotations
 
 import argparse
@@ -9,12 +9,12 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "e2e"))
-from runner.update_rollback import ProofError, aggregate, finalize_cell, load_release, require
+from runner.update_rollback import GA_CELLS, ProofError, aggregate, finalize_cell, load_release, require
 
 
 def collect(reports, prior, candidate, mode, run_id, run_attempt):
     paths = sorted(reports.rglob("update-rollback-cell.json"))
-    require(len(paths) == 4, "exactly four independently retained cell receipts required")
+    require(len(paths) == len(GA_CELLS), "exactly one independently retained receipt per GA cell required")
     cells = [json.loads(path.read_text()) for path in paths]
     for cell in cells:
         require(cell.get("prior") == prior.public() and cell.get("candidate") == candidate.public(),
