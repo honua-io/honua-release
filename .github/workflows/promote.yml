@@ -223,6 +223,10 @@ jobs:
           cp tools/tag_signing.py "$TRUST_ROOT/tools/"
           cp certification/release-controls/{policy,tag-signing-policy}.json \
             "$TRUST_ROOT/certification/release-controls/"
+          # The hand-written narrative (release-notes/<base>.md) is promotion-side prose, not
+          # candidate bytes: carry the current copy across the candidate checkout like the producer.
+          mkdir -p "$TRUST_ROOT/release-notes"
+          cp release-notes/*.md "$TRUST_ROOT/release-notes/" 2>/dev/null || true
 
       # Candidate parsing, finalization, and release generation use the tools that existed at
       # certification time. The promotion checkout is never a source for candidate bytes.
@@ -303,6 +307,15 @@ jobs:
           # finalize_release.py exits non-zero (REFUSED) if the candidate is not all-green for this
           # label — that aborts the job BEFORE any tag/release is created.
           STAMP="$(date -u +%FT%TZ)"
+          # finalize_release.py runs from the certified source_sha, which may predate --notes-intro.
+          # Pass the narrative only when that revision understands the flag; older candidates
+          # promote with the generated record alone.
+          NOTES_INTRO_ARGS=()
+          if python tools/finalize_release.py --help 2>/dev/null | grep -c -- '--notes-intro' >/dev/null; then
+            NOTES_INTRO_ARGS=(--notes-intro "$RUNNER_TEMP/publication-trust/release-notes/${BASE}.md")
+          else
+            echo "candidate finalize_release.py predates --notes-intro; generated record only"
+          fi
           python tools/finalize_release.py \
             --label "$LABEL" \
             --gate-report candidate/gate-report.json \
@@ -319,7 +332,8 @@ jobs:
             --certification-time "${{ steps.train.outputs.updated_at }}" \
             --released-at "$STAMP" \
             --out-manifest finalized-manifest.yaml \
-            --out-notes release-notes.md
+            --out-notes release-notes.md \
+            "${NOTES_INTRO_ARGS[@]}"
           # Publish the BOM derived from the attested candidate lock at freeze.
           cp candidate/bom.cdx.json bom.cdx.json
 

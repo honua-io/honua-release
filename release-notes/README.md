@@ -11,6 +11,13 @@ component set, versions/SHAs/images, contract versions, DB-schema floor, compati
 breaking-changes/upgrade-actions section. `.github/workflows/promote.yml` attaches them to the
 `Honua YYYY.N` GitHub Release.
 
+**Narrative:** `release-notes/<base-label>.md` (for example `2026.1.md`) is the hand-written part:
+what the release is, who it is for, what ships, editions and licensing, compatibility, maturity,
+known limitations. `finalize_release.py --notes-intro` places it ahead of the generated record on
+the GitHub Release. It carries no pins, digests or image tags; those stay in the generated
+sections so the narrative cannot drift from the certified manifest (`test_finalize_release.py`
+enforces this for 2026.1).
+
 **Still a stub:** the per-component breaking-change rollup from change metadata (PLAN §8) — until that
 lands the breaking-changes section points operators at each component's own release notes.
 
