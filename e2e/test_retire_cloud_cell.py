@@ -254,3 +254,77 @@ class RecoveryBindingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Teardown helper pin and retained-state recovery (stranded Lambda cells, 2026-10-23..25) ────────
+
+def _retirement_helper_ref(workflow):
+    import yaml
+    jobs = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github/workflows" / workflow).read_text())["jobs"]
+    refs = [step["with"]["ref"] for job in jobs.values() for step in job.get("steps", [])
+            if step.get("with", {}).get("path") == "_retirement-tools"]
+    assert len(refs) == 1, workflow
+    return refs[0]
+
+
+def test_ordinary_teardown_and_recovery_pin_the_same_reviewed_helper():
+    # The ordinary teardown kept the 1587c8a helper after recovery moved to eeca056 (honua-iac#299);
+    # the old helper's ListVersionsByFunction on guardrail-denied standing functions failed every
+    # Lambda teardown with AccessDenied and stranded each cell's VPC, NAT gateway and EIP.
+    assert _retirement_helper_ref("e2e-cloud-aws-cell.yml") == _retirement_helper_ref("cloud-cell-retirement.yml")
+
+
+def _request(run_id="111", attempt="1", redis="off"):
+    return {"runId": run_id, "runAttempt": attempt, "cell": "aws-serverless/redis-" + redis}
+
+
+def test_retained_state_from_the_original_run_names_its_gate_report_evidence():
+    from retire_cloud_cell import retained_state_source
+    assert retained_state_source(_request(redis="on"), "111", {}) == {
+        "stateRun": "111", "stateRunAttempt": "1",
+        "stateArtifact": "e2e-cloud-aws-gate-report-aws-serverless-redis-on",
+        "statePath": "cloud-evidence/111/1/aws-serverless/redis-on"}
+
+
+def test_retained_state_from_a_recovery_run_must_be_a_completed_trunk_recovery():
+    from retire_cloud_cell import retained_state_source
+    good = {"id": 222, "run_attempt": 2, "repository": {"full_name": "honua-io/honua-release"},
+            "path": ".github/workflows/cloud-cell-retirement.yml", "head_branch": "trunk",
+            "event": "workflow_dispatch", "status": "completed"}
+    assert retained_state_source(_request(), "222", good)["stateArtifact"] == "cell-retirement-111-1-off-2"
+    for change in ({"status": "in_progress"}, {"head_branch": "fork"}, {"path": ".github/workflows/e2e-cloud-aws.yml"},
+                   {"id": 333}, {"repository": {"full_name": "someone/else"}}):
+        with pytest.raises(RecoveryRefused):
+            retained_state_source(_request(), "222", {**good, **change})
+
+
+def test_retained_receipt_must_bind_cell_unretired_state_key_and_bundle():
+    from retire_cloud_cell import verify_retained_receipt
+    source = {"stateRun": "222", "stateRunAttempt": "1"}
+    key = "honua-cloud-cell-state/111-1-aws-serverless-redis-off-retirement-222-1"
+    receipt = {**_request(), "recoveryRunId": "222", "recoveryRunAttempt": "1", "terraformRetired": False,
+               "recoveryStateSealed": True, "recoveryStateKey": key, "recoveryStateSha256": "c" * 64}
+    verify_retained_receipt(_request(), source, receipt, "c" * 64, key)
+    for change in ({"cell": "aws-serverless/redis-on"}, {"runId": "999"}, {"recoveryRunId": "223"},
+                   {"terraformRetired": True}, {"recoveryStateSealed": False},
+                   {"recoveryStateKey": key.replace("222", "223")}, {"recoveryStateSha256": "d" * 64}):
+        with pytest.raises(RecoveryRefused):
+            verify_retained_receipt(_request(), source, {**receipt, **change}, "c" * 64, key)
+
+
+def test_only_the_newest_sealing_key_of_a_cell_may_be_recovered():
+    from retire_cloud_cell import latest_sealing_key
+    original = "honua-cloud-cell-state/111-1-aws-serverless-redis-on"
+    rows = [{"Name": original + "-retirement-111-1", "CreatedDate": datetime(2026, 10, 24, tzinfo=timezone.utc)},
+            {"Name": original + "-retirement-222-1", "CreatedDate": datetime(2026, 10, 25, tzinfo=timezone.utc)},
+            {"Name": original + "-app-key", "CreatedDate": datetime(2026, 10, 26, tzinfo=timezone.utc)}]
+    client = Mock()
+    client.get_paginator.return_value.paginate.return_value = [{"SecretList": rows}]
+    assert latest_sealing_key(original, client) == original + "-retirement-222-1"
+    client.get_paginator.return_value.paginate.return_value = [{"SecretList": rows[2:]}]
+    with pytest.raises(RecoveryRefused):
+        latest_sealing_key(original, client)
+    deleted = [{**rows[1], "DeletedDate": datetime(2026, 10, 26, tzinfo=timezone.utc)}]
+    client.get_paginator.return_value.paginate.return_value = [{"SecretList": deleted}]
+    with pytest.raises(RecoveryRefused):
+        latest_sealing_key(original, client)

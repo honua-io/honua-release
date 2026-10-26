@@ -9,7 +9,8 @@ from pathlib import Path
 
 from retire_cloud_cell import compute_absence, private_retirement_directory, require
 
-HELPER_SHA256 = "b39bd60d43c7f2a2e36548a9baa94eaef279d18840e858ca51b711870204dba9"
+# serverless_cell_retirement.py at honua-iac eeca0567 (#299); moves with the e2e-cloud-aws-cell.yml pin.
+HELPER_SHA256 = "6d0ab71fcaac87b5fa3088f7d60f6a5a807de768ffbbdc32ea76affce1efb0ce"
 
 
 def load_helper(path):

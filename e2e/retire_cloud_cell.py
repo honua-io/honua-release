@@ -19,6 +19,7 @@ import yaml
 
 REPOSITORY = "honua-io/honua-release"
 WORKFLOW = ".github/workflows/e2e-cloud-aws.yml"
+RECOVERY_WORKFLOW = ".github/workflows/cloud-cell-retirement.yml"
 
 
 class RecoveryRefused(ValueError):
@@ -60,6 +61,60 @@ def verify_handoff(request, handoff):
             "provision handoff does not bind the original deployed run and manifest")
 
 
+def retained_state_source(request, state_run, state_metadata):
+    """Name the retained (90-day) artifact holding the latest sealed state of a cell.
+
+    The provision job's own state/handoff artifacts expire after a short window; a cell whose
+    ordinary teardown failed keeps its re-sealed state either in the original run's gate-report
+    artifact (ordinary retirement) or in a prior recovery run's evidence artifact. Which one is
+    the latest is re-checked against the sealing keys in `perform`.
+    """
+    redis = request["cell"].rsplit("-", 1)[1]
+    if state_run == request["runId"]:
+        return {"stateRun": state_run, "stateRunAttempt": request["runAttempt"],
+                "stateArtifact": "e2e-cloud-aws-gate-report-aws-serverless-redis-" + redis,
+                "statePath": "cloud-evidence/" + request["runId"] + "/" + request["runAttempt"] +
+                             "/aws-serverless/redis-" + redis}
+    require(re.fullmatch(r"[1-9][0-9]*", state_run or ""), "invalid retained state run")
+    require(state_metadata.get("id") == int(state_run) and
+            state_metadata.get("repository", {}).get("full_name") == REPOSITORY and
+            state_metadata.get("path") == RECOVERY_WORKFLOW and state_metadata.get("head_branch") == "trunk" and
+            state_metadata.get("event") == "workflow_dispatch" and state_metadata.get("status") == "completed",
+            "retained state run must be a completed trunk cell-retirement recovery run")
+    attempt = str(state_metadata.get("run_attempt", ""))
+    require(re.fullmatch(r"[1-9][0-9]*", attempt), "retained state run attempt unavailable")
+    return {"stateRun": state_run, "stateRunAttempt": attempt,
+            "stateArtifact": "cell-retirement-" + request["runId"] + "-" + request["runAttempt"] + "-" + redis +
+                             "-" + attempt,
+            "statePath": "."}
+
+
+def verify_retained_receipt(request, source, receipt, bundle_sha256, expected_key):
+    """The retained receipt must bind this exact cell, an unretired state and this exact bundle."""
+    require(all(str(receipt.get(k)) == request[k] for k in ("runId", "runAttempt", "cell")),
+            "retained receipt does not bind the original run and cell")
+    if source["stateRun"] != request["runId"]:
+        require(str(receipt.get("recoveryRunId")) == source["stateRun"] and
+                str(receipt.get("recoveryRunAttempt")) == source["stateRunAttempt"],
+                "retained receipt does not bind its recovery run")
+    require(receipt.get("terraformRetired") is False, "retained state is already retired")
+    require(receipt.get("recoveryStateSealed") is True and receipt.get("recoveryStateKey") == expected_key,
+            "retained receipt does not name the sealing key of its own run")
+    require(receipt.get("recoveryStateSha256") == bundle_sha256, "retained bundle differs from its receipt")
+
+
+def latest_sealing_key(original_key, secretsmanager):
+    """The most recently created retirement sealing key of a cell: the only state that may be used."""
+    keys = []
+    for page in secretsmanager.get_paginator("list_secrets").paginate(
+            Filters=[{"Key": "name", "Values": [original_key + "-retirement-"]}], IncludePlannedDeletion=True):
+        keys += [row for row in page.get("SecretList", []) if row["Name"].startswith(original_key + "-retirement-")]
+    require(keys, "no retained sealing key exists for this cell")
+    latest = max(keys, key=lambda row: row["CreatedDate"])
+    require(not latest.get("DeletedDate"), "latest sealing key is scheduled for deletion")
+    return latest["Name"]
+
+
 def preflight(args, *, run=subprocess.run):
     require(os.environ.get("GITHUB_REF") == "refs/heads/trunk", "retirement workflow must execute on trunk")
     require(re.fullmatch(r"[1-9][0-9]*", args.original_run) and
@@ -77,12 +132,19 @@ def preflight(args, *, run=subprocess.run):
     require(file.get("encoding") == "base64", "original manifest bytes unavailable")
     manifest = base64.b64decode(file["content"], validate=False)
     request = original_request(metadata, manifest, run_id=args.original_run, attempt=args.original_attempt, redis=args.redis)
+    outputs = dict(request)
+    if getattr(args, "state_run", ""):
+        state_metadata = {} if args.state_run == args.original_run else github("actions/runs/" + args.state_run)
+        source = retained_state_source(request, args.state_run, state_metadata)
+        request["retainedState"] = source
+        outputs.update(source)
     args.directory.mkdir(parents=True, exist_ok=True)
     (args.directory / "original-platform-manifest.yaml").write_bytes(manifest)
     (args.directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-        for key in ("sourceHead", "iacSource", "artifactSuffix"):
-            output.write(key + "=" + request[key] + "\n")
+        for key in ("sourceHead", "iacSource", "artifactSuffix", "stateArtifact", "stateRunAttempt", "statePath"):
+            if key in outputs:
+                output.write(key + "=" + outputs[key] + "\n")
     return request
 
 
@@ -160,8 +222,17 @@ def perform(args):
     request = json.loads((args.directory / "request.json").read_text())
     require((args.original_run, args.original_attempt, "aws-serverless/redis-" + args.redis) ==
             (request["runId"], request["runAttempt"], request["cell"]), "retirement inputs changed after preflight")
-    handoff = json.loads((args.handoff / "provision.json").read_text())
-    verify_handoff(request, handoff)
+    source = request.get("retainedState")
+    require((source is None) == (getattr(args, "retained_receipt", None) is None) and
+            getattr(args, "state_run", "") == (source or {}).get("stateRun", ""),
+            "retained state inputs differ from preflight")
+    if source is None:
+        handoff = json.loads((args.handoff / "provision.json").read_text())
+        verify_handoff(request, handoff)
+    else:
+        # The provision handoff expired with the original state; the retained receipt binds the
+        # cell instead, and cost metering records itself unavailable rather than zero.
+        handoff = {}
     require(os.environ.get("GITHUB_REF") == "refs/heads/trunk", "retirement workflow must execute on trunk")
     current_run, current_attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
     require(current_run != request["runId"], "recovery must have its own workflow identity")
@@ -190,7 +261,16 @@ def perform(args):
                "status": "incomplete", "terraformRetired": False, "costReconciled": False,
                "originalStateKeyRetained": True, "recoveryStateSealed": False}
     try:
-        run_cloud.open_state(root, args.bundle, key_name)
+        state_key = key_name
+        if source is not None:
+            state_key = key_name + "-retirement-" + source["stateRun"] + "-" + source["stateRunAttempt"]
+            retained = json.loads(args.retained_receipt.read_text())
+            verify_retained_receipt(request, source, retained,
+                                    hashlib.sha256(args.bundle.read_bytes()).hexdigest(), state_key)
+            require(latest_sealing_key(key_name, session.client("secretsmanager")) == state_key,
+                    "a later sealed state exists for this cell; recover from that run instead")
+            receipt["retainedStateKey"] = state_key
+        run_cloud.open_state(root, args.bundle, state_key)
         private = private_retirement_directory(root, args.iac)
         state = json.loads((root / "terraform.tfstate").read_text())
         rows = [{**instance["attributes"], "resourceType": group["type"], "resourceName": group["name"]}
@@ -257,11 +337,16 @@ def main():
     parser.add_argument("--bundle", type=Path)
     parser.add_argument("--handoff", type=Path)
     parser.add_argument("--account-id")
+    parser.add_argument("--state-run", default="",
+                        help="run holding the latest retained sealed state, when the original artifacts expired")
+    parser.add_argument("--retained-receipt", type=Path,
+                        help="receipt retained with that state (cell-retirement.json or receipt.json)")
     args = parser.parse_args()
     if args.phase == "preflight":
         preflight(args)
     else:
-        require(all((args.iac, args.helper, args.bundle, args.handoff, args.account_id)), "retirement inputs are incomplete")
+        require(all((args.iac, args.helper, args.bundle, args.account_id)) and
+                bool(args.handoff) != bool(args.retained_receipt), "retirement inputs are incomplete")
         perform(args)
 
 
