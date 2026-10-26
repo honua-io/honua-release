@@ -803,6 +803,14 @@
       "target": "2026.1.1",
       "moved": [],
       "basis": "Founder decision (option B) 2026-10-27, relayed by the release coordinator and recorded on honua-release#1004 on 2026-10-27"
+    },
+    "compose-upgrade-gate-d9-2026-10-26": {
+      "date": "2026-10-26",
+      "authority": "https://github.com/honua-io/honua-release/issues/950",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "Founder decision D9. Docker Compose on-prem is GA, so the upgrade gate's required runtime fragment is a Docker Compose upgrade and rollback cell (gate-upgrade.yml compose-upgrade): install the prior on a fresh database, seed, back up, upgrade to the candidate including the contract-migration nonce path, require the migration journal to advance to the declared schema and the seeded rows to survive, then roll back to the prior image or restore the backup at the documented boundary and read the seeded rows through the prior image. It runs on a GitHub-hosted x86_64 runner's own Docker with linux/amd64 images and the kind-upgrade receipt shape and fail-closed rules. Prior is defined explicitly because 2026.1 is the first release: the honua-server digest published by the newest 2026.1-rc.N GitHub release, else the amd64 image of the newest signed nightly lock; a source that ships the candidate's own image is skipped, and when neither resolves the cell is blocked (strict: fail), never the candidate itself. A scheduled negative-control cell injects lost seed rows and passes only when the gate's own assertion fails. The Helm-on-kind kind-upgrade cells are non-blocking Preview evidence: they still run and publish receipts, and every upgrade-kind-* fragment is advisory.",
+      "effect": "Founder-approved exception to the pre-rc.3 gate freeze: adds one required runtime fragment for a GA topology and moves the kind runtime fragment to Preview evidence. static-compat and every other required gate are unchanged; no required gate is removed or weakened. Multi-tenant scenarios stay out of scope (ADR-0024). Addresses coverage-audit NC-25 and tier-alignment TA-06; the runbook is docs/UPGRADE-RUNBOOK.md section 6.",
+      "basis": "Founder decision D9, 2026-10-26, recorded on honua-release#950"
     }
   },
   "security_findings": [

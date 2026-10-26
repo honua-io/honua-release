@@ -15,7 +15,9 @@ This module picks a truthful substitute pair so the sequence runs anyway:
 
 Two pairs (coordinator ruling 2026-10-22, https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760):
 
-  trunk-candidate    (required for rc) prior = the previous honua-server pin in manifest history
+  trunk-candidate    (required for rc until founder decision D9, 2026-10-26, honua-release#950; now
+                     Preview evidence like every kind cell, the GA Compose lane is required)
+                     prior = the previous honua-server pin in manifest history
                      (N-1 nightly) -> candidate -> rollback. Never a customer release pair.
   published-release  (advisory until a real release exists) prior = the server of the newest
                      published honua-* GitHub release, pulled by the public GHCR digest its release
@@ -203,6 +205,8 @@ def _load_json(path: Path, default):
 
 # Coordinator ruling 2026-10-22: the published-release pair is advisory until a real release exists.
 ADVISORY_RULING = "https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760"
+# Founder decision D9 (2026-10-26): every kind cell is Preview evidence; Compose is the required lane.
+PREVIEW_RULING = "https://github.com/honua-io/honua-release/issues/950"
 
 
 def build_receipt(pair: dict, *, scenario: str, status: str, why: str, signed_lock_why: str,
@@ -225,8 +229,11 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, signed_lo
                      "the candidate gates it; restore the pre-upgrade backup at the documented rollback boundary",
         }
     else:
-        certification = {"role": "rc-required-path", "verdict": "required",
-                         "note": "previous trunk manifest pin (N-1 nightly) -> candidate; not a customer release pair"}
+        certification = {"role": "trunk-candidate-path", "verdict": "advisory", "tier": "preview",
+                         "advisoryRuling": PREVIEW_RULING,
+                         "note": "previous trunk manifest pin (N-1 nightly) -> candidate; not a customer release pair. "
+                                 "Helm on kind is Preview evidence (D9); the required runtime fragment is the GA "
+                                 "Docker Compose lane (tools/compose_upgrade_prior.py)"}
     return {
         "schema": SCHEMA,
         "priorSource": source,

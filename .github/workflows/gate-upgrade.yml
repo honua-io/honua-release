@@ -1,9 +1,18 @@
 # Release gate (i) — upgrade. Is upgrading from the previous platform release to the candidate safe?
 #
-# Two layers:
-#   static-compat  Decidable now (tools/check_upgrade.py, unit-tested): the candidate must not strand any
-#                  client the PRIOR release shipped (compat-matrix), and its DB schema must be forward-only.
-#   kind-upgrade   The real seed -> apply -> migrate -> health smoke, reusing the honua-helm
+# Three layers (founder decision D9, 2026-10-26, https://github.com/honua-io/honua-release/issues/950):
+#   static-compat    REQUIRED. Decidable now (tools/check_upgrade.py, unit-tested): the candidate must not
+#                    strand any client the PRIOR release shipped (compat-matrix), and its DB schema must be
+#                    forward-only.
+#   compose-upgrade  REQUIRED runtime fragment. Docker Compose on-prem is GA (2026-10-25 re-tier), so its
+#                    customer upgrade/rollback is proven on the runner's own Docker (x86_64, no cloud cost):
+#                    prior -> seed -> backup -> candidate (contract nonce) -> journal advanced + rows
+#                    survived -> image rollback or documented restore -> the prior serves the rows. See the
+#                    job comment for the explicit definition of "prior". Founder-approved exception to the
+#                    pre-rc.3 gate freeze (docs/2026.1-release-decision-overrides.json, D9 ruling).
+#   kind-upgrade     PREVIEW EVIDENCE, non-blocking (Helm is Preview). Still runs every cell and uploads its
+#                    receipts; every upgrade-kind-* fragment is advisory and the job is continue-on-error.
+#                    The real seed -> apply -> migrate -> health smoke, reusing the honua-helm
 #                  install -> upgrade -> rollback pattern (honua-helm CI `install-upgrade-rollback-smoke`):
 #                  a kind cluster + PostGIS + Redis, `helm install` the prior release (or immutable
 #                  first-cut schema-106 baseline), run the real e2e seeder, `helm upgrade` to the
@@ -16,7 +25,8 @@
 # R26); until one exists the signed-lock kind smoke is blocked.
 #
 # Pairs (coordinator ruling 2026-10-22, https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760):
-#   trunk-candidate    REQUIRED for rc: previous trunk manifest pin (N-1 nightly) -> candidate ->
+#   trunk-candidate    Was REQUIRED for rc; Preview evidence since founder decision D9 (below): previous
+#                      trunk manifest pin (N-1 nightly) -> candidate ->
 #                      rollback, plus every fault scenario. Never a customer release pair.
 #   published-release  ADVISORY until a real release exists (the only published artefact is the
 #                      August 2026.1 snapshot, which has no schema-reader guard). Its fragments, and
@@ -32,16 +42,17 @@
 #                      documented boundary is recovered by restoring the pre-upgrade backup.
 # Each pair emits upgrade-kind-<pair>-<scenario>; receipts say priorSource and certification role,
 # `certifiedReleasePair: false`, and the signed-lock fragment stays blocked. A FAIL (migrations did not
-# advance after approval, seeded rows lost, the prior cannot serve after rollback or restore) fails the
-# gate. The kind smoke
+# advance after approval, seeded rows lost, the prior cannot serve after rollback or restore) is reported
+# as advisory-fail (Preview evidence, D9); the same failure in the compose-upgrade cell fails the gate.
+# The kind smoke
 # SELF-SKIPS cleanly (blocked, exit 0) when the helm chart or the server image can't be reached, so a
 # no-creds local cut still runs the static layer. enforcement=strict promotes blocked -> fail.
 #
 # Trigger scope: static-compat is the FAST, decidable-now half (manifest diff + unit-tested logic, no
 # cluster) so it runs on pull_request too, scoped to the files it actually evaluates — a candidate
 # manifest change that strands an old client or regresses the DB schema floor is this PR's fault and
-# should redden it before merge, not wait for the nightly/release lane. kind-upgrade is the expensive
-# real seed/upgrade/rollback smoke against a live cluster; it stays release-train/nightly/dispatch-only
+# should redden it before merge, not wait for the nightly/release lane. compose-upgrade and kind-upgrade
+# are the expensive real seed/upgrade/rollback smokes; they stay release-train/nightly/dispatch-only
 # (skipped on pull_request) per the "fast checks per PR, expensive cells in targeted lanes" contract.
 
 name: gate-upgrade
@@ -64,6 +75,8 @@ on:
       - "tools/test_inject_upgrade_failure.py"
       - "tools/upgrade_trunk_pair.py"
       - "tools/test_upgrade_trunk_pair.py"
+      - "tools/compose_upgrade_prior.py"
+      - "tools/test_compose_upgrade_prior.py"
       - ".github/workflows/gate-upgrade.yml"
   schedule:
     - cron: "17 6 * * *"
@@ -78,7 +91,7 @@ on:
         options: [normal, post-migration-readiness, bad-config, migration-boundary, rollback-failure]
         default: normal
       upgrade_pair:
-        description: "trunk-candidate = previous trunk pin -> candidate (required for rc); published-release = the newest published honua-* release -> candidate (advisory until a real release exists)"
+        description: "trunk-candidate = previous trunk pin -> candidate; published-release = the newest published honua-* release -> candidate (advisory until a real release exists)"
         required: false
         type: choice
         options: [trunk-candidate, published-release]
@@ -133,7 +146,7 @@ jobs:
           set -euo pipefail
           python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py tools/test_upgrade_lock_binding.py -q -k "upgrade or recovery or lock_binding"
           python -m pytest tools/test_check_upgrade.py -q
-          python -m pytest tools/test_upgrade_trunk_pair.py -q
+          python -m pytest tools/test_upgrade_trunk_pair.py tools/test_compose_upgrade_prior.py -q
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -202,8 +215,14 @@ jobs:
 
   # ── kind smoke: seed prior schema -> helm upgrade to candidate -> health -> rollback ─────────────
   # Expensive real layer: release-train/nightly/dispatch only (never pull_request — see trigger note).
+  # PREVIEW EVIDENCE, NON-BLOCKING (founder decision D9, 2026-10-26, honua-release#950): Helm is Preview
+  # under the 2026-10-25 re-tier. Every cell still runs and uploads its receipt, but its fragments are
+  # advisory in the report and a red cell does not fail the workflow (continue-on-error). The required
+  # runtime fragment is compose-upgrade below.
   kind-upgrade:
+    name: kind-upgrade (Preview evidence, non-blocking) ${{ matrix.scenario }} ${{ matrix.pair }}
     if: github.event_name != 'pull_request'
+    continue-on-error: true
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -1054,7 +1073,7 @@ jobs:
           PAIR_MODE="${{ steps.smoke.outputs.mode }}"
           if [ -n "$PAIR_MODE" ] && [ "$PAIR_MODE" != signed-lock ]; then
             # Labelled pair receipt: priorSource published-release (customer path) or trunk-candidate
-            # (rc-required path), certifiedReleasePair false, signed-lock requirement still blocked. Never
+            # (Preview evidence, D9), certifiedReleasePair false, signed-lock requirement still blocked. Never
             # attested as a signed-lock release receipt.
             if ! python tools/upgrade_trunk_pair.py receipt --pair /tmp/trunk-pair.json \
                  --scenario "${{ matrix.scenario }}" --status "${trunk_status:-fail}" --why "${trunk_why:-}" \
@@ -1150,13 +1169,190 @@ jobs:
           gate: upgrade-kind-${{ matrix.pair }}-${{ matrix.scenario }}
           status: ${{ env.trunk_status || 'fail' }}
           source: kind
-          why: "${{ matrix.pair == 'published-release' && format('prior-source: published-release {0} ({1}; customer upgrade path, advisory until a real release exists, no signed lock yet)', steps.fallback.outputs.release_tag, steps.fallback.outputs.prior_public_reference) || format('prior-source: trunk-candidate ({0} -> {1}; rc-required path, not a customer release pair)', steps.fallback.outputs.prior_source_revision, steps.fallback.outputs.candidate_source_revision) }}: ${{ env.trunk_why || 'job crashed before recording a result' }}"
+          why: "${{ matrix.pair == 'published-release' && format('prior-source: published-release {0} ({1}; customer upgrade path, advisory until a real release exists, no signed lock yet)', steps.fallback.outputs.release_tag, steps.fallback.outputs.prior_public_reference) || format('prior-source: trunk-candidate ({0} -> {1}; Preview evidence, not a customer release pair)', steps.fallback.outputs.prior_source_revision, steps.fallback.outputs.candidate_source_revision) }}: ${{ env.trunk_why || 'job crashed before recording a result' }}"
           enforcement: ${{ inputs.enforcement }}
           prefix: upg-${{ matrix.pair }}-${{ matrix.scenario }}-
 
+  # ── compose upgrade: the REQUIRED GA runtime fragment (founder decision D9, honua-release#950) ──
+  # Docker Compose on-prem is GA (2026-10-25 re-tier), so its customer upgrade and rollback is the
+  # required runtime proof of this gate; kind-upgrade above is Preview evidence. Runs on the
+  # GitHub-hosted x86_64 runner's own Docker (no cloud cost), linux/amd64 images only, through the
+  # existing chaos harness (e2e/harness/upgrade-chaos.sh, scenario compose-upgrade-rollback) and
+  # compose.candidate.yml: install prior -> real seed -> guard probe -> pg_dump backup -> candidate
+  # (contract-migration nonce path) -> journal advanced, declared schema, seeded rows survived ->
+  # image rollback, or the documented backup restore -> the prior image serves the seeded rows.
+  #
+  # PRIOR (2026.1 is the first release; tools/compose_upgrade_prior.py is the only definition):
+  #   1. the newest published 2026.1 rc GitHub release's honua-server image digest (rc-release.yml), else
+  #   2. the newest signed nightly lock's (refs/tags/nightly-lock/*) honua-server amd64 image, signature
+  #      verified here before use.
+  # A source whose server IS the candidate's image is skipped. Neither resolvable -> `blocked` (strict:
+  # fail). Never the candidate itself, a floating tag, or a manifest-history pin.
+  #
+  # Cells: `normal` (required) on every non-PR run; on the schedule also `negative-control`, which
+  # injects COMPOSE_UPGRADE_FAULT=drop-seed-rows and passes only when the gate's own assertion
+  # ("seeded rows did not survive the upgrade") fails the harness, so the gate keeps proving it can fail.
+  compose-upgrade:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJSON(github.event_name == 'schedule' && '["normal","negative-control"]' || '["normal"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+
+      - name: Resolve the prior (latest published rc, else previous signed nightly lock) and the candidate
+        id: pair
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/cu
+          if ! gh api --paginate --slurp "repos/${{ github.repository }}/releases?per_page=100" > /tmp/cu/releases.json 2>/tmp/cu/releases.err; then
+            # A failed lookup is not "no rc exists": block rather than resolve from a partial view.
+            cat /tmp/cu/releases.err
+            printf 'ready=0\nwhy=compose prior unavailable: GitHub release lookup failed\n' | tee /tmp/cu/pair.env
+          else
+            python tools/compose_upgrade_prior.py resolve --candidate-manifest platform-manifest.yaml \
+              --releases-json /tmp/cu/releases.json --nightly-locks-from-git | tee /tmp/cu/pair.env
+          fi
+          cat /tmp/cu/pair.env >> "$GITHUB_OUTPUT"
+          python - <<'PY' > /tmp/cu/pair.json
+          import json
+          print(json.dumps(dict(line.rstrip("\n").split("=", 1) for line in open("/tmp/cu/pair.env") if "=" in line)))
+          PY
+
+      - name: Install cosign (Sigstore)
+        if: steps.pair.outputs.prior_source == 'nightly-lock'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify the prior nightly lock's keyless signature
+        id: lock
+        if: steps.pair.outputs.prior_source == 'nightly-lock'
+        env:
+          LABEL: ${{ steps.pair.outputs.prior_selected_from }}
+        run: |
+          set -uo pipefail
+          label="${LABEL#nightly-lock/}"
+          git show "refs/compose-upgrade/nightly-lock/${label}:${label}/platform-lock.json" > /tmp/cu/prior-lock.json
+          git show "refs/compose-upgrade/nightly-lock/${label}:${label}/platform-lock.sigstore.json" > /tmp/cu/prior-lock.sigstore.json
+          if cosign verify-blob --bundle /tmp/cu/prior-lock.sigstore.json \
+               --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/nightly-certification.yml@refs/heads/trunk" \
+               --certificate-oidc-issuer https://token.actions.githubusercontent.com /tmp/cu/prior-lock.json; then
+            echo "verified=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "verified=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pre-pull linux/amd64 images (separates infra-absence=blocked from real upgrade failure=fail)
+        id: pull
+        if: steps.pair.outputs.ready == '1'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          PRIOR: ${{ steps.pair.outputs.prior }}
+          CAND: ${{ steps.pair.outputs.candidate }}
+        run: |
+          set -uo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
+          OK=1
+          for IMG in "$PRIOR" "$CAND"; do
+            docker pull --platform linux/amd64 "$IMG" >/tmp/cu/pull.log 2>&1 || { OK=0; echo "cannot pull $IMG"; tail -n 3 /tmp/cu/pull.log || true; }
+          done
+          echo "pullable=$OK" >> "$GITHUB_OUTPUT"
+
+      - name: Install prior -> seed -> upgrade to candidate -> verify -> roll back -> verify
+        id: smoke
+        if: always()
+        env:
+          READY: ${{ steps.pair.outputs.ready }}
+          PAIR_WHY: ${{ steps.pair.outputs.why }}
+          PRIOR_SOURCE: ${{ steps.pair.outputs.prior_source }}
+          LOCK_VERIFIED: ${{ steps.lock.outputs.verified }}
+          PULLABLE: ${{ steps.pull.outputs.pullable }}
+          SCENARIO: ${{ matrix.scenario }}
+          HONUA_PRIOR_SERVER_IMAGE: ${{ steps.pair.outputs.prior }}
+          HONUA_CANDIDATE_SERVER_IMAGE: ${{ steps.pair.outputs.candidate }}
+          HONUA_CANDIDATE_DB_SCHEMA: ${{ steps.pair.outputs.candidate_schema }}
+          CHAOS_SCENARIO: compose-upgrade-rollback
+          E2E_OUT: /tmp/cu/harness
+        run: |
+          set -uo pipefail
+          EXPECT_WHY=""
+          if [ "$SCENARIO" = negative-control ]; then
+            export COMPOSE_UPGRADE_FAULT=drop-seed-rows; EXPECT_WHY="seeded rows did not survive the upgrade"
+          fi
+          if [ "$READY" != 1 ]; then
+            STATUS=blocked; WHY="${PAIR_WHY:-compose prior unavailable}"
+          elif [ "$PRIOR_SOURCE" = nightly-lock ] && [ "$LOCK_VERIFIED" != 1 ]; then
+            STATUS=blocked; WHY="prior nightly lock signature could not be verified; its image is not used"
+          elif [ "$PULLABLE" != 1 ]; then
+            STATUS=blocked; WHY="server image(s) not pullable for linux/amd64 (private/unpublished) — compose smoke self-skipped"
+          else
+            # Per-run admin secret: production refuses credentials shipped in example files.
+            E2E_API_KEY="$(openssl rand -hex 24)"; echo "::add-mask::$E2E_API_KEY"; export E2E_API_KEY
+            bash e2e/harness/upgrade-chaos.sh 2>&1 | tee /tmp/cu/harness.log
+            RC="${PIPESTATUS[0]}"
+            python tools/compose_upgrade_prior.py classify --scenario "$SCENARIO" --exit-code "$RC" \
+              --harness /tmp/cu/harness/scenario-matrix.json --expect-why "$EXPECT_WHY" > /tmp/cu/classify.env
+            STATUS="$(sed -n 's/^status=//p' /tmp/cu/classify.env)"; WHY="$(sed -n 's/^why=//p' /tmp/cu/classify.env)"
+            [ -n "$STATUS" ] || { STATUS=fail; WHY="harness verdict could not be classified (exit $RC)"; }
+            echo "harness exit $RC -> $STATUS"
+          fi
+          echo "compose_status=$STATUS" >> "$GITHUB_ENV"
+          echo "compose_why=$(printf '%s' "${WHY:-}" | tr '\n' ' ')" >> "$GITHUB_ENV"
+          echo "COMPOSE RESULT ($SCENARIO): $STATUS — ${WHY:-}"
+
+      - name: Assemble the compose upgrade receipt
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/cu/harness
+          if ! python tools/compose_upgrade_prior.py receipt --pair /tmp/cu/pair.json --scenario "${{ matrix.scenario }}" \
+               --status "${compose_status:-fail}" --why "${compose_why:-}" \
+               --observed /tmp/cu/harness/compose-observed.json --harness /tmp/cu/harness/scenario-matrix.json \
+               --phase-dir /tmp/cu/harness \
+               --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --commit "$GITHUB_SHA" \
+               --output /tmp/cu/compose-upgrade-receipt.json; then
+            echo "compose_status=fail" >> "$GITHUB_ENV"
+            echo "compose_why=compose receipt could not be assembled" >> "$GITHUB_ENV"
+          fi
+          cat /tmp/cu/compose-upgrade-receipt.json 2>/dev/null || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: upgrade-compose-evidence-${{ matrix.scenario }}
+          path: |
+            /tmp/cu
+            !/tmp/cu/harness/compose-pre-upgrade.dump
+          if-no-files-found: warn
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: upgrade-compose-${{ matrix.scenario }}
+          status: ${{ env.compose_status || 'fail' }}
+          source: compose
+          why: "prior-source: ${{ steps.pair.outputs.prior_source || 'unresolved' }} ${{ steps.pair.outputs.prior_selected_from }} (${{ steps.pair.outputs.prior }} -> ${{ steps.pair.outputs.candidate }}; GA Docker Compose, linux/amd64, required): ${{ env.compose_why || 'job crashed before recording a result' }}"
+          enforcement: ${{ inputs.enforcement }}
+          prefix: upg-compose-${{ matrix.scenario }}-
+
   # ── report — aggregate the upg- fragments; fail per enforcement ──────────────────────────────────
   report:
-    needs: [static-compat, kind-upgrade]
+    needs: [static-compat, kind-upgrade, compose-upgrade]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -1175,21 +1371,23 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Advisory fragments: the published-release pair and the signed-lock fragment it carries
-          # (coordinator ruling 2026-10-22). Reported, never counted toward overallStatus.
-          ADVISORY_GATES: "^upgrade-kind-(published-release|smoke)-"
-          # The required trunk-candidate cells this run must report: all five scenarios on the
-          # schedule, one on a trunk-candidate dispatch or train call, none on a pull request (the kind
-          # lane does not run there). A missing one fails the gate.
-          EXPECTED_TRUNK_CELLS: ${{ github.event_name == 'schedule' && '5' || (github.event_name != 'pull_request' && (inputs.upgrade_pair || 'trunk-candidate') == 'trunk-candidate') && '1' || '0' }}
-          ADVISORY_RULING: https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760
+          # Advisory fragments: EVERY kind fragment. Helm on kind is Preview evidence under the 2026-10-25
+          # re-tier and founder decision D9 (2026-10-26, honua-release#950): the published-release pair,
+          # the signed-lock fragment and the trunk-candidate pair with its fault game days still run
+          # and are reported, but never count toward overallStatus.
+          ADVISORY_GATES: "^upgrade-kind-"
+          # The required GA Docker Compose cells this run must report: normal plus the negative control
+          # on the schedule, normal on every other non-PR run, none on a pull request (the compose lane
+          # does not run there). A missing one fails the gate.
+          EXPECTED_COMPOSE_CELLS: ${{ github.event_name == 'schedule' && '2' || github.event_name != 'pull_request' && '1' || '0' }}
+          ADVISORY_RULING: https://github.com/honua-io/honua-release/issues/950
         run: |
           set -euo pipefail
           mkdir -p out
           jq -s \
             --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
             --arg advisory "$ADVISORY_GATES" --arg ruling "$ADVISORY_RULING" \
-            --argjson expect "$EXPECTED_TRUNK_CELLS" \
+            --argjson expect "$EXPECTED_COMPOSE_CELLS" \
             --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
             def decided(enf):
               if .status=="pass" then "pass"
@@ -1212,11 +1410,11 @@ jobs:
                           fail:([$g[]|select(.decided=="fail")]|length),
                           advisory:([$g[]|select(.advisory==true)]|length),
                           required:([$g[]|select(.advisory!=true)]|length),
-                          trunkCandidateCells:([$g[]|select(.gate|startswith("upgrade-kind-trunk-candidate-"))]|length),
-                          expectedTrunkCandidateCells:$expect },
+                          composeCells:([$g[]|select(.gate|startswith("upgrade-compose-"))]|length),
+                          expectedComposeCells:$expect },
                 # Advisory fragments never decide the verdict; at least one required fragment must exist.
                 overallStatus:( if ([$g[]|select(.advisory!=true)]|length)==0 then "fail"
-                                elif ([$g[]|select(.gate|startswith("upgrade-kind-trunk-candidate-"))]|length) < $expect then "fail"
+                                elif ([$g[]|select(.gate|startswith("upgrade-compose-"))]|length) < $expect then "fail"
                                 elif any($g[];.decided=="fail") then "fail"
                                 elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
             fragments/*.json > out/gate-report.json
@@ -1227,7 +1425,7 @@ jobs:
             echo "## Upgrade gate — $OVERALL";
             echo "| layer | status | why |"; echo "|---|---|---|";
             jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
-            echo; echo "Advisory rows (published-release pair, signed-lock fragment) do not affect the verdict: $ADVISORY_RULING";
+            echo; echo "Advisory rows (every upgrade-kind-* fragment: Helm on kind is Preview evidence) do not affect the verdict: $ADVISORY_RULING";
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gate-report

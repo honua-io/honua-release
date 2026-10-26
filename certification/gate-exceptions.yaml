@@ -62,4 +62,6 @@ gates:
       invoked, and rollback compatibility was reported by a success string instead of querying the
       prior image against the migrated database. Keep this acknowledgement until CI is green on the
       replacement proof: schema_versions must advance to 107 or later, deterministic seed rows must
-      survive, and the rolled-back honua-2026.1 image must serve those rows from the forward schema.
+      survive, and the rolled-back honua-2026.1 image must serve those rows from the forward schema. Founder decision D9 (2026-10-26, honua-release#950): the required runtime fragment is now the GA
+      Docker Compose cell (upgrade-compose-*) and every kind fragment is Preview evidence; the Compose
+      cell reports blocked until a published 2026.1 rc or a signed nightly lock names a prior image.

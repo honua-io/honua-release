@@ -66,6 +66,16 @@ reports the self-limiting first-release basis until the first promotion. A faile
 blocked; it is not evidence that no prior release exists. Same-image lifecycle coverage alone cannot
 replace the required two-revision application proof below.
 
+**Compose upgrade/rollback gate (founder decision D9, 2026-10-26, [#950](https://github.com/honua-io/honua-release/issues/950)).**
+The upgrade gate's required runtime fragment is the GA Docker Compose cell `upgrade-compose-normal`
+(`gate-upgrade.yml` job `compose-upgrade`; customer steps in
+[UPGRADE-RUNBOOK.md](UPGRADE-RUNBOOK.md#6-docker-compose-ga-upgrade-and-roll-back)), plus the scheduled
+`upgrade-compose-negative-control`. Its prior is the honua-server digest of the newest published
+`2026.1-rc.N` release, else the newest signed nightly lock's amd64 image; an rc or lock that ships the
+candidate's image is skipped, and with neither the cell is blocked (strict: fail), never the candidate
+itself. Every `upgrade-kind-*` (Helm on kind) fragment is non-blocking Preview evidence. This is a
+founder-approved exception to the pre-rc.3 gate freeze; no other required gate changed.
+
 ## 2. Select, burn and qualify a promotion candidate
 
 - [ ] Select a signed certified lock rc.N and verify its signature and minting strict train. Deploy its
