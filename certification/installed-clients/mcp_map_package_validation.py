@@ -285,6 +285,31 @@ def scenario(fixture_bytes, bootstrap):
             {"id": "anonymous-composition", "arguments": copy.deepcopy(arguments), "authenticated": False}]}
 
 
+# honua-server McpToolHelpers: a successful result always carries the full payload in
+# structuredContent; its text block is the compact JSON when that is under
+# InlineTextThresholdChars (1024), otherwise this exact default summary stating the
+# serialized size. The summary is accepted only for a structured payload whose
+# serialized size it states truthfully.
+LARGE_PAYLOAD_SUMMARY = re.compile(r"Structured result \(([0-9]{1,3}(?:,[0-9]{3})*) chars\) returned in "
+                                   r"structuredContent; text summary elided to conserve context\.")
+INLINE_TEXT_THRESHOLD = 1024
+
+
+def large_payload_summary(text, value):
+    """True only for the server's exact elision line describing this structured payload."""
+    match = LARGE_PAYLOAD_SUMMARY.fullmatch(text) if isinstance(text, str) else None
+    if match is None or not isinstance(value, dict):
+        return False
+    stated = int(match.group(1).replace(",", ""))
+    compact = json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    # System.Text.Json's default encoder escapes non-ASCII and HTML-sensitive characters as
+    # \uXXXX (six characters), so the server's length lies between the unescaped length
+    # and the length with each such character escaped.
+    escapable = sum(1 for char in compact if ord(char) > 126 or char in "<>&'+`")
+    return (stated >= INLINE_TEXT_THRESHOLD and len(compact) >= INLINE_TEXT_THRESHOLD - 5 * escapable
+            and len(compact) <= stated <= len(compact) + 5 * escapable)
+
+
 def json_tool_output(result):
     if not isinstance(result, dict) or result.get("isError", False) is not False:
         raise ValueError("map composition requires a successful tool envelope")
@@ -297,6 +322,8 @@ def json_tool_output(result):
     for item in content:
         if not isinstance(item, dict) or item.get("type") != "text" or not isinstance(item.get("text"), str):
             raise ValueError("map composition contains unrelated media")
+        if "structuredContent" in result and large_payload_summary(item["text"], result["structuredContent"]):
+            continue
         values.append(strict_json(item["text"]))
     if not values or any(not isinstance(value, dict) for value in values):
         raise ValueError("map composition lacks JSON object output")
