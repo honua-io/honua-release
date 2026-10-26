@@ -214,7 +214,10 @@ def validate_gp_preview_floor(catalog: dict) -> dict:
     for row in catalog["requirements"]:
         if row["capability_key"] not in keys:
             if row["maturity"] == "preview":
-                raise ValueError(f"Row {row['capability_key']}/{row['operation']} is Preview outside the GP ruling.")
+                raise ValueError(
+                    f"Row {row['capability_key']}/{row['operation']} carries maturity 'preview' "
+                    "outside the GP ruling."
+                )
             governed.append(row)
             continue
         matches = [index for index, (_, entry) in enumerate(entries) if selects(entry, row)]
