@@ -185,6 +185,11 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
           format: table
+          # The terraform misconfig scan of the hosted-pilot roots alone takes ~8 min on a
+          # hosted runner and hit Trivy's default 5 min deadline (runs 40083424330, 40083424330
+          # rerun): "terraform scan error: scan config error: context deadline exceeded". A
+          # timed-out scan is recorded as fail, which is correct, but it is not a finding.
+          timeout: 20m
 
       - name: Decide verdict
         run: |

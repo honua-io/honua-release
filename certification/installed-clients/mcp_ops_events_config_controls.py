@@ -40,7 +40,9 @@ class OwnedConfigurationControls(unittest.TestCase):
         self.assertFalse(result["actuationRequested"])
         self.assertFalse(result["deployedTargetObserved"])
         self.assertEqual(result["evidenceLevel"], "L1-declared-configuration")
-        self.assertEqual(len(result["environment"]), 8)
+        self.assertEqual(len(result["environment"]), 10)
+        self.assertEqual(result["environment"]["ControlPlane__PlatformRelease__Workers__0__RuntimeProfile"], "managed")
+        self.assertEqual(result["environment"]["ControlPlane__PlatformRelease__Workers__0__ArtifactReference"], IMAGE)
         self.assertEqual(result["environment"]["ControlPlane__DeployTargets__0__RequiresApproval"], "true")
         self.assertFalse(any(word in key.lower() for key in result["environment"]
                              for word in ("password", "token", "credential", "region", "account", "role")))
@@ -74,6 +76,19 @@ class OwnedConfigurationControls(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     selected(value)
 
+    def test_release_co_versions_serving_and_a_digest_bound_worker(self):
+        # honua-server refuses a release declaring serving without workers; the
+        # managed worker is the governed serving index itself, never a tag.
+        environment = selected()["environment"]
+        prefix = "ControlPlane__PlatformRelease__Workers__"
+        workers = {key: value for key, value in environment.items() if key.startswith(prefix)}
+        self.assertEqual(set(workers), {prefix + "0__RuntimeProfile", prefix + "0__ArtifactReference"})
+        self.assertRegex(workers[prefix + "0__ArtifactReference"], r"^ghcr\.io/honua-io/honua-server@sha256:[a-f0-9]{64}$")
+        self.assertEqual(workers[prefix + "0__ArtifactReference"],
+                         environment["ControlPlane__PlatformRelease__ServingArtifactReference"])
+        self.assertNotEqual(workers[prefix + "0__ArtifactReference"],
+                            environment["ControlPlane__DeployTargets__0__ArtifactReference"])
+
     def test_no_extra_config_parameters_or_manifest_mutation(self):
         value = manifest(); original = copy.deepcopy(value)
         result = selected(value)
@@ -87,7 +102,7 @@ class OwnedConfigurationControls(unittest.TestCase):
             with self.assertRaises(ValueError):
                 config.declaration(value, release_source_sha=RELEASE, candidate_source_sha=SOURCE, candidate_image=IMAGE)
 
-    def test_actual_daemon_query_selects_only_eight_nonsecret_options(self):
+    def test_actual_daemon_query_selects_only_the_ten_nonsecret_options(self):
         expected = selected()
         runtime = {"running": True, "candidateSourceSha": SOURCE, "candidateImage": IMAGE, "containerId": "c" * 64}
         observed = []
@@ -98,7 +113,7 @@ class OwnedConfigurationControls(unittest.TestCase):
             self.assertNotIn("{{json .Config.Env}}", command[3])
             self.assertNotIn("BearerToken", command[3])
             self.assertEqual(kwargs["timeout"], 30)
-            rows = [json.dumps({"selectedScope": True})] * 8
+            rows = [json.dumps({"selectedScope": True})] * 10
             rows += [json.dumps(key + "=" + value) for key, value in expected["environment"].items()]
             return SimpleNamespace(returncode=0, stdout="\n".join(rows) + "\n\n")
         result = config.observe_configuration(expected, runtime, run=run)
@@ -113,12 +128,12 @@ class OwnedConfigurationControls(unittest.TestCase):
         values = [json.dumps(key + "=" + value) for key, value in expected["environment"].items()]
         marker = json.dumps({"selectedScope": True})
         cases = [(1, ""), (0, "x" * 32769),
-                 (0, "\n" + "\n".join([marker] * 8 + values)),
-                 (0, "\n".join([marker] * 8 + values) + "\n\n\n"), (0, "\n".join([marker] * 9 + values)),
-                 (0, "\n".join([marker] * 8 + values[:-1])),
-                 (0, "\n".join([marker] * 8 + values + [values[0]])),
-                 (0, "\n".join([marker] * 8 + values[:-1] + [json.dumps("ControlPlane__DeployTargets__0__RequiresApproval=false")])),
-                 (0, "\n".join([marker] * 8 + values + [json.dumps("unexpected=foreign")]))]
+                 (0, "\n" + "\n".join([marker] * 10 + values)),
+                 (0, "\n".join([marker] * 10 + values) + "\n\n\n"), (0, "\n".join([marker] * 11 + values)),
+                 (0, "\n".join([marker] * 10 + values[:-1])),
+                 (0, "\n".join([marker] * 10 + values + [values[0]])),
+                 (0, "\n".join([marker] * 10 + values[:-1] + [json.dumps("ControlPlane__DeployTargets__0__RequiresApproval=false")])),
+                 (0, "\n".join([marker] * 10 + values + [json.dumps("unexpected=foreign")]))]
         for code, output in cases:
             with self.subTest(code=code, output=output[:100]), self.assertRaises(ValueError):
                 config.observe_configuration(expected, runtime,

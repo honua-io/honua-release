@@ -177,6 +177,11 @@ class InstalledSlot:
                 'installed task definition/role is not the reviewed worker')
         container = containers[0]
         require(container.get('image') == c['image'], 'installed worker image differs')
+        # The worker request bound is per physical task. An ECS container restart
+        # policy would run a second counter-less process inside the same task.
+        require(not isinstance(container.get('restartPolicy'), dict) or
+                container['restartPolicy'].get('enabled') is False,
+                'installed worker task definition enables a container restartPolicy')
         env_rows = container.get('environment', [])
         require(len({row['name'] for row in env_rows}) == len(env_rows), 'duplicate installed worker environment')
         env = {row['name']: row['value'] for row in env_rows}

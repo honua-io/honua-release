@@ -158,5 +158,10 @@ case "${1:-up}" in
   up)   cmd_up ;;
   wait) cmd_wait ;;
   down) cmd_down ;;
-  *) echo "usage: boot.sh up|down|wait" >&2; exit 2 ;;
+  errors)
+    server_error_lines || true
+    "${COMPOSE[@]}" logs --no-color --tail 400 server 2>/dev/null \
+      | grep -aE 'at Honua\.|Where:|Routine:' | head -40 | scrub | cut -c1-500 || true
+    ;;
+  *) echo "usage: boot.sh up|down|wait|errors" >&2; exit 2 ;;
 esac

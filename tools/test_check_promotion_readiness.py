@@ -24,7 +24,9 @@ NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "cap
                    "executable-docs", "installed-clients")
 QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "esri-bundle", "cite")
 CLASSES = {**dict.fromkeys(NIGHTLY_CLASSES, "nightly"), **dict.fromkeys(QUALIFYING_CLASSES, "qualifying")}
-GA_CELLS = ("aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on")
+# Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target; Lambda and EKS are Preview.
+GA_CELLS = ("aws-ecs/redis-off", "aws-ecs/redis-on")
+LAMBDA_PREVIEW_CELLS = ("aws-serverless/redis-off", "aws-serverless/redis-on")
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
     "nightly-model-journey": ("genuine-model", ("aws-ecs/redis-off",)),
@@ -572,7 +574,7 @@ def test_declared_class_without_a_freshness_policy_refuses(tmp_path):
 
 @pytest.mark.parametrize("mutation", ["dict-all-failed", "names-only", "cell-update-failed",
                                       "cell-rollback-failed", "cell-status-missing", "duplicate-cell",
-                                      "extra-preview-cell"])
+                                      "extra-preview-cell", "extra-lambda-preview-cell"])
 def test_update_rollback_status_is_checked_per_ga_cell(tmp_path, mutation):
     fixture = _fixture(tmp_path)
     def change(receipt):
@@ -581,11 +583,13 @@ def test_update_rollback_status_is_checked_per_ga_cell(tmp_path, mutation):
             receipt["cells"] = {cell: {"updateStatus": "fail", "rollbackStatus": "fail"} for cell in GA_CELLS}
         elif mutation == "names-only": receipt["cells"] = list(GA_CELLS)
         elif mutation == "cell-update-failed": cells[1]["updateStatus"] = "fail"
-        elif mutation == "cell-rollback-failed": cells[2]["rollbackStatus"] = "skipped"
-        elif mutation == "cell-status-missing": del cells[3]["rollbackStatus"]
+        elif mutation == "cell-rollback-failed": cells[0]["rollbackStatus"] = "skipped"
+        elif mutation == "cell-status-missing": del cells[1]["rollbackStatus"]
         elif mutation == "duplicate-cell": cells.append(copy.deepcopy(cells[0]))
         elif mutation == "extra-preview-cell":
             cells.append({"cell": "aws-eks/redis-off", "updateStatus": "pass", "rollbackStatus": "pass"})
+        elif mutation == "extra-lambda-preview-cell":
+            cells.append(_update_cell("aws-serverless/redis-on"))
     _edit(_receipt(fixture, "update-rollback"), change)
     _failed(fixture, "evidence:update-rollback")
 
@@ -743,7 +747,7 @@ def test_update_rollback_rejects_arbitrary_valid_pairs_on_all_cells(tmp_path):
     _failed(fixture, "evidence:update-rollback")
 
 
-@pytest.mark.parametrize("mutation", ["missing-manifest", "tampered-manifest", "missing-binding", "missing-mirror", "pending-mirror", "missing-server", "wrong-lock-image"])
+@pytest.mark.parametrize("mutation", ["missing-manifest", "tampered-manifest", "missing-binding", "missing-server", "wrong-lock-image"])
 def test_update_rollback_requires_retained_candidate_image_inputs(tmp_path, mutation):
     fixture = _fixture(tmp_path)
     manifest = fixture[2] / "trains/101/platform-manifest.yaml"
@@ -764,6 +768,49 @@ def test_update_rollback_requires_retained_candidate_image_inputs(tmp_path, muta
             lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(manifest.read_bytes()).hexdigest()
         _write(fixture[1], lock)
     _failed(fixture, "evidence:update-rollback")
+
+
+def _drop_lambda_mirror(fixture, value):
+    manifest = fixture[2] / "trains/101/platform-manifest.yaml"
+    lock = json.loads(fixture[1].read_text())
+    data = yaml.safe_load(manifest.read_text())
+    if value is None:
+        del data["components"]["honua-server"]["awsLambdaEcrDigest"]
+    else:
+        data["components"]["honua-server"]["awsLambdaEcrDigest"] = value
+    manifest.write_text(yaml.safe_dump(data), encoding="utf-8")
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(manifest.read_bytes()).hexdigest()
+    _write(fixture[1], lock)
+
+
+@pytest.mark.parametrize("mirror", [None, "pending-ecr-mirror"])
+def test_lambda_preview_mirror_pin_does_not_gate_update_rollback(tmp_path, mirror):
+    # Founder re-tier 2026-10-25: Lambda is Preview, so its mirror pin cannot block the ECS GA proof.
+    fixture = _fixture(tmp_path)
+    _drop_lambda_mirror(fixture, mirror)
+    assert _decision(fixture)["checks"]["evidence:update-rollback"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("mirror", [None, "pending-ecr-mirror"])
+def test_lambda_mirror_pin_is_required_again_if_lambda_returns_to_ga(tmp_path, monkeypatch, mirror):
+    monkeypatch.setattr(readiness, "GA_CELLS", readiness.GA_CELLS | frozenset(LAMBDA_PREVIEW_CELLS))
+    fixture = _fixture(tmp_path)
+    _drop_lambda_mirror(fixture, mirror)
+    with pytest.raises(readiness.ReadinessError, match="Lambda mirror pin"):
+        readiness._update_rollback_target_images(fixture[1], fixture[2] / "trains/101/platform-manifest.yaml")
+
+
+@pytest.mark.parametrize("journey", ["deterministic-journey", "genuine-model-journey"])
+def test_lambda_preview_journey_cells_are_neither_required_nor_counted(tmp_path, journey):
+    fixture = _fixture(tmp_path)
+    receipt = json.loads(_receipt(fixture, journey).read_text())
+    assert {row["cell"] for row in receipt["cells"]} == set(GA_CELLS)
+    # A failing Lambda Preview row next to the green ECS cells does not change the verdict.
+    lambda_row = copy.deepcopy(receipt["cells"][0])
+    lambda_row["cell"] = "aws-serverless/redis-off"
+    lambda_row["attempts"][-1]["status"] = "fail"
+    _edit(_receipt(fixture, journey), lambda r: r["cells"].append(lambda_row))
+    assert _decision(fixture)["checks"][f"evidence:{journey}"]["status"] == "pass"
 
 
 @pytest.mark.parametrize("field", ["runId", "completedAt", "status", "kind", "freshUntil"])

@@ -304,7 +304,11 @@ def main():
     custody()
     if WORKER and os.environ['PILOT_OPERATION'] == 'apply':
         from worker_allowance import verify as verify_worker_allowance
-        verify_worker_allowance(json.loads(cfg.read_text()), work, aws=aws, require=require)
+        worker_configuration = json.loads(cfg.read_text())
+        verify_worker_allowance(worker_configuration, work, aws=aws, require=require)
+        from worker_publication_installation import prepare as prepare_worker_publication
+        prepare_worker_publication(worker_configuration,work,
+            guard=lambda: verify_worker_allowance(worker_configuration,work,aws=aws,require=require))
     binding = budget() if os.environ['PILOT_OPERATION'] == 'apply' and not BOOTSTRAP else {'version_id': os.environ['PILOT_BUDGET_VERSION_ID'], 'sha256': os.environ['PILOT_BUDGET_SHA256']}
     e = os.environ
     key = f"hosted-pilot/plans/{e['GITHUB_RUN_ID']}/{e['PILOT_PLAN_ATTEMPT']}/saved.tfplan"

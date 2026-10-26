@@ -157,17 +157,28 @@ def produce_eks(api, prepared_ref: str, out: Path) -> None:
     (out / 'eks-record.json').write_text(json.dumps({'cells': records}, indent=2, allow_nan=False) + '\n')
 
 
-def assemble(manifest: Path, matrix: Path, envelope: Path, lambda_record: Path, eks_record: Path | None, out: Path) -> None:
+def ga_scoped(matrix: dict, component: str, target: str) -> bool:
+    rows = matrix['deploy'][component][target]['architectures']
+    return any(row.get('releaseScope') == 'ga-target' for row in rows.values())
+
+
+def assemble(manifest: Path, matrix: Path, envelope: Path, lambda_record: Path | None, eks_record: Path | None,
+             out: Path) -> None:
     source_matrix = yaml.safe_load(matrix.read_text())
-    result = {'schema': qualification.BUNDLE_SCHEMA, 'records': {
-        'awsLambda': qualification.read_json(lambda_record)}}
-    eks_rows = source_matrix['deploy']['honua-helm']['awsEks']['architectures']
-    eks_required = any(row.get('releaseScope') == 'ga-target' for row in eks_rows.values())
+    result = {'schema': qualification.BUNDLE_SCHEMA, 'records': {}}
+    # Founder decision 2026-10-25: Lambda is Preview, like EKS (2026-10-16). A Preview target's
+    # proof is not required to admit a candidate; a GA-scoped target's proof always is.
+    lambda_required = ga_scoped(source_matrix, 'honua-server', 'awsLambda')
+    if lambda_required and lambda_record is None:
+        raise ValueError('reviewed Lambda GA scope requires the actual Lambda pre-cut proof')
+    if lambda_record is not None:
+        result['records']['awsLambda'] = qualification.read_json(lambda_record)
+    eks_required = ga_scoped(source_matrix, 'honua-helm', 'awsEks')
     if eks_required and eks_record is None:
         raise ValueError('reviewed EKS GA scope requires both complete qualification cells')
     if eks_record is not None:
         result['records']['awsEks'] = qualification.read_json(eks_record)
-    # Always verify the actual Lambda proof; Preview neither supplies nor fabricates GA evidence.
+    # Every supplied record is verified; Preview neither supplies nor fabricates GA evidence.
     verified = qualification.verify_bundle(result, yaml.safe_load(manifest.read_text()), envelope.read_bytes())
     updated_matrix = (qualification.project_verified_matrix(source_matrix, verified)
                       if eks_required else source_matrix)
@@ -192,7 +203,7 @@ def main() -> None:
     join.add_argument('--manifest', type=Path, required=True)
     join.add_argument('--matrix', type=Path, required=True)
     join.add_argument('--operating-envelope', type=Path, required=True)
-    join.add_argument('--lambda-record', type=Path, required=True)
+    join.add_argument('--lambda-record', type=Path)
     join.add_argument('--eks-record', type=Path)
     join.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()

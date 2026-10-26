@@ -121,3 +121,30 @@ python tools/contract_surface.py check             # confirm pass
 
 The gate (`gate-contract.yml` → `rest-sdk-api`) clones the pinned components in CI and runs
 `check`, so the committed baseline must match what re-extraction produces at the pinned shas.
+
+## 2026.1-rc.2 re-pin review (2026-10-25)
+
+The scheduled gate went red again once the manifest moved past the 2026-10-22 capture
+(runs 40089279133 and the 2026-10-25 dispatch 40169572181: `honua-sdk-dotnet` and `honua-sdk-js`
+"surface changed in ['public-api.json']"). All four components were re-extracted at the current
+manifest pins with `contract_surface.py update` against exact checkouts; no `_meta.sha` was
+hand-edited. Review of what moved:
+
+- `honua-server` @ `8cb074f77d01` (from `0e03bdd06b3c`): all five OpenAPI documents extract
+  **byte-identically**; only `_meta.sha` advanced.
+- `honua-sdk-python` @ `361978e86e81` (from `5a79352066b8`): `public-api.json` is
+  **byte-identical**; only `_meta.sha` advanced.
+- `honua-sdk-dotnet` @ `aada6d8987db` (1.12.0, from `5f09e4fca08a`): purely additive, **0 symbols
+  removed, 8 added** (5,341 → 5,349): `Honua.Sdk.Admin.Models` gains `Capabilities` and
+  `StorageMode`; `Honua.Sdk.GeoServices.FeatureServer.Models` gains `ReturnTrueCurves`;
+  `Honua.Sdk.Studio.Packages` gains `StudioPublishedArtifact` (`PublicationId`, `PublishedAt`,
+  `Route`) and `GetPublishedArtifactAsync`. No existing declaration changed.
+- `honua-sdk-js` @ `45e2fb2c7c35` (0.2.6, from `32ab864720d3`): purely additive, **0 exports
+  removed, 42 added** (7,880 → 7,922) across the same published entry points: the
+  `./control-plane` dataset-import task/submission/upload clients and their receipt types, the
+  STAC conformance helpers on `./honua` and `./stac`, the `./local-install` workspace agent-access
+  helpers, `HonuaStyleRefLayerBinding` on `./runtime`, and the `./studio-agent` MCP read-resource
+  types and workflow-knowledge constants.
+
+This refresh records reviewed, additive release movement; the gate keeps failing on any unreviewed
+change at the next pin.

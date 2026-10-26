@@ -20,7 +20,7 @@ from agent_e2e_installed_container import BIND_PROTOCOL
 from agent_e2e_execution_protocol import validate_worker_bound
 from agent_e2e_installed_worker import InstalledSlot, sdk_original
 from agent_e2e_pack import canonical_digest
-from agent_e2e_worker import Worker, encode
+from agent_e2e_worker import Worker, InstalledSqsBudget, encode
 from agent_e2e_execution_witness import original_http
 
 
@@ -89,6 +89,9 @@ class InstalledExecutionDriver:
                 'installed driver differs from its original native registration')
         self.workers = {row['descriptor']['slotId']: row for row in self.verified['workers']}
         require(1 <= len(self.workers) == len(verified['workers']) <= 4, 'installed physical slots overlap or are unbounded')
+        from agent_e2e_runtime_configuration import validate_worker_runtime
+        for worker in self.workers.values():
+            validate_worker_runtime(worker)
         self.model = BedrockModel(verified['model'], client=bedrock)
 
     def _authorize(self):
@@ -99,6 +102,11 @@ class InstalledExecutionDriver:
 
     def _slot(self, selected):
         return InstalledSlot(selected['descriptor'], states=self.states, ecs=self.ecs, db=self.db, clock=self.clock)
+
+    def _queues(self, journal):
+        record = journal.record
+        return InstalledSqsBudget(self.sqs, kind='controller', candidate_key=record['candidateKey'],
+            runtime_id=record['runtimeId'], identity=record['executionId'])
 
     def _choose(self, journal, original):
         launches = journal.values('worker-intent')
@@ -150,7 +158,9 @@ class InstalledExecutionDriver:
 
     def _read(self, journal):
         record = journal.record
-        return self.native.read(record['executionId'], record['workspaceId'], record['turnId'])
+        observed = self.native.read(record['executionId'], record['workspaceId'], record['turnId'])
+        require(observed['value']['requestDigest'] == record['requestDigest'], 'native replaced the original execution authority binding')
+        return observed
 
     def _claim(self, journal, selected, expiry):
         original = self._read(journal)
@@ -195,9 +205,13 @@ class InstalledExecutionDriver:
         selected = self.workers[slot.config['slotId']]
         policies = queue_role(self.iam, slot.config, selected['proof']['native'].get('permissionsBoundaryArn'))
         journal.append('worker-authority-observation', {'physical': sdk_original(response), 'iam': policies})
-        return self._read(journal)
+        observed = self._read(journal)
+        require(observed['value']['execution']['state'] in ('claimed', 'running'),
+                'original native execution is no longer eligible for worker effects')
+        return observed
 
     def _binding(self, journal, slot, original, physical, capability):
+        queues = self._queues(journal)
         task = physical['taskArn']
         claim = original['value']['execution']['claim']
         if claim.get('workerId') is None:
@@ -230,13 +244,13 @@ class InstalledExecutionDriver:
         if not prior:
             journal.append('worker-binding-intent', value)
             self._physical(journal, slot, task)
-            self.sqs.send_message(QueueUrl=slot.config['commandQueueUrl'], MessageBody=encode({**value, 'capability': capability}),
+            queues.send_message(QueueUrl=slot.config['commandQueueUrl'], MessageBody=encode({**value, 'capability': capability}),
                 MessageGroupId=slot.config['slotId'], MessageDeduplicationId=canonical_digest(value)[7:])
         # A lost send ACK is recovered only through native task-authenticated GET
         # and the original reply queue, never by sending the first bind again.
         for _ in range(60):
             self._physical(journal, slot, task)
-            response = self.sqs.receive_message(QueueUrl=slot.config['replyQueueUrl'], MaxNumberOfMessages=1,
+            response = queues.receive_message(QueueUrl=slot.config['replyQueueUrl'], MaxNumberOfMessages=1,
                 WaitTimeSeconds=2, VisibilityTimeout=30)
             for message in response.get('Messages', []):
                 require(len(message['Body'].encode()) <= 32768, 'oversized native worker binding reply')
@@ -252,13 +266,16 @@ class InstalledExecutionDriver:
                         'native did not independently acknowledge the actual registered task/context')
                 if not journal.values('worker-binding-observation'):
                     journal.append('worker-binding-observation', {'reference': observed['reference']})
-                self.sqs.delete_message(QueueUrl=slot.config['replyQueueUrl'], ReceiptHandle=message['ReceiptHandle'])
+                queues.delete_message(QueueUrl=slot.config['replyQueueUrl'], ReceiptHandle=message['ReceiptHandle'])
                 return observed
         raise ValueError('original worker bind outcome remains unknown; no model admission or relaunch')
 
     def execute(self, original):
         self._authorize()
         journal = self.journal_factory(self.native.durable, original)
+        original = self._read(journal)
+        require(original['value']['execution']['state'] in ('queued', 'claimed', 'running'),
+                'original native execution is no longer eligible for admission')
         selected = self._choose(journal, original)
         slot = self._slot(selected)
         expiry, reservations = self._fund(journal, slot.config)
@@ -271,6 +288,10 @@ class InstalledExecutionDriver:
         else:
             launch = slot.bind(claimed, generation=claim['generation'], expiry=expiry,
                 native_binding_digest=claim['nativeBindingDigest'], reservation_ids=reservations)
+            current = self._read(journal)
+            require(current['value']['execution']['state'] == 'claimed' and
+                    current['value']['execution']['claim'] == claim,
+                    'original native execution changed before its one worker start')
             physical = slot.start(journal, launch)
         while physical['taskStatus'] != 'RUNNING':
             require(physical['taskStatus'] != 'STOPPED' and self.clock() < expiry,
@@ -283,7 +304,7 @@ class InstalledExecutionDriver:
             require(observed['value']['execution']['state'] == 'running' and
                     observed['value'].get('workerBinding') == acknowledged['value'].get('workerBinding'),
                     'original native worker claim/context is no longer current')
-        worker = Worker(self.sqs, {**{k: slot.config[k] for k in ('commandQueueUrl', 'replyQueueUrl')},
+        worker = Worker(self._queues(journal), {**{k: slot.config[k] for k in ('commandQueueUrl', 'replyQueueUrl')},
             'attemptId': journal.record['executionId'], 'expiresEpoch': expiry}, clock=self.clock)
         dispatcher = McpDispatcher(journal=journal, worker=worker, capability=capability, guard=guard)
         result = ExecutionLoop(native=self.native, journal=journal, original=original,
