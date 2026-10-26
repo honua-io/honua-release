@@ -712,3 +712,55 @@ def test_server_seed_fixture_moves_with_the_server_certification_pin(tmp_path):
     assert calls == [("honua-io/honua-server", "tests/seed/base-schema.sql", nxt)]
     assert seed["commit"] == nxt
     assert seed["sha256"] == "sha256:" + hashlib.sha256(seed_bytes).hexdigest()
+
+
+# Nightly run 40354887147: the first night to reach protocol_ledger aborted with "REBIND ABORTED:
+# APPLY requires a clean worktree". The stage step copied certification/deployment-qualification.json
+# into the checkout before NIGHTLY-STAGE; the file is untracked, so `git status --porcelain` listed it
+# as `??` outside NIGHTLY_CANDIDATE_FILES. The guard is right; the copy now happens at bind.
+def _porcelain_apply(monkeypatch, tmp_path, status):
+    def run(cmd, *args, **kwargs):
+        out = status if cmd[:2] == ["git", "status"] else ""
+        return type("R", (), {"stdout": out, "stderr": "", "returncode": 0})()
+
+    monkeypatch.setattr(MODULE.subprocess, "run", run)
+    monkeypatch.setattr(MODULE, "load_manifest", lambda *a, **kw: {})
+    monkeypatch.setattr(MODULE, "require_plan_targets_published", lambda *a, **kw: None)
+    monkeypatch.setattr(MODULE, "run_catalog", lambda *a, **kw: None)
+    MODULE.apply(tmp_path, {"receipt_schema_min": {"proposed": "v2"}}, {}, MODULE.NIGHTLY_CANDIDATE_FILES)
+
+
+def test_nightly_stage_accepts_the_resolved_candidate_files_in_the_checkout(monkeypatch, tmp_path):
+    _porcelain_apply(monkeypatch, tmp_path, " M platform-manifest.yaml\n M compatibility-matrix.yaml\n")
+
+
+def test_nightly_stage_still_refuses_an_untracked_deployment_qualification(monkeypatch, tmp_path):
+    status = " M platform-manifest.yaml\n?? certification/deployment-qualification.json\n"
+    with pytest.raises(MODULE.Finding, match="clean worktree"):
+        _porcelain_apply(monkeypatch, tmp_path, status)
+    assert "certification/deployment-qualification.json" not in MODULE.NIGHTLY_CANDIDATE_FILES
+
+
+def _ledger_step(prefix):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/nightly-certification.yml").read_text(encoding="utf-8"))
+    return next(step for step in workflow["jobs"]["protocol_ledger"]["steps"]
+                if step.get("name", "").startswith(prefix))["run"]
+
+
+def _copied(script):
+    return {line.split()[-1] for line in script.splitlines() if line.strip().startswith("cp ")}
+
+
+def test_the_stage_step_copies_in_only_nightly_candidate_files():
+    stage = _ledger_step("Stage the requirements catalog").split("--nightly-stage", 1)[0]
+    assert _copied(stage) == {"platform-manifest.yaml", "compatibility-matrix.yaml"}
+    assert _copied(stage) <= MODULE.NIGHTLY_CANDIDATE_FILES
+
+
+def test_the_bind_step_copies_the_deployment_qualification_before_reading_and_committing_it():
+    bind = _ledger_step("Bind the verified ledger")
+    qualification = "certification/deployment-qualification.json"
+    assert qualification in _copied(bind)
+    copy_at = bind.index(f'deployment-qualification.json" {qualification}')
+    assert bind.index("--nightly-bind") < copy_at < bind.index("validate_platform.py --exact-candidate")
+    assert copy_at < bind.index(f"git add platform-manifest.yaml compatibility-matrix.yaml {qualification}")
