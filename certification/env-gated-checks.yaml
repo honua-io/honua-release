@@ -36,6 +36,18 @@ honua-console:
       a backend-provisioning gap, not a console build/unit-test failure. Console's own build and unit
       lanes (Validate Console, Playwright smoke, the pinned-image Testcontainers lane) remain
       authoritative and are NOT listed here.
+  - name: "operator-preflight"
+    why: >-
+      Fail-closed precheck of the scheduled "Console live AWS browser smoke"
+      (`.github/workflows/console-aws-browser.yml`, cron 17:23). It requires the repository
+      secrets HONUA_CONSOLE_AWS_OPERATOR_USERNAME / HONUA_CONSOLE_AWS_OPERATOR_PASSWORD of a
+      PROVISIONED AWS operator and exits 1 when they are absent ("Missing operator secrets are
+      not a pass"); the dependent live-aws-browser job then does not run. Since 2026-10-21 that
+      precheck fails on every scheduled run (a0c04a68 run 39850361287; f59c5569 run 40019790933;
+      81875b99 run 40125870555) because the operator credentials are not provisioned; it checks
+      out no console source and runs no build or test. The live lane itself is an external
+      authenticated AWS browser journey the gate context does not provision. Validate Console,
+      Playwright smoke and the pinned-image Testcontainers lane remain authoritative and core.
 
 honua-sdk-dotnet:
   - name: "Staging Read-Only Integration"
