@@ -314,7 +314,8 @@ def test_committed_record_computes_hold():
     config = json.loads(decision.OVERRIDES.read_text())
     rows = decision.decisions(data, config)
     verdict, line = decision.decision(data, rows, config)
-    assert verdict == 'HOLD' and 'GA-blocking security findings open' in line
+    assert verdict == 'HOLD' and 'GA-blocking security findings open' not in line
+    assert all(row['status'] == 'fixed' for row in config['security_findings'])
     assert f'· {line} ·' in decision.RECORD.read_text()
 
 
