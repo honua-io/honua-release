@@ -695,25 +695,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_sdk-0.1.18-py3-none-any.whl",
-          "registry_sha256": "11d5c0074a8c3065b2ca2777a33efab6672dd1f03e0d664abc5f9f964727b033",
-          "sha256": "11d5c0074a8c3065b2ca2777a33efab6672dd1f03e0d664abc5f9f964727b033",
-          "url": "https://files.pythonhosted.org/packages/a2/c4/05ae70ffbd7d3494b3c8c5bea6f668b45935fd5302a7a9ea50c1dc0541c3/honua_sdk-0.1.18-py3-none-any.whl"
+          "filename": "honua_sdk-0.1.19-py3-none-any.whl",
+          "registry_sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+          "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+          "url": "https://files.pythonhosted.org/packages/1c/ff/2590f0ae061ac726991a428cee5d1c1fcf6aa2da063843345f225ebb445f/honua_sdk-0.1.19-py3-none-any.whl"
         },
         {
-          "filename": "honua_sdk-0.1.18.tar.gz",
-          "registry_sha256": "4d4548862bc0f38c9cfa94bf3938588545f6a0f625404be42b4644466a935cd3",
-          "sha256": "4d4548862bc0f38c9cfa94bf3938588545f6a0f625404be42b4644466a935cd3",
-          "url": "https://files.pythonhosted.org/packages/39/68/e0be95e7ea476165bc96f8066e2016416f132f31f48b7fea8fee9bece267/honua_sdk-0.1.18.tar.gz"
+          "filename": "honua_sdk-0.1.19.tar.gz",
+          "registry_sha256": "77ed2ba519f1ae509031173ecd29b962068aeb2f82577014e4d33b0d0f6dd013",
+          "sha256": "77ed2ba519f1ae509031173ecd29b962068aeb2f82577014e4d33b0d0f6dd013",
+          "url": "https://files.pythonhosted.org/packages/cd/cc/3baa9d0abed7040d259940c8bb023a60074b52a0a29e01afa110263282bf/honua_sdk-0.1.19.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-sdk",
-      "publication": "PyPI honua-sdk 0.1.18",
+      "publication": "PyPI honua-sdk 0.1.19",
       "urls": [
         "https://pypi.org/pypi/honua-sdk/json"
       ],
-      "version": "0.1.18"
+      "version": "0.1.19"
     },
     {
       "disposition": "blocked-on-operator",
@@ -763,6 +763,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-26T06:03:31Z",
+  "observed_at": "2026-10-26T09:31:57Z",
   "schema": "honua.first-publication-preflight/v1"
 }

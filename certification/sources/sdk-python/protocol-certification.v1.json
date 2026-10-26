@@ -2,7 +2,7 @@
   "schema": "honua.sdk-python-protocol-certification/v1",
   "sourceRepository": "honua-io/honua-sdk-python",
   "canonicalClient": "Honua SDK Python",
-  "clientVersion": "0.1.18",
+  "clientVersion": "0.1.19",
   "fixtureRevision": "geospatial-grpc@1.0.3",
   "operations": [
     {
