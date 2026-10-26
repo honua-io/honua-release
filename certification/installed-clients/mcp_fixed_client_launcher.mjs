@@ -32,6 +32,25 @@ export function verifyInstalledClient(installationRoot, selector) {
     packageJsonSha256: `sha256:${files["package.json"]}`, entry: selected.entry, entrySha256: `sha256:${files[selected.entry]}` } };
 }
 
+// Anonymous discovery views (honua-server McpWorkflowViewCatalog). The pinned
+// Inspector CLI resolves --tool-name against tools/list before it sends
+// tools/call, and the default anonymous view omits these operations, so the
+// CLI refused locally (tool_not_found) and never reached the candidate. Each
+// operation is advertised to anonymous callers by exactly this view.
+// Discovery narrows the catalog; it grants no authority.
+const ANONYMOUS_DISCOVERY_VIEWS = Object.freeze({
+  setup: ["honua_ingest_dataset", "honua_publish_service", "honua_get_style", "honua_apply_style_preset",
+    "honua_execute_plan", "honua_publish_result"],
+  operate: ["honua_ops_findings", "honua_alert_events", "honua_operate_events", "honua_ops_health",
+    "honua_platform_release_status"],
+  analyze: ["honua_ground_candidates", "honua_clarify_intent", "honua_cancel_job"],
+});
+
+export function anonymousDiscoveryView(name) {
+  const views = Object.entries(ANONYMOUS_DISCOVERY_VIEWS).filter(([, names]) => names.includes(name));
+  return views.length === 1 ? views[0][0] : undefined;
+}
+
 export function inspectorToolArguments(name, arguments_) {
   const pairs = Object.entries(arguments_).map(([key, value]) => `${key}=${JSON.stringify(value)}`);
   // The public CLI requires at least one pair after --tool-arg; otherwise it
@@ -55,10 +74,8 @@ export async function launchCanonicalClient({ installationRoot, selector, endpoi
     if (method === "tools/call") {
       args.push(...inspectorToolArguments(params.name, params.arguments));
       if (authenticated) args.push("--metadata", 'honua.io/workflow-view="full"');
-      else if (["honua_ingest_dataset", "honua_publish_service", "honua_get_style", "honua_apply_style_preset", "honua_execute_plan", "honua_publish_result"].includes(params.name)) {
-        // These operations are explicitly advertised by the selected server's
-        // public setup view. Discovery narrows the catalog; it grants no auth.
-        args.push("--metadata", 'honua.io/workflow-view="setup"');
+      else if (anonymousDiscoveryView(params.name)) {
+        args.push("--metadata", `honua.io/workflow-view="${anonymousDiscoveryView(params.name)}"`);
       }
     } else args.push("--uri", params.uri);
     if (authenticated) args.push("--header", `X-API-Key: ${credential}`, ...(tenantId === undefined ? [] : [`X-Honua-Tenant: ${tenantId}`]));
