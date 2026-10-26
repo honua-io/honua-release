@@ -406,6 +406,138 @@ def anonymous_tool_refusal(result):
         raise ValueError("anonymous tool refusal lacks exact authorization semantics or contains creation data")
 
 
+# Founder decision D3 (2026.1): on the MCP Inspector lane only, the anonymous
+# refusal of exactly these tools may be evidenced by their absence from the
+# candidate's observed anonymous tools/list, when the pinned Inspector then
+# refuses locally without sending tools/call. Every other tool, and the SDK
+# lane, still requires the server's actual anonymous_tool_refusal result.
+ANONYMOUS_UNLISTED_REFUSAL_TOOLS = frozenset({"honua_geocode_addresses", "honua_solve_route"})
+ANONYMOUS_UNLISTED_REFUSAL = "inspector-anonymous-unlisted"
+DISCOVERY_PAGES = 32
+WIRE_FIELDS = {"schema", "upstream", "listener", "method", "expectedParams", "authenticated", "expectedCredentialFingerprint",
+               "initialize", "invocation", "invalid", "completed", "clientProcessId"}
+
+
+def anonymous_discovery(wire, session):
+    """Re-judge the complete anonymous default-view catalog walk; return its listed names."""
+    pages = wire.get("discovery")
+    if not isinstance(pages, list) or not 1 <= len(pages) <= DISCOVERY_PAGES:
+        raise ValueError("observed anonymous discovery pages missing or unbounded")
+    identifiers = {(type(record["request"]["id"]), record["request"]["id"])
+                   for record in (wire["initialize"], wire["invocation"]) if isinstance(record, dict)}
+    names, cursors, cursor = [], set(), None
+    for position, page in enumerate(pages):
+        if not isinstance(page, dict) or not isinstance(page.get("request"), dict):
+            raise ValueError("observed anonymous discovery page malformed")
+        record = page
+        if "params" not in page["request"]:
+            # The Inspector sends no params on an unselected first page; the
+            # retained projection then omits them. The body must agree.
+            body = strict_json(wire_bytes(page["request"]))
+            if not isinstance(body, dict) or "params" in body:
+                raise ValueError("discovery request projection omitted actual params")
+            record = copy.deepcopy(page)
+            record["request"]["params"] = None
+        elif page["request"]["params"] is None:
+            raise ValueError("discovery request carried null params")
+        request, response = wire_frame(record)
+        selected = request.get("params")
+        request_id = (type(request["id"]), request["id"])
+        if (request.get("method") != "tools/list" or request_id in identifiers
+                or (selected is not None and (not isinstance(selected, dict) or set(selected) - {"cursor", "_meta"}
+                    or ("_meta" in selected and (not isinstance(selected["_meta"], dict)
+                        or any(not isinstance(key, str) or key.startswith("honua.io/") for key in selected["_meta"])))))
+                or (selected or {}).get("cursor") != cursor or (position == 0 and "cursor" in (selected or {}))
+                or "error" in response or not isinstance(response.get("result"), dict)
+                or not isinstance(response["result"].get("tools"), list)):
+            raise ValueError("anonymous discovery selected a view, changed cursor/request identity or lacks a server result")
+        identifiers.add(request_id)
+        actual = page["request"]
+        if (actual["sessionSha256"] != session or page["response"]["sessionSha256"] not in (None, session)
+                or actual["credentialPresent"] is not False or actual["credentialFingerprint"] is not None
+                or actual["authorizationPresent"] is not False or actual["cookiePresent"] is not False):
+            raise ValueError("anonymous discovery inherited or changed session/credential authority")
+        for tool in response["result"]["tools"]:
+            if not isinstance(tool, dict) or not isinstance(tool.get("name"), str) or not tool["name"]:
+                raise ValueError("anonymous discovery page contains an unnamed tool")
+            names.append(tool["name"])
+        cursor = response["result"].get("nextCursor")
+        if cursor is not None and (not isinstance(cursor, str) or not cursor or cursor in cursors or position == len(pages) - 1):
+            raise ValueError("anonymous discovery did not retain complete actual catalog pagination")
+        if cursor is not None:
+            cursors.add(cursor)
+        if cursor is None and position != len(pages) - 1:
+            raise ValueError("unrelated anonymous discovery pages followed a terminal page")
+    return names
+
+
+def fresh_anonymous_initialize(wire):
+    initial_request, initial_response = wire_frame(wire["initialize"])
+    if (initial_request.get("method") != "initialize" or not isinstance(initial_request.get("params"), dict)
+            or not isinstance(initial_request["params"].get("clientInfo"), dict)
+            or any(not isinstance(initial_request["params"]["clientInfo"].get(key), str)
+                   or not initial_request["params"]["clientInfo"][key] for key in ("name", "version"))
+            or "error" in initial_response or not isinstance(initial_response.get("result"), dict)
+            or not isinstance(initial_response["result"].get("protocolVersion"), str)):
+        raise ValueError("fresh anonymous initialization differs")
+    fresh = wire["initialize"]["response"].get("sessionSha256")
+    actual = wire["initialize"]["request"]
+    if (not isinstance(fresh, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", fresh) or actual.get("sessionSha256") is not None
+            or actual.get("credentialPresent") is not False or actual.get("credentialFingerprint") is not None
+            or actual.get("authorizationPresent") is not False or actual.get("cookiePresent") is not False):
+        raise ValueError("anonymous initialization reused a session or carried authority")
+    return fresh
+
+
+def anonymous_unlisted_refusal(wire, client, params, canonical_client, version):
+    """Strict judge for D3 discovery-absence refusal evidence (Inspector lane only)."""
+    if (canonical_client != "MCP Inspector" or not isinstance(params, dict)
+            or params.get("name") not in ANONYMOUS_UNLISTED_REFUSAL_TOOLS):
+        raise ValueError("discovery-absence refusal evidence is limited to the Inspector lane and its two fixed tools")
+    if (not isinstance(wire, dict) or set(wire) != WIRE_FIELDS | {"discovery", "refusalEvidence"}
+            or wire.get("refusalEvidence") != ANONYMOUS_UNLISTED_REFUSAL or wire.get("invocation") is not None
+            or wire.get("schema") != "honua.mcp-candidate-wire/v1" or wire.get("upstream") != "http://127.0.0.1:8080/mcp"
+            or wire.get("method") != "tools/call" or not same_json(wire.get("expectedParams"), params)
+            or wire.get("authenticated") is not False or wire.get("invalid") is not False or wire.get("completed") is not True
+            or not isinstance(wire.get("expectedCredentialFingerprint"), str)
+            or not re.fullmatch(r"scrypt:[a-f0-9]{32}:[a-f0-9]{64}", wire["expectedCredentialFingerprint"])):
+        raise ValueError("discovery-absence wire is missing, completed with an invocation or bound to another request")
+    listener = urlsplit(wire.get("listener") if isinstance(wire.get("listener"), str) else "")
+    if (listener.scheme != "http" or listener.hostname != "127.0.0.1" or listener.username or listener.password
+            or not listener.port or listener.path != "/mcp" or listener.query or listener.fragment):
+        raise ValueError("actual client did not use the owned observation listener")
+    fresh = fresh_anonymous_initialize(wire)
+    if params["name"] in anonymous_discovery(wire, fresh):
+        raise ValueError("tool is listed to anonymous callers; only the server's actual refusal can qualify")
+    if (not isinstance(client, dict) or client.get("kind") != "inspector-cli" or client.get("canonicalClient") != canonical_client
+            or client.get("version") != version or client.get("requestUrl") != wire["listener"]
+            or type(client.get("processId")) is not int or client["processId"] <= 0
+            or not isinstance(client.get("stdout"), str) or not isinstance(client.get("stderr"), str)):
+        raise ValueError("actual Inspector diagnostics missing or mismatched")
+    client_launch(client, wire, canonical_client, version)
+    expected = {"error": {"code": "tool_not_found", "message": f"Tool '{params['name']}' not found on server."}}
+    if (type(client.get("exitCode")) is not int or client["exitCode"] != 5 or client.get("exitSignal") is not None
+            or client.get("timedOut") is not False or client["stdout"] != ""
+            or not same_json(strict_json(client["stderr"]), expected)):
+        raise ValueError("Inspector did not refuse exactly this unlisted tool locally")
+    return fresh
+
+
+def listed_anonymous_invocation(wire, params, canonical_client):
+    """The same probe when the tool IS listed: the client sent tools/call, so
+    the server's actual refusal (judged by the caller) is required."""
+    if (canonical_client != "MCP Inspector" or not isinstance(params, dict)
+            or params.get("name") not in ANONYMOUS_UNLISTED_REFUSAL_TOOLS or not isinstance(wire, dict)
+            or set(wire) != WIRE_FIELDS | {"discovery", "refusalEvidence"}
+            or wire.get("refusalEvidence") != ANONYMOUS_UNLISTED_REFUSAL or not isinstance(wire.get("invocation"), dict)):
+        raise ValueError("observed anonymous discovery wire is missing or unrelated")
+    original = {key: value for key, value in wire.items() if key not in ("discovery", "refusalEvidence")}
+    frame, session = observed_wire(original, "tools/call", params, False)
+    if anonymous_discovery(wire, session).count(params["name"]) != 1:
+        raise ValueError("Inspector invoked a tool its observed anonymous catalog did not list exactly once")
+    return frame, session
+
+
 def resource_refusal(result, code, semantic_code):
     error = result.get("error") if isinstance(result, dict) else None
     if (not isinstance(error, dict) or type(error.get("code")) is not int or error["code"] != code

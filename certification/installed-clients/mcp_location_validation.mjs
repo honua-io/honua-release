@@ -7,7 +7,7 @@ import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
-import { observeCandidateRequest, observedResponse } from "./mcp_candidate_wire.mjs";
+import { observeCandidateRequest, observedResponse, ANONYMOUS_UNLISTED_REFUSAL_TOOLS } from "./mcp_candidate_wire.mjs";
 
 export const locationDependencies = Object.freeze(["mcp_location_validation.py", "mcp_map_package_validation.py",
   "mcp_render_validation.py", "render_png.py", "fixture.v1.json", "mcp_candidate_wire.mjs",
@@ -76,11 +76,18 @@ export function createLocationValidation({ directory, sourceSha, sha256, bootstr
           const entry = { ...item, result: null, wire: null, client: null }; observed.cases.push(entry);
           verifyBytes();
           const params = { name: authored.tool, arguments: item.arguments };
+          // D3: only the Inspector's anonymous probe of these two tools may be
+          // evidenced by observed anonymous discovery absence. The oracle
+          // still requires the server refusal whenever tools/call was sent.
+          const unlisted = canonicalClient === "MCP Inspector" && item.authenticated === false
+            && ANONYMOUS_UNLISTED_REFUSAL_TOOLS.includes(authored.tool);
           const probe = await observeCandidateRequest({ method: "tools/call", params, authenticated: item.authenticated, credential, credentialSalt,
+            ...(unlisted ? { observeDiscovery: true, anonymousUnlistedRefusal: true } : {}),
             invoke: endpoint => launchCanonicalClient({ installationRoot, selector: canonicalClient === "MCP Inspector" ? "inspector" : "sdk",
               endpoint, method: "tools/call", params, authenticated: item.authenticated, credential }),
             onClient: client => { entry.client = client; }, onObservation: wire => { entry.wire = wire; } });
           verifyBytes(); entry.client = probe.client;
+          if (unlisted && probe.wire.invocation === null) { entry.result = null; continue; }
           const frame = observedResponse(probe.wire.invocation);
           entry.result = Object.hasOwn(frame, "error") ? frame : frame.result;
         }

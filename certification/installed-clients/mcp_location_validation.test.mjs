@@ -108,3 +108,115 @@ test("protected real installed-client manifest rejects alternate controlled pack
     assert.equal(candidate.seen.length, 0);
   } finally { await restore(); }
 });
+
+// D3 observer controls: discovery-only anonymous probe evidence. An explicit
+// offline peer and in-process client only; never installed-client credit.
+async function discoveryOnlyProbe({ tool = "honua_solve_route", listed = [], pageStatus = 200, client = {}, batchCall = false,
+  callAnyway = false, neverCall = false, options = {} } = {}) {
+  const { observeCandidateRequest } = await import("./mcp_candidate_wire.mjs");
+  const { createServer } = await import("node:http");
+  const names = Array.from({ length: 12 }, (_, index) => `honua_default_${index}`).concat(listed);
+  const pages = [names.slice(0, 6), names.slice(6)];
+  const seen = [];
+  const peer = createServer(async (request, response) => {
+    const chunks = []; for await (const chunk of request) chunks.push(chunk);
+    const message = chunks.length ? JSON.parse(Buffer.concat(chunks)) : null;
+    seen.push(Array.isArray(message) ? "batch" : message?.method ?? request.method);
+    if (Array.isArray(message) || !message?.id && message?.id !== 0) { response.writeHead(202).end(); return; }
+    let result;
+    if (message.method === "initialize") {
+      response.setHeader("mcp-session-id", "explicit-offline-unlisted-session");
+      result = { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "offline", version: "0" } };
+    } else if (message.method === "tools/list") {
+      const index = message.params?.cursor ? Number(message.params.cursor.slice(5)) : 0;
+      if (index === 1 && pageStatus !== 200) { response.writeHead(pageStatus, { "content-type": "application/json" }).end("{}"); return; }
+      result = { tools: pages[index].map(name => ({ name, inputSchema: { type: "object" } })), ...(index === 0 ? { nextCursor: "page-1" } : {}) };
+    } else result = { isError: true, structuredContent: { status: "error" }, content: [{ type: "text", text: "{\"status\":\"error\"}" }] };
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+  });
+  await new Promise((resolve, reject) => { peer.once("error", reject); peer.listen(8080, "127.0.0.1", resolve); });
+  let wire;
+  const params = { name: tool, arguments: { explicitOfflineControl: true } };
+  try {
+    const outcome = await observeCandidateRequest({ method: "tools/call", params, authenticated: false, credential: "explicit-offline-key",
+      credentialSalt: "a".repeat(32), observeDiscovery: true, anonymousUnlistedRefusal: true, ...options,
+      onObservation: value => { wire = value; }, invoke: async endpoint => {
+        let nextId = 0, session;
+        const send = async (method, selected, notification = false) => {
+          const body = notification ? { jsonrpc: "2.0", method } : { jsonrpc: "2.0", id: nextId++, method, ...(selected ? { params: selected } : {}) };
+          const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json",
+            ...(session ? { "mcp-session-id": session } : {}) }, body: JSON.stringify(batchCall && method === "tools/call" ? [body] : body) });
+          session ??= response.headers.get("mcp-session-id");
+          return response.status === 200 ? (await response.json()).result : null;
+        };
+        await send("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "explicit-offline", version: "0" } });
+        await send("notifications/initialized", undefined, true);
+        let page = await send("tools/list");
+        const tools = [...(page?.tools ?? [])];
+        if (page?.nextCursor) { page = await send("tools/list", { cursor: page.nextCursor }); tools.push(...(page?.tools ?? [])); }
+        if (!neverCall && (callAnyway || batchCall || tools.some(item => item.name === tool))) await send("tools/call", params);
+        return { processId: 4321, kind: "explicit-offline-control", exitCode: 5, exitSignal: null, timedOut: false, stdout: "",
+          stderr: `${JSON.stringify({ error: { code: "tool_not_found", message: `Tool '${tool}' not found on server.` } })}\n`, ...client };
+      } });
+    return { outcome, wire, seen };
+  } catch (error) { return { error, wire, seen }; }
+  finally { peer.closeAllConnections(); await new Promise(resolve => peer.close(resolve)); }
+}
+
+test("D3 observer: anonymous discovery absence with exact Inspector tool_not_found completes without any tools/call", async () => {
+  for (const tool of ["honua_geocode_addresses", "honua_solve_route"]) {
+    const { outcome, error, seen } = await discoveryOnlyProbe({ tool });
+    assert.equal(error, undefined, String(error));
+    assert.equal(outcome.wire.completed, true); assert.equal(outcome.wire.invalid, false);
+    assert.equal(outcome.wire.invocation, null);
+    assert.equal(outcome.wire.refusalEvidence, "inspector-anonymous-unlisted");
+    assert.equal(outcome.wire.discovery.length, 2);
+    assert.equal(seen.includes("tools/call"), false);
+  }
+});
+
+test("D3 observer: discovery absence refuses listed tool, failed page, wrong diagnostics, batch or sent call", async () => {
+  const cases = {
+    // A client that claims tool_not_found although the observed catalog
+    // listed the tool (on the first or last page) is refused.
+    "listed-not-called": { listed: ["honua_solve_route"], neverCall: true },
+    "page-500": { pageStatus: 500 },
+    "exit-1": { client: { exitCode: 1 } },
+    "exit-0": { client: { exitCode: 0 } },
+    "signal": { client: { exitSignal: "SIGTERM" } },
+    "stdout": { client: { stdout: "{}" } },
+    "other-code": { client: { stderr: JSON.stringify({ error: { code: "error", message: "Tool 'honua_solve_route' not found on server." } }) } },
+    "other-tool": { client: { stderr: JSON.stringify({ error: { code: "tool_not_found", message: "Tool 'honua_geocode_addresses' not found on server." } }) } },
+    "batched-call": { batchCall: true },
+  };
+  for (const [name, options] of Object.entries(cases)) {
+    const { error } = await discoveryOnlyProbe(options);
+    assert.match(String(error), /wire observation refused/, name);
+  }
+  // A listed tool is invoked: only the ordinary server-refusal path remains.
+  const listed = await discoveryOnlyProbe({ listed: ["honua_solve_route"] });
+  assert.equal(listed.error, undefined, String(listed.error));
+  assert.notEqual(listed.outcome.wire.invocation, null);
+  // An unlisted tool invoked anyway leaves the ordinary invocation path,
+  // whose Python judge then requires the tool to be listed exactly once.
+  const sent = await discoveryOnlyProbe({ callAnyway: true });
+  assert.equal(sent.error, undefined, String(sent.error));
+  assert.notEqual(sent.outcome.wire.invocation, null);
+});
+
+test("D3 observer: discovery-only evidence mode is refused for every other configuration", async () => {
+  const { observeCandidateRequest } = await import("./mcp_candidate_wire.mjs");
+  const base = { method: "tools/call", params: { name: "honua_solve_route", arguments: {} }, authenticated: false, credential: "explicit-offline-key",
+    credentialSalt: "a".repeat(32), observeDiscovery: true, anonymousUnlistedRefusal: true, invoke: async () => { throw new Error("must not launch"); } };
+  for (const [name, change] of Object.entries({
+    "no-discovery": { observeDiscovery: false }, authenticated: { authenticated: true }, "resources-read": { method: "resources/read", params: { uri: "honua://x" } },
+    "geocode_address": { params: { name: "honua_geocode_address", arguments: {} } },
+    "create_map_package": { params: { name: "honua_create_map_package", arguments: {} } },
+    "create_app_package": { params: { name: "honua_create_app_package", arguments: {} } },
+    "non-boolean": { anonymousUnlistedRefusal: "yes" } })) {
+    await assert.rejects(observeCandidateRequest({ ...base, ...change }), /limited to observed anonymous discovery|fixed owned request/, name);
+  }
+  // Without the declared mode the same discovery-only exchange is refused.
+  const { error } = await discoveryOnlyProbe({ options: { anonymousUnlistedRefusal: false } });
+  assert.match(String(error), /wire observation refused/);
+});
