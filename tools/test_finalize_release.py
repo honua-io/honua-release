@@ -417,6 +417,20 @@ def test_committed_2026_1_narrative_carries_no_pins_and_renders():
     assert "## Components" in notes
 
 
+def test_committed_2026_1_narrative_states_the_pinned_sdk_versions():
+    """The narrative names the supported SDK versions; they must be the manifest's client pins."""
+    import re
+    narrative = (REPO_ROOT / "release-notes" / "2026.1.md").read_text(encoding="utf-8")
+    manifest, _ = _real()
+    artifacts = manifest["clientArtifacts"]
+    for key in ("honua-sdk-js", "honua-sdk-python-wheel", "honua-sdk-dotnet"):
+        package, version = artifacts[key]["package"], artifacts[key]["version"]
+        row = re.search(r"^\|[^|\n]*\| `" + re.escape(package) + r"` \([^)]*\) \| ([^|\s]+) \|$",
+                        narrative, re.MULTILINE)
+        assert row, f"Supported clients table has no row for {package}"
+        assert row.group(1) == version, f"{package}: narrative says {row.group(1)}, manifest pins {version}"
+
+
 def test_main_reads_the_narrative_when_present_and_skips_it_when_absent(tmp_path, capsys):
     import yaml
     manifest, matrix = _real()

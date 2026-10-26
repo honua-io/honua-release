@@ -89,9 +89,14 @@ jobs:
           IMAGE: ghcr.io/honua-io/honua-server:${{ inputs.server_image_tag }}
         run: |
           set -euo pipefail
+          # The hand-written narrative for the base label (release-notes/2026.1.md for 2026.1-rc.N)
+          # leads the notes when it exists; the generated record follows it.
+          intro=()
+          narrative="release-notes/${LABEL%%-rc*}.md"
+          if [ -f "$narrative" ]; then intro=(--intro-file "$narrative"); fi
           python tools/rc_release_notes.py --manifest platform-manifest.yaml --gate-markdown gate-window.md \
             --label "$LABEL" --server-image "$IMAGE" --server-digest "$(cat server-digest.txt)" \
-            --gaps-json known-gaps.json --out rc-notes.md
+            --gaps-json known-gaps.json "${intro[@]}" --out rc-notes.md
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
