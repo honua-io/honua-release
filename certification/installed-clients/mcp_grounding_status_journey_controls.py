@@ -50,7 +50,7 @@ def grounded(goal, area):
             "candidates": {"datasets": [dataset], "processes": [process]}, "clarification": None}
 
 
-def vector(*, inspector=False):
+def vector(*, inspector=False, pages=1):
     owned = bootstrap()
     authored = oracle.scenario(FIXTURE, owned)
     raw_manifest = manifest_bytes()
@@ -90,11 +90,17 @@ def vector(*, inspector=False):
     after["draftIntent"]["workflowFamily"] = "PublishData"
     after["draftIntent"]["provenance"]["clarificationsAnswered"] = ["workflow_family"]
     after["clarification"] = {"intentId": "grounding-123", "questions": [{"questionId": "publish.source"}]}
-    catalog = {"contents": [{"uri": oracle.CATALOG_URI, "mimeType": "application/json", "text": json.dumps(CATALOG)}]}
-    outputs = [catalog, result(grounded(authored["authoredGoal"], area)), result(before), result(after),
+    # The candidate pages resources/read; split the catalog text the way it does.
+    text = json.dumps(CATALOG)
+    size = -(-len(text) // pages)
+    cursors = [f"r1:0:{size * index}" for index in range(1, pages)]
+    catalog = [{"contents": [{"uri": oracle.CATALOG_URI, "mimeType": "application/json",
+                              "text": text[size * index:size * (index + 1)]}],
+                **({"nextCursor": cursors[index]} if index < len(cursors) else {})} for index in range(pages)]
+    outputs = [*catalog, result(grounded(authored["authoredGoal"], area)), result(before), result(after),
                result(projection)] + [refused()] * 4 + [refused("permission_denied")]
     outputs += [refused("unauthenticated")] * 3
-    for index, (expected, output) in enumerate(zip(oracle.calls(authored, intent_id="grounding-123"), outputs, strict=True)):
+    for index, (expected, output) in enumerate(zip(oracle.calls(authored, intent_id="grounding-123", catalog_cursors=cursors), outputs, strict=True)):
         record = {**expected, "result": output}
         record["wire"], record["client"], record["result"] = control_wire(
             expected["method"], expected["params"], output, index, expected["authenticated"])
@@ -152,6 +158,37 @@ class FullJourneyControls(unittest.TestCase):
                     observed["calls"][9]["result"] = result(release_projection())
                 else:
                     observed["calls"][3]["wire"]["initialize"]["response"]["sessionSha256"] = observed["calls"][0]["wire"]["initialize"]["response"]["sessionSha256"]
+                with self.assertRaises(ValueError):
+                    oracle.judge(FIXTURE, owned, manifest, declaration, observed)
+
+
+class PagedCatalogControls(unittest.TestCase):
+    """honua-server 8cb074f7 pages resources/read at 64,000 characters with a nextCursor."""
+
+    def test_every_catalog_page_is_read_and_joined_before_judgment(self):
+        for inspector in (False, True):
+            with self.subTest(inspector=inspector):
+                owned, manifest, declaration, observed = vector(inspector=inspector, pages=3)
+                self.assertEqual([call["id"] for call in observed["calls"][:3]],
+                                 ["catalog", "catalog-page-2", "catalog-page-3"])
+                verdict = oracle.judge(FIXTURE, owned, manifest, declaration, observed)
+                self.assertTrue(verdict["positive"] and verdict["sourceReadback"])
+
+    def test_first_page_alone_or_a_broken_continuation_is_refused(self):
+        for path in ("first-page-only", "dropped-middle-page", "cursor-on-last-page", "wrong-cursor", "reordered-pages"):
+            with self.subTest(path=path):
+                owned, manifest, declaration, observed = vector(pages=3)
+                calls = observed["calls"]
+                if path == "first-page-only":
+                    del calls[1:3]
+                elif path == "dropped-middle-page":
+                    del calls[1]
+                elif path == "cursor-on-last-page":
+                    calls[2]["result"]["nextCursor"] = "r1:0:999999"
+                elif path == "wrong-cursor":
+                    calls[1]["params"]["cursor"] = "r1:0:1"
+                else:
+                    calls[1]["result"], calls[2]["result"] = calls[2]["result"], calls[1]["result"]
                 with self.assertRaises(ValueError):
                     oracle.judge(FIXTURE, owned, manifest, declaration, observed)
 

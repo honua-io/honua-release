@@ -25,15 +25,32 @@ PROJECTION = ("releaseVersion", "releaseDeclared", "isCoVersioned", "serving", "
 OPERATIONS = ("tools/call:ground_candidates", "tools/call:clarify_intent",
               "tools/call:platform_release_status")
 CATALOG_URI = "honua://catalog/processes"
+# honua-server pages resources/read (McpPagination.DefaultMaxResourceReadChars, 64,000
+# characters) and returns a nextCursor. The catalog is read page by page and joined
+# per URI before parsing; the bound only stops a cursor loop.
+CATALOG_PAGE_LIMIT = 32
 
 
-def calls(authored, *, intent_id=None):
-    """Exact authored call order; clarification carries the preceding real ID."""
+def _catalog_cursors(catalog_cursors):
+    cursors = list(catalog_cursors)
+    if (len(cursors) >= CATALOG_PAGE_LIMIT or len(set(cursors)) != len(cursors)
+            or any(not isinstance(cursor, str) or not cursor or len(cursor) > 1024 for cursor in cursors)):
+        raise ValueError("process catalog continuation cursors are invalid or unbounded")
+    return cursors
+
+
+def calls(authored, *, intent_id=None, catalog_cursors=()):
+    """Exact authored call order; clarification carries the preceding real ID.
+
+    Each actual catalog continuation cursor adds one resources/read for the next page.
+    """
     if intent_id is not None and (not isinstance(intent_id, str) or not intent_id.strip()):
         raise ValueError("clarification requires the actual preceding intent ID")
     goal, ambiguous = authored["authoredGoal"], authored["clarificationGoal"]
     entries = [
         ("catalog", "resources/read", {"uri": CATALOG_URI}, True, "catalog"),
+        *((f"catalog-page-{index + 2}", "resources/read", {"uri": CATALOG_URI, "cursor": cursor}, True, "catalog-page")
+          for index, cursor in enumerate(_catalog_cursors(catalog_cursors))),
         ("ground", "tools/call", {"name": "honua_ground_candidates", "arguments": {"goal": goal}}, True, "ground"),
         ("ambiguous", "tools/call", {"name": "honua_ground_candidates", "arguments": {"goal": ambiguous}}, True, "ambiguous"),
         ("clarify", "tools/call", {"name": "honua_clarify_intent", "arguments": {
@@ -170,17 +187,54 @@ def source_context(owned_area, metadata, catalog):
             "revision": metadata["revision"]}
 
 
-def process_catalog_resource(result, uri="honua://catalog/processes"):
-    """Decode only an actual JSON MCP resource read of the canonical catalog."""
+def catalog_page(result, uri=CATALOG_URI):
+    """One actual JSON page of the canonical catalog: its text and its continuation cursor."""
     result = _mapping(result, "process catalog resource result")
     contents = result.get("contents")
-    if "error" in result or not isinstance(contents, list) or len(contents) != 1:
+    if "error" in result or not isinstance(contents, list) or len(contents) != 1 or set(result) - {"contents", "nextCursor", "_meta"}:
         raise ValueError("process catalog was not read as one resource")
     item = _mapping(contents[0], "process catalog content")
     if (item.get("uri") != uri or item.get("mimeType") != "application/json"
-            or not isinstance(item.get("text"), str) or "blob" in item):
+            or not isinstance(item.get("text"), str) or not item["text"] or "blob" in item):
         raise ValueError("process catalog read has wrong identity or media")
-    return _mapping(strict_json(item["text"]), "process catalog JSON")
+    cursor = result.get("nextCursor")
+    if cursor is not None and (not isinstance(cursor, str) or not cursor or len(cursor) > 1024):
+        raise ValueError("process catalog continuation cursor is invalid")
+    return item["text"], cursor
+
+
+def catalog_cursors(results):
+    """The continuation chain the actual reads returned, through the first page without one."""
+    cursors = []
+    for index, result in enumerate(results):
+        try:
+            _, cursor = catalog_page(result)
+        except ValueError:
+            if index:
+                raise ValueError("process catalog continuation was not read to its last page") from None
+            raise
+        if cursor is None:
+            return _catalog_cursors(cursors)
+        cursors.append(cursor)
+        _catalog_cursors(cursors)
+    raise ValueError("process catalog continuation was not read to its last page")
+
+
+def process_catalog_resource(results, uri=CATALOG_URI):
+    """Decode the whole canonical catalog from every actual page, joined per URI in order.
+
+    A single page is accepted only when it carries no continuation cursor.
+    """
+    pages = [results] if isinstance(results, dict) else results
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("process catalog was not read as one resource")
+    texts = []
+    for index, result in enumerate(pages):
+        text, cursor = catalog_page(result, uri)
+        if (cursor is None) is not (index == len(pages) - 1):
+            raise ValueError("process catalog pages do not end exactly at the last continuation")
+        texts.append(text)
+    return _mapping(strict_json("".join(texts)), "process catalog JSON")
 
 
 def grounding_output(output, context, goal):
@@ -440,7 +494,11 @@ def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
             or not wire.same_json(observed["runtimeAfter"], authored["runtimeBinding"])):
         raise ValueError("grounding journey changed its authored candidate or runtime")
     actual_calls = observed["calls"]
-    if not isinstance(actual_calls, list) or len(actual_calls) != len(calls(authored)):
+    if not isinstance(actual_calls, list) or not actual_calls:
+        raise ValueError("grounding journey lacks the complete authored call sequence")
+    cursors = catalog_cursors([_mapping(call, "catalog call").get("result")
+                               for call in actual_calls[:CATALOG_PAGE_LIMIT]])
+    if len(actual_calls) != len(calls(authored, catalog_cursors=cursors)):
         raise ValueError("grounding journey lacks the complete authored call sequence")
     identity = verify_receipt(observed["identityFixture"], authored["runtimeBinding"], "admin")
     fingerprint = identity["credentialFingerprint"]
@@ -462,7 +520,7 @@ def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
     # The independently retained SQL result is checked against owned setup;
     # this is not a second call to the database at judgment time.
     context = source_context(authored["ownedArea"], graph.get("metadata"),
-        process_catalog_resource(_mapping(actual_calls[0], "catalog call").get("result")))
+        process_catalog_resource([actual_calls[index]["result"] for index in range(len(cursors) + 1)]))
     preflights = []
     for name in ("preflightBefore", "preflightAfter"):
         preflight = _mapping(observed[name], "independent admin preflight")
@@ -479,7 +537,7 @@ def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
     initial_ambiguous = None
     status = None
     for index, actual in enumerate(actual_calls):
-        expected = calls(authored, intent_id=actual_intent)[index]
+        expected = calls(authored, intent_id=actual_intent, catalog_cursors=cursors)[index]
         if (not isinstance(actual, dict) or set(actual) != set(expected) | {"wire", "client", "result"}
                 or any(not wire.same_json(actual[key], value) for key, value in expected.items())):
             raise ValueError("actual call differs from authored goal, continuation or refusal")
@@ -491,8 +549,8 @@ def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
         sessions.add(session)
         wire.client_observation(actual["client"], frame, actual["wire"],
                                 observed["canonicalClient"], observed["clientVersion"])
-        if expected["expectation"] == "catalog":
-            process_catalog_resource(actual["result"])
+        if expected["expectation"] in ("catalog", "catalog-page"):
+            catalog_page(actual["result"])
         elif expected["expectation"] == "ground":
             grounding_output(successful_tool(actual["result"]), context, authored["authoredGoal"])
         elif expected["expectation"] == "ambiguous":
@@ -533,12 +591,14 @@ def main():
     parser.add_argument("--observations", type=Path)
     parser.add_argument("--calls", action="store_true")
     parser.add_argument("--call-intent-id")
+    parser.add_argument("--call-catalog-cursor", action="append", default=[])
     args = parser.parse_args()
     try:
         fixture, bootstrap = args.fixture.read_bytes(), strict_json(args.bootstrap.read_bytes())
         if args.observations is None:
             authored = scenario(fixture, bootstrap)
-            value = {"calls": calls(authored, intent_id=args.call_intent_id)} if args.calls else authored
+            value = ({"calls": calls(authored, intent_id=args.call_intent_id, catalog_cursors=args.call_catalog_cursor)}
+                     if args.calls else authored)
         else:
             if not args.manifest or not args.declaration:
                 raise ValueError("grounding judgment requires original manifest and declaration")

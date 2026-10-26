@@ -106,7 +106,12 @@ export function createPlanningDisclosure({ directory, sourceSha, sha256, bootstr
         }
         observed.snapshots.push(store(nonce, canonicalClient));
         const { launchCanonicalClient } = await import(pathToFileURL(join(directory, "mcp_fixed_client_launcher.mjs")).href);
-        for (const expected of setup.calls) {
+        // The candidate pages the catalog read; each returned cursor adds the next page's read
+        // immediately after it (the oracle rebuilds the same sequence from the actual cursors).
+        const queue = [...setup.calls];
+        let catalogPages = 1;
+        for (let index = 0; index < queue.length; index++) {
+          const expected = queue[index];
           const entry = { ...structuredClone(expected), wire: null, client: null, result: null,
             startedAt: new Date().toISOString(), completedAt: null };
           observed.calls.push(entry);
@@ -124,6 +129,14 @@ export function createPlanningDisclosure({ directory, sourceSha, sha256, bootstr
             const frame = observedResponse(probe.wire.invocation);
             entry.result = Object.hasOwn(frame, "error") ? frame : frame.result;
           } finally { entry.completedAt = new Date().toISOString(); }
+          if (["catalog", "catalog-page"].includes(entry.expectation) && Object.hasOwn(entry.result ?? {}, "nextCursor")) {
+            const cursor = entry.result.nextCursor;
+            if (typeof cursor !== "string" || !cursor || ++catalogPages > 32)
+              throw new Error("process catalog continuation cursor is invalid or unbounded");
+            queue.splice(index + 1, 0, { id: `catalog-page-${catalogPages}`, method: "resources/read",
+              params: { uri: entry.params.uri, cursor }, credentialRole: "full", authenticated: true,
+              expectation: "catalog-page" });
+          }
         }
         observed.snapshots.push(store(nonce, canonicalClient));
       } finally {

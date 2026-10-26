@@ -38,7 +38,7 @@ def demo(context):
             "outputs": [], "warnings": ["mutable_source_cache_warning"]}}
 
 
-def journey(*, inspector=False):
+def journey(*, inspector=False, pages=1):
     original = bootstrap()
     canonical = "MCP Inspector" if inspector else "Official MCP TypeScript SDK"
     value = oracle.scenario(FIXTURE, original, "0123456789abcdef01234567", canonical)
@@ -75,6 +75,24 @@ def journey(*, inspector=False):
             entry["result"] = response({"status": "error", "code": "unauthenticated", "message": "Authentication required",
                 "error": {"kind": "AuthorizationDenied", "message": "Authentication required"},
                 "requiresReauthentication": True}, error=True)
+    if pages > 1:
+        # The candidate pages resources/read; split the catalog text the way it does.
+        position = next(index for index, entry in enumerate(value["calls"]) if entry["expectation"] == "catalog")
+        first = value["calls"][position]
+        text = first["result"]["contents"][0]["text"]
+        size = -(-len(text) // pages)
+        cursors = [f"r1:0:{size * index}" for index in range(1, pages)]
+        page_results = [{"contents": [{"uri": "honua://catalog/processes", "mimeType": "application/json",
+                                       "text": text[size * index:size * (index + 1)]}],
+                         **({"nextCursor": cursors[index]} if index < len(cursors) else {})} for index in range(pages)]
+        first["result"] = page_results[0]
+        value["calls"][position + 1:position + 1] = [
+            {"id": f"catalog-page-{index + 2}", "method": "resources/read",
+             "params": {"uri": "honua://catalog/processes", "cursor": cursor}, "credentialRole": "full",
+             "authenticated": True, "expectation": "catalog-page", "result": page_results[index + 1]}
+            for index, cursor in enumerate(cursors)]
+        for index, entry in enumerate(value["calls"]):
+            entry.update(startedAt=stamp(10 * index), completedAt=stamp(10 * index + 1))
     return rebind(value, inspector=inspector)
 
 
@@ -90,6 +108,27 @@ def change_result(value, index, mutate, inspector):
 
 
 class PlanningDisclosureControls(unittest.TestCase):
+    def test_paged_catalog_is_read_to_its_last_page_and_joined(self):
+        # honua-server 8cb074f7 pages the process catalog at 64,000 characters.
+        for inspector in (False, True):
+            with self.subTest(inspector=inspector):
+                value = journey(inspector=inspector, pages=3)
+                self.assertEqual([call["id"] for call in value["calls"][:3]], ["catalog", "catalog-page-2", "catalog-page-3"])
+                self.assertTrue(judge(value)["positive"])
+        for path in ("first-page-only", "dropped-page", "cursor-on-last", "wrong-cursor"):
+            with self.subTest(path=path):
+                value = journey(pages=3)
+                calls = value["calls"]
+                if path == "first-page-only":
+                    del calls[1:3]
+                elif path == "dropped-page":
+                    del calls[1]
+                elif path == "cursor-on-last":
+                    calls[2]["result"]["nextCursor"] = "r1:0:99999"
+                else:
+                    calls[1]["params"]["cursor"] = "r1:0:1"
+                with self.assertRaises(ValueError): judge(rebind(value))
+
     def test_both_complete_original_wire_vectors_pass_without_model_or_execution_credit(self):
         for inspector in (False, True):
             with self.subTest(inspector=inspector):

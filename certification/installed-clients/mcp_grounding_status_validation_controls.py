@@ -8,7 +8,7 @@ import unittest
 
 from mcp_grounding_status_state import admin_release_projection, graph_resource
 from mcp_grounding_status_validation import (clarification_output, declared_status,
-                                             grounding_output, process_catalog_resource,
+                                             grounding_output, process_catalog_resource, catalog_cursors,
                                              scenario, source_context)
 from mcp_render_validation_controls import FIXTURE, bootstrap
 
@@ -134,6 +134,20 @@ class GroundingStatusControls(unittest.TestCase):
             invalid = copy.deepcopy(result)
             change(invalid)
             with self.assertRaises(ValueError): process_catalog_resource(invalid)
+
+    def test_paged_catalog_is_joined_only_across_a_complete_continuation(self):
+        text = json.dumps(CATALOG)
+        page = lambda part, cursor=None: {"contents": [{"uri": "honua://catalog/processes",
+            "mimeType": "application/json", "text": part}], **({"nextCursor": cursor} if cursor else {})}
+        cut = len(text) // 2
+        pages = [page(text[:cut], "r1:0:%d" % cut), page(text[cut:])]
+        self.assertEqual(process_catalog_resource(pages), CATALOG)
+        self.assertEqual(catalog_cursors(pages), ["r1:0:%d" % cut])
+        for invalid in ([pages[0]], pages[0], [pages[1], pages[0]], [pages[0], pages[0]],
+                        [pages[0], page(text[cut:], "r1:0:1")], [pages[0], page("")]):
+            with self.assertRaises(ValueError): process_catalog_resource(invalid)
+        with self.assertRaises(ValueError): catalog_cursors([pages[0]])
+        with self.assertRaises(ValueError): catalog_cursors([page(text, "same"), page(text, "same"), page(text)])
 
     def test_shortlist_and_provenance_must_name_owned_graph_and_process(self):
         context = source_context(AREA, METADATA, CATALOG)
