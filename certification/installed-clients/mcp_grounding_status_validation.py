@@ -101,6 +101,10 @@ def _nonempty(value, label):
     return value
 
 
+def _names(allowed):
+    return allowed if isinstance(allowed, frozenset) else frozenset((allowed,))
+
+
 def _ranking(rows, kind, allowed, *, require_nonempty=True):
     if not isinstance(rows, list) or (require_nonempty and not rows):
         raise ValueError(f"{kind} candidates are missing")
@@ -110,7 +114,7 @@ def _ranking(rows, kind, allowed, *, require_nonempty=True):
         identifier = _nonempty(candidate.get("id"), f"{kind} id")
         score = candidate.get("score")
         if (identifier in seen or candidate.get("kind") != kind
-                or identifier not in allowed or candidate.get("displayName") != allowed[identifier]
+                or identifier not in allowed or candidate.get("displayName") not in _names(allowed[identifier])
                 or type(score) not in (int, float) or not math.isfinite(score)
                 or score <= 0 or score > previous
                 or (score == previous and previous_id is not None and identifier < previous_id)
@@ -134,11 +138,12 @@ def _provenance(draft, ranking):
     return provenance
 
 
-def source_context(owned_area, metadata, catalog):
-    """Bind independently observed graph resource and process catalog to setup."""
-    area, metadata, catalog = (_mapping(owned_area, "owned area"),
-                               _mapping(metadata, "metadata readback"),
-                               _mapping(catalog, "process catalog"))
+def source_context(owned_area, metadata, catalog, datasets):
+    """Bind independently observed graph resource, readable datasets and process catalog to setup."""
+    area, metadata, catalog, datasets = (_mapping(owned_area, "owned area"),
+                                         _mapping(metadata, "metadata readback"),
+                                         _mapping(catalog, "process catalog"),
+                                         _mapping(datasets, "readable dataset catalog"))
     for name in ("serviceId", "serviceName", "connectionId", "locator"):
         if _nonempty(metadata.get(name), name) != _nonempty(area.get(name), name):
             raise ValueError("metadata source differs from the owned publication")
@@ -166,11 +171,31 @@ def source_context(owned_area, metadata, catalog):
     # The bounded owned graph read observes one physical layer and its service.
     # The process resource observes the entire callable catalog. A shortlist
     # entry outside either observation cannot be credited as grounded.
-    dataset_names = {str(area["storageLayerId"]): metadata["resourceName"],
-                     area["serviceName"]: area["serviceName"]}
-    if (len(dataset_names) != 2 or not all(isinstance(name, str) and name.strip()
-                                           for name in dataset_names.values())):
+    owned_names = {str(area["storageLayerId"]): metadata["resourceName"],
+                   area["serviceName"]: area["serviceName"]}
+    if (len(owned_names) != 2 or not all(isinstance(name, str) and name.strip()
+                                         for name in owned_names.values())):
         raise ValueError("owned graph has ambiguous or unnamed dataset aliases")
+    # Every shortlisted dataset must be one the candidate can actually rank, observed
+    # independently: a published dataset resource (by storage layer ID, under any of the
+    # resource names over that layer) or a published service (by name). The owned
+    # layer and service must be among them.
+    layers, services = datasets.get("layers"), datasets.get("services")
+    if (set(datasets) != {"layers", "services"} or not isinstance(layers, list) or not isinstance(services, list)
+            or any(not isinstance(item, dict) or set(item) != {"id", "name"} or not isinstance(item["id"], str)
+                   or not isinstance(item["name"], str) or not item["name"].strip() for item in layers)
+            or any(not isinstance(name, str) or not name.strip() for name in services)):
+        raise ValueError("readable dataset catalog observation is malformed")
+    observed = {}
+    for item in layers:
+        observed.setdefault(item["id"], set()).add(item["name"])
+    for name in services:
+        if name in observed:
+            raise ValueError("a service name collides with a storage layer ID")
+        observed[name] = {name}
+    if any(name not in observed.get(identifier, ()) for identifier, name in owned_names.items()):
+        raise ValueError("owned dataset is not among the independently observed readable datasets")
+    dataset_names = {identifier: frozenset(names) for identifier, names in observed.items()}
     process_names = {}
     for item in processes:
         identifier = item.get("processId")
@@ -182,7 +207,7 @@ def source_context(owned_area, metadata, catalog):
             process_names[identifier] = _nonempty(item.get("displayName"), "process display name")
     if process_names.get("geometry.buffer") != _nonempty(process.get("displayName"), "buffer display name"):
         raise ValueError("owned buffer process is not callable in the actual catalog")
-    return {"datasetIds": set(dataset_names), "datasetNames": dataset_names,
+    return {"datasetIds": set(owned_names), "datasetNames": dataset_names,
             "processId": "geometry.buffer", "processNames": process_names,
             "revision": metadata["revision"]}
 
@@ -520,7 +545,8 @@ def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
     # The independently retained SQL result is checked against owned setup;
     # this is not a second call to the database at judgment time.
     context = source_context(authored["ownedArea"], graph.get("metadata"),
-        process_catalog_resource([actual_calls[index]["result"] for index in range(len(cursors) + 1)]))
+        process_catalog_resource([actual_calls[index]["result"] for index in range(len(cursors) + 1)]),
+        graph.get("datasets"))
     preflights = []
     for name in ("preflightBefore", "preflightAfter"):
         preflight = _mapping(observed[name], "independent admin preflight")

@@ -69,6 +69,8 @@ def vector(*, inspector=False, pages=1):
         "clientVersion": "2.10.1" if inspector else "1.32.1",
         "runtimeBefore": owned["runtimeBinding"], "runtimeAfter": owned["runtimeBinding"],
         "graphObservation": {"schema": "honua.mcp-grounding-graph/v1", "metadata": metadata,
+            "datasets": {"layers": [{"id": str(area["storageLayerId"]), "name": "sdkreg-area"}],
+                         "services": [area["serviceName"]]},
             **{key: authored[key] for key in ("candidateSourceSha", "candidateImage", "fixtureSha256", "bootstrapSha256")}},
         "preflightBefore": None, "preflightAfter": None, "declaration": declaration, "calls": [],
         "identityFixture": managed_receipt("full", owned["runtimeBinding"]),
