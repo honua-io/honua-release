@@ -75,3 +75,31 @@ def test_inconsistent_readback_and_grants_are_refused():
         document = _document()
         mutate(document)
         assert portal.qualify(document)["reason"] == reason
+
+
+def test_a_complete_document_passes_only_when_bound_to_the_candidate_it_names():
+    document = _document()
+    candidate = {"sourceSha": document["candidateSourceSha"], "image": document["candidateImage"]}
+    verdict = portal.qualify(document, candidate=candidate)
+    assert verdict["status"] == "pass"
+    assert verdict["candidateSourceSha"] == "a" * 40
+    for other in ({"sourceSha": "c" * 40, "image": candidate["image"]},
+                  {"sourceSha": candidate["sourceSha"], "image": "ghcr.io/example/server@sha256:" + "d" * 64},
+                  {}, "not-a-candidate"):
+        assert portal.qualify(document, candidate=other) == {"status": "refused", "reason": "candidate-mismatch"}
+    # Binding never rescues an incomplete or wrong observation.
+    broken = copy.deepcopy(document)
+    broken["phases"]["unsharedAfterRestart"]["member"]["feature"] = True
+    assert portal.qualify(broken, candidate=candidate)["status"] == "refused"
+    assert portal.qualify(None, candidate=candidate)["status"] == "nonpass"
+
+
+def test_the_ledger_binding_names_the_candidate_by_source_and_image_digest():
+    document = _document()
+    digest = document["candidateImage"].rsplit("@", 1)[1]
+    ledger = {"sourceSha": document["candidateSourceSha"], "imageDigest": digest}
+    assert portal.qualify(document, candidate=ledger)["status"] == "pass"
+    for other in ({**ledger, "imageDigest": "sha256:" + "d" * 64}, {**ledger, "imageDigest": "b" * 64},
+                  {**ledger, "imageDigest": None}, {"sourceSha": ledger["sourceSha"]},
+                  {**ledger, "image": "ghcr.io/example/other@" + digest}):
+        assert portal.qualify(document, candidate=other) == {"status": "refused", "reason": "candidate-mismatch"}

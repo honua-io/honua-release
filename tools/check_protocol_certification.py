@@ -877,12 +877,14 @@ def _portal_observation_document(cell: dict):
     return document if isinstance(document, dict) else None
 
 
-def _portal_sharing_verdict(cell: dict) -> dict:
+def _portal_sharing_verdict(cell: dict, candidate_sha, candidate_digest) -> dict:
+    """Judge the retained observations bound to the ledger candidate (source and image digest)."""
     try:
         qualify = _portal_sharing_module().qualify
     except (ImportError, OSError, AttributeError):
         return {"status": "refused", "reason": "judge-unavailable"}
-    verdict = qualify(_portal_observation_document(cell))
+    verdict = qualify(_portal_observation_document(cell),
+                      candidate={"sourceSha": candidate_sha, "imageDigest": candidate_digest})
     if not isinstance(verdict, dict) or verdict.get("status") not in {"pass", "nonpass", "refused"}:
         return {"status": "refused", "reason": "judge-unavailable"}
     return verdict
@@ -1238,8 +1240,8 @@ def evaluate(
 
         if (raw.get("surface") == "portal-sharing" and raw.get("addressable_by_client") is True
                 and (raw.get("result") == "pass" or _in_scope(raw, tier))):
-            verdict = _portal_sharing_verdict(raw)
-            # The judge does not return pass for absent or synthetic observations.
+            verdict = _portal_sharing_verdict(raw, candidate_sha, candidate_digest)
+            # The judge passes only complete observations that name this ledger's candidate.
             if verdict.get("status") != "pass":
                 fail(prefix, f"portal group sharing {verdict.get('status')}: {verdict.get('reason')}")
 
