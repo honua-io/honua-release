@@ -899,11 +899,20 @@ components:
     # credentials ("Could not load credentials from any providers"), not on a module. Locally:
     # terraform validate passes on modules/aws-ecs and examples/aws (1.13.5) and on modules/aws-serverless
     # with terraform 1.15.0 (its tests need >= 1.15 to init).
-    version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "a71477e0f68c00e8faa39ec4b30a5f2d946120cc"   # branch: trunk HEAD 2026-10-22 (honua-iac#281 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/a71477e0f68c00e8faa39ec4b30a5f2d946120cc.tar.gz"
-    artifactSourceRevision: "a71477e0f68c00e8faa39ec4b30a5f2d946120cc"   # the tarball's pax comment
-    artifactSha256: "sha256:f6394aa35780c15eef7ee53fd839255d12262b28addc48ad57ef5eeedbcb40fe"   # two anonymous downloads, identical bytes
+    # 2026-10-26 RELEASE a71477e0 (untagged) -> v0.3.0 at trunk d5b7bec9 (honua-iac#312 merge commit,
+    # D1 data-tier security-group egress; carries #310 and #301). Freeze refused the untagged pin
+    # ("[PUBLISH] honua-iac.artifacts[0].version: source snapshot/pre-release"). v0.3.0 was
+    # published through the GitHub API as an annotated tag (object 078a9a9d) and GitHub Release
+    # (https://github.com/honua-io/honua-iac/releases/tag/v0.3.0), a 0.x minor per
+    # docs/module-versioning.md. Push CI at d5b7bec9 is green: Static Terraform Validate, Terraform 1.5
+    # Floor Validate, Terraform Policy Gates, both standing-certification control jobs, CodeQL. The
+    # nightly resolver keeps a released archive on its tag commit (select_release) instead of walking
+    # trunk past it; moving forward is a new release and a re-pin.
+    version: "0.3.0"                   # release tag v0.3.0; Git-source distribution
+    sha: "d5b7bec9073e72ad294da5ce802aff0c58abad07"   # v0.3.0^{} = trunk HEAD 2026-10-26 (honua-iac#312 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz"
+    artifactSourceRevision: "d5b7bec9073e72ad294da5ce802aff0c58abad07"   # the tarball's pax comment
+    artifactSha256: "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
