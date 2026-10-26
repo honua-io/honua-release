@@ -41,7 +41,10 @@ def scenario(fixture_bytes, bootstrap, nonce, canonical_client):
     calls = [
         ("catalog", "resources/read", {"uri": CATALOG}, "full", "catalog"),
         ("matched-demo", "tools/call", {"name": "honua_plan_analysis", "arguments": arguments}, "full", "demo"),
-        ("scoped-demo", "tools/call", {"name": "honua_plan_analysis", "arguments": arguments}, "limited", "demo"),
+        # A normal read:* key holds data-plane read grants only; honua_plan_analysis is gated on
+        # operator Process/Read (PlanAnalysisTool, unchanged since honua-server #1236), so the
+        # least-privilege caller must receive the typed permission_denied refusal.
+        ("scoped-demo", "tools/call", {"name": "honua_plan_analysis", "arguments": arguments}, "limited", "permission_denied"),
         ("unmatched-demo", "tools/call", {"name": "honua_plan_analysis", "arguments": unknown}, "full", "unmatched"),
         ("hand-authored-handoff", "tools/call", {"name": "honua_validate_plan", "arguments": {"plan": plan}}, "full", "handoff"),
         ("empty-intent", "tools/call", {"name": "honua_plan_analysis", "arguments": {"intent": ""}}, "full", "invalid"),
@@ -273,6 +276,8 @@ def judge(fixture_bytes, bootstrap, observed):
                 raise ValueError("real hand-authored plan failed its supported validation handoff")
         elif expectation == "invalid":
             negative_output(result, "invalid_argument")
+        elif expectation == "permission_denied":
+            negative_output(result, "permission_denied")
         else:
             anonymous_tool_refusal(result)
     if previous > instant(snapshots[1]["startedAt"]):
