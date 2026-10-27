@@ -1676,3 +1676,26 @@ def test_recorded_lambda_ruling_is_the_founders_and_names_only_the_lambda_image(
     assert ruling['out_of_lock_images'] == ['honua-server/awsLambdaImage']
     matrix = yaml.safe_load((Path(nightly.__file__).resolve().parents[1] / 'compatibility-matrix.yaml').read_text())
     assert nightly.lambda_out_of_lock(matrix['deploy']) == nightly.LAMBDA_OUT_OF_LOCK_RULING
+
+
+def test_post_gate_regeneration_keeps_the_frozen_artifact_order(inputs, tmp_path):
+    """The candidate manifest is written in its own key order (convergence_rebind dumps with
+    sort_keys=False), so a component with several published packages freezes them in that order.
+    Re-dumping it sorted at mint reordered honua-sdk-js's eight packages and refused a green night
+    ('regeneration changed facts outside sbom, provenance and notes'), replayed for 53bb94a."""
+    from generate_platform_lock import generate
+    _, paths = inputs
+    manifest = yaml.safe_load(paths[0].read_text())
+    published = manifest['clientArtifacts']['sdk']
+    # Two more packages of the same component, keyed against alphabetical order.
+    manifest['clientArtifacts'] = {'sdk-zeta': {**published, 'package': '@honua/zeta'},
+                                   **manifest['clientArtifacts'],
+                                   'sdk-alpha': {**published, 'package': '@honua/alpha'}}
+    paths[0].write_text(yaml.safe_dump(manifest, sort_keys=False))
+    frozen = generate(paths[0], paths[1]).lock
+    assert not generate(paths[0], paths[1]).unresolved
+    references = {field: frozen[field] for field in nightly.POST_GATE_FIELDS}
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    source = nightly.attach_post_gate(paths[0], references, {}, scratch)
+    nightly.regenerate_post_gate(source, paths[1], frozen, references)
