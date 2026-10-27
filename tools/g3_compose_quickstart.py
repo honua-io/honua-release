@@ -402,7 +402,7 @@ def execute(
     _prepare_dirs(run_dir, log_dir)
     if owned is not None:
         owned["yes"] = True
-    script_path = log_dir / "quickstart.sh"
+    script_path = (log_dir / "quickstart.sh").resolve()
     script_path.write_text(render_script(actions), encoding="utf-8")
     code, output = runner(["bash", "--noprofile", "--norc", str(script_path)], run_dir, timeout)
     (log_dir / "quickstart.log").write_text(output, encoding="utf-8")

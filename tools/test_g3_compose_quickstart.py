@@ -218,6 +218,25 @@ def test_run_directory_must_be_empty_and_outside_the_log(tmp_path: Path):
         g3.execute([], nested, nested / "log", teardown=False)
 
 
+def test_relative_log_directory_resolves_the_script_before_changing_directories(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    actions, _, _, _ = g3.plan_fences(PAGE, "2026.1-rc")
+    argvs: list[list[str]] = []
+
+    def run(argv: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
+        argvs.append(list(argv))
+        if argv[0] == "bash":
+            return g3.default_runner(argv, cwd, timeout)
+        return 0, ""
+
+    g3.execute(actions, Path("run"), Path("logs"), runner=run, teardown=False)
+
+    script = next(argv[-1] for argv in argvs if argv[0] == "bash")
+    assert Path(script).is_absolute()
+    assert Path(script).is_file()
+    assert "No such file" not in (tmp_path / "logs" / "quickstart.log").read_text(encoding="utf-8")
+
+
 def test_receipt_names_the_gate_without_closing_it_on_failure(tmp_path: Path):
     _, _, _, _, execution, passed, gate, failure, _, _, _ = _run(tmp_path, FAILURE_PAGE)
     text = g3.render_receipt(
