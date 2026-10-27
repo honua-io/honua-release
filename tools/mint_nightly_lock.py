@@ -37,7 +37,7 @@ from platform_version import stamp_platform_version
 from release_notes_ref import snapshot
 from release_facts import SOURCE_REFERENCE
 from tag_signing import publication_tag
-from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
+from check_promotion_readiness import EVIDENCE_CLASSES, GA_CELLS, MAX_FRESHNESS, JOURNEYS, _journey
 
 REQUIRED_NIGHTLY_GATES = REQUIRED_RELEASE_GATES | {'capacity-soak', 'one-operation-rollback', 'journey',
                                                    'executable-docs', 'installed-clients'}
@@ -246,10 +246,43 @@ def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repo
             '--signer-workflow', workflow, '--predicate-type', predicate, '--format', 'json', *constraints], capture_output=True, text=True, check=True))
 
 
+LAMBDA_OUT_OF_LOCK_RULING = 'lambda-preview-out-of-lock-2026-10-27'
+LAMBDA_OUT_OF_LOCK_IMAGE = 'honua-server/awsLambdaImage'
+
+
+def lambda_out_of_lock(deploy: dict, overrides: Path | None = None) -> str | None:
+    """The founder ruling that records the Preview Lambda image out of the lock, or None.
+
+    Founder ruling lambda-preview-out-of-lock-2026-10-27 (the Helm precedent of #1002): while
+    every honua-server awsLambda architecture is scoped Preview, the Lambda image is disclosed
+    with the lock but needs no publisher attestation. The exemption ends when any Lambda cell is
+    not Preview or is scoped ga-target (in the matrix or as a GA journey cell), or when the ruling
+    is missing, malformed or not the founder's. It never covers any other image.
+    """
+    from attestation_exceptions import DECISION_OVERRIDES
+    lambda_row = (deploy.get('honua-server') or {}).get('awsLambda')
+    cells = [cell for cell in ((lambda_row or {}).get('architectures') or {}).values()] \
+        if isinstance(lambda_row, dict) and isinstance(lambda_row.get('architectures'), dict) else []
+    if not cells or any(not isinstance(cell, dict) or cell.get('status') != 'preview'
+                        or cell.get('releaseScope') != 'preview' for cell in cells):
+        return None
+    if any(cell.startswith('aws-serverless/') for cell in GA_CELLS):
+        return None
+    try:
+        rulings = json.loads((overrides or DECISION_OVERRIDES).read_text(encoding='utf-8'))['rulings']
+        ruling = rulings[LAMBDA_OUT_OF_LOCK_RULING]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if (not isinstance(ruling, dict) or 'founder' not in str(ruling.get('owner', '')).lower()
+            or LAMBDA_OUT_OF_LOCK_IMAGE not in (ruling.get('out_of_lock_images') or [])):
+        return None
+    return LAMBDA_OUT_OF_LOCK_RULING
+
+
 def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, *,
                       github=None, registry=None, attestations=publisher_attestations,
                       artifact_bytes=published_artifact_bytes, verifier=verify_publisher_bundle,
-                      exceptions=None) -> dict:
+                      exceptions=None, overrides=None) -> dict:
     """Collect actual registry statements/bundles; never reuse manifest evidence declarations.
 
     OCI indexes must cover each runnable child, including the separately deployed Lambda image.
@@ -343,9 +376,16 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     server = (data.get('components') or {}).get('honua-server') or {}
     deploy = yaml.safe_load(matrix.read_text()).get('deploy') or {}
     lambda_target = 'awsLambda' in (deploy.get('honua-server') or {})
+    preview_out_of_lock = []
+    lambda_ruling = lambda_out_of_lock(deploy, overrides)
     if lambda_target and not (server.get('awsLambdaImage') and re.fullmatch(
             r'sha256:[0-9a-f]{64}', str(server.get('awsLambdaDigest', '')))):
         errors.append('honua-server Lambda: declared deployment target requires an exact image and digest')
+    elif lambda_ruling and server.get('awsLambdaImage'):
+        # Disclosed with the lock as Preview, neither frozen nor attested; the GA image below is not.
+        preview_out_of_lock.append({'ruling': lambda_ruling, 'component': 'honua-server',
+                                    'field': 'awsLambdaImage', 'image': server['awsLambdaImage'],
+                                    'digest': server['awsLambdaDigest'], 'lifecycleStatus': 'Preview'})
     elif lambda_target or server.get('awsLambdaImage'):
         coordinate = server['awsLambdaImage'].split('@', 1)[0].rsplit(':', 1)[0]
         oci('honua-server', coordinate, server.get('awsLambdaDigest', ''), 'honua-server Lambda',
@@ -415,7 +455,9 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     result = {'candidate': report['candidate'], 'references': references, 'notesRevision': revision,
               # Disclosed with the lock: each pinned artifact accepted without (some) publisher
               # attestations, under which ruling, owned by whom, and until when.
-              'attestationExceptions': excused}
+              'attestationExceptions': excused,
+              # Preview images recorded out of the lock by founder ruling: neither frozen nor attested.
+              'previewOutOfLock': preview_out_of_lock}
     (output / 'post-gate-references.json').write_text(json.dumps(result, indent=2) + '\n')
     return result
 
@@ -942,6 +984,10 @@ def main(argv=None):
                       f"{row['coordinate']}@{row['version']} ({row['digest']}) has no publisher "
                       f"{' or '.join(row['missing'])} attestation; owner {row['owner']}; {row['reason']}; "
                       f"expires {row['expires']} (target {row['target']})")
+            for row in collected['previewOutOfLock']:
+                print(f"::warning title=Preview out of lock {row['ruling']}::{row['component']} {row['field']} "
+                      f"{row['image']} ({row['digest']}) is Preview and recorded out of the lock: "
+                      "neither frozen nor attested")
             return 0
         if args.declare_evidence:
             if not args.report or not args.lock or not args.journey_reports:
