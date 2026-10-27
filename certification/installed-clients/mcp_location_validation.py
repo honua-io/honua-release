@@ -194,11 +194,31 @@ def judge(fixture, bootstrap, observed, operation):
             or not isinstance(observed.get("cases"), list) or len(observed["cases"]) != len(authored["cases"])):
         raise ValueError("location observations differ from exact authored scenario/candidate")
     sessions, fingerprints = set(), set()
+    # D3: only the Inspector's anonymous probe of the two fixed tools observes
+    # discovery; there, absence from the actual anonymous catalog plus the
+    # Inspector's local tool_not_found refusal is the refusal evidence.
+    unlisted_lane = (observed["canonicalClient"] == "MCP Inspector"
+                     and authored["tool"] in common.ANONYMOUS_UNLISTED_REFUSAL_TOOLS)
+    refusal_evidence = "server-refusal"
     for expected, actual in zip(authored["cases"], observed["cases"], strict=True):
         if (not isinstance(actual, dict) or set(actual) != set(expected) | {"result", "wire", "client"}
                 or any(not common.same_json(actual.get(key), value) for key, value in expected.items())):
             raise ValueError("location invocation changed authored input, operation or authority")
-        frame, session = common.observed_wire(actual["wire"], "tools/call", {"name": authored["tool"], "arguments": expected["arguments"]}, expected["authenticated"])
+        params = {"name": authored["tool"], "arguments": expected["arguments"]}
+        if (unlisted_lane and expected["kind"] == "anonymous" and expected["authenticated"] is False
+                and isinstance(actual["wire"], dict) and actual["wire"].get("invocation") is None):
+            if actual["result"] is not None:
+                raise ValueError("unlisted anonymous probe cannot retain a server result")
+            session = common.anonymous_unlisted_refusal(actual["wire"], actual["client"], params, observed["canonicalClient"], observed["clientVersion"])
+            if session in sessions:
+                raise ValueError("location response or fresh session differs from actual retained wire")
+            sessions.add(session); fingerprints.add(actual["wire"]["expectedCredentialFingerprint"])
+            refusal_evidence = common.ANONYMOUS_UNLISTED_REFUSAL
+            continue
+        if unlisted_lane and expected["kind"] == "anonymous":
+            frame, session = common.listed_anonymous_invocation(actual["wire"], params, observed["canonicalClient"])
+        else:
+            frame, session = common.observed_wire(actual["wire"], "tools/call", params, expected["authenticated"])
         result = frame if "error" in frame else frame["result"]
         if session in sessions or not common.same_json(result, actual["result"]):
             raise ValueError("location response or fresh session differs from actual retained wire")
@@ -219,7 +239,7 @@ def judge(fixture, bootstrap, observed, operation):
     return {key: authored[key] for key in ("candidateSourceSha", "candidateImage", "fixtureSha256", "bootstrapSha256", "locationFixtureSha256", "operation")} | {
         "canonicalClient": observed["canonicalClient"], "clientVersion": observed["clientVersion"],
         "positive": True, "negative": True, "mediaSchema": True, "anonymousInvocationRefusal": True,
-        "coordinateSemantics": True, "limitSemantics": True}
+        "coordinateSemantics": True, "limitSemantics": True, "anonymousRefusalEvidence": refusal_evidence}
 
 
 def main():

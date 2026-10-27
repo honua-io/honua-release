@@ -34,7 +34,19 @@ invalid CRS and geocode limits require typed refusals.
 Each operation is attempted independently through the fixed installed client
 launcher, with actual initialize/invoke wire bytes, fresh-session and private
 credential forwarding checks. Anonymous calls require an actual typed server
-refusal; a local Inspector catalog refusal cannot stand in. Candidate runtime
+refusal; a local Inspector catalog refusal alone cannot stand in. One founder-
+approved exception (D3, 2026.1) applies on the MCP Inspector lane only and only
+to `honua_geocode_addresses` and `honua_solve_route`: the candidate observer
+records the anonymous default-view `tools/list` walk through the canonical
+Inspector, every page is a complete delivered 200 JSON-RPC result on the fresh
+anonymous session, the tool is absent from the union of listed names, no
+`tools/call` was sent, and the Inspector exited with exactly code 5 and stderr
+`tool_not_found` naming that tool. The proof then reports
+`anonymousRefusalEvidence: inspector-anonymous-unlisted`; otherwise it is
+`server-refusal`. If either tool is listed, Inspector must send `tools/call` and
+the server's actual refusal is required. The SDK lane and every other tool
+(including `honua_geocode_address`, `honua_create_map_package` and
+`honua_create_app_package`) still require the server's actual refusal. Candidate runtime
 inspection brackets every operation. Incomplete observations, missing setup,
 missing entitlements, client substitution and source drift remain non-pass.
 No edition policy or licensing bypass is introduced.

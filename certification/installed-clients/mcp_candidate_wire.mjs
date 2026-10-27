@@ -21,12 +21,22 @@ const auth = (headers, salt) => ({
   cookiePresent: headers.cookie !== undefined,
 });
 const session = (value) => typeof value === "string" && value ? hash(value) : null;
+// Founder decision D3 (2026.1): on the MCP Inspector lane only, these two
+// tools' anonymous refusal may be evidenced by their absence from the observed
+// anonymous tools/list when the pinned Inspector then refuses locally
+// (exit 5, tool_not_found) without sending tools/call. No other tool.
+export const ANONYMOUS_UNLISTED_REFUSAL_TOOLS = Object.freeze(["honua_geocode_addresses", "honua_solve_route"]);
+export const ANONYMOUS_UNLISTED_REFUSAL = "inspector-anonymous-unlisted";
 
-export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient, observeDiscovery = false, tenantId }) {
+export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient, observeDiscovery = false, tenantId, anonymousUnlistedRefusal = false }) {
   if (!["tools/call", "resources/read"].includes(method) || !params || typeof params !== "object"
       || typeof authenticated !== "boolean" || typeof credential !== "string" || !credential || typeof invoke !== "function"
       || typeof observeDiscovery !== "boolean" || typeof credentialSalt !== "string" || !/^[a-f0-9]{32}$/.test(credentialSalt)) {
     throw new Error("candidate observation requires a fixed owned request and expected credential");
+  }
+  if (typeof anonymousUnlistedRefusal !== "boolean" || (anonymousUnlistedRefusal && (!observeDiscovery || method !== "tools/call"
+      || authenticated || tenantId !== undefined || !ANONYMOUS_UNLISTED_REFUSAL_TOOLS.includes(params.name)))) {
+    throw new Error("anonymous unlisted refusal evidence is limited to observed anonymous discovery of its fixed tools");
   }
   if (tenantId !== undefined && (!authenticated || typeof tenantId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(tenantId))) throw new Error("candidate tenant selection refused");
   const observed = { schema: "honua.mcp-candidate-wire/v1", upstream: upstream.href,
@@ -34,6 +44,7 @@ export async function observeCandidateRequest({ method, params, authenticated, c
     listener: null, initialize: null, invocation: null, invalid: false, completed: false };
   if (tenantId !== undefined) observed.expectedTenantId = tenantId;
   if (observeDiscovery) observed.discovery = [];
+  if (anonymousUnlistedRefusal) observed.refusalEvidence = ANONYMOUS_UNLISTED_REFUSAL;
   const active = new Set();
   const sockets = new Set();
   let total = 0;
@@ -65,6 +76,10 @@ export async function observeCandidateRequest({ method, params, authenticated, c
       }
       const body = Buffer.concat(chunks);
       const message = incoming.method === "POST" ? JSON.parse(body) : undefined;
+      // Absence of tools/call is the evidence: a batch or non-object frame
+      // could carry an unrecorded invocation, so refuse it in this mode.
+      if (anonymousUnlistedRefusal && incoming.method === "POST"
+          && (!message || typeof message !== "object" || Array.isArray(message) || typeof message.method !== "string")) refusal();
       let record;
       if (message?.method === "initialize") {
         if (observed.initialize || !id(message.id) || message.jsonrpc !== "2.0"
@@ -136,6 +151,14 @@ export async function observeCandidateRequest({ method, params, authenticated, c
     // Delivery is recorded by the forwarding response, not by caller strings.
     await new Promise((resolve) => setImmediate(resolve));
     const initialize = observed.initialize, invocation = observed.invocation;
+    if (anonymousUnlistedRefusal && !invocation) {
+      if (observed.invalid || !initialize?.response?.complete || !initialize.response.delivered
+          || !initialize.response.sessionSha256 || !unlistedAbsence(observed, initialize, params.name, client)) refusal();
+      observedResponse(initialize);
+      observed.clientProcessId = client?.processId;
+      observed.completed = true;
+      return { wire: observed, client };
+    }
     if (observed.invalid || !initialize?.response?.complete || !initialize.response.delivered
         || !invocation?.response?.complete || !invocation.response.delivered
         || !initialize.response.sessionSha256 || invocation.request.sessionSha256 !== initialize.response.sessionSha256
@@ -156,6 +179,45 @@ export async function observeCandidateRequest({ method, params, authenticated, c
     if (proxy.listening) await new Promise((resolve) => proxy.close(resolve));
     if (onObservation) onObservation(structuredClone(observed));
   }
+}
+
+// Every observed anonymous catalog page is a complete delivered 200 JSON-RPC
+// result on the fresh session, the walk is complete, the tool is absent from
+// the union, and the pinned Inspector reported exactly its local refusal.
+function unlistedAbsence(observed, initialize, name, client) {
+  try {
+    const pages = observed.discovery;
+    if (!Array.isArray(pages) || pages.length < 1) return false;
+    const identifiers = new Set([`${typeof initialize.request.id}:${initialize.request.id}`]);
+    const names = [];
+    const cursors = new Set();
+    let cursor;
+    for (const [position, page] of pages.entries()) {
+      const selected = page.request.params;
+      const key = `${typeof page.request.id}:${page.request.id}`;
+      if (identifiers.has(key) || page.request.sessionSha256 !== initialize.response.sessionSha256
+          || page.request.credentialPresent || page.request.authorizationPresent || page.request.cookiePresent
+          || (selected !== undefined && (!selected || typeof selected !== "object" || Array.isArray(selected)
+            || Object.keys(selected).some(item => !["cursor", "_meta"].includes(item))
+            || (selected._meta !== undefined && (!selected._meta || typeof selected._meta !== "object"
+              || Object.keys(selected._meta).some(item => item.split("/", 1)[0] === "honua.io")))))
+          || selected?.cursor !== cursor || (position === 0 && selected !== undefined && Object.hasOwn(selected, "cursor"))) return false;
+      identifiers.add(key);
+      const frame = observedResponse(page);
+      const result = frame.result;
+      if (!result || typeof result !== "object" || !Array.isArray(result.tools)
+          || result.tools.some(tool => !tool || typeof tool !== "object" || typeof tool.name !== "string")) return false;
+      names.push(...result.tools.map(tool => tool.name));
+      cursor = result.nextCursor;
+      if (cursor !== undefined && (typeof cursor !== "string" || !cursor || cursors.has(cursor) || position === pages.length - 1)) return false;
+      cursors.add(cursor);
+      if (cursor === undefined && position !== pages.length - 1) return false;
+    }
+    if (names.includes(name)) return false;
+    const diagnostic = JSON.parse(client?.stderr ?? "");
+    return client?.exitCode === 5 && client.exitSignal === null && client.timedOut === false && client.stdout === ""
+      && isDeepStrictEqual(diagnostic, { error: { code: "tool_not_found", message: `Tool '${name}' not found on server.` } });
+  } catch { return false; }
 }
 
 export function observedResponse(record) {
