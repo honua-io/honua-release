@@ -34,7 +34,7 @@ STOPS = [{"lon": 0, "lat": 0}, {"lon": 0.02, "lat": 0}, {"lon": 0.02, "lat": 0.0
 LOCATION_FIXTURE = {"addresses": ADDRESSES, "unmatched": NO_MATCH,
     "vertices": VERTICES, "edges": sorted(sorted(edge) for edge in EDGES),
     "localCsvSha256": "80371b8f945cdc87d45107478d53dae58be151ac9ec019aba42e5493a4c73a59",
-    "routingSqlSha256": "07f0157a6c28de18eba539ca9881788904fb26a2d918f2551b877abf75e09af9"}
+    "routingSqlSha256": "eac8f620e47107a86bf6390f2b0a15c25c60f049d37a026f5e926ad068b4eb4c"}
 LOCATION_SHA = "sha256:" + hashlib.sha256(json.dumps(LOCATION_FIXTURE, sort_keys=True).encode()).hexdigest()
 
 
