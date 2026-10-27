@@ -1086,6 +1086,7 @@ def test_the_real_generator_clears_exactly_the_okf_and_catalog_rows(monkeypatch,
     monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
     monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a, **k: copy.deepcopy(component))
     monkeypatch.setattr(resolver, 'select_sdk', lambda name, component, *a: copy.deepcopy(component))
+    monkeypatch.setattr(resolver, 'select_release', lambda name, component, *a: copy.deepcopy(component))
     def versions(github, name, selected):
         # The server's own declaration always carries schemaVersions; resolve adds the derived floor.
         declared = {'schemaVersions': {}} if name == 'honua-server' else {}
@@ -2090,3 +2091,64 @@ def test_image_child_without_config_descriptor_refuses_instead_of_crashing():
     registry.document = lambda repository, digest, manifest=False: {'manifests': []}
     with pytest.raises(resolver.ResolutionError, match='no config descriptor'):
         registry.identity('honua-io/honua-server', 'nightly-aaaaaaa', NEW, ['amd64'])
+
+
+# --- A released honua-iac stays on its release (2026.1 freeze needs a released version) ---
+
+IAC_RELEASE, IAC_TAG_OBJECT = 'd' * 40, 'f' * 40
+
+
+def released_iac(**overrides):
+    row = {'repository': 'https://github.com/honua-io/honua-iac', 'lifecycleStatus': 'GA',
+           'version': '0.3.0', 'sha': IAC_RELEASE,
+           'artifact': 'archive:https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz',
+           'artifactSourceRevision': IAC_RELEASE, 'artifactSha256': 'sha256:' + '1' * 64}
+    row.update(overrides)
+    return row
+
+
+class ReleaseGitHub(GitHub):
+    def __init__(self, peeled=IAC_RELEASE, green=True, annotated=True):
+        self.peeled, self.is_green, self.annotated, self.paths = peeled, green, annotated, []
+
+    def commits(self, repository, limit):
+        raise AssertionError('a released component must not walk trunk')
+
+    def green(self, name, repository, sha):
+        return (True, 'full CI green') if self.is_green else (False, 'Static Terraform Validate failure')
+
+    def json(self, path):
+        self.paths.append(path)
+        if path == 'repos/honua-io/honua-iac/git/ref/tags/v0.3.0':
+            if self.peeled is None:
+                raise resolver.ResolutionError('gh api failed: HTTP 404', status=404)
+            return {'object': {'type': 'tag', 'sha': IAC_TAG_OBJECT} if self.annotated
+                    else {'type': 'commit', 'sha': self.peeled}}
+        if path == f'repos/honua-io/honua-iac/git/tags/{IAC_TAG_OBJECT}':
+            return {'object': {'type': 'commit', 'sha': self.peeled}}
+        raise AssertionError(path)
+
+
+@pytest.mark.parametrize('annotated', [True, False])
+def test_a_released_archive_is_pinned_to_its_release_tag_not_trunk(annotated):
+    selected = resolver.select_release('honua-iac', released_iac(), ReleaseGitHub(annotated=annotated))
+    assert selected == released_iac()
+
+
+@pytest.mark.parametrize('github,row,reason', [
+    (ReleaseGitHub(peeled='9' * 40), released_iac(), 'v0.3.0 resolves to 9999'),
+    (ReleaseGitHub(peeled=None), released_iac(), 'HTTP 404'),
+    (ReleaseGitHub(green=False), released_iac(), 'CI Static Terraform Validate failure'),
+    (ReleaseGitHub(), released_iac(artifactSourceRevision='9' * 40), 'artifactSourceRevision'),
+    (ReleaseGitHub(), released_iac(artifactSha256=None), 'artifactSha256'),
+])
+def test_a_released_archive_that_is_not_its_tagged_green_commit_is_refused(github, row, reason):
+    row = {key: value for key, value in row.items() if value is not None}
+    with pytest.raises(resolver.ResolutionError, match=f'honua-iac: .*{reason}'):
+        resolver.select_release('honua-iac', row, github)
+
+
+def test_only_a_released_archive_skips_the_trunk_walk():
+    assert resolver.released_archive(released_iac())
+    assert not resolver.released_archive(released_iac(version='pre-release'))
+    assert not resolver.released_archive({**released_iac(), 'artifact': 'oci-chart:honua'})

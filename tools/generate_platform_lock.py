@@ -249,6 +249,12 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
                 if digest and (component.get("artifactSourceRevision") or published.get("sourceRevision")):
                     seed["sha256"] = digest
                     seed["sourceRevision"] = component.get("artifactSourceRevision") or published.get("sourceRevision")
+                    if (seed["kind"] == "archive" and "version" in seed
+                            and seed["sourceRevision"] != component.get("sha")):
+                        # A released archive names the bytes of one commit; a source pin that moved
+                        # past it would lock a release the candidate never ran.
+                        refuse(f"{apath}.sourceRevision: released archive {seed['version']} is built from "
+                               f"{seed['sourceRevision']}, not the pinned commit {component.get('sha')}", "PUBLISH")
                 else:
                     refuse(f"{apath}.sha256: package hash is not declared", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
             elif seed["kind"] in ("image", "oci-chart"):

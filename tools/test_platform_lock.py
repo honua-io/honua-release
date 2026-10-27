@@ -314,15 +314,15 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "$.notes: immutable release-notes content/reference is not declared" in joined
     assert "notes" not in draft.lock
     assert "[DECISION]" not in joined
-    # honua-iac is pinned to untagged trunk a71477e0: the cut needs it published as a tag.
-    assert "[PUBLISH] $.components.honua-iac.artifacts[0].version" in joined
+    # honua-iac is pinned to its v0.3.0 release, so its artifact version resolves.
+    assert "honua-iac.artifacts[0]" not in joined
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
     assert draft.lock["components"]["geospatial-mcp"]["artifacts"][0]["sha256"] == (
         "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
     )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
-        "sha256:f6394aa35780c15eef7ee53fd839255d12262b28addc48ad57ef5eeedbcb40fe"
+        "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
     assert "honua-server.artifacts[0].platformDigests" not in joined
@@ -880,3 +880,38 @@ def test_generator_keeps_sdk_semver_independent_of_the_platform_version(tmp_path
     draft = draft_of(tmp_path, manifest)
     assert draft.lock["components"]["honua-sdk-dotnet"]["artifacts"][0]["version"] == "1.6.2"
     assert _version_items(draft, "honua-sdk-dotnet") == []
+
+
+def _archive_manifest(**iac):
+    manifest = evidence_manifest()
+    manifest["components"]["honua-iac"] = {
+        "repository": "https://github.com/honua-io/honua-iac", "sha": REVISION, "lifecycleStatus": "GA",
+        "version": "0.3.0", "artifact": "archive:https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz",
+        "artifactSourceRevision": REVISION, "artifactSha256": DIGEST,
+        "contractVersions": {"operator-contract": "honua.operator-contract/v2"}, "schemaVersions": {"plan": "v1"}, **iac}
+    return manifest
+
+
+def test_generator_locks_a_released_archive_at_the_pinned_commit(tmp_path):
+    draft = draft_of(tmp_path, _archive_manifest())
+    assert [item for item in draft.unresolved if "$.components.honua-iac" in item] == []
+    assert draft.lock["components"]["honua-iac"]["artifacts"] == [{
+        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz",
+        "version": "0.3.0", "sha256": DIGEST, "sourceRevision": REVISION}]
+
+
+def test_generator_refuses_a_released_archive_built_from_another_commit(tmp_path):
+    draft = draft_of(tmp_path, _archive_manifest(sha="c" * 40))
+    assert any("[PUBLISH] $.components.honua-iac.artifacts[0].sourceRevision: released archive 0.3.0 is "
+               f"built from {REVISION}, not the pinned commit {'c' * 40}" in item for item in draft.unresolved)
+
+
+def test_live_inputs_lock_the_published_honua_iac_release():
+    draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
+    assert [item for item in draft.unresolved
+            if "honua-iac" in item and "Versions: not declared" not in item] == []
+    assert draft.lock["components"]["honua-iac"]["artifacts"] == [{
+        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz",
+        "version": "0.3.0", "sourceRevision": "d5b7bec9073e72ad294da5ce802aff0c58abad07",
+        "sha256": "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308"}]
+    assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "d5b7bec9073e72ad294da5ce802aff0c58abad07"

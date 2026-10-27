@@ -471,6 +471,46 @@ SKIP_REPORT_LIMIT = 10
 STALE_DAYS = 3
 
 
+RELEASE_VERSION = re.compile(r'\d+\.\d+\.\d+')
+
+
+def released_archive(component):
+    """A source archive the manifest pins at a published release (honua-iac vX.Y.Z)."""
+    return (str(component.get('artifact') or '').startswith('archive:')
+            and RELEASE_VERSION.fullmatch(str(component.get('version') or '')) is not None)
+
+
+def select_release(name, component, github):
+    """Keep a released archive on its release; never walk trunk past it.
+
+    The lock locks the release's bytes, so the pinned sha must be the commit the vX.Y.Z tag names,
+    the archive's own source revision, and green. Moving forward is a new release and a re-pin.
+    """
+    repository = component['repository'].removeprefix('https://github.com/')
+    version, sha = str(component['version']), str(component.get('sha') or '')
+    tag = f'v{version}'
+    if not SHA.fullmatch(sha):
+        raise ResolutionError(f'{name}: release {tag} is not pinned to an immutable commit')
+    if component.get('artifactSourceRevision') != sha:
+        raise ResolutionError(f'{name}: artifactSourceRevision is not the pinned release commit {sha}')
+    if not str(component.get('artifactSha256') or '').startswith('sha256:'):
+        raise ResolutionError(f'{name}: release {tag} declares no artifactSha256')
+    try:
+        target = github.json(f'repos/{repository}/git/ref/tags/{tag}')['object']
+        if target.get('type') == 'tag':
+            target = github.json(f"repos/{repository}/git/tags/{target['sha']}")['object']
+    except (KeyError, TypeError) as exc:
+        raise ResolutionError(f'{name}: release tag {tag} is unreadable ({exc})') from exc
+    except ResolutionError as exc:
+        raise ResolutionError(f'{name}: release tag {tag}: {exc}') from exc
+    if target.get('type') != 'commit' or target.get('sha') != sha:
+        raise ResolutionError(f"{name}: release tag {tag} resolves to {target.get('sha')}, not the pinned {sha}")
+    green, why = github.green(name, repository, sha)
+    if not green:
+        raise ResolutionError(f'{name}: release {tag} at {sha}: CI {why}')
+    return dict(component)
+
+
 def _commit_time(github, sha):
     value = sha and getattr(github, 'commit_date', lambda _: None)(sha)
     try:
@@ -961,7 +1001,8 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
             # below still reads the selected commit's declaration and refuses on any error.
             candidate['components'][name] = (
                 select_sdk(name, component, candidate.get('clientArtifacts') or {}, identities, github)
-                if name in SDK_COMPONENTS else select_component(
+                if name in SDK_COMPONENTS else select_release(name, component, github)
+                if released_archive(component) else select_component(
                     name, component, github, registry, limit, walk,
                     declare=lambda selected, name=name: component_versions(github, name, selected)))
             selected = candidate['components'][name]
