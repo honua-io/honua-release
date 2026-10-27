@@ -77,7 +77,7 @@ def test_a_published_rc_wins_over_a_nightly_lock_and_an_unsigned_lock_fails_clos
 
 
 def test_neither_source_is_unavailable_never_a_fallback(tmp_path, capsys):
-    with pytest.raises(cu.PairError, match="no published 2026.1 rc release and no signed nightly lock"):
+    with pytest.raises(cu.PairError, match="no published 2026.1 rc release, no signed nightly lock and no certified nightly image"):
         resolve()
     manifest = tmp_path / "platform-manifest.yaml"
     manifest.write_text(yaml.safe_dump(candidate_manifest()))
@@ -117,3 +117,89 @@ def test_receipt_has_the_kind_pair_shape_and_says_it_is_the_required_ga_path(tmp
     assert receipt["certifiedReleasePair"] is False and receipt["topology"] == "docker-compose"
     for key in ("priorSource", "scenario", "why", "prior", "candidate", "observed", "phases", "workflow"):
         assert key in receipt
+
+
+# Ruling compose-upgrade-prior-nightly-2026-10-27: no rc and no lock -> newest certified nightly older
+# than the candidate, by digest; never the candidate; fail closed when none resolves.
+OLDER = "08ace24" + "a" * 33
+
+
+def nightly(sha, digest_char=None, *, certified=True, why=""):
+    entry = {"tag": f"nightly-{sha[:7]}", "sha": sha, "certified": certified, "why": why}
+    if digest_char:
+        entry["reference"] = f"{REPO}@sha256:{digest_char * 64}"
+    return entry
+
+
+def nightly_source(*observations):
+    calls = []
+
+    def observe(candidate):
+        calls.append(candidate["sourceRevision"])
+        return list(observations)
+    observe.calls = calls
+    return observe
+
+
+def resolve_with_nightlies(source, releases=(), locks=()):
+    manifest = candidate_manifest()
+    return cu.resolve(manifest, yaml.safe_dump(manifest).encode(), releases=list(releases),
+                      nightly_locks=list(locks), certified_nightlies=source)
+
+
+def test_no_rc_and_no_lock_falls_back_to_the_newest_certified_nightly_by_digest():
+    source = nightly_source(nightly("b" * 40, certified=False, why="ci.yml full matrix red"),
+                            nightly(OLDER, "8"), nightly("9" * 40, "9"))
+    out = resolve_with_nightlies(source)
+    assert out["prior_source"] == cu.CERTIFIED_NIGHTLY
+    assert out["prior"] == f"{REPO}@sha256:{'8' * 64}"
+    assert out["prior_source_revision"] == OLDER
+    assert out["prior_selected_from"] == f"nightly-08ace24 ({cu.NIGHTLY_PRIOR_RULING})"
+    assert "not certified: ci.yml full matrix red" in out["skipped"]
+    assert source.calls == [C]
+
+
+def test_a_published_rc_wins_over_the_certified_nightly_and_the_walk_never_runs():
+    source = nightly_source(nightly(OLDER, "8"))
+    out = resolve_with_nightlies(source, releases=[rc("2026.1-rc.1", "2026-10-27T00:00:00Z", "1")])
+    assert (out["prior_source"], out["prior"]) == (cu.PUBLISHED_RC, f"{REPO}@sha256:{'1' * 64}")
+    assert source.calls == []
+
+
+@pytest.mark.parametrize("same", [
+    nightly(C, "7"),                    # the candidate's own commit
+    nightly(OLDER, "d"),                # an older tag whose image is the candidate's amd64 child
+])
+def test_a_nightly_that_is_the_candidate_is_refused_and_fails_closed_alone(same):
+    with pytest.raises(cu.PairError, match="refused: the candidate itself"):
+        resolve_with_nightlies(nightly_source(same))
+    out = resolve_with_nightlies(nightly_source(same, nightly("9" * 40, "9")))
+    assert out["prior"] == f"{REPO}@sha256:{'9' * 64}"
+
+
+@pytest.mark.parametrize("observations", [
+    (),                                                          # no nightly image at all
+    (nightly(OLDER, certified=False, why="no green ci.yml"),),   # only uncertified nightlies
+])
+def test_no_certified_nightly_fails_closed(observations):
+    with pytest.raises(cu.PairError, match="never the candidate itself"):
+        resolve_with_nightlies(nightly_source(*observations))
+
+
+def test_a_certified_nightly_without_a_digest_or_with_a_foreign_tag_fails_closed():
+    with pytest.raises(cu.PairError, match="immutable amd64 digest"):
+        resolve_with_nightlies(nightly_source(nightly(OLDER)))
+    with pytest.raises(cu.PairError, match="nightly-<sha7> tag of its commit"):
+        resolve_with_nightlies(nightly_source({**nightly(OLDER, "8"), "tag": "nightly"}))
+
+
+def test_resolve_cli_reports_ready_0_when_no_prior_resolves(tmp_path, monkeypatch, capsys):
+    manifest = tmp_path / "platform-manifest.yaml"
+    manifest.write_text(yaml.safe_dump(candidate_manifest()), encoding="utf-8")
+    releases = tmp_path / "releases.json"
+    releases.write_text("[[]]", encoding="utf-8")
+    monkeypatch.setattr(cu, "certified_nightlies_from_github", lambda: nightly_source())
+    assert cu.main(["resolve", "--candidate-manifest", str(manifest), "--releases-json", str(releases),
+                    "--certified-nightly-from-github"]) == 0
+    out = capsys.readouterr().out
+    assert "ready=0" in out and "certified nightly" in out

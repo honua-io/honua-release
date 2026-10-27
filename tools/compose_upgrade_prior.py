@@ -17,11 +17,22 @@ this order, and nowhere else:
   2. nightly-lock   Else the newest signed nightly lock, refs/tags/nightly-lock/2026.1-rc.N
                     (tools/mint_nightly_lock.py): prior = that lock's honua-server amd64 image binding.
                     The workflow verifies the lock's keyless signature before it uses the image.
+  3. certified-nightly
+                    Else (ruling compose-upgrade-prior-nightly-2026-10-27, founder decision 2026-10-27)
+                    the newest published, certified nightly honua-server image OLDER than the candidate:
+                    walking honua-server trunk from the candidate's own commit towards older commits, the
+                    first `nightly-<sha7>` image whose commit has a green full-matrix ci.yml under the
+                    trunk resolver's own evaluator (tools/resolve_trunk_candidate.py GitHub.green), bound by
+                    the registry index, its linux/amd64 child digest and the config revision label
+                    (Registry.identity). Example: nightly-08ace24. Once rc.1 is published, source 1 wins
+                    again and this source is never consulted.
 
 A candidate of either kind whose server image IS the candidate's (index digest or amd64 child) is
 skipped: it is the same image, not a prior. When neither source yields a different immutable image,
 the pair is unavailable (ready=0) and the fragment is `blocked` (strict promotes blocked to fail). The
-lane never falls back to the candidate, a floating tag, or a manifest-history pin as its prior.
+lane never falls back to the candidate, a floating tag, or a manifest-history pin as its prior. A nightly
+whose commit is the candidate's, or whose image is the candidate's, is refused, not selected; if the
+candidate's commit is not on the walked trunk window, "older" is unprovable and the pair is unavailable.
 
 Architecture is x86_64 only (linux/amd64); multi-tenant scenarios are out of scope (ADR-0024).
 
@@ -44,7 +55,11 @@ from upgrade_trunk_pair import DIGEST, PairError, _bytes_digest, server_identity
 SCHEMA = "honua.upgrade-compose-receipt/v1"
 PUBLISHED_RC = "published-rc"
 NIGHTLY_LOCK = "nightly-lock"
-PRIOR_SOURCES = (PUBLISHED_RC, NIGHTLY_LOCK)
+CERTIFIED_NIGHTLY = "certified-nightly"
+PRIOR_SOURCES = (PUBLISHED_RC, NIGHTLY_LOCK, CERTIFIED_NIGHTLY)
+NIGHTLY_PRIOR_RULING = "compose-upgrade-prior-nightly-2026-10-27"
+NIGHTLY_TAG = re.compile(r"nightly-([0-9a-f]{7})\Z")
+SHA = re.compile(r"[0-9a-f]{40}\Z")
 ARCHITECTURE = "amd64"
 PLATFORM = "linux/amd64"
 D9_RULING = "https://github.com/honua-io/honua-release/issues/950"
@@ -114,8 +129,15 @@ def lock_server_reference(label: str, lock: dict) -> tuple[str, str]:
     return binding["reference"], str(binding.get("sourceRevision") or "")
 
 
-def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, nightly_locks=None) -> dict:
-    """Select the prior per the module docstring. `nightly_locks`: iterable of (label, lock dict, signed)."""
+def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, nightly_locks=None,
+            certified_nightlies=None) -> dict:
+    """Select the prior per the module docstring. `nightly_locks`: iterable of (label, lock dict, signed).
+
+    `certified_nightlies`: a callable taking the candidate identity and returning an iterable of
+    observations, newest first and strictly older than the candidate on trunk, each
+    {"tag", "sha", "reference" (repository@sha256 amd64 child), "certified" (bool), "why"}. It is called
+    only when no rc and no lock supplies a prior, so the GitHub walk never runs once rc.1 exists.
+    """
     candidate = candidate_identity(candidate_manifest)
     same = set(candidate["sameImageDigests"])
     skipped: list[str] = []
@@ -138,10 +160,69 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
         return _pair(candidate, candidate_bytes, source=NIGHTLY_LOCK, prior=reference, source_revision=revision,
                      label=f"nightly-lock/{label}", url="", skipped=skipped,
                      identity=_bytes_digest(json.dumps(lock, sort_keys=True, separators=(",", ":")).encode()))
+    for nightly in (certified_nightlies(candidate) if certified_nightlies else []):
+        tag, sha, reference = str(nightly.get("tag") or ""), str(nightly.get("sha") or ""), str(nightly.get("reference") or "")
+        match = NIGHTLY_TAG.fullmatch(tag)
+        digest = reference.rsplit("@", 1)[1] if "@" in reference else ""
+        if not match or not SHA.fullmatch(sha) or match.group(1) != sha[:7]:
+            raise PairError(f"nightly observation {tag or '(no tag)'} is not a nightly-<sha7> tag of its commit")
+        if nightly.get("certified") is True and not DIGEST.fullmatch(digest):
+            raise PairError(f"certified nightly {tag} is not bound by an immutable amd64 digest")
+        if sha == candidate["sourceRevision"] or digest in same:
+            skipped.append(f"{tag} (refused: the candidate itself)")
+            continue
+        if nightly.get("certified") is not True:
+            skipped.append(f"{tag} (not certified: {' '.join(str(nightly.get('why') or 'no green full-matrix ci.yml').split())})")
+            continue
+        return _pair(candidate, candidate_bytes, source=CERTIFIED_NIGHTLY, prior=reference, source_revision=sha,
+                     label=f"{tag} ({NIGHTLY_PRIOR_RULING})", url="", skipped=skipped,
+                     identity=_bytes_digest(json.dumps({"tag": tag, "sha": sha, "prior": reference},
+                                                       sort_keys=True).encode()))
     detail = f"; skipped: {', '.join(skipped)}" if skipped else ""
-    raise PairError("no published 2026.1 rc release and no signed nightly lock names a server image other than "
-                    "the candidate's (prior = latest published rc image, else previous certified nightly "
-                    f"candidate; never the candidate itself){detail}")
+    raise PairError("no published 2026.1 rc release, no signed nightly lock and no certified nightly image older "
+                    "than the candidate names a server image other than the candidate's (prior = latest "
+                    "published rc image, else the newest signed nightly lock, else the newest certified "
+                    f"nightly-<sha7> image older than the candidate; never the candidate itself){detail}")
+
+
+def certified_nightlies_from_github(limit: int = 200):
+    """Observation source for resolve(): honua-server trunk, older than the candidate, newest first.
+
+    Reuses tools/resolve_trunk_candidate.py (the nightly's own candidate resolver) for the trunk walk,
+    the green full-matrix ci.yml decision and the digest-bound registry identity, so a nightly is
+    "certified" here exactly when it would have qualified as a nightly candidate.
+    """
+    def observe(candidate: dict):
+        from resolve_trunk_candidate import GitHub, Registry, ResolutionError
+        server_sha = candidate["sourceRevision"]
+        repository, image_repository = "honua-io/honua-server", "honua-io/honua-server"
+        github = GitHub()
+        registry = Registry(github)
+        older = False
+        for sha in github.commits(repository, limit):
+            if sha == server_sha:
+                older = True
+                continue
+            if not older:
+                continue        # newer than the candidate: never a prior
+            tag = f"nightly-{sha[:7]}"
+            if tag not in registry.tags(image_repository):
+                continue        # no published nightly image for this commit
+            green, why = github.green("honua-server", repository, sha)
+            if not green:
+                yield {"tag": tag, "sha": sha, "certified": False, "why": why}
+                continue
+            try:
+                identity = registry.identity(image_repository, tag, sha, [ARCHITECTURE])
+            except (OSError, ValueError, subprocess.CalledProcessError, ResolutionError) as exc:
+                yield {"tag": tag, "sha": sha, "certified": False, "why": f"image not bound by digest: {exc}"}
+                continue
+            yield {"tag": tag, "sha": sha, "certified": True, "why": "",
+                   "reference": f"ghcr.io/{image_repository}@{identity['platformDigests'][ARCHITECTURE]}"}
+        if not older:
+            raise PairError(f"candidate honua-server {server_sha} is not within the newest {limit} trunk commits; "
+                            "which nightlies are older than it cannot be established")
+    return observe
 
 
 def _pair(candidate: dict, candidate_bytes: bytes, *, source: str, prior: str, source_revision: str,
@@ -264,6 +345,8 @@ def main(argv=None) -> int:
                    help="`gh api --paginate --slurp repos/<repo>/releases` output (list of pages or a list)")
     r.add_argument("--nightly-locks-from-git", action="store_true",
                    help="read refs/tags/nightly-lock/* from the origin remote")
+    r.add_argument("--certified-nightly-from-github", action="store_true",
+                   help=f"fallback ({NIGHTLY_PRIOR_RULING}): newest certified nightly-<sha7> older than the candidate")
     c = sub.add_parser("classify")
     c.add_argument("--scenario", required=True, choices=SCENARIOS)
     c.add_argument("--exit-code", type=int, required=True)
@@ -288,7 +371,9 @@ def main(argv=None) -> int:
             pages = json.loads(args.releases_json.read_text(encoding="utf-8"))
             releases = [r for page in pages for r in (page if isinstance(page, list) else [page])]
             locks = nightly_locks_from_git() if args.nightly_locks_from_git else []
-            pair = resolve(yaml.safe_load(candidate_bytes), candidate_bytes, releases=releases, nightly_locks=locks)
+            nightlies = certified_nightlies_from_github() if args.certified_nightly_from_github else None
+            pair = resolve(yaml.safe_load(candidate_bytes), candidate_bytes, releases=releases, nightly_locks=locks,
+                           certified_nightlies=nightlies)
         except (OSError, ValueError, yaml.YAMLError, subprocess.CalledProcessError) as exc:
             print("ready=0")
             print("why=" + " ".join(f"compose prior unavailable: {exc}".split()))

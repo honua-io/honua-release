@@ -820,9 +820,12 @@ def test_upgrade_gate_requires_the_ga_compose_upgrade_and_rollback_fragment():
     matrix = compose["strategy"]["matrix"]["scenario"]
     assert "'schedule'" in matrix and '"negative-control"' in matrix and '"normal"' in matrix
     commands = "\n".join(_step_text(step) for step in compose["steps"])
-    # Prior: latest published rc, else the signed nightly lock; never the candidate; fails closed.
+    # Prior: latest published rc, else the signed nightly lock, else the newest certified nightly older than
+    # the candidate (ruling compose-upgrade-prior-nightly-2026-10-27); never the candidate; fails closed.
     assert "python tools/compose_upgrade_prior.py resolve" in commands
     assert "--nightly-locks-from-git" in commands
+    assert "--certified-nightly-from-github" in commands
+    assert "pip install -r tools/requirements-nightly.txt" in commands
     assert "cosign verify-blob" in commands and "nightly-certification.yml@refs/heads/trunk" in commands
     assert "GitHub release lookup failed" in commands
     assert 'STATUS=blocked; WHY="${PAIR_WHY:-compose prior unavailable}"' in commands

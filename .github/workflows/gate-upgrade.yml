@@ -1210,9 +1210,13 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      # requirements-nightly: the certified-nightly fallback reuses tools/resolve_trunk_candidate.py.
+      - run: python -m pip install -r tools/requirements-nightly.txt
 
-      - name: Resolve the prior (latest published rc, else previous signed nightly lock) and the candidate
+      # Prior (D9; ruling compose-upgrade-prior-nightly-2026-10-27): latest published rc, else the newest
+      # signed nightly lock, else the newest certified nightly-<sha7> image older than the candidate (green
+      # full-matrix ci.yml, bound by digest). Never the candidate; none resolves -> ready=0 -> blocked/fail.
+      - name: Resolve the prior (latest published rc, else signed nightly lock, else certified nightly) and the candidate
         id: pair
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
@@ -1225,7 +1229,8 @@ jobs:
             printf 'ready=0\nwhy=compose prior unavailable: GitHub release lookup failed\n' | tee /tmp/cu/pair.env
           else
             python tools/compose_upgrade_prior.py resolve --candidate-manifest platform-manifest.yaml \
-              --releases-json /tmp/cu/releases.json --nightly-locks-from-git | tee /tmp/cu/pair.env
+              --releases-json /tmp/cu/releases.json --nightly-locks-from-git --certified-nightly-from-github \
+              | tee /tmp/cu/pair.env
           fi
           cat /tmp/cu/pair.env >> "$GITHUB_OUTPUT"
           python - <<'PY' > /tmp/cu/pair.json

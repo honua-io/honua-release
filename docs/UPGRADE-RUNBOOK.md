@@ -179,10 +179,14 @@ required`) in the `upgrade-compose-evidence-normal` artifact.
 **Which release is "prior".** 2026.1 is the first release, so the gate defines it explicitly
 (`tools/compose_upgrade_prior.py`): the honua-server digest published by the newest `2026.1-rc.N`
 GitHub release, else the amd64 image of the newest signed nightly lock
-(`refs/tags/nightly-lock/2026.1-rc.N`, keyless signature verified). An rc or lock that ships the
-candidate's own image is skipped. When neither yields a different immutable digest, the cell is
-`blocked` (a strict train fails it); it never falls back to the candidate, a floating tag or a
-manifest-history pin. Multi-tenant deployments are out of scope (ADR-0024: internal only).
+(`refs/tags/nightly-lock/2026.1-rc.N`, keyless signature verified). When neither exists, ruling
+`compose-upgrade-prior-nightly-2026-10-27` (founder decision 2026-10-27) uses the newest published,
+certified nightly honua-server image older than the candidate. That is the first `nightly-<sha7>` image,
+walking honua-server trunk back from the candidate's commit, whose commit has a green full-matrix
+`ci.yml` (for example `nightly-08ace24`). It is resolved by its linux/amd64 digest. Once rc.1 is
+published, the rc rule applies again. An rc, lock or nightly that ships the candidate's own image or
+commit is refused. When no source yields a different immutable digest, the cell is `blocked` (a strict
+train fails it); it never falls back to the candidate, a floating tag or a manifest-history pin. Multi-tenant deployments are out of scope (ADR-0024: internal only).
 
 **Negative control.** On the schedule a second cell, `negative-control`, runs the same lifecycle with
 `COMPOSE_UPGRADE_FAULT=drop-seed-rows` and passes only if the gate's own assertion ("seeded rows did
