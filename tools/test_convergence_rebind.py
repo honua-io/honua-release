@@ -562,7 +562,7 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "8cb074f77d01c0a00617ebe426460aa24c7d890b"
+VERIFIED = "53bb94a3fe1d7a66640e213de289b8f8bc4ffd2e"  # the last verified_server_commits entry
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
@@ -1021,3 +1021,15 @@ def test_stage_selects_the_newest_green_trunk_commit_with_the_contract():
     assert MODULE.select_harness(gh, "sdk-dotnet-harness") == "3" * 40
     with pytest.raises(MODULE.Finding, match="no green"):
         MODULE.select_harness(WalkGitHub([("1" * 40, False, True)]), "sdk-python-harness")
+
+
+def test_grpc_ruling_is_rechecked_at_the_2026_1_rc_candidate_server():
+    """Nightly run 40541809869 refused to stage at server 53bb94a: its mapped gRPC service blobs
+    differ from 8cb074f, the last verified commit. The ruling was re-checked there by hand; the
+    candidate must be recorded with that evidence or the night cannot stage its catalog."""
+    candidate = "53bb94a3fe1d7a66640e213de289b8f8bc4ffd2e"
+    document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
+    ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    assert ruling["verified_server_commits"][-2:] == ["8cb074f77d01c0a00617ebe426460aa24c7d890b", candidate]
+    assert "Re-checked at 53bb94a" in ruling["evidence"]
+    assert "No RPC was added or removed" in ruling["evidence"].split("Re-checked at 53bb94a", 1)[1]
