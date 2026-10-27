@@ -595,3 +595,60 @@ def test_train_call_never_runs_the_standalone_candidate_job(event):
     assert not _expression(condition, event=event, workflow="nightly-certification")
     assert not _expression(condition, event=event, workflow="release-train")
     assert _expression(condition, event="workflow_dispatch", workflow="gate-journey")
+
+
+# ---- founder ruling ga-cells-single-tenant-2026-10-27 (e2e/ga_single_tenant.py) -------------------
+TENANT_BLOCKER = "https://github.com/honua-io/honua-release/issues/377"
+
+
+def single_tenant_receipt(cell):
+    """Single-tenant GA journey: every check passes except 8.tenant-isolation, blocked by #377."""
+    result = receipt(cell)
+    result["status"] = "blocked"
+    stage = result["stages"][7]
+    stage.update(status="blocked", blockedBy=[TENANT_BLOCKER])
+    stage["checks"].append({"id": "8.tenant-isolation", "kind": "http", "invocation": "GET authority denial",
+                            "status": "blocked", "detail": "no second-tenant principal exists on a cloud cell",
+                            "blockedBy": [TENANT_BLOCKER]})
+    return result
+
+
+def test_single_tenant_fixture_validates_against_owned_schema():
+    validator = Draft202012Validator(checker.load_json(checker.ROOT /
+        "certification/terminal-journey/receipt.schema.json"), format_checker=FormatChecker())
+    validator.validate(single_tenant_receipt("aws-ecs/redis-on"))
+
+
+def test_green_ruled_ga_cell_admits_the_single_declared_not_applicable_check(intake):
+    intake.write("aws-ecs/redis-on", [single_tenant_receipt("aws-ecs/redis-on")])
+    result = intake.evaluate()
+    assert result["status"] == "pass", result["why"]
+    row = next(r for r in result["cells"] if r["cell"] == "aws-ecs/redis-on")
+    attempt = row["attempts"][0]
+    assert attempt["status"] == "pass" and attempt["sourceStatus"] == "blocked"
+    assert attempt["profile"] == "ga-single-tenant"
+    assert attempt["ruling"] == "ga-cells-single-tenant-2026-10-27"
+    assert attempt["notApplicable"] == ["8.tenant-isolation"]
+
+
+@pytest.mark.parametrize("defect", ["another-check", "another-blocker"])
+def test_red_anything_beyond_the_declared_check_still_fails(intake, defect):
+    value = single_tenant_receipt("aws-ecs/redis-on")
+    if defect == "another-check":
+        value["stages"][6]["status"] = "blocked"
+        value["stages"][6]["checks"][0]["status"] = "blocked"
+    else:
+        value["stages"][7]["blockedBy"] = value["stages"][7]["checks"][-1]["blockedBy"] = [
+            "https://github.com/honua-io/honua-release/issues/123"]
+    intake.write("aws-ecs/redis-on", [value])
+    assert intake.evaluate()["status"] == "fail"
+
+
+def test_red_without_the_ruling_the_declared_check_fails(intake, monkeypatch, tmp_path):
+    sys.path.insert(0, str(checker.ROOT / "e2e"))
+    import ga_single_tenant
+    empty = tmp_path / "overrides.json"
+    empty.write_text(json.dumps({"rulings": {}}))
+    monkeypatch.setattr(ga_single_tenant, "DECISION_OVERRIDES", empty)
+    intake.write("aws-ecs/redis-on", [single_tenant_receipt("aws-ecs/redis-on")])
+    assert intake.evaluate()["status"] == "fail"

@@ -379,6 +379,9 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
                 journey["why"] = f"journey evidence rejected: {error}"
                 break
             if passed:
+                if receipt.get("status") != "pass" and cloud_journey.ga_single_tenant.admits(receipt, cell):
+                    # Reported, never hidden: the receipt keeps its raw blocked verdict.
+                    journey["declaredNotApplicable"] = cloud_journey.ga_single_tenant.declaration(cell)
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
             if blockers[-1] and (not record.get("servingRefusal")
@@ -436,6 +439,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     report["journeyAttempts"] = report.get("journeyAttempts", []) + journey.get("journeyAttempts", [])
     if "readiness" in journey:
         report["journeyReadiness"] = journey["readiness"]
+    if "declaredNotApplicable" in journey:
+        report["declaredNotApplicable"] = journey["declaredNotApplicable"]
     if journey.get("status") == "blocked" and require_real:
         journey = {**journey, "status": "fail", "why": f"require_real: {journey.get('why')}"}
     if journey.get("status") == "fail" and report.get("status") != "fail":
@@ -1457,6 +1462,10 @@ def _passing_deterministic_receipt(cell_directory: Path, *, prerequisite_profile
             continue
         receipt = _read_json(path) if path.is_file() else None
         if receipt and receipt.get("status") in ({"pass", "blocked"} if prerequisite_profile == "redis-off-serving-refusal" else {"pass"}):
+            return path
+        # ga-cells-single-tenant-2026-10-27: the journey qualified with its one declared N/A check.
+        if (receipt and prerequisite_profile is None and receipt.get("status") == "blocked"
+                and cloud_journey.ga_single_tenant.admits(receipt, str((receipt.get("target") or {}).get("id", "")))):
             return path
     return None
 

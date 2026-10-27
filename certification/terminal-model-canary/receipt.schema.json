@@ -341,7 +341,10 @@
                 "generatedAt": {"type": "string", "format": "date-time"},
                 "status": {"const": "pass"},
                 "candidateVerified": {"const": true},
-                "freshnessVerified": {"const": true}
+                "freshnessVerified": {"const": true},
+                "prerequisiteProfile": {"const": "ga-single-tenant"},
+                "sourceStatus": {"const": "blocked"},
+                "ruling": {"const": "ga-cells-single-tenant-2026-10-27"}
               }
             }
           ]

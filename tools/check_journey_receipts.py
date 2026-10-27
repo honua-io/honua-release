@@ -34,6 +34,14 @@ DRIVERS = ("deterministic", "genuine-model")
 MAX_AGE_SECONDS = 86400
 
 
+def _ga_single_tenant():
+    """e2e/ga_single_tenant.py: the founder ruling's single declared not-applicable journey check."""
+    if str(ROOT / "e2e") not in sys.path:
+        sys.path.insert(0, str(ROOT / "e2e"))
+    import ga_single_tenant
+    return ga_single_tenant
+
+
 def load_json(path: Path):
     def pairs(items):
         result = {}
@@ -133,6 +141,10 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
         if [(s["number"], s["stage"], s["command"]) for s in receipt["stages"]] != expected_stages:
             raise ValueError("receipt does not cover every pinned journey stage")
         passed = receipt["status"] == "pass"
+        # ga-cells-single-tenant-2026-10-27: on a ruled GA cell the single declared not-applicable
+        # check (8.tenant-isolation, #377) is admitted; the raw receipt verdict is kept as sourceStatus.
+        single_tenant = not passed and not cell.endswith("/redis-off") and _ga_single_tenant().admits(receipt, cell)
+        passed = passed or single_tenant
         attribution = record.get("failureAttribution")
         if not passed and attribution not in ("model", "infrastructure"):
             raise ValueError("failed attempt is unattributed")
@@ -149,7 +161,7 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                 require_current(evidence.get("observedAt"), at)
                 if timestamp(evidence["observedAt"]) > timestamp(receipt["generatedAt"]):
                     raise ValueError("stage observation postdates receipt")
-        profile_metadata = {}
+        profile_metadata = _ga_single_tenant().declaration(cell) if single_tenant else {}
         if cell.endswith("/redis-off"):
             if str(ROOT / "e2e") not in sys.path:
                 sys.path.insert(0, str(ROOT / "e2e"))
