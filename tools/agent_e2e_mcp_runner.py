@@ -33,6 +33,12 @@ def run(action, config, seconds, *, action_id=None):
             payload['result'] = client.list_tools(**action['input'])
         elif action['name'] == 'mcp_call_tool' and set(action['input']) == {'name','arguments'}:
             payload['result'] = client.call_tool(action['input']['name'], action['input']['arguments'])
+        elif action['name'] == 'mcp_list_resources' and action['input'] == {}:
+            payload['result'] = client.list_resources()
+        elif action['name'] == 'mcp_list_resource_templates' and action['input'] == {}:
+            payload['result'] = client.list_resource_templates()
+        elif action['name'] == 'mcp_read_resource' and set(action['input']) == {'uri'}:
+            payload['result'] = client.read_resource(action['input']['uri'])
         else:
             raise McpError('invalid-agent-mcp-action')
     except McpError as exc:

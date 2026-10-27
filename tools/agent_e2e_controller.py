@@ -24,6 +24,7 @@ from agent_e2e_pack import (PackError, canonical_digest, digest_bytes, load_json
                             select, visible_task, verify_corpus, verify_export_index)
 from agent_e2e_telemetry import Journal
 from agent_e2e_knowledge import binding as knowledge_binding, validate_binding
+from agent_e2e_mcp import RESOURCE_ACTIONS, McpError, resource_uri
 
 
 class ControllerError(ValueError):
@@ -43,7 +44,9 @@ def validate_action(call):
     if not isinstance(args, dict):
         raise ModelFailure("invalid-tool-arguments")
     required = {"terminal": {"command"}, "mcp_list_tools": set(),
-                "mcp_call_tool": {"name", "arguments"}, "ask_user": {"question"}}
+                "mcp_call_tool": {"name", "arguments"}, "ask_user": {"question"},
+                "mcp_list_resources": set(), "mcp_list_resource_templates": set(),
+                "mcp_read_resource": {"uri"}}
     optional = {"terminal": {"timeoutSeconds"}, "mcp_list_tools": {"view"}}
     if name not in required or not required[name] <= set(args) or set(args) - required[name] - optional.get(name, set()):
         raise ModelFailure("invalid-tool-arguments")
@@ -54,6 +57,11 @@ def validate_action(call):
         raise ModelFailure("invalid-tool-timeout")
     if name == "mcp_call_tool" and not isinstance(args["arguments"], dict):
         raise ModelFailure("invalid-mcp-arguments")
+    if name == 'mcp_read_resource':
+        try:
+            resource_uri(args['uri'])
+        except McpError:
+            raise ModelFailure('invalid-resource-uri') from None
     if name == "mcp_list_tools" and "view" in args and (not isinstance(args['view'], str)
             or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', args['view'])):
         raise ModelFailure("invalid-mcp-view")
@@ -80,6 +88,32 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"question": {"type": "string"}},
         "required": ["question"], "additionalProperties": False}},
 ]
+
+# These schemas are not part of the default model repertoire. Only a trusted
+# caller with an already reviewed runtime policy may admit them; this helper
+# never changes that policy, its budgets or native resource authorization.
+RESOURCE_TOOLS = [
+    {'name': 'mcp_list_resources', 'description': 'Discover native MCP resources using your current identity.',
+     'input_schema': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
+    {'name': 'mcp_list_resource_templates', 'description': 'Discover native MCP resource URI templates using your current identity.',
+     'input_schema': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
+    {'name': 'mcp_read_resource', 'description': 'Read a native Honua resource identifier using your current identity. The identifier is not an HTTP or file destination.',
+     'input_schema': {'type': 'object', 'properties': {'uri': {'type': 'string', 'maxLength': 2048}},
+                      'required': ['uri'], 'additionalProperties': False}},
+]
+
+
+def admitted_resource_actions(policy):
+    if policy is None:
+        return frozenset()
+    known = {tool['name'] for tool in (*TOOLS, *RESOURCE_TOOLS)}
+    if (not isinstance(policy, dict) or set(policy) != {'maxTurns', 'maxActions', 'allowedActions'} or
+            any(type(policy[key]) is not int or not 1 <= policy[key] <= 100 for key in ('maxTurns', 'maxActions')) or
+            not isinstance(policy['allowedActions'], list) or
+            any(not isinstance(name, str) or name not in known for name in policy['allowedActions']) or
+            len(set(policy['allowedActions'])) != len(policy['allowedActions'])):
+        raise ControllerError('invalid reviewed resource action policy')
+    return frozenset(policy['allowedActions']) & frozenset(RESOURCE_ACTIONS)
 
 
 class Backend:
@@ -123,8 +157,9 @@ class Backend:
 
 class BedrockModel:
     """No forced tool choice; immutable requested and returned identities."""
-    def __init__(self, config, client=None):
+    def __init__(self, config, client=None, *, operation_policy=None):
         self.config = config
+        self.resource_actions = admitted_resource_actions(operation_policy)
         if client is None:
             import boto3
             from botocore.config import Config
@@ -149,7 +184,8 @@ class BedrockModel:
 
     def request(self, messages):
         return {"anthropic_version": "bedrock-2023-05-31", "max_tokens": self.config["maxOutputTokens"],
-                "temperature": 0, "system": SYSTEM, "messages": messages, "tools": TOOLS}
+                "temperature": 0, "system": SYSTEM, "messages": messages,
+                "tools": TOOLS + [tool for tool in RESOURCE_TOOLS if tool['name'] in self.resource_actions]}
 
     def quote(self, request):
         # CountTokens is a provider observation, not a character/token guess.
@@ -347,6 +383,8 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 if actions >= limits["maxActions"] or time.monotonic() - started >= limits["timeoutSeconds"]:
                     raise ModelFailure("action-or-time-limit")
                 validate_action(call)
+                if call['name'] in RESOURCE_ACTIONS and call['name'] not in getattr(model, 'resource_actions', ()):
+                    raise ModelFailure('resource-action-not-admitted')
                 if call["id"] in used_call_ids:
                     raise ModelFailure("duplicate-tool-id")
                 used_call_ids.add(call["id"])

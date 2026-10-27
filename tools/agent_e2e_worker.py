@@ -14,6 +14,7 @@ import threading
 import time
 
 from agent_e2e_errors import PackError
+from agent_e2e_mcp import McpError, resource_uri
 
 PROTOCOL = "honua.agent-e2e.container/v1"
 MCP_PROTOCOL = "honua.agent-e2e.mcp-action/v1"
@@ -111,6 +112,15 @@ def validate_command(value, attempt_id, expires, now):
             args = action['input']
             valid = (set(args) == {'name','arguments'} and isinstance(args['name'], str)
                      and bool(args['name'].strip()) and len(args['name']) <= 256 and isinstance(args['arguments'], dict))
+        elif action['name'] in ('mcp_list_resources', 'mcp_list_resource_templates'):
+            valid = action['input'] == {}
+        elif action['name'] == 'mcp_read_resource':
+            valid = set(action['input']) == {'uri'}
+            if valid:
+                try:
+                    resource_uri(action['input']['uri'])
+                except McpError:
+                    valid = False
         else:
             valid = False
         if not valid:

@@ -24,6 +24,7 @@ import uuid
 VERSION = '2025-03-26'
 MAX_BODY = 512 * 1024
 MAX_TOTAL = 2 * 1024 * 1024
+RESOURCE_ACTIONS = ('mcp_list_resources', 'mcp_list_resource_templates', 'mcp_read_resource')
 
 
 class McpError(ValueError):
@@ -36,6 +37,97 @@ class McpError(ValueError):
 def require(condition, category):
     if not condition:
         raise McpError(category)
+
+
+def resource_uri(value, *, template=False):
+    """A native identifier only; never resolve a URI outside the pinned MCP connection."""
+    require(isinstance(value, str) and 0 < len(value) <= 2048 and
+            all(33 <= ord(c) <= 126 for c in value) and '\\' not in value,
+            'invalid-resource-uri')
+    try:
+        uri = urllib.parse.urlsplit(value)
+        uri.port
+    except ValueError:
+        raise McpError('invalid-resource-uri') from None
+    require(uri.scheme == 'honua' and uri.netloc and not uri.username and not uri.password
+            and not uri.fragment and (template or not any(c in value for c in '{}')),
+            'invalid-resource-uri')
+    decoded = urllib.parse.unquote(value)
+    require(all(33 <= ord(c) <= 126 for c in decoded) and '\\' not in decoded,
+            'invalid-resource-uri')
+    return value
+
+
+def screen_resource_values(value, screen):
+    """Screen encoded resource values before their raw response can be retained."""
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+            blob = item.get('blob')
+            if isinstance(blob, str):
+                try:
+                    decoded = base64.b64decode(blob, validate=True)
+                except ValueError:
+                    continue  # Structural validation reports invalid blobs separately.
+                screen(decoded)
+        elif isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, str):
+            screen(urllib.parse.unquote(item))
+
+
+def screen_resource_wire(raw, screen):
+    """Include comments and other retained wire bytes, not just parsed values."""
+    screen(urllib.parse.unquote(raw.decode('utf-8', errors='replace')))
+    # Complete base64 runs may occur in SSE comments as well as blob fields.
+    # Decode the entire run so an embedded credential with a prefix/suffix is
+    # screened too. Incomplete SSE frames are refused separately, never retained.
+    for token in re.findall(rb'[A-Za-z0-9+/]{4,}={0,2}', raw):
+        try:
+            decoded = base64.b64decode(token, validate=True)
+        except ValueError:
+            continue
+        screen(decoded)
+
+
+def validate_resource_catalog(result, *, templates=False):
+    field, identity = ('resourceTemplates', 'uriTemplate') if templates else ('resources', 'uri')
+    require(isinstance(result, dict) and isinstance(result.get(field), list)
+            and len(result[field]) <= 1024 and len(encode(result)) <= MAX_BODY,
+            'invalid-resource-catalog')
+    identifiers = set()
+    for row in result[field]:
+        require(isinstance(row, dict) and isinstance(row.get('name'), str)
+                and row['name'].strip() and len(row['name']) <= 256, 'invalid-resource-descriptor')
+        identifier = resource_uri(row.get(identity), template=templates)
+        require(identifier not in identifiers, 'duplicate-resource-descriptor')
+        identifiers.add(identifier)
+
+
+def validate_resource_result(result, uri, *, screen=None):
+    resource_uri(uri)
+    require(isinstance(result, dict) and len(encode(result)) <= MAX_BODY
+            and result.get('nextCursor') is None, 'partial-or-invalid-resource-result')
+    contents = result.get('contents')
+    require(isinstance(contents, list) and 0 < len(contents) <= 128, 'invalid-resource-result')
+    for item in contents:
+        require(isinstance(item, dict) and item.get('uri') == uri and
+                (('text' in item) != ('blob' in item)), 'invalid-resource-content')
+        require('mimeType' not in item or isinstance(item['mimeType'], str) and
+                0 < len(item['mimeType']) <= 128, 'invalid-resource-mime-type')
+        if 'text' in item:
+            require(isinstance(item['text'], str), 'invalid-resource-text')
+        else:
+            require(isinstance(item['blob'], str), 'invalid-resource-blob')
+            try:
+                raw = base64.b64decode(item['blob'], validate=True)
+            except ValueError:
+                raise McpError('invalid-resource-blob') from None
+            if screen is not None:
+                screen(raw)
 
 
 def encode(value):
@@ -221,6 +313,19 @@ class Client:
                 self._check_secret(raw)
                 if raw and response.headers.get_content_type() == 'application/json':
                     parse(raw, secret=self.secret)
+                if raw and payload and payload.get('method') in (
+                        'resources/list', 'resources/templates/list', 'resources/read'):
+                    screen_resource_wire(raw, self._check_secret)
+                    if response.headers.get_content_type() == 'application/json':
+                        screen_resource_values(parse(raw, secret=self.secret), self._check_secret)
+                    elif response.headers.get_content_type() == 'text/event-stream':
+                        frames = raw.replace(b'\r\n', b'\n').split(b'\n\n')
+                        require(not frames[-1].strip(), 'incomplete-resource-sse-tail')
+                        for frame in frames[:-1]:
+                            data = b'\n'.join(line[5:].lstrip(b' ') for line in frame.split(b'\n')
+                                              if line.startswith(b'data:'))
+                            if data:
+                                screen_resource_values(parse(data, secret=self.secret), self._check_secret)
                 observed_headers = {key:response.headers[key] for key in ('X-Request-Id','traceparent') if key in response.headers}
                 require(all(len(v) <= 512 for v in observed_headers.values()), 'oversized-correlation-header')
                 for value in observed_headers.values():
@@ -346,6 +451,55 @@ class Client:
         result, _ = self._rpc('tools/call', {'name':name, 'arguments':arguments})
         require(isinstance(result.get('content'), list) and type(result.get('isError', False)) is bool, 'invalid-tool-result')
         return result  # Preserve server errors/structured content; do not invent success.
+
+    def _list_resources(self, *, templates=False):
+        require(self.ready, 'session-not-initialized')
+        method = 'resources/templates/list' if templates else 'resources/list'
+        field, identity = ('resourceTemplates', 'uriTemplate') if templates else ('resources', 'uri')
+        rows, identities, cursors, params, metadata = [], set(), set(), {}, None
+        for index in range(32):
+            result, _ = self._rpc(method, params)
+            current = result.get('_meta')
+            require(current is None or isinstance(current, dict), 'invalid-resource-metadata')
+            if index == 0:
+                metadata = current
+            else:
+                require(current == metadata, 'resource-metadata-changed')
+            page = result.get(field)
+            require(isinstance(page, list), 'invalid-resource-catalog')
+            for row in page:
+                require(isinstance(row, dict) and isinstance(row.get('name'), str)
+                        and row['name'].strip() and len(row['name']) <= 256, 'invalid-resource-descriptor')
+                value = resource_uri(row.get(identity), template=templates)
+                require(value not in identities, 'duplicate-resource-descriptor')
+                identities.add(value)
+                rows.append(row)
+            catalog = {field: rows}
+            if metadata is not None:
+                catalog['_meta'] = metadata
+            require(len(rows) <= 1024 and len(encode(catalog)) <= MAX_BODY, 'resource-catalog-too-large')
+            cursor = result.get('nextCursor')
+            if cursor is None:
+                return catalog
+            require(isinstance(cursor, str) and 0 < len(cursor) <= 4096 and cursor not in cursors,
+                    'invalid-or-repeated-resource-cursor')
+            cursors.add(cursor)
+            params = {'cursor': cursor}
+        raise McpError('resource-page-limit')
+
+    def list_resources(self):
+        return self._list_resources()
+
+    def list_resource_templates(self):
+        return self._list_resources(templates=True)
+
+    def read_resource(self, uri):
+        require(self.ready, 'session-not-initialized')
+        resource_uri(uri)
+        self._check_secret(encode({'uri': urllib.parse.unquote(uri)}))
+        result, _ = self._rpc('resources/read', {'uri': uri})
+        validate_resource_result(result, uri, screen=self._check_secret)
+        return result  # Preserve native contents/metadata, never infer operation status.
 
     def close(self):
         if self.closed:
