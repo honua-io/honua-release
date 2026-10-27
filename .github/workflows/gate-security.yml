@@ -185,16 +185,32 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
           format: table
+          # Reviewed per-rule exceptions only (founder decision D1, 2026-10-26). Every entry is
+          # one rule in one file with reason, owner, review point and follow-up; see the
+          # "Accepted exceptions" step below, which fails on an entry that lacks them.
+          trivyignores: .trivyignore.yaml
           # The terraform misconfig scan of the hosted-pilot roots alone takes ~8 min on a
           # hosted runner and hit Trivy's default 5 min deadline (runs 40083424330, 40083424330
           # rerun): "terraform scan error: scan config error: context deadline exceeded". A
           # timed-out scan is recorded as fail, which is correct, but it is not a finding.
           timeout: 20m
 
+      - name: Accepted exceptions
+        id: exceptions
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # An exception without its record is not an accepted exception: fail the scan verdict.
+          # yq (preinstalled on ubuntu-latest) only converts; the checks are jq.
+          yq -o=json '.' .trivyignore.yaml > "$RUNNER_TEMP/trivyignore.json"
+          tools/check_trivy_exceptions.sh "$RUNNER_TEMP/trivyignore.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Decide verdict
         run: |
           set -euo pipefail
-          if [ "${{ steps.trivy.outcome }}" = "success" ]; then
+          if [ "${{ steps.exceptions.outcome }}" != "success" ]; then
+            S=fail; W="the Trivy exception ledger (.trivyignore.yaml) is incomplete"
+          elif [ "${{ steps.trivy.outcome }}" = "success" ]; then
             S=pass; W="no ${SEVERITY} secret/vuln/license/misconfig findings in the release repo"
           else
             S=fail; W="Trivy fs found ${SEVERITY} findings (secret/vuln/license/misconfig)"

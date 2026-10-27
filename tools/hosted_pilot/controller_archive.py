@@ -13,6 +13,7 @@ CONTRACT_PATHS = (
     'certification/hosted-pilot/campaign/runtime-registration-reaper.asl.json.tftpl',
     'certification/hosted-pilot/campaign/runtime-registration-lifecycle.tf',
     'certification/hosted-pilot/campaign/target.tf',
+    'certification/hosted-pilot/campaign/worker-security-group.tf',
     'certification/hosted-pilot/campaign/controller.tf',
     'certification/hosted-pilot/controller/Dockerfile',
     'certification/hosted-pilot/controller/requirements.txt',

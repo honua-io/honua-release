@@ -29,7 +29,8 @@ resource "random_password" "bootstrap_admin" {
 }
 
 module "server" {
-  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=a5e5a425521fd378a87ca88abc80fa925cea5cda"
+  # honua-iac v0.3.0 (tag at d5b7bec9), pinned by commit. The .trivyignore.yaml module path carries this ref.
+  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=d5b7bec9073e72ad294da5ce802aff0c58abad07"
 
   permissions_boundary_arn    = var.permissions_boundary_arn
   existing_vpc_id             = local.application_network.vpc_id
