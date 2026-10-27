@@ -915,6 +915,24 @@
         "honua-release#65"
       ],
       "basis": "Founder decision 2026-10-27 (escalation 2 option A), recorded on honua-release#65 on 2026-10-27"
+    },
+    "capacity-steady-state-and-drill-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "The capacity gate computes the steady-state SLOs (availability, errorRate, p95LatencyMs, p99LatencyMs, throughputRps, and the steady-state queue age and saturation) only over the measured window, which excludes the fault-injection period. The fault drill must still run and is judged separately on its own pass/fail: every injected worker, database and Redis fault recovers within a bounded time, no data is lost and no job is left stuck.",
+      "effect": "certification/capacity-envelope.v1.json gains a drill policy: maxRecoverySecondsPerFault 19 s (the 2026-09-16 soak run 35126254288 recovered from a server-process fault in 16.535 s, x 1.10 rounded up, as for the frozen latency bounds), requireNoDataLoss and requireNoStuckJobs; the recoveryTimeSeconds bound becomes 19 s. tools/check_capacity_soak.py and tools/capacity_observations.py require the receipt's faultDrill period to follow the measured window, compute the steady-state signals over the measured window only, and re-derive the drill verdict from its evidence: each worker, database and Redis recovery within the bound, every layer at its full feature count with the maximum payload intact (dataIntegrity), no stuck GP job (gpJobs.stuckJobIds) and no recorded drill failure. A missing drill, a late recovery, any data loss, any stuck job, or a producer verdict that disagrees with the evidence fails the gate. Producer contract: honua-server #5314.",
+      "moved": [],
+      "basis": "Founder decision 2026-10-27, relayed by the release coordinator after capacity soak run 40542363841 (honua-server 53bb94a)"
+    },
+    "gp-out-of-ga-capacity-envelope-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "gpWorkers and gpQueueDepth leave the GA capacity requirement, in line with gp-preview-floor-2026-10-26 and the operating envelope's 'Not qualified in 2026.1' for GP workers and queue depth. They are still exercised and recorded as Preview evidence in the capacity receipt.",
+      "effect": "certification/capacity-envelope.v1.json keeps gpWorkers and gpQueueDepth in supportedEnvelope only so the producer configures and exercises them, and records them as Preview through this ruling (previewInEnvelope) and excludedPreviewDimensions; it also lists GPServer as a Preview protocol. The GA envelope is the six remaining dimensions. tools/check_capacity_soak.py no longer gates the GP workloads, the topology GP worker count or the GP envelope values, excludes GPServer requests from the GA SLO population (gaPopulation), and reports the GP workloads, envelope and previewEvidence.gp as Preview informational. Producer contract: honua-server #5314.",
+      "moved": [],
+      "basis": "Founder decision 2026-10-27, relayed by the release coordinator after capacity soak run 40542363841 exercised gpWorkers 0 and gpQueueDepth 1"
     }
   },
   "security_findings": [

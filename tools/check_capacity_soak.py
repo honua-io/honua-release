@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from capacity_observations import validate_sources
+from capacity_observations import ga_dimensions, preview_protocols, validate_sources
 from release_runner_policy import admit as admit_release_runner
 
 
@@ -171,8 +171,6 @@ def _validate_topology(receipt: dict[str, Any], image_digest: str, failures: lis
         item = _mapping(topology.get(dependency))
         if not _nonempty(item.get("kind")) or not _nonempty(item.get("failureDomain")):
             failures.append(f"topology {dependency} identity/failure domain is missing")
-    if topology.get("gpWorkers") != receipt.get("envelope", {}).get("gpWorkers"):
-        failures.append("topology GP worker count differs from the exercised envelope")
 
 
 def _validate_producer(receipt: dict[str, Any], expected_revision: str, failures: list[str]) -> None:
@@ -195,7 +193,8 @@ def _validate_producer(receipt: dict[str, Any], expected_revision: str, failures
 def _validate_workloads(
     lock: dict[str, Any], receipt: dict[str, Any], artifacts: set[str], failures: list[str]
 ) -> set[str]:
-    expected = _mapping(lock.get("supportedEnvelope"))
+    exercised = _mapping(lock.get("supportedEnvelope"))
+    expected = {name: exercised[name] for name in ga_dimensions(lock)} if exercised else {}
     workloads = receipt.get("workloads")
     if not isinstance(workloads, dict):
         workloads = {}
@@ -204,8 +203,12 @@ def _validate_workloads(
         for name in expected:
             if name not in workloads:
                 failures.append(f"{name}: workload evidence is missing")
-        for name in set(workloads) - set(expected):
+        # gp-out-of-ga-capacity-envelope-2026-10-27: a ruled Preview dimension is reported, never gated.
+        for name in set(workloads) - set(exercised):
             failures.append(f"{name}: workload is outside the frozen envelope")
+        for name in set(workloads) & (set(exercised) - set(expected)):
+            if _mapping(workloads[name]).get("tier") != "preview":
+                failures.append(f"{name}: Preview dimension must be reported as tier preview, not GA")
 
     for name, target in expected.items():
         workload = _mapping(workloads.get(name))
@@ -219,7 +222,7 @@ def _validate_workloads(
             failures.append(f"{name}: workload did not exercise the exact frozen target")
         if not _refs(workload.get("rawArtifactIds"), artifacts):
             failures.append(f"{name}: workload raw artifact references are missing or invalid")
-    return set(expected)
+    return set(exercised)
 
 
 def _validate_population(name: str, signal: dict[str, Any], failures: list[str]) -> None:
@@ -238,6 +241,70 @@ def _validate_population(name: str, signal: dict[str, Any], failures: list[str])
             computed = numerator / denominator
             if not math.isclose(float(signal["value"]), computed, rel_tol=1e-9, abs_tol=1e-12):
                 failures.append(f"{name}: value does not equal its numerator/denominator")
+
+
+DRILL_RULING = "capacity-steady-state-and-drill-2026-10-27"
+
+
+def _validate_drill(lock: dict[str, Any], receipt: dict[str, Any], failures: list[str]) -> None:
+    """Founder ruling capacity-steady-state-and-drill-2026-10-27: the fault drill must run after the
+    measured window and is judged on its own, re-derived from its evidence rather than its verdict:
+    every required dependency fault recovers within the lock's bound, every layer still serves its
+    full count with the maximum payload intact, and no GP job is left stuck."""
+    policy = _mapping(lock.get("drill"))
+    drill = receipt.get("faultDrill")
+    if not isinstance(drill, dict):
+        failures.append("fault drill: evidence is missing; the drill must run")
+        return
+    try:
+        drill_start = _time(_mapping(drill.get("window")).get("startedAt"), "faultDrill.window.startedAt")
+        drill_end = _time(_mapping(drill.get("window")).get("endedAt"), "faultDrill.window.endedAt")
+        window_end = _time(_mapping(receipt.get("window")).get("endedAt"), "window.endedAt")
+    except ContractError as exc:
+        failures.append(f"fault drill: {exc}")
+        return
+    if drill.get("excludedFromMeasuredWindow") is not True or not window_end <= drill_start < drill_end:
+        failures.append("fault drill: the fault period must follow, and be excluded from, the measured window")
+    bound = policy.get("maxRecoverySecondsPerFault")
+    events = drill.get("recoveries")
+    events = events if isinstance(events, list) else []
+    recovered = set()
+    for event in events:
+        item = _mapping(event)
+        dependency = item.get("dependency")
+        try:
+            injected = _time(item.get("injectedAt"), "fault injectedAt")
+            done = _time(item.get("recoveredAt"), "fault recoveredAt")
+        except ContractError as exc:
+            failures.append(f"fault drill: {dependency}: {exc}")
+            continue
+        seconds = (done - injected).total_seconds()
+        if not drill_start <= injected <= done <= drill_end:
+            failures.append(f"fault drill: {dependency} recovery is outside the fault period")
+        elif not _finite(bound) or seconds > bound:
+            failures.append(f"fault drill: {dependency} recovered in {seconds:g}s, beyond the {bound}s bound")
+        else:
+            recovered.add(dependency)
+    for dependency in sorted(set(policy.get("requiredFaultDependencies") or []) - recovered - {
+            _mapping(e).get("dependency") for e in events}):
+        failures.append(f"fault drill: {dependency} fault did not recover")
+    integrity = _mapping(drill.get("dataIntegrity"))
+    counts = integrity.get("layerCounts")
+    expected_count = _mapping(lock.get("supportedEnvelope")).get("featuresPerLayer")
+    intact = (isinstance(counts, list) and len(counts) == _mapping(lock.get("supportedEnvelope")).get("layersPerService")
+              and all(count == expected_count for count in counts) and integrity.get("payloadIntact") is True
+              and integrity.get("payloadSha256") == integrity.get("expectedPayloadSha256"))
+    if policy.get("requireNoDataLoss") and not intact:
+        failures.append("fault drill: data loss — a layer no longer serves its full count or the payload changed")
+    jobs = _mapping(drill.get("gpJobs"))
+    if policy.get("requireNoStuckJobs") and (not isinstance(jobs.get("stuckJobIds"), list) or jobs.get("stuckJobIds")):
+        failures.append(f"fault drill: stuck GP jobs {jobs.get('stuckJobIds', 'unreported')}")
+    if drill.get("failures"):
+        failures.append(f"fault drill: producer recorded drill failures {drill.get('failures')}")
+    # The producer's own verdict covers recovery, data and jobs but not the lock's recovery bound.
+    derived = not any(item.startswith("fault drill:") and "beyond the" not in item for item in failures)
+    if drill.get("passed") is not derived:
+        failures.append("fault drill: producer verdict differs from the drill evidence")
 
 
 def _validate_recovery(signal: dict[str, Any], artifacts: set[str], window: dict[str, Any], failures: list[str]) -> None:
@@ -354,7 +421,11 @@ def _validate_signals(
         if name == "saturationRatio":
             _validate_saturation(signal, artifacts, failures)
         elif name == "recoveryTimeSeconds":
-            _validate_recovery(signal, artifacts, window, failures)
+            # Recovery is observed in the fault period that follows the measured window.
+            fault_window = _mapping(_mapping(receipt.get("faultDrill")).get("window"))
+            if _mapping(signal.get("recoveryEvidence")).get("faultWindow") != fault_window:
+                failures.append("recoveryTimeSeconds: recovery evidence does not name the fault period")
+            _validate_recovery(signal, artifacts, fault_window, failures)
 
 
 def evaluate(
@@ -369,11 +440,21 @@ def evaluate(
     failures: list[str] = []
     if not isinstance(lock, dict) or not isinstance(receipt, dict):
         return ["lock and receipt must be objects"]
-    expected_ga = {"tenants", "services", "layersPerService", "featuresPerLayer", "maximumFeaturePayloadBytes", "concurrentVirtualUsers", "gpWorkers", "gpQueueDepth"}
-    if set(_mapping(lock.get("supportedEnvelope"))) != expected_ga:
-        failures.append("frozen envelope must cover all eight GA dimensions")
-    if lock.get("excludedPreviewDimensions") != {name: {"status": "preview", "requiredForGa": False} for name in ("activeSubscriptions", "alertEvaluationsPerSecond")}:
-        failures.append("both excluded Preview dimensions must be accounted for")
+    exercised_dimensions = {"tenants", "services", "layersPerService", "featuresPerLayer", "maximumFeaturePayloadBytes", "concurrentVirtualUsers", "gpWorkers", "gpQueueDepth"}
+    if set(_mapping(lock.get("supportedEnvelope"))) != exercised_dimensions:
+        failures.append("frozen envelope must keep all eight exercised dimensions")
+    # gp-out-of-ga-capacity-envelope-2026-10-27: GP workers and queue depth are Preview evidence.
+    preview_dimensions = ("activeSubscriptions", "alertEvaluationsPerSecond", "gpWorkers", "gpQueueDepth")
+    if lock.get("excludedPreviewDimensions") != {name: {"status": "preview", "requiredForGa": False} for name in preview_dimensions} \
+            or not set(preview_dimensions) <= excluded_dimensions(lock):
+        failures.append("every excluded Preview dimension must be accounted for by a ruling")
+    if preview_protocols(lock) != {"GPServer"}:
+        failures.append("the GP Preview ruling must exclude exactly the GPServer protocol from the GA SLOs")
+    drill_policy = _mapping(lock.get("drill"))
+    if (drill_policy.get("ruling") != DRILL_RULING or not _finite(drill_policy.get("maxRecoverySecondsPerFault"))
+            or set(drill_policy.get("requiredFaultDependencies") or []) != {"worker", "database", "redis"}
+            or drill_policy.get("requireNoDataLoss") is not True or drill_policy.get("requireNoStuckJobs") is not True):
+        failures.append("frozen fault-drill policy is missing or weaker than the drill ruling")
     if set(_mapping(lock.get("soak")).get("requiredSignals", [])) != {"availability", "errorRate", "p95LatencyMs", "p99LatencyMs", "throughputRps", "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds"}:
         failures.append("frozen contract must retain all eight SLIs")
     receipt_contract = _mapping(lock.get("receiptContract"))
@@ -418,13 +499,14 @@ def evaluate(
         failures.append("signed receipt identity/signature is missing")
     if receipt.get("profile") != lock.get("soak", {}).get("profile"):
         failures.append("soak profile does not match the lock")
-    declared = _mapping(lock.get("supportedEnvelope"))
+    declared = {name: value for name, value in _mapping(lock.get("supportedEnvelope")).items()
+                if name in ga_dimensions(lock)}
     observed = receipt.get("envelope")
     if not isinstance(observed, dict) or any(
         name not in observed or observed[name] != value for name, value in declared.items()
     ):
         failures.append("tested capacity envelope does not exactly match the supported envelope")
-    elif undeclared := sorted(set(observed) - set(declared) - excluded_dimensions(lock)):
+    elif undeclared := sorted(set(observed) - set(_mapping(lock.get("supportedEnvelope"))) - excluded_dimensions(lock)):
         failures.append(
             "tested capacity envelope reports dimensions the lock neither declares nor excludes: "
             + ", ".join(undeclared)
@@ -464,6 +546,7 @@ def evaluate(
     artifacts = _validate_raw_artifacts(receipt, artifact_root, failures)
     workload_names = _validate_workloads(lock, receipt, artifacts, failures)
     _validate_signals(lock, receipt, candidate, artifacts, workload_names, failures)
+    _validate_drill(lock, receipt, failures)
     failures.extend(validate_sources(lock, receipt, artifact_root))
     return failures
 
@@ -564,16 +647,22 @@ def excluded_dimensions(lock: dict) -> set[str]:
 def informational_dimensions(lock: dict, receipt: dict) -> dict:
     """Echo excluded Preview observations without adding them to the GA denominator."""
     result = {}
+    ga = set(ga_dimensions(lock)) if lock.get("supportedEnvelope") else set()
     for name in sorted(excluded_dimensions(lock)):
-        if name in lock.get("supportedEnvelope", {}) or name in lock.get("soak", {}).get("requiredSignals", []):
+        if name in ga or name in lock.get("soak", {}).get("requiredSignals", []):
             continue
         records = {
             section: receipt[section][name]
-            for section in ("envelope", "envelopeVerification", "signals")
+            for section in ("envelope", "envelopeVerification", "signals", "workloads")
             if isinstance(receipt.get(section), dict) and name in receipt[section]
         }
+        if name in lock.get("supportedEnvelope", {}):
+            records["target"] = lock["supportedEnvelope"][name]
         if records:
             result[name] = records
+    gp = _mapping(_mapping(receipt.get("previewEvidence")).get("gp"))
+    if gp:
+        result["previewEvidence.gp"] = {"requests": gp.get("requests"), "protocols": gp.get("protocols")}
     return result
 
 
@@ -615,7 +704,8 @@ def main() -> int:
             print(f"- {failure}")
         return 1
     print(
-        f"capacity-soak: PASS — {len(lock['supportedEnvelope'])}/{len(lock['supportedEnvelope'])} GA dimensions; "
+        f"capacity-soak: PASS — {len(ga_dimensions(lock))}/{len(ga_dimensions(lock))} GA dimensions; "
+        "fault drill recovered with no data loss and no stuck jobs; "
         f"{len(lock['soak']['requiredSignals'])}/{len(lock['soak']['requiredSignals'])} sourced SLO signals; "
         "bound observation provenance and producer attestation"
     )

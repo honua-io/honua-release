@@ -26,9 +26,11 @@ _FREEZE = max(
 )
 _START = _FREEZE + timedelta(days=1)
 WINDOW = {"startedAt": _z(_START), "endedAt": _z(_START + timedelta(seconds=3600))}
-INJECTED = _z(_START + timedelta(minutes=30))
-DETECTED = _z(_START + timedelta(minutes=30, seconds=5))
-RECOVERED = _z(_START + timedelta(minutes=32))
+# capacity-steady-state-and-drill-2026-10-27: the fault drill runs after the measured window.
+FAULT_WINDOW = {"startedAt": _z(_START + timedelta(seconds=3605)), "endedAt": _z(_START + timedelta(seconds=3720))}
+INJECTED = _z(_START + timedelta(seconds=3610))
+DETECTED = _z(_START + timedelta(seconds=3612))
+RECOVERED = _z(_START + timedelta(seconds=3622))
 
 
 def _sha(value: str | bytes) -> str:
@@ -69,6 +71,8 @@ def receipt(artifact_root: Path):
         }
         for name, target in LOCK["supportedEnvelope"].items()
     }
+    for name in ("gpWorkers", "gpQueueDepth"):
+        workloads[name]["tier"] = "preview"
 
     values = {
         "availability": 179999 / 180000,
@@ -78,7 +82,7 @@ def receipt(artifact_root: Path):
         "throughputRps": 1800,
         "queueAgeSeconds": 5,
         "saturationRatio": 0.7,
-        "recoveryTimeSeconds": 120,
+        "recoveryTimeSeconds": 12,
     }
     populations = {
         "availability": {"kind": "ratio", "numerator": 179999, "denominator": 180000, "sampleCount": 180000},
@@ -185,6 +189,17 @@ def receipt(artifact_root: Path):
                             injectedAt=INJECTED, detectedAt=DETECTED, recoveredAt=RECOVERED)
                        for dependency in ('worker', 'database', 'redis')],
     })
+    source['faultDrill'] = {
+        'window': copy.deepcopy(FAULT_WINDOW), 'excludedFromMeasuredWindow': True,
+        'recoveries': copy.deepcopy(source['recoveries']), 'recovered': True,
+        'dataIntegrity': {'layerCounts': [LOCK['supportedEnvelope']['featuresPerLayer']] * LOCK['supportedEnvelope']['layersPerService'],
+                          'expectedFeaturesPerLayer': LOCK['supportedEnvelope']['featuresPerLayer'],
+                          'payloadSha256': 'e' * 64, 'expectedPayloadSha256': 'e' * 64, 'payloadIntact': True, 'passed': True},
+        'gpJobs': {'outstandingAtDrillEnd': 2, 'terminalStatuses': {'esriJobSucceeded': 2}, 'stuckJobIds': [],
+                   'drainSeconds': 3.0, 'drainTimeoutSeconds': 300, 'passed': True},
+        'failures': [], 'passed': True}
+    result['faultDrill'] = copy.deepcopy(source['faultDrill'])
+    result['gaPopulation'] = {'excludedProtocols': ['GPServer'], 'requestCount': 6480000, 'totalRequestCount': 6480000}
     # 95% is in the 630ms bucket unless 95% of the full population is 600ms.
     source['requests'][0]['buckets'][0]['count'] = 3100000
     source['requests'][0]['buckets'][1]['count'] = 139999
@@ -216,7 +231,8 @@ def receipt(artifact_root: Path):
         workload.update(candidateIdentity=copy.deepcopy(candidate), window=copy.deepcopy(WINDOW), sampleCount=len(times), rawArtifactIds=['observations'])
     for component in signals['saturationRatio']['saturationComponents'].values():
         component.update(sampleCount=len(times), rawArtifactIds=['observations'])
-    signals['recoveryTimeSeconds']['recoveryEvidence'] = {'events': source['recoveries'], 'rawArtifactIds': ['observations']}
+    signals['recoveryTimeSeconds']['recoveryEvidence'] = {'events': source['recoveries'], 'rawArtifactIds': ['observations'],
+                                                          'faultWindow': copy.deepcopy(FAULT_WINDOW)}
     return result
 
 
@@ -269,13 +285,13 @@ def test_missing_population_or_ratio_denominator_fails(tmp_path):
 
 def test_unexercised_or_preview_proxy_workload_fails(tmp_path):
     unexercised = receipt(tmp_path)
-    unexercised["workloads"]["gpQueueDepth"]["status"] = "declared"
-    assert any("gpQueueDepth: workload was not exercised" in failure for failure in failures(unexercised, tmp_path))
+    unexercised["workloads"]["services"]["status"] = "declared"
+    assert any("services: workload was not exercised" in failure for failure in failures(unexercised, tmp_path))
 
     proxy = receipt(tmp_path)
-    proxy["workloads"]["gpQueueDepth"]["proxy"] = True
-    proxy["workloads"]["gpQueueDepth"]["executionMode"] = "preview-proxy"
-    assert any("gpQueueDepth: Preview/proxy" in failure for failure in failures(proxy, tmp_path))
+    proxy["workloads"]["services"]["proxy"] = True
+    proxy["workloads"]["services"]["executionMode"] = "preview-proxy"
+    assert any("services: Preview/proxy" in failure for failure in failures(proxy, tmp_path))
 
 
 def test_missing_workload_dimension_fails(tmp_path):
@@ -552,7 +568,7 @@ def rewrite_source(value, root, mutate):
     lambda s: s['requests'].append(copy.deepcopy(s['requests'][0])),
     lambda s: s.update(samplingFailures=['metrics timeout']),
     lambda s: s['metrics'].pop(10),
-    lambda s: s['workloads'][0]['dimensions'].update(gpQueueDepth=0),
+    lambda s: s['workloads'][0]['dimensions'].update(services=0),
     lambda s: s['workloads'][0].update(proxy=True),
     lambda s: s['recoveries'].pop(),
     lambda s: s['recoveries'][0].update(recoveredAt='2026-09-06T10:30:00Z'),
@@ -572,13 +588,14 @@ def test_digest_shaped_wrong_candidate_is_rejected(tmp_path):
 
 def test_preview_dimensions_cannot_be_reintroduced_as_ga_workloads(tmp_path):
     value = receipt(tmp_path)
-    assert set(LOCK['excludedPreviewDimensions']) == {'activeSubscriptions', 'alertEvaluationsPerSecond'}
+    assert set(LOCK['excludedPreviewDimensions']) == {'activeSubscriptions', 'alertEvaluationsPerSecond',
+                                                      'gpWorkers', 'gpQueueDepth'}
     assert len(LOCK['supportedEnvelope']) == 8
     value['workloads']['activeSubscriptions'] = copy.deepcopy(value['workloads']['services'])
     assert any('outside the frozen envelope' in item for item in failures(value, tmp_path))
 
 
-@pytest.mark.parametrize('dimension', list(LOCK['supportedEnvelope']))
+@pytest.mark.parametrize('dimension', [name for name in LOCK['supportedEnvelope'] if name not in ('gpWorkers', 'gpQueueDepth')])
 def test_each_ga_workload_requires_frozen_query_and_population(tmp_path, dimension):
     value = receipt(tmp_path)
     value['workloads'][dimension].pop('query')
@@ -675,7 +692,8 @@ def test_preview_dimensions_are_informational(tmp_path):
         value["envelope"][name] = 0
         value["signals"][name] = {"status": "unobserved", "value": None}
     assert failures(value, tmp_path) == []
-    assert set(gate.informational_dimensions(LOCK, value)) == {"activeSubscriptions", "alertEvaluationsPerSecond"}
+    assert set(gate.informational_dimensions(LOCK, value)) == {"activeSubscriptions", "alertEvaluationsPerSecond",
+                                                               "gpWorkers", "gpQueueDepth"}
 
 
 def test_undeclared_non_preview_dimension_fails(tmp_path):
@@ -742,3 +760,125 @@ def test_cli_echoes_preview_as_informational(tmp_path, monkeypatch, capsys):
     report = capsys.readouterr().out
     assert "Preview informational (not gated): activeSubscriptions" in report
     assert "Preview informational (not gated): alertEvaluationsPerSecond" in report
+
+
+# ── Founder rulings capacity-steady-state-and-drill-2026-10-27 and
+#    gp-out-of-ga-capacity-envelope-2026-10-27 (producer contract: honua-server #5314) ────────
+
+def _rewrite_source(value, root, mutate):
+    artifact = next(a for a in value['rawArtifacts'] if a['kind'] == 'capacity-observations')
+    path = root / artifact['path']
+    source = json.loads(path.read_text())
+    mutate(source)
+    payload = json.dumps(source, sort_keys=True).encode()
+    path.write_bytes(payload)
+    artifact['sha256'] = _sha(payload)
+    return source
+
+
+def _set_drill(value, root, change):
+    """Apply one change to the fault drill in both the attested source and the receipt."""
+    def mutate(source):
+        change(source['faultDrill'])
+        source['recoveries'] = copy.deepcopy(source['faultDrill']['recoveries'])
+    source = _rewrite_source(value, root, mutate)
+    value['faultDrill'] = copy.deepcopy(source['faultDrill'])
+    value['signals']['recoveryTimeSeconds']['recoveryEvidence']['events'] = copy.deepcopy(source['recoveries'])
+
+
+def test_drill_errors_inside_the_fault_period_do_not_count_against_a_clean_steady_state(tmp_path):
+    """Run 40542363841: the GP queue errored and the dependencies went down during the fault
+    period. Under the ruling that period follows the measured window and is judged on its own:
+    a clean steady state with a recovered drill passes."""
+    value = receipt(tmp_path)
+    _set_drill(value, tmp_path, lambda drill: drill.update(gpErrorsDuringDrill={'count': 108842, 'first': ['503']}))
+    assert failures(value, tmp_path) == []
+
+
+def test_a_drill_that_does_not_recover_within_the_bound_fails(tmp_path):
+    value = receipt(tmp_path)
+    late = _z(datetime.fromisoformat(INJECTED.replace('Z', '+00:00')) + timedelta(seconds=32))
+    _set_drill(value, tmp_path, lambda drill: drill['recoveries'][1].update(recoveredAt=late))
+    result = failures(value, tmp_path)
+    assert any('fault drill: database recovered in 32s, beyond the 19.0s bound' in item for item in result)
+
+
+def test_a_drill_missing_a_dependency_or_its_evidence_fails(tmp_path):
+    value = receipt(tmp_path)
+    _set_drill(value, tmp_path, lambda drill: drill['recoveries'].pop())
+    assert any('fault drill: redis fault did not recover' in item for item in failures(value, tmp_path))
+    missing = receipt(tmp_path)
+    del missing['faultDrill']
+    assert any('fault drill: evidence is missing; the drill must run' in item for item in failures(missing, tmp_path))
+
+
+@pytest.mark.parametrize('change, message', [
+    (lambda d: d['dataIntegrity'].update(layerCounts=[10000, 10000, 9998, 10000]), 'data loss'),
+    (lambda d: d['dataIntegrity'].update(payloadIntact=False), 'data loss'),
+    (lambda d: d['gpJobs'].update(stuckJobIds=['gp-1']), "stuck GP jobs ['gp-1']"),
+    (lambda d: d.update(failures=['data integrity: TimeoutError']), 'producer recorded drill failures'),
+    (lambda d: d['window'].update(startedAt=WINDOW['startedAt']), 'the fault period must follow, and be excluded from, the measured window'),
+])
+def test_a_drill_that_loses_data_strands_jobs_or_overlaps_the_window_fails(tmp_path, change, message):
+    value = receipt(tmp_path)
+    _set_drill(value, tmp_path, change)
+    assert any(f'fault drill: {message}' in item for item in failures(value, tmp_path))
+
+
+def test_the_producer_drill_verdict_cannot_disagree_with_its_evidence(tmp_path):
+    value = receipt(tmp_path)
+    _set_drill(value, tmp_path, lambda d: (d['gpJobs'].update(stuckJobIds=['gp-1']), d.update(passed=True)))
+    assert any('producer verdict differs from the drill evidence' in item for item in failures(value, tmp_path))
+
+
+def test_a_steady_state_breach_still_fails(tmp_path):
+    value = receipt(tmp_path)
+    value['signals']['errorRate'].update(value=0.4, thresholdVerdict={'operator': '<=', 'limit': 0.05, 'passed': False})
+    assert any('errorRate: 0.4 violates frozen requirement <= 0.05' in item for item in failures(value, tmp_path))
+    errors = receipt(tmp_path)
+    _rewrite_source(errors, tmp_path, lambda s: s['requests'][0]['buckets'][0].update(httpStatus=500))
+    assert any('value differs from source observations' in item for item in failures(errors, tmp_path))
+
+
+def test_gp_requests_are_excluded_from_the_ga_slo_population_and_reported(tmp_path):
+    """GPServer requests stay in the raw observations but never count in the GA SLOs."""
+    value = receipt(tmp_path)
+
+    def gp_traffic(source):
+        for interval in source['requests']:
+            interval['buckets'].append({'count': 40000, 'durationMs': 7000, 'httpStatus': 200,
+                                        'inBandError': True, 'protocol': 'GPServer'})
+        source['requestCount'] += 80000
+    _rewrite_source(value, tmp_path, gp_traffic)
+    value['gaPopulation']['totalRequestCount'] += 80000
+    value['previewEvidence'] = {'gp': {'tier': 'preview', 'protocols': ['GPServer'],
+                                       'requests': {'count': 80000, 'errors': 80000}}}
+    assert failures(value, tmp_path) == []
+    assert gate.informational_dimensions(LOCK, value)['previewEvidence.gp']['requests'] == {'count': 80000, 'errors': 80000}
+
+
+def test_a_gp_dimension_mismatch_alone_no_longer_fails_but_is_reported(tmp_path):
+    """Run 40542363841 exercised gpWorkers 0 and gpQueueDepth 1 against the 1/100 envelope. That is
+    Preview evidence now: reported, never gated."""
+    value = receipt(tmp_path)
+    value['envelope'].update(gpWorkers=0, gpQueueDepth=1)
+    for name, observed in (('gpWorkers', 0), ('gpQueueDepth', 1)):
+        value['workloads'][name].update(status='not-exercised', observed=observed)
+    _rewrite_source(value, tmp_path, lambda s: [row['dimensions'].update(gpWorkers=0, gpQueueDepth=1)
+                                                for row in s['workloads']])
+    assert failures(value, tmp_path) == []
+    reported = gate.informational_dimensions(LOCK, value)
+    assert reported['gpWorkers']['workloads']['observed'] == 0 and reported['gpWorkers']['target'] == 1
+    assert reported['gpQueueDepth']['envelope'] == 1 and reported['gpQueueDepth']['target'] == 100
+
+
+def test_a_ga_dimension_mismatch_still_fails(tmp_path):
+    value = receipt(tmp_path)
+    value['workloads']['services'].update(observed=3)
+    assert any('services: workload did not exercise the exact frozen target' in item for item in failures(value, tmp_path))
+
+
+def test_a_preview_dimension_cannot_pose_as_ga_evidence(tmp_path):
+    value = receipt(tmp_path)
+    value['workloads']['gpWorkers']['tier'] = 'ga'
+    assert any('gpWorkers: Preview dimension must be reported as tier preview' in item for item in failures(value, tmp_path))
