@@ -50,6 +50,12 @@ DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 CUT = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z')
 DISPATCH_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z')
 DISPATCH_ID_INPUT = 'nightly_dispatch_id'
+# Governed values the night renders into producer inputs besides the candidate.
+REQUIREMENTS_PLACEHOLDERS = ('{requirements_ref}', '{requirements_revision}')
+SDK_PACKAGE_PLACEHOLDERS = ('{sdk_package}', '{sdk_package_version}', '{sdk_package_digest}', '{sdk_source_sha}')
+# sdk-harness-trunk-pinned-package-2026-10-27: an SDK producer runs its trunk harness against the
+# exact package the manifest pins. Its governed source key names the published package's artifact.
+SDK_PACKAGE_ARTIFACTS = {'sdk-dotnet': 'honua-sdk-dotnet', 'sdk-python': 'honua-sdk-python-wheel'}
 DELAYS = (0, 10, 30, 60, 120, 60)
 
 
@@ -218,19 +224,34 @@ def protocol_candidate(manifest: dict) -> dict[str, str]:
     return candidate
 
 
-def protocol_inputs(template: dict, candidate: dict[str, str], dispatch_id: str) -> dict[str, str]:
+def protocol_inputs(template: dict, candidate: dict[str, str], dispatch_id: str,
+                    governed: dict[str, str] | None = None) -> dict[str, str]:
     values = {'{server_image}': candidate['server_image'], '{server_sha}': candidate['server_sha'],
-              '{cut_at}': candidate['cut_at']}
+              '{cut_at}': candidate['cut_at'], **(governed or {})}
     if DISPATCH_ID_INPUT in template:
         raise ValueError(f'producer inputs may not set {DISPATCH_ID_INPUT}; the nightly supplies it')
     rendered = {DISPATCH_ID_INPUT: dispatch_id}
     for key, value in template.items():
-        if not isinstance(value, str) or ('{' in value and value not in CANDIDATE_PLACEHOLDERS):
-            raise ValueError(f'producer input {key} is not a literal or a governed candidate placeholder')
+        if not isinstance(value, str) or ('{' in value and value not in values):
+            raise ValueError(f'producer input {key} is not a literal or a governed placeholder the night supplies')
         rendered[key] = values.get(value, value)
     if not set(CANDIDATE_PLACEHOLDERS) <= set(template.values()):
         raise ValueError('producer inputs do not carry the candidate image, sha and cut')
     return rendered
+
+
+def sdk_package_inputs(manifest: dict, source_key: str, source_pin: str) -> dict[str, str]:
+    """The pinned published package an SDK harness installs, bound by digest to the governed pin."""
+    name = SDK_PACKAGE_ARTIFACTS.get(source_key)
+    artifact = ((manifest or {}).get('clientArtifacts') or {}).get(name or '') or {}
+    package, version, digest, source = (str(artifact.get(field) or '') for field in
+                                        ('package', 'version', 'digest', 'sourceSha'))
+    if name is None or not package or not version or not DIGEST.fullmatch(digest) or not SHA.fullmatch(source):
+        raise ValueError(f'{source_key} has no pinned published package with a canonical digest')
+    if source != source_pin:
+        raise ValueError(f'{source_key} pin {source_pin} is not the published package source {source}')
+    return {'{sdk_package}': package, '{sdk_package_version}': version, '{sdk_package_digest}': digest,
+            '{sdk_source_sha}': source}
 
 
 def protocol_dispatch_ref(api, repository: str, pin: str) -> str:
@@ -276,7 +297,8 @@ def input_contract_problems(api, repository: str, workflow: str, pin: str, input
     return problems
 
 
-def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> list[dict]:
+def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str,
+                      requirements_ref: str | None = None) -> list[dict]:
     """Dispatch every producer the catalog names at its pin, bound to the resolved candidate.
 
     Refuses before the first dispatch when any producer is unpinned or its workflow at the pin
@@ -284,6 +306,11 @@ def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> l
     partial producer set; a dispatch failure part-way refuses the night as well. Each run row
     keeps `dispatch_id`, the correlation id every producer receives as an input and echoes in
     its receipts; the bind refuses a receipt from any run not recorded here.
+
+    `requirements_ref` is the protected honua-release trunk commit this night runs on; producers that
+    fetch the governed requirements themselves receive it with the catalog revision. A producer with a
+    `harness_revision_key` (sdk-harness-trunk-pinned-package-2026-10-27) is dispatched at that harness
+    commit, its SDK repository's trunk, with the manifest's pinned package identity as inputs.
     """
     if not isinstance(dispatch_id, str) or not DISPATCH_ID.fullmatch(dispatch_id):
         raise ValueError(f'nightly dispatch id {dispatch_id!r} is not a correlation id')
@@ -291,6 +318,11 @@ def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> l
     production = (catalog or {}).get('production') or {}
     producers = production.get('producers')
     revisions = (catalog or {}).get('source_revisions') or {}
+    requirements = {}
+    if requirements_ref is not None:
+        if not SHA.fullmatch(str(requirements_ref)) or not isinstance(catalog.get('revision'), str):
+            raise ValueError('requirements ref must be a full commit sha and the catalog must name its revision')
+        requirements = {'{requirements_ref}': requirements_ref, '{requirements_revision}': catalog['revision']}
     if not isinstance(producers, list) or not producers:
         raise ValueError('requirements catalog names no protocol certification producers')
     plan = []
@@ -303,7 +335,14 @@ def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> l
             raise ValueError(f"producer {producer.get('producer')} has no pinned revision in {repository}")
         if producer.get('source_revision_key') in ('server', 'server-certification') and pin != candidate['server_sha']:
             raise ValueError(f"producer {producer.get('producer')} is pinned to {pin}, not the candidate server")
-        inputs = protocol_inputs(producer.get('inputs') or {}, candidate, dispatch_id)
+        governed = dict(requirements)
+        if producer.get('harness_revision_key'):
+            governed.update(sdk_package_inputs(manifest, producer['source_revision_key'], pin))
+            harness = revisions.get(producer['harness_revision_key']) or {}
+            pin = str(harness.get('commit') or '')
+            if harness.get('repository') != repository or not SHA.fullmatch(pin):
+                raise ValueError(f"producer {producer.get('producer')} has no harness revision in {repository}")
+        inputs = protocol_inputs(producer.get('inputs') or {}, candidate, dispatch_id, governed)
         if 'requirements_context' in inputs:
             raise ValueError('producer inputs may not override the governed requirements context')
         if producer.get('producer') in CONTEXT_PRODUCERS:
@@ -458,6 +497,7 @@ def main(argv=None, api=None) -> int:
     protocol.add_argument('--manifest', type=Path, required=True)
     protocol.add_argument('--out', type=Path, required=True)
     protocol.add_argument('--dispatch-id', required=True)
+    protocol.add_argument('--requirements-ref', help='protected honua-release trunk commit this night runs on')
     protocol_wait = commands.add_parser('wait-protocol')
     protocol_wait.add_argument('--runs', type=Path, required=True)
     protocol_wait.add_argument('--timeout', required=True, type=int)
@@ -486,7 +526,8 @@ def main(argv=None, api=None) -> int:
         elif args.command == 'dispatch-protocol':
             import yaml  # only the protocol-ledger job installs PyYAML
             runs = dispatch_protocol(api, json.loads(args.catalog.read_text()),
-                                     yaml.safe_load(args.manifest.read_text()), args.dispatch_id)
+                                     yaml.safe_load(args.manifest.read_text()), args.dispatch_id,
+                                     args.requirements_ref or None)
             args.out.write_text(json.dumps(runs, indent=2) + '\n')
             for row in runs:
                 print(f"{row['producer']}: https://github.com/{row['repository']}/actions/runs/{row['run_id']}")

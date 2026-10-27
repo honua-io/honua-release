@@ -77,6 +77,42 @@ VENDORED: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+# sdk-harness-trunk-pinned-package-2026-10-27: an SDK producer's certification harness runs from its
+# repository's trunk, at the newest green commit whose workflow carries the dispatch contract, against
+# the exact package the manifest pins. The governed SDK source key stays the published package source.
+HARNESS_SOURCES: dict[str, tuple[str, str]] = {
+    "sdk-dotnet-harness": ("honua-io/honua-sdk-dotnet", ".github/workflows/sdk-certification.yml"),
+    "sdk-python-harness": ("honua-io/honua-sdk-python", ".github/workflows/conformance.yml"),
+}
+HARNESS_CONTRACT = ("nightly_dispatch_id:", "sdk_package:", "sdk_package_version:", "sdk_package_digest:",
+                    "sdk_source_sha:", "requirements_ref:", "requirements_revision:")
+HARNESS_WALK = 30
+# The published artifact each SDK producer's governed source names (nightly_receipts.SDK_PACKAGE_ARTIFACTS).
+SDK_PACKAGE_ARTIFACTS = {"sdk-dotnet": "honua-sdk-dotnet", "sdk-python": "honua-sdk-python-wheel"}
+
+
+def harness_has_contract(workflow: bytes) -> bool:
+    text = workflow.decode("utf-8", errors="replace")
+    return all(marker in text for marker in HARNESS_CONTRACT)
+
+
+def select_harness(gh: Any, name: str) -> str:
+    """The newest green commit on the SDK repository's trunk whose workflow has the contract."""
+    repository, workflow = HARNESS_SOURCES[name]
+    reasons = []
+    for sha in gh.trunk_commits(repository, HARNESS_WALK):
+        checked_sha(sha, f"{repository} trunk commit")
+        if not harness_has_contract(gh.content(repository, workflow, sha)):
+            reasons.append(f"{sha[:12]} lacks the dispatch contract")
+            continue
+        if not gh.green(repository, sha):
+            reasons.append(f"{sha[:12]} is not green")
+            continue
+        return sha
+    raise Finding(f"{name}: no green {repository} trunk commit in the newest {HARNESS_WALK} has the harness "
+                  "dispatch contract; " + "; ".join(reasons[:5]))
+
+
 class GitHub(Protocol):
     def head(self, repository: str) -> str: ...
     def content(self, repository: str, path: str, revision: str) -> bytes: ...
@@ -95,6 +131,23 @@ class GhCli:
         if tree.get("truncated"):
             raise Finding(f"upstream fetch mismatch: {repository}@{revision} tree listing is truncated")
         return [(row["path"], row["sha"]) for row in tree["tree"] if row.get("type") == "blob"]
+
+    def trunk_commits(self, repository: str, limit: int) -> list[str]:
+        repo = self._json(f"repos/{repository}")
+        rows = self._json(f"repos/{repository}/commits?sha={repo['default_branch']}&per_page={limit}")
+        return [checked_sha(row.get("sha"), f"{repository} commit") for row in rows]
+
+    def green(self, repository: str, sha: str) -> bool:
+        """Every check run on the commit completed without failure, and there is at least one."""
+        runs = self._json(f"repos/{repository}/commits/{sha}/check-runs?per_page=100").get("check_runs") or []
+        return bool(runs) and all(run.get("status") == "completed"
+                                  and run.get("conclusion") in {"success", "skipped", "neutral"} for run in runs)
+
+    def on_trunk(self, repository: str, sha: str) -> bool:
+        """The commit is the protected default branch's head or one of its ancestors."""
+        repo = self._json(f"repos/{repository}")
+        compare = self._json(f"repos/{repository}/compare/{sha}...{repo['default_branch']}")
+        return compare.get("status") in {"identical", "ahead"}
 
     def commits(self, repository: str, branch: str, path: str, since: str) -> list[str]:
         rows = self._json(f"repos/{repository}/commits?sha={branch}&path={path}&since={since}&per_page=100")
@@ -242,6 +295,9 @@ def targets(root: Path, gh: GitHub) -> tuple[dict[str, str], dict[str, str]]:
         if name in frozen:
             result[name] = checked_sha(frozen[name], f"manifest target for {name}")
             rules[name] = "manifest/frozen"
+        elif name in HARNESS_SOURCES:
+            result[name] = select_harness(gh, name)
+            rules[name] = "newest green trunk commit with the harness dispatch contract"
         else:
             result[name] = gh.head(item["repository"])
             rules[name] = "producer default-branch HEAD"
@@ -768,6 +824,32 @@ def nightly_candidate(manifest: dict[str, Any]) -> dict[str, str]:
             "cut_at": manifest["protocolCertification"]["candidateCutAt"]}
 
 
+def harness_receipt_problems(entry: dict[str, Any], identity: dict[str, Any], cell: dict[str, Any],
+                             run: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+    """sdk-harness-trunk-pinned-package-2026-10-27: the receipt names the dispatched trunk harness and the
+    exact pinned published package, by digest. Anything else, a missing digest included, refuses."""
+    problems = []
+    if identity.get("harness_commit") != run.get("head_sha"):
+        problems.append(f"harness_commit {identity.get('harness_commit')!r} is not the dispatched harness {run.get('head_sha')}")
+    artifact = (manifest.get("clientArtifacts") or {}).get(SDK_PACKAGE_ARTIFACTS.get(entry["source_revision_key"], ""))
+    if not isinstance(artifact, dict) or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(artifact.get("digest") or "")):
+        return problems + ["the manifest pins no published package digest for this SDK"]
+    if cell.get("client_version") != artifact.get("version"):
+        problems.append(f"client_version {cell.get('client_version')!r} is not the pinned {artifact.get('version')!r}")
+    if entry["source_revision_key"] == "sdk-dotnet":
+        observed = (identity.get("client_package"), identity.get("client_package_digest"))
+        if observed != (artifact.get("package"), artifact.get("digest")):
+            problems.append(f"receipt package {observed!r} is not the pinned {artifact.get('package')!r} "
+                            f"{artifact.get('digest')!r}")
+    else:
+        wheel = identity.get("client_package")
+        if not isinstance(wheel, dict) or wheel.get("filename") != artifact.get("filename") \
+                or "sha256:" + str(wheel.get("sha256")) != artifact.get("digest"):
+            problems.append(f"receipt wheel {wheel!r} is not the pinned {artifact.get('filename')!r} "
+                            f"{artifact.get('digest')!r}")
+    return problems
+
+
 def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manifest: dict[str, Any],
                           requirements_revision: str, runs: list[dict[str, Any]], dispatch_id: str,
                           *, preview_overrides: Path | None = None) -> dict[str, int]:
@@ -809,7 +891,8 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
         if run is None:
             problems.append(f"producer {entry['producer']} has no successful run tonight")
             continue
-        if run.get("head_sha") != catalog["source_revisions"][entry["source_revision_key"]]["commit"]:
+        dispatched_at = entry.get("harness_revision_key") or entry["source_revision_key"]
+        if run.get("head_sha") != catalog["source_revisions"][dispatched_at]["commit"]:
             problems.append(f"producer {entry['producer']} ran at {run.get('head_sha')}, not its staged pin")
         if run.get("dispatch_id") != dispatch_id:
             problems.append(f"producer {entry['producer']} run {run.get('run_id')} was not dispatched by {dispatch_id}")
@@ -839,15 +922,19 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             problems.append(f"{label}: source_sha {cell.get('source_sha')} is not the candidate")
         if result not in ("pass", "fail"):
             continue
-        run = next((run for entry, run in owners if selects(entry, cell)), None)
+        owner = next(((entry, run) for entry, run in owners if selects(entry, cell)), None)
+        entry, run = owner if owner is not None else (None, None)
         if run is None:
             problems.append(f"{label}: {result} from no producer dispatched tonight")
             continue
         observed.add(run["producer"])
         if cell.get("source_sha") != candidate["source_sha"] or cell.get("image_digest") != candidate["image_digest"]:
             problems.append(f"{label}: not about candidate {candidate['source_sha']} {candidate['image_digest']}")
-        if cell.get("producer_source_sha") != run["head_sha"]:
-            problems.append(f"{label}: producer_source_sha {cell.get('producer_source_sha')} is not {run['producer']} pin {run['head_sha']}")
+        # A harness producer certifies the published package's source; its run is the trunk harness.
+        source_pin = (catalog["source_revisions"][entry["source_revision_key"]]["commit"]
+                      if entry.get("harness_revision_key") else run["head_sha"])
+        if cell.get("producer_source_sha") != source_pin:
+            problems.append(f"{label}: producer_source_sha {cell.get('producer_source_sha')} is not {run['producer']} pin {source_pin}")
         started = _timestamp(cell.get("started_at"))
         if started is None or cut is None or started < cut:
             problems.append(f"{label}: started_at {cell.get('started_at')!r} predates the candidate cut")
@@ -864,6 +951,10 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
                 problems.append(f"{label}: executed Python wheel differs from governed published artifact")
         elif "client_package" in cell or "client_package" in identity:
             problems.append(f"{label}: wheel identity is only permitted for the Python certification lane")
+        if entry.get("harness_revision_key"):
+            problems.extend(f"{label}: {problem}" for problem in harness_receipt_problems(entry, identity, cell, run, manifest))
+        elif "harness_commit" in identity:
+            problems.append(f"{label}: harness_commit is only recorded by an SDK harness producer")
         if identity.get("client_driver") != cell.get("client_driver"):
             problems.append(f"{label}: receipt driver {identity.get('client_driver')!r} is not the cell driver "
                             f"{cell.get('client_driver')!r}")
@@ -916,10 +1007,32 @@ def bind_nightly_ledger(root: Path, evidence_commit: str, ledger_bytes: bytes, r
     return ledger
 
 
+def verify_harness_runs(gh: Any, catalog: dict[str, Any], runs: list[dict[str, Any]]) -> None:
+    """Every SDK harness run was at a commit on its repository's protected trunk with the contract."""
+    entries = {entry["producer"]: entry for entry in catalog["production"]["producers"]}
+    problems = []
+    for run in runs:
+        key = (entries.get(run.get("producer")) or {}).get("harness_revision_key")
+        if not key:
+            continue
+        repository, workflow = HARNESS_SOURCES.get(key, (None, None))
+        sha = str(run.get("head_sha") or "")
+        if repository is None or run.get("repository") != repository or not SHA_RE.fullmatch(sha):
+            problems.append(f"{run.get('producer')} harness run is not a governed SDK harness")
+            continue
+        if not gh.on_trunk(repository, sha):
+            problems.append(f"{run.get('producer')} harness {sha} is not on {repository}'s protected trunk")
+        if not harness_has_contract(gh.content(repository, workflow, sha)):
+            problems.append(f"{run.get('producer')} harness {sha} lacks the dispatch contract in {workflow}")
+    if problems:
+        raise Finding("nightly ledger refused; protocolCertification.ledger stays pending: " + " | ".join(problems))
+
+
 def nightly_bind(root: Path, gh: Any, requirements_revision: str, runs: list[dict[str, Any]], since: str,
                  dispatch_id: str) -> dict[str, Any]:
     manifest = load_manifest(root)
     ledger = manifest["protocolCertification"]["ledger"]
+    verify_harness_runs(gh, load_json(root, CATALOG), runs)
     commit, data = locate_nightly_ledger(gh, ledger["repository"], ledger["path"], requirements_revision,
                                          nightly_candidate(manifest), since)
     counts = verify_nightly_ledger(json.loads(data), load_json(root, CATALOG), manifest, requirements_revision, runs,

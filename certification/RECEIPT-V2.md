@@ -61,6 +61,26 @@ under `declared_preview`. Any pass or fail it reports, and every other producer,
 The exemption ends by itself once a cng cell carries a receipt, or when the ruling is removed
 (`tools/protocol_preview.py`).
 
+## SDK harness at trunk, pinned package by digest
+
+Founder ruling `sdk-harness-trunk-pinned-package-2026-10-27`: the honua-sdk-dotnet and honua-sdk-python
+producers run their certification harness from their repository's trunk, at the newest green commit
+whose workflow has the dispatch contract (`source_revisions.sdk-dotnet-harness` / `sdk-python-harness`,
+selected when the nightly stages the catalog). The run is dispatched against the exact published package
+the manifest pins: `sdk_package`, `sdk_package_version`, `sdk_package_digest` and `sdk_source_sha`, from
+`clientArtifacts.honua-sdk-dotnet` / `honua-sdk-python-wheel`. The nightly also sends
+`requirements_ref` (the honua-release trunk commit it runs on) and `requirements_revision`.
+
+`source_revisions.sdk-dotnet` / `sdk-python` stay the published package sources, so each receipt's
+`producer_source_sha` is the published source. The identity adds `harness_commit`, the trunk harness
+that ran, and on the .NET lane `client_package` and `client_package_digest`. The Python wheel identity
+is already in `client_package`. The bind accepts an SDK receipt only when all of these hold:
+- the package and digest equal the manifest pin;
+- `harness_commit` is the dispatched run's commit;
+- that commit is on the repository's protected trunk and its workflow carries the contract.
+
+A wrong or missing digest, another harness, or an off-trunk harness refuses.
+
 ## Producer migration ledger
 
 All rows below are expected to remain red until their linked migration lands and a fresh receipt is

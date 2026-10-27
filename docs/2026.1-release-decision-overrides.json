@@ -832,6 +832,20 @@
       "target": "2026.1.x",
       "moved": [],
       "basis": "Founder decision 2026-10-27, recorded on honua-server#3753 on 2026-10-27"
+    },
+    "sdk-harness-trunk-pinned-package-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-release/issues/182#issuecomment-6434622477",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "Run each SDK's certification harness (honua-sdk-dotnet sdk-certification.yml, honua-sdk-python conformance.yml) from that SDK repository's trunk, at the newest green commit with the nightly dispatch contract, against the exact published package the manifest pins, bound by digest.",
+      "effect": "The nightly stages sdk-dotnet-harness and sdk-python-harness revisions (newest green trunk commit with the contract) and dispatches the SDK producers there with the manifest's pinned package name, version, digest and source, plus the governed requirements reference. The receipt records harness_commit and the package identity and digest. The bind accepts an SDK receipt only when the package digest equals the manifest pin and the harness commit is the dispatched one, on the repository's protected trunk, with the contract; a wrong or missing digest or an off-trunk harness refuses. The governed SDK source pins stay the published package sources. Implemented in tools/nightly_receipts.py and tools/convergence_rebind.py.",
+      "producers": [
+        "honua-sdk-dotnet",
+        "honua-sdk-python"
+      ],
+      "target": "2026.1.x",
+      "moved": [],
+      "basis": "Founder decision 2026-10-27, recorded on honua-release#182 on 2026-10-27"
     }
   },
   "security_findings": [

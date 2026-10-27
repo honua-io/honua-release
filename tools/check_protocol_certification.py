@@ -136,6 +136,7 @@ REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 NUGET_SDK_LANE = "sdk-dotnet-certification"
 NUGET_SDK_PACKAGE = "Honua.Sdk"
 NUGET_IDENTITY_FIELDS = ("client_package", "client_package_digest")
+HARNESS_LANES = frozenset({NUGET_SDK_LANE, "sdk-python-certification"})
 UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
 UNASSIGNED_SDK_OPERATION_PREFIX = "UNASSIGNED SDK OPERATION CONTRACT:"
 UNASSIGNED_PROTOCOL_HARNESS_PREFIX = "UNASSIGNED PROTOCOL HARNESS CONTRACT:"
@@ -458,6 +459,18 @@ def _valid_receipt(
         if not _valid_producer_run(identity["producer_run"]):
             return False
         identity_fields.add("producer_run")
+    # sdk-harness-trunk-pinned-package-2026-10-27: an SDK harness receipt names the trunk harness that
+    # ran and, on the .NET lane, the installed package by digest. Both stay inside the digest.
+    if isinstance(identity, dict) and "harness_commit" in identity:
+        if (cell.get("client_lane") not in HARNESS_LANES
+                or not isinstance(identity["harness_commit"], str)
+                or SHA_RE.fullmatch(identity["harness_commit"]) is None):
+            return False
+        identity_fields.add("harness_commit")
+        if cell.get("client_lane") == NUGET_SDK_LANE:
+            if not all(field in cell for field in NUGET_IDENTITY_FIELDS):
+                return False
+            identity_fields.update(NUGET_IDENTITY_FIELDS)
     # Receipt v2 is producer-strict: the producer owns and emits the governed
     # requirement context. There is no v1/context-less compatibility path at the
     # consumer boundary because such a receipt can be replayed after a maturity,

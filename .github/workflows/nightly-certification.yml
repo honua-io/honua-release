@@ -301,6 +301,7 @@ jobs:
           python tools/nightly_receipts.py dispatch-protocol \
             --catalog certification/protocol-certification-requirements.v1.json \
             --manifest platform-manifest.yaml --dispatch-id "$NIGHTLY_DISPATCH_ID" \
+            --requirements-ref "$GITHUB_SHA" \
             --out "${RUNNER_TEMP}/protocol-runs.json"
       - name: Wait for every producer; one that did not succeed refuses the night
         env:

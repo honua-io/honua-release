@@ -104,7 +104,9 @@
         "server_image": "{server_image}",
         "server_source_sha": "{server_sha}",
         "server_seed_ref": "{server_sha}",
-        "release_cut": "{cut_at}"
+        "release_cut": "{cut_at}",
+        "requirements_ref": "{requirements_ref}",
+        "requirements_revision": "{requirements_revision}"
       },
       "client_lanes": [
         "mcp-inspector",
@@ -116,11 +118,18 @@
       "repository": "honua-io/honua-sdk-python",
       "workflow": "conformance.yml",
       "source_revision_key": "sdk-python",
+      "harness_revision_key": "sdk-python-harness",
       "inputs": {
         "server_image": "{server_image}",
         "server_seed_ref": "{server_sha}",
         "candidate_cut_at": "{cut_at}",
-        "certification_tier": "release"
+        "certification_tier": "release",
+        "requirements_ref": "{requirements_ref}",
+        "requirements_revision": "{requirements_revision}",
+        "sdk_package": "{sdk_package}",
+        "sdk_package_version": "{sdk_package_version}",
+        "sdk_package_digest": "{sdk_package_digest}",
+        "sdk_source_sha": "{sdk_source_sha}"
       },
       "client_lanes": [
         "sdk-python-certification"
@@ -131,12 +140,19 @@
       "repository": "honua-io/honua-sdk-dotnet",
       "workflow": "sdk-certification.yml",
       "source_revision_key": "sdk-dotnet",
+      "harness_revision_key": "sdk-dotnet-harness",
       "inputs": {
         "tier": "release",
         "server_image": "{server_image}",
         "server_source_sha": "{server_sha}",
         "server_seed_ref": "{server_sha}",
-        "release_cut": "{cut_at}"
+        "release_cut": "{cut_at}",
+        "requirements_ref": "{requirements_ref}",
+        "requirements_revision": "{requirements_revision}",
+        "sdk_package": "{sdk_package}",
+        "sdk_package_version": "{sdk_package_version}",
+        "sdk_package_digest": "{sdk_package_digest}",
+        "sdk_source_sha": "{sdk_source_sha}"
       },
       "client_lanes": [
         "sdk-dotnet-certification"

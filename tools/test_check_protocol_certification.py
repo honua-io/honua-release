@@ -2412,3 +2412,46 @@ def test_preview_lapses_once_the_producer_emits_a_receipt(tmp_path):
 def test_preview_ruling_is_recorded_in_the_decision_overrides():
     from protocol_preview import declared_preview_producers
     assert declared_preview_producers() == frozenset({"honua-server-cng"})
+
+
+# sdk-harness-trunk-pinned-package-2026-10-27: an SDK harness receipt names the trunk harness commit.
+def _rebound(cell):
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]
+    return cell
+
+
+def _dotnet_harness_cell(**identity):
+    cell = _cell(canonical_client="Honua SDK .NET", client_lane="sdk-dotnet-certification",
+                 client_package="Honua.Sdk", client_package_digest="sha256:" + "4" * 64)
+    cell["evidence_receipt"]["identity"].update({"harness_commit": "5" * 40, "client_package": "Honua.Sdk",
+                                                 "client_package_digest": "sha256:" + "4" * 64, **identity})
+    return _rebound(cell)
+
+
+def _evaluate_dotnet(cell):
+    governed = {key: value for key, value in cell.items() if key not in ("client_package", "client_package_digest")}
+    return _evaluate(_ledger(cell), "nightly", now=NOW, requirements=_requirements(governed))
+
+
+def test_dotnet_harness_receipt_binds_the_harness_commit_and_package_digest():
+    schema = json.loads((Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
+                        .read_text(encoding="utf-8"))
+    cell = _dotnet_harness_cell()
+    assert not list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
+    assert _evaluate_dotnet(cell)["overall_status"] == "pass"
+    for broken in (_dotnet_harness_cell(harness_commit="HEAD"),
+                   _dotnet_harness_cell(client_package_digest="sha256:" + "6" * 64)):
+        assert _evaluate_dotnet(broken)["overall_status"] == "fail"
+    missing = _dotnet_harness_cell()
+    del missing["evidence_receipt"]["identity"]["client_package_digest"]
+    assert _evaluate_dotnet(_rebound(missing))["overall_status"] == "fail"
+    assert list(Draft202012Validator(schema).iter_errors(_ledger(missing)))
+
+
+def test_only_an_sdk_harness_lane_may_record_a_harness_commit():
+    cell = _cell()
+    cell["evidence_receipt"]["identity"]["harness_commit"] = "5" * 40
+    assert _evaluate(_ledger(_rebound(cell)), "nightly", now=NOW)["overall_status"] == "fail"

@@ -13,9 +13,17 @@
       "repository": "honua-io/honua-sdk-dotnet",
       "commit": "aada6d8987db0802a3c9de0d976f471afa943c0a"
     },
+    "sdk-dotnet-harness": {
+      "repository": "honua-io/honua-sdk-dotnet",
+      "commit": "817ca2620d6d7e276fa2c878d4b724b125e01376"
+    },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
       "commit": "4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352"
+    },
+    "sdk-python-harness": {
+      "repository": "honua-io/honua-sdk-python",
+      "commit": "cf241d92baf752d34282216a6eb573549c53c4c3"
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",

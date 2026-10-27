@@ -442,7 +442,12 @@ def grpc_client_digest(published: dict[str, Any], lane: str) -> str:
     return value
 
 
-PRODUCTION_PLACEHOLDERS = ("{server_image}", "{server_sha}", "{cut_at}")
+PRODUCTION_PLACEHOLDERS = (
+    "{server_image}", "{server_sha}", "{cut_at}", "{requirements_ref}", "{requirements_revision}",
+    # sdk-harness-trunk-pinned-package-2026-10-27: only a producer with a harness_revision_key.
+    "{sdk_package}", "{sdk_package_version}", "{sdk_package_digest}", "{sdk_source_sha}",
+)
+SDK_PACKAGE_PLACEHOLDERS = ("{sdk_package}", "{sdk_package_version}", "{sdk_package_digest}", "{sdk_source_sha}")
 
 
 def selects(entry: dict[str, Any], row: dict[str, Any]) -> bool:
@@ -468,6 +473,12 @@ def production(requirements: list[dict[str, Any]], revisions: dict[str, Any]) ->
             for key, value in entry["inputs"].items():
                 if "{" in value and value not in PRODUCTION_PLACEHOLDERS:
                     raise ValueError(f"producer {name} input {key} uses an ungoverned placeholder {value!r}")
+            harness = entry.get("harness_revision_key")
+            if harness is not None and (harness not in revisions
+                                        or revisions[harness]["repository"] != entry["repository"]):
+                raise ValueError(f"producer {name} harness_revision_key {harness!r} is not a revision of its repository")
+            if (harness is None) != (not set(SDK_PACKAGE_PLACEHOLDERS) & set(entry["inputs"].values())):
+                raise ValueError(f"producer {name} must pair a harness_revision_key with the pinned package inputs")
         elif not (entry.get("issue", "").startswith("https://github.com/honua-io/") and entry.get("missing_producer")):
             raise ValueError(f"unproduced disposition owned by {name} needs an owner issue and missing_producer")
         if not entry.get("client_lanes") and not entry.get("deployment_targets"):
