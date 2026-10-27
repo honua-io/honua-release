@@ -166,14 +166,14 @@ def operator_actions(policy: dict, trust: dict) -> list:
              'organization rulesets need admin:org. Repository rulesets do not.'],
             sorted(name for name, row in repositories.items() if row.get('required_checks'))),
         row('nominate-signing-key', 'open' if unsigned else 'satisfied',
-            'The trust policy stores fingerprints only. Publication still fails closed with no nominated signer.',
-            ['Add the authorized key fingerprint under signers and reference that id from each native-tag repository.',
-             'Store the public allowed-signers file in the release-promotion variable RELEASE_TAG_ALLOWED_SIGNERS. '
-             'Do not put a private key in the promotion workflow or in git.',
+            'A native-tag repository without a nominated signer cannot produce or trust a publication tag.',
+            ['Preferred (founder decision D11): give the repository\'s tag-creating workflow a gitsign keyless '
+             'signer — its exact workflow identity and issuer https://token.actions.githubusercontent.com — and '
+             'reference that id from the repository entry. honua-release does this for promote.yml.',
+             'Otherwise add an authorized key fingerprint under signers and supply its public allowed-signers '
+             'file to the verifier. Do not put a private key in a workflow or in git.',
              'Apply the rendered tag rules (update and deletion, no bypass). Immutability is not a signature, and '
              'required_signatures checks commits rather than tag objects.',
-             'Sign and push the tag printed by `tag_signing.py publication-tag` at the certified commit. '
-             'Promotion verifies that remote tag and does not create one.',
              'Record the actual-candidate signature receipt only after that tag exists.'],
             unsigned),
     ]

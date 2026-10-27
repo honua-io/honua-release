@@ -30,3 +30,6 @@ certification/agent-e2e/** text eol=lf
 
 # The lock pins this receipt by byte digest; a CRLF checkout would no longer match it.
 certification/sources/server-publication-history.v1.json text eol=lf
+
+# Real gitsign-signed git objects for tools/test_tag_signing_gitsign.py; never convert.
+tools/fixtures/gitsign/*.pack binary

@@ -200,7 +200,7 @@ def test_operator_actions_match_the_committed_policy_and_do_not_call_github(monk
         'honua-demo-infra', 'honua-esri-compat', 'honua-evidence', 'honua-iac']
     assert rows['nominate-signing-key']['status'] == 'open'
     assert rows['nominate-signing-key']['repositories'] == [
-        'geospatial-grpc', 'honua-helm', 'honua-release', 'honua-sdk-dotnet', 'honua-sdk-python']
+        'geospatial-grpc', 'honua-helm', 'honua-sdk-dotnet', 'honua-sdk-python']
     assert rows['apply-repository-rulesets']['status'] == 'operator'
     assert all(row['performs_github_writes'] is False for row in rows.values())
     for name in rows['missing-check-denominators']['repositories']:

@@ -6,7 +6,10 @@ channels or creates a GA tag. Existing tag_signing validates the release label.
 
 Only the scheduled trunk nightly can mint, and every refusal happens before cosign runs.
 Locks live at refs/tags/nightly-lock/<label>; a tag ruleset must forbid deleting or
-moving them, or a deleted lock would let the next night reuse its rc number.
+moving them, or a deleted lock would let the next night reuse its rc number. Since #236 /
+founder decision D11 each lock tag is an annotated tag signed keyless with gitsign by the
+minting workflow's own OIDC identity (nightly-certification.yml on trunk); older locks are
+lightweight refs and are still read.
 """
 from __future__ import annotations
 
@@ -674,10 +677,15 @@ def sync_history(destination: Path, repository: Path, remote='origin', *, run=su
         _git(['fetch', '--no-tags', remote, *(f'+{LOCK_REFS}{label}:{LOCK_REFS}{label}' for label in published)],
              repository, run, sleep)
     for label, sha in sorted(published.items()):
-        local = _git(['rev-parse', '--verify', f'{LOCK_REFS}{label}^{{commit}}'], repository, run, sleep)
+        # A lock published before #236/D11 is a lightweight ref straight at its commit; a newer one
+        # is a gitsign-signed annotated tag, so origin lists the tag object. Compare the unpeeled
+        # ref with the listing, then read the lock from the commit it peels to.
+        local = _git(['rev-parse', '--verify', f'{LOCK_REFS}{label}'], repository, run, sleep)
         if local.decode().strip() != sha:
             raise ValueError(f'{LOCK_REFS}{label}: fetched {local.decode().strip()} but origin lists {sha}')
-        data = _git(['show', f'{sha}:platform-lock.json'], repository, run, sleep)
+        commit = _git(['rev-parse', '--verify', f'{LOCK_REFS}{label}^{{commit}}'], repository, run,
+                      sleep).decode().strip()
+        data = _git(['show', f'{commit}:platform-lock.json'], repository, run, sleep)
         lock = json.loads(data)
         if lock.get('platform', {}).get('id') != f'honua-{label}':
             raise ValueError(f'{LOCK_REFS}{label}: lock records {lock.get("platform", {}).get("id")!r}')

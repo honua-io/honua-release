@@ -21,7 +21,9 @@
 #   3. pull the exact certified-candidate bundle from the minting train (nightly or dispatched)
 #   4. verify all gates green for that exact RC, finalize metadata, and re-tag without rebuilding
 #   5. OIDC keyless-sign the certified inputs, bound report, finalized manifest, and BOM
-#   6. verify the published signed tag at the RC's certified source SHA, then create its GitHub Release
+#   6. sign the GA publication tag at the RC's certified source SHA with gitsign (Sigstore keyless, THIS
+#      workflow's OIDC identity; founder decision D11), push it, verify the PUBLISHED tag with
+#      `gitsign verify-tag` against the trust policy's identity and issuer, then create its GitHub Release
 
 name: promote
 run-name: "promote ${{ inputs.platform_label }} (from run ${{ inputs.train_run_id }})"
@@ -43,8 +45,8 @@ on:
         type: string
 
 permissions:
-  contents: write     # create the GitHub Release for an already verified signed tag
-  id-token: write     # OIDC keyless signing of the manifest (no static keys)
+  contents: write     # push the signed publication tag and create its GitHub Release
+  id-token: write     # OIDC keyless signing of the tag (gitsign) and the manifest (cosign); no static keys
   actions: read       # inspect the train run and download its certified-candidate artifact
 
 concurrency:
@@ -228,6 +230,11 @@ jobs:
           mkdir -p "$TRUST_ROOT/release-notes"
           cp release-notes/*.md "$TRUST_ROOT/release-notes/" 2>/dev/null || true
 
+      # From the default branch, before the candidate checkout: the pinned, checksum-verified
+      # gitsign release that signs and verifies the publication tag (#236, founder decision D11).
+      - name: Install gitsign (Sigstore keyless tag signing)
+        run: bash tools/install_gitsign.sh "$RUNNER_TEMP/gitsign-bin"
+
       # Candidate parsing, finalization, and release generation use the tools that existed at
       # certification time. The promotion checkout is never a source for candidate bytes.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -337,24 +344,43 @@ jobs:
           # Publish the BOM derived from the attested candidate lock at freeze.
           cp candidate/bom.cdx.json bom.cdx.json
 
+      # Founder decision D11: the publication tag is signed keyless by THIS workflow's OIDC identity
+      # (https://github.com/honua-io/honua-release/.github/workflows/promote.yml@refs/heads/trunk),
+      # only after release-promotion approval and the all-green finalize above. No key exists.
+      # A rerun after the tag was pushed does not re-sign: the verifier below decides whether the
+      # published tag is acceptable, and refuses anything else.
+      - name: Sign and push the publication tag (gitsign keyless / OIDC)
+        env:
+          PUBLICATION_TAG: ${{ steps.finalize.outputs.tag }}
+          CERTIFIED_SHA: ${{ steps.train.outputs.source_sha }}
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$PUBLICATION_TAG" >/dev/null; then
+            echo "::notice::$PUBLICATION_TAG is already published; verifying it instead of re-signing."
+            exit 0
+          fi
+          git config user.name "honua-release promote"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python "$RUNNER_TEMP/publication-trust/tools/tag_signing.py" sign \
+            honua-release "$PUBLICATION_TAG" --git-dir . --target "$CERTIFIED_SHA" \
+            --message "Honua ${PLATFORM_LABEL%%-rc*} (promoted from $PLATFORM_LABEL, run $GITHUB_RUN_ID)"
+          git push origin "refs/tags/$PUBLICATION_TAG"
+
       - name: Verify the remote signed publication tag against the certified commit
         env:
           PUBLICATION_TAG: ${{ steps.finalize.outputs.tag }}
           CERTIFIED_SHA: ${{ steps.train.outputs.source_sha }}
           PUBLICATION_REMOTE: https://github.com/${{ github.repository }}.git
-          RELEASE_TAG_ALLOWED_SIGNERS: ${{ vars.RELEASE_TAG_ALLOWED_SIGNERS }}
         run: |
           set -euo pipefail
-          # Public trust material comes from the protected environment. No private key is
-          # loaded here; the protected publication producer must already have signed the tag.
-          test -n "$RELEASE_TAG_ALLOWED_SIGNERS" || {
-            echo "::error::release-promotion needs RELEASE_TAG_ALLOWED_SIGNERS public trust material"; exit 1;
-          }
-          printf '%s\n' "$RELEASE_TAG_ALLOWED_SIGNERS" > "$RUNNER_TEMP/publication-allowed-signers"
+          # Fetches only the published ref into a fresh repository and runs `gitsign verify-tag`
+          # against the trust policy's exact identity and issuer
+          # (https://token.actions.githubusercontent.com). An unsigned, lightweight, wrong-target
+          # or wrong-identity tag refuses here, before any Release exists.
           python "$RUNNER_TEMP/publication-trust/tools/tag_signing.py" verify-remote \
             honua-release "$PUBLICATION_TAG" --remote "$PUBLICATION_REMOTE" \
-            --target "$CERTIFIED_SHA" --allowed-signers "$RUNNER_TEMP/publication-allowed-signers" \
-            --output signed-tag-receipt.json
+            --target "$CERTIFIED_SHA" --output signed-tag-receipt.json
 
       - name: Sign the certified inputs + release outputs (keyless / OIDC)
         run: |
