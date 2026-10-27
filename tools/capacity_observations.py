@@ -37,6 +37,21 @@ def _equal(actual, expected, label):
         raise ValueError(f'{label} differs from source observations')
 
 
+def preview_protocols(lock: dict) -> set[str]:
+    """Protocols a founder ruling recorded in the lock moved out of the GA SLO population."""
+    return {name for ruling in lock.get('rulings', []) if isinstance(ruling, dict)
+            for name in ruling.get('previewProtocols', [])}
+
+
+def ga_dimensions(lock: dict) -> list[str]:
+    """The GA capacity dimensions: the exercised envelope less the dimensions a founder ruling keeps
+    in it only as Preview evidence (previewInEnvelope, also listed as excluded Preview dimensions).
+    Any other envelope dimension stays required, even one an older ruling excluded."""
+    preview = {name for ruling in lock.get('rulings', []) if isinstance(ruling, dict)
+               for name in ruling.get('previewInEnvelope', [])} & set(lock.get('excludedPreviewDimensions') or {})
+    return [name for name in lock['supportedEnvelope'] if name not in preview]
+
+
 def validate_sources(lock: dict, receipt: dict, root: Path) -> list[str]:
     """Verify sources, recompute all eight signals and compare every source population."""
     try:
@@ -58,7 +73,7 @@ def _validate(lock, receipt, root):
     _equal(hashlib.sha256(payload).hexdigest(), artifact['sha256'], 'source hash')
     source = json.loads(payload)
     _equal(source['schema'], 'honua.capacity-observations/v1', 'schema')
-    for field in ('candidateIdentity', 'window', 'topology', 'producer', 'lockSha256'):
+    for field in ('candidateIdentity', 'window', 'topology', 'producer', 'lockSha256', 'faultDrill'):
         _equal(source[field], receipt[field], field)
     _equal(source['samplingFailures'], [], 'sampling failures')
     _equal(source['populationMode'], 'complete-disjoint-intervals', 'population mode')
@@ -66,9 +81,15 @@ def _validate(lock, receipt, root):
     duration = (end - start).total_seconds()
     if duration <= 0:
         raise ValueError('empty window')
+    # capacity-steady-state-and-drill-2026-10-27: the fault drill runs after the measured window, so
+    # the steady-state population never contains fault-injection traffic.
+    drill_start, drill_end = (_time(source['faultDrill']['window'][k]) for k in ('startedAt', 'endedAt'))
+    if not end <= drill_start < drill_end:
+        raise ValueError('the fault drill period must follow the measured window')
+    excluded = preview_protocols(lock)
     replicas = {r['id'] for r in receipt['topology']['replicas']}
     intervals = {r: [] for r in replicas}
-    request_count = errors = 0
+    request_count = errors = total_count = 0
     histogram = []
     for interval in source['requests']:
         replica = interval['replica']
@@ -86,6 +107,9 @@ def _validate(lock, receipt, root):
                 raise ValueError('invalid HTTP outcome')
             if not isinstance(bucket['inBandError'], bool) or not bucket['protocol']:
                 raise ValueError('protocol/in-band outcome missing')
+            total_count += count
+            if bucket['protocol'] in excluded:
+                continue  # gp-out-of-ga-capacity-envelope-2026-10-27: Preview, never in the GA SLOs
             request_count += count
             errors += count if status >= 500 or bucket['inBandError'] else 0
             histogram.append((latency, count))
@@ -98,8 +122,10 @@ def _validate(lock, receipt, root):
         if cursor != end:
             raise ValueError(f'{replica}: incomplete observation window')
     _count(request_count)
-    _equal(source['requestCount'], request_count, 'request population')
+    _equal(source['requestCount'], total_count, 'request population')
     _equal(artifact['observationCount'], request_count, 'artifact population')
+    _equal(receipt['gaPopulation'], {'excludedProtocols': sorted(excluded), 'requestCount': request_count,
+                                     'totalRequestCount': total_count}, 'GA request population')
     histogram.sort()
 
     def percentile(q):
@@ -130,13 +156,14 @@ def _validate(lock, receipt, root):
     queue_age = max(_number(row['queueAgeSeconds']) for row in metrics)
     workloads = source['workloads']
     samples(workloads, 'workloads')
+    ga = ga_dimensions(lock)
     for row in workloads:
         _equal(set(row['dimensions']), set(lock['supportedEnvelope']), 'GA workload dimensions')
         _equal(row['executionMode'], 'candidate-topology', 'workload execution mode')
         _equal(row['proxy'], False, 'Preview proxy')
-        for name, target in lock['supportedEnvelope'].items():
-            _equal(_number(row['dimensions'][name]), target, f'{name} exercised target')
-    for name in lock['supportedEnvelope']:
+        for name in ga:
+            _equal(_number(row['dimensions'][name]), lock['supportedEnvelope'][name], f'{name} exercised target')
+    for name in ga:
         workload = receipt['workloads'][name]
         _equal(workload['candidateIdentity'], receipt['candidateIdentity'], f'{name} candidate')
         _equal(workload['window'], receipt['window'], f'{name} window')
@@ -147,13 +174,14 @@ def _validate(lock, receipt, root):
 
     recovery_durations = []
     domains = set()
+    _equal(source['recoveries'], source['faultDrill']['recoveries'], 'fault drill recoveries')
     for event in source['recoveries']:
         domains.add(event['dependency'])
         injected, detected, recovered = (_time(event[k]) for k in ('injectedAt', 'detectedAt', 'recoveredAt'))
-        if not start <= injected <= detected < recovered <= end or not event['failure'] or not event['probe']:
-            raise ValueError('recovery event lacks an ordered in-window timeline and recovery probe')
+        if not drill_start <= injected <= detected < recovered <= drill_end or not event['failure'] or not event['probe']:
+            raise ValueError('recovery event lacks an ordered in-drill timeline and recovery probe')
         recovery_durations.append((recovered - injected).total_seconds())
-    _equal(domains, {'worker', 'database', 'redis'}, 'injected recovery dependencies')
+    _equal(domains, set(lock['drill']['requiredFaultDependencies']), 'injected recovery dependencies')
     values = {
         'availability': (request_count-errors)/request_count,
         'errorRate': errors/request_count,

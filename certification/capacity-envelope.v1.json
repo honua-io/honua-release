@@ -113,7 +113,7 @@
     },
     "recoveryTimeSeconds": {
       "operator": "<=",
-      "value": 300.0,
+      "value": 19.0,
       "regressionAllowance": 0.0
     }
   },
@@ -125,6 +125,27 @@
         "activeSubscriptions",
         "alertEvaluationsPerSecond"
       ]
+    },
+    {
+      "id": "gp-out-of-ga-capacity-envelope-2026-10-27",
+      "date": "2026-10-27",
+      "notes": "Founder ruling: GP is Preview in 2026.1 (gp-preview-floor-2026-10-26) and the operating envelope does not qualify GP workers or queue depth. gpWorkers and gpQueueDepth stay in supportedEnvelope only so the producer configures and exercises them; they are not GA requirements. GPServer requests are excluded from the GA SLO population. Both are reported as Preview evidence (previewEvidence.gp) and never gated.",
+      "excludedDimensions": [
+        "gpWorkers",
+        "gpQueueDepth"
+      ],
+      "previewProtocols": [
+        "GPServer"
+      ],
+      "previewInEnvelope": [
+        "gpWorkers",
+        "gpQueueDepth"
+      ]
+    },
+    {
+      "id": "capacity-steady-state-and-drill-2026-10-27",
+      "date": "2026-10-27",
+      "notes": "Founder ruling: the steady-state SLOs are computed only over the measured window, which excludes the fault-injection period (faultDrill.window starts after the measured window ends). The fault drill must still run and is judged on its own: every worker, database and Redis fault recovers within drill.maxRecoverySecondsPerFault, every layer still serves its full count with the maximum payload intact, and no GP job is left stuck."
     }
   ],
   "receiptContract": {
@@ -148,6 +169,14 @@
       "requiredForGa": false
     },
     "alertEvaluationsPerSecond": {
+      "status": "preview",
+      "requiredForGa": false
+    },
+    "gpWorkers": {
+      "status": "preview",
+      "requiredForGa": false
+    },
+    "gpQueueDepth": {
       "status": "preview",
       "requiredForGa": false
     }
@@ -251,5 +280,18 @@
       "expression": "all(workloads[dimensions.gpQueueDepth] == 100)",
       "sha256": "82d11f84c14f7f88933d306c5744cbcc0f3f9a3a0d9dc4625eec401cff3ccdef"
     }
+  },
+  "drill": {
+    "ruling": "capacity-steady-state-and-drill-2026-10-27",
+    "requiredFaultDependencies": [
+      "worker",
+      "database",
+      "redis"
+    ],
+    "maxRecoverySecondsPerFault": 19.0,
+    "requireNoDataLoss": true,
+    "requireNoStuckJobs": true,
+    "derivation": "Capacity soak run 35126254288 (2026-09-16, honua-server 87966c3) recovered from an injected server-process fault in 16.535 s; observed x 1.10, rounded up to whole seconds, as for the frozen latency bounds.",
+    "source": "https://raw.githubusercontent.com/honua-io/honua-server/7f912b18/capacity/87966c3f7b6c840ffc4d4da0b451714ab717b18a-35126254288.json"
   }
 }
