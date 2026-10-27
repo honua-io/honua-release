@@ -247,3 +247,17 @@ def test_runtime_secret_commitments_are_keyed_field_bound_and_fresh():
     assert all(value.startswith("hmac-sha256:") and len(value) == 76 for value in committed.values())
     assert "low-entropy-example" not in json.dumps(committed)
     assert key.hex() not in json.dumps(committed)
+
+
+def test_strict_cells_provision_the_run_owned_issuer_the_installed_client_lane_needs():
+    """A strict Redis-on cell needs the run-owned issuer twice: S11 mints its bearer from it
+    (endpoint.prepare refuses without it) and the journey's 8.tenant-isolation denial needs its
+    second principal (#377). require_real must provision it exactly as the RC train's candidate_ref
+    does. Gated on candidate/prepared refs alone, a strict trunk dispatch reported both BLOCKED and
+    failed aws-ecs/redis-on after a full paid cell (run 40435209970)."""
+    import yaml
+    workflow = Path(__file__).resolve().parents[1] / ".github/workflows/e2e-cloud-aws-cell.yml"
+    expression = yaml.safe_load(workflow.read_text(encoding="utf-8"))["env"]["HONUA_CLOUD_TENANT_FIXTURE"]
+    assert expression.startswith("${{") and expression.endswith("}}")
+    terms = {term.strip() for term in expression[3:-2].split("||")}
+    assert terms == {"inputs.prepared_ref != ''", "inputs.candidate_ref != ''", "inputs.require_real"}
