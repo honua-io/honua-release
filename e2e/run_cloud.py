@@ -352,6 +352,10 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
         except Exception as e:
             s10 = CheckResult(large_import.ROW, "fail",
                               f"{large_import.SCENARIO}: the harness raised {type(e).__name__}")
+        if s10 is not None:
+            # The bulk import's trailing database work must not overlap the latency-bound drivers.
+            journey["postImportSettle"] = _await_settled_reads(
+                endpoint, cloud_journey.cell_dir(cell) / "extended" / "seed-manifest.json")
         extended = run_drivers(endpoint, admin_key=admin_key,
             out=cloud_journey.cell_dir(cell) / "extended", ready=state.get("ready", False),
             require_real=state.get("requireReal", False),
@@ -405,6 +409,60 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             journey["why"] = (journey.get("why", "") + "; " if journey.get("why") else "") + \
                 f"journey cleanup failed: {type(e).__name__}"
     return journey
+
+
+# The Redis-on S10 bulk import (330,000 rows, 85 MB) leaves one to two minutes of trailing database
+# work on the cell's small RDS instance after its job reports complete (publish convergence, analyze,
+# autovacuum): CloudWatch shows 300-500 read IOPS and ~50 MB freeable memory in that minute on every
+# Redis-on cell, and ALB target response times of 8-14 s (runs 40510504109, 40567535391). The demo's
+# live lanes give up at the SDK's 8 s timeout and render once without retrying, so S9-demos-two-protocols
+# failed whenever its first render fell inside that tail (40510504109 aws-ecs/redis-on; 38736476959,
+# 39271426746, 39603816191 aws-serverless/redis-on). S9 certifies the demo against a serving cell, not
+# latency under the harness's own bulk ingest, so the drivers wait until the demo's own data read is
+# fast again. The wait is bounded and recorded; an unsettled cell still runs every driver and is
+# judged on what it actually serves.
+SETTLE_BUDGET_SECONDS = 300.0
+SETTLE_INTERVAL_SECONDS = 5.0
+SETTLE_FAST_MS = 2000.0
+SETTLE_CONSECUTIVE = 3
+
+
+def _settle_read_url(endpoint: str, seed_manifest: Path) -> str | None:
+    """The demo's GeoServices data read (maui-zoning), from the cell's own seed manifest."""
+    manifest = _read_json(seed_manifest) or {}
+    demo = ((manifest.get("demo") or {}).get("maui-zoning") or {}) if isinstance(manifest, dict) else {}
+    service, layer = demo.get("service"), demo.get("layerId")
+    if not isinstance(service, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", service) or not isinstance(layer, int):
+        return None
+    return (f"{endpoint.rstrip('/')}/rest/services/{service}/FeatureServer/{layer}/query"
+            "?f=json&where=1%3D1&outFields=*&returnGeometry=true&resultRecordCount=1")
+
+
+def _await_settled_reads(endpoint: str, seed_manifest: Path, *, fetch=None, clock=time.monotonic,
+                         sleep=time.sleep) -> dict:
+    """Wait (bounded) until the demo's data read answers fast SETTLE_CONSECUTIVE times in a row."""
+    url = _settle_read_url(endpoint, seed_manifest)
+    if url is None:
+        return {"settled": None, "why": "no demo layer in the seed manifest; nothing to probe"}
+    fetch = fetch or make_fetch(timeout=30.0)
+    started, streak, probes, slowest = clock(), 0, 0, 0.0
+    while True:
+        before = clock()
+        response = fetch(url)
+        elapsed_ms = (clock() - before) * 1000.0
+        probes += 1
+        slowest = max(slowest, elapsed_ms)
+        streak = streak + 1 if response.status == 200 and elapsed_ms < SETTLE_FAST_MS else 0
+        waited = clock() - started
+        if streak >= SETTLE_CONSECUTIVE:
+            return {"settled": True, "waitedSeconds": round(waited, 1), "probes": probes,
+                    "slowestMs": round(slowest)}
+        if waited + SETTLE_INTERVAL_SECONDS > SETTLE_BUDGET_SECONDS:
+            return {"settled": False, "waitedSeconds": round(waited, 1), "probes": probes,
+                    "slowestMs": round(slowest),
+                    "why": f"demo data read not under {SETTLE_FAST_MS:.0f} ms {SETTLE_CONSECUTIVE}x "
+                           f"within {SETTLE_BUDGET_SECONDS:.0f} s; drivers run and are judged as served"}
+        sleep(SETTLE_INTERVAL_SECONDS)
 
 
 def _journey_blocked_verdict(blockers: list[list[str]], require_real: bool) -> dict:

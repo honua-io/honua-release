@@ -5686,3 +5686,92 @@ def test_controller_and_aggregate_refuse_unaccounted_profile_artifacts(monkeypat
         run_cloud.verify_journey({'cell': 'aws-ecs/redis-off', 'observedServer': {
             'revision': sha, 'source': 'commit-sha'}, 'runningImage': image},
             {'journeyAttempts': report['journeyAttempts']}, tmp_path)
+
+
+# ---- post-import settle: the S10 bulk import's DB tail must not overlap the latency-bound drivers ----
+SEED = {"demo": {"maui-zoning": {"service": "maui-zoning", "layerId": 2}}}
+
+
+class _Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += seconds
+
+
+def _probe_fetch(clock, timings_ms, status=200, seen=None):
+    """Each call takes the next scripted latency (the last one repeats)."""
+    queue = list(timings_ms)
+
+    def fetch(url):
+        if seen is not None:
+            seen.append(url)
+        clock.t += (queue.pop(0) if len(queue) > 1 else queue[0]) / 1000.0
+        return cc.HttpResponse(status, "{}")
+    return fetch
+
+
+def _seed(tmp_path, value=SEED):
+    path = tmp_path / "seed-manifest.json"
+    path.write_text(json.dumps(value))
+    return path
+
+
+def test_settle_waits_out_the_recorded_import_tail_then_reads_fast(tmp_path):
+    clock, seen = _Clock(), []
+    # Run 40510504109: the demo minute served 13.6 s at the ALB; then the cell settles.
+    fetch = _probe_fetch(clock, [13600, 9000, 8200, 300, 250, 240], seen=seen)
+    result = run_cloud._await_settled_reads("https://cell.example", _seed(tmp_path), fetch=fetch,
+                                            clock=clock, sleep=clock.sleep)
+    assert result["settled"] is True and result["probes"] == 6 and result["slowestMs"] == 13600
+    assert seen[0] == ("https://cell.example/rest/services/maui-zoning/FeatureServer/2/query"
+                       "?f=json&where=1%3D1&outFields=*&returnGeometry=true&resultRecordCount=1")
+
+
+def test_settle_is_bounded_and_recorded_never_a_verdict(tmp_path):
+    clock = _Clock()
+    result = run_cloud._await_settled_reads("https://cell.example", _seed(tmp_path),
+                                            fetch=_probe_fetch(clock, [9000]), clock=clock, sleep=clock.sleep)
+    assert result["settled"] is False and "drivers run" in result["why"]
+    # Bounded by the budget plus at most one probe (make_fetch timeout 30 s).
+    assert run_cloud.SETTLE_BUDGET_SECONDS - run_cloud.SETTLE_INTERVAL_SECONDS < result["waitedSeconds"] <= run_cloud.SETTLE_BUDGET_SECONDS + 30
+
+
+def test_settle_counts_only_fast_successful_reads(tmp_path):
+    clock = _Clock()
+    result = run_cloud._await_settled_reads("https://cell.example", _seed(tmp_path),
+                                            fetch=_probe_fetch(clock, [100], status=503), clock=clock, sleep=clock.sleep)
+    assert result["settled"] is False
+
+
+@pytest.mark.parametrize("seed", [None, {}, {"demo": {"maui-zoning": {"service": "../x", "layerId": 2}}},
+                                  {"demo": {"maui-zoning": {"service": "maui-zoning", "layerId": "2"}}}])
+def test_settle_without_a_demo_layer_does_not_probe(tmp_path, seed):
+    path = tmp_path / "missing.json" if seed is None else _seed(tmp_path, seed)
+    result = run_cloud._await_settled_reads("https://cell.example", path,
+                                            fetch=lambda url: pytest.fail("probed"))
+    assert result["settled"] is None
+
+
+@pytest.mark.parametrize("s10_ran", [True, False])
+def test_drivers_start_only_after_the_bulk_import_settles(monkeypatch, s10_ran):
+    order = []
+    cj = run_cloud.cloud_journey
+    monkeypatch.setattr(run_cloud.large_import, "run_scenario", lambda *a, **k: (
+        order.append("s10") or cc.CheckResult(run_cloud.large_import.ROW, "pass", "imported")) if s10_ran else None)
+    monkeypatch.setattr(run_cloud, "_await_settled_reads",
+                        lambda endpoint, seed: order.append("settle") or {"settled": True})
+    monkeypatch.setattr(run_cloud, "run_drivers", lambda *a, **k: order.append("drivers") or [])
+    monkeypatch.setattr(cj, "attempt", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop after drivers")))
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    monkeypatch.setenv("GITHUB_RUN_ID", "offline-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    state = {"cell": "aws-ecs/redis-on", "redis": "redis-on", "endpoint": "https://cell.invalid", "report": {},
+             "runId": "offline-run", "runAttempt": "1", "candidateDigest": cj.candidate_digest()}
+    journey = run_cloud.journey_phase(state, admin_key="k")
+    assert order == (["s10", "settle", "drivers"] if s10_ran else ["drivers"])
+    assert ("postImportSettle" in journey) is s10_ran
