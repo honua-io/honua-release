@@ -39,3 +39,44 @@ Complete this wave by fixing measured server and harness defects, enrolling
 missing complete producers, satisfying authentication and fixture prerequisites,
 then replaying every required cell on the qualifying candidate. Report new cell
 closures separately from merged fixes and repeated passes.
+
+## Native completion contract
+
+`tools/native_completion_contract.py` reconciles the fixed scripting scope with
+both current producer grids and the complete PyQGIS registry and profile. It
+writes `original-scope.json` for native campaign preparation and `backlog.json`
+to a new output directory. Every input is accompanied by its exact SHA-256:
+
+```powershell
+python tools/native_completion_contract.py `
+  --scope <scope.json> --scope-sha256 <sha256> `
+  --licensed-grid <esri-grid.json> --licensed-grid-sha256 <sha256> `
+  --qgis-grid <qgis-grid.json> --qgis-grid-sha256 <sha256> `
+  --registry <native-certification-cases.json> --registry-sha256 <sha256> `
+  --profile <native-certification-wave.json> --profile-sha256 <sha256> `
+  --requirements <protocol-certification-requirements.v1.json> --requirements-sha256 <sha256> `
+  --candidate-digest sha256:<digest> --integration-source <release-commit-sha> `
+  --output <new-directory>
+```
+
+Supply `--arc-projection` and `--arc-projection-sha256` only for an authoritative
+`honua.native-accounting-inventory/v1` projection produced by the Arc accounting
+validator. Without it, Arc cells remain unknown. The projection must contain the
+exact original Arc cell set and all declared children must reference its cases.
+The supplied integration commit is recorded in the generated scope. Existing Arc
+inventories pin the exact scope bytes and integration commit; regenerate and
+review those inventories when using a newly generated scope.
+
+Release bindings are optional and are never inferred from similar names. A
+reviewed JSON file with schema `honua.native-release-bindings/v1` contains a
+nonempty `review` reference, `input_sha256` equal to the report's input pin map
+excluding the bindings file itself, and `bindings`, an array of objects with
+`requirement_id` and nonempty `cell_ids`. Requirement IDs are SHA-256 of the
+canonical JSON encoding of the release gate's normalized requirement signature,
+and are present in the backlog. A binding must reference an addressable
+scripting requirement and original required cells of the same driver. Pass the
+file and its hash via `--bindings` and `--bindings-sha256`. A binding is a mapping,
+not proof that its native assertions passed or that the release gate accepted
+receipts. Unmapped producer children, unproved fixtures and missing reviewed
+release mappings stay visible; all release requirements and deferred cells are
+retained separately from the 950-cell execution scope.
