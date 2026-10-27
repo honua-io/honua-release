@@ -52,8 +52,13 @@ def py_projection(registry, profile, expected):
         children = mapping.get(native, [])
         need(isinstance(children, list) and len(children) == len(set(children)) and set(children) <= set(processes),
              'Invalid Py cell process binding')
-        result[cell_id] = [{'case_id':'pyqgis/'+case, 'assertion_id':assertion}
-                           for case in children for assertion in processes[case]['required_case_ids']]
+        required = [{'case_id':'pyqgis/'+case, 'assertion_id':assertion}
+                    for case in children for assertion in processes[case]['required_case_ids']]
+        complete = bool(required) and any(processes[case].get('coverage_kind') != 'prerequisite'
+                                          for case in children)
+        result[cell_id] = {'mapping_status':'mapped' if complete else 'unmapped',
+                           'required_children':required,
+                           'prerequisite_only':bool(required) and not complete}
     declared = {'/'.join(c) for c in registry['unmapped_cells']}
     need(declared == {name for name in source_cells if not mapping.get(name)}, 'Py unmapped inventory differs')
     return result
@@ -74,7 +79,8 @@ def arc_projection(projection, expected):
         pairs = [(c['case_id'], c['assertion_id']) for c in children]
         need(len(pairs) == len(set(pairs)) and all(c in cases and isinstance(a, str) and a for c, a in pairs),
              'Arc child is not in projected case inventory')
-        result[cell['cell_id']] = [{'case_id':'arcpy/'+c, 'assertion_id':a} for c,a in pairs]
+        result[cell['cell_id']] = {'mapping_status':cell['mapping_status'],
+                                   'required_children':[{'case_id':'arcpy/'+c, 'assertion_id':a} for c,a in pairs]}
     return result
 
 
@@ -114,17 +120,18 @@ def build(scope, grids, registry, profile, requirements, candidate_digest, integ
                  and all(ref.startswith(addressable[key]['client_driver']+'/') for ref in refs),
                  'Unknown, duplicate, cross-driver or empty release binding')
             links[key] = refs
-    arc_unmapped = ({c['cell_id'] for c in arc['cells'] if c['mapping_status'] == 'unmapped'}
-                    if arc is not None else set())
     native_backlog=[]
     for cell in cells:
-        children = mappings.get(cell['cell_id'], [])
+        mapping = mappings.get(cell['cell_id'], {'mapping_status':'unmapped','required_children':[]})
+        children = mapping['required_children']
         reasons=[]
         if cell['driver'] == 'arcpy' and arc is None: reasons.append('authoritative-arc-projection-not-supplied')
-        elif not children or cell['cell_id'] in arc_unmapped: reasons.append('native-producer-mapping-missing')
+        elif mapping['mapping_status'] == 'unmapped': reasons.append('native-producer-mapping-missing')
+        if mapping.get('prerequisite_only'): reasons.append('prerequisite-only-observation')
         reasons.append('fixture-and-fresh-native-evidence-not-proven')
         if not any(cell['cell_id'] in refs for refs in links.values()): reasons.append('reviewed-release-mapping-missing')
         native_backlog.append({**cell, 'owner': 'honua-esri-compat' if cell['driver']=='arcpy' else 'honua-client-compat',
+                               'mapping_status':mapping['mapping_status'],
                                'required_children':children, 'reasons':reasons})
     native_by_id = {cell['cell_id']:cell for cell in native_backlog}
     release_backlog=[]

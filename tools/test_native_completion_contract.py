@@ -79,3 +79,15 @@ def test_arc_partial_mapping_remains_backlog(source):
     assert 'native-producer-mapping-missing' in item['reasons']
     arc['cells'].pop()
     with pytest.raises(ValueError,match='differs from original'): build(source,arc=arc)
+
+
+def test_prerequisite_only_is_unmapped_with_partial_child_and_no_release_credit(source):
+    changed=copy.deepcopy(source)
+    changed[2]['processes']['p']['coverage_kind']='prerequisite'
+    _,backlog=build(changed)
+    cell=next(c for c in backlog['native_cells'] if c['cell_id']=='pyqgis/surface/c0')
+    assert cell['mapping_status']=='unmapped'
+    assert cell['required_children']==[{'case_id':'pyqgis/p','assertion_id':'assertion'}]
+    assert 'prerequisite-only-observation' in cell['reasons']
+    assert 'native-producer-mapping-missing' in cell['reasons']
+    assert backlog['native_required_count']==950 and not backlog['shipping_certification_credit']
