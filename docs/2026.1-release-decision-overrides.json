@@ -846,6 +846,18 @@
       "target": "2026.1.x",
       "moved": [],
       "basis": "Founder decision 2026-10-27, recorded on honua-release#182 on 2026-10-27"
+    },
+    "helm-preview-out-of-lock-2026-10-26": {
+      "date": "2026-10-26",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "The 2026.1 lock records the Helm chart as Preview out of the lock: not frozen and not required. The chart has no released version, registry digest, pulled-package checksum or source-revision provenance, and Preview does not need one.",
+      "effect": "generate_platform_lock.py records honua-helm with artifactIdentityModel preview-out-of-lock, its tested source revision, its version maps and this ruling, and no artifact identity, so freeze no longer refuses the unpublished chart. The exemption holds only while honua-helm is Preview, carries no published chart identity and the compatibility matrix scopes no deploy.honua-helm row as ga-target; any one of those restores the full chart requirement, and a supplied chart identity is locked and verified as before. Mirrors the Lambda Preview scope in honua-release#940. The EKS/Helm security, isolation and integrity floors are unchanged.",
+      "out_of_lock_components": [
+        "honua-helm"
+      ],
+      "moved": [],
+      "basis": "Founder tier ruling 2026-10-25 (ECS and Compose GA; Helm, Lambda and GP Preview) and founder direction 2026-10-26 to clear the 2026.1 freeze blockers"
     }
   },
   "security_findings": [

@@ -272,6 +272,11 @@ def build_ledger(lock: dict) -> dict:
              "reason": f"Locked lifecycle: {component['lifecycleStatus']}"}
             for name, component in sorted(lock["components"].items())
             if component["lifecycleStatus"] in {"Experimental", "Excluded"}
+        ] + [
+            {"lockDigest": digest, "component": name,
+             "reason": f"Preview, out of the lock under ruling {component['outOfLock']['ruling']}"}
+            for name, component in sorted(lock["components"].items())
+            if component.get("artifactIdentityModel") == "preview-out-of-lock"
         ],
     }
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -39,6 +40,75 @@ PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:\.[0-9]+)?(?:-rc\.[0-9]+)
 PLACEHOLDER_RE = re.compile(r"(?:tbd|todo|unknown|unresolved|pending)", re.I)
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
+RELEASE_LINE_RE = re.compile(r"^([0-9]{4}\.[0-9]+)")
+# Manifest facts that name a published chart. Supplying any of them puts the chart in the lock,
+# where it is verified like every other artifact; out-of-lock is only for a chart with none.
+CHART_IDENTITY_FIELDS = ("digest", "artifactSha256", "artifactSourceRevision", "architectures",
+                         "artifactVersion", "platformDigests")
+
+
+def decision_overrides_path(release: str) -> Path | None:
+    """The release line's decision overrides (docs/<YYYY.N>-release-decision-overrides.json)."""
+    line = RELEASE_LINE_RE.match(release or "")
+    return REPO_ROOT / "docs" / f"{line.group(1)}-release-decision-overrides.json" if line else None
+
+
+def out_of_lock_rulings(path: Path | None) -> dict[str, set[str]]:
+    """Founder rulings that take named Preview components out of the lock, by ruling id.
+
+    A missing, unreadable or malformed ruling takes nothing out: the component stays fully required.
+    """
+    try:
+        rulings = json.loads(path.read_text(encoding="utf-8"))["rulings"]
+    except (OSError, AttributeError, KeyError, TypeError, ValueError):
+        return {}
+    accepted = {}
+    for ruling_id, ruling in (rulings.items() if isinstance(rulings, dict) else ()):
+        components = ruling.get("out_of_lock_components") if isinstance(ruling, dict) else None
+        if ("founder" in str(ruling.get("owner", "")).lower() if isinstance(ruling, dict) else False) \
+                and isinstance(components, list) and components \
+                and all(isinstance(item, str) and item for item in components):
+            accepted[ruling_id] = set(components)
+    return accepted
+
+
+def _ga_target_deployments(matrix: dict[str, Any], name: str) -> list[str]:
+    targets = []
+    for target, row in ((matrix.get("deploy") or {}).get(name) or {}).items():
+        for arch, cell in ((row or {}).get("architectures") or {}).items() if isinstance(row, dict) else ():
+            if isinstance(cell, dict) and "ga-target" in (cell.get("status"), cell.get("releaseScope")):
+                targets.append(f"{target}/{arch}")
+    return targets
+
+
+def _out_of_lock(name: str, component: dict[str, Any], matrix: dict[str, Any],
+                 rulings: dict[str, set[str]], refuse: Any) -> str | None:
+    """The ruling that keeps this unpublished Preview component out of the lock, or None.
+
+    Mirrors the Lambda Preview scope (#940): the exemption holds only while the component is
+    Preview and the matrix scopes none of its deployments as a GA target. Any refusal leaves the
+    component in the lock, where every missing artifact fact is refused as before.
+    """
+    ruling = component.get("outOfLock")
+    if ruling is None:
+        return None
+    if any(component.get(key) for key in CHART_IDENTITY_FIELDS) or component.get("version") not in (None, PRERELEASE):
+        return None
+    path = f"$.components.{name}.outOfLock"
+    if component.get("lifecycleStatus") != "Preview":
+        refuse(f"{path}: only a Preview component can stay out of the lock "
+               f"(lifecycleStatus is {component.get('lifecycleStatus')!r})", "DECISION")
+        return None
+    ga_targets = _ga_target_deployments(matrix, name)
+    if ga_targets:
+        refuse(f"{path}: the matrix scopes {', '.join(ga_targets)} as ga-target, "
+               "so the published chart is required", "DECISION")
+        return None
+    if name not in rulings.get(str(ruling), set()):
+        refuse(f"{path}: {ruling!r} is not a founder ruling in the decision overrides that takes "
+               f"{name} out of the lock", "DECISION")
+        return None
+    return str(ruling)
 
 
 @dataclass
@@ -75,10 +145,11 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
-             qualification=False) -> Draft:
+             qualification=False, decision_overrides: Path | None = None) -> Draft:
     """Derive a draft; the CLI also requires live registry architecture verification."""
     manifest, matrix = _load(manifest_path), _load(matrix_path)
     release = str(manifest.get("platformRelease", ""))
+    rulings = out_of_lock_rulings(decision_overrides or decision_overrides_path(release))
     platform_id = f"honua-{release}" if PLATFORM_RELEASE_RE.fullmatch(release) else None
     # R22: honua-server, honua-console and the Helm chart carry this version, never their own.
     platform_version = artifact_version(release) if platform_id else None
@@ -188,6 +259,13 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
             else:
                 refuse(f"{cpath}.migrationJournalSha256: exact declared migration set is not bound", "AT-CUT")
         seed = _artifact_seed(component)
+        out_of_lock = _out_of_lock(name, component, matrix, rulings, refuse)
+        if out_of_lock:
+            # Recorded, not frozen: the lock names the Preview component, its tested source and the
+            # ruling, and carries no artifact identity for it to require.
+            entry["artifactIdentityModel"] = "preview-out-of-lock"
+            entry["outOfLock"] = {"ruling": out_of_lock}
+            seed = None
         if seed:
             entry["artifacts"].append(seed)
         lock["components"][name] = entry
@@ -211,7 +289,7 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
             refuse(f"{cpath}.contractVersions: not declared", resolution)
         if not entry["schemaVersions"] and not (source_pinned and "schemaVersions" in component):
             refuse(f"{cpath}.schemaVersions: not declared", "AT-CUT")
-        if not seed and not source_pinned and not published_by_component[name]:
+        if not seed and not source_pinned and not out_of_lock and not published_by_component[name]:
             refuse(f"{cpath}.artifacts: no artifact coordinate is declared", "DECISION")
         elif seed:
             apath = f"{cpath}.artifacts[0]"

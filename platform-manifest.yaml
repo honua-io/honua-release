@@ -923,6 +923,11 @@ components:
     # Owner amendment 2026-10-16 supersedes decisions 12/18: EKS/Helm is Preview in
     # 2026.1, with security/isolation/integrity floors retained and no GA qualification claim.
     lifecycleStatus: Preview
+    # Founder ruling helm-preview-out-of-lock-2026-10-26 (docs/2026.1-release-decision-overrides.json):
+    # the 2026.1 lock records the unpublished Preview chart out of the lock, neither frozen nor
+    # required. tools/generate_platform_lock.py honours it only while the chart is Preview, carries no
+    # published identity and the matrix scopes no deploy.honua-helm row as ga-target.
+    outOfLock: helm-preview-out-of-lock-2026-10-26
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110/#115): newest trunk commit whose
     # own CI is green. 9dd42621b was correct when taken, but honua-helm#61 landed after it and is the

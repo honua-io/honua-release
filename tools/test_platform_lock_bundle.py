@@ -603,3 +603,30 @@ def test_nightly_bom_and_rollback_verify_the_exact_qualification_draft():
     assert '--qualification --check' in verification['run']
     assert 'gh attestation verify _candidate/platform-manifest.yaml' in verification['run']
     assert 'gh attestation verify _candidate/compatibility-matrix.yaml' in verification['run']
+
+
+def test_bind_keeps_a_ruled_preview_chart_out_of_the_lock_and_its_ledger(tmp_path):
+    from test_platform_lock import _helm_inputs, HELM_RULING
+    import generate_platform_lock
+    manifest, matrix, overrides = _helm_inputs(tmp_path)
+    original = generate_platform_lock.decision_overrides_path
+    try:
+        generate_platform_lock.decision_overrides_path = lambda release: overrides
+        draft = generate_platform_lock.generate(manifest, matrix)
+        helm = draft.lock["components"]["honua-helm"]
+        assert helm["artifactIdentityModel"] == "preview-out-of-lock"
+        ledger = bundle.build_ledger(draft.lock)
+        assert {"component": "honua-helm", "reason": f"Preview, out of the lock under ruling {HELM_RULING}"} in [
+            {key: item[key] for key in ("component", "reason")} for item in ledger["experimentalExclusions"]]
+        assert all(edge["component"] != "honua-helm" for edge in
+                   next(iter(ledger["platformLocks"].values()))["releaseArtifacts"])
+        assert all(entry["name"] != "honua-helm" for entry in bundle.build_bom(draft.lock)["components"])
+        # A lock that drops the ruling or claims the chart as published differs from its inputs.
+        tampered = copy.deepcopy(draft.lock)
+        tampered["components"]["honua-helm"]["artifactIdentityModel"] = "published"
+        tampered["components"]["honua-helm"].pop("outOfLock")
+        with pytest.raises(ValueError):
+            bundle._declared({k: v for k, v in helm.items() if k != "artifacts"},
+                             tampered["components"]["honua-helm"], "components.honua-helm")
+    finally:
+        generate_platform_lock.decision_overrides_path = original

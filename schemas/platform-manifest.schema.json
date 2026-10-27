@@ -69,7 +69,8 @@
     "component": {
       "type": "object",
       "properties": {
-        "sourcePinnedOnly": {"type": "boolean"}
+        "sourcePinnedOnly": {"type": "boolean"},
+        "outOfLock": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
       }
     },
     "disasterRecovery": {

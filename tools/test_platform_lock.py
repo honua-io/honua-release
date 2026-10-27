@@ -915,3 +915,139 @@ def test_live_inputs_lock_the_published_honua_iac_release():
         "version": "0.3.0", "sourceRevision": "d5b7bec9073e72ad294da5ce802aff0c58abad07",
         "sha256": "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308"}]
     assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "d5b7bec9073e72ad294da5ce802aff0c58abad07"
+
+
+# --- Helm Preview out of the lock (ruling helm-preview-out-of-lock-2026-10-26) ---
+
+HELM_RULING = "helm-preview-out-of-lock-2026-10-26"
+
+
+def _helm_inputs(tmp_path, *, scope="preview", lifecycle="Preview", ruling=None, **helm):
+    """An unpublished Preview chart, the EKS matrix row, and the founder ruling that rules it out."""
+    row = {"repository": "https://github.com/honua-io/honua-helm", "sha": REVISION,
+           "lifecycleStatus": lifecycle, "artifact": "oci-chart:honua", "version": "pre-release",
+           "contractVersions": {"admin": "v1"}, "schemaVersions": {"chart": "v2"},
+           "outOfLock": HELM_RULING}
+    row.update(helm)
+    for key in [key for key, value in row.items() if value is None]:
+        del row[key]
+    manifest = evidence_manifest()
+    manifest["components"]["honua-helm"] = row
+    matrix = {"contracts": {}, "deploy": {"honua-helm": {
+        "appVersion": "sha:" + REVISION,
+        "awsEks": {"target": "aws-eks", "architectures": {"x86_64": {
+            "status": scope, "releaseScope": scope, "qualification": "pending"}}}}}}
+    overrides = {"rulings": {HELM_RULING: ruling if ruling is not None else {
+        "owner": "Mike McDougall (founder)", "out_of_lock_components": ["honua-helm"]}}}
+    paths = tmp_path / "manifest.yaml", tmp_path / "matrix.yaml", tmp_path / "overrides.json"
+    paths[0].write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    paths[1].write_text(yaml.safe_dump(matrix), encoding="utf-8")
+    paths[2].write_text(__import__("json").dumps(overrides), encoding="utf-8")
+    return paths
+
+
+def _helm_draft(tmp_path, **kwargs):
+    manifest, matrix, overrides = _helm_inputs(tmp_path, **kwargs)
+    return generator.generate(manifest, matrix, decision_overrides=overrides)
+
+
+def _helm_items(draft):
+    return [item for item in draft.unresolved if "honua-helm" in item]
+
+
+def test_generator_records_the_ruled_preview_chart_out_of_the_lock(tmp_path):
+    draft = _helm_draft(tmp_path)
+    assert _helm_items(draft) == []
+    helm = draft.lock["components"]["honua-helm"]
+    assert helm["lifecycleStatus"] == "Preview" and helm["supportTier"] == "preview"
+    assert helm["artifactIdentityModel"] == "preview-out-of-lock"
+    assert helm["outOfLock"] == {"ruling": HELM_RULING}
+    # Nothing about the chart is frozen: no coordinate, version, digest, checksum or provenance.
+    assert helm["artifacts"] == []
+    assert helm["source"] == {"repository": "https://github.com/honua-io/honua-helm", "revision": REVISION}
+
+
+def test_rescoping_the_chart_to_ga_target_restores_the_full_chart_requirement(tmp_path):
+    draft = _helm_draft(tmp_path, scope="ga-target")
+    joined = "\n".join(_helm_items(draft))
+    assert "ga-target" in joined and "[DECISION] $.components.honua-helm.outOfLock" in joined
+    for field in ("version", "digest", "architectures", "sha256", "sourceRevision"):
+        assert f"$.components.honua-helm.artifacts[0].{field}" in joined, field
+    assert draft.lock["components"]["honua-helm"]["artifactIdentityModel"] == "published"
+
+
+def test_a_ga_chart_cannot_leave_the_lock(tmp_path):
+    draft = _helm_draft(tmp_path, lifecycle="GA")
+    joined = "\n".join(_helm_items(draft))
+    assert "[DECISION] $.components.honua-helm.outOfLock" in joined and "Preview" in joined
+    assert "$.components.honua-helm.artifacts[0].digest" in joined
+
+
+@pytest.mark.parametrize("ruling", [
+    {},
+    {"owner": "Mike McDougall (founder)", "out_of_lock_components": ["honua-console"]},
+    {"owner": "release agent", "out_of_lock_components": ["honua-helm"]},
+    {"owner": "Mike McDougall (founder)", "out_of_lock_components": "honua-helm"},
+])
+def test_only_the_named_founder_ruling_takes_the_chart_out_of_the_lock(tmp_path, ruling):
+    draft = _helm_draft(tmp_path, ruling=ruling)
+    joined = "\n".join(_helm_items(draft))
+    assert "[DECISION] $.components.honua-helm.outOfLock" in joined
+    assert "$.components.honua-helm.artifacts[0].digest" in joined
+
+
+def test_an_unknown_ruling_id_cannot_take_the_chart_out_of_the_lock(tmp_path):
+    draft = _helm_draft(tmp_path, outOfLock="helm-preview-out-of-lock-2099-01-01")
+    assert any("[DECISION] $.components.honua-helm.outOfLock" in item for item in draft.unresolved)
+
+
+def test_a_supplied_chart_identity_is_still_locked_and_verified(tmp_path):
+    release = "2026.1"
+    bound = {"digest": DIGEST, "artifactSourceRevision": REVISION, "architectures": ["amd64"],
+             "artifactSha256": DIGEST, "artifactVersion": artifact_version(release)}
+    manifest, matrix, overrides = _helm_inputs(tmp_path, **bound)
+    draft = generator.generate(manifest, matrix, decision_overrides=overrides)
+    helm = draft.lock["components"]["honua-helm"]
+    assert helm["artifactIdentityModel"] == "published" and "outOfLock" not in helm
+    assert helm["artifacts"][0]["digest"] == DIGEST and helm["artifacts"][0]["version"] == "2026.1.0"
+    # A partial identity is verified too: it never quietly falls back to out-of-lock.
+    partial = _helm_draft(tmp_path, digest=DIGEST)
+    assert any("$.components.honua-helm.artifacts[0].sha256" in item for item in partial.unresolved)
+
+
+def _out_of_lock_component(**overrides):
+    helm = {"source": {"repository": "https://github.com/honua-io/honua-helm", "revision": REVISION},
+            "lifecycleStatus": "Preview", "supportTier": "preview",
+            "artifactIdentityModel": "preview-out-of-lock", "outOfLock": {"ruling": HELM_RULING},
+            "contractVersions": {"admin": "v1"}, "schemaVersions": {"chart": "v2"}, "artifacts": []}
+    helm.update(overrides)
+    return {key: value for key, value in helm.items() if value is not None}
+
+
+def test_validator_accepts_a_preview_component_out_of_the_lock():
+    lock = valid_lock()
+    lock["components"]["honua-helm"] = _out_of_lock_component()
+    assert validator.validate(lock).errors == []
+
+
+@pytest.mark.parametrize("change,text", [
+    ({"lifecycleStatus": "GA", "supportTier": "ga"}, "honua-helm"),
+    ({"outOfLock": None}, "honua-helm"),
+    ({"artifacts": [{"kind": "oci-chart", "coordinate": "honua", "version": "2026.1.0",
+                     "sourceRevision": REVISION, "digest": DIGEST, "sha256": DIGEST,
+                     "architectures": ["amd64"]}]}, "honua-helm"),
+    ({"artifactIdentityModel": "published"}, "honua-helm"),
+])
+def test_validator_refuses_an_out_of_lock_record_that_is_not_a_ruled_preview(change, text):
+    lock = valid_lock()
+    lock["components"]["honua-helm"] = _out_of_lock_component(**change)
+    assert_refused(lock, text)
+
+
+def test_live_inputs_record_helm_out_of_the_lock_under_the_ruling():
+    draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
+    # Version maps are read from the chart's declaration by the nightly resolver, not from trunk.
+    assert [item for item in _helm_items(draft) if "Versions: not declared" not in item] == []
+    helm = draft.lock["components"]["honua-helm"]
+    assert helm["artifactIdentityModel"] == "preview-out-of-lock" and helm["artifacts"] == []
+    assert helm["outOfLock"] == {"ruling": HELM_RULING}
