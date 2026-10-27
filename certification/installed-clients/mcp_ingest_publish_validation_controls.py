@@ -73,8 +73,11 @@ def controls():
         ("unknown", uri + "-uncreated", True, {"error": {"code": -32002, "message": "Controlled unknown service", "data": {"code": "not_found"}}}),
         ("anonymous", uri, False, {"error": {"code": -32000, "message": "Controlled unauthenticated", "data": {"code": "unauthenticated", "requiresReauthentication": True}}})]:
         reads.append({"id": identifier, "method": "resources/read", "params": {"uri": selected}, "authenticated": authenticated, "result": result})
-    queried = envelope({"serviceId": "metadata-service-7", "features": [{"id": row["id"], "attributes": row["properties"], "geometry": row["geometry"]} for row in rows], "layerId": 0, "returnedCount": 6, "exceededTransferLimit": False, "geojson": {"type": "FeatureCollection",
-        "features": [{"type": "Feature", "id": row["id"], "properties": row["properties"], "geometry": row["geometry"]} for row in rows]}})
+    # The published import layer's fields as honua-server returns them (2026.1 JSON properties contract).
+    fields = lambda row: {"id": row["id"], "created_at": "2026-10-26T10:09:56.622386+00:00",
+                          "properties": copy.deepcopy(row["properties"]), "objectid": row["id"]}
+    queried = envelope({"serviceId": "metadata-service-7", "features": [{"id": row["id"], "attributes": fields(row), "geometry": row["geometry"]} for row in rows], "layerId": 0, "returnedCount": 6, "exceededTransferLimit": False, "geojson": {"type": "FeatureCollection",
+        "features": [{"type": "Feature", "id": row["id"], "properties": fields(row), "geometry": row["geometry"]} for row in rows]}})
     queried["content"][0]["text"] = "Returned six authored features; inspect structuredContent for geometry and attributes."
     queries = [{"id": identifier, "method": "tools/call", "params": {"name": "honua_query_features", "arguments": validation.query_arguments(published, view)},
         "authenticated": True, "result": copy.deepcopy(queried)} for identifier in ("before", "after")]
@@ -126,7 +129,11 @@ class IngestPublishControls(unittest.TestCase):
             "wrong-query-tuple": lambda x: x["queries"][0]["params"]["arguments"].update(layerId=29),
             "query-missing-structured": lambda x: x["queries"][0]["result"].pop("structuredContent"),
             "query-missing-projection": lambda x: replace_output(x["queries"][0], lambda y: y.pop("features")),
-            "query-conflicting-projection": lambda x: replace_output(x["queries"][0], lambda y: y["features"][0]["attributes"].update(rank=999)),
+            "query-conflicting-projection": lambda x: replace_output(x["queries"][0], lambda y: y["features"][0]["attributes"]["properties"].update(rank=999)),
+            "query-geojson-properties-changed": lambda x: replace_output(x["queries"][0], lambda y: y["geojson"]["features"][0]["properties"]["properties"].update(name="other")),
+            "query-properties-stringified": lambda x: replace_output(x["queries"][0], lambda y: y["geojson"]["features"][0]["properties"].update(
+                properties=json.dumps(y["geojson"]["features"][0]["properties"]["properties"]))),
+            "query-properties-missing": lambda x: replace_output(x["queries"][0], lambda y: y["features"][0]["attributes"].pop("properties")),
             "query-wrong-service": lambda x: replace_output(x["queries"][0], lambda y: y.update(serviceId="other-service")),
             "wrong-candidate": lambda x: x.update(candidateSourceSha="f" * 40),
             "no-actual-restart": lambda x: x.update(runtimeRestarted=runtime(), runtimeAfter=runtime()),
