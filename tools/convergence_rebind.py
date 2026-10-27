@@ -41,7 +41,8 @@ from typing import Any, Protocol
 
 import yaml
 
-from check_protocol_certification import _valid_python_wheel
+from check_protocol_certification import (NUGET_IDENTITY_FIELDS, NUGET_SDK_LANE, _valid_nuget_identity,
+                                         _valid_python_wheel)
 from protocol_preview import active_preview_producers, preview_owner
 from normalize_capability_matrix_snapshot import normalize_vendored as normalize_capability_matrix
 
@@ -949,8 +950,19 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             if (not _valid_python_wheel(wheel, requirement.get("client_version"))
                     or cell.get("client_package") != wheel or identity.get("client_package") != wheel):
                 problems.append(f"{label}: executed Python wheel differs from governed published artifact")
-        elif "client_package" in cell or "client_package" in identity:
-            problems.append(f"{label}: wheel identity is only permitted for the Python certification lane")
+        elif cell.get("client_lane") == NUGET_SDK_LANE:
+            # dotnet-declared-blocked-2026-10-26 (#975): the .NET lane may carry the governed NuGet
+            # identity, both fields, equal to the manifest pin by package and digest.
+            pinned = (manifest.get("clientArtifacts") or {}).get(SDK_PACKAGE_ARTIFACTS["sdk-dotnet"]) or {}
+            expected = {field: pinned.get(field) for field in ("package", "digest", "version")}
+            for carrier in (cell, identity):
+                carried = {field: carrier[field] for field in NUGET_IDENTITY_FIELDS if field in carrier}
+                if carried and not _valid_nuget_identity(
+                        {**carried, "client_lane": NUGET_SDK_LANE, "client_version": cell.get("client_version")}, expected):
+                    problems.append(f"{label}: .NET package identity {carried!r} is not the pinned NuGet artifact "
+                                    f"{expected.get('package')!r} {expected.get('digest')!r}")
+        elif any(field in carrier for field in NUGET_IDENTITY_FIELDS for carrier in (cell, identity)):
+            problems.append(f"{label}: package identity is only permitted for the Python and .NET certification lanes")
         if entry.get("harness_revision_key"):
             problems.extend(f"{label}: {problem}" for problem in harness_receipt_problems(entry, identity, cell, run, manifest))
         elif "harness_commit" in identity:
