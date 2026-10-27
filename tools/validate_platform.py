@@ -56,12 +56,15 @@ from component_versions import version_map  # noqa: E402
 import platform_version  # noqa: E402
 import deployment_qualification as dq  # noqa: E402
 from image_platforms import image_coordinate, image_platform_digests, verify_image_platform_digests  # noqa: E402
+sys.path.append(str(Path(__file__).resolve().parents[1] / "e2e"))  # after tools/: never shadows a tool module
+import expected_ga_observation as ego  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 MATRIX_PATH = REPO_ROOT / "compatibility-matrix.yaml"
 REQUIREMENTS_PATH = REPO_ROOT / "certification" / "protocol-certification-requirements.v1.json"
 EXPECTED_GA_MANIFEST_PATH = REPO_ROOT / "e2e" / "expected-ga-manifest.json"
+EXPECTED_GA_OBSERVATION_PATH = REPO_ROOT / "e2e" / "expected-ga-observation.json"
 
 # A component pinned by sha (no release/tag yet) carries this sentinel instead of a semver version.
 PRERELEASE_SENTINEL = "pre-release"
@@ -699,36 +702,24 @@ def check_registry_platform_digests(manifest: dict, f: Findings, verify=None) ->
                 f.error(f"manifest: {name}.platformDigests: {exc}")
 
 
-def check_expected_ga_snapshot_pin(manifest: dict, expected_ga: dict | None, f: Findings) -> None:
-    """The committed expected-GA snapshot was captured from the manifest-pinned honua-server.
+def check_expected_ga_snapshot_pin(manifest: dict, policy: dict | None, observation: dict | None,
+                                   f: Findings) -> None:
+    """The expected-GA observation was generated from a boot of THIS candidate's honua-server.
 
-    The live capability-manifest check already fails closed on a stale snapshot, but only inside a
-    cloud cell, after the cell has been paid for. Refreshing it is a manual step (honua-release#183:
-    boot the pinned image, read /api/v1/capabilities/manifest, record its deploymentRevision), so a
-    server pin can advance without it and every cell then fails `capability-manifest`. This makes
-    the lag a `validate` failure on the commit that introduces it.
+    The nightly generates e2e/expected-ga-observation.json (tools/expected_ga_snapshot.py) from a
+    boot of the resolved server and binds it here, before any cloud cell is paid for. An observation
+    of another server sha, index digest or booted child, or one with no binding, refuses the
+    candidate; so does a reviewed policy id (e2e/expected-ga-manifest.json) the boot did not
+    advertise supported=true (honua-release#183).
     """
     server = (manifest.get("components") or {}).get("honua-server") or {}
-    pinned_sha, digest = server.get("sha"), server.get("digest")
-    if not isinstance(pinned_sha, str) or not pinned_sha:
+    if not isinstance(server.get("sha"), str) or not server.get("sha"):
         return  # structure checks report a missing server sha
-    where = "e2e/expected-ga-manifest.json"
-    if not isinstance(expected_ga, dict):
-        f.error(f"{where}: missing or unreadable; the capability-manifest cell check cannot assert GA coverage")
-        return
-    snapshot = expected_ga.get("sourceSnapshot")
-    snapshot = snapshot if isinstance(snapshot, dict) else {}
-    revision = snapshot.get("deploymentRevision")
-    if revision != pinned_sha:
-        f.error(f"{where}: sourceSnapshot.deploymentRevision={revision!r} lags components.honua-server.sha="
-                f"{pinned_sha!r}; every cloud cell's capability-manifest check fails until the snapshot is "
-                "refreshed from a deployment of the pinned image (procedure: the file's _comment, honua-release#183)")
-    elif snapshot.get("deploymentRevisionSource") != "commit-sha":
-        f.error(f"{where}: sourceSnapshot.deploymentRevisionSource must be 'commit-sha' (the revision the "
-                "pinned deployment advertised), not an inferred value")
-    if isinstance(digest, str) and digest and digest not in str(snapshot.get("target") or ""):
-        f.error(f"{where}: sourceSnapshot.target does not name the pinned honua-server digest {digest}; "
-                "capture the snapshot from the pinned image by digest")
+    errors = ego.binding_errors(observation, server)
+    if not errors:
+        errors = ego.policy_errors(policy, observation)
+    for error in errors:
+        f.error(f"expected-ga: {error}")
 
 
 def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
@@ -959,7 +950,7 @@ def main(argv: list[str] | None = None) -> int:
         check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve():
         check_expected_ga_snapshot_pin(
-            manifest, _load_json(EXPECTED_GA_MANIFEST_PATH) if EXPECTED_GA_MANIFEST_PATH.is_file() else None, f)
+            manifest, ego.load_json(EXPECTED_GA_MANIFEST_PATH), ego.load_json(EXPECTED_GA_OBSERVATION_PATH), f)
 
     for w in f.warnings:
         print(f"WARN  {w}")

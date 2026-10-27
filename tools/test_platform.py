@@ -941,54 +941,66 @@ def test_validator_refuses_a_stamp_when_the_release_names_no_platform_version():
     assert len(errors) == 2 and all("platformRelease 'snapshot' is not a platform label" in e for e in errors)
 
 
-# ---- expected-GA snapshot pin (honua-release#183) -------------------------------------------------
+# ---- expected-GA observation bound to the candidate server (honua-release#183) ------------------
 def _committed_manifest_and_snapshot():
     manifest = vp._load_yaml(vp.MANIFEST_PATH)
-    return manifest, vp._load_json(vp.EXPECTED_GA_MANIFEST_PATH)
+    return manifest, vp._load_json(vp.EXPECTED_GA_MANIFEST_PATH), vp._load_json(vp.EXPECTED_GA_OBSERVATION_PATH)
 
 
-def test_committed_expected_ga_snapshot_is_bound_to_the_pinned_server():
-    manifest, snapshot = _committed_manifest_and_snapshot()
+def _pin_errors(manifest, policy, observation):
     f = vp.Findings()
-    vp.check_expected_ga_snapshot_pin(manifest, snapshot, f)
-    assert f.ok, f.errors
+    vp.check_expected_ga_snapshot_pin(manifest, policy, observation, f)
+    return f.errors
 
 
-def test_expected_ga_snapshot_lagging_the_server_pin_fails_validate():
-    manifest, snapshot = _committed_manifest_and_snapshot()
+def test_committed_expected_ga_observation_is_bound_to_the_pinned_server():
+    manifest, policy, observation = _committed_manifest_and_snapshot()
+    assert "sourceSnapshot" not in policy, "observed boot facts live in the generated observation, not the policy"
+    assert _pin_errors(manifest, policy, observation) == []
+
+
+def test_expected_ga_observation_of_another_server_refuses_the_candidate():
+    manifest, policy, observation = _committed_manifest_and_snapshot()
     advanced = copy.deepcopy(manifest)
     advanced["components"]["honua-server"]["sha"] = "f" * 40
-    f = vp.Findings()
-    vp.check_expected_ga_snapshot_pin(advanced, snapshot, f)
-    assert any("lags components.honua-server.sha" in e for e in f.errors), f.errors
+    assert any("belongs to another server" in e for e in _pin_errors(advanced, policy, observation))
 
-    stale = copy.deepcopy(snapshot)
-    stale["sourceSnapshot"]["target"] = "local-docker ghcr.io/honua-io/honua-server@sha256:" + "0" * 64
-    f = vp.Findings()
-    vp.check_expected_ga_snapshot_pin(manifest, stale, f)
-    assert any("does not name the pinned honua-server digest" in e for e in f.errors), f.errors
+    other_index = copy.deepcopy(manifest)
+    other_index["components"]["honua-server"]["digest"] = "sha256:" + "0" * 64
+    assert any("boundCandidate.imageIndexDigest" in e for e in _pin_errors(other_index, policy, observation))
 
-    inferred = copy.deepcopy(snapshot)
-    inferred["sourceSnapshot"]["deploymentRevisionSource"] = "manifest"
-    f = vp.Findings()
-    vp.check_expected_ga_snapshot_pin(manifest, inferred, f)
-    assert any("must be 'commit-sha'" in e for e in f.errors), f.errors
+    other_child = copy.deepcopy(observation)
+    other_child["boundCandidate"]["bootedChildDigest"] = "sha256:" + "1" * 64
+    assert any("boundCandidate.bootedChildDigest" in e for e in _pin_errors(manifest, policy, other_child))
 
-    for missing in (None, {"expectedGa": []}):
-        f = vp.Findings()
-        vp.check_expected_ga_snapshot_pin(manifest, missing, f)
-        assert not f.ok
+    inferred = copy.deepcopy(observation)
+    inferred["deploymentRevisionSource"] = "manifest"
+    assert any("(commit-sha)" in e for e in _pin_errors(manifest, policy, inferred))
+
+    unbound = copy.deepcopy(observation)
+    del unbound["boundCandidate"]
+    assert _pin_errors(manifest, policy, unbound)
+    assert any("unbound" in e for e in _pin_errors(manifest, policy, None))
+    assert _pin_errors(manifest, None, observation)
 
 
-def test_validate_cli_fails_when_the_snapshot_lags(monkeypatch, tmp_path, capsys):
-    manifest, snapshot = _committed_manifest_and_snapshot()
-    lagging = copy.deepcopy(snapshot)
-    lagging["sourceSnapshot"]["deploymentRevision"] = "87966c3f7b6c840ffc4d4da0b451714ab717b18a"
-    path = tmp_path / "expected-ga-manifest.json"
-    path.write_text(json.dumps(lagging), encoding="utf-8")
-    monkeypatch.setattr(vp, "EXPECTED_GA_MANIFEST_PATH", path)
+def test_expected_ga_policy_id_the_candidate_does_not_support_refuses_the_candidate():
+    manifest, policy, observation = _committed_manifest_and_snapshot()
+    dropped = copy.deepcopy(observation)
+    gone = vp.ego.checked_ids(policy)[0]
+    dropped["capabilities"] = [c for c in dropped["capabilities"] if c["id"] != gone]
+    assert any(gone in e and "supported=true" in e for e in _pin_errors(manifest, policy, dropped))
+
+
+def test_validate_cli_fails_when_the_observation_is_of_another_server(monkeypatch, tmp_path, capsys):
+    _, _, observation = _committed_manifest_and_snapshot()
+    stale = copy.deepcopy(observation)
+    stale["boundCandidate"]["serverSha"] = "87966c3f7b6c840ffc4d4da0b451714ab717b18a"
+    path = tmp_path / "expected-ga-observation.json"
+    path.write_text(json.dumps(stale), encoding="utf-8")
+    monkeypatch.setattr(vp, "EXPECTED_GA_OBSERVATION_PATH", path)
     assert vp.main([]) != 0
-    assert "lags components.honua-server.sha" in capsys.readouterr().out
+    assert "belongs to another server" in capsys.readouterr().out
 
 
 def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_reference():
@@ -1004,4 +1016,3 @@ def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_referen
     vp.check_registry_platform_digests(manifest, findings, verify=lambda artifact: seen.append(artifact["coordinate"]))
     assert findings.errors == []
     assert seen == ["ghcr.io/honua-io/honua-server", "ghcr.io/honua-io/honua-console"]
-

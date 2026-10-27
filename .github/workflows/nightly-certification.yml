@@ -186,6 +186,51 @@ jobs:
           path: prepared-deployment/
           if-no-files-found: error
 
+  # The expected-GA observation the bind and every cloud cell's capability-manifest check are judged
+  # against is generated here from a boot of exactly the resolved server index digest, through the
+  # candidate harness (e2e/harness/boot.sh). It is never hand-pinned: a boot that does not advertise
+  # the resolved commit, or an index child that is not the resolved platformDigests entry, writes
+  # nothing, and the bind then refuses (honua-release#183).
+  expected_ga:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r tools/requirements-nightly.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: resolved-candidate
+          path: resolved-candidate
+      - name: Authenticate image pull
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Boot the resolved server and generate the expected-GA observation
+        env:
+          E2E_OUT: ${{ runner.temp }}/expected-ga-boot
+        run: |
+          set -euo pipefail
+          mkdir -p observation
+          python tools/expected_ga_snapshot.py --manifest resolved-candidate/platform-manifest.yaml \
+            --out observation/expected-ga-observation.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: expected-ga-observation
+          path: observation/expected-ga-observation.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: expected-ga-boot
+          path: ${{ runner.temp }}/expected-ga-boot/
+          if-no-files-found: ignore
+
   # honua-release#386: the night produces the protocol-certification ledger for the candidate it
   # resolved. Catalog staging, every producer run, the honua-evidence aggregation and the binding
   # are this job's own outputs; nothing is hand-dispatched and no repository variable is read or
@@ -194,7 +239,7 @@ jobs:
   # Every producer receives NIGHTLY_DISPATCH_ID and echoes it with its own run identity in each
   # receipt; the bind refuses any cell whose run this job did not dispatch (R20/R21).
   protocol_ledger:
-    needs: [resolve, deployment_qualification]
+    needs: [resolve, deployment_qualification, expected_ga]
     if: github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     timeout-minutes: 330
@@ -220,6 +265,10 @@ jobs:
         with:
           name: deployment-qualification
           path: ${{ runner.temp }}/deployment-qualification
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: expected-ga-observation
+          path: ${{ runner.temp }}/expected-ga-observation
       # The catalog's source_revisions become the candidate's own pins (server, SDKs at their
       # published sources, gRPC, MCP), its vendored contracts are read at those pins, and the
       # result is committed over this run's trunk commit: that commit is the ledger's
@@ -294,11 +343,14 @@ jobs:
             --runs "${RUNNER_TEMP}/protocol-runs.json" --since "$SINCE" --dispatch-id "$NIGHTLY_DISPATCH_ID" \
             | tee "${RUNNER_TEMP}/protocol-ledger-binding.json"
           cp "${RUNNER_TEMP}/deployment-qualification/deployment-qualification.json" certification/deployment-qualification.json
+          # validate refuses an observation not generated from this candidate's server boot.
+          cp "${RUNNER_TEMP}/expected-ga-observation/expected-ga-observation.json" e2e/expected-ga-observation.json
           python tools/validate_platform.py --exact-candidate --deployment-phase candidate-precut \
             --deployment-qualification certification/deployment-qualification.json
           # The candidate is one data commit over this run's commit (candidate-input requires that
           # parent): the staged catalog and sources of the requirements commit plus the bound manifest.
-          git add platform-manifest.yaml compatibility-matrix.yaml certification/deployment-qualification.json
+          git add platform-manifest.yaml compatibility-matrix.yaml certification/deployment-qualification.json \
+            e2e/expected-ga-observation.json
           tree="$(git write-tree)"
           sha="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
             GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \

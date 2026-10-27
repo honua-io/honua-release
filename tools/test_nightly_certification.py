@@ -123,7 +123,8 @@ def test_resolve_and_mint_run_only_on_trunk():
     # Lambda and EKS are Preview (2026-10-25 / 2026-10-16): no deployment producer gates admission.
     assert 'lambda_deployment' not in jobs
     assert jobs['deployment_qualification']['needs'] == 'resolve'
-    assert set(jobs['protocol_ledger']['needs']) == {'resolve', 'deployment_qualification'}
+    assert jobs['expected_ga']['needs'] == 'resolve'
+    assert set(jobs['protocol_ledger']['needs']) == {'resolve', 'deployment_qualification', 'expected_ga'}
     assert jobs['capacity']['needs'] == 'resolve'
     assert jobs['dr']['needs'] == 'protocol_ledger'
     assert set(jobs['train']['needs']) >= {'protocol_ledger', 'capacity', 'dr'}
@@ -172,6 +173,7 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
     assert writes == {
         'resolve': ['contents'],               # unadmitted capacity preparation only
         'deployment_qualification': [],          # joins GA-scoped proof; Preview Lambda/EKS are not dispatched
+        'expected_ga': [],                       # boots the resolved server; writes only its artifact
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
@@ -1155,3 +1157,26 @@ def test_manifest_gate_executes_exact_phase_and_refuses_unbound_precut(tmp_path,
     else:
         assert result.returncode == 0, result.stderr
         assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]
+
+
+def test_the_night_generates_the_expected_ga_observation_from_the_resolved_server_and_binds_it():
+    """The expected-GA observation is generated from a boot of the server the night resolved, never
+    hand-pinned: the bind refuses without it and the candidate snapshot carries it to every cell."""
+    jobs = workflow()['jobs']
+    observe = jobs['expected_ga']
+    assert observe['needs'] == 'resolve'
+    assert 'expected_ga' in jobs['protocol_ledger']['needs']
+    download = next(s for s in observe['steps'] if 'download-artifact' in s.get('uses', ''))
+    assert download['with']['name'] == 'resolved-candidate'
+    generate = step(observe, 'Boot the resolved server and generate the expected-GA observation')['run']
+    assert 'tools/expected_ga_snapshot.py --manifest resolved-candidate/platform-manifest.yaml' in generate
+    upload = next(s for s in observe['steps'] if 'upload-artifact' in s.get('uses', ''))
+    assert upload['with']['name'] == 'expected-ga-observation'
+    assert upload['with']['if-no-files-found'] == 'error'
+    fetched = [s for s in jobs['protocol_ledger']['steps'] if s.get('with', {}).get('name') == 'expected-ga-observation']
+    assert fetched and 'download-artifact' in fetched[0]['uses']
+    bind = step(jobs['protocol_ledger'], 'Bind the verified ledger')['run']
+    copy_in = bind.index('e2e/expected-ga-observation.json')
+    assert bind.index('--nightly-bind') < copy_in < bind.index('validate_platform.py --exact-candidate')
+    add = bind[bind.index('git add'):bind.index('git write-tree')]
+    assert 'e2e/expected-ga-observation.json' in add
