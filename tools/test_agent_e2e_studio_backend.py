@@ -15,7 +15,8 @@ from test_agent_e2e_setup_http import server
 
 @pytest.mark.parametrize('mode,case', [('qualification', 'P14:A:aws-ecs-redis-on'),
     ('development', 'P14:C:aws-ecs-redis-on'), ('development', 'P14:A:aws-eks'),
-    ('development', 'P13:A:aws-ecs-redis-on'), ('development', 'P14:A:local-docker')])
+    ('development', 'P13:A:aws-ecs-redis-on'), ('development', 'P16:A:aws-ecs-redis-on'),
+    ('development', 'P19:A:aws-ecs-redis-on'), ('qualification', 'P17:A:aws-ecs-redis-on'), ('development', 'P14:A:local-docker')])
 def test_only_explicit_development_publication_cases_can_use_this_adapter(tmp_path, mode, case):
     with pytest.raises(PackError, match='only explicit A/B ECS development'):
         backend.Session(durable=None, campaign={'campaignMode': mode}, bundle=tmp_path,
@@ -113,3 +114,26 @@ def test_configured_tenant_verification_cannot_manufacture_a_missing_before_work
     assert 'tenant.denied' in result['failedAssertions']
     assert 'tenant.denied' not in value.value('verification')['unsupportedAssertions']
     assert value.value('tenant-verification-refused') == {'reasonCode': 'native-tenant-proof-refused'}
+
+
+def test_p17_cannot_send_controller_probe_without_original_native_custody(publication_session, studio):
+    value = publication_session
+    value.is_denial_case = lambda: True
+    value.config['studio']['custody'] = {}
+    value.case['assertions'] = ['approval.pending', 'approval.no-bypass',
+        'custody.bootstrap-revoked', 'custody.worker-replaced']
+    value.custody_declaration = lambda: ('custody', {})
+    value.retain('publication-ordinal-1', select(studio))
+    path = value.bundle/'expectations.json'
+    expected = json.loads(path.read_text())
+    expected['cases'][value.context['caseId']]['assertions'].update({
+        'approval.pending': {'proposalId': {'$native': 'denial.proposalId'}, 'status': 'AwaitingApproval', 'publishedResourceIds': []},
+        'approval.no-bypass': {'requests': []}})
+    path.write_text(json.dumps(expected))
+    result = value.verify()
+    assert result['status'] == 'fail'
+    assert set(result['failedAssertions']) == set(value.case['assertions'])
+    assert value.value('custody-verification-refused') is not None
+    assert value.value('denial-final') is None
+    assert {'approval.pending', 'approval.no-bypass'} <= set(value.value('verification')['unsupportedAssertions'])
+    assert all(method == 'GET' for method, _ in studio.state.calls)
