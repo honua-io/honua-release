@@ -55,6 +55,17 @@ TARGET = re.compile(r"20[0-9]{2}\.[0-9]+\.(?:x|[0-9]+)")
 # the lock ONLY when a founder ruling in the decision overrides lists it (D6, 2026-10-26).
 DECISION_OVERRIDES = ROOT / "docs/2026.1-release-decision-overrides.json"
 DECLARED_BLOCKED_RULING = "dotnet-declared-blocked-2026-10-26"
+# Founder ruling cloud-cli-workflow-na-2026-10-27: on the GA cloud cells the governed CLI publication
+# (cli-workflow) cannot run beside the terminal journey, whose operator is the same scoped-admin-key
+# role that the cell's boot-time operation policy must let publish directly. The ruling declares those
+# matrix cells not-applicable there; journey stages 7-8 prove proposal/approval on the cell and the
+# local regression stack proves the CLI path. A not-applicable row is valid only on an endpoint run of
+# a GA cloud cell the ruling lists, for a cli-workflow cell it lists, carrying the ruling id: anywhere
+# else, or with the ruling missing or malformed, the row fails.
+CLOUD_NOT_APPLICABLE_RULING = "cloud-cli-workflow-na-2026-10-27"
+CLOUD_NOT_APPLICABLE_SCENARIO = "cli-workflow"
+GA_CLOUD_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
+NOT_APPLICABLE = "not-applicable"
 NUGET_ORG = "https://api.nuget.org/v3/index.json"
 DOTNET_PROBE = ROOT / "e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.cs"
 _IMPORT_FIDELITY = None
@@ -882,6 +893,59 @@ def ruled_declarations(path: Path = DECISION_OVERRIDES) -> dict[str, str]:
     return {cell: target for cell in cells}
 
 
+def ruled_cloud_not_applicable(path: Path = DECISION_OVERRIDES) -> dict[str, Any]:
+    """The founder ruling's cloud not-applicable declaration, or {} when it is missing or malformed.
+
+    Valid only as a founder ruling that lists cli-workflow matrix cell ids, GA cloud deployment cells
+    and the covering evidence. Any other deployment cell (a Preview target, a local run) voids it."""
+    try:
+        ruling = json.loads(path.read_text(encoding="utf-8"))["rulings"][CLOUD_NOT_APPLICABLE_RULING]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(ruling, dict):
+        return {}
+    cells, deployments, covered = (ruling.get("installed_client_cells"), ruling.get("deployment_cells"),
+                                   ruling.get("covered_by"))
+    lists = (cells, deployments, covered)
+    if ("founder" not in str(ruling.get("owner", "")).lower()
+            or not all(isinstance(items, list) and items and all(isinstance(item, str) and item.strip() for item in items)
+                       for items in lists)
+            or not set(deployments) <= GA_CLOUD_CELLS):
+        return {}
+    return {"cells": frozenset(cells), "deploymentCells": frozenset(deployments), "coveredBy": list(covered)}
+
+
+def not_applicable_cells(matrix: dict[str, Any], deployment_cell: str | None,
+                         ruling: dict[str, Any]) -> frozenset[str]:
+    """The matrix cells the ruling declares not-applicable on this deployment cell (none off-cloud)."""
+    if not ruling or deployment_cell not in ruling["deploymentCells"]:
+        return frozenset()
+    return frozenset(cell["id"] for cell in matrix.get("cells", [])
+                     if cell["id"] in ruling["cells"] and cell.get("scenario") == CLOUD_NOT_APPLICABLE_SCENARIO
+                     and cell.get("status") == "active")
+
+
+def not_applicable_row(deployment_cell: str, ruling: dict[str, Any]) -> dict[str, Any]:
+    return {"ruling": CLOUD_NOT_APPLICABLE_RULING, "deploymentCell": deployment_cell,
+            "coveredBy": list(ruling["coveredBy"])}
+
+
+def not_applicable_violations(results: list[dict[str, Any]], matrix: dict[str, Any] | None,
+                              deployment_cell: str | None, ruling: dict[str, Any]) -> list[str]:
+    """Each not-applicable row must be exactly a cell the ruling covers on this GA cloud cell."""
+    allowed = not_applicable_cells(matrix or {"cells": []}, deployment_cell, ruling) if matrix is not None else (
+        frozenset(ruling.get("cells", ())) if ruling and deployment_cell in ruling.get("deploymentCells", ()) else frozenset())
+    violations = []
+    for result in results:
+        if result.get("status") != NOT_APPLICABLE:
+            continue
+        if (result.get("cell") not in allowed or result.get("notApplicable") != not_applicable_row(deployment_cell, ruling)
+                or result.get("steps") is not None or "declared" in result):
+            violations.append(f"{result.get('cell')}: not-applicable without the {CLOUD_NOT_APPLICABLE_RULING} "
+                              f"ruling for this GA cloud cell ({deployment_cell or 'no deployment'})")
+    return violations
+
+
 def declared_limitations(results: list[dict[str, Any]], ruled: dict[str, str]) -> list[dict[str, Any]] | None:
     """The blocked results as declared limitations, or None when any blocked result is not covered:
     it must carry owner, reason and target, and the ruling must list it with that same target."""
@@ -900,10 +964,13 @@ def declared_limitations(results: list[dict[str, Any]], ruled: dict[str, str]) -
 
 
 def make_receipt(manifest: dict[str, Any], matrix: dict[str, Any], results: list[dict[str, Any]], evidence_uri: str,
-                 ruled: dict[str, str] | None = None) -> dict[str, Any]:
+                 ruled: dict[str, str] | None = None, deployment_cell: str | None = None,
+                 not_applicable: dict[str, Any] | None = None) -> dict[str, Any]:
     server = manifest["components"]["honua-server"]
     ruled = ruled_declarations() if ruled is None else ruled
-    status = receipt_status(results, ruled)
+    not_applicable = ruled_cloud_not_applicable() if not_applicable is None else not_applicable
+    status = receipt_status(results, ruled, matrix=matrix, deployment_cell=deployment_cell,
+                            not_applicable=not_applicable)
     limitations = declared_limitations(results, ruled) if status == "pass" else None
     return {
         "schemaVersion": 1,
@@ -916,14 +983,29 @@ def make_receipt(manifest: dict[str, Any], matrix: dict[str, Any], results: list
         "evidenceUri": evidence_uri,
         "status": status,
         **({"declaredLimitations": limitations} if limitations else {}),
+        **({"notApplicable": not_applicable_summary(results)} if not_applicable_summary(results) else {}),
         "results": results,
     }
 
 
-def receipt_status(results: list[dict[str, Any]], ruled: dict[str, str] | None = None) -> str:
+def not_applicable_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"cell": result.get("cell"), **result.get("notApplicable", {})}
+            for result in results if result.get("status") == NOT_APPLICABLE]
+
+
+def receipt_status(results: list[dict[str, Any]], ruled: dict[str, str] | None = None, *,
+                   matrix: dict[str, Any] | None = None, deployment_cell: str | None = None,
+                   not_applicable: dict[str, Any] | None = None) -> str:
     """pass when every cell passes, or when every non-passing cell is a blocked cell declared (owner,
     reason, target) and listed by the founder ruling: a pass with declared limitations. Blocked when
-    every active cell passes and some blocked cell is not so covered. Anything else fails."""
+    every active cell passes and some blocked cell is not so covered. A not-applicable cell counts
+    only when the cloud ruling covers it on this GA cloud cell; any other not-applicable row fails."""
+    if any(result.get("status") == NOT_APPLICABLE for result in results):
+        if not_applicable_violations(results, matrix, deployment_cell, not_applicable or {}):
+            return "fail"
+        results = [result for result in results if result.get("status") != NOT_APPLICABLE]
+        if not results:
+            return "fail"
     statuses = {result["status"] for result in results}
     if not results or statuses - {"pass", "blocked"}:
         return "fail"
@@ -991,7 +1073,8 @@ def declaration(cell: dict[str, Any]) -> dict[str, str]:
     return {field: cell[field] for field in DECLARATION_FIELDS}
 
 
-def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any], ruled: dict[str, str] | None = None) -> list[str]:
+def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any], ruled: dict[str, str] | None = None,
+                   not_applicable: dict[str, Any] | None = None) -> list[str]:
     """Every expectation comes from the matrix: active cells pass, blocked cells report their blocker."""
     cells = matrix.get("cells", [])
     results = receipt.get("results", [])
@@ -1003,7 +1086,7 @@ def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any], ruled: dict[
         result = by_id.get(cell["id"])
         if result is None:
             continue
-        if cell["status"] == "active" and result.get("status") != "pass":
+        if cell["status"] == "active" and result.get("status") not in ("pass", NOT_APPLICABLE):
             violations.append(f"{cell['id']}: active cell is {result.get('status')}: {result.get('detail')}")
         if cell["status"] == "blocked" and (
             result.get("status") != "blocked" or result.get("blockedBy") != cell["blockedBy"]
@@ -1016,9 +1099,15 @@ def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any], ruled: dict[
             violations.append(f"{cell['id']}: blocked cell must carry its matrix declaration (owner, reason, target)")
         if cell["status"] == "active" and "declared" in result:
             violations.append(f"{cell['id']}: an active cell cannot carry a blocked declaration")
+    deployment_cell = (receipt.get("deployment") or {}).get("cell") if isinstance(receipt.get("deployment"), dict) else None
+    not_applicable = ruled_cloud_not_applicable() if not_applicable is None else not_applicable
+    violations.extend(not_applicable_violations(results, matrix, deployment_cell, not_applicable))
+    if receipt.get("notApplicable") != (not_applicable_summary(results) or None):
+        violations.append("receipt notApplicable does not follow its not-applicable cells and the cloud ruling")
     violations.extend(verify_suite_steps(cells, by_id))
     ruled = ruled_declarations() if ruled is None else ruled
-    if receipt.get("status") != receipt_status(results, ruled):
+    if receipt.get("status") != receipt_status(results, ruled, matrix=matrix, deployment_cell=deployment_cell,
+                                               not_applicable=not_applicable):
         violations.append(f"receipt status {receipt.get('status')!r} does not follow its cell results")
     expected_limitations = declared_limitations(results, ruled) if receipt.get("status") == "pass" else None
     if receipt.get("declaredLimitations") != (expected_limitations or None):
@@ -1037,6 +1126,8 @@ def verify_suite_steps(cells: list[dict[str, Any]], by_id: dict[Any, dict[str, A
         result = by_id.get(cell["id"])
         if result is None:
             continue
+        if result.get("status") == NOT_APPLICABLE:
+            continue  # carries no steps; not_applicable_violations judges it
         rows = result.get("steps") if isinstance(result.get("steps"), list) else []
         expected = [step["id"] for step in scenarios[cell["scenario"]]["steps"]]
         if not (result.get("status") == "fail" and not rows) and [row.get("step") for row in rows] != expected:
@@ -1059,15 +1150,26 @@ def execute(
 ) -> dict[str, Any]:
     pins = manifest["clientArtifacts"]
     results: list[dict[str, Any]] = []
+    deployment_cell = endpoint_context["binding"]["cell"] if endpoint_context is not None else None
+    ruling = ruled_cloud_not_applicable() if endpoint_context is not None else {}
+    excluded = not_applicable_cells(matrix, deployment_cell, ruling)
     with tempfile.TemporaryDirectory(prefix="honua-installed-client-") as tmp:
         base = Path(tmp)
         # Blocked cells and blocked steps still execute so a fix is observed instead of assumed.
-        suite = (run_suite(manifest, matrix, base, endpoint_context) if endpoint_context is not None
-                 else run_suite(manifest, matrix, base))
+        # Ruled not-applicable cells do not run: their governed publish would complete ungoverned.
+        suite_matrix = {**matrix, "cells": [cell for cell in matrix["cells"] if cell["id"] not in excluded]}
+        suite = (run_suite(manifest, suite_matrix, base, endpoint_context) if endpoint_context is not None
+                 else run_suite(manifest, suite_matrix, base))
         for cell in matrix["cells"]:
             pin = pins[cell["artifact"]]
             steps = None
-            if cell["driver"] in SUITE_DRIVERS:
+            not_applicable = None
+            if cell["id"] in excluded:
+                status = NOT_APPLICABLE
+                detail = (f"not applicable on {deployment_cell} ({CLOUD_NOT_APPLICABLE_RULING}); covered by "
+                          + "; ".join(ruling["coveredBy"]))
+                not_applicable = not_applicable_row(deployment_cell, ruling)
+            elif cell["driver"] in SUITE_DRIVERS:
                 # The suite judges each step against the matrix itself (blocked steps included).
                 status, detail, steps = suite.get(cell["id"], ("fail", "the suite produced no result for this cell", []))
             else:
@@ -1081,11 +1183,14 @@ def execute(
             }
             if steps is not None:
                 result["steps"] = steps
+            if not_applicable is not None:
+                result["notApplicable"] = not_applicable
             if cell["status"] == "blocked":
                 result["blockedBy"] = cell["blockedBy"]
                 result["declared"] = declaration(cell)
             results.append(result)
-    receipt = make_receipt(manifest, matrix, results, evidence_uri)
+    receipt = make_receipt(manifest, matrix, results, evidence_uri, deployment_cell=deployment_cell,
+                           not_applicable=ruling)
     if endpoint_context is not None:
         receipt["deployment"] = endpoint_context["binding"]
         receipt["server"] = dict(endpoint_context["binding"]["server"])

@@ -379,6 +379,9 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
                 journey["why"] = f"journey evidence rejected: {error}"
                 break
             if passed:
+                if receipt.get("status") != "pass" and cloud_journey.ga_single_tenant.admits(receipt, cell):
+                    # Reported, never hidden: the receipt keeps its raw blocked verdict.
+                    journey["declaredNotApplicable"] = cloud_journey.ga_single_tenant.declaration(cell)
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
             if blockers[-1] and (not record.get("servingRefusal")
@@ -436,6 +439,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     report["journeyAttempts"] = report.get("journeyAttempts", []) + journey.get("journeyAttempts", [])
     if "readiness" in journey:
         report["journeyReadiness"] = journey["readiness"]
+    if "declaredNotApplicable" in journey:
+        report["declaredNotApplicable"] = journey["declaredNotApplicable"]
     if journey.get("status") == "blocked" and require_real:
         journey = {**journey, "status": "fail", "why": f"require_real: {journey.get('why')}"}
     if journey.get("status") == "fail" and report.get("status") != "fail":

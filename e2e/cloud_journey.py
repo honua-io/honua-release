@@ -19,6 +19,10 @@ from pathlib import Path
 
 import yaml
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ga_single_tenant  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / "certification/terminal-journey"
 EVIDENCE = ROOT / "e2e/cloud-evidence"
@@ -657,6 +661,10 @@ def retain_discovery_sidecar(directory, workdir, number, secrets):
 
 def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_detail=None, tenant_signing_key=None):
     driver, adapter = drivers()
+    # ga-cells-single-tenant-2026-10-27: a ruled GA cell keeps the issuer (S11) but the journey runs
+    # single-tenant. Redaction below still covers the sealed key the cell was handed.
+    sealed_key = tenant_signing_key
+    tenant_signing_key = ga_single_tenant.journey_tenant_key(cell, tenant_signing_key)
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     evidence_uri = bound_evidence_uri(cell, run_id, run_attempt)
@@ -721,13 +729,13 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         # Driver exceptions must still produce an attempt receipt, without retaining credentials
         # or raw tool output. The outer finally still checks cost and destroys infrastructure.
         failure = driver_failure_notices(error, sys.modules.get("discovery"), (
-            admin_key, tenant_signing_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
+            admin_key, sealed_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
                          if field != "port")))
         notices.extend(failure)
         print(f"{cell} journey attempt {number}: " + " | ".join(failure), file=sys.stderr, flush=True)
         attribution = "infrastructure"
     sidecar = retain_discovery_sidecar(directory, workdir, number, (
-        admin_key, tenant_signing_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
+        admin_key, sealed_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
                      if field != "port")))
     if sidecar is not None:
         notices.append(f"Setup discovery sidecar retained as {sidecar.name}")
@@ -802,7 +810,8 @@ def qualify_attempt(record, receipt, cell, *, raw_path, run_id, run_attempt,
     passed = validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt,
         at=at, pinned_manifest=pinned_manifest, pinned_manifest_digest=pinned_manifest_digest)
     if cell not in ("aws-ecs/redis-off", "aws-serverless/redis-off"):
-        return passed
+        # ga-cells-single-tenant-2026-10-27: the one declared not-applicable check on a GA cell.
+        return passed or ga_single_tenant.admits(receipt, cell)
     import deterministic_refusal_profile as profile
     if profile.failed_record(record, receipt, Path(raw_path)):
         return False

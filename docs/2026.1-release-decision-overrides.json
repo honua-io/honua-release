@@ -871,6 +871,50 @@
       "target": "2026.1.1",
       "moved": [],
       "basis": "Founder decision 2026-10-27, relayed by the release coordinator after nightly run 40541809869's post-gate replay refused the unattested Lambda image"
+    },
+    "ga-cells-single-tenant-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-release/issues/377#issuecomment-6447501780",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "The 2026.1 GA cloud cells (aws-ecs/redis-off, aws-ecs/redis-on) run the terminal journey single-tenant and declare 8.tenant-isolation not-applicable: ADR-0024 makes multi-tenancy internal only. The run-owned issuer stays provisioned for the S11 installed-client bearer; journey stages 7 and 8 (proposal and separate-principal approval) must still run and pass.",
+      "effect": "On the listed cells the journey's principals are not re-signed into tenants, and a receipt is admitted only when 8.tenant-isolation, blocked by honua-release#377, is its single non-passing check; the raw blocked verdict stays in the receipt and the cell report names this ruling. A missing or malformed ruling, or one listing any cell outside the GA aws-ecs cells, admits nothing and leaves the journey in tenant mode. The cell, the cloud report and gate-journey apply it identically on dispatched strict runs and the RC train (candidate_ref). Implemented in e2e/ga_single_tenant.py.",
+      "cells": [
+        "aws-ecs/redis-off",
+        "aws-ecs/redis-on"
+      ],
+      "not_applicable_checks": [
+        "8.tenant-isolation"
+      ],
+      "target": "2026.1.x",
+      "moved": [],
+      "cited": [
+        "honua-release#377"
+      ],
+      "basis": "Founder decision 2026-10-27 (escalation 1 option A), recorded on honua-release#377 on 2026-10-27"
+    },
+    "cloud-cli-workflow-na-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-release/issues/65#issuecomment-6447502511",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "On the GA cloud cells the installed-client cli-workflow cells (npm-cli-workflow, pypi-cli-workflow) are declared not-applicable: the cell's boot-time operation policy cannot both let the journey operator publish directly and require approval for the same-role S11 proposer.",
+      "effect": "On the listed deployment cells the endpoint run does not execute those cells and reports them not-applicable with this ruling and its covering evidence; the receipt passes only when every not-applicable row is exactly such a cell. A not-applicable row on a local run, a Preview target or any unlisted cell, or with this ruling missing or malformed, fails. Implemented in certification/installed-clients/run.py.",
+      "installed_client_cells": [
+        "npm-cli-workflow",
+        "pypi-cli-workflow"
+      ],
+      "deployment_cells": [
+        "aws-ecs/redis-on"
+      ],
+      "covered_by": [
+        "terminal-journey stages 7-8 prove proposal and separate-principal approval on the cloud cell",
+        "the local installed-client regression stack (compose.sdk-regression.yml, service.publish RequireApproval) proves the CLI path"
+      ],
+      "target": "2026.1.x",
+      "moved": [],
+      "cited": [
+        "honua-release#65"
+      ],
+      "basis": "Founder decision 2026-10-27 (escalation 2 option A), recorded on honua-release#65 on 2026-10-27"
     }
   },
   "security_findings": [

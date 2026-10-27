@@ -167,7 +167,8 @@ jobs:
             certification/installed-clients/test_produce_import_fidelity.py \
             certification/installed-clients/test_import_fidelity_journeys.py \
             certification/installed-clients/test_import_fidelity_reference.py \
-            certification/installed-clients/test_regression.py certification/installed-clients/interop/test_interop.py -q
+            certification/installed-clients/test_regression.py certification/installed-clients/interop/test_interop.py \
+            certification/installed-clients/test_cloud_not_applicable.py -q
       - name: Verify configured readback through the actual public SDK process
         run: python certification/installed-clients/check_import_client_readback.py
       # Qualification is explicit until every external prerequisite has a complete fresh proof.
