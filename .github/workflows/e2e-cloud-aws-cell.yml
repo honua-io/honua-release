@@ -48,8 +48,11 @@ permissions:
 
 env:
   HONUA_DEPLOYMENT_PREPARED: ${{ inputs.prepared_ref != '' }}
-  # Prepared/admitted cohorts must include the reviewed typed OIDC fixture support.
-  HONUA_CLOUD_TENANT_FIXTURE: ${{ inputs.prepared_ref != '' || inputs.candidate_ref != '' }}
+  # Prepared/admitted cohorts must include the reviewed typed OIDC fixture support. A strict cell
+  # does too: on the Redis-on cell the S11 installed-client row mints its bearer from this run-owned
+  # issuer and the journey's 8.tenant-isolation denial needs its second principal (#377). Without it
+  # a require_real trunk dispatch can only report both BLOCKED, i.e. FAIL (run 40435209970).
+  HONUA_CLOUD_TENANT_FIXTURE: ${{ inputs.prepared_ref != '' || inputs.candidate_ref != '' || inputs.require_real }}
   AWS_REGION: "us-east-1"
   HONUA_LAMBDA_IMAGE_URI: ${{ inputs.lambda_image }}
   HONUA_LAMBDA_ARCHITECTURE: ${{ inputs.lambda_architecture }}
