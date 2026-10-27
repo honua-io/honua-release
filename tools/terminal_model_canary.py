@@ -183,6 +183,14 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def _ga_single_tenant():
+    """e2e/ga_single_tenant.py: the founder ruling's single declared not-applicable journey check."""
+    if str(ROOT / "e2e") not in sys.path:
+        sys.path.insert(0, str(ROOT / "e2e"))
+    import ga_single_tenant
+    return ga_single_tenant
+
+
 def validate_deterministic_receipt(
     path: Path,
     *,
@@ -208,9 +216,13 @@ def validate_deterministic_receipt(
     if prerequisite_profile is not None and (not bounded_off or cell not in
             {"aws-ecs/redis-off", "aws-serverless/redis-off"}):
         raise CanaryError("the bounded prerequisite is only for the explicit Redis-off profile")
+    # ga-cells-single-tenant-2026-10-27: a ruled GA cell's journey is admitted with exactly one
+    # declared not-applicable check (8.tenant-isolation, #377); stage 8 alone may then read blocked.
+    single_tenant = (prerequisite_profile is None and receipt.get("status") == "blocked"
+                     and _ga_single_tenant().admits(receipt, cell))
     roster = receipt.get("roster")
     if (
-        receipt.get("status") not in ({"pass", "blocked"} if bounded_off else {"pass"})
+        receipt.get("status") not in ({"pass", "blocked"} if bounded_off or single_tenant else {"pass"})
         or not isinstance(roster, dict)
         or roster.get("status") != "pass"
     ):
@@ -263,7 +275,8 @@ def validate_deterministic_receipt(
             or actual.get("number") != expected["number"]
             or actual.get("stage") != expected["id"]
             or actual.get("command") != expected["command"]
-            or actual.get("status") not in ({"pass"} if required else {"pass", "blocked"})
+            or actual.get("status") not in ({"blocked"} if single_tenant and expected["number"] == _ga_single_tenant().STAGE
+                                            else {"pass"} if required else {"pass", "blocked"})
             or (required and (not isinstance(evidence, dict)
                 or evidence.get("freshness") != "verified-current"
                 or evidence.get("completeness") != "complete" or not evidence.get("uri")))
@@ -294,6 +307,8 @@ def validate_deterministic_receipt(
         "generatedAt": generated,
         "status": "pass",
         **({"prerequisiteProfile": prerequisite_profile, "sourceStatus": receipt["status"]} if bounded_off else {}),
+        **({"prerequisiteProfile": _ga_single_tenant().PROFILE, "sourceStatus": "blocked",
+            "ruling": _ga_single_tenant().RULING} if single_tenant else {}),
         "candidateVerified": True,
         "freshnessVerified": True,
     }

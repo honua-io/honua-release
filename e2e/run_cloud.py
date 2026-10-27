@@ -1463,6 +1463,10 @@ def _passing_deterministic_receipt(cell_directory: Path, *, prerequisite_profile
         receipt = _read_json(path) if path.is_file() else None
         if receipt and receipt.get("status") in ({"pass", "blocked"} if prerequisite_profile == "redis-off-serving-refusal" else {"pass"}):
             return path
+        # ga-cells-single-tenant-2026-10-27: the journey qualified with its one declared N/A check.
+        if (receipt and prerequisite_profile is None and receipt.get("status") == "blocked"
+                and cloud_journey.ga_single_tenant.admits(receipt, str((receipt.get("target") or {}).get("id", "")))):
+            return path
     return None
 
 

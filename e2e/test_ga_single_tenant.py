@@ -147,3 +147,17 @@ def test_the_receipt_fixture_mirrors_the_recorded_run_shape():
     blocked = [(s["number"], c["id"]) for s in receipt["stages"] for c in s["checks"] if c["status"] != "pass"]
     assert blocked == [(8, "8.tenant-isolation")]
     assert copy.deepcopy(receipt) == receipt
+
+
+def test_model_canary_prerequisite_lookup_accepts_only_an_admitted_journey(tmp_path, monkeypatch):
+    import run_cloud
+    directory = tmp_path / "cloud-evidence" / "1" / "1" / "aws-ecs" / "redis-on"
+    directory.mkdir(parents=True)
+    monkeypatch.setattr(run_cloud, "E2E_DIR", tmp_path)
+    for name, receipt, expected in (("admitted", single_tenant_receipt(), True),
+                                    ("preview", single_tenant_receipt("aws-serverless/redis-on"), False)):
+        path = directory / "receipt-1.json"
+        path.write_text(json.dumps(receipt))
+        (directory / run_cloud.JOURNEY_NAME).write_text(json.dumps({"journeyAttempts": [
+            {"receipt": str(path.relative_to(tmp_path))}]}))
+        assert (run_cloud._passing_deterministic_receipt(directory) == path) is expected, name

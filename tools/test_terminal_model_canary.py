@@ -1944,3 +1944,68 @@ def test_map_diagnostics_allow_saved_version_replicas_and_both_public_verificati
     response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail',
         'detail': 'map identity or actual map body differs'}]}, 'observation': {'mapReadbacks': rows}}
     assert 'nativeMap=' in canary.driver_failure_diagnostic(response)
+
+
+# ---- ga-cells-single-tenant-2026-10-27: the admitted GA journey satisfies the canary prerequisite ----
+GA_CELL = "aws-ecs/redis-on"
+TENANT_BLOCKER = "https://github.com/honua-io/honua-release/issues/377"
+
+
+def _single_tenant_deterministic_receipt(cell: str = GA_CELL) -> dict:
+    receipt = _green_deterministic_receipt()
+    receipt.update(status="blocked", mode="live", target={"id": cell, "kind": cell.split("/")[0]})
+    for stage in receipt["stages"]:
+        stage["evidence"]["source"] = "live-" + cell.split("/")[0]
+        stage["checks"] = [{"id": f"{stage['number']}.probe", "status": "pass"}]
+    last = receipt["stages"][7]
+    last.update(status="blocked", blockedBy=[TENANT_BLOCKER])
+    last["checks"].append({"id": "8.tenant-isolation", "status": "blocked", "blockedBy": [TENANT_BLOCKER]})
+    return receipt
+
+
+def _validate_single_tenant(tmp_path: Path, receipt: dict, cell: str = GA_CELL) -> dict:
+    path = tmp_path / "artifacts" / "receipt-1.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+    return canary.validate_deterministic_receipt(
+        Path("artifacts/receipt-1.json"), manifest=canary.load_manifest(MANIFEST),
+        journey=canary.load_journey(JOURNEY), repo_root=tmp_path, cell=cell)
+
+
+def test_green_admitted_single_tenant_journey_is_the_canary_prerequisite(tmp_path: Path):
+    proof = _validate_single_tenant(tmp_path, _single_tenant_deterministic_receipt())
+    assert proof["status"] == "pass" and proof["candidateVerified"] is True
+    assert proof["prerequisiteProfile"] == "ga-single-tenant" and proof["sourceStatus"] == "blocked"
+    assert proof["ruling"] == "ga-cells-single-tenant-2026-10-27"
+    linked = _schema()["properties"]["linkedEvidence"]["properties"]["deterministicReceipt"]
+    assert list(Draft202012Validator(linked).iter_errors(proof)) == []
+
+
+@pytest.mark.parametrize("defect", ["preview-cell", "second-blocked", "other-blocker", "stale-evidence"])
+def test_red_anything_beyond_the_ruled_admission_is_not_a_prerequisite(tmp_path: Path, defect):
+    cell = "aws-serverless/redis-on" if defect == "preview-cell" else GA_CELL
+    receipt = _single_tenant_deterministic_receipt(cell)
+    if defect == "second-blocked":
+        receipt["stages"][6].update(status="blocked")
+        receipt["stages"][6]["checks"][0]["status"] = "blocked"
+    elif defect == "other-blocker":
+        receipt["stages"][7]["blockedBy"] = receipt["stages"][7]["checks"][-1]["blockedBy"] = [
+            "https://github.com/honua-io/honua-release/issues/123"]
+    elif defect == "stale-evidence":
+        receipt["stages"][7]["evidence"]["completeness"] = "partial"
+    with pytest.raises(canary.CanaryError):
+        _validate_single_tenant(tmp_path, receipt, cell)
+
+
+def test_red_without_the_ruling_the_blocked_journey_is_not_a_prerequisite(tmp_path: Path, monkeypatch):
+    ga = canary._ga_single_tenant()
+    empty = tmp_path / "overrides.json"
+    empty.write_text(json.dumps({"rulings": {}}))
+    monkeypatch.setattr(ga, "DECISION_OVERRIDES", empty)
+    with pytest.raises(canary.CanaryError):
+        _validate_single_tenant(tmp_path, _single_tenant_deterministic_receipt())
+
+
+def test_a_plain_pass_carries_no_single_tenant_declaration(tmp_path: Path):
+    proof = _validate_single_tenant(tmp_path, {**_green_deterministic_receipt()})
+    assert "prerequisiteProfile" not in proof and "ruling" not in proof
