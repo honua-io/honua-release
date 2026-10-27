@@ -594,6 +594,9 @@ wait_ready_attempts() {
     fi
     MIGRATED=1; return 0
   fi
+  if [ "$PROBE" = 1 ] && [ "${GUARD:-present}" = inconclusive ]; then
+    SERVER_LOG='{"error":"database connection reset during startup"}'; return 1
+  fi
   if [ "$PROBE" = 1 ] || { [ "$MIGRATED" = 1 ] && [ "${CONTRACT:-0}" = 1 ]; }; then
     [ "${GUARD:-present}" = absent ] && return 0
     SERVER_LOG='{"error":"schema_reader_incompatible: unknown journal entry"}'; return 1
@@ -696,6 +699,17 @@ def test_compose_unguarded_prior_is_rollback_target_ineligible(tmp_path):
     assert result.returncode != 0
     assert rows[0]["status"] == "fail" and rows[0]["why"].startswith("rollback-target-ineligible")
     assert observed["customerSteps"]["rollback"]["restoreVerified"] is True
+
+
+def test_compose_inconclusive_guard_probe_never_certifies_an_image_rollback(tmp_path):
+    # The prior failed to start during the probe for an unrelated reason (no typed refusal), then
+    # recovered: the guard is unproven, so an image-only rollback to it is not certified.
+    result, rows, observed = run_compose(tmp_path, GUARD="inconclusive")
+    assert result.returncode != 0
+    assert rows[0]["status"] == "fail" and rows[0]["why"].startswith("rollback-target-guard-unproven")
+    rollback = observed["customerSteps"]["rollback"]
+    assert rollback["priorSchemaReaderGuard"] == "inconclusive"
+    assert rollback["outcome"] == "rollback-target-guard-unproven"
 
 
 def test_compose_never_certifies_the_candidate_against_itself(tmp_path):

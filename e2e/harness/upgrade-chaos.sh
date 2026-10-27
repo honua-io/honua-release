@@ -899,6 +899,14 @@ run_compose_upgrade_rollback() {
       cu_fail "rollback-target-ineligible: prior (schema $CU_PRIOR_SCHEMA) has no schema-reader guard (it started on an unrecognised journal entry; honua-server#5333, #6484), so an image-only rollback to it cannot be certified (it served silently: $CU_SERVED_SILENTLY); certified rollback path: restore the pre-upgrade backup (verified: $CU_RESTORE_VERIFIED)"
       return 1
     fi
+    if [ "$CU_GUARD" != present ]; then
+      # Only a typed schema_reader_incompatible refusal of the probe entry proves the guard. A probe
+      # that failed for another reason (inconclusive) and then recovered proves nothing, so an
+      # image-only rollback to this prior is not certified: real telemetry or no pass.
+      CU_ROLLBACK_OUTCOME=rollback-target-guard-unproven
+      cu_fail "rollback-target-guard-unproven: the rollback-target guard probe did not observe a typed schema_reader_incompatible refusal from the prior (guard $CU_GUARD; see compose-guard-probe.log), so an image-only rollback to it cannot be certified"
+      return 1
+    fi
     if [ -n "$CU_NONCE" ]; then
       CU_ROLLBACK_OUTCOME=guarded-prior-served-across-contract
       cu_fail "prior image (guard $CU_GUARD) started on a schema narrowed by approved contract migrations instead of refusing with schema_reader_incompatible"
