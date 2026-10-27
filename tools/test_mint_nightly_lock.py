@@ -1412,3 +1412,158 @@ def test_npm_post_gate_integrity_does_not_change_github_subject_algorithm(monkey
         calls.append(command) or subprocess.CompletedProcess(command, 0, stdout='[]'))
     nightly.verify_publisher_bundle(b'package', {}, artifact, 'honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
     assert '--digest-alg' not in calls[0]
+
+
+# ── Founder ruling sdk-attestation-exception-2026-10-27 ─────────────────────────────────────
+import attestation_exceptions  # noqa: E402
+
+EXCEPTED = 'honua-sdk-js'
+
+
+def ruling_file(tmp_path, entries):
+    path = tmp_path / 'overrides.json'
+    path.write_text(json.dumps({'rulings': {attestation_exceptions.RULING: {'artifacts': entries}}}))
+    return path
+
+
+def ruled(paths, component=EXCEPTED, digest=None):
+    lock = nightly.generate(*paths).lock
+    return [{'component': component, 'kind': artifact['kind'], 'coordinate': artifact['coordinate'],
+             'version': artifact.get('version', ''),
+             'digest': digest or attestation_exceptions.lock_digest(artifact), 'owner': 'Mike McDougall',
+             'reason': 'published before attestation workflows existed; cannot be attested retroactively',
+             'expires': f'first attested release of {component}', 'target': '2026.1.1'}
+            for artifact in lock['components'][component]['artifacts']]
+
+
+def unattested(component):
+    def lookup(repository, digest):
+        if repository.endswith('/' + component):
+            raise subprocess.CalledProcessError(1, ['gh', 'api'], stderr='gh: Not Found (HTTP 404)')
+        return publisher_bundles(repository, digest)
+    return lookup
+
+
+def collect(report, paths, tmp_path, candidate, exceptions, **overrides):
+    arguments = dict(attestations=unattested(EXCEPTED), artifact_bytes=lambda artifact: candidate[2],
+                     verifier=lambda *args: None, exceptions=exceptions)
+    arguments.update(overrides)
+    return nightly.collect_post_gate(report, *paths, tmp_path / 'collected', **arguments)
+
+
+def test_unlisted_artifact_without_attestation_still_fails(inputs, candidate, tmp_path):
+    report, paths = inputs
+    with pytest.raises(ValueError, match=f'{EXCEPTED}.artifacts\\[0\\]: publisher attestations unavailable: .*HTTP 404'):
+        collect(report, paths, tmp_path, candidate, {})
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_listed_digest_without_attestation_passes_and_is_reported(inputs, candidate, tmp_path):
+    report, paths = inputs
+    exceptions = attestation_exceptions.load(ruling_file(tmp_path, ruled(paths)))
+    evidence = collect(report, paths, tmp_path, candidate, exceptions)
+    rows = evidence['attestationExceptions']
+    assert [row['component'] for row in rows] == [EXCEPTED] * len(ruled(paths))
+    assert all(row['missing'] == ['sbom', 'provenance'] and row['ruling'] == attestation_exceptions.RULING
+               and row['owner'] == 'Mike McDougall' and row['target'] == '2026.1.1' for row in rows)
+    assert rows[0]['registrySha256'] == 'sha256:' + hashlib.sha256(candidate[2]).hexdigest()
+    for field in ('sbom', 'provenance'):
+        components = {row['component'] for row in evidence['references'][field]}
+        assert EXCEPTED not in components and components  # every other component stays attested
+    saved = json.loads((tmp_path / 'collected/post-gate-references.json').read_text())
+    assert saved['attestationExceptions'] == rows
+
+
+def test_listed_component_repinned_to_new_bytes_without_attestation_fails(inputs, candidate, tmp_path):
+    report, paths = inputs
+    # The ruling names the old pin; the lock now pins other bytes for the same component.
+    stale = ruled(paths, digest='sha512:' + '0' * 128)
+    exceptions = attestation_exceptions.load(ruling_file(tmp_path, stale))
+    with pytest.raises(ValueError, match='publisher attestations unavailable'):
+        collect(report, paths, tmp_path, candidate, exceptions)
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_listed_digest_with_a_failing_attestation_still_fails(inputs, candidate, tmp_path):
+    report, paths = inputs
+    exceptions = attestation_exceptions.load(ruling_file(tmp_path, ruled(paths)))
+    def refuse(raw, bundle, artifact, repository, predicate):
+        raise ValueError('signature does not verify')
+    with pytest.raises(ValueError, match='attestation verification refused: signature does not verify'):
+        collect(report, paths, tmp_path, candidate, exceptions, attestations=publisher_bundles, verifier=refuse)
+
+
+def test_listed_digest_does_not_excuse_other_api_failures(inputs, candidate, tmp_path):
+    report, paths = inputs
+    exceptions = attestation_exceptions.load(ruling_file(tmp_path, ruled(paths)))
+    def outage(repository, digest):
+        raise subprocess.CalledProcessError(1, ['gh', 'api'], stderr='gh: Server Error (HTTP 502)')
+    with pytest.raises(ValueError, match='HTTP 502'):
+        collect(report, paths, tmp_path, candidate, exceptions, attestations=outage)
+
+
+def test_server_image_without_attestation_fails_even_under_the_ruling(inputs, candidate, tmp_path):
+    report, paths = inputs
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest['components']['honua-server'] = {
+        **manifest['components']['sdk'], 'awsLambdaImage': 'ghcr.io/honua-io/honua-server:nightly-lambda-aot-abc-amd64',
+        'awsLambdaDigest': 'sha256:' + '6' * 64}
+    paths[0].write_text(yaml.safe_dump(manifest))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    class Registry:
+        def document(self, repository, digest, **kwargs):
+            return {'schemaVersion': 2, 'layers': []}
+    # The real ruling is loaded, and a forged key for the server image is ignored.
+    exceptions = attestation_exceptions.load()
+    forged = ('honua-server', 'image', 'ghcr.io/honua-io/honua-server', '', 'sha256:' + '6' * 64)
+    exceptions[forged] = {'ruling': attestation_exceptions.RULING}
+    assert attestation_exceptions.applies(exceptions, 'honua-server', {'kind': 'image',
+        'coordinate': 'ghcr.io/honua-io/honua-server'}, 'sha256:' + '6' * 64) is None
+    with pytest.raises(ValueError, match='honua-server Lambda: missing sbom'):
+        collect(report, paths, tmp_path, candidate, exceptions, registry=Registry(),
+                attestations=lambda repo, digest: [] if digest == 'sha256:' + '6' * 64
+                    else publisher_bundles(repo, digest))
+
+
+@pytest.mark.parametrize('change, message', [
+    (lambda entry: entry.update(component='honua-server'), 'always require attestations'),
+    (lambda entry: entry.update(kind='image'), 'always require attestations'),
+    (lambda entry: entry.update(owner=''), 'missing owner'),
+    (lambda entry: entry.pop('expires'), 'missing expires'),
+    (lambda entry: entry.update(digest='latest'), 'exact sha256:/sha512: lock digest'),
+])
+def test_ruling_entries_must_be_exact_owned_and_dated(inputs, tmp_path, change, message):
+    _, paths = inputs
+    entries = ruled(paths)
+    change(entries[0])
+    with pytest.raises(ValueError, match=message):
+        attestation_exceptions.load(ruling_file(tmp_path, entries))
+
+
+def test_recorded_ruling_names_exactly_the_current_pins():
+    # Re-pinning a component must drop its entry: a stale entry is a ruling for bytes that no
+    # longer ship, and the newer bytes need attestations.
+    root = Path(attestation_exceptions.__file__).resolve().parents[1]
+    lock = nightly.generate(root / 'platform-manifest.yaml', root / 'compatibility-matrix.yaml').lock
+    pinned = {(name, artifact['kind'], artifact['coordinate'], str(artifact.get('version', '')),
+               attestation_exceptions.lock_digest(artifact))
+              for name, entry in lock['components'].items() for artifact in entry['artifacts']}
+    ruled_keys = set(attestation_exceptions.load())
+    assert ruled_keys and ruled_keys <= pinned
+    assert {key[0] for key in ruled_keys} == {'honua-sdk-js', 'honua-sdk-python', 'honua-sdk-dotnet',
+                                              'geospatial-grpc', 'geospatial-mcp', 'honua-iac'}
+
+
+@pytest.mark.parametrize('listed, minted', [(True, True), (False, False)])
+def test_mint_excuses_lock_coverage_only_for_exactly_ruled_components(inputs, tmp_path, monkeypatch, listed, minted):
+    report, paths = inputs
+    refs = fresh_references(report, paths)
+    for field in ('sbom', 'provenance'):
+        refs['references'][field] = [row for row in refs['references'][field] if row['component'] != EXCEPTED]
+    entries = ruled(paths) if listed else ruled(paths, digest='sha512:' + '0' * 128)
+    monkeypatch.setattr(attestation_exceptions, 'DECISION_OVERRIDES', ruling_file(tmp_path, entries))
+    if minted:
+        mint(report, paths, tmp_path / 'history', tmp_path / 'minted', signer=signer, post_gate_evidence=refs)
+        assert (tmp_path / 'minted/platform-lock.json').exists()
+    else:
+        refuses_before_signing(report, paths, tmp_path, 'no .* reference covers', post_gate_evidence=refs)

@@ -421,6 +421,11 @@ def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any, 
     # artifacts the candidate publishes is covered. This is what can be checked from the frozen
     # inputs alone; it does not assert that the referenced document describes those exact bytes.
     published = {name for name, entry in lock["components"].items() if entry["artifacts"]}
+    # Founder ruling sdk-attestation-exception-2026-10-27: a component whose every artifact is
+    # an exactly ruled, already-published pin may ship without publisher SBOM/provenance; the
+    # post-gate collector discloses each one. Any other bytes, a re-pin included, need coverage.
+    from attestation_exceptions import excepted_components, load as load_exceptions
+    published -= excepted_components(lock["components"], load_exceptions())
     for field, description in (("sbom", "SBOM"), ("provenance", "provenance")):
         declarations = evidence.get(field) or []
         if not isinstance(declarations, list):

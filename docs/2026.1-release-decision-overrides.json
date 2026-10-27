@@ -637,6 +637,172 @@
       "ruling": "Founder decision D8: the GP catalog is Preview in 2026.1, but its safety floor stays required. Floor rows are those whose failure is a security or correctness bug: permission denials, tenant/owner isolation, typed refusals, no silent fallback, input validation and resource bounds. Every other GP row is Preview: non-blocking and labeled maturity=preview. jobs.runner stays GA because background imports depend on it. sync.offline and realtime.feature-streams leave the expected-GA list because both are Preview.",
       "effect": "certification/sources/gp-preview-floor.v1.json classifies each of the 150 GP requirement rows explicitly. The generator labels 124 rows maturity=preview, required_tier=release (reported at every tier, required at none) and keeps 26 floor rows supported and required: the GPServer job list, route-bound job status/cancel/results, validated submit and bounded sync execute on all four GeoServices clients, plus the OGC CITE and OWSLib OGC API Processes rows. No row on another surface changes and no row is dropped. Supersedes the 'required catalog-GP denominator' wording of the 2026-10-16 amendment for 2026.1.",
       "basis": "Founder decision 2026-10-26 (D8), recorded on honua-release#949"
+    },
+    "sdk-attestation-exception-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-release/issues/1004#issuecomment-6431806943",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "Option B for the 2026-10-29 release: the six already-published client pins (honua-sdk-js 0.2.10 cohort, honua-sdk-python 0.1.19 and honua-admin 0.1.12, Honua.Sdk 1.12.0, Geospatial.Grpc 1.0.3, the geospatial-mcp spec index at d5a09d13, the honua-iac archive) ship without publisher SBOM/provenance attestations as a dated exception; server images stay fully attested.",
+      "effect": "The nightly post-gate collector accepts a missing publisher attestation only for an exact artifact and lock digest listed here, never for a present attestation that fails verification, never for a server image or OCI artifact, and never once the component is re-pinned to other bytes. Each accepted artifact is listed in post-gate-references.json attestationExceptions and disclosed under Known limitations in release-notes/2026.1.md. Implemented in tools/attestation_exceptions.py.",
+      "artifacts": [
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "@honua/sdk-js",
+          "version": "0.2.10",
+          "digest": "sha512:96eaa9afd5e7f00eded3050545d4a1e304d8769545495413e58c583d148988dbbd08cfe6f2f00f2af90bbc0cbabb4323be5d6104a14923413660c199aff8e270",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "@honua/mcp-server",
+          "version": "0.2.10",
+          "digest": "sha512:0f78f6f54e417f2854377f1243536fcea8824d25b07a95ee6ce5f344bcf38aa03fe19e8fc848cfd099afd9bf61309b2f001cb510446c343a7a1547693b4a9026",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "@honua/sdk",
+          "version": "0.2.10",
+          "digest": "sha512:e42ad8df3c98fbdee79dbb8445fbc738e813728e1e07e10b67652ebd8b0b4fc03b776ddb9a0f0a4a2283e93ec72457de1b8cc0b1d820cfe970e9af831a6fdcb8",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "@honua/sdk-esri-compat",
+          "version": "0.2.10",
+          "digest": "sha512:b4aecf579ac06b76d5556b44ee7f620fe1b5bee548411003686d02ec47c19a4509a5481a295489cfa82d7a6a279ff9d24ca485ddf4d81f05f5ddbd567519f501",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "@honua/react",
+          "version": "0.2.10",
+          "digest": "sha512:36d430d836b923034afb17f2da52827c7c6e56353659264a56b4c81e40d72b9e89af6f32ad6b38d0753a6e0b2af8fc974d74903e2dd5fe8709a99c70f53822a8",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "@honua/geometry",
+          "version": "0.2.10",
+          "digest": "sha512:2a4a85b011a450805200aef7a70c328ca7c45db540147c398b93fb36d6f39209e8d517473b8965ad9352599e698bcb5ae98deba07e22e31cea643a9a7c727c7c",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "@honua/app-platform",
+          "version": "0.2.10",
+          "digest": "sha512:77883104619e5b546fe368114a11dc17eb5357a948688908d4cc37d23887fd2149c75952b0d0272a8fe2f9b2cebcb26a648a4ea47b3699273a0c2e1328d795fa",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-js",
+          "kind": "npm",
+          "coordinate": "create-honua-app",
+          "version": "0.2.3",
+          "digest": "sha512:73406dc1a7473311dbc4814ac80b62de19ae832d526fe874fe5c3ba34df89a3fab0260d4510898152994d2767049a423daa05db574b3147a2ed6a3c3f714b6aa",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-js",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-python",
+          "kind": "wheel",
+          "coordinate": "honua-sdk",
+          "version": "0.1.19",
+          "digest": "sha256:01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-python",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-python",
+          "kind": "wheel",
+          "coordinate": "honua-admin",
+          "version": "0.1.12",
+          "digest": "sha256:359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-python",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-sdk-dotnet",
+          "kind": "nuget",
+          "coordinate": "Honua.Sdk",
+          "version": "1.12.0",
+          "digest": "sha256:45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-sdk-dotnet",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "geospatial-grpc",
+          "kind": "nuget",
+          "coordinate": "Geospatial.Grpc",
+          "version": "1.0.3",
+          "digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of geospatial-grpc",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "geospatial-mcp",
+          "kind": "spec",
+          "coordinate": "https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json",
+          "version": "1.0.0+d5a09d13",
+          "digest": "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of geospatial-mcp",
+          "target": "2026.1.1"
+        },
+        {
+          "component": "honua-iac",
+          "kind": "archive",
+          "coordinate": "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz",
+          "version": "0.3.0",
+          "digest": "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308",
+          "owner": "Mike McDougall",
+          "reason": "published before attestation workflows existed; cannot be attested retroactively",
+          "expires": "first attested release of honua-iac",
+          "target": "2026.1.1"
+        }
+      ],
+      "target": "2026.1.1",
+      "moved": [],
+      "basis": "Founder decision (option B) 2026-10-27, relayed by the release coordinator and recorded on honua-release#1004 on 2026-10-27"
     }
   },
   "security_findings": [
