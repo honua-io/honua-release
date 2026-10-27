@@ -1016,3 +1016,63 @@ def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_referen
     vp.check_registry_platform_digests(manifest, findings, verify=lambda artifact: seen.append(artifact["coordinate"]))
     assert findings.errors == []
     assert seen == ["ghcr.io/honua-io/honua-server", "ghcr.io/honua-io/honua-console"]
+
+
+class StagedRequirementsClient(StubCompareClient):
+    """GitHub as the nightly leaves it: the staged requirements commit is one data commit over
+    reviewed trunk, published at refs/nightly-requirements/<sha>, and trunk has moved on."""
+
+    def __init__(self, staged, parent, *, ref_target=None, parents=None, files=None, parent_status="behind"):
+        super().__init__(statuses={staged: "diverged", parent: parent_status})
+        self.staged, self.parent = staged, parent
+        self.ref_target = staged if ref_target is None else ref_target
+        self.parents = [parent] if parents is None else parents
+        self.files = files if files is not None else [
+            "platform-manifest.yaml", "compatibility-matrix.yaml",
+            "certification/protocol-certification-requirements.v1.json",
+            "certification/sources/source-revisions.v1.json"]
+
+    def json(self, path):
+        if path == f"repos/honua-io/honua-release/git/ref/nightly-requirements/{self.staged}":
+            if not self.ref_target:
+                raise tr.ReachabilityError("HTTP 404")
+            return {"ref": f"refs/nightly-requirements/{self.staged}",
+                    "object": {"type": "commit", "sha": self.ref_target}}
+        if path.startswith(f"repos/honua-io/honua-release/commits/{self.staged}?"):
+            # GitHub pages a commit's file listing (per_page, at most 100) and stops at 3000 files.
+            query = dict(item.split("=", 1) for item in path.split("?", 1)[1].split("&"))
+            size, page = min(int(query.get("per_page", 30)), 100), int(query.get("page", 1))
+            listed = self.files[:3000]
+            return {"sha": self.staged, "parents": [{"sha": sha} for sha in self.parents],
+                    "files": [{"filename": name} for name in listed[(page - 1) * size:page * size]]}
+        return super().json(path)
+
+
+def _staged_manifest(staged):
+    return {"protocolCertification": {"ledger": {"status": "bound", "requirementsSourceRevision": staged}}}
+
+
+def test_nightly_staged_requirements_revision_is_reachable_through_its_published_ref():
+    """The nightly's requirementsSourceRevision is its staged catalog commit, never on trunk by design:
+    it is accepted as the one data commit at refs/nightly-requirements/<sha> over reviewed trunk."""
+    staged, parent = "1" * 40, "2" * 40
+    assert tr.verify_manifest_pins(_staged_manifest(staged), StagedRequirementsClient(staged, parent)) == 1
+
+
+@pytest.mark.parametrize("change", [
+    {"ref_target": ""},                                   # no published nightly-requirements ref
+    {"ref_target": "3" * 40},                             # the ref names another commit
+    {"parents": ["2" * 40, "4" * 40]},                    # a merge is not one data commit
+    {"parent_status": "diverged"},                        # the parent is not reviewed trunk
+    {"files": ["tools/check_protocol_certification.py"]},  # it changes reviewed release code
+    {"files": []},                                        # it changes nothing
+    # Release code on a later page of the file listing is still release code.
+    {"files": [f"certification/sources/s{index}.json" for index in range(100)]
+              + ["tools/check_protocol_certification.py"]},
+    # GitHub stops listing at 3000 files, so a full listing cannot prove the commit is only data.
+    {"files": [f"certification/sources/s{index}.json" for index in range(3000)]},
+])
+def test_nightly_staged_requirements_revision_refuses_anything_else(change):
+    staged, parent = "1" * 40, "2" * 40
+    with pytest.raises(tr.ReachabilityError, match="requirementsSourceRevision"):
+        tr.verify_manifest_pins(_staged_manifest(staged), StagedRequirementsClient(staged, parent, **change))
