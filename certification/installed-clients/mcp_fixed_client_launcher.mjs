@@ -39,8 +39,9 @@ export function verifyInstalledClient(installationRoot, selector) {
 // operation is advertised to anonymous callers by exactly this view.
 // Discovery narrows the catalog; it grants no authority.
 const ANONYMOUS_DISCOVERY_VIEWS = Object.freeze({
+  // honua-server setup.v6 (#6655) lists map and app package composition to anonymous callers.
   setup: ["honua_ingest_dataset", "honua_publish_service", "honua_get_style", "honua_apply_style_preset",
-    "honua_execute_plan", "honua_publish_result"],
+    "honua_execute_plan", "honua_publish_result", "honua_create_map_package", "honua_create_app_package"],
   operate: ["honua_ops_findings", "honua_alert_events", "honua_operate_events", "honua_ops_health",
     "honua_platform_release_status"],
   analyze: ["honua_ground_candidates", "honua_clarify_intent", "honua_cancel_job"],
