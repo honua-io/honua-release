@@ -680,7 +680,7 @@
       "title": "GP catalog rows still count toward the GA denominator after the Preview re-tier",
       "owner": "honua-io/honua-release",
       "issue": "https://github.com/honua-io/honua-release/issues/949",
-      "status": "open",
+      "status": "implementation-in-progress",
       "selectors": {
         "capability_key": [
           "*.gp-server",
@@ -704,7 +704,11 @@
       "related_issues": [
         "https://github.com/honua-io/honua-release/issues/652",
         "https://github.com/honua-io/honua-release/issues/376"
-      ]
+      ],
+      "implementation_prs": [
+        "https://github.com/honua-io/honua-release/pull/976"
+      ],
+      "implementation_note": "Ruling gp-preview-floor-2026-10-26 labels 124 GP rows maturity=preview, required_tier=release (required at no tier) and keeps 26 safety-floor rows supported and required; expected-GA drops sync.offline and realtime.feature-streams and keeps jobs.runner. No row is dropped. This grants no execution credit."
     },
     {
       "id": "NC-24",
