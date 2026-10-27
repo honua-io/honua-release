@@ -815,6 +815,9 @@ def test_a_drill_missing_a_dependency_or_its_evidence_fails(tmp_path):
 @pytest.mark.parametrize('change, message', [
     (lambda d: d['dataIntegrity'].update(layerCounts=[10000, 10000, 9998, 10000]), 'data loss'),
     (lambda d: d['dataIntegrity'].update(payloadIntact=False), 'data loss'),
+    # Missing payload hashes are not evidence, even when the producer asserts payloadIntact.
+    (lambda d: [d['dataIntegrity'].pop(key) for key in ('payloadSha256', 'expectedPayloadSha256')], 'data loss'),
+    (lambda d: d['dataIntegrity'].update(payloadSha256=None, expectedPayloadSha256=None), 'data loss'),
     (lambda d: d['gpJobs'].update(stuckJobIds=['gp-1']), "stuck GP jobs ['gp-1']"),
     (lambda d: d.update(failures=['data integrity: TimeoutError']), 'producer recorded drill failures'),
     (lambda d: d['window'].update(startedAt=WINDOW['startedAt']), 'the fault period must follow, and be excluded from, the measured window'),

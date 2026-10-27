@@ -293,6 +293,8 @@ def _validate_drill(lock: dict[str, Any], receipt: dict[str, Any], failures: lis
     expected_count = _mapping(lock.get("supportedEnvelope")).get("featuresPerLayer")
     intact = (isinstance(counts, list) and len(counts) == _mapping(lock.get("supportedEnvelope")).get("layersPerService")
               and all(count == expected_count for count in counts) and integrity.get("payloadIntact") is True
+              # Both hashes must be present SHA-256 values: two missing hashes are not evidence.
+              and HASH_PATTERN.fullmatch(str(integrity.get("payloadSha256") or "")) is not None
               and integrity.get("payloadSha256") == integrity.get("expectedPayloadSha256"))
     if policy.get("requireNoDataLoss") and not intact:
         failures.append("fault drill: data loss — a layer no longer serves its full count or the payload changed")
