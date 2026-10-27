@@ -1567,3 +1567,112 @@ def test_mint_excuses_lock_coverage_only_for_exactly_ruled_components(inputs, tm
         assert (tmp_path / 'minted/platform-lock.json').exists()
     else:
         refuses_before_signing(report, paths, tmp_path, 'no .* reference covers', post_gate_evidence=refs)
+
+
+# Founder ruling lambda-preview-out-of-lock-2026-10-27: the Preview Lambda image is recorded out of
+# the lock, like the Helm chart (#1002). The GA server image stays fully attested.
+LAMBDA_DIGEST = 'sha256:' + '6' * 64
+LAMBDA_IMAGE = 'ghcr.io/honua-io/honua-server:nightly-lambda-aot-abc-amd64'
+
+
+def lambda_ruling_file(tmp_path, **changes):
+    ruling = {'owner': 'Mike McDougall (founder)', 'out_of_lock_images': ['honua-server/awsLambdaImage'], **changes}
+    path = tmp_path / 'lambda-overrides.json'
+    path.write_text(json.dumps({'rulings': {nightly.LAMBDA_OUT_OF_LOCK_RULING: ruling}}))
+    return path
+
+
+def preview_lambda_candidate(report, paths, *, status='preview', scope='preview', server=None):
+    manifest = yaml.safe_load(paths[0].read_text())
+    # The fixture's one published component plays honua-server: the same repository under two
+    # component names would not resolve its package to exactly one component.
+    manifest['components']['honua-server'] = {
+        **(server or manifest['components'].pop('sdk')), 'awsLambdaImage': LAMBDA_IMAGE,
+        'awsLambdaDigest': LAMBDA_DIGEST}
+    manifest['components'].pop('sdk', None)
+    paths[0].write_text(yaml.safe_dump(manifest))
+    matrix = yaml.safe_load(paths[1].read_text())
+    matrix.setdefault('deploy', {}).setdefault('honua-server', {})['awsLambda'] = {
+        'target': 'aws-serverless', 'architectures': {'x86_64': {'status': status, 'releaseScope': scope}}}
+    paths[1].write_text(yaml.safe_dump(matrix))
+    for path in paths:
+        report['candidate']['artifacts'][path.name] = {'sha256': _sha256(path), 'size': path.stat().st_size}
+
+
+class NoLambdaLayers:
+    def document(self, repository, digest, **kwargs):
+        assert digest == LAMBDA_DIGEST, 'the out-of-lock Lambda image is never read for attestations'
+        return {'schemaVersion': 2, 'layers': []}
+
+
+def unattested_lambda(repo, digest):
+    if digest == LAMBDA_DIGEST:
+        raise subprocess.CalledProcessError(1, ['gh', 'api'], stderr='gh: Not Found (HTTP 404)')
+    return publisher_bundles(repo, digest)
+
+
+def test_preview_lambda_out_of_lock_needs_no_attestation_and_is_disclosed(inputs, candidate, tmp_path):
+    report, paths = inputs
+    preview_lambda_candidate(report, paths)
+    refs = nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=NoLambdaLayers(),
+        attestations=unattested_lambda, artifact_bytes=lambda artifact: candidate[2],
+        verifier=lambda *args: None, overrides=lambda_ruling_file(tmp_path))
+    assert refs['previewOutOfLock'] == [{
+        'ruling': 'lambda-preview-out-of-lock-2026-10-27', 'component': 'honua-server', 'field': 'awsLambdaImage',
+        'image': LAMBDA_IMAGE, 'digest': LAMBDA_DIGEST, 'lifecycleStatus': 'Preview'}]
+    assert not any(row['sha256'] == LAMBDA_DIGEST for field in ('sbom', 'provenance') for row in refs['references'][field])
+    retained = json.loads((tmp_path / 'collected' / 'post-gate-references.json').read_text())
+    assert retained['previewOutOfLock'] == refs['previewOutOfLock']
+
+
+@pytest.mark.parametrize('end', ['lambda-not-preview', 'lambda-ga-target', 'lambda-ga-scope', 'ruling-missing',
+                                 'ruling-not-founder', 'ruling-other-image', 'ga-journey-cell'])
+def test_lambda_exemption_ends_and_attestation_is_required_again(inputs, candidate, tmp_path, monkeypatch, end):
+    report, paths = inputs
+    status, scope = {'lambda-not-preview': ('supported', 'ga'), 'lambda-ga-target': ('ga-target', 'preview'),
+                     'lambda-ga-scope': ('preview', 'ga-target')}.get(end, ('preview', 'preview'))
+    preview_lambda_candidate(report, paths, status=status, scope=scope)
+    overrides = {'ruling-missing': tmp_path / 'absent.json',
+                 'ruling-not-founder': lambda_ruling_file(tmp_path, owner='release coordinator'),
+                 'ruling-other-image': lambda_ruling_file(tmp_path, out_of_lock_images=['honua-server/image'])
+                 }.get(end) or lambda_ruling_file(tmp_path)
+    if end == 'ga-journey-cell':
+        monkeypatch.setattr(nightly, 'GA_CELLS', nightly.GA_CELLS | {'aws-serverless/redis-off'})
+    with pytest.raises(ValueError, match='honua-server Lambda: missing sbom'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=NoLambdaLayers(),
+            attestations=lambda repo, digest: [] if digest == LAMBDA_DIGEST else publisher_bundles(repo, digest),
+            artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: None, overrides=overrides)
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_ga_server_image_without_attestation_still_fails_under_the_lambda_ruling(inputs, candidate, tmp_path):
+    """The ruling covers only the Preview Lambda image: the GA server image (ECS and Compose) that the
+    lock freezes must carry its own publisher attestations, ruling or not."""
+    report, paths = inputs
+    registry, index, _ = oci_candidate(report, paths, partial=True)
+    server = yaml.safe_load(paths[0].read_text())['components']['sdk']
+    preview_lambda_candidate(report, paths, server=server)
+
+    class Registry:
+        def document(self, repository, digest, **kwargs):
+            if digest == LAMBDA_DIGEST:
+                raise AssertionError('the out-of-lock Lambda image is never read for attestations')
+            return registry.document(repository, digest, **kwargs)
+    with pytest.raises(ValueError) as refused:
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=Registry(),
+            attestations=lambda repo, digest: [] if digest in (index, LAMBDA_DIGEST) else publisher_bundles(repo, digest),
+            artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: None,
+            overrides=lambda_ruling_file(tmp_path))
+    assert r'honua-server.artifacts[0]: missing' in str(refused.value)
+    assert 'honua-server Lambda' not in str(refused.value)
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_recorded_lambda_ruling_is_the_founders_and_names_only_the_lambda_image():
+    overrides = json.loads((Path(nightly.__file__).resolve().parents[1]
+                            / 'docs/2026.1-release-decision-overrides.json').read_text())
+    ruling = overrides['rulings'][nightly.LAMBDA_OUT_OF_LOCK_RULING]
+    assert 'founder' in ruling['owner'].lower()
+    assert ruling['out_of_lock_images'] == ['honua-server/awsLambdaImage']
+    matrix = yaml.safe_load((Path(nightly.__file__).resolve().parents[1] / 'compatibility-matrix.yaml').read_text())
+    assert nightly.lambda_out_of_lock(matrix['deploy']) == nightly.LAMBDA_OUT_OF_LOCK_RULING
