@@ -989,3 +989,19 @@ def test_validate_cli_fails_when_the_snapshot_lags(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(vp, "EXPECTED_GA_MANIFEST_PATH", path)
     assert vp.main([]) != 0
     assert "lags components.honua-server.sha" in capsys.readouterr().out
+
+
+def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_reference():
+    """The nightly resolver pins images as <coordinate>@sha256:<index>; the registry check must
+    inspect that coordinate, not refuse the reference as having none (2026.1 nightly freeze/bind)."""
+    digest = "sha256:" + "d" * 64
+    manifest = {"components": {
+        "honua-server": {"image": f"ghcr.io/honua-io/honua-server@{digest}", "digest": digest},
+        "honua-console": {"image": "ghcr.io/honua-io/honua-console:candidate-abc", "digest": digest},
+    }}
+    seen = []
+    findings = vp.Findings()
+    vp.check_registry_platform_digests(manifest, findings, verify=lambda artifact: seen.append(artifact["coordinate"]))
+    assert findings.errors == []
+    assert seen == ["ghcr.io/honua-io/honua-server", "ghcr.io/honua-io/honua-console"]
+

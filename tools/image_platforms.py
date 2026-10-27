@@ -42,6 +42,12 @@ def image_platform_digests(declared: Any, *, index_digest: Any = None, architect
     return dict(accepted)
 
 
+def image_coordinate(reference: str) -> str:
+    """The registry coordinate of `<coordinate>[:tag][@digest]`; a registry port is not a tag."""
+    named = str(reference).split("@", 1)[0]
+    return named.rsplit(":", 1)[0] if ":" in named.rsplit("/", 1)[-1] else named
+
+
 def registry_image_platform_digests(coordinate: str, digest: str) -> dict[str, str]:
     """Resolve Linux children from the immutable registry index, never from a tag."""
     if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):

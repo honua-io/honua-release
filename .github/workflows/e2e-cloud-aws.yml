@@ -171,7 +171,7 @@ jobs:
           amd64 = str((server.get("platformDigests") or {}).get("amd64", ""))
           if not re.fullmatch(r"sha256:[0-9a-f]{64}", amd64):
               raise SystemExit("honua-server platformDigests.amd64 must be an exact sha256 digest")
-          repository = image.rsplit(":", 1)[0] if "/" not in image.rsplit(":", 1)[-1] else image
+          # `repository` is the digest- and tag-free coordinate computed above for server_image.
           pins["gp_batch_image"] = f"{repository}@{amd64}"
           lambda_image = str(server.get("awsLambdaImage", ""))
           lambda_digest = str(server.get("awsLambdaDigest", ""))

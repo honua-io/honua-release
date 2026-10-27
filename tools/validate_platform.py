@@ -55,7 +55,7 @@ import trunk_reachability as tr  # noqa: E402
 from component_versions import version_map  # noqa: E402
 import platform_version  # noqa: E402
 import deployment_qualification as dq  # noqa: E402
-from image_platforms import image_platform_digests, verify_image_platform_digests  # noqa: E402
+from image_platforms import image_coordinate, image_platform_digests, verify_image_platform_digests  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
@@ -688,6 +688,17 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
             f.error(f"matrix: {path}: internal keys {counted} are counted in the expected-GA manifest (ruling R29)")
 
 
+def check_registry_platform_digests(manifest: dict, f: Findings, verify=None) -> None:
+    """Every imaged component's declared platform digests are its registry index's Linux children."""
+    verify = verify or verify_image_platform_digests
+    for name, component in (manifest.get("components") or {}).items():
+        if component.get("image"):
+            try:
+                verify({**component, "coordinate": image_coordinate(component["image"])})
+            except (OSError, TypeError, ValueError) as exc:
+                f.error(f"manifest: {name}.platformDigests: {exc}")
+
+
 def check_expected_ga_snapshot_pin(manifest: dict, expected_ga: dict | None, f: Findings) -> None:
     """The committed expected-GA snapshot was captured from the manifest-pinned honua-server.
 
@@ -942,12 +953,7 @@ def main(argv: list[str] | None = None) -> int:
         deployment_qualification=deployment_proof,
     )
     if args.exact_candidate:
-        for name, component in (manifest.get("components") or {}).items():
-            if component.get("image"):
-                try:
-                    verify_image_platform_digests({**component, "coordinate": component["image"].rsplit(":", 1)[0]})
-                except (OSError, TypeError, ValueError) as exc:
-                    f.error(f"manifest: {name}.platformDigests: {exc}")
+        check_registry_platform_digests(manifest, f)
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
         check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)

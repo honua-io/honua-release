@@ -1478,3 +1478,26 @@ def test_release_cell_reaper_holds_the_cell_lock_for_the_whole_sweep():
               for name in ("release-cell-reaper.yml", "cloud-cell-retirement.yml", "e2e-cloud-aws.yml")}
     assert len(set(groups.values())) == 1 and None not in groups.values(), groups
     assert _workflow("release-cell-reaper.yml")["concurrency"]["cancel-in-progress"] is False
+
+
+def test_cloud_candidate_pins_take_the_coordinate_of_a_digest_pinned_server_image(tmp_path):
+    """The nightly resolver pins the server as <coordinate>@sha256:<index>. The cloud candidate job
+    must hand the cells `<coordinate>@<digest>` images, never `...@sha256@sha256:` (Lambda/Batch)."""
+    step = next(step for step in _workflow("e2e-cloud-aws.yml")["jobs"]["candidate"]["steps"]
+                if step.get("id") == "pins")
+    script = step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    index, amd64 = "sha256:" + "1" * 64, "sha256:" + "2" * 64
+    manifest = {"platformRelease": "2026.1-rc.3", "components": {
+        "honua-iac": {"sha": "a" * 40}, "honua-helm": {"sha": "b" * 40},
+        "honua-server": {"sha": "c" * 40, "image": f"ghcr.io/honua-io/honua-server@{index}", "digest": index,
+                         "awsEcsArchitecture": "x86_64", "platformDigests": {"amd64": amd64},
+                         "awsLambdaImage": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-ccccccc-amd64",
+                         "awsLambdaDigest": "sha256:" + "3" * 64, "awsLambdaEcrDigest": "pending-ecr-mirror",
+                         "awsLambdaArchitecture": "x86_64"}}}
+    (tmp_path / "platform-manifest.yaml").write_text(yaml.safe_dump(manifest))
+    output = tmp_path / "out"
+    subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True,
+                   env={**os.environ, "GITHUB_OUTPUT": str(output)})
+    pins = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert pins["server_image"] == f"ghcr.io/honua-io/honua-server@{index}"
+    assert pins["gp_batch_image"] == f"ghcr.io/honua-io/honua-server@{amd64}"
