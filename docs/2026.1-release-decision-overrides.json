@@ -933,6 +933,15 @@
       "effect": "certification/capacity-envelope.v1.json keeps gpWorkers and gpQueueDepth in supportedEnvelope only so the producer configures and exercises them, and records them as Preview through this ruling (previewInEnvelope) and excludedPreviewDimensions; it also lists GPServer as a Preview protocol. The GA envelope is the six remaining dimensions. tools/check_capacity_soak.py no longer gates the GP workloads, the topology GP worker count or the GP envelope values, excludes GPServer requests from the GA SLO population (gaPopulation), and reports the GP workloads, envelope and previewEvidence.gp as Preview informational. Producer contract: honua-server #5314.",
       "moved": [],
       "basis": "Founder decision 2026-10-27, relayed by the release coordinator after capacity soak run 40542363841 exercised gpWorkers 0 and gpQueueDepth 1"
+    },
+    "capacity-drill-per-fault-bounds-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "The capacity fault drill bounds recovery per injected fault: worker 19 s, Redis 19 s and Postgres 36 s (32.0 s measured on honua-server 53bb94a x 1.10, rounded up). Amends capacity-steady-state-and-drill-2026-10-27, whose single 19 s bound came from a server-process restart and did not account for a database container restart.",
+      "effect": "certification/capacity-envelope.v1.json replaces drill.maxRecoverySecondsPerFault with maxRecoverySecondsByDependency {worker 19, database 36, redis 19} and raises the recoveryTimeSeconds bound, the slowest fault's recovery, to 36 s. tools/check_capacity_soak.py judges each fault against its own dependency's bound; any worker, Redis or Postgres fault that recovers later fails the drill.",
+      "moved": [],
+      "basis": "Founder decision 2026-10-27, relayed by the release coordinator after capacity soak run 40542363841 recovered its database fault in 32.0 s"
     }
   },
   "security_findings": [
