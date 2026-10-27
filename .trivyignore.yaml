@@ -8,15 +8,16 @@
 #
 # Rules for this file:
 #   - one entry per rule; never widen `paths` to a directory or a glob;
-#   - the honua-iac module path carries the pinned ref, so a module repin fails the gate until the
-#     exception is re-reviewed against the new module source and its path updated here;
+#   - the honua-iac module path carries the pinned ref (v0.3.0 = d5b7bec9), so a module repin
+#     fails the gate until the exception is re-reviewed against the new module source and its
+#     path updated here;
 #   - remove an entry when honua-io/honua-iac#311 (VPC endpoints + egress allow-list/proxy for the
 #     app tier) tightens its rule.
 
 misconfigurations:
   - id: AWS-0104
     paths:
-      - "git::https:/github.com/honua-io/honua-iac.git/infrastructure/terraform/modules/aws-ecs?ref=9b5669ef6975289dccc62a5dbb1903cd4b630c3d/infrastructure/terraform/modules/aws-ecs/main.tf"
+      - "git::https:/github.com/honua-io/honua-iac.git/infrastructure/terraform/modules/aws-ecs?ref=d5b7bec9073e72ad294da5ce802aff0c58abad07/infrastructure/terraform/modules/aws-ecs/main.tf"
     statement: >-
       honua-iac aws-ecs aws_security_group.ecs "Outbound HTTPS" (TCP 443 to 0.0.0.0/0), Server task.
       Reason: image pulls, OIDC discovery/JWKS, STS, S3, Secrets Manager, KMS, CloudWatch Logs,
