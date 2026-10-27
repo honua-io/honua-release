@@ -2339,3 +2339,76 @@ def test_nightly_portal_sharing_cells_are_judged_against_the_ledger_candidate(mo
     )
     assert report["overall_status"] == "fail"
     assert any("no-retained-observations" in item["why"] for item in report["findings"])
+
+
+# cng-preview-producer-2026-10-27: honua-server-cng is declared Preview evidence for 2026.1.
+def _preview_overrides(tmp_path, producers=("honua-server-cng",), owner="Mike McDougall (founder)"):
+    path = tmp_path / "overrides.json"
+    path.write_text(json.dumps({"rulings": {"cng-preview-producer-2026-10-27": {
+        "owner": owner, "preview_producers": list(producers)}}}), encoding="utf-8")
+    return path
+
+
+def _unexecuted(**overrides):
+    """A required cell no producer observed, as honua-evidence publishes it."""
+    return _cell(result="skip", skip_reason="no producer evidence for required certification cell",
+                 source_sha=None, producer_source_sha=None, started_at=None, completed_at=None,
+                 evidence_uri=None, evidence_digest=None, evidence_receipt=None, facet_results=None, **overrides)
+
+
+def _cng_skip(**overrides):
+    return _unexecuted(canonical_client="GDAL", client_lane="gdal-cog", **overrides)
+
+
+def _with_producers(ledger):
+    requirements = _requirements(*ledger["cells"])
+    requirements["production"] = {"producers": [
+        {"producer": "honua-server-cng", "client_lanes": ["gdal-cog"]},
+        {"producer": "other", "client_lanes": ["rasterio"]},
+    ]}
+    return requirements
+
+
+def test_declared_preview_producer_without_receipt_is_reported_not_refused(tmp_path):
+    ledger = _ledger(_cell(), _cng_skip())
+    report = _evaluate(ledger, "nightly", now=NOW, requirements=_with_producers(ledger),
+                       preview_overrides=_preview_overrides(tmp_path))
+    assert report["overall_status"] == "pass", report["findings"]
+    assert report["declared_preview"] == [{"producer": "honua-server-cng", "cells": 1,
+                                           "ruling": "cng-preview-producer-2026-10-27",
+                                           "status": "preview: no candidate-bound receipt required"}]
+
+
+def test_declared_preview_needs_the_founder_ruling(tmp_path):
+    ledger = _ledger(_cell(), _cng_skip())
+    for overrides in (tmp_path / "absent.json", _preview_overrides(tmp_path, owner="release coordinator"),
+                      _preview_overrides(tmp_path, producers=())):
+        report = _evaluate(ledger, "nightly", now=NOW, requirements=_with_producers(ledger),
+                           preview_overrides=overrides)
+        assert report["overall_status"] == "fail"
+        assert "declared_preview" not in report
+
+
+def test_other_producer_missing_its_receipt_still_fails(tmp_path):
+    ledger = _ledger(_unexecuted(), _cng_skip())
+    report = _evaluate(ledger, "nightly", now=NOW, requirements=_with_producers(ledger),
+                       preview_overrides=_preview_overrides(tmp_path))
+    assert report["overall_status"] == "fail"
+    assert any(finding["check"] == "cells[0]" and "'skip'" in finding["why"] for finding in report["findings"])
+    assert report["declared_preview"][0]["cells"] == 1
+
+
+def test_preview_lapses_once_the_producer_emits_a_receipt(tmp_path):
+    receipted = _cell(canonical_client="GDAL", client_lane="gdal-cog", operation="overview-read",
+                      evidence_receipt={"schema": "honua.certification-evidence-receipt/v2"})
+    ledger = _ledger(_cell(), _cng_skip(), receipted)
+    report = _evaluate(ledger, "nightly", now=NOW, requirements=_with_producers(ledger),
+                       preview_overrides=_preview_overrides(tmp_path))
+    assert report["overall_status"] == "fail"
+    assert "declared_preview" not in report
+    assert any(finding["check"] == "cells[1]" and "'skip'" in finding["why"] for finding in report["findings"])
+
+
+def test_preview_ruling_is_recorded_in_the_decision_overrides():
+    from protocol_preview import declared_preview_producers
+    assert declared_preview_producers() == frozenset({"honua-server-cng"})

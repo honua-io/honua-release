@@ -819,6 +819,19 @@
       "ruling": "Founder decision on the Compose upgrade gate's prior (amends compose-upgrade-gate-d9-2026-10-26). When no published 2026.1-rc.N release and no signed nightly lock names a prior, the prior is the newest published, certified nightly honua-server image older than the candidate: a nightly-<sha7> image whose commit has a green full-matrix ci.yml (for example nightly-08ace24). It is resolved by its linux/amd64 digest, is never the candidate itself, and the cell fails closed (blocked; strict: fail) when none resolves. Once rc.1 is published, the prior reverts to the previous rc.",
       "effect": "tools/compose_upgrade_prior.py adds the certified-nightly source after published-rc and nightly-lock. It walks honua-server trunk strictly older than the candidate with the nightly's own resolver (tools/resolve_trunk_candidate.py: nightly-<sha7> tag, GitHub.green full-matrix evaluation, Registry.identity digest binding). A nightly whose commit or image is the candidate's is refused; if the candidate's commit is outside the walked window, older is unprovable and the cell is blocked. Red/green tests: tools/test_compose_upgrade_prior.py. Runbook: docs/UPGRADE-RUNBOOK.md section 6.",
       "basis": "Founder decision 2026-10-27, recorded on honua-release#950"
+    },
+    "cng-preview-producer-2026-10-27": {
+      "date": "2026-10-27",
+      "authority": "https://github.com/honua-io/honua-server/issues/3753#issuecomment-6431844981",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "For the 2026.1 RC the cloud-native geospatial conformance producer (honua-server-cng, cng-conformance.yml) is declared-Preview evidence: it does not yet emit candidate-bound v2 receipts (honua-server#3753).",
+      "effect": "The nightly still dispatches cng and records its run, but neither the nightly bind nor the protocol-certification gate requires a candidate-bound cng receipt: its unreceipted skipped cells are reported as declared Preview. Any other producer missing its receipt still fails, and any cng pass or fail is judged normally. The exemption ends automatically for cng once any cng cell carries an evidence receipt, or when this ruling is removed. Implemented in tools/protocol_preview.py.",
+      "preview_producers": [
+        "honua-server-cng"
+      ],
+      "target": "2026.1.x",
+      "moved": [],
+      "basis": "Founder decision 2026-10-27, recorded on honua-server#3753 on 2026-10-27"
     }
   },
   "security_findings": [

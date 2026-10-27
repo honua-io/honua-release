@@ -764,3 +764,56 @@ def test_the_bind_step_copies_the_deployment_qualification_before_reading_and_co
     copy_at = bind.index(f'deployment-qualification.json" {qualification}')
     assert bind.index("--nightly-bind") < copy_at < bind.index("validate_platform.py --exact-candidate")
     assert copy_at < bind.index(f"git add platform-manifest.yaml compatibility-matrix.yaml {qualification}")
+
+
+def preview_night():
+    """Tonight with a declared-Preview cng producer that owns the unreceipted sdk-js lane."""
+    recorded = night()
+    harness = recorded["catalog"]["production"]["producers"][0]
+    recorded["catalog"]["production"]["producers"].append(
+        {**harness, "producer": "honua-server-cng", "workflow": "cng-conformance.yml",
+         "client_lanes": ["sdk-js"], "cells": 1})
+    harness_run = recorded["runs"][0]
+    recorded["runs"].append({**harness_run, "producer": "honua-server-cng", "workflow": "cng-conformance.yml",
+                             "run_id": harness_run["run_id"] + 7, "client_lanes": ["sdk-js"]})
+    return recorded
+
+
+def preview_overrides(tmp_path, producers=("honua-server-cng",)):
+    path = tmp_path / "overrides.json"
+    path.write_text(json.dumps({"rulings": {"cng-preview-producer-2026-10-27": {
+        "owner": "Mike McDougall (founder)", "preview_producers": list(producers)}}}), encoding="utf-8")
+    return path
+
+
+def bind_preview(recorded, overrides):
+    return MODULE.verify_nightly_ledger(recorded["ledger"], recorded["catalog"], resolved_manifest(),
+                                        recorded["requirements_revision"], recorded["runs"],
+                                        recorded["dispatch_id"], preview_overrides=overrides)
+
+
+def test_nightly_binds_without_a_receipt_from_a_declared_preview_producer(tmp_path):
+    counts = bind_preview(preview_night(), preview_overrides(tmp_path))
+    assert counts["declared-preview"] == 1
+
+
+def test_nightly_preview_needs_the_ruling_and_covers_only_the_listed_producer(tmp_path):
+    with pytest.raises(MODULE.Finding, match="producer honua-server-cng contributed no observation"):
+        bind_preview(preview_night(), tmp_path / "absent.json")
+    silent = preview_night()
+    silent["ledger"]["cells"][2].update(result="skip", source_sha=None, image_digest=None, producer_source_sha=None,
+                                        started_at=None, completed_at=None, evidence_uri=None)
+    with pytest.raises(MODULE.Finding, match="producer honua-sdk-python contributed no observation") as refused:
+        bind_preview(silent, preview_overrides(tmp_path))
+    assert "honua-server-cng" not in str(refused.value)
+
+
+def test_nightly_preview_lapses_once_the_producer_emits_a_receipt(tmp_path):
+    recorded = preview_night()
+    cell = next(cell for cell in recorded["ledger"]["cells"] if cell["client_lane"] == "sdk-js")
+    harness = next(cell for cell in recorded["ledger"]["cells"] if cell["client_lane"] == "harness")
+    cell.update(result="pass", evidence_receipt=json.loads(json.dumps(harness["evidence_receipt"])),
+                source_sha=recorded["candidate"]["server_sha"])
+    with pytest.raises(MODULE.Finding) as refused:
+        bind_preview(recorded, preview_overrides(tmp_path))
+    assert "sdk-js" in str(refused.value)

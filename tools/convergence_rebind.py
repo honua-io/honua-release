@@ -42,6 +42,7 @@ from typing import Any, Protocol
 import yaml
 
 from check_protocol_certification import _valid_python_wheel
+from protocol_preview import active_preview_producers, preview_owner
 from normalize_capability_matrix_snapshot import normalize_vendored as normalize_capability_matrix
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -768,7 +769,8 @@ def nightly_candidate(manifest: dict[str, Any]) -> dict[str, str]:
 
 
 def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manifest: dict[str, Any],
-                          requirements_revision: str, runs: list[dict[str, Any]], dispatch_id: str) -> dict[str, int]:
+                          requirements_revision: str, runs: list[dict[str, Any]], dispatch_id: str,
+                          *, preview_overrides: Path | None = None) -> dict[str, int]:
     """Refuse a ledger that is not tonight's evidence for this candidate, else count its results.
 
     Every pass or fail must come from tonight's run of the producer that owns its lane, at that
@@ -781,6 +783,11 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
     so each receipt carries the run that observed it (identity.producer_run) inside the bytes its
     evidence_digest addresses. A cell without it, or naming any other run, attempt or dispatch, is
     refused: a same-pin post-cut run this nightly did not dispatch never binds.
+
+    A producer the founder ruling cng-preview-producer-2026-10-27 declares Preview evidence
+    (tools/protocol_preview.py) must still have run tonight, but while none of its cells carries a
+    receipt its skipped lanes do not refuse the bind: they are counted as `declared-preview`. Any
+    pass or fail it reports, and every other producer, is judged exactly as before.
     """
     candidate = nightly_candidate(manifest)
     problems: list[str] = []
@@ -808,6 +815,7 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             problems.append(f"producer {entry['producer']} run {run.get('run_id')} was not dispatched by {dispatch_id}")
         owners.append((entry, run))
     cells = [cell for cell in ledger.get("cells") or [] if isinstance(cell, dict)]
+    preview = active_preview_producers(catalog, cells, preview_overrides)
     expected = sorted(tuple(str(row.get(key)) for key in LEDGER_IDENTITY) for row in catalog["requirements"])
     actual = sorted(tuple(str(cell.get(key)) for key in LEDGER_IDENTITY) for cell in cells)
     if actual != expected:
@@ -824,6 +832,8 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
     for cell in cells:
         result = str(cell.get("result"))
         counts[result] = counts.get(result, 0) + 1
+        if preview_owner(cell, preview):
+            counts["declared-preview"] = counts.get("declared-preview", 0) + 1
         label = f"{cell.get('client_lane')} {cell.get('operation')}"
         if cell.get("source_sha") not in (None, candidate["source_sha"]):
             problems.append(f"{label}: source_sha {cell.get('source_sha')} is not the candidate")
@@ -866,7 +876,7 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
         if identity["producer_run"] != expected:
             problems.append(f"{label}: producer run {identity['producer_run']!r} is not {run['producer']} run "
                             f"{run.get('run_id')} attempt {run.get('run_attempt')} dispatched by {dispatch_id}")
-    for producer in sorted(set(succeeded) - observed):
+    for producer in sorted(set(succeeded) - observed - set(preview)):
         problems.append(f"producer {producer} contributed no observation for its lanes")
     if problems:
         shown = " | ".join(problems[:40]) + (f" | ... {len(problems) - 40} more" if len(problems) > 40 else "")

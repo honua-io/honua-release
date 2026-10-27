@@ -49,6 +49,18 @@ This contract composes with the truthful execution-identity contract tracked by
 contracts in the same observation path; receipt v2 does not replace the seven truthful-identity
 fields enforced during evidence intake.
 
+## Declared-Preview producers
+
+Founder ruling `cng-preview-producer-2026-10-27` (in `docs/2026.1-release-decision-overrides.json`)
+declares the cloud-native geospatial conformance producer, `honua-server-cng`, Preview evidence for
+the 2026.1 RC until it emits v2 receipts ([honua-server#3753](https://github.com/honua-io/honua-server/issues/3753)).
+The nightly still dispatches it and the bind still requires its run to succeed. While none of its cells
+carries an evidence receipt, neither the nightly bind nor the protocol-certification gate refuses its
+unreceipted skipped cells: the bind counts them as `declared-preview` and the gate report lists them
+under `declared_preview`. Any pass or fail it reports, and every other producer, is judged as before.
+The exemption ends by itself once a cng cell carries a receipt, or when the ruling is removed
+(`tools/protocol_preview.py`).
+
 ## Producer migration ledger
 
 All rows below are expected to remain red until their linked migration lands and a fresh receipt is
