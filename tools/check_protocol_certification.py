@@ -101,6 +101,8 @@ REQUIREMENT_FIELDS = {
 
 def _owned_source_name(cell: dict) -> str:
     lane = str(cell.get("client_lane", ""))
+    if lane == "desktop-pyqgis":
+        return "client-compat"
     if lane == "server-protocol-harness":
         return "server-certification"
     if lane.startswith("sdk-js"):

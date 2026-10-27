@@ -2182,3 +2182,22 @@ def test_nightly_portal_sharing_cells_call_qualify_and_do_not_pass(monkeypatch):
     )
     assert report["overall_status"] == "fail"
     assert any("no-retained-observations" in item["why"] for item in report["findings"])
+
+
+def test_expanded_pyqgis_requires_its_own_pinned_producer_and_bounded_qgis_stays_server_owned():
+    producer = 'e' * 40
+    cell = _release_line_cell(producer_source_sha=producer)
+    cell['client_lane'] = 'desktop-pyqgis'
+    requirements = _requirements(cell)
+    missing = _evaluate(_ledger(cell), 'nightly', requirements=requirements, now=NOW)
+    assert missing['overall_status'] == 'fail'
+    assert any("owned source revision 'client-compat' is unavailable or invalid" in f['why'] for f in missing['findings'])
+    requirements['source_revisions']['client-compat'] = {'commit':producer}
+    assert _evaluate(_ledger(cell), 'nightly', requirements=requirements, now=NOW)['overall_status'] == 'pass'
+    requirements['source_revisions']['client-compat']['commit'] = 'f'*40
+    mismatch = _evaluate(_ledger(cell), 'nightly', requirements=requirements, now=NOW)
+    assert mismatch['overall_status'] == 'fail'
+    assert any('owned client-compat revision' in f['why'] for f in mismatch['findings'])
+    bounded = _release_line_cell()
+    assert cert._owned_source_name(bounded) == 'server'
+    assert _evaluate(_ledger(bounded), 'nightly', requirements=_requirements(bounded), now=NOW)['overall_status'] == 'pass'
