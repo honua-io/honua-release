@@ -19,6 +19,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+try:  # A retained standalone copy of this checker has no ruling module: no producer is then exempt.
+    from protocol_preview import PREVIEW_PRODUCER_RULING, active_preview_producers, preview_owner
+except ImportError:  # pragma: no cover - exercised only by standalone retained copies
+    PREVIEW_PRODUCER_RULING = None
+
+    def active_preview_producers(catalog, cells, path=None):
+        return {}
+
+    def preview_owner(cell, active):
+        return None
+
 SCHEMA_ID = "honua.protocol-certification/v1"
 MATURITIES = {"supported", "preview", "experimental", "roadmap", "deprecated", "internal"}
 RESULTS = {"pass", "fail", "skip", "not-addressable"}
@@ -965,6 +976,7 @@ def evaluate(
     now: datetime | None = None,
     requirements: dict | None = None,
     receipt_root: Path | None = None,
+    preview_overrides: Path | None = None,
 ) -> dict:
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     findings: list[dict[str, str]] = []
@@ -1160,6 +1172,11 @@ def evaluate(
     seen: set[tuple[object, ...]] = set()
     supported_groups: dict[tuple[object, ...], list[dict]] = {}
     scoped: list[dict] = []
+    # cng-preview-producer-2026-10-27: a declared-Preview producer's unreceipted skips are reported,
+    # not refused, until it emits a receipt or the ruling is removed (tools/protocol_preview.py).
+    preview = active_preview_producers(requirements, [cell for cell in cells if isinstance(cell, dict)],
+                                       preview_overrides)
+    declared_preview: dict[str, int] = {}
     for index, raw in enumerate(cells):
         prefix = f"cells[{index}]"
         if not isinstance(raw, dict):
@@ -1353,6 +1370,10 @@ def evaluate(
         if not _in_scope(raw, tier):
             continue
         scoped.append(raw)
+        if raw["addressable_by_client"] and (preview_producer := preview_owner(raw, preview)) is not None:
+            # Declared Preview evidence: an unreceipted skip of an exempt producer is reported, not refused.
+            declared_preview[preview_producer] = declared_preview.get(preview_producer, 0) + 1
+            continue
         if tier == "release":
             client_source = SHIPPED_CLIENT_SOURCES.get(raw["canonical_client"])
             expected_client_version = (expected_client_versions or {}).get(client_source or "")
@@ -1547,7 +1568,14 @@ def evaluate(
 
     if not scoped:
         fail("denominator", f"no certification cells are in scope for tier {tier!r}")
-    return _report(tier, scoped, findings)
+    report = _report(tier, scoped, findings)
+    if declared_preview:
+        report["declared_preview"] = [
+            {"producer": producer, "cells": count, "ruling": PREVIEW_PRODUCER_RULING,
+             "status": "preview: no candidate-bound receipt required"}
+            for producer, count in sorted(declared_preview.items())
+        ]
+    return report
 
 
 def _report(tier: str, scoped: list[dict], findings: list[dict]) -> dict:
