@@ -112,7 +112,7 @@ git ls-remote --tags https://github.com/honua-io/geospatial-grpc.git 'refs/tags/
 Each of these is the owning repo's own PR; none of them can build before the package is published.
 
 **`honua-server`** — canonical `.proto` stays in `geospatial-grpc`; the server consumes generated
-bindings through the package and must not vendor protos (`CLAUDE.md` → *Proto Ownership*). Bump
+bindings through the package and must not vendor protos (`AGENTS.md` → *Proto Ownership*). Bump
 `Directory.Packages.props` `Geospatial.Grpc` `0.1.0-alpha.2` → `0.2.0-alpha.1`, then apply the type
 renames from the [#69 migration checklist](https://github.com/honua-io/geospatial-grpc/pull/69):
 per-service `Validate*Response`/`DryRun*Response` → shared `ValidateResponse`/`DryRunResponse`;
