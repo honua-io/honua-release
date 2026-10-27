@@ -245,7 +245,8 @@ def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repo
 
 def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, *,
                       github=None, registry=None, attestations=publisher_attestations,
-                      artifact_bytes=published_artifact_bytes, verifier=verify_publisher_bundle) -> dict:
+                      artifact_bytes=published_artifact_bytes, verifier=verify_publisher_bundle,
+                      exceptions=None) -> dict:
     """Collect actual registry statements/bundles; never reuse manifest evidence declarations.
 
     OCI indexes must cover each runnable child, including the separately deployed Lambda image.
@@ -330,6 +331,11 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                           if context.endswith('Lambda') else '')
                 errors.append(f'{context}: missing {field} for {", ".join(sorted(subjects - covered))}{detail}')
 
+    # Founder ruling sdk-attestation-exception-2026-10-27: an attestation that is absent
+    # (never one that fails verification) is excused only for the exact pinned bytes listed.
+    from attestation_exceptions import applies as excepted, load as load_exceptions
+    exceptions = load_exceptions() if exceptions is None else exceptions
+    excused = []
     data = yaml.safe_load(manifest.read_text())
     server = (data.get('components') or {}).get('honua-server') or {}
     deploy = yaml.safe_load(matrix.read_text()).get('deploy') or {}
@@ -354,14 +360,21 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                     data['components'][name])
                 continue
             repo = component['source']['repository'].removeprefix('https://github.com/')
+            exception = excepted(exceptions, name, artifact, digest)
             try:
+                # The downloaded bytes must still match the locked digest the exception names.
                 raw = artifact_bytes(artifact)
                 digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
                 rows = attestations(repo, digest)
+            except subprocess.CalledProcessError as exc:
+                detail = str(exc.stderr or exc).strip()
+                if exception is None or 'HTTP 404' not in detail:
+                    errors.append(f'{context}: publisher attestations unavailable: {detail}')
+                    continue
+                rows = []  # the publisher holds no attestation for these exact bytes
             # A malformed lock artifact is one component's refusal, not the end of the report.
-            except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
-                errors.append(f'{context}: publisher attestations unavailable: '
-                              + str(getattr(exc, 'stderr', None) or exc).strip())
+            except (OSError, ValueError, KeyError) as exc:
+                errors.append(f'{context}: publisher attestations unavailable: {str(exc).strip()}')
                 continue
             covered = set()
             for number, row in enumerate(rows):
@@ -383,8 +396,12 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 documents[path] = json.dumps(bundle, sort_keys=True, separators=(',', ':')).encode()
                 pending.append((field, name, path))
                 covered.add(field)
+            missing = [field for field in references if field not in covered]
+            if missing and exception is not None:
+                excused.append({**exception, 'registrySha256': digest, 'missing': missing})
+                continue
             errors.extend(f'{context}: publisher has no {field} attestation for {digest}'
-                          for field in references if field not in covered)
+                          for field in missing)
     if errors:
         raise ValueError('no lock minted: post-gate reference collection refused:\n' + '\n'.join(errors))
     revision, stored = snapshot(manifest, matrix, report, output, documents)
@@ -392,7 +409,10 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
         references[field].append({'component': name, 'uri': stored[path],
                                   'sha256': stored[path].rsplit('#', 1)[1]})
     references['notes'] = stored[f'release-notes/{report["platform_label"]}.md']
-    result = {'candidate': report['candidate'], 'references': references, 'notesRevision': revision}
+    result = {'candidate': report['candidate'], 'references': references, 'notesRevision': revision,
+              # Disclosed with the lock: each pinned artifact accepted without (some) publisher
+              # attestations, under which ruling, owned by whom, and until when.
+              'attestationExceptions': excused}
     (output / 'post-gate-references.json').write_text(json.dumps(result, indent=2) + '\n')
     return result
 
@@ -907,7 +927,13 @@ def main(argv=None):
         if args.collect_post_gate:
             if not all((args.report, args.manifest, args.matrix)):
                 raise ValueError('post-gate collection requires report, manifest and matrix')
-            collect_post_gate(json.loads(args.report.read_text()), args.manifest, args.matrix, args.out_dir)
+            collected = collect_post_gate(json.loads(args.report.read_text()), args.manifest, args.matrix,
+                                          args.out_dir)
+            for row in collected['attestationExceptions']:
+                print(f"::warning title=Attestation exception {row['ruling']}::{row['component']} "
+                      f"{row['coordinate']}@{row['version']} ({row['digest']}) has no publisher "
+                      f"{' or '.join(row['missing'])} attestation; owner {row['owner']}; {row['reason']}; "
+                      f"expires {row['expires']} (target {row['target']})")
             return 0
         if args.declare_evidence:
             if not args.report or not args.lock or not args.journey_reports:
