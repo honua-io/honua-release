@@ -9,7 +9,9 @@ from __future__ import annotations
 import copy
 import re
 
-from agent_e2e_controller import validate_action
+from agent_e2e_controller import admitted_resource_actions, validate_action
+from agent_e2e_mcp import (McpError, RESOURCE_ACTIONS, validate_resource_catalog,
+                           validate_resource_result)
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_telemetry import validate_events, validate_values
 from agent_e2e_worker import encode
@@ -76,6 +78,15 @@ def public_result(reply, action):
                     raise PackError('invalid or duplicate worker tool descriptor')
                 names.add(tool['name'])
             is_error = False
+        elif action['name'] in RESOURCE_ACTIONS:
+            try:
+                if action['name'] == 'mcp_read_resource':
+                    validate_resource_result(result, action['input']['uri'])
+                else:
+                    validate_resource_catalog(result, templates=action['name'] == 'mcp_list_resource_templates')
+            except McpError:
+                raise PackError('invalid worker resource result') from None
+            is_error = False
         else:
             if not isinstance(result.get('content'), list) or type(result.get('isError', False)) is not bool:
                 raise PackError('invalid worker tool result')
@@ -90,11 +101,14 @@ def telemetry(reply, action, ordinal):
     """Retain only bounded correlations; no raw bodies or worker secrets in logs."""
     payload = reply['payload']
     events = []
-    if action['name'] == 'mcp_list_tools' and payload['error'] is None:
-        events.append({'event': 'discovery', 'interfaceKind': 'mcp', 'operation': 'tools/list',
+    methods = {'mcp_list_tools': 'tools/list', 'mcp_call_tool': 'tools/call',
+               'mcp_list_resources': 'resources/list', 'mcp_list_resource_templates': 'resources/templates/list',
+               'mcp_read_resource': 'resources/read'}
+    method = methods[action['name']]
+    if action['name'] in ('mcp_list_tools', 'mcp_list_resources', 'mcp_list_resource_templates') and payload['error'] is None:
+        events.append({'event': 'discovery', 'interfaceKind': 'mcp', 'operation': method,
                        'schemaDigest': canonical_digest(payload['result']),
                        'observationDigest': canonical_digest(payload['observations'])})
-    method = 'tools/list' if action['name'] == 'mcp_list_tools' else 'tools/call'
     # Raw headers stay retained even if invalid/missing; never fabricate a trace.
     for observation in payload['observations']:
         if not isinstance(observation, dict) or observation.get('rpcMethod') != method:
@@ -120,9 +134,11 @@ def telemetry(reply, action, ordinal):
 
 class McpActions:
     """Use inside the trusted backend with its existing durable controller lease."""
-    def __init__(self, *, durable, lifecycle, launch, worker, evidence_factory):
+    def __init__(self, *, durable, lifecycle, launch, worker, evidence_factory, operation_policy=None):
         self.durable, self.lifecycle = durable, lifecycle
         self.launch, self.worker, self.evidence_factory = copy.deepcopy(launch), worker, evidence_factory
+        resources = admitted_resource_actions(operation_policy)
+        self.allowed_actions = ('mcp_list_tools', 'mcp_call_tool', *(name for name in RESOURCE_ACTIONS if name in resources))
         self._check_transport()
         lifecycle._check_record(self.launch)
 
@@ -137,7 +153,8 @@ class McpActions:
         def authorize():
             self._check_transport()
             self.durable.require_worker_launch(self.launch, launching=True)
-            verify_dispatch(self.durable.state, self.durable.store.candidate, self.launch, context, action, dispatch)
+            verify_dispatch(self.durable.state, self.durable.store.candidate, self.launch, context, action, dispatch,
+                            names=self.allowed_actions)
         authorize()
         observed = self.lifecycle.observe(self.launch)
         if (observed['executionStatus'] != 'RUNNING' or observed['taskStatus'] != 'RUNNING'
@@ -167,5 +184,7 @@ class McpActions:
         self.durable.retain_worker_action(record, self.launch)
         public = public_result(reply, action)
         events = telemetry(reply, action, dispatch['ordinal'])
-        return {'agentResult': public, 'operationCategory': 'discovery' if action['name'] == 'mcp_list_tools' else 'other',
+        category = ('discovery' if action['name'] in ('mcp_list_tools', 'mcp_list_resources', 'mcp_list_resource_templates')
+                    else 'read' if action['name'] == 'mcp_read_resource' else 'other')
+        return {'agentResult': public, 'operationCategory': category,
                 'telemetry': events}

@@ -94,7 +94,8 @@ def validate_values(event, values):
         if not isinstance(values["evidenceDigest"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", values["evidenceDigest"]):
             raise TelemetryError("runtime correlation requires evidence digest")
     if event in ('action-intent', 'action'):
-        if values['action'] < 1 or values['kind'] not in ('terminal', 'mcp_list_tools', 'mcp_call_tool', 'ask_user'):
+        if values['action'] < 1 or values['kind'] not in ('terminal', 'mcp_list_tools', 'mcp_call_tool', 'ask_user',
+                'mcp_list_resources', 'mcp_list_resource_templates', 'mcp_read_resource'):
             raise TelemetryError('invalid action identity')
         if not isinstance(values['requestDigest'], str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', values['requestDigest']):
             raise TelemetryError('action requires a request digest, never raw arguments')
