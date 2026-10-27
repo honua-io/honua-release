@@ -131,7 +131,8 @@ def lock_server_reference(label: str, lock: dict) -> tuple[str, str]:
 
 def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, nightly_locks=None,
             certified_nightlies=None) -> dict:
-    """Select the prior per the module docstring. `nightly_locks`: iterable of (label, lock dict, signed).
+    """Select the prior per the module docstring. `nightly_locks`: iterable of (label, lock dict, signed),
+    or a callable returning one, called only when no published rc supplies a prior.
 
     `certified_nightlies`: a callable taking the candidate identity and returning an iterable of
     observations, newest first and strictly older than the candidate on trunk, each
@@ -150,7 +151,9 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
                      label=release["tag_name"], url=str(release.get("html_url") or ""), skipped=skipped,
                      identity=_bytes_digest(json.dumps({"tag": release["tag_name"], "prior": reference},
                                                        sort_keys=True).encode()))
-    for label, lock, signed in sorted(nightly_locks or [], key=lambda item: lock_order(item[0]), reverse=True):
+    # Read only when no rc supplied a prior: a published rc wins even if the lock tags cannot be read.
+    locks = nightly_locks() if callable(nightly_locks) else nightly_locks
+    for label, lock, signed in sorted(locks or [], key=lambda item: lock_order(item[0]), reverse=True):
         if not signed:
             raise PairError(f"nightly lock {label} has no signature bundle (platform-lock.sigstore.json)")
         reference, revision = lock_server_reference(label, lock)
@@ -251,7 +254,7 @@ def _git(*args: str) -> str:
 
 
 def nightly_locks_from_git(remote: str = "origin"):
-    """(label, lock, signed) for every refs/tags/nightly-lock/* on `remote` (lock bundle at <label>/)."""
+    """(label, lock, signed) for every refs/tags/nightly-lock/* on `remote` (lock bundle at the tree root)."""
     locks = []
     for line in _git("ls-remote", remote, "refs/tags/nightly-lock/*").splitlines():
         sha, _, ref = line.partition("\t")
@@ -259,8 +262,11 @@ def nightly_locks_from_git(remote: str = "origin"):
             continue
         label = ref.removeprefix("refs/tags/nightly-lock/")
         _git("fetch", "--no-tags", "--depth=1", remote, f"{ref}:refs/compose-upgrade/nightly-lock/{label}")
-        raw = _git("show", f"{sha}:{label}/platform-lock.json")
-        signed = subprocess.run(["git", "cat-file", "-e", f"{sha}:{label}/platform-lock.sigstore.json"],
+        # The mint job commits the lock bundle directory itself as the tag's tree
+        # (nightly-certification.yml: git --work-tree=nightly-lock add -A), so the files sit at the root,
+        # exactly where tools/mint_nightly_lock.py reads them back (`<sha>:platform-lock.json`).
+        raw = _git("show", f"{sha}:platform-lock.json")
+        signed = subprocess.run(["git", "cat-file", "-e", f"{sha}:platform-lock.sigstore.json"],
                                 capture_output=True).returncode == 0
         locks.append((label, json.loads(raw), signed))
     return locks
@@ -370,7 +376,7 @@ def main(argv=None) -> int:
             candidate_bytes = args.candidate_manifest.read_bytes()
             pages = json.loads(args.releases_json.read_text(encoding="utf-8"))
             releases = [r for page in pages for r in (page if isinstance(page, list) else [page])]
-            locks = nightly_locks_from_git() if args.nightly_locks_from_git else []
+            locks = nightly_locks_from_git if args.nightly_locks_from_git else []
             nightlies = certified_nightlies_from_github() if args.certified_nightly_from_github else None
             pair = resolve(yaml.safe_load(candidate_bytes), candidate_bytes, releases=releases, nightly_locks=locks,
                            certified_nightlies=nightlies)

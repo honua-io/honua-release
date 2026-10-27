@@ -1250,8 +1250,9 @@ jobs:
         run: |
           set -uo pipefail
           label="${LABEL#nightly-lock/}"
-          git show "refs/compose-upgrade/nightly-lock/${label}:${label}/platform-lock.json" > /tmp/cu/prior-lock.json
-          git show "refs/compose-upgrade/nightly-lock/${label}:${label}/platform-lock.sigstore.json" > /tmp/cu/prior-lock.sigstore.json
+          # The lock bundle is the tag's tree root (nightly-certification.yml mint job), not <label>/.
+          git show "refs/compose-upgrade/nightly-lock/${label}:platform-lock.json" > /tmp/cu/prior-lock.json
+          git show "refs/compose-upgrade/nightly-lock/${label}:platform-lock.sigstore.json" > /tmp/cu/prior-lock.sigstore.json
           if cosign verify-blob --bundle /tmp/cu/prior-lock.sigstore.json \
                --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/nightly-certification.yml@refs/heads/trunk" \
                --certificate-oidc-issuer https://token.actions.githubusercontent.com /tmp/cu/prior-lock.json; then

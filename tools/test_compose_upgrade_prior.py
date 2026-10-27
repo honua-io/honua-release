@@ -203,3 +203,42 @@ def test_resolve_cli_reports_ready_0_when_no_prior_resolves(tmp_path, monkeypatc
                     "--certified-nightly-from-github"]) == 0
     out = capsys.readouterr().out
     assert "ready=0" in out and "certified nightly" in out
+
+
+def _git(cwd, *args):
+    import subprocess
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
+                          check=True, capture_output=True, text=True).stdout
+
+
+def test_nightly_lock_bundle_is_read_from_the_tag_tree_root(tmp_path, monkeypatch):
+    # nightly-certification.yml's mint job commits the bundle directory itself as the tag tree
+    # (git --work-tree=nightly-lock add -A), so platform-lock.* sit at the root, not under <label>/.
+    source, work = tmp_path / "source", tmp_path / "work"
+    source.mkdir(); work.mkdir()
+    _git(source, "init", "-q", "-b", "trunk")
+    (source / "platform-lock.json").write_text(json.dumps(lock("9", "9" * 40)), encoding="utf-8")
+    (source / "platform-lock.sigstore.json").write_text("{}", encoding="utf-8")
+    _git(source, "add", "-A"); _git(source, "commit", "-q", "-m", "chore: nightly lock 2026.1-rc.1")
+    _git(source, "tag", "nightly-lock/2026.1-rc.1")
+    _git(work, "init", "-q"); _git(work, "remote", "add", "origin", str(source))
+    monkeypatch.chdir(work)
+    [(label, parsed, signed)] = cu.nightly_locks_from_git()
+    assert (label, signed) == ("2026.1-rc.1", True)
+    assert parsed == lock("9", "9" * 40)
+
+
+def test_a_published_rc_wins_even_when_the_nightly_lock_tags_cannot_be_read(tmp_path, monkeypatch, capsys):
+    import subprocess
+
+    def unreadable(remote="origin"):
+        raise subprocess.CalledProcessError(128, ["git", "show"], "fatal: path does not exist")
+    monkeypatch.setattr(cu, "nightly_locks_from_git", unreadable)
+    manifest = tmp_path / "platform-manifest.yaml"
+    manifest.write_text(yaml.safe_dump(candidate_manifest()), encoding="utf-8")
+    releases = tmp_path / "releases.json"
+    releases.write_text(json.dumps([[rc("2026.1-rc.1", "2026-10-27T00:00:00Z", "1")]]), encoding="utf-8")
+    assert cu.main(["resolve", "--candidate-manifest", str(manifest), "--releases-json", str(releases),
+                    "--nightly-locks-from-git"]) == 0
+    out = capsys.readouterr().out
+    assert "ready=1" in out and "prior_source=published-rc" in out

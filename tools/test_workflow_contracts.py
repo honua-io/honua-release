@@ -827,6 +827,10 @@ def test_upgrade_gate_requires_the_ga_compose_upgrade_and_rollback_fragment():
     assert "--certified-nightly-from-github" in commands
     assert "pip install -r tools/requirements-nightly.txt" in commands
     assert "cosign verify-blob" in commands and "nightly-certification.yml@refs/heads/trunk" in commands
+    # The signed bundle is the lock tag's tree root (the mint job commits nightly-lock/ itself).
+    assert '"refs/compose-upgrade/nightly-lock/${label}:platform-lock.json"' in commands
+    assert '"refs/compose-upgrade/nightly-lock/${label}:platform-lock.sigstore.json"' in commands
+    assert "${label}/platform-lock" not in commands
     assert "GitHub release lookup failed" in commands
     assert 'STATUS=blocked; WHY="${PAIR_WHY:-compose prior unavailable}"' in commands
     # x86_64 only, the existing harness and compose stack, the real lifecycle.
