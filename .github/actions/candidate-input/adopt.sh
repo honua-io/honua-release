@@ -66,6 +66,7 @@ while IFS= read -r -d '' file; do
     platform-manifest.yaml|compatibility-matrix.yaml) ;;
     certification/protocol-certification-requirements.v1.json|certification/sources/*) ;;
     certification/deployment-qualification.json) ;;
+    e2e/expected-ga-observation.json) ;;
     *) echo "unexpected candidate change: $file"; exit 1 ;;
   esac
 done < "$changes"
@@ -75,10 +76,12 @@ for file in platform-manifest.yaml compatibility-matrix.yaml; do
   fi
 done
 # Validate optional proof before adopting any candidate input.
-if [ -e "$snapshot/certification/deployment-qualification.json" ] || [ -L "$snapshot/certification/deployment-qualification.json" ]; then
-  test -f "$snapshot/certification/deployment-qualification.json"
-  test ! -L "$snapshot/certification/deployment-qualification.json"
-fi
+for file in certification/deployment-qualification.json e2e/expected-ga-observation.json; do
+  if [ -e "$snapshot/$file" ] || [ -L "$snapshot/$file" ]; then
+    test -f "$snapshot/$file"
+    test ! -L "$snapshot/$file"
+  fi
+done
 cp "$snapshot/platform-manifest.yaml" platform-manifest.yaml
 cp "$snapshot/compatibility-matrix.yaml" compatibility-matrix.yaml
 if [ -f "$snapshot/certification/deployment-qualification.json" ]; then
@@ -87,6 +90,15 @@ if [ -f "$snapshot/certification/deployment-qualification.json" ]; then
 else
   # Never carry a previous candidate's deployment proof across a new snapshot.
   rm -f certification/deployment-qualification.json
+fi
+# The expected-GA observation the nightly generated from a boot of this candidate's server. The
+# validator and the capability-manifest cell check refuse it unless it is bound to the candidate.
+if [ -f "$snapshot/e2e/expected-ga-observation.json" ]; then
+  mkdir -p e2e
+  cp "$snapshot/e2e/expected-ga-observation.json" e2e/expected-ga-observation.json
+else
+  # Never carry another server's observation across a new snapshot.
+  rm -f e2e/expected-ga-observation.json
 fi
 if [ -f "$snapshot/certification/protocol-certification-requirements.v1.json" ]; then
   cp "$snapshot/certification/protocol-certification-requirements.v1.json" certification/protocol-certification-requirements.v1.json

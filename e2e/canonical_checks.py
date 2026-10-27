@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+import expected_ga_observation as ego
+
 E2E_DIR = Path(__file__).resolve().parent
 EXPECTED_GA_PATH = E2E_DIR / "expected-ga-manifest.json"
 PLATFORM_MANIFEST_PATH = E2E_DIR.parent / "platform-manifest.yaml"
@@ -145,15 +147,15 @@ def load_expected_ga(path: str | Path | None = None) -> dict | None:
     return data
 
 
-def load_frozen_server_sha(path: str | Path | None = None) -> str | None:
-    """Read the exact honua-server candidate revision frozen in the platform manifest."""
+def load_frozen_server(path: str | Path | None = None) -> dict:
+    """Read the candidate components.honua-server frozen in the platform manifest ({} when unreadable)."""
     try:
         import yaml
         data = yaml.safe_load((Path(path) if path else PLATFORM_MANIFEST_PATH).read_text(encoding="utf-8")) or {}
-        sha = ((data.get("components") or {}).get("honua-server") or {}).get("sha")
-        return sha if isinstance(sha, str) and sha else None
+        server = (data.get("components") or {}).get("honua-server")
+        return server if isinstance(server, dict) else {}
     except (OSError, UnicodeDecodeError, AttributeError, TypeError, ValueError, yaml.YAMLError):
-        return None
+        return {}
 
 
 def _is_esri_error_envelope(body: str) -> bool:
@@ -264,7 +266,9 @@ def check_geoprocessing(endpoint: str, fetch: Fetcher) -> CheckResult:
 def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict | None = None,
                               authenticated_fetch: Fetcher | None = None,
                               frozen_server_sha: str | None = None,
-                              enforcement: str = "bootstrap") -> CheckResult:
+                              enforcement: str = "bootstrap",
+                              observation: dict | None = None,
+                              frozen_server: dict | None = None) -> CheckResult:
     """Live capability-manifest check (honua-release#61): GET {endpoint}/api/v1/capabilities/manifest
     and assert every id in the committed expected-GA list (e2e/expected-ga-manifest.json, minus its
     `excluded` — currently `security.mtls`/`alerts.geofence`, both deliberately gated) is
@@ -275,10 +279,12 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
     has no key to exercise).
 
     `expected` overrides the committed file for tests; `None` loads e2e/expected-ga-manifest.json — a
-    missing/malformed file reports BLOCKED, never a fake pass. Before trusting that list, its
-    sourceSnapshot.deploymentRevision must equal the platform manifest's frozen honua-server SHA;
-    a missing or mismatched binding always FAILS, independent of enforcement mode
-    (honua-release#183).
+    missing/malformed file reports BLOCKED, never a fake pass. Before trusting that list, the generated
+    observation (e2e/expected-ga-observation.json, tools/expected_ga_snapshot.py) must be bound to the
+    candidate's components.honua-server: server sha, image index digest and booted child digest. A
+    missing, unbound or mismatched observation always FAILS, independent of enforcement mode
+    (honua-release#183). `frozen_server` defaults to the platform manifest's server; a bare
+    `frozen_server_sha` naming another server has no known digest, so it cannot bind.
     """
     url = endpoint.rstrip("/") + "/api/v1/capabilities/manifest"
     r = fetch(url)
@@ -310,18 +316,22 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
                            f"{EXPECTED_GA_PATH.name} is missing/unreadable — cannot assert GA coverage",
                            {"schemaVersion": schema, "totalCapabilities": len(caps)})
 
-    frozen_server_sha = frozen_server_sha or load_frozen_server_sha()
-    snapshot = expected.get("sourceSnapshot")
-    snapshot_sha = snapshot.get("deploymentRevision") if isinstance(snapshot, dict) else None
-    if not isinstance(snapshot_sha, str) or not snapshot_sha or not frozen_server_sha or snapshot_sha != frozen_server_sha:
+    if frozen_server is None:
+        frozen_server = load_frozen_server()
+        if frozen_server_sha and frozen_server.get("sha") != frozen_server_sha:
+            frozen_server = {"sha": frozen_server_sha}
+    if observation is None:
+        observation = ego.load_json(ego.OBSERVATION_PATH)
+    binding = ego.binding_errors(observation, frozen_server)
+    if binding:
+        bound = (observation or {}).get("boundCandidate") if isinstance(observation, dict) else None
+        bound = bound if isinstance(bound, dict) else {}
         return CheckResult(
             "capability-manifest", "fail",
-            "expected-GA snapshot revision mismatch: "
-            f"sourceSnapshot.deploymentRevision={snapshot_sha!r}, "
-            f"components.honua-server.sha={frozen_server_sha!r}; "
-            "refresh the snapshot using the procedure in honua-release#183",
-            {"snapshotDeploymentRevision": snapshot_sha or "",
-             "frozenServerSha": frozen_server_sha or "", "enforcement": enforcement},
+            "expected-GA snapshot is not bound to the candidate: " + "; ".join(binding),
+            {"observedServerSha": bound.get("serverSha") or "", "observedIndexDigest": bound.get("imageIndexDigest") or "",
+             "frozenServerSha": frozen_server.get("sha") or "", "frozenServerDigest": frozen_server.get("digest") or "",
+             "enforcement": enforcement},
         )
 
     expected_ids = [i for i in (expected.get("expectedGa") or []) if isinstance(i, str)]
@@ -407,7 +417,8 @@ def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
                   expected_ga: dict | None = None,
                   frozen_server_sha: str | None = None,
                   enforcement: str = "bootstrap",
-                  platform_release: str | None = None) -> list[CheckResult]:
+                  platform_release: str | None = None,
+                  observation: dict | None = None) -> list[CheckResult]:
     """Run the canonical parity set — plus the live capability-manifest check (honua-release#61) —
     against a deployed endpoint. The optional inputs, including bootstrap/strict enforcement, pass
     straight through to `check_capability_manifest` and default to committed-file bootstrap behaviour."""
@@ -416,7 +427,7 @@ def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
     results.append(check_capability_manifest(endpoint, f, expected=expected_ga,
                                              authenticated_fetch=authenticated_fetch,
                                              frozen_server_sha=frozen_server_sha,
-                                             enforcement=enforcement))
+                                             enforcement=enforcement, observation=observation))
     from licensing import validate_disabled
     if platform_release is None:
         try:

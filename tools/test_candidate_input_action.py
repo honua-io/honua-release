@@ -249,3 +249,36 @@ def test_refuses_a_checkout_subdirectory(history):
         'REVIEWED_RELEASE_SHA': '', 'RUNNER_TEMP': str(history[2]), 'GITHUB_OUTPUT': str(history[2] / 'outputs')})
     assert result.returncode != 0
     assert (repo / 'platform-manifest.yaml').read_text() == 'original: true\n'
+
+
+def test_generated_expected_ga_observation_is_adopted_byte_for_byte(history):
+    repo, _, _ = history
+    (repo / 'e2e').mkdir()
+    observation = b'{"schemaVersion":"honua.expected-ga-observation.v1","boundCandidate":{}}\n'
+    (repo / 'e2e/expected-ga-observation.json').write_bytes(observation)
+    candidate = snapshot(history)
+    (repo / 'e2e').mkdir(exist_ok=True)
+    (repo / 'e2e/expected-ga-observation.json').write_text('{"stale":true}\n')
+    result = adopt(history, candidate)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (repo / 'e2e/expected-ga-observation.json').read_bytes() == observation
+
+
+def test_snapshot_cannot_change_the_reviewed_expected_ga_policy(history):
+    repo, _, _ = history
+    (repo / 'e2e').mkdir()
+    (repo / 'e2e/expected-ga-manifest.json').write_text('{"expectedGa":[]}\n')
+    result = adopt(history, snapshot(history))
+    assert result.returncode != 0
+    assert 'unexpected candidate change: e2e/expected-ga-manifest.json' in result.stdout
+
+
+def test_snapshot_without_observation_removes_a_stale_local_one(history):
+    candidate = snapshot(history)
+    repo, _, _ = history
+    (repo / 'e2e').mkdir()
+    stale = repo / 'e2e/expected-ga-observation.json'
+    stale.write_text('{"stale":true}\n')
+    result = adopt(history, candidate)
+    assert result.returncode == 0, result.stderr
+    assert not stale.exists()

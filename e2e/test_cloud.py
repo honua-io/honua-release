@@ -93,11 +93,23 @@ def test_bedrock_flag_from_the_cell_env_does_not_reach_a_test():
 TEST_SERVER_SHA = "a" * 40
 
 
-def _expected_ga(ids, excluded=None, revision=TEST_SERVER_SHA):
-    expected = {"expectedGa": ids, "excluded": excluded or [], "sourceSnapshot": {}}
-    if revision is not None:
-        expected["sourceSnapshot"]["deploymentRevision"] = revision
-    return expected
+TEST_DIGEST = "sha256:" + "d" * 64
+TEST_CHILD = "sha256:" + "c" * 64
+
+
+def _expected_ga(ids, excluded=None):
+    return {"expectedGa": ids, "excluded": excluded or []}
+
+
+def _observation(sha=TEST_SERVER_SHA, digest=TEST_DIGEST):
+    """A generated observation bound to the test candidate (tools/expected_ga_snapshot.py shape)."""
+    return {"schemaVersion": "honua.expected-ga-observation.v1",
+            "boundCandidate": {"serverSha": sha, "imageIndexDigest": digest, "bootedPlatform": "amd64",
+                               "bootedChildDigest": TEST_CHILD},
+            "deploymentRevision": sha, "deploymentRevisionSource": "commit-sha", "capabilities": []}
+
+
+TEST_SERVER = {"sha": TEST_SERVER_SHA, "digest": TEST_DIGEST, "platformDigests": {"amd64": TEST_CHILD}}
 
 
 # ---- canonical checks: result normalisation -------------------------------------------------------
@@ -195,7 +207,7 @@ def test_capability_manifest_pass_unauthenticated():
         ],
     })
     r = cc.check_capability_manifest("http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
-                                     expected=expected, frozen_server_sha=TEST_SERVER_SHA)
+                                     expected=expected, frozen_server=TEST_SERVER, observation=_observation())
     assert r.status == "pass"
     assert r.evidence["expectedGaCount"] == 2
     assert r.evidence["availableCountUnauthenticated"] == 1
@@ -205,7 +217,7 @@ def test_capability_manifest_revision_match_passes():
     body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
     r = cc.check_capability_manifest(
         "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
-        expected=_expected_ga([]), frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
+        expected=_expected_ga([]), frozen_server=TEST_SERVER, observation=_observation(), enforcement="strict")
     assert r.status == "pass"
 
 
@@ -229,34 +241,42 @@ def test_demo_canary_refuses_missing_or_stale_live_revision():
     assert result.status == "fail" and revision == stale_sha
 
 
-def test_capability_manifest_stale_revision_fails_closed_by_default():
+def test_capability_manifest_observation_of_another_server_fails_closed_by_default():
     body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
     fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
-    expected = _expected_ga([], revision="b" * 40)
+    for observation, named in ((_observation(sha="b" * 40), "b" * 40),
+                               (_observation(digest="sha256:" + "e" * 64), "e" * 64)):
+        result = cc.check_capability_manifest(
+            "http://x", fetch, expected=_expected_ga([]), observation=observation, frozen_server=TEST_SERVER)
+        assert result.status == "fail"
+        assert named in result.why and "expected-GA snapshot is not bound to the candidate" in result.why
 
-    result = cc.check_capability_manifest(
-        "http://x", fetch, expected=expected, frozen_server_sha=TEST_SERVER_SHA)
 
+def test_capability_manifest_unbound_or_missing_observation_fails_closed_in_all_modes(monkeypatch, tmp_path):
+    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
+    unbound = _observation()
+    del unbound["boundCandidate"]
+    for enforcement in ("strict", "bootstrap"):
+        result = cc.check_capability_manifest("http://x", fetch, expected=_expected_ga([]), observation=unbound,
+                                              frozen_server=TEST_SERVER, enforcement=enforcement)
+        assert result.status == "fail"
+    # The default lookup with no generated observation file is a refusal, never a skip.
+    monkeypatch.setattr(cc.ego, "OBSERVATION_PATH", tmp_path / "absent.json")
+    result = cc.check_capability_manifest("http://x", fetch, expected=_expected_ga([]), frozen_server=TEST_SERVER)
+    assert result.status == "fail" and "unbound" in result.why
+    # A candidate whose digest is unknown cannot be bound either.
+    result = cc.check_capability_manifest("http://x", fetch, expected=_expected_ga([]), observation=_observation(),
+                                          frozen_server={"sha": TEST_SERVER_SHA})
     assert result.status == "fail"
-    assert "b" * 40 in result.why
-    assert TEST_SERVER_SHA in result.why
-    assert "honua-release#183" in result.why
 
 
-def test_capability_manifest_missing_snapshot_revision_fails_closed_in_all_modes():
-    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
-    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
-
-    strict = cc.check_capability_manifest(
-        "http://x", fetch, expected=_expected_ga([], revision=None),
-        frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
-    bootstrap = cc.check_capability_manifest(
-        "http://x", fetch, expected=_expected_ga([], revision=None),
-        frozen_server_sha=TEST_SERVER_SHA, enforcement="bootstrap")
-
-    assert strict.status == "fail"
-    assert bootstrap.status == "fail"
-    assert "sourceSnapshot.deploymentRevision=None" in strict.why
+def test_committed_observation_is_bound_to_the_committed_manifest_server():
+    result = cc.check_capability_manifest(
+        "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, json.dumps(
+            {"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})))]),
+        expected=_expected_ga([]))
+    assert result.status == "pass", result.why
 
 
 def test_capability_manifest_fail_on_missing_or_unsupported_id():
@@ -266,7 +286,7 @@ def test_capability_manifest_fail_on_missing_or_unsupported_id():
         "capabilities": [{"id": "a.one", "supported": False, "available": False}],
     })
     r = cc.check_capability_manifest("http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
-                                     expected=expected, frozen_server_sha=TEST_SERVER_SHA)
+                                     expected=expected, frozen_server=TEST_SERVER, observation=_observation())
     assert r.status == "fail"
     assert "a.missing" in r.why
 
@@ -322,12 +342,12 @@ def test_capability_manifest_authenticated_asserts_available():
     fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, unauth_body))])
     auth_fetch_ok = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, auth_ok_body))])
     r = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_ok,
-                                     frozen_server_sha=TEST_SERVER_SHA)
+                                     frozen_server=TEST_SERVER, observation=_observation())
     assert r.status == "pass" and r.evidence["authenticated"] is True
 
     auth_fetch_stale = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, unauth_body))])
     r2 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_stale,
-                                      frozen_server_sha=TEST_SERVER_SHA)
+                                      frozen_server=TEST_SERVER, observation=_observation())
     assert r2.status == "fail" and "available=true when authenticated" in r2.why
 
     # An expected-GA id entirely OMITTED from the authenticated manifest (not just present-but-
@@ -335,7 +355,7 @@ def test_capability_manifest_authenticated_asserts_available():
     auth_omitted_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
     auth_fetch_omitted = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, auth_omitted_body))])
     r3 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_omitted,
-                                      frozen_server_sha=TEST_SERVER_SHA)
+                                      frozen_server=TEST_SERVER, observation=_observation())
     assert r3.status == "fail" and "a.one" in r3.why and "available=true when authenticated" in r3.why
 
 
@@ -352,7 +372,7 @@ def test_capability_manifest_availability_gated_ids_still_assert_supported():
     def run(b):
         f = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, b))])
         return cc.check_capability_manifest("http://x", f, expected=expected, authenticated_fetch=f,
-                                            frozen_server_sha=TEST_SERVER_SHA)
+                                            frozen_server=TEST_SERVER, observation=_observation())
 
     ok = run(body())
     assert ok.status == "pass" and ok.evidence["availabilityGatedCount"] == 1
@@ -365,7 +385,7 @@ def test_capability_manifest_availability_gated_ids_still_assert_supported():
     for contradicting in (body(gated_supported=False), body(gated_present=False)):
         auth = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, contradicting))])
         r = cc.check_capability_manifest("http://x", public, expected=expected, authenticated_fetch=auth,
-                                         frozen_server_sha=TEST_SERVER_SHA)
+                                         frozen_server=TEST_SERVER, observation=_observation())
         assert r.status == "fail" and "a.gated" in r.why and "when authenticated" in r.why
     # A non-gated id that is unavailable when authenticated still fails.
     expected["availabilityGated"] = []

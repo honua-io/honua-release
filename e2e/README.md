@@ -114,7 +114,9 @@ e2e/
                           #   live capability-manifest check honua-release#61) — HTTP-level, no SDK/Prom
   canary_probes.py        # the wider canary probe set (STAC/EDR/OData/OGC-Features/tiles/per-service
                           #   WMS-WMTS-WCS reachability, report-only geocoding latency; honua-release#61)
-  expected-ga-manifest.json  # committed expected-GA capability id set the manifest check asserts against
+  expected-ga-manifest.json  # reviewed expected-GA POLICY (ids that must be GA) the manifest check asserts
+  expected-ga-observation.json  # GENERATED per candidate by tools/expected_ga_snapshot.py from a boot of
+                          #   its server; bound to the server sha + index/child digests, refused otherwise
   demo_canary.py          # scheduled entrypoint: canonical + canary probes against a live target
                           #   (default https://demo.honua.io); writes gate-report + a versioned
                           #   live-canary-evidence.json envelope for honua-evidence#8's join
