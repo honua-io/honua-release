@@ -706,10 +706,43 @@ def git(cwd, *args):
     return subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
-    mint_step = step(workflow()['jobs']['mint'], 'Mint and sign the next nightly lock')
-    assert mint_step['env']['EXPECTED_SHA'] == '${{ github.sha }}'
-    assert mint_step['env']['EXPECTED_RUN'] == '${{ github.run_id }}'
+LOCK_JSON = '{"platform": {"id": "honua-2026.1-rc.3"}}'
+MINT_IDENTITY = ('https://github.com/honua-io/honua-release/.github/workflows/nightly-certification.yml'
+                 '@refs/heads/trunk')
+
+# A plumbing stand-in for gitsign, used ONLY to execute the mint job's shell end to end without an
+# OIDC token: it signs with a fixed block and "verifies" only when asked for the mint identity and
+# the GitHub issuer. The cryptography (Fulcio chain, SAN/issuer claims, Rekor) is proved on a real
+# signature in tools/test_tag_signing_gitsign.py.
+FAKE_GITSIGN = r"""#!/usr/bin/env bash
+set -eu
+if [ "${1:-}" = verify-tag ]; then
+  identity=""; issuer=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --certificate-identity) identity="$2"; shift ;;
+      --certificate-oidc-issuer) issuer="$2"; shift ;;
+    esac
+    shift
+  done
+  [ "$identity" = "$EXPECT_IDENTITY" ] && [ "$issuer" = https://token.actions.githubusercontent.com ] || {
+    echo "Error: expected SAN value $identity" >&2; exit 1; }
+  echo "tlog index: 42" >&2
+  echo "gitsign: Good signature from [$identity]($issuer)" >&2
+  exit 0
+fi
+[ -z "${FAIL_SIGN:-}" ] || { echo "gitsign: no OIDC token" >&2; exit 1; }
+cat >/dev/null
+printf -- '-----BEGIN SIGNED MESSAGE-----\nZmFrZQ==\n-----END SIGNED MESSAGE-----\n'
+echo "[GNUPG:] SIG_CREATED " >&2
+"""
+
+
+def run_mint_publication(tmp_path, *, fail_sign=False):
+    """Execute the mint step's commit script, then the real sign-and-push step."""
+    jobs = workflow()['jobs']['mint']
+    mint_step = step(jobs, 'Mint and sign the next nightly lock')
+    sign_step = step(jobs, 'Sign the lock tag keyless (gitsign) and push it')
     publish = mint_step['run'].split('| tee mint.txt\n', 1)[1]
     origin = tmp_path / 'origin.git'
     subprocess.run(['git', 'init', '-q', '--bare', str(origin)], check=True)
@@ -723,6 +756,7 @@ def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
                  'rulesets.json'):
         (work / path).parent.mkdir(parents=True, exist_ok=True)
         (work / path).write_text(path)
+    (work / 'nightly-lock/platform-lock.json').write_text(LOCK_JSON)
     (work / 'mint.txt').write_text('MINTED: 2026.1-rc.3 -> nightly-lock\n')
     notes = tmp_path / 'notes'
     notes.mkdir()
@@ -737,22 +771,91 @@ def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
     runner_temp = tmp_path / 'runner-temp'
     runner_temp.mkdir()
     output = tmp_path / 'out.txt'
+    fake = tmp_path / 'bin' / 'gitsign'
+    fake.parent.mkdir()
+    fake.write_text(FAKE_GITSIGN)
+    fake.chmod(0o755)
+    env = {**os.environ, 'RUNNER_TEMP': str(runner_temp), 'GITHUB_OUTPUT': str(output),
+           'GITSIGN': str(fake), 'EXPECT_IDENTITY': MINT_IDENTITY,
+           'PATH': f'{Path(sys.executable).parent}{os.pathsep}{os.environ["PATH"]}'}
+    if fail_sign:
+        env['FAIL_SIGN'] = '1'
     subprocess.run(['bash', '-c', 'set -euo pipefail\n' + publish], cwd=work, check=True, capture_output=True,
-                   env={**os.environ, 'RUNNER_TEMP': str(runner_temp), 'GITHUB_OUTPUT': str(output)})
-    assert 'label=2026.1-rc.3' in output.read_text()
-    files = git(origin, 'ls-tree', '-r', '--name-only', 'refs/tags/nightly-lock/2026.1-rc.3').splitlines()
+                   env=env)
+    outputs = dict(line.split('=', 1) for line in output.read_text().splitlines())
+    # On Actions the checkout is this repository; give the runner clone the same tools/.
+    (work / 'tools').symlink_to(Path(__file__).resolve().parent, target_is_directory=True)
+    env.update({'CERTIFICATE_IDENTITY': MINT_IDENTITY, 'LABEL': outputs['label'],
+                'LOCK_COMMIT': outputs['commit']})
+    result = subprocess.run(['bash', '-c', 'set -euo pipefail\n' + sign_step['run']], cwd=work,
+                            capture_output=True, text=True, env=env)
+    return {'origin': origin, 'work': work, 'revision': revision, 'outputs': outputs, 'result': result,
+            'publish': publish, 'sign': sign_step['run'], 'env': env}
+
+
+def test_mint_publishes_only_the_lock_bundle_as_a_signed_lock_tag(tmp_path):
+    mint_step = step(workflow()['jobs']['mint'], 'Mint and sign the next nightly lock')
+    assert mint_step['env']['EXPECTED_SHA'] == '${{ github.sha }}'
+    assert mint_step['env']['EXPECTED_RUN'] == '${{ github.run_id }}'
+    assert 'git push' not in mint_step['run'], 'only the signing step publishes the lock tag'
+    minted = run_mint_publication(tmp_path)
+    assert minted['result'].returncode == 0, minted['result'].stdout + minted['result'].stderr
+    origin, ref = minted['origin'], 'refs/tags/nightly-lock/2026.1-rc.3'
+    assert minted['outputs']['label'] == '2026.1-rc.3'
+    # The published ref is an annotated tag object carrying a gitsign (x509/CMS) signature block.
+    assert git(origin, 'cat-file', '-t', ref) == 'tag'
+    raw = git(origin, 'cat-file', 'tag', ref)
+    assert 'tag nightly-lock/2026.1-rc.3' in raw and 'type commit' in raw
+    assert '-----BEGIN SIGNED MESSAGE-----' in raw
+    assert git(origin, 'rev-parse', f'{ref}^{{commit}}') == minted['outputs']['commit']
+    files = git(origin, 'ls-tree', '-r', '--name-only', ref).splitlines()
     assert files == ['bom.cdx.json', 'platform-lock.json', 'platform-lock.sigstore.json']
-    assert git(origin, 'rev-parse', 'refs/tags/nightly-lock/2026.1-rc.3^') == revision
-    assert git(origin, 'show', f'{revision}:notes.md') == 'generated notes'
-    assert git(origin, 'show', '-s', '--format=%cn <%ce>', 'refs/tags/nightly-lock/2026.1-rc.3') == \
-        'Mike McDougall <mike@honua.io>'
-    assert git(origin, 'log', '--format=%an <%ae>|%s', '-1', 'refs/tags/nightly-lock/2026.1-rc.3') == \
-        'Mike McDougall <mike@honua.io>|chore: nightly lock 2026.1-rc.3'
-    # No force: a second publication of the same label is refused by git.
-    (work / 'nightly-lock/platform-lock.json').write_text('different')
-    second = subprocess.run(['bash', '-c', 'set -euo pipefail\n' + publish], cwd=work, capture_output=True,
-                            env={**os.environ, 'RUNNER_TEMP': str(runner_temp), 'GITHUB_OUTPUT': str(output)})
+    assert git(origin, 'rev-parse', f'{ref}^') == minted['revision']
+    assert git(origin, 'show', f'{minted["revision"]}:notes.md') == 'generated notes'
+    assert git(origin, 'log', '--format=%an <%ae>|%cn <%ce>|%s', '-1', f'{ref}^{{commit}}') == \
+        'Mike McDougall <mike@honua.io>|Mike McDougall <mike@honua.io>|chore: nightly lock 2026.1-rc.3'
+    receipt = json.loads((minted['work'] / 'nightly-lock-tag-receipt.json').read_text())
+    assert receipt['tag'] == 'nightly-lock/2026.1-rc.3'
+    assert receipt['target'] == minted['outputs']['commit']
+    assert receipt['namespace'] == 'refs/tags/nightly-lock/*'
+    assert receipt['signature']['identity'] == MINT_IDENTITY
+    assert receipt['signature']['issuer'] == 'https://token.actions.githubusercontent.com'
+    # The next night's history sync reads a signed lock tag like a legacy lightweight one.
+    import mint_nightly_lock
+    clone = tmp_path / 'next-night'
+    subprocess.run(['git', 'clone', '-q', str(origin), str(clone)], check=True, capture_output=True)
+    history = tmp_path / 'history'
+    assert mint_nightly_lock.sync_history(history, clone) == {'2026.1-rc.3': git(origin, 'rev-parse', ref)}
+    assert (history / '2026.1-rc.3' / 'platform-lock.json').read_text() == LOCK_JSON
+    # No force: re-signing and pushing the same label is refused by git, as the ruleset requires.
+    git(minted['work'], 'tag', '-d', 'nightly-lock/2026.1-rc.3')
+    second = subprocess.run(['bash', '-c', 'set -euo pipefail\n' + minted['sign']], cwd=minted['work'],
+                            capture_output=True, text=True,
+                            env={**minted['env'], 'GIT_COMMITTER_DATE': '2030-01-01T00:00:00Z'})
     assert second.returncode != 0
+    assert git(origin, 'rev-parse', ref) == receipt['tagObject']
+
+
+def test_mint_pushes_nothing_when_the_lock_tag_cannot_be_signed(tmp_path):
+    minted = run_mint_publication(tmp_path, fail_sign=True)
+    assert minted['result'].returncode != 0
+    assert git(minted['origin'], 'tag', '-l') == ''
+
+
+def test_mint_signs_the_lock_tag_as_its_own_workflow_identity():
+    jobs = workflow()['jobs']['mint']
+    names = [s.get('name', '') for s in jobs['steps']]
+    sign = step(jobs, 'Sign the lock tag keyless (gitsign) and push it')
+    assert jobs['permissions']['id-token'] == 'write'
+    assert names.index('Install gitsign (Sigstore keyless tag signing)') < names.index(
+        'Mint and sign the next nightly lock, or mint nothing') < names.index(sign['name'])
+    assert sign['env']['CERTIFICATE_IDENTITY'] == 'https://github.com/${{ github.workflow_ref }}'
+    assert sign['env']['LOCK_COMMIT'] == '${{ steps.mint.outputs.commit }}'
+    assert "--namespace 'refs/tags/nightly-lock/*'" in sign['run']
+    assert '--identity "$CERTIFICATE_IDENTITY"' in sign['run']
+    assert 'git push origin "refs/tags/nightly-lock/${LABEL}"' in sign['run']
+    assert '--force' not in sign['run'] and '+refs' not in sign['run'] and ' -f ' not in sign['run']
+    assert 'if' not in sign and not sign.get('continue-on-error')
 
 
 # ── candidate-input: snapshot lineage when trunk has moved ──────────────────────────────────

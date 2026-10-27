@@ -145,6 +145,16 @@ issuer, and a tag that does not point at the certified commit. There is no key t
 store or rotate, and the policy refuses a loose keyless signer: another issuer, an identity
 pattern, or a fingerprint. Customer verification commands are in `docs/VERIFYING-RELEASE-TAGS.md`.
 
+**Nightly lock tags.** The mint job in `nightly-certification.yml` signs each
+`refs/tags/nightly-lock/<label>` the same way, as its own identity
+(`.../nightly-certification.yml@refs/heads/trunk`). It uses `tag_signing.py sign-keyless`,
+which takes the running workflow's identity and the `refs/tags/nightly-lock/*` namespace,
+because lock tags are not publication tags and are not in this policy. It verifies that exact
+identity before `git push` without force. The `nightly-lock tags immutable` ruleset (update
+and deletion blocked, creation allowed, no bypass) therefore admits the one creating push and
+refuses any rerun that tries to re-sign or move a published lock. `mint_nightly_lock.py
+sync_history` reads both signed (annotated) and legacy lightweight lock tags.
+
 **Keyed (ssh/openpgp).** The policy holds **fingerprints only**. Public key material stays in
 an operator-supplied allowed-signers file that is never committed, and any principal in that
 file whose fingerprint the policy does not name is rejected. Widening the operator's trust

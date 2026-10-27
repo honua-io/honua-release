@@ -379,6 +379,20 @@ def verify_remote_tag(remote: str, tag: str, target: str, policy: dict[str, Any]
         return receipt
 
 
+def keyless_policy(identity: str, namespace: str, issuer: str = GITSIGN_ISSUER) -> dict[str, Any]:
+    """A one-signer gitsign policy for a workflow that signs its own tags (e.g. nightly locks).
+
+    Nightly lock tags are not publication tags, so they are outside tag-signing-policy.json and
+    policy.json's protected publication namespaces. The minting workflow names its own identity and
+    namespace; load_policy's keyless-signer rules (exact workflow identity, GitHub issuer) still apply.
+    """
+    if not namespace.startswith("refs/tags/") or namespace in ("refs/tags/*", "refs/tags/**"):
+        raise SigningError("a keyless signing namespace must be a specific refs/tags/<prefix>/* pattern")
+    return {"schema_version": 1, "issue": ISSUE,
+            "signers": [{"id": "workflow", "format": "gitsign", "issuer": issuer, "identity": identity}],
+            "repositories": {"workflow-tags": {"tag_refs": [namespace], "signers": ["workflow"]}}}
+
+
 def qualify_receipt(repository: str, tag_refs: list[str], receipt: Any,
                     policy_path: Path = TRUST_POLICY, *, expected: Any = None,
                     source: Any = None) -> str | None:
@@ -457,6 +471,17 @@ def main(argv: list[str] | None = None) -> int:
                                help="print the GA tag for a candidate label; does not sign or publish")
     name_tag.add_argument("repository")
     name_tag.add_argument("label")
+    keyless = subs.add_parser("sign-keyless",
+                              help="sign a workflow-owned tag (not a publication tag) keyless with gitsign "
+                                   "as the running workflow's OIDC identity, then verify that exact identity")
+    keyless.add_argument("tag")
+    keyless.add_argument("--target", required=True)
+    keyless.add_argument("--message", required=True)
+    keyless.add_argument("--identity", required=True,
+                         help="the running workflow's exact identity, https://github.com/${{ github.workflow_ref }}")
+    keyless.add_argument("--namespace", required=True, help="e.g. refs/tags/nightly-lock/*")
+    keyless.add_argument("--git-dir", type=Path, default=Path.cwd())
+    keyless.add_argument("--output", type=Path)
     for name, help_text in (("sign", "create a signed annotated publication tag"),
                             ("verify", "verify an existing publication tag"),
                             ("verify-remote", "verify a published tag against the certified commit")):
@@ -490,7 +515,18 @@ def main(argv: list[str] | None = None) -> int:
             check_namespace(policy, args.repository, tag)
             print(tag)
             return 0
-        if args.command == "sign":
+        if args.command == "sign-keyless":
+            workflow_policy = keyless_policy(args.identity, args.namespace)
+            with tempfile.TemporaryDirectory(prefix="honua-keyless-policy-") as directory:
+                policy_file = Path(directory) / "keyless-policy.json"
+                policy_file.write_text(json.dumps(workflow_policy, indent=2) + "\n", encoding="utf-8")
+                receipt = sign_tag(args.git_dir, args.tag, args.target, args.message,
+                                   load_policy(policy_file), "workflow-tags", None, policy_file)
+            # Bound to the workflow-supplied identity and namespace, not to a committed policy file.
+            receipt.pop("policySha256")
+            receipt["repository"] = None
+            receipt["namespace"] = args.namespace
+        elif args.command == "sign":
             receipt = sign_tag(args.git_dir, args.tag, args.target, args.message, policy,
                                args.repository, args.allowed_signers, args.policy)
         elif args.command == "verify-remote":

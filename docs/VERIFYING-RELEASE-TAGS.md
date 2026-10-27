@@ -84,11 +84,26 @@ jq -r .tagObject signed-tag-receipt.json
 git rev-parse honua-2026.1.0
 ```
 
-## Release candidates
+## Release-candidate locks
 
-Release-candidate pre-release tags (`2026.1-rc.N`) are lightweight tags made by
-`rc-release.yml`. They carry no signature and are not release artifacts. Only the
-`honua-*` publication tags are signed.
+Each release candidate (`2026.1-rc.N`) is frozen as a lock tag, `nightly-lock/2026.1-rc.N`.
+It names the commit that holds exactly the candidate's `platform-lock.json`, its Sigstore
+bundle and the BOM. The nightly certification workflow that minted the candidate signs
+that tag with gitsign too, under its own identity:
+
+```sh
+git fetch origin tag nightly-lock/2026.1-rc.3 --no-tags
+gitsign verify-tag nightly-lock/2026.1-rc.3 \
+  --certificate-identity "https://github.com/honua-io/honua-release/.github/workflows/nightly-certification.yml@refs/heads/trunk" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+```
+
+Lock tags minted before this signing was introduced are lightweight and carry no signature.
+A repository ruleset forbids updating or deleting any `refs/tags/nightly-lock/**` tag, so a
+lock cannot be moved after it is published.
+
+The GitHub pre-release tags that `rc-release.yml` creates are lightweight and unsigned. They
+are not release artifacts.
 
 ## For maintainers
 

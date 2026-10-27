@@ -300,3 +300,57 @@ def test_promotion_guard_accepts_only_the_trusted_identity_at_the_certified_comm
         assert result.returncode != 0
         assert "exact certified candidate" in result.stdout + result.stderr
         assert receipt is None
+
+
+# --- sign-keyless: workflow-owned tags (nightly locks) -----------------------------------------
+
+MINT_IDENTITY = ("https://github.com/honua-io/honua-release/.github/workflows/nightly-certification.yml"
+                 "@refs/heads/trunk")
+
+
+@pytest.mark.parametrize("namespace", ["refs/tags/*", "refs/tags/**", "refs/heads/nightly-lock/*", "nightly-lock/*"])
+def test_keyless_namespace_must_be_a_specific_tag_prefix(namespace):
+    with pytest.raises(SigningError, match="specific refs/tags"):
+        tag_signing.keyless_policy(MINT_IDENTITY, namespace)
+
+
+@pytest.mark.parametrize("identity", [
+    "https://github.com/honua-io/honua-release/.github/workflows/.*",
+    "mike@honua.io",
+    "",
+])
+def test_sign_keyless_refuses_a_loose_identity_before_signing(candidate, identity, capsys):
+    target = run("git", "rev-parse", "HEAD", cwd=candidate)
+    assert tag_signing.main(["sign-keyless", "nightly-lock/2026.1-rc.3", "--target", target,
+                             "--message", "lock", "--identity", identity,
+                             "--namespace", "refs/tags/nightly-lock/*", "--git-dir", str(candidate)]) == 1
+    assert "exact GitHub workflow identity" in capsys.readouterr().out
+    assert run("git", "tag", "-l", cwd=candidate) == ""
+
+
+def test_sign_keyless_refuses_a_tag_outside_its_namespace(candidate, capsys):
+    target = run("git", "rev-parse", "HEAD", cwd=candidate)
+    assert tag_signing.main(["sign-keyless", "honua-2026.1.0", "--target", target, "--message", "x",
+                             "--identity", MINT_IDENTITY, "--namespace", "refs/tags/nightly-lock/*",
+                             "--git-dir", str(candidate)]) == 1
+    assert "outside" in capsys.readouterr().out
+    assert run("git", "tag", "-l", cwd=candidate) == ""
+
+
+@needs_gitsign
+def test_genuine_lock_tag_signature_by_another_workflow_is_refused(foreign):
+    """Mint verifies its own lock tag against the mint identity: another workflow's is refused."""
+    policy = tag_signing.keyless_policy(MINT_IDENTITY, "refs/tags/v*")
+    with pytest.raises(SigningError, match="not from an authorized publication identity"):
+        verify_tag(foreign, FOREIGN_TAG, load_policy_dict(policy), "workflow-tags")
+
+
+def load_policy_dict(policy: dict) -> dict:
+    """Round-trip through load_policy so the keyless-signer rules apply as in the CLI."""
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+        json.dump(policy, handle)
+    try:
+        return load_policy(Path(handle.name))
+    finally:
+        Path(handle.name).unlink()

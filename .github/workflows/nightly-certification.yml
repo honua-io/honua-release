@@ -501,7 +501,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write          # pushes refs/tags/nightly-lock/<label>
-      id-token: write          # keyless cosign signature
+      id-token: write          # keyless cosign lock signature and gitsign lock-tag signature
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -520,6 +520,9 @@ jobs:
           path: fixture-revisions
       - name: Install cosign (Sigstore)
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      # #236 / founder decision D11: the lock tag is signed keyless with gitsign as this workflow.
+      - name: Install gitsign (Sigstore keyless tag signing)
+        run: bash tools/install_gitsign.sh "$RUNNER_TEMP/gitsign-bin"
       # A deleted lock tag would let the next night reuse its rc number. mint_nightly_lock.py signs
       # nothing unless an active tag ruleset forbids deleting and moving refs/tags/nightly-lock/*.
       - name: Read the rulesets that protect lock tags
@@ -565,7 +568,32 @@ jobs:
           commit="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
             GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
             git commit-tree "$tree" -p "$notes_revision" -m "chore: nightly lock ${label}")"
-          git push origin "${commit}:refs/tags/nightly-lock/${label}"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+      # #236 / founder decision D11. The lock tag is an annotated tag signed keyless with gitsign as
+      # THIS workflow (https://github.com/<repo>/.github/workflows/nightly-certification.yml@refs/heads/trunk,
+      # issuer https://token.actions.githubusercontent.com), verified against that exact identity
+      # before it is pushed. Creating the tag is the only write: the "nightly-lock tags immutable"
+      # ruleset blocks update and deletion of refs/tags/nightly-lock/**, and the push has no force,
+      # so a rerun can neither re-sign nor move a published lock.
+      - name: Sign the lock tag keyless (gitsign) and push it
+        env:
+          CERTIFICATE_IDENTITY: https://github.com/${{ github.workflow_ref }}
+          LABEL: ${{ steps.mint.outputs.label }}
+          LOCK_COMMIT: ${{ steps.mint.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git config user.name "Mike McDougall"
+          git config user.email "mike@honua.io"
+          python tools/tag_signing.py sign-keyless "nightly-lock/${LABEL}" \
+            --target "$LOCK_COMMIT" --message "Honua nightly lock ${LABEL}" \
+            --identity "$CERTIFICATE_IDENTITY" --namespace 'refs/tags/nightly-lock/*' \
+            --git-dir . --output nightly-lock-tag-receipt.json
+          git push origin "refs/tags/nightly-lock/${LABEL}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-lock-tag-receipt-${{ steps.mint.outputs.label }}
+          path: nightly-lock-tag-receipt.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nightly-lock-${{ steps.mint.outputs.label }}
