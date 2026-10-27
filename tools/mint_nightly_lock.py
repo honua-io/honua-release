@@ -467,10 +467,16 @@ def attach_post_gate(source: Path, references: dict, declarations: dict, scratch
     if set(references) != POST_GATE_FIELDS:
         raise ValueError('post-gate regeneration may supply only sbom, provenance and notes')
     data = yaml.safe_load(source.read_text())
-    data.setdefault('platformLockEvidence', {}).update(references)
-    data['platformLockEvidence']['evidenceDeclarations'] = declarations
+    # The produced facts are written in canonical key order, so the mint and promotion's re-derivation
+    # (which reads them back from canonical retained JSON) write identical bytes.
+    canonical = lambda value: json.loads(json.dumps(value, sort_keys=True))  # noqa: E731
+    data.setdefault('platformLockEvidence', {}).update(canonical(references))
+    data['platformLockEvidence']['evidenceDeclarations'] = canonical(declarations)
     destination = scratch / source.name
-    destination.write_text(yaml.safe_dump(data, sort_keys=True), encoding='utf-8')
+    # Everything else keeps the candidate's own key order: the lock lists a component's published
+    # packages in manifest order, so a sorted re-dump reordered them against the frozen
+    # qualification lock and refused the regeneration.
+    destination.write_text(yaml.safe_dump(data, sort_keys=False), encoding='utf-8')
     return destination
 
 
