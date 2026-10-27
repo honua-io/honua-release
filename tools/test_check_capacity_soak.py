@@ -797,10 +797,10 @@ def test_drill_errors_inside_the_fault_period_do_not_count_against_a_clean_stead
 
 def test_a_drill_that_does_not_recover_within_the_bound_fails(tmp_path):
     value = receipt(tmp_path)
-    late = _z(datetime.fromisoformat(INJECTED.replace('Z', '+00:00')) + timedelta(seconds=32))
+    late = _z(datetime.fromisoformat(INJECTED.replace('Z', '+00:00')) + timedelta(seconds=40))
     _set_drill(value, tmp_path, lambda drill: drill['recoveries'][1].update(recoveredAt=late))
     result = failures(value, tmp_path)
-    assert any('fault drill: database recovered in 32s, beyond the 19.0s bound' in item for item in result)
+    assert any('fault drill: database recovered in 40s, beyond the 36.0s bound' in item for item in result)
 
 
 def test_a_drill_missing_a_dependency_or_its_evidence_fails(tmp_path):
@@ -885,3 +885,49 @@ def test_a_preview_dimension_cannot_pose_as_ga_evidence(tmp_path):
     value = receipt(tmp_path)
     value['workloads']['gpWorkers']['tier'] = 'ga'
     assert any('gpWorkers: Preview dimension must be reported as tier preview' in item for item in failures(value, tmp_path))
+
+
+# ── Founder ruling capacity-drill-per-fault-bounds-2026-10-27: worker 19 s, Redis 19 s,
+#    Postgres 36 s (53bb94a's measured 32.0 s x 1.10, rounded up) ─────────────────────────
+
+def _recover_after(value, root, dependency, seconds):
+    index = ('worker', 'database', 'redis').index(dependency)
+    late = _z(datetime.fromisoformat(INJECTED.replace('Z', '+00:00')) + timedelta(seconds=seconds))
+    _set_drill(value, root, lambda drill: drill['recoveries'][index].update(recoveredAt=late))
+    value['signals']['recoveryTimeSeconds']['value'] = max(seconds, 12)
+    threshold = LOCK['thresholds']['recoveryTimeSeconds']
+    value['signals']['recoveryTimeSeconds']['thresholdVerdict'] = {
+        'operator': threshold['operator'], 'limit': threshold['value'], 'passed': max(seconds, 12) <= threshold['value']}
+
+
+def test_the_recorded_per_fault_bounds_are_the_founders():
+    assert LOCK['drill']['maxRecoverySecondsByDependency'] == {'worker': 19.0, 'database': 36.0, 'redis': 19.0}
+    assert LOCK['drill']['ruling'] == 'capacity-drill-per-fault-bounds-2026-10-27'
+    assert LOCK['thresholds']['recoveryTimeSeconds']['value'] == 36.0
+
+
+def test_postgres_recovering_in_32_seconds_passes(tmp_path):
+    value = receipt(tmp_path)
+    _recover_after(value, tmp_path, 'database', 32)
+    assert failures(value, tmp_path) == []
+
+
+def test_postgres_recovering_in_37_seconds_fails(tmp_path):
+    value = receipt(tmp_path)
+    _recover_after(value, tmp_path, 'database', 37)
+    result = failures(value, tmp_path)
+    assert any('fault drill: database recovered in 37s, beyond the 36.0s bound' in item for item in result)
+
+
+def test_worker_recovering_in_20_seconds_fails(tmp_path):
+    value = receipt(tmp_path)
+    _recover_after(value, tmp_path, 'worker', 20)
+    result = failures(value, tmp_path)
+    assert any('fault drill: worker recovered in 20s, beyond the 19.0s bound' in item for item in result)
+    assert not any('recoveryTimeSeconds' in item and 'violates' in item for item in result)
+
+
+def test_redis_recovering_in_20_seconds_fails(tmp_path):
+    value = receipt(tmp_path)
+    _recover_after(value, tmp_path, 'redis', 20)
+    assert any('fault drill: redis recovered in 20s, beyond the 19.0s bound' in item for item in failures(value, tmp_path))

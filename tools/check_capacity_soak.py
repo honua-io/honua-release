@@ -243,7 +243,8 @@ def _validate_population(name: str, signal: dict[str, Any], failures: list[str])
                 failures.append(f"{name}: value does not equal its numerator/denominator")
 
 
-DRILL_RULING = "capacity-steady-state-and-drill-2026-10-27"
+DRILL_RULING = "capacity-drill-per-fault-bounds-2026-10-27"
+DRILL_AMENDS = "capacity-steady-state-and-drill-2026-10-27"
 
 
 def _validate_drill(lock: dict[str, Any], receipt: dict[str, Any], failures: list[str]) -> None:
@@ -265,7 +266,8 @@ def _validate_drill(lock: dict[str, Any], receipt: dict[str, Any], failures: lis
         return
     if drill.get("excludedFromMeasuredWindow") is not True or not window_end <= drill_start < drill_end:
         failures.append("fault drill: the fault period must follow, and be excluded from, the measured window")
-    bound = policy.get("maxRecoverySecondsPerFault")
+    # capacity-drill-per-fault-bounds-2026-10-27: each dependency has its own recovery bound.
+    bounds = _mapping(policy.get("maxRecoverySecondsByDependency"))
     events = drill.get("recoveries")
     events = events if isinstance(events, list) else []
     recovered = set()
@@ -279,6 +281,7 @@ def _validate_drill(lock: dict[str, Any], receipt: dict[str, Any], failures: lis
             failures.append(f"fault drill: {dependency}: {exc}")
             continue
         seconds = (done - injected).total_seconds()
+        bound = bounds.get(dependency)
         if not drill_start <= injected <= done <= drill_end:
             failures.append(f"fault drill: {dependency} recovery is outside the fault period")
         elif not _finite(bound) or seconds > bound:
@@ -453,7 +456,9 @@ def evaluate(
     if preview_protocols(lock) != {"GPServer"}:
         failures.append("the GP Preview ruling must exclude exactly the GPServer protocol from the GA SLOs")
     drill_policy = _mapping(lock.get("drill"))
-    if (drill_policy.get("ruling") != DRILL_RULING or not _finite(drill_policy.get("maxRecoverySecondsPerFault"))
+    bounds = _mapping(drill_policy.get("maxRecoverySecondsByDependency"))
+    if (drill_policy.get("ruling") != DRILL_RULING or drill_policy.get("amends") != DRILL_AMENDS
+            or set(bounds) != {"worker", "database", "redis"} or not all(_finite(value) for value in bounds.values())
             or set(drill_policy.get("requiredFaultDependencies") or []) != {"worker", "database", "redis"}
             or drill_policy.get("requireNoDataLoss") is not True or drill_policy.get("requireNoStuckJobs") is not True):
         failures.append("frozen fault-drill policy is missing or weaker than the drill ruling")
