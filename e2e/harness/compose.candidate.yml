@@ -16,7 +16,10 @@ services:
       POSTGRES_PASSWORD: honua
       POSTGRES_DB: honua
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U honua -d honua"]
+      # TCP, not the unix socket (as compose.console-s4.yml): the image's first-run init server
+      # listens on the socket only and is stopped and restarted after the init scripts, so a socket
+      # probe reports "ready" against that init server and `up --wait` returns too early.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U honua -d honua"]
       interval: 3s
       timeout: 3s
       retries: 40

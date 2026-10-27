@@ -809,6 +809,68 @@ def test_upgrade_gate_runs_the_fast_policy_layer_on_every_relevant_pr_but_not_th
     )
 
 
+def test_upgrade_gate_requires_the_ga_compose_upgrade_and_rollback_fragment():
+    """Founder decision D9 (2026-10-26, honua-release#950): Docker Compose on-prem is GA, so its
+    upgrade/rollback is the required runtime fragment of the upgrade gate, fail-closed like kind's."""
+    workflow = _workflow("gate-upgrade.yml")
+    compose = workflow["jobs"]["compose-upgrade"]
+    assert compose.get("if") == "github.event_name != 'pull_request'"
+    assert "continue-on-error" not in compose, "the required GA fragment must be able to fail the workflow"
+    assert compose["runs-on"] == "ubuntu-latest", "GitHub-hosted x86_64 runner, local Docker, no cloud cost"
+    matrix = compose["strategy"]["matrix"]["scenario"]
+    assert "'schedule'" in matrix and '"negative-control"' in matrix and '"normal"' in matrix
+    commands = "\n".join(_step_text(step) for step in compose["steps"])
+    # Prior: latest published rc, else the signed nightly lock, else the newest certified nightly older than
+    # the candidate (ruling compose-upgrade-prior-nightly-2026-10-27); never the candidate; fails closed.
+    assert "python tools/compose_upgrade_prior.py resolve" in commands
+    assert "--nightly-locks-from-git" in commands
+    assert "--certified-nightly-from-github" in commands
+    assert "pip install -r tools/requirements-nightly.txt" in commands
+    assert "cosign verify-blob" in commands and "nightly-certification.yml@refs/heads/trunk" in commands
+    # The signed bundle is the lock tag's tree root (the mint job commits nightly-lock/ itself).
+    assert '"refs/compose-upgrade/nightly-lock/${label}:platform-lock.json"' in commands
+    assert '"refs/compose-upgrade/nightly-lock/${label}:platform-lock.sigstore.json"' in commands
+    assert "${label}/platform-lock" not in commands
+    assert "GitHub release lookup failed" in commands
+    assert 'STATUS=blocked; WHY="${PAIR_WHY:-compose prior unavailable}"' in commands
+    # x86_64 only, the existing harness and compose stack, the real lifecycle.
+    assert 'docker pull --platform linux/amd64 "$IMG"' in commands
+    assert "bash e2e/harness/upgrade-chaos.sh" in commands
+    assert compose["steps"][next(i for i, s in enumerate(compose["steps"]) if s.get("id") == "smoke")]["env"][
+        "CHAOS_SCENARIO"] == "compose-upgrade-rollback"
+    assert "HONUA_CANDIDATE_DB_SCHEMA" in str(compose)
+    # The negative control injects a defect and passes only on the gate's own assertion.
+    assert "COMPOSE_UPGRADE_FAULT=drop-seed-rows" in commands
+    assert 'EXPECT_WHY="seeded rows did not survive the upgrade"' in commands
+    assert "python tools/compose_upgrade_prior.py classify" in commands
+    assert "python tools/compose_upgrade_prior.py receipt" in commands
+    fragment = next(s for s in compose["steps"] if s.get("name") == "Emit fragment")
+    assert fragment["with"]["gate"] == "upgrade-compose-${{ matrix.scenario }}"
+    assert fragment["with"]["status"] == "${{ env.compose_status || 'fail' }}"
+    assert fragment["with"]["prefix"].startswith("upg-")
+    assert fragment["if"] == "always()"
+    report = workflow["jobs"]["report"]
+    assert "compose-upgrade" in report["needs"]
+    assemble = next(s for s in report["steps"] if s.get("id") == "assemble")
+    assert "EXPECTED_COMPOSE_CELLS" in assemble["env"]
+    assert 'startswith("upgrade-compose-"))]|length) < $expect then "fail"' in assemble["run"]
+
+
+def test_kind_upgrade_is_non_blocking_preview_evidence():
+    """Founder decision D9: Helm on kind still runs and uploads receipts, but is Preview evidence."""
+    workflow = _workflow("gate-upgrade.yml")
+    kind = workflow["jobs"]["kind-upgrade"]
+    assert kind.get("continue-on-error") is True
+    assert "Preview evidence, non-blocking" in kind.get("name", "")
+    assemble = next(s for s in workflow["jobs"]["report"]["steps"] if s.get("id") == "assemble")
+    assert assemble["env"]["ADVISORY_GATES"] == "^upgrade-kind-"
+    assert assemble["env"]["ADVISORY_RULING"].endswith("/issues/950")
+    assert "upgrade-kind-trunk-candidate-" not in assemble["run"], "no kind cell may be counted as required"
+    # The other required layers are unchanged: static-compat runs everywhere and is not advisory.
+    assert "if" not in workflow["jobs"]["static-compat"]
+    assert "continue-on-error" not in workflow["jobs"]["static-compat"]
+
+
 def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicensed_write_probe():
     workflow = _workflow("gate-upgrade.yml")
     kind_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"])

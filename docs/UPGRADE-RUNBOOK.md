@@ -1,9 +1,13 @@
 # Upgrading a Honua deployment between releases
 
-This is the customer procedure that `gate-upgrade.yml` certifies. The headline
-`published-release` pair runs these exact steps on every scheduled run: it starts from the image
-and chart a customer of the newest published release runs, then moves to the next release
-candidate. The canonical server reference is honua-server
+This is the customer procedure that `gate-upgrade.yml` certifies. Docker Compose on-prem is a GA
+topology for 2026.1 ([2026-10-25 founder re-tier](https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748)),
+so its upgrade and rollback (section 6) is the **required** runtime proof of the upgrade gate
+(founder decision D9, 2026-10-26, [honua-release#950](https://github.com/honua-io/honua-release/issues/950)).
+Helm is Preview: the Helm steps below are what the `kind-upgrade` cells run as **Preview evidence**;
+they still run and publish receipts, but no longer decide the gate. The `published-release` kind pair
+starts from the image and chart a customer of the newest published release runs, then moves to the
+next release candidate. The canonical server reference is honua-server
 [`docs/guides/deploy/upgrade-and-rollback.md`](https://github.com/honua-io/honua-server/blob/trunk/docs/guides/deploy/upgrade-and-rollback.md).
 This page applies it to concrete releases.
 
@@ -116,7 +120,85 @@ the prior image. The gate does exactly this. It records
 prior image then cannot serve the data. An image that refuses without the typed error, or a
 schema-135+ image refusing an expand-only edge, fails the gate.
 
+## 6. Docker Compose (GA): upgrade and roll back
+
+The required `compose-upgrade` job of `gate-upgrade` runs exactly these steps on a GitHub-hosted
+x86_64 runner (`e2e/harness/upgrade-chaos.sh`, scenario `compose-upgrade-rollback`, on
+`e2e/harness/compose.candidate.yml`). The same steps apply to the customer quickstart
+`compose.yaml` ([CUSTOMER-INSTALL.md](CUSTOMER-INSTALL.md)), whose server service is named `honua`
+instead of `server`. Sections 1, 2, 4 and 5 apply unchanged; only the commands differ. 2026.1 is
+x86_64 only: pull and run `linux/amd64` images.
+
+1. **Record the image you run now.** It is your rollback target. Read it from your `compose.yaml`
+   or `.env` (`HONUA_SERVER_IMAGE=ghcr.io/honua-io/honua-server@sha256:…`), never from a tag.
+2. **Pull the new digest.** Take it from the release (section 1) and pull it before you stop
+   anything: `docker pull --platform linux/amd64 ghcr.io/honua-io/honua-server@sha256:<new>`.
+3. **Back up the database** (mandatory, section 2):
+   `docker compose exec -T db pg_dump -U honua -d honua -Fc > pre-upgrade.dump`.
+   Check that the file is not empty. Keep it until the new release has served for a while.
+4. **Migrate.** Set `HONUA_SERVER_IMAGE` to the new digest and recreate only the server:
+   `docker compose up -d --wait --force-recreate --no-deps honua`. The server applies its migrations
+   at startup. If the release contains reviewed contract-phase migrations, the container exits with
+   the typed refusal from section 3; read the nonce with
+   `docker compose logs honua | grep -o 'HONUA_APPROVE_CONTRACT_MIGRATIONS=[0-9a-f]*'`, review the
+   scripts, add `HONUA_APPROVE_CONTRACT_MIGRATIONS: "<nonce>"` to the server's `environment` (an
+   override file works), and recreate the server again. Remove the approval afterwards; it is one-shot.
+   Releases with honua-server#6479 can migrate out of band first with
+   `docker compose run --rm -e HONUA_MIGRATE_ONLY=true honua`.
+5. **Verify** (section 4): `/healthz/ready` answers 200, `public.schema_versions` gained rows and its
+   highest script equals the release's `dbSchema`
+   (`docker compose exec -T db psql -U honua -d honua -Atc "SELECT max(scriptname) FROM public.schema_versions"`),
+   and your own data still serves.
+6. **Roll back to the prior image.** Set `HONUA_SERVER_IMAGE` back to the digest from step 1 and
+   recreate the server. The database stays migrated. A guarded prior (schema 135 or later) serves an
+   expand-only edge; if it exits with the typed `schema_reader_incompatible` refusal at the documented
+   boundary (section 5), or after you approved contract migrations, **restore** instead:
+   ```sh
+   docker compose stop honua
+   docker compose exec -T db psql -U honua -d postgres \
+     -c 'DROP DATABASE honua WITH (FORCE)' -c 'CREATE DATABASE honua OWNER honua'
+   docker compose exec -T db pg_restore -U honua -d honua --no-owner < pre-upgrade.dump
+   docker compose up -d --wait honua   # HONUA_SERVER_IMAGE = the prior digest
+   ```
+   Then verify again through the prior image: it is ready and serves your data.
+
+**What the gate asserts, and what fails it.** The `compose-upgrade` cell installs the prior on a
+fresh database, runs the real e2e seed, probes the prior's schema-reader guard, takes the backup,
+upgrades to the candidate (answering a contract-migration refusal with its nonce), and then requires:
+the journal advanced with every prior entry kept, the observed schema equals the candidate's declared
+`dbSchema`, and the seeded rows (`e2e_src_fs`=2, `maui_zoning`=12) survived with unchanged
+checksums. It rolls back to the prior image, or restores the backup at the documented boundary, and
+requires the prior to serve both seeded features with the checksums still unchanged. It applies
+kind-upgrade's fail-closed rules: an unguarded prior is `rollback-target-ineligible` (a failure even
+when the restore works), a guarded prior that starts on a contract-narrowed schema fails, a refusal
+outside the documented boundary fails, and the running container must be exactly the expected
+`linux/amd64` digest at install, upgrade and rollback. The receipt is
+`compose-upgrade-receipt.json` (`honua.upgrade-compose-receipt/v1`, `certification.verdict:
+required`) in the `upgrade-compose-evidence-normal` artifact.
+
+**Which release is "prior".** 2026.1 is the first release, so the gate defines it explicitly
+(`tools/compose_upgrade_prior.py`): the honua-server digest published by the newest `2026.1-rc.N`
+GitHub release, else the amd64 image of the newest signed nightly lock
+(`refs/tags/nightly-lock/2026.1-rc.N`, keyless signature verified). When neither exists, ruling
+`compose-upgrade-prior-nightly-2026-10-27` (founder decision 2026-10-27) uses the newest published,
+certified nightly honua-server image older than the candidate. That is the first `nightly-<sha7>` image,
+walking honua-server trunk back from the candidate's commit, whose commit has a green full-matrix
+`ci.yml` (for example `nightly-08ace24`). It is resolved by its linux/amd64 digest. Once rc.1 is
+published, the rc rule applies again. An rc, lock or nightly that ships the candidate's own image or
+commit is refused. When no source yields a different immutable digest, the cell is `blocked` (a strict
+train fails it); it never falls back to the candidate, a floating tag or a manifest-history pin. Multi-tenant deployments are out of scope (ADR-0024: internal only).
+
+**Negative control.** On the schedule a second cell, `negative-control`, runs the same lifecycle with
+`COMPOSE_UPGRADE_FAULT=drop-seed-rows` and passes only if the gate's own assertion ("seeded rows did
+not survive the upgrade") fails the harness. The harness also supports `journal-stall` and
+`rollback-unreadable`; `e2e/test_upgrade_chaos.py` proves each fails through its own assertion.
+
 ## Where the evidence is
+
+The required runtime evidence is the GA Docker Compose cell `upgrade-compose-normal` and, on the
+schedule, `upgrade-compose-negative-control` (section 6). Everything below is **Preview evidence**
+from Helm on kind: every `upgrade-kind-*` fragment is advisory and does not change `overallStatus`
+(founder decision D9, honua-release#950).
 
 `gate-upgrade` (scheduled daily) runs `upgrade-kind-published-release-normal` and uploads
 `published-release-upgrade-receipt.json`. The receipt records `priorSource: published-release`,
@@ -124,8 +206,9 @@ the release tag and its pre-release flag, the exact public image reference, the 
 steps with the nonce and gated scripts, the backup, and the rollback outcome. For 2026.1 rc this
 pair is **advisory** (`certification.verdict: advisory`) until a real release exists: the only
 published artefact is the August 2026.1 snapshot, which has no schema-reader guard (coordinator
-ruling, honua-release#376). The required rc path is the `trunk-candidate` pair (previous trunk
-pin → candidate → rollback, plus the fault scenarios), labelled `certification.role:
-rc-required-path`; it is never a customer release pair. Neither pair has a signed prior lock yet
+ruling, honua-release#376). The `trunk-candidate` kind pair (previous trunk pin → candidate →
+rollback, plus the fault scenarios) was the required rc path under the 2026-10-22 ruling; under D9
+it is Preview evidence like every kind cell (`certification.role: trunk-candidate-path`,
+`verdict: advisory`, `tier: preview`), and it is never a customer release pair. Neither pair has a signed prior lock yet
 (`certifiedReleasePair: false`), so the signed-lock fragment stays `blocked` until the first
 promoted release.

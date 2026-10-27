@@ -22,9 +22,15 @@
 #   CHAOS_SKIP_PREPARE             true reuses an existing evidence directory for focused reruns
 #   CHAOS_KEEP_STACK               true keeps the compose stack after the run
 #
+#   COMPOSE_UPGRADE_FAULT          compose-upgrade-rollback only: none (default), drop-seed-rows,
+#                                  journal-stall or rollback-unreadable (negative controls)
+#   HONUA_CANDIDATE_DB_SCHEMA      compose-upgrade-rollback only: declared candidate schema number
+#
 # Scenarios:
 #   migration-kill-every-boundary, image-rollback, concurrent-app-start,
 #   partial-migration-failure, journal-schema-divergence, migration-rerun-idempotency
+#   compose-upgrade-rollback (the GA Docker Compose customer upgrade/rollback that gate-upgrade's
+#   required compose-upgrade job runs; not part of `all`, it seeds its own prior install)
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -627,6 +633,325 @@ run_idempotency() {
   return 1
 }
 
+# ── compose-upgrade-rollback: the GA Docker Compose customer upgrade and rollback ──────────────────
+# Founder decision D9 (2026-10-26, honua-release#950): Docker Compose on-prem is GA, so this is the
+# REQUIRED runtime fragment of gate-upgrade (job compose-upgrade); Helm on kind is Preview evidence.
+# It follows docs/UPGRADE-RUNBOOK.md section 6 on this compose stack, with the kind-upgrade lane's
+# fail-closed rules:
+#   install the prior image -> real seed -> rollback-target guard probe -> mandatory pg_dump backup
+#   -> recreate the server on the candidate digest (a typed contract-migration refusal is answered
+#   with its one-shot HONUA_APPROVE_CONTRACT_MIGRATIONS nonce, the documented customer step)
+#   -> the journal advanced, the observed schema equals the declared one, seeded rows survived
+#   -> roll back to the prior image on the migrated database, or, at the documented boundary
+#   (typed schema_reader_incompatible after approved contract migrations or below schema 135),
+#   restore the pre-upgrade backup -> the prior image serves the seeded rows again.
+# Only a recorded `pass` is a pass. COMPOSE_UPGRADE_FAULT injects a defect so CI can keep proving
+# the gate fails on it through its own assertion (gate-upgrade negative-control cell):
+#   drop-seed-rows       the "upgrade" loses one seeded row
+#   journal-stall        the "candidate" is the prior image, so the journal cannot advance
+#   rollback-unreadable  the seeded table is unreadable when the prior image comes back
+COMPOSE_FAULT="${COMPOSE_UPGRADE_FAULT:-none}"
+CANDIDATE_DB_SCHEMA="${HONUA_CANDIDATE_DB_SCHEMA:-}"
+READER_EXPAND_FLOOR="${READER_EXPAND_FLOOR:-135}"
+COMPOSE_PLATFORM="linux/amd64"
+CU_NAME=compose-upgrade-rollback
+CU_BACKUP="$OUT/compose-pre-upgrade.dump"
+CU_APPROVAL_OVERRIDE="$OUT/compose-approve-contract.override.yml"
+SEED_COUNTS_EXPECTED="e2e_src_fs=2 maui_zoning=12"
+
+cu_reset_observations() {
+  CU_BEFORE_VERSIONS=""; CU_AFTER_VERSIONS=""; CU_PRIOR_SCHEMA=""; CU_CANDIDATE_SCHEMA=""
+  CU_BEFORE_COUNTS=""; CU_AFTER_COUNTS=""; CU_ROLLBACK_COUNTS=""; CU_CHECKSUMS_MATCHED=""
+  CU_GUARD=unprobed; CU_BACKUP_TAKEN=false; CU_APPROVAL=not-required; CU_NONCE=""; CU_GATED=""
+  CU_ROLLBACK_OUTCOME=""; CU_BOUNDARY=""; CU_RESTORE_VERIFIED=""; CU_SERVED_SILENTLY=""; CU_ROLLBACK_COUNT=""
+}
+
+cu_schema() {
+  db_exec "SELECT COALESCE(max(substring(scriptname from '([0-9]{3})_')::integer), 0) FROM public.schema_versions"
+}
+
+cu_counts() {
+  # "e2e_src_fs=N maui_zoning=M" from a capture_state checksum file.
+  awk -F'|' '{printf "%s%s=%s", (NR>1?" ":""), $1, $2}' "$1"
+}
+
+cu_identity() {
+  # <phase> <expected image reference>: the running server container must be exactly that image,
+  # linux/amd64, and its admin capabilities answer is recorded as the observed runtime identity.
+  local phase="$1" ref="$2" container image_id expected_id platform version
+  container="$(compose ps -q server 2>/dev/null)" || container=""
+  image_id="$( [ -n "$container" ] && docker inspect --format '{{.Image}}' "$container" 2>/dev/null)" || image_id=""
+  expected_id="$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" || expected_id=""
+  platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$ref" 2>/dev/null)" || platform=""
+  curl -fsS -H "X-API-Key: $API_KEY" "${E2E_BASE:-http://localhost:8080}/api/v1/admin/capabilities" \
+    -o "$OUT/compose-$phase-runtime.json" 2>/dev/null || echo '{}' > "$OUT/compose-$phase-runtime.json"
+  version="$(jq -r '.data.serverVersion // empty' "$OUT/compose-$phase-runtime.json" 2>/dev/null)" || version=""
+  jq -n --arg imageID "$image_id" --arg expected "$expected_id" --arg digest "${ref##*@}" --arg ref "$ref" \
+    --arg platform "$platform" --arg version "$version" --arg schema "$(cu_schema 2>/dev/null)" \
+    '{imageID:$imageID,expectedImageID:$expected,platform:$platform,
+      runtimeIdentity:{imageReference:$ref,imageDigest:$digest,observedVersion:$version},databaseSchema:$schema}' \
+    > "$OUT/compose-$phase-identity.json"
+  [ -n "$image_id" ] && [ "$image_id" = "$expected_id" ] && [ "$platform" = "$COMPOSE_PLATFORM" ]
+}
+
+cu_serves_seed() {
+  local response="$1"
+  curl -fsS -H "X-API-Key: $API_KEY" \
+    "${E2E_BASE:-http://localhost:8080}/rest/services/e2e/FeatureServer/$SRC_LAYER_ID/query?where=1%3D1&returnCountOnly=true&f=json" \
+    -o "$response" 2>/dev/null || return 1
+  CU_ROLLBACK_COUNT="$(jq -r '.count // empty' "$response" 2>/dev/null)" || CU_ROLLBACK_COUNT=""
+  [ "$CU_ROLLBACK_COUNT" = 2 ]
+}
+
+cu_wait_ready() {
+  # <attempts>: like wait_ready_attempts, but a server container that has exited (a typed startup
+  # refusal such as schema_reader_incompatible or the contract-migration gate) ends the wait early.
+  local attempts="$1" i
+  for i in $(seq 1 "$attempts"); do
+    if server_ready 2>/dev/null; then return 0; fi
+    if [ "$i" -gt 3 ] && [ -z "$(compose ps -q --status running server 2>/dev/null)" ]; then return 1; fi
+    sleep 2
+  done
+  return 1
+}
+
+cu_start_server() {
+  # <image> [override file]: recreate only the server; db and redis (and the volume-less database
+  # they hold for this run) stay up, exactly as `docker compose up -d` does for a changed image.
+  local image="$1" override="${2:-}"
+  export HONUA_SERVER_IMAGE="$image"
+  if [ -n "$override" ]; then
+    docker compose -f "$COMPOSE_FILE" -f "$override" up -d --force-recreate --no-deps server >/dev/null 2>&1
+  else
+    compose up -d --force-recreate --no-deps server >/dev/null 2>&1
+  fi
+}
+
+cu_guard_probe() {
+  # Rollback-target eligibility (honua-server#5333, #6484), as kind-upgrade probes it: does the
+  # prior refuse a journal entry it does not ship? An unguarded prior starts on any schema, so an
+  # image-only rollback to it can never be certified.
+  local probe='Honua.Server.Migrations.999_RollbackTargetGuardProbe.sql'
+  stop_server
+  if ! db_exec "INSERT INTO public.schema_versions (scriptname, applied) VALUES ('$probe', now())" >/dev/null 2>&1; then
+    CU_GUARD=unprobed; return 1
+  fi
+  cu_start_server "$PRIOR_IMAGE"
+  if cu_wait_ready "${CHAOS_GUARD_ATTEMPTS:-45}"; then
+    CU_GUARD=absent
+  else
+    compose logs server > "$OUT/compose-guard-probe.log" 2>&1 || true
+    if grep -q 'schema_reader_incompatible' "$OUT/compose-guard-probe.log"; then CU_GUARD=present; else CU_GUARD=inconclusive; fi
+  fi
+  stop_server
+  db_exec "DELETE FROM public.schema_versions WHERE scriptname = '$probe'" >/dev/null 2>&1 || return 1
+  cu_start_server "$PRIOR_IMAGE" && wait_ready
+}
+
+cu_restore_backup() {
+  # Documented recovery: stop the server, restore the pre-upgrade backup into a fresh database,
+  # start the prior image. pg_restore notices are kept in the log; serving is the verdict.
+  stop_server
+  compose exec -T db psql -v ON_ERROR_STOP=1 -U honua -d postgres \
+    -c 'DROP DATABASE honua WITH (FORCE)' -c 'CREATE DATABASE honua OWNER honua' > "$OUT/compose-restore.log" 2>&1 || return 1
+  compose exec -T db pg_restore -U honua -d honua --no-owner < "$CU_BACKUP" >> "$OUT/compose-restore.log" 2>&1
+  echo "pg_restore exit $?" >> "$OUT/compose-restore.log"
+  wait_db || return 1
+  cu_start_server "$PRIOR_IMAGE" && wait_ready
+}
+
+cu_write_observed() {
+  jq -n --arg before "$CU_BEFORE_VERSIONS" --arg after "$CU_AFTER_VERSIONS" \
+    --arg schema "$CU_CANDIDATE_SCHEMA" --arg declared "$CANDIDATE_DB_SCHEMA" --arg priorSchema "$CU_PRIOR_SCHEMA" \
+    --arg beforeCounts "$CU_BEFORE_COUNTS" --arg afterCounts "$CU_AFTER_COUNTS" --arg rollbackCounts "$CU_ROLLBACK_COUNTS" \
+    --arg checksums "$CU_CHECKSUMS_MATCHED" --arg rollbackCount "$CU_ROLLBACK_COUNT" \
+    --arg approval "$CU_APPROVAL" --arg nonce "$CU_NONCE" --arg gated "$CU_GATED" \
+    --arg rollback "$CU_ROLLBACK_OUTCOME" --arg boundary "$CU_BOUNDARY" --arg backup "$CU_BACKUP_TAKEN" \
+    --arg floor "$READER_EXPAND_FLOOR" --arg guard "$CU_GUARD" --arg restored "$CU_RESTORE_VERIFIED" \
+    --arg silent "$CU_SERVED_SILENTLY" --arg fault "$COMPOSE_FAULT" --arg platform "$COMPOSE_PLATFORM" \
+    '{platform:$platform,injectedFault:$fault,
+      schemaVersionsRows:{beforeUpgrade:$before,afterUpgrade:$after},observedSchema:$schema,
+      declaredCandidateSchema:$declared,priorSchema:$priorSchema,
+      seededRows:{expected:"e2e_src_fs=2 maui_zoning=12",beforeUpgrade:$beforeCounts,afterUpgrade:$afterCounts,
+                  afterRollback:$rollbackCounts,checksumsMatched:(if $checksums=="" then null else ($checksums=="true") end)},
+      rollbackPriorQueryCount:$rollbackCount,
+      customerSteps:{preUpgradeBackup:($backup=="true"),
+        contractMigrationApproval:{outcome:$approval,nonce:$nonce,gatedScripts:$gated,
+          steps:(if $nonce=="" then [] else ["docker compose up -d (candidate): refused with the typed contract-migration gate and printed the one-shot nonce",
+                 "docker compose up -d with HONUA_APPROVE_CONTRACT_MIGRATIONS=<nonce>"] end)},
+        rollback:{outcome:$rollback,boundary:$boundary,readerExpandFloorSchema:$floor,priorSchemaReaderGuard:$guard,
+                  certifiedRollbackPath:(if $guard=="absent" or $boundary!="" then "restore-pre-upgrade-backup" else "image-rollback" end),
+                  restoreVerified:(if $restored=="" then null else ($restored=="true") end),
+                  imageRollbackServedSilently:(if $silent=="" then null else ($silent=="true") end)}}}' \
+    > "$OUT/compose-observed.json"
+}
+
+cu_fail() {
+  compose logs server > "$OUT/compose-server-last.log" 2>&1 || true
+  cu_write_observed
+  record "$CU_NAME" fail "$1"
+  return 1
+}
+
+run_compose_upgrade_rollback() {
+  local before_journal="$OUT/compose-before-journal.txt" before_sums="$OUT/compose-before-checksums.txt"
+  local after_journal="$OUT/compose-after-journal.txt" after_sums="$OUT/compose-after-checksums.txt"
+  local rollback_journal="$OUT/compose-rollback-journal.txt" rollback_sums="$OUT/compose-rollback-checksums.txt"
+  local upgrade_image="$CANDIDATE_IMAGE" refusal=""
+  cu_reset_observations
+  case "$COMPOSE_FAULT" in
+    none|drop-seed-rows|rollback-unreadable) ;;
+    journal-stall) upgrade_image="$PRIOR_IMAGE" ;;
+    *) cu_fail "unknown COMPOSE_UPGRADE_FAULT: $COMPOSE_FAULT"; return 1 ;;
+  esac
+  if [ "$PRIOR_IMAGE" = "$CANDIDATE_IMAGE" ]; then
+    cu_write_observed
+    record "$CU_NAME" blocked "prior image equals the candidate; a real upgrade cannot run (never certify the candidate against itself)"
+    return 1
+  fi
+  echo "== $CU_NAME: install prior $PRIOR_IMAGE ($COMPOSE_PLATFORM, fault=$COMPOSE_FAULT) =="
+  stack_down
+  start_image "$PRIOR_IMAGE"
+  wait_ready || { compose logs server > "$OUT/compose-prior-start.log" 2>&1 || true; cu_fail "prior image did not become ready on a fresh database"; return 1; }
+  cu_identity install "$PRIOR_IMAGE" || { cu_fail "running prior container is not exactly $PRIOR_IMAGE on $COMPOSE_PLATFORM"; return 1; }
+  rm -rf "$SEED_DIR"; mkdir -p "$SEED_DIR"
+  if ! E2E_BASE="${E2E_BASE:-http://localhost:8080}" E2E_API_KEY="$API_KEY" E2E_OUT="$SEED_DIR" \
+       E2E_COMPOSE_FILE="$COMPOSE_FILE" E2E_DB_HOST=db E2E_PSQL="${COMPOSE[*]} exec -T db psql -U honua -d honua" \
+       bash "$HERE/seed/seed.sh" > "$OUT/compose-seed.log" 2>&1; then
+    tail -n 40 "$OUT/compose-seed.log" || true
+    cu_fail "prior image installed but the real e2e seed failed"; return 1
+  fi
+  SRC_LAYER_ID="$(jq -r '.slice1.e2e_src_fs.layerId // empty' "$SEED_DIR/seed-manifest.json" 2>/dev/null)" || SRC_LAYER_ID=""
+  [[ "$SRC_LAYER_ID" =~ ^[0-9]+$ ]] || { cu_fail "real e2e seed did not publish the e2e_src_fs layer (layerId=$SRC_LAYER_ID)"; return 1; }
+  capture_state "$before_journal" "$before_sums" || { cu_fail "could not capture the seeded prior state"; return 1; }
+  CU_BEFORE_VERSIONS="$(wc -l < "$before_journal" | tr -d ' ')"
+  CU_PRIOR_SCHEMA="$(cu_schema)" || CU_PRIOR_SCHEMA=""
+  CU_BEFORE_COUNTS="$(cu_counts "$before_sums")"
+  [ "$CU_BEFORE_COUNTS" = "$SEED_COUNTS_EXPECTED" ] || { cu_fail "seed did not produce the deterministic rows ($CU_BEFORE_COUNTS)"; return 1; }
+
+  echo "== $CU_NAME: rollback-target guard probe and mandatory pre-upgrade backup =="
+  cu_guard_probe || { cu_fail "prior did not return to ready after the rollback-target guard probe was removed"; return 1; }
+  echo "ROLLBACK-TARGET GUARD PROBE: prior guard $CU_GUARD"
+  if compose exec -T db pg_dump -U honua -d honua -Fc > "$CU_BACKUP" 2> "$OUT/compose-backup.log" && [ -s "$CU_BACKUP" ]; then
+    CU_BACKUP_TAKEN=true
+  else
+    cu_fail "mandatory pre-upgrade backup (pg_dump) failed; the documented recovery path is unavailable"; return 1
+  fi
+
+  echo "== $CU_NAME: upgrade to candidate $upgrade_image =="
+  stop_server
+  cu_start_server "$upgrade_image"
+  if ! cu_wait_ready "${CHAOS_READY_ATTEMPTS:-90}"; then
+    compose logs server > "$OUT/compose-contract-gate.log" 2>&1 || true
+    CU_NONCE="$(grep -hoE 'HONUA_APPROVE_CONTRACT_MIGRATIONS=[0-9a-f]{8,64}' "$OUT/compose-contract-gate.log" | head -n 1 | cut -d= -f2)" || CU_NONCE=""
+    CU_GATED="$(sed -n 's/.*pending contract-phase migration(s) on an existing database: \(.*[.]sql\)[.] These reviewed.*/\1/p' "$OUT/compose-contract-gate.log" | head -n 1)" || CU_GATED=""
+    if [ -z "$CU_NONCE" ]; then
+      cu_fail "candidate did not become ready after the upgrade and printed no contract-migration nonce"; return 1
+    fi
+    CU_APPROVAL=contract-approval-required
+    echo "CONTRACT-APPROVAL-REQUIRED (expected customer step): nonce $CU_NONCE for: $CU_GATED"
+    printf 'services:\n  server:\n    environment:\n      HONUA_APPROVE_CONTRACT_MIGRATIONS: "%s"\n' "$CU_NONCE" > "$CU_APPROVAL_OVERRIDE"
+    stop_server
+    cu_start_server "$upgrade_image" "$CU_APPROVAL_OVERRIDE"
+    if ! wait_ready; then
+      CU_APPROVAL=approved-upgrade-failed
+      cu_fail "candidate did not become ready after the contract migrations were approved"; return 1
+    fi
+    CU_APPROVAL=approved-and-applied
+  fi
+  if [ "$COMPOSE_FAULT" = drop-seed-rows ]; then
+    db_exec 'DELETE FROM honua_data.e2e_src_fs WHERE ctid IN (SELECT ctid FROM honua_data.e2e_src_fs LIMIT 1)' >/dev/null 2>&1 || true
+    echo "FAULT INJECTED: drop-seed-rows deleted one honua_data.e2e_src_fs row during the upgrade"
+  fi
+  capture_state "$after_journal" "$after_sums" || { cu_fail "could not capture the upgraded state"; return 1; }
+  CU_AFTER_VERSIONS="$(wc -l < "$after_journal" | tr -d ' ')"
+  CU_CANDIDATE_SCHEMA="$(cu_schema)" || CU_CANDIDATE_SCHEMA=""
+  CU_AFTER_COUNTS="$(cu_counts "$after_sums")"
+  cmp -s "$before_sums" "$after_sums" && CU_CHECKSUMS_MATCHED=true || CU_CHECKSUMS_MATCHED=false
+  diff -u "$before_journal" "$after_journal" > "$OUT/compose-journal-advance.diff" || true
+  cu_identity candidate "$upgrade_image" || { cu_fail "running candidate container is not exactly $upgrade_image on $COMPOSE_PLATFORM"; return 1; }
+  if ! [ "$CU_AFTER_VERSIONS" -gt "$CU_BEFORE_VERSIONS" ] || [ -n "$(comm -23 "$before_journal" "$after_journal")" ]; then
+    cu_fail "candidate did not advance public.schema_versions ($CU_BEFORE_VERSIONS -> $CU_AFTER_VERSIONS rows; every prior entry must remain)"; return 1
+  fi
+  if [ -n "$CANDIDATE_DB_SCHEMA" ] && [ "$CU_CANDIDATE_SCHEMA" != "$CANDIDATE_DB_SCHEMA" ]; then
+    cu_fail "observed schema $CU_CANDIDATE_SCHEMA does not exactly match the declared candidate schema $CANDIDATE_DB_SCHEMA"; return 1
+  fi
+  if [ "$CU_AFTER_COUNTS" != "$CU_BEFORE_COUNTS" ] || [ "$CU_CHECKSUMS_MATCHED" != true ]; then
+    cu_fail "seeded rows did not survive the upgrade ($CU_BEFORE_COUNTS -> $CU_AFTER_COUNTS, checksums matched: $CU_CHECKSUMS_MATCHED)"; return 1
+  fi
+  echo "UPGRADE VERIFIED: schema_versions $CU_BEFORE_VERSIONS -> $CU_AFTER_VERSIONS rows, schema $CU_PRIOR_SCHEMA -> $CU_CANDIDATE_SCHEMA, seeded rows $CU_AFTER_COUNTS (checksums matched)"
+
+  echo "== $CU_NAME: roll back to the prior image on the migrated database =="
+  stop_server
+  if [ "$COMPOSE_FAULT" = rollback-unreadable ]; then
+    db_exec 'ALTER TABLE honua_data.e2e_src_fs RENAME TO e2e_src_fs_unreadable' >/dev/null 2>&1 || true
+    echo "FAULT INJECTED: rollback-unreadable renamed honua_data.e2e_src_fs before the prior image returned"
+  fi
+  cu_start_server "$PRIOR_IMAGE"
+  if cu_wait_ready "${CHAOS_ROLLBACK_READY_ATTEMPTS:-60}"; then
+    cu_identity rollback "$PRIOR_IMAGE" || { cu_fail "rolled-back container is not exactly the prior image $PRIOR_IMAGE"; return 1; }
+    if [ "$CU_GUARD" = absent ]; then
+      CU_BOUNDARY=rollback-target-unguarded
+      cu_serves_seed "$OUT/compose-rollback-silent-query.json" && CU_SERVED_SILENTLY=true || CU_SERVED_SILENTLY=false
+      CU_RESTORE_VERIFIED=false
+      cu_restore_backup && cu_serves_seed "$OUT/compose-rollback-query.json" && CU_RESTORE_VERIFIED=true
+      CU_ROLLBACK_OUTCOME=rollback-target-ineligible
+      cu_fail "rollback-target-ineligible: prior (schema $CU_PRIOR_SCHEMA) has no schema-reader guard (it started on an unrecognised journal entry; honua-server#5333, #6484), so an image-only rollback to it cannot be certified (it served silently: $CU_SERVED_SILENTLY); certified rollback path: restore the pre-upgrade backup (verified: $CU_RESTORE_VERIFIED)"
+      return 1
+    fi
+    if [ "$CU_GUARD" != present ]; then
+      # Only a typed schema_reader_incompatible refusal of the probe entry proves the guard. A probe
+      # that failed for another reason (inconclusive) and then recovered proves nothing, so an
+      # image-only rollback to this prior is not certified: real telemetry or no pass.
+      CU_ROLLBACK_OUTCOME=rollback-target-guard-unproven
+      cu_fail "rollback-target-guard-unproven: the rollback-target guard probe did not observe a typed schema_reader_incompatible refusal from the prior (guard $CU_GUARD; see compose-guard-probe.log), so an image-only rollback to it cannot be certified"
+      return 1
+    fi
+    if [ -n "$CU_NONCE" ]; then
+      CU_ROLLBACK_OUTCOME=guarded-prior-served-across-contract
+      cu_fail "prior image (guard $CU_GUARD) started on a schema narrowed by approved contract migrations instead of refusing with schema_reader_incompatible"
+      return 1
+    fi
+    if ! cu_serves_seed "$OUT/compose-rollback-query.json"; then
+      CU_ROLLBACK_OUTCOME=image-rollback-did-not-serve
+      cu_fail "prior image could not serve the seeded rows after rollback (count ${CU_ROLLBACK_COUNT:-none}, expected 2)"
+      return 1
+    fi
+    CU_ROLLBACK_OUTCOME=image-rollback-served
+  else
+    compose logs server > "$OUT/compose-rollback-prior.log" 2>&1 || true
+    refusal="$(grep -hoE 'schema_reader_incompatible[^"]{0,200}' "$OUT/compose-rollback-prior.log" | head -n 1)" || refusal=""
+    CU_ROLLBACK_OUTCOME=image-rollback-refused
+    if [[ "$refusal" == schema_reader_incompatible* ]]; then
+      if [ -n "$CU_NONCE" ]; then CU_BOUNDARY=contract-migrations-approved
+      elif [[ "$CU_PRIOR_SCHEMA" =~ ^[0-9]+$ ]] && [ "$CU_PRIOR_SCHEMA" -lt "$READER_EXPAND_FLOOR" ]; then CU_BOUNDARY="prior-schema-$CU_PRIOR_SCHEMA-below-$READER_EXPAND_FLOOR"
+      fi
+    fi
+    if [ -z "$CU_BOUNDARY" ]; then
+      cu_fail "prior image refused the migrated schema outside the documented boundary: ${refusal:-no typed schema_reader_incompatible refusal}"
+      return 1
+    fi
+    echo "DOCUMENTED ROLLBACK BOUNDARY ($CU_BOUNDARY): restoring the pre-upgrade backup"
+    CU_RESTORE_VERIFIED=false
+    if ! cu_restore_backup || ! cu_serves_seed "$OUT/compose-rollback-query.json"; then
+      CU_ROLLBACK_OUTCOME=restore-did-not-recover
+      cu_fail "documented boundary ($CU_BOUNDARY) but restoring the pre-upgrade backup did not bring the prior back serving the seeded rows"
+      return 1
+    fi
+    CU_RESTORE_VERIFIED=true
+    CU_ROLLBACK_OUTCOME=restored-from-pre-upgrade-backup
+    cu_identity rollback "$PRIOR_IMAGE" || { cu_fail "restored container is not exactly the prior image $PRIOR_IMAGE"; return 1; }
+  fi
+  if ! capture_state "$rollback_journal" "$rollback_sums" || ! cmp -s "$before_sums" "$rollback_sums"; then
+    CU_ROLLBACK_COUNTS="$(cu_counts "$rollback_sums" 2>/dev/null)"
+    cu_fail "seeded rows changed across the rollback ($CU_BEFORE_COUNTS -> ${CU_ROLLBACK_COUNTS:-unreadable})"
+    return 1
+  fi
+  CU_ROLLBACK_COUNTS="$(cu_counts "$rollback_sums")"
+  cu_write_observed
+  record "$CU_NAME" pass "schema_versions advanced $CU_BEFORE_VERSIONS->$CU_AFTER_VERSIONS (schema $CU_PRIOR_SCHEMA->$CU_CANDIDATE_SCHEMA, contract approval: $CU_APPROVAL); seeded rows survived ($CU_AFTER_COUNTS, checksums matched); rollback $CU_ROLLBACK_OUTCOME${CU_BOUNDARY:+ at $CU_BOUNDARY}: the prior image served 2 seeded features and the seeded checksums are unchanged"
+}
+
 cleanup() {
   [ -z "$LOCK_HOLDER_PID" ] || kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
   [ -z "$PARTIAL_JOB_PID" ] || kill "$PARTIAL_JOB_PID" >/dev/null 2>&1 || true
@@ -638,7 +963,10 @@ cleanup() {
 trap cleanup EXIT
 
 require_tools
-if [ "$SKIP_PREPARE" = true ]; then
+if [ "$SCENARIO" = compose-upgrade-rollback ]; then
+  # x86_64 only (2026-10-25 re-tier): every service of this run is the linux/amd64 image.
+  export DOCKER_DEFAULT_PLATFORM="$COMPOSE_PLATFORM"
+elif [ "$SKIP_PREPARE" = true ]; then
   [ -s "$BASELINE_DUMP" ] || die "CHAOS_SKIP_PREPARE=true requires an existing baseline dump at $BASELINE_DUMP"
   [ -s "$EXPECTED_JOURNAL" ] || die "CHAOS_SKIP_PREPARE=true requires an existing expected journal at $EXPECTED_JOURNAL"
   [ -s "$EXPECTED_CHECKSUMS" ] || die "CHAOS_SKIP_PREPARE=true requires an existing expected checksum file at $EXPECTED_CHECKSUMS"
@@ -666,6 +994,7 @@ case "$SCENARIO" in
   partial-migration-failure) run_partial_failure || failures=$((failures + 1)) ;;
   journal-schema-divergence) run_divergence || failures=$((failures + 1)) ;;
   migration-rerun-idempotency) run_idempotency || failures=$((failures + 1)) ;;
+  compose-upgrade-rollback) run_compose_upgrade_rollback || failures=$((failures + 1)) ;;
   *) die "unknown CHAOS_SCENARIO: $SCENARIO" ;;
 esac
 
