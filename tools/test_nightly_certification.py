@@ -967,7 +967,8 @@ CUT = NIGHT['candidate']['cut_at']
 LEDGER_IMAGE = NIGHT['candidate']['server_image']
 PYTHON_PIN = '6' * 40
 DISPATCH_ID = NIGHT['dispatch_id']
-LEDGER_ENV = {'GH_TOKEN': 'x', 'NIGHTLY_DISPATCH_ID': DISPATCH_ID}
+# GITHUB_SHA is the protected trunk commit the night runs on: the governed requirements_ref.
+LEDGER_ENV = {'GH_TOKEN': 'x', 'NIGHTLY_DISPATCH_ID': DISPATCH_ID, 'GITHUB_SHA': 'c' * 40}
 
 
 def ledger_files(catalog=None, server=SERVER):
@@ -1001,6 +1002,7 @@ def test_the_night_produces_its_ledger_before_any_candidate_exists():
         'nightly-certification-${{ github.run_id }}-${{ github.run_attempt }}'
     dispatch = step(jobs['protocol_ledger'], 'Dispatch the protocol certification producers')['run']
     assert '--dispatch-id "$NIGHTLY_DISPATCH_ID"' in dispatch
+    assert '--requirements-ref "$GITHUB_SHA"' in dispatch
     assert '--dispatch-id "$NIGHTLY_DISPATCH_ID"' in bind
 
 
