@@ -1111,6 +1111,10 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
 
 
 CANDIDATE_INPUTS = ("{server_image}", "{server_sha}", "{cut_at}")
+# Governed values the night renders besides the candidate (tools/nightly_receipts.py); the pinned
+# package inputs belong only to a producer with a harness_revision_key.
+GOVERNED_INPUTS = (*CANDIDATE_INPUTS, "{requirements_ref}", "{requirements_revision}",
+                   "{sdk_package}", "{sdk_package_version}", "{sdk_package_digest}", "{sdk_source_sha}")
 UNASSIGNED_PROTOCOL_HARNESS_PREFIX = "UNASSIGNED PROTOCOL HARNESS CONTRACT:"
 
 
@@ -1251,7 +1255,10 @@ def validate_production(catalog: dict) -> None:
         if entry["source_revision_key"] not in catalog["source_revisions"]:
             raise ValueError(f"Producer {entry['producer']} pins an unknown source_revision_key.")
         values = set(entry["inputs"].values())
-        ungoverned = sorted(value for value in values if "{" in value and value not in CANDIDATE_INPUTS)
+        harness = entry.get("harness_revision_key")
+        if harness is not None and catalog["source_revisions"].get(harness, {}).get("repository") != entry["repository"]:
+            raise ValueError(f"Producer {entry['producer']} harness_revision_key is not a revision of its repository.")
+        ungoverned = sorted(value for value in values if "{" in value and value not in GOVERNED_INPUTS)
         if ungoverned:
             raise ValueError(f"Producer {entry['producer']} uses ungoverned input placeholders {ungoverned}.")
         if not set(CANDIDATE_INPUTS) <= values:

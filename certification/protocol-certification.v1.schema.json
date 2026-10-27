@@ -122,7 +122,11 @@
                     "canonical_client": { "type": "string" },
                     "client_version": { "type": "string" },
                     "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
-                    "client_package": { "$ref": "#/$defs/pythonWheel" },
+                    "client_package": { "anyOf": [{ "$ref": "#/$defs/pythonWheel" }, { "$ref": "#/$defs/nugetPackage" }] },
+                    "harness_commit": {
+                      "description": "sdk-harness-trunk-pinned-package-2026-10-27: the SDK repository trunk commit whose certification harness ran against the pinned published package.",
+                      "type": "string", "pattern": "^[0-9a-f]{40}$"
+                    },
                     "client_version_observed": { "type": "string" },
                     "client_driver": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9-]{1,32}$" },
                     "deployment_target": { "type": "string" },
@@ -236,7 +240,7 @@
         "exercised_capabilities": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url"]
       },
       "allOf": [
-        {"if": {"properties": {"client_lane": {"const": "sdk-python-certification"}}, "required": ["client_lane"]}, "else": {"if": {"properties": {"client_lane": {"const": "sdk-dotnet-certification"}}, "required": ["client_lane"]}, "then": {"properties": {"client_package": {"$ref": "#/$defs/nugetPackage"}, "client_package_digest": {"pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"}, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false, "client_package_digest": false}}}}}, "dependentRequired": {"client_package": ["client_package_digest"], "client_package_digest": ["client_package"]}}, "else": {"properties": {"client_package": false, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false}}}}}}}, "then": {"properties": {"client_package": {"$ref": "#/$defs/pythonWheel"}}, "if": {"properties": {"result": {"enum": ["pass", "fail"]}}, "required": ["result"]}, "then": {"required": ["client_package"], "properties": {"evidence_receipt": {"properties": {"identity": {"required": ["client_package"]}}}}}}},
+        {"if": {"properties": {"client_lane": {"const": "sdk-python-certification"}}, "required": ["client_lane"]}, "else": {"if": {"properties": {"client_lane": {"const": "sdk-dotnet-certification"}}, "required": ["client_lane"]}, "then": {"properties": {"client_package": {"$ref": "#/$defs/nugetPackage"}, "client_package_digest": {"pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"}, "evidence_receipt": {"properties": {"identity": {"if": {"required": ["harness_commit"]}, "then": {"required": ["client_package", "client_package_digest"], "properties": {"client_package": {"$ref": "#/$defs/nugetPackage"}, "client_package_digest": {"pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"}}}, "else": {"properties": {"client_package": false, "client_package_digest": false}}}}}}, "dependentRequired": {"client_package": ["client_package_digest"], "client_package_digest": ["client_package"]}}, "else": {"properties": {"client_package": false, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false, "harness_commit": false}}}}}}}, "then": {"properties": {"client_package": {"$ref": "#/$defs/pythonWheel"}}, "if": {"properties": {"result": {"enum": ["pass", "fail"]}}, "required": ["result"]}, "then": {"required": ["client_package"], "properties": {"evidence_receipt": {"properties": {"identity": {"required": ["client_package"]}}}}}}},
         {
           "if": {
             "properties": {

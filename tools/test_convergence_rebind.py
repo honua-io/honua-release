@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 import shutil
 
 import jsonschema
@@ -23,7 +24,16 @@ class StubGitHub:
     def head(self, repository):
         return {"honua-io/honua-esri-compat": "1" * 40, "cloudnativegeo/cloud-optimized-geospatial-formats-guide": "2" * 40}[repository]
 
+    def trunk_commits(self, repository, limit):
+        # The SDK harness: the newest green trunk commit with the dispatch contract.
+        return {"honua-io/honua-sdk-dotnet": ["5" * 40], "honua-io/honua-sdk-python": ["6" * 40]}[repository]
+
+    def green(self, repository, sha):
+        return True
+
     def content(self, repository, path, revision):
+        if path.startswith(".github/workflows/"):
+            return "\n".join(MODULE.HARNESS_CONTRACT).encode()
         if path == "tests/seed/base-schema.sql":
             # A moved server-certification pin re-reads the seed at the new commit (project_server_seed_fixture).
             return f"-- stub server seed at {revision}\n".encode()
@@ -817,3 +827,197 @@ def test_nightly_preview_lapses_once_the_producer_emits_a_receipt(tmp_path):
     with pytest.raises(MODULE.Finding) as refused:
         bind_preview(recorded, preview_overrides(tmp_path))
     assert "sdk-js" in str(refused.value)
+
+
+# sdk-harness-trunk-pinned-package-2026-10-27
+PUBLISHED_PIN = "4" * 40
+
+
+def harness_night():
+    """Tonight's Python SDK run is its trunk harness against the pinned published wheel."""
+    recorded = night()
+    run = next(row for row in recorded["runs"] if row["producer"] == "honua-sdk-python")
+    entry = next(e for e in recorded["catalog"]["production"]["producers"] if e["producer"] == "honua-sdk-python")
+    entry["harness_revision_key"] = "sdk-python-harness"
+    revisions = recorded["catalog"]["source_revisions"]
+    revisions["sdk-python-harness"] = {"repository": "honua-io/honua-sdk-python", "commit": run["head_sha"]}
+    revisions["sdk-python"]["commit"] = PUBLISHED_PIN
+    cell = next(c for c in recorded["ledger"]["cells"] if c["client_lane"] == "sdk-python-certification")
+    wheel = {"filename": f"honua_sdk-{cell['client_version']}-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"}
+    cell.update(producer_source_sha=PUBLISHED_PIN, client_package=wheel)
+    identity = cell["evidence_receipt"]["identity"]
+    identity.update(producer_source_sha=PUBLISHED_PIN, client_package=dict(wheel), harness_commit=run["head_sha"])
+    rehash(cell)
+    for requirement in recorded["catalog"]["requirements"]:
+        if requirement.get("client_lane") == "sdk-python-certification":
+            requirement["client_package"] = dict(wheel)
+    manifest = resolved_manifest()
+    manifest["clientArtifacts"]["honua-sdk-python-wheel"].update(
+        version=cell["client_version"], filename=wheel["filename"], digest="sha256:" + "e" * 64, sourceSha=PUBLISHED_PIN)
+    return recorded, manifest, cell
+
+
+def bind_harness(recorded, manifest):
+    return MODULE.verify_nightly_ledger(recorded["ledger"], recorded["catalog"], manifest,
+                                        recorded["requirements_revision"], recorded["runs"], recorded["dispatch_id"])
+
+
+def test_harness_receipt_for_the_pinned_package_binds():
+    recorded, manifest, _ = harness_night()
+    assert bind_harness(recorded, manifest)["pass"] >= 1
+
+
+@pytest.mark.parametrize("mutation,problem", [
+    ("wrong-digest", "is not the pinned"),
+    ("missing-digest", "is not the pinned"),
+    ("wrong-harness", "is not the dispatched harness"),
+    ("missing-harness", "is not the dispatched harness"),
+    ("harness-as-source", "producer_source_sha"),
+    ("manifest-unpinned", "pins no published package digest"),
+])
+def test_harness_receipt_refusals(mutation, problem):
+    recorded, manifest, cell = harness_night()
+    identity = cell["evidence_receipt"]["identity"]
+    if mutation == "wrong-digest":
+        identity["client_package"]["sha256"] = "d" * 64
+    elif mutation == "missing-digest":
+        del identity["client_package"]["sha256"]
+    elif mutation == "wrong-harness":
+        identity["harness_commit"] = "7" * 40
+    elif mutation == "missing-harness":
+        del identity["harness_commit"]
+    elif mutation == "harness-as-source":
+        cell["producer_source_sha"] = identity["producer_source_sha"] = identity["harness_commit"]
+    else:
+        manifest["clientArtifacts"]["honua-sdk-python-wheel"].pop("digest")
+    rehash(cell)
+    with pytest.raises(MODULE.Finding, match=problem):
+        bind_harness(recorded, manifest)
+
+
+def test_a_non_harness_producer_cannot_claim_a_harness_commit():
+    recorded = night()
+    cell = next(c for c in recorded["ledger"]["cells"] if c["client_lane"] == "harness" and c["result"] == "pass")
+    cell["evidence_receipt"]["identity"]["harness_commit"] = "7" * 40
+    rehash(cell)
+    assert "harness_commit is only recorded by an SDK harness producer" in refusal(ledger=recorded["ledger"])
+
+
+def test_harness_dotnet_receipt_requires_the_pinned_nuget_identity():
+    manifest = resolved_manifest()
+    pinned = manifest["clientArtifacts"]["honua-sdk-dotnet"]
+    entry = {"source_revision_key": "sdk-dotnet", "harness_revision_key": "sdk-dotnet-harness"}
+    run = {"head_sha": "8" * 40}
+    cell = {"client_version": pinned["version"]}
+    good = {"harness_commit": "8" * 40, "client_package": pinned["package"], "client_package_digest": pinned["digest"]}
+    assert MODULE.harness_receipt_problems(entry, good, cell, run, manifest) == []
+    for broken in ({**good, "client_package_digest": "sha256:" + "0" * 64},
+                   {k: v for k, v in good.items() if k != "client_package_digest"},
+                   {**good, "client_package": "Other.Sdk"}):
+        assert MODULE.harness_receipt_problems(entry, broken, cell, run, manifest)
+
+
+def dotnet_harness_night():
+    """Tonight's .NET SDK run is its trunk harness against the pinned published NuGet package: the
+    fixture's SDK producer, lane and receipt recast as honua-sdk-dotnet's certification lane."""
+    recorded = night()
+    manifest = resolved_manifest()
+    pinned = manifest["clientArtifacts"]["honua-sdk-dotnet"]
+    lane, repository = "sdk-dotnet-certification", "honua-io/honua-sdk-dotnet"
+    run = next(row for row in recorded["runs"] if row["producer"] == "honua-sdk-python")
+    run.update(producer="honua-sdk-dotnet", repository=repository, client_lanes=["sdk-dotnet-*"])
+    entry = next(e for e in recorded["catalog"]["production"]["producers"] if e["producer"] == "honua-sdk-python")
+    entry.update(producer="honua-sdk-dotnet", repository=repository, source_revision_key="sdk-dotnet",
+                 harness_revision_key="sdk-dotnet-harness", client_lanes=["sdk-dotnet-*"])
+    revisions = recorded["catalog"]["source_revisions"]
+    revisions["sdk-dotnet"] = {"repository": repository, "commit": PUBLISHED_PIN}
+    revisions["sdk-dotnet-harness"] = {"repository": repository, "commit": run["head_sha"]}
+    recast = {"capability_key": "cap.sdk-dotnet-certification", "canonical_client": "Honua SDK .NET",
+              "client_lane": lane, "client_version": pinned["version"]}
+    for requirement in recorded["catalog"]["requirements"]:
+        if requirement.get("client_lane") == "sdk-python-certification":
+            requirement.pop("client_package", None)
+            requirement.update(recast)
+    cell = next(c for c in recorded["ledger"]["cells"] if c["client_lane"] == "sdk-python-certification")
+    cell.pop("client_package", None)
+    cell.update(recast, producer_source_sha=PUBLISHED_PIN)
+    identity = cell["evidence_receipt"]["identity"]
+    identity["producer_run"]["repository"] = repository
+    identity.update({key: value for key, value in recast.items() if key != "client_lane"},
+                    producer_source_sha=PUBLISHED_PIN, harness_commit=run["head_sha"],
+                    client_package=pinned["package"], client_package_digest=pinned["digest"])
+    rehash(cell)
+    manifest["components"]["honua-sdk-dotnet"]["sha"] = pinned["sourceSha"] = PUBLISHED_PIN
+    return recorded, manifest, cell
+
+
+def test_dotnet_harness_receipt_for_the_pinned_nuget_package_binds_the_ledger():
+    recorded, manifest, cell = dotnet_harness_night()
+    assert cell["evidence_receipt"]["identity"]["client_package"] == "Honua.Sdk"
+    assert bind_harness(recorded, manifest)["pass"] >= 1
+
+
+@pytest.mark.parametrize("mutation,problem", [
+    ("wrong-digest", "is not the pinned NuGet artifact"),
+    ("wrong-lane", "package identity is only permitted for the Python and .NET certification lanes"),
+    ("server-lane", "package identity is only permitted for the Python and .NET certification lanes"),
+])
+def test_dotnet_nuget_identity_refusals_in_the_nightly_ledger(mutation, problem):
+    recorded, manifest, cell = dotnet_harness_night()
+    if mutation == "wrong-digest":
+        cell["evidence_receipt"]["identity"]["client_package_digest"] = "sha256:" + "0" * 64
+    elif mutation == "wrong-lane":
+        # Owned by the .NET harness producer (sdk-dotnet-*), but not the governed certification lane.
+        requirement = next(r for r in recorded["catalog"]["requirements"] if r.get("client_lane") == cell["client_lane"])
+        requirement["client_lane"] = cell["client_lane"] = "sdk-dotnet-interop"
+    else:
+        cell = next(c for c in recorded["ledger"]["cells"] if c["client_lane"] == "harness" and c["result"] == "pass")
+        pinned = manifest["clientArtifacts"]["honua-sdk-dotnet"]
+        cell["evidence_receipt"]["identity"].update(client_package=pinned["package"],
+                                                    client_package_digest=pinned["digest"])
+    rehash(cell)
+    with pytest.raises(MODULE.Finding, match=re.escape(problem)):
+        bind_harness(recorded, manifest)
+
+
+class HarnessGitHub:
+    def __init__(self, trunk=True, contract=True):
+        self.trunk, self.contract = trunk, contract
+
+    def on_trunk(self, repository, sha):
+        return self.trunk
+
+    def content(self, repository, path, revision):
+        markers = MODULE.HARNESS_CONTRACT if self.contract else MODULE.HARNESS_CONTRACT[:1]
+        return ("\n".join(f"      {marker}" for marker in markers)).encode()
+
+
+def test_bind_requires_the_harness_on_protected_trunk_with_the_contract():
+    recorded, _manifest, _cell = harness_night()
+    MODULE.verify_harness_runs(HarnessGitHub(), recorded["catalog"], recorded["runs"])
+    with pytest.raises(MODULE.Finding, match="not on honua-io/honua-sdk-python's protected trunk"):
+        MODULE.verify_harness_runs(HarnessGitHub(trunk=False), recorded["catalog"], recorded["runs"])
+    with pytest.raises(MODULE.Finding, match="lacks the dispatch contract"):
+        MODULE.verify_harness_runs(HarnessGitHub(contract=False), recorded["catalog"], recorded["runs"])
+
+
+class WalkGitHub:
+    def __init__(self, commits):
+        self.commits = commits  # [(sha, has_contract, green)]
+
+    def trunk_commits(self, repository, limit):
+        return [sha for sha, _contract, _green in self.commits]
+
+    def content(self, repository, path, revision):
+        contract = dict((sha, c) for sha, c, _g in self.commits)[revision]
+        return ("\n".join(MODULE.HARNESS_CONTRACT) if contract else "nightly_dispatch_id:").encode()
+
+    def green(self, repository, sha):
+        return dict((s, g) for s, _c, g in self.commits)[sha]
+
+
+def test_stage_selects_the_newest_green_trunk_commit_with_the_contract():
+    gh = WalkGitHub([("1" * 40, True, False), ("2" * 40, False, True), ("3" * 40, True, True)])
+    assert MODULE.select_harness(gh, "sdk-dotnet-harness") == "3" * 40
+    with pytest.raises(MODULE.Finding, match="no green"):
+        MODULE.select_harness(WalkGitHub([("1" * 40, False, True)]), "sdk-python-harness")

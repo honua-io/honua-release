@@ -92,6 +92,7 @@
               "repository": { "type": "string", "pattern": "^honua-io/[A-Za-z0-9._-]+$" },
               "workflow": { "type": "string", "pattern": "^[A-Za-z0-9._-]+\\.ya?ml$" },
               "source_revision_key": { "type": "string", "minLength": 1 },
+              "harness_revision_key": { "type": "string", "minLength": 1 },
               "inputs": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string" } },
               "client_lanes": { "$ref": "#/$defs/clientLanes" },
               "deployment_targets": { "$ref": "#/$defs/deploymentTargets" },
