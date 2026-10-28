@@ -34,6 +34,9 @@ on:
       # job image and the image its pre-serving migration runs on the provision runner.
       gp_batch_image: { required: false, type: string, default: "" }
       enable_bedrock: { required: false, type: boolean, default: false }
+      # The cell's Bedrock model, provisioned as bedrock_ai_model and used by its canary, so the server's
+      # disclosure approval and the canary name the same model. Empty: the pinned module default.
+      bedrock_model: { required: false, type: string, default: "" }
       # Fix unit J3: the genuine-model canary runs after this cell's journey whenever Bedrock is on
       # (opt-in on approved ECS/Lambda GA cells), bound to this lock digest. Empty on a
       # manual dispatch: the canary then records an unbound `blocked` row.
@@ -61,6 +64,7 @@ env:
   HONUA_GP_BATCH_IMAGE: ${{ inputs.gp_batch_image }}
   HONUA_MIGRATE_IMAGE: ${{ inputs.gp_batch_image }}
   HONUA_ENABLE_BEDROCK_AI: ${{ inputs.enable_bedrock }}
+  HONUA_BEDROCK_AI_MODEL: ${{ inputs.bedrock_model }}
   HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
   HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   CELL_DIR: e2e/cloud-evidence/${{ github.run_id }}/${{ github.run_attempt }}/${{ inputs.target }}/redis-${{ inputs.redis }}
@@ -478,7 +482,7 @@ jobs:
         continue-on-error: true
         env:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
-          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
+          TERMINAL_MODEL_NAME: ${{ inputs.bedrock_model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
           TERMINAL_MODEL_RUNTIME: aws-bedrock
           TERMINAL_MODEL_QUANTIZATION: provider-managed
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
