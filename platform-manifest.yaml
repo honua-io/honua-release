@@ -518,10 +518,10 @@ components:
     # mirrored the exact Lambda child, verified config/layers, and observed sha256:a77ece8e...
     # in us-east-1 ECR. Its pending-mirror sentinel then stopped provisioning; this is
     # artifact provenance only, not a passing cloud qualification run.
-    # 2026-10-27 rc re-pin #4 to a4bde4b: the ECR mirror of the new Lambda child has not been
-    # observed yet. The e2e-cloud-aws workflow mirrors it by digest and fails closed on this sentinel
-    # until the observed ECR digest is recorded here.
-    awsLambdaEcrDigest: "pending-ecr-mirror"
+    # 2026-10-28: the ECR mirror of the a4bde4b Lambda child, observed by e2e-cloud-aws run
+    # 40741962103 (target=aws-serverless). ECR preserved the source config, so the mirror digest equals
+    # awsLambdaDigest.
+    awsLambdaEcrDigest: "sha256:90672f30f77ba7bd4b80af71f1d075cd59da6c1de0cba115e3ea9c76879b709b"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
