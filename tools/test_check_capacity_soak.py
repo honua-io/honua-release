@@ -1075,3 +1075,22 @@ def test_worker_saturation_keeps_its_peak_bound(tmp_path):
     value["signals"]["saturationRatio"]["saturationComponents"]["worker"]["value"] = 0.9
     value["signals"]["saturationRatio"].update(value=0.9, thresholdVerdict={"operator": "<=", "limit": 0.85, "passed": False})
     assert any("saturationRatio: 0.9 violates" in item for item in failures(value, tmp_path))
+
+
+def test_densely_sampled_quiet_tail_cannot_hide_database_saturation(tmp_path):
+    value = receipt(tmp_path)
+    start = datetime.fromisoformat(WINDOW["startedAt"].replace("Z", "+00:00"))
+    stamp = lambda seconds: (start + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+    def mutate(source):
+        busy = [dict(at=stamp(s), worker=.6, database=1, redis=.5, queueAgeSeconds=5) for s in range(0, 3541, 60)]
+        quiet = [dict(at=stamp(s), worker=.6, database=0, redis=.5, queueAgeSeconds=5) for s in range(3541, 3601)]
+        source["metrics"] = busy + quiet
+    count = len(_rewrite_source(value, tmp_path, mutate)["metrics"])
+    signals = value["signals"]
+    signals["queueAgeSeconds"]["observationPopulation"]["sampleCount"] = count
+    signals["saturationRatio"]["observationPopulation"]["sampleCount"] = count * 3
+    for component in signals["saturationRatio"]["saturationComponents"].values():
+        component["sampleCount"] = count
+    signals["saturationRatio"]["saturationComponents"]["database"]["value"] = 1
+    signals["saturationRatio"].update(value=1, thresholdVerdict={"operator": "<=", "limit": 0.85, "passed": False})
+    assert any("saturationRatio" in item and "violates" in item for item in failures(value, tmp_path))

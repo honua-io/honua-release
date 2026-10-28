@@ -246,10 +246,13 @@ def _validate(lock, receipt, root):
     _equal(receipt['signals']['recoveryTimeSeconds']['recoveryEvidence']['events'], source['recoveries'], 'recovery events')
     # capacity-refreeze-post-sec20-2026-10-28: deliberate refusals are served answers, not outages, and
     # the database pool is gated on its time-mean utilization; worker and Redis keep their peaks.
-    database = [_number(row['database'], high=1) for row in metrics]
+    # Trapezoid-weighted by elapsed time, so densely sampled quiet stretches cannot hide saturation.
+    database = [(_time(row['at']), _number(row['database'], high=1)) for row in metrics]
+    database_mean = (sum((b[0]-a[0]).total_seconds()*(a[1]+b[1])/2 for a, b in zip(database, database[1:]))
+                     / (end-start).total_seconds()) if len(database) > 1 else database[0][1]
     return {'availability': (request_count-errors+refused)/request_count,
             'errorRate': (errors-refused)/request_count,
             'expectedRefusals': refused,
             'saturation': {'worker': components['worker'], 'redis': components['redis'],
-                           'databaseMean': sum(database)/len(database)},
+                           'databaseMean': database_mean},
             'previewSamplingFailures': len(source['samplingFailures'])}
