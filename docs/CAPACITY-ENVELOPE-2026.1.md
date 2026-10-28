@@ -49,7 +49,7 @@ The first [baseline 34749955367](https://github.com/honua-io/honua-server/action
 observed p95 587.26 ms, p99 775.17 ms and 1,617.83 successful requests/s. Its derived limits did
 not reproduce in the independent run 34753540275: p95 was 746.50 ms, p99 929.28 ms and throughput
 1,254.18/s. That completed run is now the baseline, yielding 822 ms, 1,023 ms and 1,191/s bounds
-with the unchanged allowances. The lock retains both runs and the failed qualification.
+with the unchanged allowances (the throughput bound is superseded below). The lock retains both runs and the failed qualification.
 
 The current baseline error rate is **4.8903%** (259,240 failures / 5,301,057 requests). The absolute
 ceiling remains **5%**, which also covers the first baseline's 4.9165% reading. This capacity budget does not waive
@@ -67,6 +67,32 @@ whole load run; throughput is successful requests divided by its 4,020 seconds, 
 Recovery is a subsequent container restart to the first served query. A soak is separate from
 full-platform disaster recovery. These readings must not be presented as different measurement
 windows or as cloud qualification.
+
+### Re-freeze after SEC-20 (founder ruling `capacity-refreeze-post-sec20-2026-10-28`)
+
+**The 2026.1 throughput floor is 357 requests/s**, not 1,191/s. The 1,191/s bound above came from
+a server that answered anonymous GETs from a blanket 60-second output cache: the 09-16 qualifying
+run reached the database for 32 of 2,128 sampled queries, with a server-side p50 of 1.6 ms. The
+SEC-20 fix (honua-server #5083, 2026-09-21) removed that cache, so every request now reaches the
+database. On the same four-CPU runner, candidate `a4bde4b8` measured
+[376.29/s](https://github.com/honua-io/honua-server/actions/runs/40640175278) and
+[385.24/s](https://github.com/honua-io/honua-server/actions/runs/40695639068), with p95 771/754 ms
+and p99 980/958 ms. The floor uses the existing derivation: the lower run times 0.95, rounded
+down. The latency bounds already hold and are unchanged. A local reproduction pinned to four
+cores found the server CPU per request, not the load harness, limits throughput. Performance and
+response-caching work is tracked after the RC.
+
+The same ruling scores three readings differently:
+
+- **413 tile refusals:** low-zoom OGC tiles (z0–z2) over the 10,000-feature layer are refused by
+  design with 413. They stay in the request and throughput population, but they count as expected
+  refusals, not as errors or outages. Both runs had no other GA errors.
+- **Queue age:** this is the GP queue's oldest job. GP is Preview
+  (`gp-out-of-ga-capacity-envelope-2026-10-27`), so queue age is reported, not gated. GP sampling
+  failures likewise don't make the soak incomplete; any other sampling failure still does.
+- **Database pool saturation:** this is gated on its time-mean over the measured window (0.69 in
+  both runs, against the 0.85 bound). Momentary peaks reached 1.0 and 0.94. Worker and Redis keep
+  their peak bound.
 
 The amended lock must be committed before a **new** qualification soak begins. The baseline
 receipt cannot qualify that new lock: its lock digest and start time predate the amended freeze.

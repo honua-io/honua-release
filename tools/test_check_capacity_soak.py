@@ -693,7 +693,7 @@ def test_preview_dimensions_are_informational(tmp_path):
         value["signals"][name] = {"status": "unobserved", "value": None}
     assert failures(value, tmp_path) == []
     assert set(gate.informational_dimensions(LOCK, value)) == {"activeSubscriptions", "alertEvaluationsPerSecond",
-                                                               "gpWorkers", "gpQueueDepth"}
+                                                               "gpWorkers", "gpQueueDepth", "signals.queueAgeSeconds"}
 
 
 def test_undeclared_non_preview_dimension_fails(tmp_path):
@@ -731,7 +731,7 @@ def test_allowance_is_not_applied_twice(tmp_path):
     assert any("p95LatencyMs" in failure and "violates" in failure for failure in failures(value, tmp_path))
 
 
-@pytest.mark.parametrize("name", LOCK["soak"]["requiredSignals"])
+@pytest.mark.parametrize("name", [name for name in LOCK["soak"]["requiredSignals"] if name != "queueAgeSeconds"])
 def test_each_ga_signal_fails_beyond_its_frozen_limit(tmp_path, name):
     value = receipt(tmp_path)
     threshold = LOCK["thresholds"][name]
@@ -931,3 +931,147 @@ def test_redis_recovering_in_20_seconds_fails(tmp_path):
     value = receipt(tmp_path)
     _recover_after(value, tmp_path, 'redis', 20)
     assert any('fault drill: redis recovered in 20s, beyond the 19.0s bound' in item for item in failures(value, tmp_path))
+
+
+# ── Founder ruling capacity-refreeze-post-sec20-2026-10-28 ─────────────────────────────────────
+
+REFREEZE = "capacity-refreeze-post-sec20-2026-10-28"
+
+
+def _without_refreeze():
+    lock = copy.deepcopy(LOCK)
+    lock["rulings"] = [ruling for ruling in lock["rulings"] if ruling.get("id") != REFREEZE]
+    return lock
+
+
+def _evaluate(lock, value, root):
+    return gate.evaluate(lock, value, gate.lock_digest(LOCK_PATH), REVISION, root, IMAGE_DIGEST)
+
+
+def _set_raw(value, name, numerator, denominator=6480000):
+    threshold = LOCK["thresholds"][name]
+    raw = numerator / denominator
+    passed = raw <= threshold["value"] if threshold["operator"] == "<=" else raw >= threshold["value"]
+    value["signals"][name].update(value=raw, thresholdVerdict={"operator": threshold["operator"],
+                                                               "limit": threshold["value"], "passed": passed})
+    value["signals"][name]["observationPopulation"].update(numerator=numerator)
+
+
+def _tile_traffic(value, root, status=413, count=400000):
+    """Move part of one replica's 600ms population to OGC tiles answered with problem+json."""
+    def mutate(source):
+        buckets = source["requests"][1]["buckets"]
+        buckets[0]["count"] -= count
+        buckets.append({"count": count, "durationMs": 600, "httpStatus": status, "inBandError": True,
+                        "protocol": "OGC-API-Tiles"})
+    _rewrite_source(value, root, mutate)
+    _set_raw(value, "availability", 6480000 - 2 - count)
+    _set_raw(value, "errorRate", 2 + count)
+
+
+def test_the_refreeze_ruling_is_recorded_in_the_lock():
+    ruling = next(r for r in LOCK["rulings"] if r.get("id") == REFREEZE)
+    assert ruling["expectedRefusals"] == [{"protocol": "OGC-API-Tiles", "httpStatus": 413}]
+    assert ruling["previewSignals"] == ["queueAgeSeconds"]
+    assert ruling["databaseSaturation"] == "time-mean"
+    assert LOCK["thresholds"]["throughputRps"]["value"] == 357.0
+    assert min(run["throughputRps"] for run in ruling["observedRuns"]) * 0.95 >= 357.0
+
+
+def test_413_tile_refusals_are_expected_refusals_not_outages(tmp_path):
+    """Runs 40640175278 and 40695639068: z0-z2 tiles over the 10k-feature layer are refused by
+    design with 413; the raw availability was 0.941 with no other GA errors."""
+    value = receipt(tmp_path)
+    _tile_traffic(value, tmp_path)
+    assert value["signals"]["availability"]["thresholdVerdict"]["passed"] is False
+    assert failures(value, tmp_path) == []
+
+
+def test_413_tile_refusals_still_fail_without_the_ruling(tmp_path):
+    value = receipt(tmp_path)
+    _tile_traffic(value, tmp_path)
+    result = _evaluate(_without_refreeze(), value, tmp_path)
+    assert any("availability" in item and "violates" in item for item in result)
+    assert any("errorRate" in item and "violates" in item for item in result)
+
+
+def test_other_tile_errors_still_count(tmp_path):
+    value = receipt(tmp_path)
+    _tile_traffic(value, tmp_path, status=503)
+    result = failures(value, tmp_path)
+    assert any("availability" in item and "violates" in item for item in result)
+    assert any("errorRate" in item and "violates" in item for item in result)
+
+
+def test_a_receipt_that_disagrees_with_its_source_is_gated_on_its_raw_values(tmp_path):
+    value = receipt(tmp_path)
+    _tile_traffic(value, tmp_path)
+    value["signals"]["availability"]["value"] = 0.5
+    result = failures(value, tmp_path)
+    assert any("value differs from source observations" in item for item in result)
+    assert any("availability: 0.5 violates" in item for item in result)
+
+
+def test_gp_queue_age_is_reported_not_gated(tmp_path):
+    value = receipt(tmp_path)
+    _rewrite_source(value, tmp_path, lambda s: [row.update(queueAgeSeconds=158.562) for row in s["metrics"]])
+    value["signals"]["queueAgeSeconds"].update(value=158.562, thresholdVerdict={"operator": "<=", "limit": 30.0, "passed": False})
+    assert failures(value, tmp_path) == []
+    assert gate.informational_dimensions(LOCK, value)["signals.queueAgeSeconds"]["value"] == 158.562
+    assert any("queueAgeSeconds" in item and "violates" in item for item in _evaluate(_without_refreeze(), value, tmp_path))
+
+
+def _gp_sampling_failures(value, root, failures_list):
+    _rewrite_source(value, root, lambda s: s.update(samplingFailures=failures_list))
+    value["status"] = "incomplete"
+
+
+def test_gp_only_sampling_failures_may_leave_the_soak_incomplete(tmp_path):
+    value = receipt(tmp_path)
+    _gp_sampling_failures(value, tmp_path, ["GP sampling: submitJob: "] * 3)
+    assert failures(value, tmp_path) == []
+
+
+def test_any_other_sampling_failure_still_fails(tmp_path):
+    value = receipt(tmp_path)
+    _gp_sampling_failures(value, tmp_path, ["GP sampling: submitJob: ", "serving sample: TimeoutError: "])
+    result = failures(value, tmp_path)
+    assert any("sampling failures differs" in item for item in result)
+    assert any("soak status must be completed" in item for item in result)
+
+
+def test_gp_sampling_failures_fail_without_the_ruling(tmp_path):
+    value = receipt(tmp_path)
+    _gp_sampling_failures(value, tmp_path, ["GP sampling: submitJob: "])
+    assert any("soak status must be completed" in item for item in _evaluate(_without_refreeze(), value, tmp_path))
+
+
+def _database(value, root, peak, mean_rows):
+    def mutate(source):
+        for index, row in enumerate(source["metrics"]):
+            row["database"] = peak if index == 0 else mean_rows
+    _rewrite_source(value, root, mutate)
+    value["signals"]["saturationRatio"]["saturationComponents"]["database"]["value"] = peak
+    raw = max(peak, 0.6, 0.5)
+    value["signals"]["saturationRatio"].update(value=raw, thresholdVerdict={"operator": "<=", "limit": 0.85, "passed": raw <= 0.85})
+
+
+def test_a_momentary_full_database_pool_passes_on_its_time_mean(tmp_path):
+    value = receipt(tmp_path)
+    _database(value, tmp_path, 1, 0.69)
+    assert failures(value, tmp_path) == []
+    assert any("saturationRatio" in item and "violates" in item for item in _evaluate(_without_refreeze(), value, tmp_path))
+
+
+def test_a_sustained_database_pool_saturation_fails(tmp_path):
+    value = receipt(tmp_path)
+    _database(value, tmp_path, 1, 0.9)
+    assert any("saturationRatio" in item and "violates" in item for item in failures(value, tmp_path))
+
+
+def test_worker_saturation_keeps_its_peak_bound(tmp_path):
+    value = receipt(tmp_path)
+    _rewrite_source(value, tmp_path, lambda s: s["metrics"][0].update(worker=0.9))
+    value["signals"]["saturationRatio"]["saturationComponents"]["worker"]["value"] = 0.9
+    value["signals"]["saturationRatio"].update(value=0.9, thresholdVerdict={"operator": "<=", "limit": 0.85, "passed": False})
+    assert any("saturationRatio: 0.9 violates" in item for item in failures(value, tmp_path))
