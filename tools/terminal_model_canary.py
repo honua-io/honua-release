@@ -26,6 +26,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -892,6 +893,57 @@ class CandidateProxyClient:
             raise CanaryError("candidate model response exceeds the byte bound")
         return raw
 
+    # honua-server #6597: every model invocation needs a durable AI execution admission. The server
+    # names its deployment (AiExecutionAdmission__DeploymentId on the candidate) and an administrator
+    # must initialize and resume that deployment's admission ledger; until then the Studio proxy
+    # answers 403 to every chat. A fresh candidate stack has no ledger, so the harness opens one.
+    ADMISSION_POLICY = {
+        "windowSeconds": 60, "maxOperationSeconds": 300,
+        "deploymentAttempts": 120, "actorAttempts": 30, "cohortAttempts": 20, "workflowAttempts": 10,
+        "deploymentConcurrency": 8, "actorConcurrency": 4, "cohortConcurrency": 2, "workflowConcurrency": 1,
+    }
+
+    def _auth_headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if self.config.api_key:
+            if self.config.api_key_header == "x-api-key":
+                headers["X-API-Key"] = self.config.api_key
+            else:
+                headers["Authorization"] = f"Bearer {self.config.api_key}"
+        return headers
+
+    def ensure_admission(self) -> list[dict[str, Any]]:
+        """Initialize and resume the candidate's AI admission ledger; return the operation results."""
+        api = self.config.proxy_chat_url().removesuffix("/v1/studio/ai/chat")
+        results = []
+        for operation, parameters in (
+            ("admin.ai.admission.initialize",
+             {"policy": json.dumps(self.ADMISSION_POLICY, separators=(",", ":"))}),
+            ("admin.ai.admission.resume", {}),
+        ):
+            headers = self._auth_headers()
+            headers["Idempotency-Key"] = f"terminal-model-canary-{operation}-{uuid.uuid4()}"
+            request = urllib.request.Request(
+                f"{api}/v1/operations/{operation}/submit",
+                data=json.dumps({"parameters": parameters}).encode("utf-8"),
+                headers=headers, method="POST")
+            try:
+                with self._open(request, timeout=self.timeout_seconds) as response:
+                    payload = strict_json(self._read(response).decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = self.redactor.text(exc.read(2048).decode("utf-8", "replace"))[:300]
+                raise CanaryError(f"candidate AI admission {operation} failed: {exc} ({detail})") from exc
+            except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise CanaryError(f"candidate AI admission {operation} failed: {exc}") from exc
+            # The operations endpoint answers 200 for a failed operation; the status is in the body.
+            data = payload.get("data") if isinstance(payload, dict) else None
+            status = data.get("status") if isinstance(data, dict) else None
+            if status != "Completed":
+                detail = self.redactor.text(json.dumps(payload)[:300])
+                raise CanaryError(f"candidate AI admission {operation} did not complete: {detail}")
+            results.append({"operation": operation, "status": status})
+        return results
+
     def _manifest(self, headers: dict[str, str]) -> dict[str, Any]:
         # Validate the route before sending any credentials, including discovery.
         url = self.config.proxy_chat_url().removesuffix("/chat") + "/capabilities"
@@ -1524,6 +1576,15 @@ def execute_live(
             result=setup,
         )
         builder.capture_transcript("driver", setup, stage_id=first_stage)
+        admission = client.ensure_admission()
+        builder.record_action(
+            stage_id=first_stage,
+            attribution=HARNESS_DRIVEN,
+            kind="setup",
+            status="pass",
+            request={"aiAdmission": ["admin.ai.admission.initialize", "admin.ai.admission.resume"]},
+            result={"aiAdmission": admission},
+        )
 
         for stage in builder.journey["stages"]:
             active_stage = stage

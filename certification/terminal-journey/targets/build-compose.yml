@@ -47,6 +47,9 @@ services:
       # model transfer without an exact operator approval of provider, kind, destination, model, use
       # case and workload classification ("AI disclosure is not approved ...", trunk run 40715860986).
       # The canary sends only synthetic journey fixtures, so it approves exactly this provider and model.
+      # honua-server #6597: model invocations need a durable AI execution admission for a named
+      # deployment. The canary initializes and resumes this deployment's ledger before its first chat.
+      AiExecutionAdmission__DeploymentId: terminal-journey-canary
       StudioAiProxy__Disclosure__WorkloadDataClassification: synthetic-fixture
       StudioAiProxy__Disclosure__Approvals__0__Provider: bedrock
       StudioAiProxy__Disclosure__Approvals__0__Kind: bedrock
