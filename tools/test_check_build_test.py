@@ -276,6 +276,21 @@ def test_claude_review_budget_miss_is_governance_and_not_a_build():
     assert bt.classify(payload)[0] == "fail"
 
 
+def test_cancelled_pr_identity_job_is_governance_and_not_a_core_flake():
+    payload = {"check_runs": [
+        {"id": 1, "name": "Build & Format Check", "status": "completed", "conclusion": "success"},
+        {"id": 2, "name": "Resolve pull request identity",
+         "status": "completed", "conclusion": "cancelled"},
+    ]}
+    # Red: unlisted, the superseded run is counted as a cancelled core lane.
+    assert bt.classify(payload)[0] != "pass"
+    # Green: listed, it is excluded and the real build lane decides.
+    governance = bt.load_governance()["honua-server"]
+    assert "Resolve pull request identity" in governance
+    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), governance)
+    assert status == "pass", why
+
+
 def test_only_advisory_checks_are_blocked_never_pass():
     payload = {"check_runs": [
         {"name": "Shadow parity", "status": "completed", "conclusion": "failure"},
