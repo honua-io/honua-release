@@ -7,10 +7,17 @@ source revision; a content hash alone is not an attestation.
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import os
 from pathlib import Path
 import re
+import select
 import subprocess
+import sys
+import tarfile
+import tempfile
+import time
 
 from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json, portable_path
 
@@ -18,6 +25,15 @@ REPOSITORY = "https://github.com/honua-io/honua-server"
 GRAPH = "docs/okf/domain-graph.v1.json"
 SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+# Reviewed generator bytes from honua-server. The fallback never executes a
+# generator supplied by an arbitrary future source revision.
+GENERATOR_DIGESTS = {
+    "scripts/ci/generate-okf-graph.py": "sha256:d7333ec5e476fa600f94f754d72c0715717e768a5e3ef54650848fde1e645111",
+    "scripts/ci/okf_frontmatter.py": "sha256:d179edd803b584eb1524c355e5bcdd6da61d84013355ae3ce3ad0e269a4d4018",
+    "scripts/ci/gis_workflow.py": "sha256:17f84c7ea6572bd8d72599cf9332c2dc0c018375126695014389a65c65bec886",
+}
+SOURCE_MANIFEST = "scripts/ci/okf-bundle.v1.json"
+MAX_SOURCE_ARCHIVE_BYTES = 64 * 1024 * 1024
 
 
 def require(value, message):
@@ -33,6 +49,91 @@ def git_bytes(repository, revision, path):
     return result.stdout.decode("utf-8").replace("\r\n", "\n").encode("utf-8")
 
 
+def bounded_archive(repository, revision, paths):
+    """Read one local Git archive with a byte and wall-clock bound.
+
+    The hosted pilot worker-image workflow runs this exporter on ubuntu-latest;
+    select() on a subprocess pipe requires a POSIX runner.
+    """
+    require(os.name == "posix", "pinned OKF graph generation requires a POSIX runner")
+    command = ["git", "-C", str(repository), "archive", "--format=tar", revision, *paths]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    chunks = []
+    size = 0
+    deadline = time.monotonic() + 30
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, "knowledge source archive timed out")
+            ready, _, _ = select.select([process.stdout], [], [], remaining)
+            require(bool(ready), "knowledge source archive timed out")
+            chunk = os.read(process.stdout.fileno(), min(65536, MAX_SOURCE_ARCHIVE_BYTES - size + 1))
+            if not chunk:
+                break
+            size += len(chunk)
+            require(size <= MAX_SOURCE_ARCHIVE_BYTES, "knowledge source archive exceeds bound")
+            chunks.append(chunk)
+        require(process.wait(timeout=max(0.1, deadline - time.monotonic())) == 0 and size > 0,
+                "knowledge source archive failed")
+        return b"".join(chunks)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+
+
+def graph_bytes(repository, revision):
+    """Read a legacy graph, or derive it from a pinned source using reviewed code."""
+    require(SHA.fullmatch(revision) is not None, "knowledge source requires an exact commit")
+    entry = subprocess.run(["git", "-C", str(repository), "ls-tree", "-z", revision, "--", GRAPH],
+                           capture_output=True, check=True).stdout
+    if entry:
+        require(entry.startswith(b"100644 blob ") and entry.endswith(("\t" + GRAPH + "\0").encode()),
+                "knowledge graph is not a regular Git blob")
+        return git_bytes(repository, revision, GRAPH)
+
+    paths = ["docs", SOURCE_MANIFEST, *GENERATOR_DIGESTS]
+    archive = bounded_archive(repository, revision, paths)
+    with tempfile.TemporaryDirectory(prefix="pinned-okf-") as temporary:
+        root = Path(temporary)
+        seen = set()
+        total = 0
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as source:
+            for member in source:
+                relative = member.name.rstrip("/")
+                portable_path(relative)
+                if member.isdir():
+                    continue
+                require(member.isfile() and relative not in seen, "unsafe knowledge source entry")
+                seen.add(relative)
+                if not (relative in GENERATOR_DIGESTS or relative == SOURCE_MANIFEST or
+                        (relative.startswith("docs/") and relative.endswith((".md", ".json")))):
+                    continue
+                total += member.size
+                require(total <= MAX_SOURCE_ARCHIVE_BYTES, "knowledge source files exceed bound")
+                content = source.extractfile(member).read()
+                if relative in GENERATOR_DIGESTS:
+                    require(digest_bytes(content) == GENERATOR_DIGESTS[relative],
+                            "unreviewed OKF graph generator")
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+        require(set(GENERATOR_DIGESTS) | {SOURCE_MANIFEST} <= seen,
+                "incomplete pinned OKF generator source")
+        source_manifest = load_json(root / SOURCE_MANIFEST)
+        require(isinstance(source_manifest, dict) and source_manifest.get("root") == "docs",
+                "pinned OKF bundle root must be docs")
+        output = root / GRAPH
+        environment = {"PATH": os.defpath, "HOME": str(root), "PYTHONDONTWRITEBYTECODE": "1"}
+        result = subprocess.run([sys.executable, "-E", "-s", str(root / "scripts/ci/generate-okf-graph.py"),
+                                 "--output", str(output)], cwd=root, env=environment,
+                                capture_output=True, text=True, timeout=30, check=False)
+        require(result.returncode == 0 and output.is_file(),
+                "pinned OKF graph generation failed: " + result.stdout[-500:] + result.stderr[-500:])
+        return output.read_bytes()
+
+
 def references(pack, graph):
     ids = {node["id"] for node in graph["nodes"]}
     for scenario in pack["scenarios"]:
@@ -42,8 +143,8 @@ def references(pack, graph):
 
 
 def build(repository, revision, pack):
-    graph_bytes = git_bytes(repository, revision, GRAPH)
-    graph = json.loads(graph_bytes)
+    graph_data = graph_bytes(repository, revision)
+    graph = json.loads(graph_data)
     require(graph["profile"] == "honua.okf-agent-graph/v1" and graph["executionVerified"] is False,
             "unsupported or execution-claiming knowledge graph")
     references(pack, graph)
@@ -61,9 +162,9 @@ def build(repository, revision, pack):
     commitment = {"manifestDigest": digest_bytes(source_manifest), "documents": documents,
                   "interfaceBindings": graph["interfaceBindings"]}
     require(canonical_digest(commitment) == graph["bundleDigest"], "stale OKF bundle digest")
-    files["okf/domain-graph.v1.json"] = graph_bytes
+    files["okf/domain-graph.v1.json"] = graph_data
     manifest = {"schemaVersion": 1, "sourceRepository": REPOSITORY, "sourceRevision": revision,
-                "bundleDigest": graph["bundleDigest"], "graphDigest": digest_bytes(graph_bytes),
+                "bundleDigest": graph["bundleDigest"], "graphDigest": digest_bytes(graph_data),
                 "normalization": "UTF-8/LF", "files": [
                     {"path": path, "sha256": digest_bytes(data), "bytes": len(data)}
                     for path, data in sorted(files.items())]}
