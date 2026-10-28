@@ -181,7 +181,7 @@ class MatrixExpectationTests(unittest.TestCase):
         cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
         self.assertEqual(cell["artifact"], "honua-mcp-server")
         self.assertEqual(cell["driver"], "npm-mcp-setup-view")
-        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 37})
+        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 41})
 
     def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
         _, matrix = inputs()

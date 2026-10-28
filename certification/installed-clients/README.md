@@ -32,8 +32,10 @@ shim exactly as a customer launches it. A binary without a contract fails the ce
 `npm-mcp-setup-view-tools-list` is the terminal journey's discovery contract. The installed proxy
 sends `initialize` with `_meta["honua.io/workflow-view"] = "setup"`, then a selector-free
 `tools/list`, and must return the complete server-authored `setup` view with the matrix's
-`toolCount` (37 from the 3ecd214 server pin, whose roster `views.setup` grew from 25 tools at revision
-`setup.v2` to 37 at `setup.v3`). Published `@honua/mcp-server` 0.1.12 dropped the selector and returned the 12-tool
+`toolCount` (41 from the a4bde4b server pin, whose roster `views.setup` is 41 tools at revision
+`setup.v6`; it grew from 25 at `setup.v2` to 37 at `setup.v3`, and RC re-pin #4 adds
+`honua_create_map_package`, `honua_create_app_package`, `honua_get_job_results` and
+`honua_ingest_job_artifact`). Published `@honua/mcp-server` 0.1.12 dropped the selector and returned the 12-tool
 `default` view ([honua-sdk-js#1875](https://github.com/honua-io/honua-sdk-js/issues/1875)). The pinned
 0.1.14 proxy retains the `setup` view, so the cell is active. A proxy that drops the selector again
 reports the 12-tool `default` view and fails the cell.

@@ -92,6 +92,15 @@ class EndpointTests(unittest.TestCase):
         target._tf.return_value.stdout = "owned-function"
         server = manifest["components"]["honua-server"]
         context["binding"]["cell"] = "aws-serverless/redis-on"
+        # The live manifest may carry awsLambdaEcrDigest "pending-ecr-mirror" between a Lambda re-pin
+        # and its first mirror (#520). Nothing observed can match it, so no canonical identity exists.
+        # The read-back contract below is then proven on a concrete synthetic mirror digest.
+        if server["awsLambdaEcrDigest"] == "pending-ecr-mirror":
+            pending = {"Code": {"RepositoryType": "ECR", "ResolvedImageUri": "123.dkr.ecr.us-east-1.amazonaws.com/mirror@pending-ecr-mirror"},
+                       "Configuration": {"PackageType": "Image"}}
+            self.assertIsNone(endpoint.cloud_policy().observed_lambda_image(
+                target, manifest, run=mock.Mock(return_value=mock.Mock(stdout=json.dumps(pending)))))
+            server["awsLambdaEcrDigest"] = "sha256:" + "e" * 64
         for digest, passes in ((server["awsLambdaEcrDigest"], True), ("sha256:" + "0" * 64, False)):
             observed = {"Code": {"RepositoryType": "ECR", "ResolvedImageUri": "123.dkr.ecr.us-east-1.amazonaws.com/mirror@" + digest},
                         "Configuration": {"PackageType": "Image"}}
