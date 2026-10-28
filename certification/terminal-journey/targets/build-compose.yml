@@ -43,6 +43,17 @@ services:
       StudioAiProxy__Providers__bedrock__Kind: bedrock
       StudioAiProxy__Providers__bedrock__Model: "${HONUA_CANARY_BEDROCK_MODEL:-us.anthropic.claude-sonnet-5-5}"
       StudioAiProxy__Providers__bedrock__Region: "${HONUA_CANARY_BEDROCK_REGION:-us-east-1}"
+      # The server's fail-closed AI disclosure policy (honua-server AiDisclosurePolicy) refuses every
+      # model transfer without an exact operator approval of provider, kind, destination, model, use
+      # case and workload classification ("AI disclosure is not approved ...", trunk run 40715860986).
+      # The canary sends only synthetic journey fixtures, so it approves exactly this provider and model.
+      StudioAiProxy__Disclosure__WorkloadDataClassification: synthetic-fixture
+      StudioAiProxy__Disclosure__Approvals__0__Provider: bedrock
+      StudioAiProxy__Disclosure__Approvals__0__Kind: bedrock
+      StudioAiProxy__Disclosure__Approvals__0__Destination: "aws-bedrock:${HONUA_CANARY_BEDROCK_REGION:-us-east-1}"
+      StudioAiProxy__Disclosure__Approvals__0__Model: "${HONUA_CANARY_BEDROCK_MODEL:-us.anthropic.claude-sonnet-5-5}"
+      StudioAiProxy__Disclosure__Approvals__0__UseCase: studio-chat
+      StudioAiProxy__Disclosure__Approvals__0__DataClassification: synthetic-fixture
       # The signed transcript_provenance event carries the canonical request (every prompt message,
       # base64) and the provider events, so one journey turn exceeds the server's default
       # MaxEventBytes (262144) and the proxy refuses it with studio_ai/provider_output_too_large
