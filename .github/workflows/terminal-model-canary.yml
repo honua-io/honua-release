@@ -289,6 +289,9 @@ jobs:
           HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
           LOCK_DIGEST: ${{ steps.lock.outputs.digest }}
           INJECT_STAGE: ${{ inputs.inject_stage }}
+          # The driver keeps the candidate's filtered, redacted warning/error and AI-proxy log lines
+          # here before it removes the stack, so a provider failure names its server-side exception.
+          HONUA_JOURNEY_SERVER_LOG: ${{ github.workspace }}/artifacts/candidate-server.log
         run: |
           set -uo pipefail
           args=(
@@ -319,6 +322,7 @@ jobs:
           path: |
             artifacts/terminal-journey-receipt.json
             artifacts/terminal-model-canary-receipt.json
+            artifacts/candidate-server.log
           if-no-files-found: warn
 
   # ── aws-ecs/redis-off: the ECS Redis-off cell with Bedrock, canary after the cell journey ──────────

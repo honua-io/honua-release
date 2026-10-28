@@ -305,3 +305,31 @@ def test_external_model_setup_requires_bound_observed_deployment_image(tmp_path)
         if mutation == "digest": proof["sha256"] = "0" * 64
         with unittest.TestCase().subTest(mutation=mutation), unittest.TestCase().assertRaises(live_driver.DriverError):
             live_driver._cloud_image(target, manifest, digest, None if mutation == "missing" else proof)
+
+
+def test_server_log_is_filtered_and_redacted_before_teardown(tmp_path, monkeypatch):
+    log = tmp_path / "server.log"
+    monkeypatch.setenv(live_driver.SERVER_LOG_ENV, str(log))
+    monkeypatch.setenv("HONUA_ADMIN_PASSWORD", "admin-secret-value")
+
+    class Compose:
+        def logs(self, service, tail=4000):
+            assert service == "server"
+            return ("[INF] request ok admin-secret-value\n"
+                    "[WRN] StudioAiProxy provider request failed: AmazonBedrockRuntimeException key=admin-secret-value\n")
+
+    live_driver._retain_server_log(Compose(), {"compose": {"serverService": "server"}})
+    kept = log.read_text()
+    assert "AmazonBedrockRuntimeException" in kept
+    assert "request ok" not in kept
+    assert "admin-secret-value" not in kept
+
+
+def test_server_log_is_not_retained_without_opt_in(tmp_path, monkeypatch):
+    monkeypatch.delenv(live_driver.SERVER_LOG_ENV, raising=False)
+
+    class Compose:
+        def logs(self, *_a, **_k):
+            raise AssertionError("logs must not be read without opt-in")
+
+    live_driver._retain_server_log(Compose(), {})
