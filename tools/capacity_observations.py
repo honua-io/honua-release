@@ -43,6 +43,25 @@ def preview_protocols(lock: dict) -> set[str]:
             for name in ruling.get('previewProtocols', [])}
 
 
+def _ruling_values(lock: dict, field: str) -> list:
+    return [value for ruling in lock.get('rulings', []) if isinstance(ruling, dict)
+            for value in ruling.get(field, [])]
+
+
+def expected_refusals(lock: dict) -> set[tuple[str, int]]:
+    """(protocol, HTTP status) pairs a founder ruling scores as deliberate refusals, not outages."""
+    return {(row['protocol'], row['httpStatus']) for row in _ruling_values(lock, 'expectedRefusals')}
+
+
+def preview_signals(lock: dict) -> set[str]:
+    """SLO signals a founder ruling reports as Preview evidence instead of gating."""
+    return set(_ruling_values(lock, 'previewSignals'))
+
+
+def preview_sampling_failure_prefixes(lock: dict) -> tuple[str, ...]:
+    return tuple(_ruling_values(lock, 'previewSamplingFailurePrefixes'))
+
+
 def ga_dimensions(lock: dict) -> list[str]:
     """The GA capacity dimensions: the exercised envelope less the dimensions a founder ruling keeps
     in it only as Preview evidence (previewInEnvelope, also listed as excluded Preview dimensions).
@@ -54,11 +73,15 @@ def ga_dimensions(lock: dict) -> list[str]:
 
 def validate_sources(lock: dict, receipt: dict, root: Path) -> list[str]:
     """Verify sources, recompute all eight signals and compare every source population."""
+    return gate_values(lock, receipt, root)[0]
+
+
+def gate_values(lock: dict, receipt: dict, root: Path) -> tuple[list[str], dict]:
+    """Source failures plus the values a founder ruling gates on instead of the raw signals."""
     try:
-        _validate(lock, receipt, root.resolve())
+        return [], _validate(lock, receipt, root.resolve())
     except (KeyError, TypeError, ValueError, OSError, OverflowError) as exc:
-        return [f'source observations: {exc}']
-    return []
+        return [f'source observations: {exc}'], {}
 
 
 def _validate(lock, receipt, root):
@@ -75,7 +98,12 @@ def _validate(lock, receipt, root):
     _equal(source['schema'], 'honua.capacity-observations/v1', 'schema')
     for field in ('candidateIdentity', 'window', 'topology', 'producer', 'lockSha256', 'faultDrill'):
         _equal(source[field], receipt[field], field)
-    _equal(source['samplingFailures'], [], 'sampling failures')
+    # capacity-refreeze-post-sec20-2026-10-28: only Preview (GP) sampling may fail; anything else is fatal.
+    prefixes = preview_sampling_failure_prefixes(lock)
+    if not isinstance(source['samplingFailures'], list) or any(
+            not isinstance(failure, str) or not prefixes or not failure.startswith(prefixes)
+            for failure in source['samplingFailures']):
+        _equal(source['samplingFailures'], [], 'sampling failures')
     _equal(source['populationMode'], 'complete-disjoint-intervals', 'population mode')
     start, end = (_time(receipt['window'][k]) for k in ('startedAt', 'endedAt'))
     duration = (end - start).total_seconds()
@@ -89,7 +117,8 @@ def _validate(lock, receipt, root):
     excluded = preview_protocols(lock)
     replicas = {r['id'] for r in receipt['topology']['replicas']}
     intervals = {r: [] for r in replicas}
-    request_count = errors = total_count = 0
+    refusals = expected_refusals(lock)
+    request_count = errors = refused = total_count = 0
     histogram = []
     for interval in source['requests']:
         replica = interval['replica']
@@ -111,7 +140,9 @@ def _validate(lock, receipt, root):
             if bucket['protocol'] in excluded:
                 continue  # gp-out-of-ga-capacity-envelope-2026-10-27: Preview, never in the GA SLOs
             request_count += count
-            errors += count if status >= 500 or bucket['inBandError'] else 0
+            failed = status >= 500 or bucket['inBandError']
+            errors += count if failed else 0
+            refused += count if failed and (bucket['protocol'], status) in refusals else 0
             histogram.append((latency, count))
     for replica, spans in intervals.items():
         cursor = start
@@ -213,3 +244,15 @@ def _validate(lock, receipt, root):
         if artifact['id'] not in saturation[name]['rawArtifactIds']:
             raise ValueError(f'{name} missing saturation source')
     _equal(receipt['signals']['recoveryTimeSeconds']['recoveryEvidence']['events'], source['recoveries'], 'recovery events')
+    # capacity-refreeze-post-sec20-2026-10-28: deliberate refusals are served answers, not outages, and
+    # the database pool is gated on its time-mean utilization; worker and Redis keep their peaks.
+    # Trapezoid-weighted by elapsed time, so densely sampled quiet stretches cannot hide saturation.
+    database = [(_time(row['at']), _number(row['database'], high=1)) for row in metrics]
+    database_mean = (sum((b[0]-a[0]).total_seconds()*(a[1]+b[1])/2 for a, b in zip(database, database[1:]))
+                     / (end-start).total_seconds()) if len(database) > 1 else database[0][1]
+    return {'availability': (request_count-errors+refused)/request_count,
+            'errorRate': (errors-refused)/request_count,
+            'expectedRefusals': refused,
+            'saturation': {'worker': components['worker'], 'redis': components['redis'],
+                           'databaseMean': database_mean},
+            'previewSamplingFailures': len(source['samplingFailures'])}
