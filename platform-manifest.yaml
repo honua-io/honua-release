@@ -602,6 +602,15 @@ components:
       geoservices: "2.0.0"   # transports[].id=geoservices-rest contractVersion
       ogc: "1.0.0"           # transports[].id=ogc-http contractVersion
       stac: "1.0.0"          # transports[].id=stac contractVersion
+    # Copied from release/component-versions.json at the pinned sha a4bde4b8
+    # (honua-server#6530). The resolver copies that declaration and then sets
+    # schemaVersions.database to the migration floor (dbSchema). database is not
+    # declared by the server. metadata is the graph schema, not the API id above.
+    schemaVersions:
+      certification-evidence-receipt: "2.0"
+      inspector-pagination-observer: "v2"
+      metadata: "2.0.0-alpha.1"
+      database: "140"
     # DB schema floor = highest applied migration in the PINNED source (src/Honua.Server/Migrations/,
     # NNN_ prefix). RE-VERIFIED at 6b6d3b8, not carried forward: none of #3347/#3349/#3352/#3353 adds
     # a migration, so the max is still 106.

@@ -158,9 +158,8 @@ data:
     # 2026-10-27 rc re-pin #4 to a4bde4b moves it to 140 (140_CreateAiExecutionAdmission.sql); the floor stays >=115.
     requiresDbSchema: ">=115"
     # Graph schema (metadataSchemaVersion), not the metadata API id under contracts.metadata.
-    # The manifest carries it as honua-server schemaVersions.metadata only once the server's
-    # release/component-versions.json declares it (the resolver copies that declaration; no hand
-    # value). Until then coherence warns; once declared it must equal this value.
+    # The pinned server declaration names this value. The manifest copies it as
+    # honua-server.schemaVersions.metadata; coherence errors if the two disagree.
     metadataSchema: "2.0.0-alpha.1"
 
 # Capability lifecycle vocabulary. Every row under `capabilities:` takes exactly one of these values
