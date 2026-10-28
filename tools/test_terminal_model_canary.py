@@ -758,6 +758,13 @@ def test_compose_routes_studio_ai_to_bedrock_only_when_the_canary_enables_it():
     assert env["StudioAiProxy__Providers__bedrock__Kind"] == "bedrock"
     assert "us.anthropic.claude-sonnet-5-5" in env["StudioAiProxy__Providers__bedrock__Model"]
     assert "us-east-1" in env["StudioAiProxy__Providers__bedrock__Region"]
+    # The disclosure approval must match the provider the canary configures, exactly.
+    assert env["StudioAiProxy__Disclosure__Approvals__0__Provider"] == "bedrock"
+    assert env["StudioAiProxy__Disclosure__Approvals__0__Kind"] == env["StudioAiProxy__Providers__bedrock__Kind"]
+    assert env["StudioAiProxy__Disclosure__Approvals__0__Model"] == env["StudioAiProxy__Providers__bedrock__Model"]
+    assert env["StudioAiProxy__Disclosure__Approvals__0__Destination"] == "aws-bedrock:" + env["StudioAiProxy__Providers__bedrock__Region"]
+    assert env["StudioAiProxy__Disclosure__Approvals__0__UseCase"] == "studio-chat"
+    assert env["StudioAiProxy__Disclosure__Approvals__0__DataClassification"] == env["StudioAiProxy__Disclosure__WorkloadDataClassification"]
     # The seed travels only by reference and from a secret; no static AWS key is declared.
     assert env["StudioAiProxy__TranscriptSigning__PrivateKeyReference"] == "${HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE:-}"
     assert env["AWS_SESSION_TOKEN"] == "${HONUA_CANARY_AWS_SESSION_TOKEN:-}"
