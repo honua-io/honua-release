@@ -57,3 +57,14 @@ honua-server:
       misreported as a core runner-starvation flake and refused RC candidate a4bde4b8c5ee (nightly
       run 40638087375). A cancelled identity lookup is not a build of the pinned source. The
       server leaf lanes stay decisive.
+  - name: "Candidate capacity soak"
+    why: >-
+      The only job of honua-server's `capacity-soak-candidate.yml`, which honua-release's nightly
+      `capacity` job dispatches at the candidate commit under a honua-release capacity lock. It
+      measures the already-built candidate image against that lock and attests the evidence ZIP;
+      it compiles nothing, runs no product test, and produces no shipped artifact. Because it runs
+      at the candidate sha, its check-run lands on that commit, so counting it as build CI let a
+      failed soak evict the candidate from the next nightly's resolve: the a4bde4b8 soaks failed
+      under the pre-re-freeze lock, and nightly run 40733259481 then selected 0e03bdd, 424 commits
+      older. Capacity stays gated where it belongs, by the nightly `capacity` job and
+      check_capacity_soak.py against the current lock.

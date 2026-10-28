@@ -458,3 +458,16 @@ def test_grpc_certify_harness_ruling_is_advisory_but_protocol_lanes_stay_core():
     assert _red_names(why) == "1/2 core check-run(s) red (['failure']: ['Conformance Fixtures'])"
     status, why = _classify("geospatial-grpc", _runs_named(("certify", "failure")))
     assert status == "blocked", why
+
+
+def test_failed_capacity_soak_is_governance_and_does_not_evict_the_candidate():
+    payload = {"check_runs": [
+        {"id": 1, "name": "Build & Format Check", "status": "completed", "conclusion": "success"},
+        {"id": 2, "name": "Candidate capacity soak", "status": "completed", "conclusion": "failure"},
+    ]}
+    # Red: unlisted, a failed soak under an older lock counts as a red core lane.
+    assert bt.classify(payload)[0] == "fail"
+    governance = bt.load_governance()["honua-server"]
+    assert "Candidate capacity soak" in governance
+    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), governance)
+    assert status == "pass", why
