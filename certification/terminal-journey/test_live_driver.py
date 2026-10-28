@@ -333,3 +333,15 @@ def test_server_log_is_not_retained_without_opt_in(tmp_path, monkeypatch):
             raise AssertionError("logs must not be read without opt-in")
 
     live_driver._retain_server_log(Compose(), {})
+
+
+def test_unwritable_server_log_never_blocks_teardown(tmp_path, monkeypatch):
+    blocker = tmp_path / "file"
+    blocker.write_text("not a directory")
+    monkeypatch.setenv(live_driver.SERVER_LOG_ENV, str(blocker / "server.log"))
+
+    class Compose:
+        def logs(self, *_a, **_k):
+            return "[ERR] StudioAiProxy failure\n"
+
+    live_driver._retain_server_log(Compose(), {})  # must not raise

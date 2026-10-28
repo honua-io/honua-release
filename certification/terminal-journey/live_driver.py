@@ -716,8 +716,11 @@ def _retain_server_log(compose, target: dict[str, Any]) -> None:
             for secret in secrets:
                 line = line.replace(secret, "[redacted]")
             kept.append(line[:2000])
-    Path(destination).parent.mkdir(parents=True, exist_ok=True)
-    Path(destination).write_text("\n".join(kept[-1500:]) + "\n", encoding="utf-8")
+    try:
+        Path(destination).parent.mkdir(parents=True, exist_ok=True)
+        Path(destination).write_text("\n".join(kept[-1500:]) + "\n", encoding="utf-8")
+    except OSError:
+        pass  # diagnostics are best-effort; teardown must still remove the stack and its credentials
 
 
 OPERATIONS = {
