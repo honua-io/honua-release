@@ -65,7 +65,7 @@ def _cell_admin_password(monkeypatch):
 # test starts without them and sets exactly what it exercises.
 _CELL_WORKFLOW_ENV = ("HONUA_LAMBDA_IMAGE_URI", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_IMAGE",
                       "HONUA_ECS_ARCHITECTURE", "HONUA_GP_BATCH_IMAGE", "HONUA_MIGRATE_IMAGE",
-                      "HONUA_ENABLE_BEDROCK_AI", "HONUA_CLOUD_COST_CEILING_USD", "HONUA_RUN_URL",
+                      "HONUA_ENABLE_BEDROCK_AI", "HONUA_BEDROCK_AI_MODEL", "HONUA_CLOUD_COST_CEILING_USD", "HONUA_RUN_URL",
                       "CELL_DIR", "CELL_ARTIFACT", "HONUA_DEPLOYMENT_PREPARED", "HONUA_CLOUD_TENANT_FIXTURE",
                       "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
                       "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN",
@@ -4259,6 +4259,39 @@ def test_ecs_bedrock_is_opt_in_and_fails_closed_on_a_root_without_it(monkeypatch
         _iac_root_with(monkeypatch, base, "aws-serverless")
         with pytest.raises(ProvisionError, match="does not declare enable_bedrock_ai"):
             serverless(run_id="r1")._vars(False)
+
+
+def test_ecs_bedrock_model_is_passed_only_when_set_valid_and_declared(monkeypatch):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", "enable_bedrock_ai", "bedrock_ai_region", "bedrock_ai_model")
+        monkeypatch.delenv("HONUA_BEDROCK_AI_MODEL", raising=False)
+        assert "bedrock_ai_model" not in _tf_vars(ecs(run_id="r1")._vars(False))
+        for model in ("us.anthropic.claude-sonnet-4-6", "us.openai.gpt-6.1-terra"):
+            monkeypatch.setenv("HONUA_BEDROCK_AI_MODEL", model)
+            assert _tf_vars(ecs(run_id="r1")._vars(False))["bedrock_ai_model"] == model
+        monkeypatch.setenv("HONUA_BEDROCK_AI_MODEL", "us.openai.*")
+        with pytest.raises(ProvisionError, match="must be an exact"):
+            ecs(run_id="r1")._vars(False)
+        monkeypatch.setenv("HONUA_BEDROCK_AI_MODEL", "us.anthropic.claude-sonnet-4-6")
+        _iac_root_with(monkeypatch, base, "aws", "enable_bedrock_ai", "bedrock_ai_region")
+        with pytest.raises(ProvisionError, match="does not declare bedrock_ai_model"):
+            ecs(run_id="r1")._vars(False)
+
+
+def test_cloud_workflow_threads_the_bedrock_model_to_the_cell_and_its_canary():
+    workflow, cell = _cloud_workflows()
+    assert "bedrock_model" in (workflow.get("on") or workflow[True])["workflow_dispatch"]["inputs"]
+    cell_call = next(job for job in workflow["jobs"].values() if "bedrock_model" in (job.get("with") or {}))
+    assert cell_call["with"]["bedrock_model"] == "${{ inputs.bedrock_model || '' }}"
+    assert cell["env"]["HONUA_BEDROCK_AI_MODEL"] == "${{ inputs.bedrock_model }}"
+    canary = next(step for job in cell["jobs"].values() for step in job.get("steps", [])
+                  if str(step.get("name", "")).startswith("Run the genuine-model canary"))
+    assert canary["env"]["TERMINAL_MODEL_NAME"].startswith("${{ inputs.bedrock_model || ")
 
 
 def test_cloud_workflow_threads_the_batch_image_and_scopes_bedrock_to_the_genuine_model_cell():

@@ -48,6 +48,10 @@ on:
         description: "Enable Bedrock on selected ECS/Lambda GA cells for the genuine-model journey (billed tokens)"
         type: boolean
         default: false
+      bedrock_model:
+        description: "Bedrock model for the genuine-model cells (exact us. profile, e.g. us.anthropic.claude-sonnet-4-6 or us.openai.gpt-6.1-terra); empty uses the pinned module default"
+        type: string
+        default: ""
       lock_digest:
         description: "sha256:<hex> of the platform lock the genuine-model canary binds to (empty: the canary runs unbound and records blocked)"
         type: string
@@ -402,6 +406,7 @@ jobs:
       gp_batch_image: ${{ needs.candidate.outputs.gp_batch_image }}
       # Bedrock is billed: opt-in for the ECS GA cells (or an explicitly dispatched Lambda Preview cell); never EKS Preview.
       enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && (matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}
+      bedrock_model: ${{ inputs.bedrock_model || '' }}
       lock_digest: ${{ inputs.lock_digest || '' }}
       update_rollback_run_id: ${{ inputs.update_rollback_run_id || '' }}
       update_rollback_mode: ${{ inputs.update_rollback_mode || 'rehearsal' }}

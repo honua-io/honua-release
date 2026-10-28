@@ -346,6 +346,15 @@ class TerraformTarget(DeployTarget):
                 raise ProvisionError(f"{self.name}: {self.spec.opt_in_env}=true but the pinned root does "
                                      f"not declare {', '.join(undeclared)}")
             values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
+            model = os.environ.get(BEDROCK_MODEL_ENV, "").strip()
+            if model:
+                if not BEDROCK_MODEL.fullmatch(model):
+                    raise ProvisionError(f"{self.name}: {BEDROCK_MODEL_ENV} must be an exact Claude or OpenAI GPT "
+                                         f"Bedrock model id or us. profile, got {model!r}")
+                if not self._root_declares("bedrock_ai_model"):
+                    raise ProvisionError(f"{self.name}: {BEDROCK_MODEL_ENV} is set but the pinned root does not "
+                                         "declare bedrock_ai_model")
+                values.append(f"-var=bedrock_ai_model={model}")
         if (redis_enabled and self.name == "aws-serverless" and getattr(self, "transition_release", None) is not None):
             if not self._root_declares("gp_batch_retain_prior_definitions") and not destroy:
                 raise ProvisionError("update/rollback requires a root with explicit prior Batch revision retention")
@@ -1101,6 +1110,11 @@ STUDIO_END_USER_AUTHORIZATION_VAR = "studio_end_user_authorization=true"
 # The roots render it as Import__Limits__BackgroundJobThresholdBytes; neither aws root declares the
 # input yet (their additional_env is fixed in the root), so nothing is passed until honua-iac does.
 IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=67108864"
+
+# Optional Bedrock model for an opt-in cell (e2e-cloud-aws bedrock_model input). The same id must
+# satisfy honua-iac's bedrock_ai_model validation: exact Claude or OpenAI GPT ids or us. profiles.
+BEDROCK_MODEL_ENV = "HONUA_BEDROCK_AI_MODEL"
+BEDROCK_MODEL = re.compile(r"(us[.])?(anthropic[.]claude-[a-z0-9-]+(-v[0-9]+:[0-9]+)?|openai[.]gpt-[a-z0-9.-]+)")
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
