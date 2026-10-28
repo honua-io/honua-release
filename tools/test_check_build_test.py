@@ -126,9 +126,9 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
     assert data["sha"] == "c19f29d1828814f0f4c372b0dce73554074ba3b1"
     status, why = _classify("honua-server", payload)
     assert status == "pass", why
-    # 116, not 120: the four green/skipped Server Test Prebuild Parity Observation checks in this
+    # 115, not 120: the Resolve pull request identity job is governance and the four green/skipped Server Test Prebuild Parity Observation checks in this
     # capture are advisory too (server-test-prebuild-parity.yml, 2026-10-26).
-    assert why.startswith("all 116 core check-run(s) green")
+    assert why.startswith("all 115 core check-run(s) green")
     for name in PREBUILD:
         assert name in why
 
@@ -158,7 +158,7 @@ def test_prebuild_checks_stay_core_when_the_workflow_path_was_not_recorded():
     status, why = _classify("honua-server", stripped)
     assert status == "fail"
     assert _red_names(why) == (
-        "2/124 core check-run(s) red (['failure']: "
+        "2/123 core check-run(s) red (['failure']: "
         "['Prebuild repeated project / geoservices', 'Prebuild repeated project / server'])"
     )
 
@@ -274,6 +274,21 @@ def test_claude_review_budget_miss_is_governance_and_not_a_build():
     assert status == "pass", why
     assert "Post exact-head Claude review evidence" in why
     assert bt.classify(payload)[0] == "fail"
+
+
+def test_cancelled_pr_identity_job_is_governance_and_not_a_core_flake():
+    payload = {"check_runs": [
+        {"id": 1, "name": "Build & Format Check", "status": "completed", "conclusion": "success"},
+        {"id": 2, "name": "Resolve pull request identity",
+         "status": "completed", "conclusion": "cancelled"},
+    ]}
+    # Red: unlisted, the superseded run is counted as a cancelled core lane.
+    assert bt.classify(payload)[0] != "pass"
+    # Green: listed, it is excluded and the real build lane decides.
+    governance = bt.load_governance()["honua-server"]
+    assert "Resolve pull request identity" in governance
+    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), governance)
+    assert status == "pass", why
 
 
 def test_only_advisory_checks_are_blocked_never_pass():

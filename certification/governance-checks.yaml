@@ -46,3 +46,14 @@ honua-server:
       configured maximum of 40; a later attempt of the same workflow completed skipped.
       A review-budget miss is not a build of the pinned source. The server leaf lanes and
       the full-matrix run stay decisive.
+  - name: "Resolve pull request identity"
+    why: >-
+      The first job of honua-server's "Review Gate Attestation" workflow
+      (`.github/workflows/review-gate.yml`, job `resolve`), sibling of "Publish SHA-bound review
+      attestation". It only maps the triggering event to a pull request number and head sha for
+      the attestation job. It restores nothing, compiles nothing, runs no server test, and
+      produces no shipped artifact. The workflow cancels superseded runs through concurrency, so
+      the latest check-run of this name on a commit is routinely `cancelled`; that was
+      misreported as a core runner-starvation flake and refused RC candidate a4bde4b8c5ee (nightly
+      run 40638087375). A cancelled identity lookup is not a build of the pinned source. The
+      server leaf lanes stay decisive.
