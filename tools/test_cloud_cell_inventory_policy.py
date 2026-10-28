@@ -6,7 +6,7 @@ import pytest
 import cloud_cell_inventory_policy as inventory
 
 from cloud_cell_inventory_policy import (
-    ADDRESS, POLICY, READ_ACTION, ROLE, SOURCE, confirm_policy, desired_policy, validate_plan,
+    ADDRESS, CANARY_MODELS, POLICY, READ_ACTION, ROLE, SOURCE, confirm_policy, desired_policy, validate_plan,
 )
 
 
@@ -30,6 +30,10 @@ def test_only_standing_version_inventory_is_excepted():
             del expected["Action"]
             expected["NotAction"] = [READ_ACTION]
             assert new == expected and new["Effect"] == "Deny"
+        elif old["Sid"] == "BedrockInvokeOnlyCanaryModel":
+            expected = copy.deepcopy(old)
+            expected["NotResource"] = CANARY_MODELS
+            assert new == expected and new["Effect"] == "Deny" and new["Action"] == old["Action"]
         else:
             assert old == new
     assert validate_plan(plan, before, after, before)["actions"] == ["update"]
@@ -141,3 +145,24 @@ def test_complete_receipt_transition_replaces_only_after_write(tmp_path):
     inventory.write_receipt(path, {"applied": True, "observedDesired": True})
     assert json.loads(path.read_text()) == {"applied": True, "observedDesired": True}
     assert not path.with_name(path.name + ".pending").exists()
+
+
+def test_canary_allowlist_is_sonnet_5_5_sonnet_4_6_and_gpt_6_1_terra_without_sonnet_4_5():
+    profiles = [arn for arn in CANARY_MODELS if ":inference-profile/" in arn]
+    assert profiles == [
+        "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-5-5",
+        "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-4-6",
+        "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.openai.gpt-6.1-terra",
+    ]
+    assert len(CANARY_MODELS) == 12 and not [arn for arn in CANARY_MODELS if "sonnet-4-5" in arn]
+    main = (SOURCE / "main.tf").read_text()
+    assert all(f'"{arn}"' in main for arn in CANARY_MODELS)
+
+
+def test_canary_model_guardrail_snapshot_must_match():
+    before = json.loads((SOURCE / "guardrails.before.json").read_text())
+    for row in before["Statement"]:
+        if row["Sid"] == "BedrockInvokeOnlyCanaryModel":
+            row["NotResource"] = row["NotResource"][:-1]
+    with pytest.raises(ValueError, match="canary model guardrail snapshot differs"):
+        desired_policy(before)

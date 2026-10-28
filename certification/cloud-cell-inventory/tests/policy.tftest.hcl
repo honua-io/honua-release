@@ -22,7 +22,22 @@ run "single_read_exception" {
         Resource  = "*"
         Condition = { StringEquals = { "aws:ResourceTag/Environment" = ["cert", "demo"] } }
       })
+    ) : statement.Sid == "BedrockInvokeOnlyCanaryModel" ? (
+      jsonencode(local.desired.Statement[index]) == jsonencode(merge(statement, { NotResource = [
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.openai.gpt-6.1-terra",
+    "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-6.1-terra",
+    "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-6.1-terra",
+    "arn:aws:bedrock:us-west-2::foundation-model/openai.gpt-6.1-terra",
+      ] }))
     ) : jsonencode(statement) == jsonencode(local.desired.Statement[index])])
-    error_message = "Preserve every restriction except the single version-inventory read."
+    error_message = "Preserve every restriction except the version-inventory read and the canary model allowlist."
   }
 }

@@ -1,9 +1,16 @@
 # Release-cell Lambda version inventory
 
 This root adopts only the existing `honua-release-cicd:release-cicd-guardrails`
-inline policy. Its single change exempts `lambda:ListVersionsByFunction` from
-the standing-resource deny. All other statements, resource conditions, regions,
-mutation restrictions and existing grants are preserved. It adds no role,
+inline policy. It makes two reviewed changes:
+
+1. It exempts `lambda:ListVersionsByFunction` from the standing-resource deny.
+2. It replaces the genuine-model canary's Bedrock allowlist (`BedrockInvokeOnlyCanaryModel`) with
+   Claude Sonnet 5.5, Claude Sonnet 4.6 and OpenAI GPT-6.1 Terra. Each model is allowed through its
+   US cross-region inference profile and the three member-region foundation models. Claude Sonnet 4.5
+   is retired (founder, 2026-10-28). The account itself must still be granted Sonnet 5.5 by AWS.
+
+All other statements, resource conditions, regions, mutation restrictions and existing grants are
+preserved. It adds no role,
 role chaining, write permission or secret-value API. The existing release role's
 grants must independently allow the inventory action.
 

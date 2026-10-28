@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import and review one fixed inventory-policy update through Terraform only."""
+"""Import and review one fixed guardrail-policy update through Terraform only."""
 from __future__ import annotations
 
 import argparse
@@ -18,6 +18,31 @@ ROLE = "honua-release-cicd"
 POLICY = "release-cicd-guardrails"
 ADDRESS = "aws_iam_role_policy.inventory"
 READ_ACTION = "lambda:ListVersionsByFunction"
+# The canary model allowlist before and after (must match main.tf local.canary_models exactly).
+CANARY_MODELS_BEFORE = [
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+]
+CANARY_MODELS = [
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-5-5",
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.openai.gpt-6.1-terra",
+    "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-6.1-terra",
+    "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-6.1-terra",
+    "arn:aws:bedrock:us-west-2::foundation-model/openai.gpt-6.1-terra",
+]
 
 
 def require(condition, message):
@@ -48,6 +73,10 @@ def desired_policy(before):
     }, "standing policy snapshot differs")
     del rows[0]["Action"]
     rows[0]["NotAction"] = [READ_ACTION]
+    bedrock = [row for row in after["Statement"] if row["Sid"] == "BedrockInvokeOnlyCanaryModel"]
+    require(len(bedrock) == 1 and bedrock[0]["Effect"] == "Deny"
+            and bedrock[0].get("NotResource") == CANARY_MODELS_BEFORE, "canary model guardrail snapshot differs")
+    bedrock[0]["NotResource"] = list(CANARY_MODELS)
     return after
 
 
