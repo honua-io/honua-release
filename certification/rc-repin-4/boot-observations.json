@@ -1,0 +1,85 @@
+{
+  "schema": "honua.rc-repin-boot-observations/v1",
+  "qualification": "engineering boot/capability observations; not full RC or AI qualification",
+  "imageWorkflow": {
+    "repository": "honua-io/honua-server",
+    "runId": 40620749251,
+    "conclusion": "success",
+    "ciRunId": 40611757494,
+    "attestation": "gh attestation verify --repo honua-io/honua-server --source-digest a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e --deny-self-hosted-runners: verified"
+  },
+  "registryIndexDigest": "sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37",
+  "platformDigests": {
+    "amd64": "sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574",
+    "arm64": "sha256:5d6154cb7241e590e5e50204b30c977074838168a56134a0465e77102ea34974"
+  },
+  "boots": [
+    {
+      "status": "pass",
+      "kind": "customer",
+      "image": "ghcr.io/honua-io/honua-server@sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574",
+      "imageId": "sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574",
+      "deploymentRevision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+      "deploymentRevisionSource": "commit-sha",
+      "fetchedAt": "2026-10-28T04:43:30.957268+00:00",
+      "databaseImage": "pgrouting/pgrouting:17-3.5-3.7.3",
+      "environment": "Development",
+      "capabilities": 80,
+      "migrationRows": 156,
+      "latestMigration": "140_CreateAiExecutionAdmission.sql",
+      "healthy": true,
+      "project": "honua-repin4-customer-dd2bf1",
+      "compose": "docker-compose.yml (customer quickstart) at honua-server a4bde4b8; fresh volumes and generated credentials; only loopback host ports remapped",
+      "deviations": []
+    },
+    {
+      "status": "pass",
+      "kind": "production",
+      "image": "ghcr.io/honua-io/honua-server@sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574",
+      "imageId": "sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574",
+      "deploymentRevision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+      "deploymentRevisionSource": "commit-sha",
+      "fetchedAt": "2026-10-28T04:43:49.495534+00:00",
+      "databaseImage": "pgrouting/pgrouting:17-3.5-3.7.3",
+      "environment": "Production",
+      "capabilities": 80,
+      "migrationRows": 156,
+      "latestMigration": "140_CreateAiExecutionAdmission.sql",
+      "healthy": true,
+      "project": "honua-repin4-production-0efade",
+      "compose": "docker-compose.production.yml (unmodified) + .env.production from .env.production.example at honua-server a4bde4b8, filled and key ring generated as docs/guides/deploy/docker-compose.md documents; fresh volumes; only loopback ports, network and storage volume names chosen for isolation",
+      "adminLicenseStatus": 200,
+      "deviations": []
+    }
+  ],
+  "documentedProductionSmoke": {
+    "tool": "scripts/docker/smoke-production.py at honua-server a4bde4b8 (runs the documented blocks verbatim)",
+    "receipt": {
+      "anonymous_admin_status": 401,
+      "cleanup_succeeded": true,
+      "documented_blocks": [
+        "production.env",
+        "production.keyring",
+        "production.start"
+      ],
+      "documented_exit_code": 0,
+      "fresh_volumes": true,
+      "live_status": 200,
+      "production": true,
+      "proxied_admin_status": 200,
+      "ready": true,
+      "ready_status": 200,
+      "untrusted_host_status": 400
+    }
+  },
+  "lambda": {
+    "image": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-a4bde4b-amd64",
+    "indexDigest": "sha256:4ddccebbf3352665eb68144aa84fb7c5470de4997e811dd49f02a2c46c3caa9b",
+    "amd64Digest": "sha256:90672f30f77ba7bd4b80af71f1d075cd59da6c1de0cba115e3ea9c76879b709b",
+    "revisionLabel": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+    "entrypoint": [
+      "/var/task/Honua.Server"
+    ],
+    "ecrMirror": "pending-ecr-mirror: not observed in this re-pin; no workflow was dispatched"
+  }
+}

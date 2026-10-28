@@ -4,8 +4,8 @@
   "manifests": [
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
-      "size": 2903,
+      "digest": "sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574",
+      "size": 3092,
       "platform": {
         "architecture": "amd64",
         "os": "linux"
@@ -13,10 +13,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:589ba4774022e3357c7479f724d101726ccce36ca4e3ee6162a763bc524d7522",
+      "digest": "sha256:9679566713b489449d5f05d47122b2cd8339554b19b4a7a9912fb134e8c4f28f",
       "size": 1112,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
+        "vnd.docker.reference.digest": "sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -26,8 +26,8 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:cd5a7be39163f711861176dce58bdc915098bd12e5c91d10af7bc4702bdf8965",
-      "size": 2903,
+      "digest": "sha256:5d6154cb7241e590e5e50204b30c977074838168a56134a0465e77102ea34974",
+      "size": 3092,
       "platform": {
         "architecture": "arm64",
         "os": "linux"
@@ -35,10 +35,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:a88fcaba271a13d63f02d1d7bc947027d574dd222b157c99fdc741d294a00494",
+      "digest": "sha256:c54d49481313e13bac95d2b6332a6c97e7a2d63db7a56ffc58bfa2ff990e2f4b",
       "size": 1112,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:cd5a7be39163f711861176dce58bdc915098bd12e5c91d10af7bc4702bdf8965",
+        "vnd.docker.reference.digest": "sha256:5d6154cb7241e590e5e50204b30c977074838168a56134a0465e77102ea34974",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -48,6 +48,6 @@
     }
   ],
   "annotations": {
-    "org.opencontainers.image.revision": "8cb074f77d01c0a00617ebe426460aa24c7d890b"
+    "org.opencontainers.image.revision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"
   }
 }

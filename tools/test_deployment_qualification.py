@@ -16,9 +16,23 @@ ARTIFACT = {"id": 1234, "sha256": "sha256:" + "c" * 64,
             "rawReceiptPath": "lambda-preview-receipt.json"}
 
 
+PENDING_ECR_MIRROR = "pending-ecr-mirror"
+
+
+def live_manifest():
+    return yaml.safe_load(MANIFEST_PATH.read_text())
+
+
 @pytest.fixture
 def manifest():
-    return yaml.safe_load(MANIFEST_PATH.read_text())
+    # The live manifest may carry awsLambdaEcrDigest "pending-ecr-mirror" between a Lambda re-pin
+    # and its first mirror (#520). Qualification refuses that sentinel (proven below), so the
+    # receipt contract is exercised on a concrete synthetic mirror digest, never a guessed one.
+    loaded = live_manifest()
+    server = loaded["components"]["honua-server"]
+    if server.get("awsLambdaEcrDigest") == PENDING_ECR_MIRROR:
+        server["awsLambdaEcrDigest"] = "sha256:" + "e" * 64
+    return loaded
 
 
 @pytest.fixture
@@ -152,6 +166,14 @@ def test_actual_precut_fact_shape_is_scoped_not_ga(manifest, deployment, bound_r
     assert receipt["scope"]["fullGaQualified"] is False
     assert receipt["scope"]["completedBillItems"] == [1, 2]
     assert receipt["phase"] == "candidate-precut"
+
+
+def test_pending_ecr_mirror_sentinel_is_never_qualified(manifest, deployment, bound_raw, producer_run):
+    manifest["components"]["honua-server"]["awsLambdaEcrDigest"] = PENDING_ECR_MIRROR
+    bound_raw["artifact"]["ecrDigest"] = PENDING_ECR_MIRROR
+    bound_raw["executionInputs"] = dq.input_binding(manifest, deployment)
+    with pytest.raises(dq.QualificationError, match="Lambda immutable source and image pins are required"):
+        dq.record(dq.execution_inputs(manifest, deployment), bound_raw, producer_run, ARTIFACT)
 
 
 def test_historical_receipt_cannot_be_rewrapped(manifest, deployment, raw_lambda, producer_run):
