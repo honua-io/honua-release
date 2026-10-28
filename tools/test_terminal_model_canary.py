@@ -996,6 +996,9 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
             return {"status": "pass"}
 
     class Model:
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
         def __init__(self, *_):
             pass
 
@@ -1247,6 +1250,9 @@ def test_blocked_driver_evidence_names_dependency_stage_and_tool_before_action_l
             assert operation == "teardown"
             return {"status": "pass"}
     class Model:
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
         def __init__(self, *_):
             pass
         def complete(self, *_):
@@ -1397,6 +1403,9 @@ def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None,
             return {"status": "pass"}
 
     class Model:
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
         def __init__(self, *_):
             pass
 
@@ -1531,6 +1540,9 @@ def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(mo
             return {"status": "pass"}
 
     class Model:
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
         def __init__(self, *_):
             pass
 
@@ -2016,3 +2028,56 @@ def test_red_without_the_ruling_the_blocked_journey_is_not_a_prerequisite(tmp_pa
 def test_a_plain_pass_carries_no_single_tenant_declaration(tmp_path: Path):
     proof = _validate_single_tenant(tmp_path, {**_green_deterministic_receipt()})
     assert "prerequisiteProfile" not in proof and "ruling" not in proof
+
+
+def test_admission_opens_the_ledger_before_any_chat_and_fails_closed(monkeypatch):
+    calls = []
+
+    class Response:
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self, *_):
+            return self.body
+
+    def opener(request, *, timeout):
+        calls.append((request.full_url, dict(request.header_items()), json.loads(request.data)))
+        status = "Completed" if len(calls) == 1 else "Failed"
+        return Response(json.dumps({"data": {"status": status}}).encode())
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(opener))
+    client = canary.CandidateProxyClient(replace(_endpoint(key="test-secret"), base_url="http://127.0.0.1:8000/api"))
+    with pytest.raises(canary.CanaryError, match="admin.ai.admission.resume did not complete"):
+        client.ensure_admission()
+    assert [url.rsplit("/operations/", 1)[1] for url, _, _ in calls] == [
+        "admin.ai.admission.initialize/submit", "admin.ai.admission.resume/submit"]
+    policy = json.loads(calls[0][2]["parameters"]["policy"])
+    assert set(policy) == set(canary.CandidateProxyClient.ADMISSION_POLICY)
+    assert all(headers.get("Idempotency-key") for _, headers, _ in calls)
+
+
+def test_admission_failure_redacts_before_truncating(monkeypatch):
+    secret = "s3cr3t-admission-credential-value"
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self, *_):
+            # The credential straddles the 300-character output bound.
+            return json.dumps({"data": {"status": "Failed", "message": "x" * 240 + secret}}).encode()
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(lambda *_a, **_k: Response()))
+    client = canary.CandidateProxyClient(replace(_endpoint(key=secret), base_url="http://127.0.0.1:8000/api"))
+    with pytest.raises(canary.CanaryError) as failure:
+        client.ensure_admission()
+    assert secret[:8] not in str(failure.value)
