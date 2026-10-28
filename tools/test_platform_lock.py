@@ -314,7 +314,7 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "$.notes: immutable release-notes content/reference is not declared" in joined
     assert "notes" not in draft.lock
     assert "[DECISION]" not in joined
-    # honua-iac is pinned to its v0.3.0 release, so its artifact version resolves.
+    # honua-iac is pinned to its v0.4.0 release (commit archive), so its artifact version resolves.
     assert "honua-iac.artifacts[0]" not in joined
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
@@ -322,7 +322,7 @@ def test_generator_reports_all_current_unresolved_release_work():
         "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
     )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
-        "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308"
+        "sha256:40c7a9f059574d691e134f3d830967b28c3a7458966f71ab922594501ae5ae06"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
     assert "honua-server.artifacts[0].platformDigests" not in joined
@@ -911,10 +911,10 @@ def test_live_inputs_lock_the_published_honua_iac_release():
     assert [item for item in draft.unresolved
             if "honua-iac" in item and "Versions: not declared" not in item] == []
     assert draft.lock["components"]["honua-iac"]["artifacts"] == [{
-        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz",
-        "version": "0.3.0", "sourceRevision": "d5b7bec9073e72ad294da5ce802aff0c58abad07",
-        "sha256": "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308"}]
-    assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "d5b7bec9073e72ad294da5ce802aff0c58abad07"
+        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/97cf1830e1de60ed7e14983c22ba88c348e298cd.tar.gz",
+        "version": "0.4.0", "sourceRevision": "97cf1830e1de60ed7e14983c22ba88c348e298cd",
+        "sha256": "sha256:40c7a9f059574d691e134f3d830967b28c3a7458966f71ab922594501ae5ae06"}]
+    assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "97cf1830e1de60ed7e14983c22ba88c348e298cd"
 
 
 # --- Helm Preview out of the lock (ruling helm-preview-out-of-lock-2026-10-26) ---
