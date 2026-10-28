@@ -50,7 +50,12 @@ def git_bytes(repository, revision, path):
 
 
 def bounded_archive(repository, revision, paths):
-    """Read one local Git archive with a byte and wall-clock bound."""
+    """Read one local Git archive with a byte and wall-clock bound.
+
+    The hosted pilot worker-image workflow runs this exporter on ubuntu-latest;
+    select() on a subprocess pipe requires a POSIX runner.
+    """
+    require(os.name == "posix", "pinned OKF graph generation requires a POSIX runner")
     command = ["git", "-C", str(repository), "archive", "--format=tar", revision, *paths]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     chunks = []
