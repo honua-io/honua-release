@@ -2060,3 +2060,24 @@ def test_admission_opens_the_ledger_before_any_chat_and_fails_closed(monkeypatch
     policy = json.loads(calls[0][2]["parameters"]["policy"])
     assert set(policy) == set(canary.CandidateProxyClient.ADMISSION_POLICY)
     assert all(headers.get("Idempotency-key") for _, headers, _ in calls)
+
+
+def test_admission_failure_redacts_before_truncating(monkeypatch):
+    secret = "s3cr3t-admission-credential-value"
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self, *_):
+            # The credential straddles the 300-character output bound.
+            return json.dumps({"data": {"status": "Failed", "message": "x" * 240 + secret}}).encode()
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(lambda *_a, **_k: Response()))
+    client = canary.CandidateProxyClient(replace(_endpoint(key=secret), base_url="http://127.0.0.1:8000/api"))
+    with pytest.raises(canary.CanaryError) as failure:
+        client.ensure_admission()
+    assert secret[:8] not in str(failure.value)

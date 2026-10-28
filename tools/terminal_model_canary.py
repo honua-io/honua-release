@@ -931,7 +931,7 @@ class CandidateProxyClient:
                 with self._open(request, timeout=self.timeout_seconds) as response:
                     payload = strict_json(self._read(response).decode("utf-8"))
             except urllib.error.HTTPError as exc:
-                detail = self.redactor.text(exc.read(2048).decode("utf-8", "replace"))[:300]
+                detail = self.redactor.text(exc.read(65536).decode("utf-8", "replace"))[:300]
                 raise CanaryError(f"candidate AI admission {operation} failed: {exc} ({detail})") from exc
             except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise CanaryError(f"candidate AI admission {operation} failed: {exc}") from exc
@@ -939,7 +939,7 @@ class CandidateProxyClient:
             data = payload.get("data") if isinstance(payload, dict) else None
             status = data.get("status") if isinstance(data, dict) else None
             if status != "Completed":
-                detail = self.redactor.text(json.dumps(payload)[:300])
+                detail = self.redactor.text(json.dumps(payload))[:300]
                 raise CanaryError(f"candidate AI admission {operation} did not complete: {detail}")
             results.append({"operation": operation, "status": status})
         return results
