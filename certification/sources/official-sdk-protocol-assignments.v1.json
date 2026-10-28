@@ -48,6 +48,7 @@
     "serve.geoservices-featureserver",
     "serve.geoservices-geocodeserver",
     "serve.geoservices-geometry-service",
+    "serve.geoservices-imageserver",
     "serve.geoservices-mapserver",
     "serve.geoservices-root",
     "serve.geoservices-vectortileserver",
