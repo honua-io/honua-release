@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from capacity_observations import ga_dimensions, preview_protocols, validate_sources
+from capacity_observations import expected_refusals, ga_dimensions, gate_values, preview_protocols, preview_signals
 from release_runner_policy import admit as admit_release_runner
 
 
@@ -364,7 +364,9 @@ def _validate_signals(
     artifacts: set[str],
     workload_names: set[str],
     failures: list[str],
+    gate: dict[str, Any] | None = None,
 ) -> None:
+    gate = gate or {}
     signals = receipt.get("signals")
     if not isinstance(signals, dict):
         signals = {}
@@ -420,6 +422,16 @@ def _validate_signals(
         verdict = _mapping(signal.get("thresholdVerdict"))
         if verdict != {"operator": operator, "limit": limit, "passed": passed}:
             failures.append(f"{name}: threshold verdict does not match the frozen lock and computed value")
+        # The receipt verdict above must match the raw value; capacity-refreeze-post-sec20-2026-10-28
+        # then gates some signals on ruled values recomputed from the attested source observations.
+        if name in preview_signals(lock):
+            passed = True
+        elif name in ("availability", "errorRate") and expected_refusals(lock) and name in gate:
+            value = gate[name]
+            passed = operator == "<=" and value <= limit or operator == ">=" and value >= limit
+        elif name == "saturationRatio" and _database_mean_ruling(lock) and "saturation" in gate:
+            value = max(gate["saturation"].values())
+            passed = operator == "<=" and value <= limit
         if not passed:
             failures.append(f"{name}: {value} violates frozen requirement {operator} {limit}")
 
@@ -431,6 +443,11 @@ def _validate_signals(
             if _mapping(signal.get("recoveryEvidence")).get("faultWindow") != fault_window:
                 failures.append("recoveryTimeSeconds: recovery evidence does not name the fault period")
             _validate_recovery(signal, artifacts, fault_window, failures)
+
+
+def _database_mean_ruling(lock: dict[str, Any]) -> bool:
+    return any(isinstance(ruling, dict) and ruling.get("databaseSaturation") == "time-mean"
+               for ruling in lock.get("rulings", []))
 
 
 def evaluate(
@@ -482,7 +499,11 @@ def evaluate(
         failures.append("capacity receipt schemaVersion does not match the frozen contract")
     if not expected_revision or not SHA_PATTERN.fullmatch(expected_revision):
         failures.append("expected manifest-pinned honua-server SHA is missing or invalid")
-    if receipt.get("status") != "completed":
+    source_failures, gate = gate_values(lock, receipt, artifact_root)
+    # capacity-refreeze-post-sec20-2026-10-28: a producer marks the soak incomplete when any sampling
+    # failed; GP sampling is Preview, so only Preview-only sampling failures may leave it incomplete.
+    if receipt.get("status") != "completed" and not (
+            receipt.get("status") == "incomplete" and gate.get("previewSamplingFailures")):
         failures.append("soak status must be completed (skipped/partial signals are failures)")
     if receipt.get("evidenceScope") != receipt_contract.get("evidenceScope"):
         failures.append("evidence scope must be single-tenant GA, not a demo-environment SLA")
@@ -552,9 +573,9 @@ def evaluate(
     _validate_producer(receipt, expected_revision, failures)
     artifacts = _validate_raw_artifacts(receipt, artifact_root, failures)
     workload_names = _validate_workloads(lock, receipt, artifacts, failures)
-    _validate_signals(lock, receipt, candidate, artifacts, workload_names, failures)
+    _validate_signals(lock, receipt, candidate, artifacts, workload_names, failures, gate)
     _validate_drill(lock, receipt, failures)
-    failures.extend(validate_sources(lock, receipt, artifact_root))
+    failures.extend(source_failures)
     return failures
 
 
@@ -670,6 +691,9 @@ def informational_dimensions(lock: dict, receipt: dict) -> dict:
     gp = _mapping(_mapping(receipt.get("previewEvidence")).get("gp"))
     if gp:
         result["previewEvidence.gp"] = {"requests": gp.get("requests"), "protocols": gp.get("protocols")}
+    for name in sorted(preview_signals(lock)):
+        signal = _mapping(_mapping(receipt.get("signals")).get(name))
+        result[f"signals.{name}"] = {"value": signal.get("value"), "frozenBound": _mapping(lock.get("thresholds")).get(name)}
     return result
 
 
@@ -713,7 +737,8 @@ def main() -> int:
     print(
         f"capacity-soak: PASS — {len(ga_dimensions(lock))}/{len(ga_dimensions(lock))} GA dimensions; "
         "fault drill recovered with no data loss and no stuck jobs; "
-        f"{len(lock['soak']['requiredSignals'])}/{len(lock['soak']['requiredSignals'])} sourced SLO signals; "
+        f"{len(lock['soak']['requiredSignals']) - len(preview_signals(lock))}/{len(lock['soak']['requiredSignals'])} "
+        "sourced SLO signals gated (the rest reported as Preview evidence); "
         "bound observation provenance and producer attestation"
     )
     return 0
