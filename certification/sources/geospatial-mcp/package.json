@@ -5,11 +5,7 @@
   "engines": { "node": ">=22.19.0" },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "run:sdk": "node run-sdk.mjs",
-    "prepare:plan": "python3 fetch-plan-validation.py --destination .plan-validation",
-    "prepare:location": "python3 fetch-location-validation.py --destination .location-validation",
-    "prepare:render": "python3 fetch-render-validation.py --destination .render-validation",
-    "prepare:app": "python3 fetch-app-validation.py --destination .app-validation"
+    "run:sdk": "node run-sdk.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector": "2.10.1",

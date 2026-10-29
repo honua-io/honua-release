@@ -9,7 +9,7 @@
         "source": "server-certification",
         "repository": "honua-io/honua-server",
         "path": "tests/seed/base-schema.sql",
-        "commit": "8cb074f77d01c0a00617ebe426460aa24c7d890b",
+        "commit": "53bb94a3fe1d7a66640e213de289b8f8bc4ffd2e",
         "sha256": "sha256:522454f3de0247fa5f8044a7bbc906ba57e44c34f2cece602c91688ee0e1cd63"
     }
 }
