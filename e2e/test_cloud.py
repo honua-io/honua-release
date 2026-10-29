@@ -5998,3 +5998,23 @@ def test_model_canary_runs_on_a_single_tenant_ruled_redis_on_cell(monkeypatch):
         else:
             assert calls == [] and "deterministic journey did not pass" in report["why"]
     shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990077", ignore_errors=True)
+
+
+@pytest.mark.parametrize("observed,detail", [
+    (lambda pinned: None, "pod honua-0 runs nothing"),
+    (lambda pinned: (_ for _ in ()).throw(RuntimeError("kubectl")), "reading the server pods failed: RuntimeError"),
+])
+def test_the_eks_image_read_back_names_why_1_1_stays_unobserved(monkeypatch, observed, detail):
+    # e2e-cloud-aws run 40832572972: the EKS read-back returned None (or raised) and the swallowed
+    # result left 1.1-candidate-image blocked with no reason; the target's detail now reaches 1.1.
+    _patch_seam(monkeypatch, lambda *a, **k: [])
+    stub = _ServingStub()
+    stub.observed_image_detail = "pod honua-0 runs nothing"
+    stub.observed_image = observed
+    monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "false")
+    monkeypatch.setattr(run_cloud, "make_fetch", lambda **kwargs: lambda url: cc.HttpResponse(200, ""))
+    monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud, "_mark_provision_attempt", lambda: None)
+    state = run_cloud.provision_phase(stub, "aws-eks", require_real=False, redis_enabled=False)
+    assert state["runningImage"] is None and state["runningImageDetail"] == detail

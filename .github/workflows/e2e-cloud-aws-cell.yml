@@ -55,7 +55,11 @@ env:
   # does too: on the Redis-on cell the S11 installed-client row mints its bearer from this run-owned
   # issuer and the journey's 8.tenant-isolation denial needs its second principal (#377). Without it
   # a require_real trunk dispatch can only report both BLOCKED, i.e. FAIL (run 40435209970).
-  HONUA_CLOUD_TENANT_FIXTURE: ${{ inputs.prepared_ref != '' || inputs.candidate_ref != '' || inputs.require_real }}
+  # The Preview aws-eks cells provision it on every dispatch: the GA single-tenant ruling covers only
+  # the aws-ecs cells, so an EKS journey can pass only with the second-tenant principal, and without
+  # it every non-strict EKS run recorded 8.tenant-isolation BLOCKED (#377, run 40832572972). The
+  # fixture changes no verdict rule; require_real keeps its own meaning.
+  HONUA_CLOUD_TENANT_FIXTURE: ${{ inputs.prepared_ref != '' || inputs.candidate_ref != '' || inputs.require_real || inputs.target == 'aws-eks' }}
   AWS_REGION: "us-east-1"
   HONUA_LAMBDA_IMAGE_URI: ${{ inputs.lambda_image }}
   HONUA_LAMBDA_ARCHITECTURE: ${{ inputs.lambda_architecture }}
@@ -210,8 +214,9 @@ jobs:
           # e2e/README.md). Not secrets. Unset (forks, other accounts) => the default endpoint, as before.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
-          # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
-          # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks, and the Redis-on EKS cell
+          # two chart replicas, (MultiNode) with shared file storage in this operator-owned bucket
+          # (owner step in e2e/README.md). Unset => one task / replica.
           # The Redis-on Lambda cell shares it with its Batch workers once its root declares the inputs
           # (honua-iac#243); then an unset bucket refuses that cell (S10 background import, #548).
           HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
@@ -841,8 +846,9 @@ jobs:
           # e2e/README.md). Not secrets. Teardown recomputes the same name and confirms its records and certificate are gone.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
-          # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
-          # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks, and the Redis-on EKS cell
+          # two chart replicas, (MultiNode) with shared file storage in this operator-owned bucket
+          # (owner step in e2e/README.md). Unset => one task / replica.
           # The Redis-on Lambda cell shares it with its Batch workers once its root declares the inputs
           # (honua-iac#243); then an unset bucket refuses that cell (S10 background import, #548).
           HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}

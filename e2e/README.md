@@ -394,6 +394,17 @@ the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly dou
 server writes to the bucket are not counted, like other S3 usage; the S10 fixture the harness stages
 there is counted (see "Cost evidence").
 
+The Redis-on EKS cell runs two chart replicas the same way (run 40832572972 recorded one instance on
+one replica). The pinned chart refuses `replicaCount > 1` unless `config.env.Deployment__Mode` is
+MultiNode, so with the same bucket variable, a root that declares `gp_job_data_bucket_arn` and
+`gp_job_data_bucket_enabled` (the server's workload role then may use the bucket) and a chart that
+declares `replicaCount`, the harness renders `replicaCount=2`, `Deployment__Mode=MultiNode` and the
+`FileStorage__AwsS3__*` keys with the same per-cell key prefix. The pinned root renders no pool sizing
+for EKS, so the harness sets `Limits__Connections__*` to 10 (two pools per process, three processes
+in the worst case, inside db.t3.micro's connections); a root that declares `server_max_replicas` gets
+`server_max_replicas=2` instead and sizes them itself. **Cost:** the replicas fit the two nodes the
+root already runs, so the EKS line does not change.
+
 The cloud fixture seed (`harness/cloud/seed.py`) publishes the demo and Studio fixtures through the
 admin API from the provision runner. If a call fails, the `studio-authoring-seed` and `top-demo-seed`
 rows say which call failed, its status, which `Honua-Instance` answered it, a bounded

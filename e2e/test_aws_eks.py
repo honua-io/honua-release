@@ -38,7 +38,7 @@ POLICY = 'operations_policy_rules=[{operation_id="*",role="admin",decision="Allo
 _ENV = ("HONUA_ECS_IMAGE", "HONUA_AWS_RUNNER_CIDR", "HONUA_IAC_DIR", "HONUA_HELM_DIR", "HONUA_GP_BATCH_IMAGE",
         "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN",
         "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN",
-        "HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT")
+        "HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT", "HONUA_AWS_CELL_FILE_STORAGE_BUCKET")
 
 
 @pytest.fixture
@@ -372,12 +372,17 @@ def test_the_seed_runs_against_rds_with_tls_when_the_root_provisions_it(cell, mo
 
 # ---- endpoint, image read-back ---------------------------------------------------------------------
 def _pods(*statuses):
-    return json.dumps({"items": [{"status": status} for status in statuses]})
+    # The chart's pod spec renders repository@digest (honua.imageReference) for the `honua` container.
+    return json.dumps({"items": [{"metadata": {"name": f"honua-5f-{n}"},
+                                  "spec": {"containers": [{"name": "honua", "image": IMAGE}]},
+                                  "status": status} for n, status in enumerate(statuses)]})
 
 
-def _pod(digest="a" * 64, ready=True, phase="Running"):
+def _pod(digest="a" * 64, ready=True, phase="Running", image=None):
+    # containerd reports `image: sha256:<config id>` for a digest-only reference with no repo tag on
+    # the node; the pulled repo digest is in imageID.
     return {"phase": phase, "containerStatuses": [{
-        "name": "honua", "ready": ready, "image": "ghcr.io/honua-io/honua-server@sha256:" + digest,
+        "name": "honua", "ready": ready, "image": image or "sha256:" + "f" * 64,
         "imageID": "ghcr.io/honua-io/honua-server@sha256:" + digest}]}
 
 
@@ -406,6 +411,89 @@ def test_the_running_image_matches_a_tagged_manifest_image_by_repository_and_can
                        ([_pod(), _pod(digest="c" * 64)], None)):
         monkeypatch.setattr(cell, "_kubectl", lambda *a, _p=pods, **k: subprocess.CompletedProcess(a, 0, _pods(*_p), ""))
         assert cell.observed_image(pinned) == want
+
+
+def test_the_server_container_is_found_by_its_pod_spec_not_its_status_image(cell, monkeypatch):
+    # e2e-cloud-aws run 40832572972: the status image of a digest-only container is the image id, so
+    # matching it by repository found no server container and 1.1 stayed blocked on both EKS cells.
+    pinned = {"components": {"honua-server": {"image": "ghcr.io/honua-io/honua-server:nightly-a4bde4b",
+                                              "digest": "sha256:" + "a" * 64}}}
+    for status_image in ("sha256:" + "f" * 64, IMAGE, "ghcr.io/honua-io/honua-server:nightly-a4bde4b"):
+        pods = [_pod(image=status_image), _pod(image=status_image)]
+        monkeypatch.setattr(cell, "_kubectl", lambda *a, _p=pods, **k: subprocess.CompletedProcess(a, 0, _pods(*_p), ""))
+        assert cell.observed_image(pinned) == "ghcr.io/honua-io/honua-server:nightly-a4bde4b@sha256:" + "a" * 64
+        assert cell.observed_image_detail == "2 server pod(s) running the candidate"
+
+
+def test_an_unobserved_image_says_which_pod_disagreed(cell, monkeypatch):
+    pinned = {"components": {"honua-server": {"image": "ghcr.io/honua-io/honua-server",
+                                              "digest": "sha256:" + "a" * 64}}}
+    other = json.loads(_pods(_pod()))
+    other["items"][0]["status"]["containerStatuses"][0]["imageID"] = "ghcr.io/someone/else@sha256:" + "a" * 64
+    cases = ((_pods(_pod(), _pod(digest="c" * 64)), "pod honua-5f-1 runs ghcr.io/honua-io/honua-server@sha256:" + "c" * 64),
+             (json.dumps(other), "pod honua-5f-0 runs ghcr.io/someone/else@sha256:"),
+             (_pods(_pod(phase="Pending")), "pod honua-5f-0 is Pending"),
+             (_pods(), "no server pod is listed"))
+    for listing, detail in cases:
+        monkeypatch.setattr(cell, "_kubectl", lambda *a, _l=listing, **k: subprocess.CompletedProcess(a, 0, _l, ""))
+        assert cell.observed_image(pinned) is None
+        assert cell.observed_image_detail.startswith(detail)
+    monkeypatch.setattr(cell, "_kubectl", lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "denied"))
+    assert cell.observed_image(pinned) is None and cell.observed_image_detail == "listing the server pods failed"
+
+
+# ---- Redis-on MultiNode replicas (6.replica-map) ----------------------------------------------------
+BUCKET = "release-cells-file-storage-111111111111"
+
+
+def _multi_node(cell, monkeypatch, *, bucket=BUCKET, root=aws_eks.DATA_BUCKET_VARS, chart="replicaCount: 1\n"):
+    if bucket:
+        monkeypatch.setenv(aws_eks.FILE_STORAGE_BUCKET_ENV, bucket)
+    cell.root("enable_redis", *root)
+    cell.chart(chart)
+    _outputs(cell)
+
+
+def test_the_redis_on_cell_runs_two_multinode_replicas_on_the_shared_bucket(cell, monkeypatch):
+    # e2e-cloud-aws run 40832572972: one replica answered every 6.replica-map re-read. The pinned
+    # chart renders replicaCount > 1 only with Deployment__Mode=MultiNode, Redis and shared storage.
+    _multi_node(cell, monkeypatch)
+    values = cell.chart_values(True)
+    env = values["config"]["env"]
+    assert values["replicaCount"] == aws_eks.REDIS_ON_REPLICAS == 2
+    assert env["Deployment__Mode"] == "MultiNode" and env["FileStorage__Provider"] == "AwsS3"
+    assert env["FileStorage__AwsS3__BucketName"] == BUCKET and env["FileStorage__AwsS3__Region"] == cell.region
+    assert env["FileStorage__AwsS3__KeyPrefix"] == tt.cell_file_storage_prefix(cell._name_prefix(True))
+    # Two pools per process, three processes in the worst case, inside db.t3.micro's connections.
+    assert env["Limits__Connections__MaxConnectionPoolSize"] == env["Limits__Connections__MaxConcurrentQueries"] == "10"
+    tf = _vars(cell._tf_vars(True))
+    assert tf["gp_job_data_bucket_arn"] == f"arn:aws:s3:::{BUCKET}" and tf["gp_job_data_bucket_enabled"] == "true"
+    assert _vars(cell._tf_vars(True, destroy=True))["gp_job_data_bucket_enabled"] == "true"
+
+
+def test_a_root_that_sizes_the_pools_itself_gets_the_replica_ceiling(cell, monkeypatch):
+    _multi_node(cell, monkeypatch, root=(*aws_eks.DATA_BUCKET_VARS, aws_eks.SERVER_MAX_REPLICAS_VAR))
+    assert _vars(cell._tf_vars(True))[aws_eks.SERVER_MAX_REPLICAS_VAR] == "2"
+    assert not any(k.startswith("Limits__") for k in cell.chart_values(True)["config"]["env"])
+
+
+@pytest.mark.parametrize("redis_enabled,bucket,root,chart", [
+    (False, BUCKET, aws_eks.DATA_BUCKET_VARS, "replicaCount: 1\n"),   # MultiNode needs Redis
+    (True, "", aws_eks.DATA_BUCKET_VARS, "replicaCount: 1\n"),        # no operator-owned bucket
+    (True, BUCKET, (), "replicaCount: 1\n"),                          # root cannot grant the bucket
+    (True, BUCKET, aws_eks.DATA_BUCKET_VARS, "service: {}\n"),        # chart has no replicaCount
+])
+def test_anything_short_of_the_multinode_inputs_keeps_one_replica(cell, monkeypatch, redis_enabled, bucket, root, chart):
+    _multi_node(cell, monkeypatch, bucket=bucket, root=root, chart=chart)
+    values = cell.chart_values(redis_enabled)
+    assert "replicaCount" not in values and "Deployment__Mode" not in values["config"]["env"]
+    assert "gp_job_data_bucket_enabled" not in _vars(cell._tf_vars(redis_enabled))
+
+
+def test_a_malformed_bucket_name_refuses_the_cell(cell, monkeypatch):
+    _multi_node(cell, monkeypatch, bucket="Not A Bucket")
+    with pytest.raises(ProvisionError, match="not an S3 bucket name"):
+        cell.chart_values(True)
 
 
 def test_the_cell_name_is_pointed_at_the_load_balancer_and_deleted_before_destroy(cell, monkeypatch):

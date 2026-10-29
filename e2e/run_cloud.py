@@ -261,10 +261,16 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
                 state["runningImage"] = None
         elif hasattr(target, "observed_image"):
             # EKS: the digest every server pod of the release is running, read from the cluster.
+            # The target's account of it (which pod or digest disagreed) is 1.1's detail, as on ECS;
+            # a swallowed exception left run 40832572972's 1.1 blocked with no reason at all.
             try:
                 state["runningImage"] = target.observed_image(cloud_journey.manifest())
-            except Exception:
+                detail = getattr(target, "observed_image_detail", None)
+                if detail:
+                    state["runningImageDetail"] = str(detail)
+            except Exception as e:
                 state["runningImage"] = None
+                state["runningImageDetail"] = f"reading the server pods failed: {type(e).__name__}"
         state.update(endpoint=endpoint, ready=ready)
         if installed_context is not None and redis_enabled:
             state["installedClients"] = {"enabled": True, "prepared": False}
