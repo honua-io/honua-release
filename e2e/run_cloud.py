@@ -1140,11 +1140,16 @@ _LOG_LINES = 300
 _LOG_STREAMS = 40
 # Failure signatures counted over the WHOLE log group (filter-log-events), not just the tail: the
 # tail of a busy API function covers about a second, so a refusal minutes earlier never shows in it.
+# "53300:" with its colon: the bare code also matches hex trace ids ("@tr":"6ae353300b8c...", run
+# 40865466550 counted five such lines as connection-slot refusals). The Lambda log format of that run
+# reports a timed-out invocation or init as "Status: timeout" on its REPORT / INIT_REPORT line and
+# writes no "Task timed out" line, so both forms are counted.
 _SIGNATURES = (
-    ("db-connection-slots", "53300"),
+    ("db-connection-slots", "53300:"),
     ("runtime-exit", "Runtime.ExitError"),
     ("unhandled-exception", "Unhandled exception"),
     ("task-timeout", "Task timed out"),
+    ("invoke-timeout", "Status: timeout"),
     ("db-timeout", "The operation has timed out"),
     ("preflight-failed", "preflight check failed"),
     ("mcp-tool-unexpected", "MCP tool invocation failed unexpectedly"),
@@ -1158,16 +1163,23 @@ _ACCESS_ERROR_PATTERN = '{ ($.status = "4*") || ($.status = "5*") }'
 # A 5xx API Gateway produced itself (errorMessage set, e.g. 503 "Service Unavailable" at the 30 s
 # integration timeout) names no failure in the function log, and the log group dies with the cell.
 # For each one (bounded) the API function's platform and request lines from just before the request
-# to past the timeout are kept: START/REPORT (Duration, Init Duration), INIT_*, "Task timed out" and
-# the server's request lines, which tell a cold start, a queued invocation and a slow handler apart
-# (run 40832719280 aws-serverless/redis-off: three 30 s stalls, no Lambda line to place them).
+# to past the timeout are kept: START/REPORT (Duration, Init Duration), INIT_*, "Task timed out" or
+# "Status: timeout" and the server's request lines, which tell a cold start, a queued invocation and
+# a slow handler apart (run 40832719280 aws-serverless/redis-off: three 30 s stalls, no Lambda line
+# to place them).
 _GATEWAY_FAILURE_WINDOWS = 10
 _GATEWAY_WINDOW_BEFORE_MS = 2_000
 _GATEWAY_WINDOW_AFTER_MS = 40_000
 _GATEWAY_WINDOW_EVENTS = 200
-_GATEWAY_WINDOW_PHRASES = ("START RequestId", "REPORT RequestId", "INIT_START", "INIT_REPORT",
-                           "Task timed out", "Request starting", "Request finished",
-                           "The operation has timed out", "Unhandled exception")
+# Read in two passes, each bounded by _GATEWAY_WINDOW_EVENTS. A burst fills one 200-event read with
+# the request lines of its first two seconds (run 40865466550: 22 environments starting together),
+# and the stalled invocation's own REPORT ... Status: timeout 30 s later was never reached. The
+# platform lines that place a stall are read first and on their own; request lines are context.
+_GATEWAY_WINDOW_PLATFORM_PHRASES = ("REPORT RequestId", "INIT_START", "INIT_REPORT", "Task timed out",
+                                    "Status: timeout", "The operation has timed out",
+                                    "Unhandled exception")
+_GATEWAY_WINDOW_REQUEST_PHRASES = ("START RequestId", "Request starting", "Request finished")
+_GATEWAY_WINDOW_PHRASES = _GATEWAY_WINDOW_PLATFORM_PHRASES + _GATEWAY_WINDOW_REQUEST_PHRASES
 
 
 def _cell_readers(target, run, redact):
@@ -1319,9 +1331,17 @@ def _gateway_failure_windows(aws, access_group: str, api_group: str, redact) -> 
                 or str(record.get("errorMessage", "-")) in ("-", "")):
             continue
         failures.append((timestamp, record))
+    # Requests that started in the same second share one window (run 40865466550: six 503s of one
+    # demo burst at 14:18:47 read the same 42 s six times); the window counts them.
+    grouped: dict[int, list] = {}
+    for timestamp, record in failures:
+        grouped.setdefault(_request_start_ms(record, timestamp) // 1000, []).append((timestamp, record))
     windows = []
-    pattern = " ".join(f'?"{phrase}"' for phrase in _GATEWAY_WINDOW_PHRASES)
-    for timestamp, record in failures[:_GATEWAY_FAILURE_WINDOWS]:
+    patterns = [" ".join(f'?"{phrase}"' for phrase in phrases)
+                for phrases in (_GATEWAY_WINDOW_PLATFORM_PHRASES, _GATEWAY_WINDOW_REQUEST_PHRASES)]
+    groups = list(grouped.values())
+    for group in groups[:_GATEWAY_FAILURE_WINDOWS]:
+        timestamp, record = group[0]
         start = _request_start_ms(record, timestamp)
         window: dict = {
             "request": {key: redact(str(record[key])) for key in (
@@ -1330,22 +1350,29 @@ def _gateway_failure_windows(aws, access_group: str, api_group: str, redact) -> 
                 "responseLatency", "integrationRequestId") if key in record},
             "from": _iso_ms(start - _GATEWAY_WINDOW_BEFORE_MS),
             "to": _iso_ms(start + _GATEWAY_WINDOW_AFTER_MS)}
+        if len(group) > 1:
+            window["sameWindow"] = len(group)
+        rows: set = set()
+        truncated = False
         try:
-            page = aws("logs", "filter-log-events", "--log-group-name", api_group,
-                       "--start-time", str(start - _GATEWAY_WINDOW_BEFORE_MS),
-                       "--end-time", str(start + _GATEWAY_WINDOW_AFTER_MS),
-                       "--filter-pattern", pattern, "--max-items", str(_GATEWAY_WINDOW_EVENTS))
+            for pattern in patterns:
+                page = aws("logs", "filter-log-events", "--log-group-name", api_group,
+                           "--start-time", str(start - _GATEWAY_WINDOW_BEFORE_MS),
+                           "--end-time", str(start + _GATEWAY_WINDOW_AFTER_MS),
+                           "--filter-pattern", pattern, "--max-items", str(_GATEWAY_WINDOW_EVENTS))
+                events = page.get("events", [])
+                truncated = truncated or len(events) >= _GATEWAY_WINDOW_EVENTS
+                rows.update((int(e.get("timestamp") or 0), str(e.get("logStreamName", "")),
+                             str(e.get("message", ""))) for e in events)
         except RuntimeError as error:
             windows.append({**window, "error": str(error)})
             continue
-        rows = sorted((int(e.get("timestamp") or 0), str(e.get("logStreamName", "")), str(e.get("message", "")))
-                      for e in page.get("events", []))
         window["lines"] = [f"{_iso_ms(t)} [{stream}] {redact(message.rstrip(chr(10)))[:600]}"
-                           for t, stream, message in rows]
-        window["truncated"] = len(rows) >= _GATEWAY_WINDOW_EVENTS
+                           for t, stream, message in sorted(rows)]
+        window["truncated"] = truncated
         windows.append(window)
-    if len(failures) > _GATEWAY_FAILURE_WINDOWS:
-        windows.append({"omitted": len(failures) - _GATEWAY_FAILURE_WINDOWS})
+    if len(groups) > _GATEWAY_FAILURE_WINDOWS:
+        windows.append({"omitted": sum(len(group) for group in groups[_GATEWAY_FAILURE_WINDOWS:])})
     return windows
 
 
@@ -1584,7 +1611,9 @@ def _phase_diagnose(args) -> int:
                 continue
             request = window.get("request") or {}
             print(f"   gateway-generated {request.get('status')} {request.get('httpMethod')} "
-                  f"{request.get('path')} at {request.get('requestTime')}: "
+                  f"{request.get('path')} at {request.get('requestTime')}"
+                  + (f" (+{window['sameWindow'] - 1} more that second)" if window.get("sameWindow") else "")
+                  + ": "
                   f"integrationLatency={request.get('integrationLatency')} "
                   f"lambdaRequestId={request.get('integrationRequestId')}"
                   + (f"; function log unavailable: {window['error']}" if "error" in window else ""))

@@ -645,17 +645,20 @@ update status and environment variable NAMES (never values), and the last 300 li
 merged from every stream (one per execution environment, up to 40; CloudWatch's LastEventTime order
 is updated lazily, so "the newest few" can miss the environment that served last). Each group also
 gets `failureSignatures`: a whole-group `filter-log-events` sweep counting lines, streams and
-first/last time for `53300` connection exhaustion, `Runtime.ExitError`, unhandled exceptions, Lambda
-and database timeouts, a failed startup preflight and unexpected MCP tool failures (the server logs
+first/last time for `53300:` connection exhaustion, `Runtime.ExitError`, unhandled exceptions, Lambda
+timeouts (`Task timed out`, and `Status: timeout` on a REPORT or INIT_REPORT line), database timeouts, a failed startup preflight and unexpected MCP tool failures (the server logs
 the exception class there; the tool envelope does not carry it), with a bounded sample. The API
 Gateway access log (`/aws/apigateway/<api function name>`) is tailed and its 4xx/5xx lines counted
 by status and by route (`accessErrors`): a response API Gateway produced itself carries no CORS
 header, so a demo page reports it as a CORS refusal and only this log tells it from a server
 response. For each 5xx API Gateway generated itself (`errorMessage` set, such as the 503 "Service
 Unavailable" at the 30 s integration timeout; up to 10), `gatewayFailureWindows` keeps the API
-function's `START`/`REPORT`/`INIT_*`/`Task timed out` and server request lines from 2 s before the
-request to 40 s after, with the request's latencies and Lambda RequestId when the stage logs them:
-that is what tells a cold start, a queued invocation and a slow handler apart (run 40832719280).
+function's `START`/`REPORT`/`INIT_*`/`Task timed out`/`Status: timeout` and server request lines
+from 2 s before the request to 40 s after, with the request's latencies and Lambda RequestId when the
+stage logs them: that is what tells a cold start, a queued invocation and a slow handler apart (run
+40832719280). The platform lines are read in their own bounded pass, so a burst's request lines
+cannot crowd out the stalled invocation's REPORT, and 5xx requests that started in the same second
+share one window (`sameWindow` counts them; run 40865466550).
 When `gp_batch_enabled` is true it also tails and sweeps every `/aws/batch/<stem>-*` job
 log group. This is where a Lambda server's own startup and refusal reasons
 (a `dependency-unavailable` capability, a GP job that never left `running`) survive the cell.
