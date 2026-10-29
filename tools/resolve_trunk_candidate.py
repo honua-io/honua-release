@@ -101,6 +101,19 @@ def retry(operation):
                 raise
 
 
+class CiVerdict(tuple):
+    """A strict CI verdict plus the check-run snapshot that verdict was computed from.
+
+    Unpacks as `(passed, reason)` so existing callers keep working. `checks` is that
+    same snapshot: recording it avoids a second check-run query that can disagree.
+    """
+
+    def __new__(cls, passed, reason, checks):
+        verdict = super().__new__(cls, (passed, reason))
+        verdict.checks = checks
+        return verdict
+
+
 class GitHub:
     def __init__(self):
         self.commit_dates = {}
@@ -208,7 +221,7 @@ class GitHub:
                              governance=ci.load_governance(), full_matrix=policies,
                              advisory=ci.load_advisory())
         row = result['components'][0]
-        return row['decided'] == 'pass', row['why']
+        return CiVerdict(row['decided'] == 'pass', row['why'], checks)
 
     def file(self, repository, revision, path):
         """The exact blob bytes at `revision`, or a refusal; never a short or empty read."""

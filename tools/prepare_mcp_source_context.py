@@ -100,8 +100,13 @@ def prepare(root, output, source, github=None):
     sources['sources']['geospatial-mcp']['commit'] = source
     # Observe the ordinary strict verdict. A red verdict is retained in this review
     # and remains a refusal for the unchanged normal candidate selector.
-    green, reason = github.green('geospatial-mcp', REPOSITORY, source)
-    checks = list(github.pages(f'repos/{REPOSITORY}/commits/{source}/check-runs', 'check_runs'))
+    # Record the snapshot green() actually evaluated. A second check-run query can
+    # move while checks are still landing and contradict normalCandidateCi.
+    verdict = github.green('geospatial-mcp', REPOSITORY, source)
+    green, reason = verdict
+    checks = getattr(verdict, 'checks', None)
+    if not isinstance(checks, list):
+        raise PreparationError('CI verdict did not retain the evaluated check snapshot')
     check_context = []
     for check in checks:
         if check.get('head_sha') != source:

@@ -49,13 +49,12 @@ class GitHub:
 
     def green(self, name, repository, source):
         assert (name, repository, source) == ('geospatial-mcp', context.REPOSITORY, SOURCE)
-        return False, 'Protocol Certification failed before client execution'
+        return resolver.CiVerdict(False, 'Protocol Certification failed before client execution', [{
+            'id': 123, 'name': 'Protocol Certification', 'head_sha': self.check_source,
+            'status': 'completed', 'conclusion': 'failure', 'details_url': 'https://github.com/example/run/123'}])
 
     def pages(self, path, key):
-        assert path == f'repos/{context.REPOSITORY}/commits/{SOURCE}/check-runs'
-        assert key == 'check_runs'
-        return [{'id': 123, 'name': 'Protocol Certification', 'head_sha': self.check_source,
-                 'status': 'completed', 'conclusion': 'failure', 'details_url': 'https://github.com/example/run/123'}]
+        raise AssertionError(f'check runs were queried again: {path} {key}')
 
     def commits(self, repository, limit):
         assert repository == context.REPOSITORY
@@ -143,6 +142,15 @@ def test_output_cannot_overwrite_release_source_or_existing_artifacts(tmp_path, 
     output = context.ROOT / 'do-not-create-context' if case == 'inside' else tmp_path
     with pytest.raises(context.PreparationError, match='new and outside'):
         context.prepare(context.ROOT, output, SOURCE, GitHub())
+
+
+def test_report_refuses_a_verdict_that_omits_the_evaluated_snapshot(tmp_path):
+    github = GitHub()
+    github.green = lambda *_args: (False, 'detached live query')
+    output = tmp_path / 'refused'
+    with pytest.raises(context.PreparationError, match='evaluated check snapshot'):
+        context.prepare(context.ROOT, output, SOURCE, github)
+    assert not output.exists()
 
 
 def test_source_preparation_cannot_reuse_a_bound_ledger(tmp_path):
