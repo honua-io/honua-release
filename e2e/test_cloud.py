@@ -5970,3 +5970,31 @@ def test_verify_journey_expects_the_manifest_bound_server_identity(monkeypatch, 
     except Exception:
         pass
     assert seen and seen[-1] is not None and "components" in seen[-1]
+
+
+def test_model_canary_runs_on_a_single_tenant_ruled_redis_on_cell(monkeypatch):
+    # ga-cells-single-tenant-2026-10-27: aws-ecs/redis-on's journey qualifies blocked on its one declared
+    # not-applicable check. The full-workflow canary must accept that receipt; run 40824511213 refused it.
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    cell = "aws-ecs/redis-on"
+    _model_cell(monkeypatch, "990077", deterministic_status="blocked", cell=cell, endpoint="https://cell.example")
+    for admitted in (True, False):
+        monkeypatch.setattr(run_cloud.cloud_journey.ga_single_tenant, "admits", lambda receipt, c, ok=admitted: ok)
+        calls = []
+
+        def fake_run(argv, *, env, cwd, check):
+            calls.append(argv)
+            number = int(argv[argv.index("--attempt") + 1])
+            Path(argv[argv.index("--output") + 1]).write_text(json.dumps(_canary_receipt(number, "pass", None, cell=cell)))
+            return subprocess.CompletedProcess(argv, 0)
+
+        try:
+            report = run_cloud.model_canary_phase({"cell": cell, "endpoint": "https://cell.example/"}, admin_key="k",
+                                                  lock_digest=LOCK, run=fake_run)
+        finally:
+            pass
+        if admitted:
+            assert calls and "deterministic journey did not pass" not in str(report.get("why"))
+        else:
+            assert calls == [] and "deterministic journey did not pass" in report["why"]
+    shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990077", ignore_errors=True)
