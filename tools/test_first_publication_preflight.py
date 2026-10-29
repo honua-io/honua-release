@@ -751,15 +751,43 @@ def _qgis_receipt(transport: _QgisTransport) -> dict:
     )
 
 
-def test_qgis_rate_limit_uses_the_public_404_and_does_not_record_the_denial(monkeypatch):
+def test_qgis_api_denial_and_public_404_keep_the_observed_source(monkeypatch):
+    """API 403 plus a public-page 404 stays blocked-on-operator, but the receipt
+    names both observations. It must not record the page 404 as the API status."""
     slept = []
     monkeypatch.setattr(preflight, "_sleep", slept.append)
     transport = _QgisTransport([(403, RATE_LIMIT_BODY)])
-    channel = _channel(_qgis_receipt(transport), "qgis:honua-qgis-plugin")
-    assert channel == _channel(_receipt(), "qgis:honua-qgis-plugin")
-    assert channel["http_status"] == 404
+    receipt = _qgis_receipt(transport)
+    preflight.audit(receipt)
+    golden = _receipt()
+    channel = _channel(receipt, "qgis:honua-qgis-plugin")
+    assert channel["disposition"] == "blocked-on-operator"
+    assert channel["canonical_url"] == preflight.QGIS_REPO_URL
+    assert channel["api_http_status"] == 403
+    assert channel["http_status"] == 403
+    assert channel["observed_url"] == preflight.QGIS_PUBLIC_REPO_URL
+    assert channel["observed_http_status"] == 404
+    assert channel["plugin_http_status"] == 404
+    assert channel["urls"] == [preflight.QGIS_REPO_URL, preflight.QGIS_PLUGIN_URL]
     assert slept == []
     assert transport.api_results == []
+    blocker = next(item for item in receipt["blockers"] if item["publication"] == "QGIS plugin honua_gis_assistant")
+    assert blocker["kind"] == "blocked-on-operator"
+    assert blocker["channels"] == ["qgis:honua-qgis-plugin"]
+    assert f"{preflight.QGIS_REPO_URL} returned 403" in blocker["boundary"]
+    assert f"{preflight.QGIS_PUBLIC_REPO_URL} returned 404" in blocker["boundary"]
+    assert "returned 404 to an unauthenticated request" not in blocker["boundary"]
+    golden_blocker = next(
+        item for item in golden["blockers"] if item["publication"] == "QGIS plugin honua_gis_assistant"
+    )
+    assert blocker != golden_blocker
+    assert [item for item in receipt["blockers"] if item["publication"] != "QGIS plugin honua_gis_assistant"] == [
+        item for item in golden["blockers"] if item["publication"] != "QGIS plugin honua_gis_assistant"
+    ]
+    for item in receipt["channels"]:
+        if item["id"] == "qgis:honua-qgis-plugin":
+            continue
+        assert item == _channel(golden, item["id"])
 
 
 def test_qgis_permission_denial_is_not_evidence_the_repo_is_private(monkeypatch):
