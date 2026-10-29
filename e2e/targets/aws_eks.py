@@ -153,6 +153,9 @@ POSTGIS_IMAGE = "postgis/postgis:16-3.4"
 REDIS_IMAGE_REPOSITORY = "bitnamilegacy/redis"
 
 
+STUDIO_END_USER_AUTHORIZATION_ENV = "Studio__EndUserAuthorization__Enabled"
+
+
 def _repository(reference: str) -> str:
     """`registry/name` of an image reference, without its tag or digest."""
     image = reference.split("@", 1)[0]
@@ -755,6 +758,14 @@ class AwsEksTarget(DeployTarget):
         env: dict[str, str] = {
             # The demo pages' origin (top-demo, S9), as the ECS cells pass cors_allowed_origins.
             "Cors__AllowedOrigins__0": _tt.DEMO_SITE_ORIGIN,
+            # Studio end-user authorization, as every ECS and Lambda cell passes
+            # studio_end_user_authorization=true (terraform_target.STUDIO_END_USER_AUTHORIZATION_VAR).
+            # The server admits non-admin principals to the Studio lifecycle API only with
+            # Studio:EndUserAuthorization:Enabled; the EKS root renders no such input, and the
+            # cell set it only alongside the tenant fixture, so on e2e-cloud-aws run 40742242038
+            # journey stage 6 got HTTP 403 on GET /api/v1/studio/package-families for the proposer
+            # on both EKS cells.
+            STUDIO_END_USER_AUTHORIZATION_ENV: "true",
         }
         rendered = self._output(CHART_ENV_OUTPUT)
         if rendered is not None:
@@ -769,7 +780,7 @@ class AwsEksTarget(DeployTarget):
             tenant_env = {"Oidc__Enabled": "true", "Oidc__Generic__Enabled": "true",
                           "Oidc__Generic__Authority": "https://terminal-journey.invalid",
                           "Oidc__Generic__ClientId": "terminal-journey",
-                          "Studio__EndUserAuthorization__Enabled": "true"}
+                          STUDIO_END_USER_AUTHORIZATION_ENV: "true"}
             if "Oidc__TokenValidation__SymmetricSigningKey" in env:
                 raise ProvisionError("tenant signing key must use the external runtime Secret")
             if any(key in env and env[key] != value for key, value in tenant_env.items()):
@@ -1064,8 +1075,16 @@ class AwsEksTarget(DeployTarget):
 
         Read from the pods' container statuses (the digest the kubelet pulled), never inferred from
         the helm inputs; the EKS analogue of cloud_journey.observed_ecs_image. Anything else is None.
+
+        The chart deploys `repository@digest`, and the manifest's `image` carries the immutable
+        per-sha tag, so a container is matched by repository (tag and digest stripped on both
+        sides), as on ECS. Comparing the container's repository with the tagged `image` matched no
+        container, so 1.1-candidate-image stayed blocked on both EKS cells of e2e-cloud-aws run
+        40742242038. The reported digest must be the index digest or one of its platform children.
         """
         server = pinned["components"]["honua-server"]
+        repository = _repository(str(server["image"]))
+        accepted = {server["digest"], *(server.get("platformDigests") or {}).values()} - {None, ""}
         listing = self._kubectl("get", "pods", "-n", NAMESPACE, "-l",
                                 f"app.kubernetes.io/instance={RELEASE},app.kubernetes.io/component=server",
                                 "-o", "json", check=False)
@@ -1077,9 +1096,9 @@ class AwsEksTarget(DeployTarget):
         for pod in pods:
             status = pod.get("status") or {}
             containers = [c for c in status.get("containerStatuses") or []
-                          if _repository(str(c.get("image", ""))) == server["image"]]
+                          if _repository(str(c.get("image", ""))) == repository]
             if (status.get("phase") != "Running" or not containers
-                    or any(not c.get("ready") or str(c.get("imageID", "")).rsplit("@", 1)[-1] != server["digest"]
+                    or any(not c.get("ready") or str(c.get("imageID", "")).rsplit("@", 1)[-1] not in accepted
                            for c in containers)):
                 return None
         return f"{server['image']}@{server['digest']}"

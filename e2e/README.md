@@ -352,6 +352,18 @@ Both cells also pass `studio_end_user_authorization=true` when the pinned root d
 admits non-admin principals to the Studio lifecycle API only with `Studio:EndUserAuthorization:Enabled`.
 The local journey compose sets it, but the cells did not, so stage 6 on run 38091905679
 (aws-ecs/redis-on) failed with a 403 for the proposer on `GET /api/v1/studio/package-families`.
+The EKS cells set `Studio__EndUserAuthorization__Enabled=true` in the chart's `config.env` directly
+(the EKS root has no such input); without it run 40742242038 hit the same 403 on both EKS cells.
+
+An EKS cell advertises `deploymentRevisionSource=image-digest`: the honua-helm chart's release-info
+ConfigMap sets `HONUA_IMAGE_DIGEST` from `image.digest`, and the server prefers it over the baked
+commit. Stage 1's `1.3-candidate-identity` accepts an image-digest identity only when it is the
+manifest's index digest or one of its `platformDigests`, and the receipt's `server.sourceSha` binds
+the manifest sha only when the pods' running digest (read from the kubelet) agrees with it.
+
+A journey retry imports its fixture into its own table (`journey_source_attempt<N>`): attempt 1's
+published layer keeps the authored table, so re-importing into it made `service.publish` refuse the
+retry at its layer-conflict check (run 40742242038, attempt 2, stage 3).
 
 ### Candidate image and two tasks on the Redis-on ECS cell
 Stage 1's `1.1-candidate-image` on an ECS cell is satisfied by the image ECS reports running, read in

@@ -510,11 +510,19 @@ def server_identity(endpoint, *, opener=urllib.request.urlopen):
         return None
 
 
-def observed_server(identity, running_image):
-    """Receipt `server` pins from observations only: never copied from the manifest.
+def observed_server(identity, running_image, pinned=None):
+    """Receipt `server` pins from observations only: never copied from the manifest on its own.
 
     sourceSha is the commit the endpoint advertises; image is what the control plane reports
     running. Anything unobserved stays visibly unobserved, so validate_attempt cannot match it.
+
+    A deployment that injects HONUA_IMAGE_DIGEST (the honua-helm chart's release-info ConfigMap
+    sets it from image.digest, so every EKS cell does) advertises source='image-digest', never a
+    commit; on e2e-cloud-aws run 40742242038 both EKS cells therefore recorded an unobserved
+    sourceSha. When `pinned` is given and BOTH observations agree on a candidate digest (the
+    endpoint advertises one of the candidate's pinned digests, and the control plane reports the
+    candidate image running under that same digest), the commit is the manifest sha that the
+    image attestation binds to that digest. Any disagreement keeps sourceSha unobserved.
     """
     revision = (identity or {}).get("revision") or ""
     source = (identity or {}).get("source")
@@ -522,7 +530,13 @@ def observed_server(identity, running_image):
     image = running_image or "unobserved"
     if source == "image-digest" and running_image and running_image.rsplit("@", 1)[-1] != revision:
         image = "unobserved"
-    return {"sourceSha": revision if commit else UNOBSERVED_SHA, "image": image}
+    sha = revision if commit else UNOBSERVED_SHA
+    if source == "image-digest" and pinned is not None and image != "unobserved":
+        server = pinned["components"]["honua-server"]
+        digests = {server.get("digest"), *(server.get("platformDigests") or {}).values()} - {None, ""}
+        if revision in digests and re.fullmatch(r"[0-9a-f]{40}", str(server.get("sha") or "")):
+            sha = server["sha"]
+    return {"sourceSha": sha, "image": image}
 
 
 # Journey attempts are idempotent (owner decision 7 of 2026-10-10). The journey's stage 3 and 4
@@ -581,6 +595,20 @@ def attempt_datasource_name(base, number):
     39705901768, 39746615094, 39772292511)."""
     base = str(base or "")
     return base if number <= 1 or not base else f"{base}{ATTEMPT_SUFFIX}{number}"
+
+
+def attempt_table_name(base, number):
+    """Attempt 1 keeps the authored upload table name; a retry imports into its own table.
+
+    The upload passes OverwriteExisting=true, so a retry re-imported into attempt 1's physical
+    table (public.imported_journey_source), and attempt 1's published layer still maps that table.
+    service.publish then refused attempt 2 at its layer-conflict check ("A layer already exists for
+    this source table"), which the journey recorded as status=Failed at stage 3 on both EKS cells
+    of e2e-cloud-aws run 40742242038. The layer cannot be removed while its connection is held
+    (the 409 above), so the retry gets a fresh table and publishes a genuinely new layer.
+    The suffix keeps the name a plain SQL identifier."""
+    base = str(base or "")
+    return base if number <= 1 or not base else f"{base}_attempt{number}"
 
 
 def _base_datasource_name(name):
@@ -688,6 +716,9 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     datasource = (target.get("execution") or {}).get("datasource")
     if kind is not None and isinstance(datasource, dict) and datasource.get("name"):
         datasource["name"] = attempt_datasource_name(datasource["name"], number)
+    upload = (target.get("execution") or {}).get("upload")
+    if kind is not None and isinstance(upload, dict) and upload.get("tableName"):
+        upload["tableName"] = attempt_table_name(upload["tableName"], number)
     target_path = directory / f"target-{number}.json"
     target_path.write_text(json.dumps(target) + "\n")
     notices = [f"Imported adapter protocol: {adapter.PROTOCOL}"]
@@ -771,7 +802,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         # manifest says it should be, even when the driver failed before any stage ran;
         # validate_attempt then compares the two.
         identity = server_identity(endpoint)
-        receipt["server"] = observed_server(identity, running_image)
+        receipt["server"] = observed_server(identity, running_image, pinned)
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
     path = directory / f"receipt-{number}.json"
     path.write_text(json.dumps(receipt, indent=2) + "\n")

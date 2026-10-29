@@ -537,6 +537,7 @@ def run_live(
             notices.append(f"using an externally managed stack at {base_url_override}")
 
         observation = observe(target, base_url, workspace, bindir, running_image, server["sha"])
+        observation.expected_image_digests = stagelib.candidate_image_digests(manifest)
         if observation.setup_discovery is not None:
             discovery_path = workdir / "setup-discovery.json"
             discovery_path.parent.mkdir(parents=True, exist_ok=True)

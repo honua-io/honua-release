@@ -187,6 +187,14 @@ def validate(target, *, template=None):
         raise TargetError("upload fixture must be the committed, SHA-pinned journey source")
     if template is not None:
         authored = {key: value for key, value in template["execution"].items() if key != "datasource"}
-        if {key: value for key, value in execution.items() if key != "datasource"} != authored:
+        observed = {key: value for key, value in execution.items() if key != "datasource"}
+        # A retry imports into its own table (e2e/cloud_journey.py attempt_table_name: <authored>_attemptN,
+        # N >= 2) so it cannot collide with attempt 1's published layer; that is the only allowed change.
+        authored_table = (authored.get("upload") or {}).get("tableName")
+        observed_table = (observed.get("upload") or {}).get("tableName")
+        if (isinstance(authored_table, str) and isinstance(observed_table, str) and authored_table
+                and re.fullmatch(re.escape(authored_table) + r"_attempt([2-9]|[1-9][0-9])", observed_table)):
+            observed = {**observed, "upload": {**observed["upload"], "tableName": authored_table}}
+        if observed != authored:
             raise TargetError("cloud execution fixture must equal the authored local fixture")
     return target

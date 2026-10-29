@@ -71,9 +71,37 @@ class Observation:
     # task or digest disagreed. Local Docker leaves it unset.
     image_detail: str | None = None
     expected_revision: str | None = None
+    # The candidate's pinned image digests (the manifest index and its platform children). A
+    # deployment that injects HONUA_IMAGE_DIGEST (the honua-helm chart's release-info ConfigMap)
+    # advertises source='image-digest' instead of the commit; that identity is accepted only when
+    # it names one of these digests. Empty means only the commit SHA is accepted.
+    expected_image_digests: tuple[str, ...] = ()
     setup_view_present: bool = False
     credential_probe: CredentialProbe | None = None
     setup_discovery: dict[str, Any] | None = None
+
+
+def candidate_image_digests(manifest: dict[str, Any] | None) -> tuple[str, ...]:
+    """The pinned honua-server image digests: the index digest, then each platform child."""
+    server = ((manifest or {}).get("components") or {}).get("honua-server") or {}
+    digests = [server.get("digest"), *(server.get("platformDigests") or {}).values()]
+    return tuple(dict.fromkeys(d for d in digests if isinstance(d, str) and d.startswith("sha256:")))
+
+
+def candidate_identity_matches(revision: Any, source: Any, expected_revision: str | None,
+                               expected_image_digests: tuple[str, ...] = ()) -> bool:
+    """True when the advertised deployment identity is the candidate's.
+
+    A commit-sha (or SourceLink assembly-metadata) revision must equal the manifest sha. An
+    image-digest revision (the server prefers HONUA_IMAGE_DIGEST, which the honua-helm chart sets
+    from image.digest) must be one of the candidate's pinned digests; the manifest binds those
+    digests to the sha through the image attestation.
+    """
+    if not isinstance(revision, str) or not revision:
+        return False
+    if source == "image-digest":
+        return revision in expected_image_digests
+    return revision == expected_revision
 
 
 # Receipt key -> StageResult attribute for the server-emitted canonical identities.
@@ -257,16 +285,19 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
     else:
         server = manifest.get("server") or manifest.get("Server") or {}
         revision = server.get("deploymentRevision") or server.get("DeploymentRevision")
-        identity_matches = bool(revision) and revision == observation.expected_revision
+        source = server.get("deploymentRevisionSource") or server.get("DeploymentRevisionSource")
+        identity_matches = candidate_identity_matches(
+            revision, source, observation.expected_revision, observation.expected_image_digests)
+        accepted = f"expected manifest revision={observation.expected_revision!r}"
+        if observation.expected_image_digests:
+            accepted += " or image digest in " + ", ".join(repr(d) for d in observation.expected_image_digests)
         checks.append(
             Check(
                 "1.3-candidate-identity",
                 "http",
                 "GET /api/v1/capabilities/manifest",
                 "pass" if identity_matches else "fail",
-                f"candidate identity reported: revision={revision!r} "
-                f"source={server.get('deploymentRevisionSource') or server.get('DeploymentRevisionSource')!r}; "
-                f"expected manifest revision={observation.expected_revision!r}",
+                f"candidate identity reported: revision={revision!r} source={source!r}; {accepted}",
             )
         )
 

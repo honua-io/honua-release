@@ -272,11 +272,13 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         base_url=base_url,
         image_ref=image_ref if stack_up else None,
         expected_revision=server_sha,
+        expected_image_digests=stagelib.candidate_image_digests(manifest),
     )
     if stack_up:
         import run as driver  # noqa: PLC0415 - shared observation logic, one implementation
 
         observation = driver.observe(target, base_url, workspace, bindir, image_ref, server_sha)
+        observation.expected_image_digests = stagelib.candidate_image_digests(manifest)
         if deployment_detail:
             observation.image_detail = deployment_detail
 
@@ -374,6 +376,7 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
         image_ref,
         server["sha"],
     )
+    observation.expected_image_digests = stagelib.candidate_image_digests(manifest)
     if state.get("deploymentDetail"):
         observation.image_detail = state["deploymentDetail"]
     return state, target, manifest, observation, workspace

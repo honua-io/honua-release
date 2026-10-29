@@ -541,8 +541,10 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                                   file=sys.stderr, flush=True)
                     after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"
                                    else cloud_journey.observed_lambda_image(target, pinned))
-                    after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image)
-                    before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+                    after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image,
+                                                          pinned)
+                    before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"),
+                                                           pinned)
                     for record in report["journeyAttempts"]:
                         record["profileObservation"] = {"source": "aws-control-plane", "before": before,
                             "after": after, "observedAt": cloud_journey.now(),
@@ -955,7 +957,10 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
     if (not isinstance(records, list) or len(records) > 2 or not all(isinstance(r, dict) for r in records)
             or [r.get("number") for r in records] != list(range(1, len(records) + 1))):
         raise ValueError("journey attempt history is not 1..n within two attempts")
-    expected = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+    # The same manifest-bound identity conversion the receipt used (an EKS cell advertises its image
+    # digest, not a commit), or every digest-identified receipt would differ from this expectation.
+    expected = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"),
+                                             cloud_journey.manifest())
     expected_receipts = {f"receipt-{record['number']}.json" for record in records}
     expected_profiles = {f"serving-refusal-{record['number']}.json" for record in records if record.get("servingRefusal")}
     if (any(path.name not in expected_receipts for path in journey_dir.glob("receipt-*.json"))
