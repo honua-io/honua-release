@@ -363,7 +363,18 @@ the manifest sha only when the pods' running digest (read from the kubelet) agre
 
 A journey retry imports its fixture into its own table (`journey_source_attempt<N>`): attempt 1's
 published layer keeps the authored table, so re-importing into it made `service.publish` refuse the
-retry at its layer-conflict check (run 40742242038, attempt 2, stage 3).
+retry at its layer-conflict check (run 40742242038, attempt 2, stage 3). The retry also publishes
+to its own Studio route (`/journey-map-attempt<N>`, read back at the same published path): attempt
+1's approved publication governs `/journey-map` for the life of the cell and no admin call releases
+it, so a retry that re-proposed it failed stage 7 with "Route '/journey-map' is already claimed by
+another Studio publication" (run 40947860102, aws-eks/redis-on, attempt 2). The genuine-model canary
+runs on the same cell after the deterministic attempts, so its model attempt k uses attempt number
+2 + k for its connection, table and route (`cloud_target.scope_execution`).
+
+A run-signed bearer proposer (the EKS tenant fixture) is reported in the proposal's `requestedBy` as
+the server's canonical actor, `<scheme>:subject:<issuer>:<subject>` with both parts percent-encoded.
+Stage 8 accepts that form (`executor.PRINCIPAL`); an API-key proposer is `apikey:api-key:<guid>` or a
+bare key id. Run 40947860102 failed `8.execution` on the percent-encoded issuer before this.
 
 ### Candidate image and two tasks on the Redis-on ECS cell
 Stage 1's `1.1-candidate-image` on an ECS cell is satisfied by the image ECS reports running, read in

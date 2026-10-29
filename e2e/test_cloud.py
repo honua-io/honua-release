@@ -2396,6 +2396,37 @@ def test_a_retry_imports_into_its_own_table_so_publish_meets_no_layer_conflict()
     assert cj.attempt_table_name("", 2) == ""
 
 
+def test_a_retry_publishes_to_its_own_route_because_an_approved_route_outlives_its_attempt(monkeypatch):
+    # e2e-cloud-aws run 40947860102 (aws-eks/redis-on) attempt 2, stage 7: "Route '/journey-map' is
+    # already claimed by another Studio publication." Attempt 1's approved publication governs the
+    # route and no admin call releases it, so the retry scopes route and published path with its table.
+    cj = run_cloud.cloud_journey
+    assert cj.attempt_route("/journey-map", 1) == "/journey-map"
+    assert cj.attempt_route("/journey-map", 2) == "/journey-map-attempt2"
+    assert cj.attempt_route("/journey-map-attempt2", 3) == "/journey-map-attempt3"
+    driver, _ = cj.drivers()
+    sha, image = _manifest_server()
+    monkeypatch.setenv("GITHUB_RUN_ID", "offline-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    workspace = driver.pins.ClientWorkspace(status="pass", root=None, reason="")
+    monkeypatch.setattr(driver, "run_live", lambda *a, **k: (workspace, [], [], None))
+    fixture = json.dumps(_ecs_receipt())
+    monkeypatch.setattr(driver, "build_receipt", lambda **kwargs: json.loads(fixture))
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: {"revision": sha, "source": "commit-sha"})
+    monkeypatch.setattr(cj, "reset_prior_attempt", lambda *a, **k: [])
+    authored = json.loads(cj.drivers()[1].DEFAULT_TARGET.read_text())["execution"]
+    for number in (1, 2):
+        cj.attempt("aws-ecs/redis-off", number, "https://cell.invalid", "key", image)
+        target = json.loads((cj.cell_dir("aws-ecs/redis-off") / f"target-{number}.json").read_text())
+        execution = target["execution"]
+        suffix = "" if number == 1 else f"-attempt{number}"
+        assert execution["route"] == authored["route"] + suffix
+        assert execution["publishedPath"] == authored["publishedPath"] + suffix
+        assert execution["upload"]["tableName"] == authored["upload"]["tableName"] + suffix.replace("-", "_")
+        assert execution["datasource"]["name"] == authored["datasource"]["name"] + suffix
+        cj.cloud_targets().validate(target, template=json.loads(cj.drivers()[1].DEFAULT_TARGET.read_text()))
+
+
 def test_an_image_digest_identity_binds_the_candidate_sha_only_when_both_observations_agree():
     # The honua-helm chart injects HONUA_IMAGE_DIGEST, so an EKS cell advertises source=image-digest.
     cj = run_cloud.cloud_journey

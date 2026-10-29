@@ -10,7 +10,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 import live_driver
+import pytest
 import stages
+import cloud_target
 
 
 class StageBindingTests(unittest.TestCase):
@@ -225,10 +227,47 @@ def test_cloud_setup_observes_external_endpoint_and_never_manages_compose(tmp_pa
 
         assert credentials.call_args.kwargs["mint"] is True
         credentials.assert_called_once()
-        assert prepare_style.call_args.args[0] == target
+        # Model attempt 1 acts past the two deterministic attempts' connection, table and route.
+        scoped = {**target, "execution": cloud_target.scope_execution(target["execution"], 3)}
+        assert scoped["execution"]["route"] == target["execution"]["route"] + "-attempt3"
+        assert prepare_style.call_args.args[0] == scoped
         assert prepare_style.call_args.args[1].credentials == {"operator": "unit"}
         state = live_driver._read_state(response["workspaceId"])
         assert state["external"] is True
+        assert state["executionScope"] == 3
+        assert live_driver._rehydrate({"workspaceId": response["workspaceId"]})[1] == scoped
+
+
+@pytest.mark.parametrize("model_attempt,scope", [(2, 4), (0, None), (3, None), ("1", None), (True, None)])
+def test_cloud_model_attempt_scopes_past_the_deterministic_attempts(tmp_path, model_attempt, scope):
+    # e2e-cloud-aws run 40947860102: an attempt's governed publication route outlives it, so a model
+    # attempt re-proposing the deterministic route would meet "already claimed by another Studio publication".
+    target_path = tmp_path / "target.json"
+    target = _cloud_target_file(target_path)
+    deployment = _cloud_deployment_receipt(tmp_path / "deployment.json", target, target_path)
+    workspace = mock.Mock(status="pass", install_notes=[])
+    workspace.as_receipt.return_value = {"status": "pass"}
+    import run as driver
+    with mock.patch.object(live_driver, "STATE_ROOT", tmp_path / "sessions"), \
+         mock.patch.object(live_driver.pins, "resolve_client_workspace", return_value=workspace), \
+         mock.patch.object(live_driver.pins, "install_executables", return_value=(tmp_path / "bin", "", [])), \
+         mock.patch.object(driver, "observe", return_value=stages.Observation(ready=True, setup_view_present=True)), \
+         mock.patch.object(live_driver.local_fixture, "credentials", return_value={"operator": "unit"}), \
+         mock.patch.object(live_driver.local_fixture, "prepare_style_catalog"):
+        request = {"target": str(target_path), "deploymentReceipt": deployment, "modelAttempt": model_attempt}
+        if scope is None:
+            with pytest.raises(live_driver.DriverError, match="model attempt"):
+                live_driver.op_setup(request)
+            return
+        response = live_driver.op_setup(request)
+        execution = live_driver._rehydrate({"workspaceId": response["workspaceId"]})[1]["execution"]
+        assert live_driver._read_state(response["workspaceId"])["executionScope"] == scope
+    assert execution["route"] == target["execution"]["route"] + f"-attempt{scope}"
+    assert execution["publishedPath"] == target["execution"]["publishedPath"] + f"-attempt{scope}"
+    assert execution["upload"]["tableName"] == target["execution"]["upload"]["tableName"] + f"_attempt{scope}"
+    assert execution["datasource"]["name"] == target["execution"]["datasource"]["name"] + f"-attempt{scope}"
+    # The retained file is still exactly the one the deterministic receipt binds.
+    assert json.loads(target_path.read_text()) == target
 
 
 def test_cloud_teardown_revokes_application_principals_without_deleting_external_cell(tmp_path):

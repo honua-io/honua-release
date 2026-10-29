@@ -593,8 +593,7 @@ def attempt_datasource_name(base, number):
     usually cannot be deleted (the service it published still references it: 409), so a retry that
     re-used the name failed at CreateConnectionAsync before any stage could recover (runs
     39705901768, 39746615094, 39772292511)."""
-    base = str(base or "")
-    return base if number <= 1 or not base else f"{base}{ATTEMPT_SUFFIX}{number}"
+    return cloud_targets().attempt_datasource_name(base, number)
 
 
 def attempt_table_name(base, number):
@@ -607,8 +606,18 @@ def attempt_table_name(base, number):
     of e2e-cloud-aws run 40742242038. The layer cannot be removed while its connection is held
     (the 409 above), so the retry gets a fresh table and publishes a genuinely new layer.
     The suffix keeps the name a plain SQL identifier."""
-    base = str(base or "")
-    return base if number <= 1 or not base else f"{base}_attempt{number}"
+    return cloud_targets().attempt_table_name(base, number)
+
+
+def attempt_route(base, number):
+    """Attempt 1 keeps the authored Studio publication route; a retry publishes to its own.
+
+    Attempt 1's approved publication governs its route for the life of the cell, and the server has
+    no admin call that releases it, so the reset cannot remove it. Attempt 2 of e2e-cloud-aws run
+    40947860102 (aws-eks/redis-on) re-proposed /journey-map for its new map item and stage 7 failed:
+    "Route '/journey-map' is already claimed by another Studio publication." A retry now publishes
+    to <route>-attemptN and reads its published path at the same suffix."""
+    return cloud_targets().attempt_route(base, number)
 
 
 def _base_datasource_name(name):
@@ -713,12 +722,10 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         target.update(id=cell, kind=kind or "none")
         target["adminPassword"] = {"env": "HONUA_CLOUD_JOURNEY_ADMIN", "default": ""}
         target["compose"]["notes"] = "Externally provisioned cloud cell; the cloud harness owns teardown."
-    datasource = (target.get("execution") or {}).get("datasource")
-    if kind is not None and isinstance(datasource, dict) and datasource.get("name"):
-        datasource["name"] = attempt_datasource_name(datasource["name"], number)
-    upload = (target.get("execution") or {}).get("upload")
-    if kind is not None and isinstance(upload, dict) and upload.get("tableName"):
-        upload["tableName"] = attempt_table_name(upload["tableName"], number)
+    if kind is not None and isinstance(target.get("execution"), dict):
+        # Connection, import table, publication route and published path are this attempt's own
+        # (cloud_target.scope_execution); every other fixture value stays the authored one.
+        target["execution"] = targets.scope_execution(target["execution"], number)
     target_path = directory / f"target-{number}.json"
     target_path.write_text(json.dumps(target) + "\n")
     notices = [f"Imported adapter protocol: {adapter.PROTOCOL}"]
