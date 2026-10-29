@@ -322,7 +322,7 @@ def test_generator_reports_all_current_unresolved_release_work():
         "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
     )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
-        "sha256:4da7f1d8cdbe58853e05240e319f2c792af36925389858d3bbd28dc4712b73d2"
+        "sha256:848d28583a17b2b12c41ee9ece2838a9c2af608308ddcbba867093f34dd90169"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
     assert "honua-server.artifacts[0].platformDigests" not in joined
@@ -911,10 +911,10 @@ def test_live_inputs_lock_the_published_honua_iac_release():
     assert [item for item in draft.unresolved
             if "honua-iac" in item and "Versions: not declared" not in item] == []
     assert draft.lock["components"]["honua-iac"]["artifacts"] == [{
-        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/91a886fb466afc31df73af5efba481d10c6eedc2.tar.gz",
-        "version": "0.4.1", "sourceRevision": "91a886fb466afc31df73af5efba481d10c6eedc2",
-        "sha256": "sha256:4da7f1d8cdbe58853e05240e319f2c792af36925389858d3bbd28dc4712b73d2"}]
-    assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "91a886fb466afc31df73af5efba481d10c6eedc2"
+        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/0eff5c13c7b7598f1c45f016adeb5e518dad8fff.tar.gz",
+        "version": "0.4.2", "sourceRevision": "0eff5c13c7b7598f1c45f016adeb5e518dad8fff",
+        "sha256": "sha256:848d28583a17b2b12c41ee9ece2838a9c2af608308ddcbba867093f34dd90169"}]
+    assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "0eff5c13c7b7598f1c45f016adeb5e518dad8fff"
 
 
 # --- Helm Preview out of the lock (ruling helm-preview-out-of-lock-2026-10-26) ---
