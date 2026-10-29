@@ -18,6 +18,57 @@ const ts = createRequire(import.meta.url)(compilerPath);
 if (ts.version !== '5.9.3') throw new Error(`unexpected TypeScript parser ${ts.version}`);
 const importedBindings = new ImportBindings(ts);
 
+// REPL evaluation is a script, so top-level `this` is the global. An ES module's
+// top-level `this` is undefined, including arrows. Function, method and class
+// `this` stay as written. Splice the original text; do not reprint the block.
+function rewriteModuleThis(source) {
+  const prefix = 'export {}\n';
+  const sf = ts.createSourceFile('block.mjs', prefix + source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  if (sf.parseDiagnostics?.length) return source;
+  const functionLike = new Set([
+    ts.SyntaxKind.FunctionDeclaration,
+    ts.SyntaxKind.FunctionExpression,
+    ts.SyntaxKind.MethodDeclaration,
+    ts.SyntaxKind.Constructor,
+    ts.SyntaxKind.GetAccessor,
+    ts.SyntaxKind.SetAccessor,
+    ts.SyntaxKind.ClassStaticBlockDeclaration,
+  ]);
+  const spans = [];
+  let depth = 0;
+  const visit = node => {
+    if (node.kind === ts.SyntaxKind.ClassDeclaration || node.kind === ts.SyntaxKind.ClassExpression) {
+      for (const modifier of node.modifiers ?? []) visit(modifier);
+      for (const clause of node.heritageClauses ?? []) visit(clause);
+      depth++;
+      for (const member of node.members) visit(member);
+      depth--;
+      return;
+    }
+    if (functionLike.has(node.kind)) {
+      depth++;
+      ts.forEachChild(node, visit);
+      depth--;
+      return;
+    }
+    if (depth === 0 && node.kind === ts.SyntaxKind.ThisKeyword) {
+      const start = node.getStart(sf) - prefix.length;
+      const end = node.end - prefix.length;
+      if (start >= 0) spans.push([start, end]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  if (!spans.length) return source;
+  let out = '', cursor = 0;
+  for (const [start, end] of spans) {
+    if (start < cursor || end > source.length || source.slice(start, end) !== 'this') return source;
+    out += source.slice(cursor, start) + '(void 0)';
+    cursor = end;
+  }
+  return out + source.slice(cursor);
+}
+
 const output = new AsyncLocalStorage();
 const initialEnvironment = { ...process.env };
 let injectedEnvironment = {};
@@ -35,6 +86,7 @@ for (const [stream, suffix] of [[process.stdout, '.out'], [process.stderr, '.err
 }
 const input = new PassThrough();
 const evaluations = new Map();
+let evaluating = false;
 const refInput = process.stdin.ref.bind(process.stdin);
 const unrefInput = process.stdin.unref.bind(process.stdin);
 const resources = ownResources(output);
@@ -103,11 +155,23 @@ function checkpoint() {
   });
 }
 process.on('beforeExit', checkpoint);
-process.on('unhandledRejection', reason => {
+const deliveredRejections = new WeakSet();
+function readerRejectionListeners() {
+  return process.listeners('unhandledRejection').filter(listener => listener !== onUnhandledRejection);
+}
+function onUnhandledRejection(reason) {
   const reject = evaluations.get(output.getStore());
-  if (reject) reject(reason);
-  else process.exit(1);
-});
+  // Node already called every listener. Remember that so the REPL domain
+  // writer does not deliver the same rejection again.
+  if (reason && typeof reason === 'object') deliveredRejections.add(reason);
+  if (!reject) {
+    process.exit(1);
+    return;
+  }
+  if (readerRejectionListeners().length) return;
+  reject(reason);
+}
+process.on('unhandledRejection', onUnhandledRejection);
 const standardGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, done) { done(); } }),
   terminal: false, prompt: '', ignoreUndefined: true, replMode: repl.REPL_MODE_STRICT,
@@ -116,6 +180,26 @@ const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, do
   // the error output and eventually misclassifying it as a timeout.
   writer(value) {
     const reject = evaluations.get(output.getStore());
+    // The REPL domain receives promise rejections created while evaluating and
+    // does not emit process unhandledRejection. A reader listener still means
+    // native Node would treat that rejection as handled.
+    const readers = readerRejectionListeners();
+    if (reject && !evaluating && readers.length) {
+      const completion = active;
+      if (completion) completion.handledRejection = true;
+      if (!(value && typeof value === 'object' && deliveredRejections.has(value))) {
+        if (value && typeof value === 'object') deliveredRejections.add(value);
+        for (const listener of readers) {
+          try { listener(value); }
+          catch (failure) {
+            reject(failure);
+            return '';
+          }
+        }
+      }
+      if (completion && !completion.evaluated) completion.evaluated = true;
+      return '';
+    }
     if (reject) reject(value);
     else process.exit(1); // an unowned/background error loses the interpreter
     return '';
@@ -180,13 +264,14 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       }
       Object.assign(process.env, request.env);
       injectedEnvironment = { ...request.env };
-      server.context.require = createRequire(file);
       if (file.endsWith('.cjs')) {
+        server.context.require = createRequire(file);
         commonjsModule = { id: '.', filename: file, path: path.dirname(file), exports: {}, loaded: false,
           require: server.context.require };
         server.context.module = commonjsModule;
         server.context.exports = commonjsModule.exports;
       } else {
+        delete server.context.require;
         delete server.context.module;
         delete server.context.exports;
       }
@@ -199,6 +284,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
         server.context[prepared.metadataIdentifier] = await nativeMetadata(file);
       }
       source = prepared.code;
+      if (!file.endsWith('.cjs')) source = rewriteModuleThis(source);
       await new Promise((resolve, reject) => {
         let finished = false;
         const completion = {
@@ -217,12 +303,20 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
         active = completion;
         unrefInput();
         try {
+          evaluating = true;
           server.eval(source, server.context, file, failure => {
-            if (failure) completion.reject(failure);
-            else completion.evaluated = true;
+            if (failure) {
+              if (completion.handledRejection) {
+                completion.evaluated = true;
+                return;
+              }
+              completion.reject(failure);
+            } else completion.evaluated = true;
           });
         } catch (failure) {
           completion.reject(failure);
+        } finally {
+          evaluating = false;
         }
       });
       if (commonjsModule) commonjsModule.loaded = true;
