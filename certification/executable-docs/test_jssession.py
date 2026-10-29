@@ -153,6 +153,47 @@ def test_reader_unhandled_rejection_listener_matches_native_node(reader):
     assert result.stdout == oracle.stdout
 
 
+def test_timer_throw_is_not_cleared_by_an_unhandled_rejection_listener(reader):
+    result = run(reader, "process.on('unhandledRejection', () => {}); "
+                  "setTimeout(() => { throw new Error('fatal-timer'); }, 5);")
+    assert result.status == "fail"
+    assert "fatal-timer" in result.stderr
+
+
+def test_throw_after_await_is_not_cleared_by_an_unhandled_rejection_listener(reader):
+    result = run(reader, "process.on('unhandledRejection', () => {}); "
+                  "await Promise.resolve(); throw new Error('fatal-await');")
+    assert result.status == "fail"
+    assert "fatal-await" in result.stderr
+
+
+def test_awaited_rejection_is_not_cleared_by_an_unhandled_rejection_listener(reader):
+    result = run(reader, "process.on('unhandledRejection', () => {}); "
+                  "await Promise.reject(new Error('fatal-awaited'));")
+    assert result.status == "fail"
+    assert "fatal-awaited" in result.stderr
+
+
+def test_once_unhandled_rejection_listener_does_not_cover_a_second_promise(reader):
+    result = run(reader, "let seen = 0; process.once('unhandledRejection', () => { seen++; }); "
+                  "Promise.reject(new Error('first')); "
+                  "await new Promise((resolve) => setTimeout(resolve, 10)); "
+                  "Promise.reject(new Error('second'));")
+    assert result.status == "fail"
+    assert "second" in result.stderr
+
+
+def test_each_promise_rejection_is_delivered_when_the_reason_is_reused(reader):
+    source = ("const error = new Error('same'); let seen = 0; "
+              "process.on('unhandledRejection', () => { seen++; }); "
+              "Promise.reject(error); Promise.reject(error); "
+              "await new Promise((resolve) => setTimeout(resolve, 0)); "
+              "console.log(seen);")
+    result = run(reader, source)
+    assert result.status == "pass", result.stderr
+    assert result.stdout == "2\n"
+
+
 def test_unhandled_rejection_without_a_reader_listener_fails(reader):
     result = run(reader, "Promise.reject(new Error('boom'));")
     assert result.status == "fail"

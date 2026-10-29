@@ -155,15 +155,13 @@ function checkpoint() {
   });
 }
 process.on('beforeExit', checkpoint);
-const deliveredRejections = new WeakSet();
 function readerRejectionListeners() {
   return process.listeners('unhandledRejection').filter(listener => listener !== onUnhandledRejection);
 }
 function onUnhandledRejection(reason) {
   const reject = evaluations.get(output.getStore());
-  // Node already called every listener. Remember that so the REPL domain
-  // writer does not deliver the same rejection again.
-  if (reason && typeof reason === 'object') deliveredRejections.add(reason);
+  // Rejections created outside the REPL domain still reach this listener first.
+  // Reader listeners registered after it are what native Node treats as handling.
   if (!reject) {
     process.exit(1);
     return;
@@ -172,6 +170,30 @@ function onUnhandledRejection(reason) {
   reject(reason);
 }
 process.on('unhandledRejection', onUnhandledRejection);
+// Promise rejections the domain swallowed, keyed by the reason object. A primitive
+// reason has no identity, so those are counted. Async exceptions are not recorded.
+const promiseRejections = new WeakSet();
+let primitiveRejections = 0;
+let pairedWriterCall = false;
+function noteDomainError(error) {
+  const site = new Error().stack ?? '';
+  // emitUnhandledRejection is the only path native Node would offer to
+  // unhandledRejection listeners. Top-level await failures are emitted by the
+  // REPL itself, and timer or nextTick throws arrive with domainThrown set.
+  if (!site.includes('node:internal/process/promises:')) return;
+  if (error !== null && typeof error === 'object') promiseRejections.add(error);
+  else primitiveRejections += 1;
+}
+function takePromiseRejection(value) {
+  if (value !== null && typeof value === 'object') {
+    if (!promiseRejections.has(value)) return false;
+    promiseRejections.delete(value);
+    return true;
+  }
+  if (primitiveRejections === 0) return false;
+  primitiveRejections -= 1;
+  return true;
+}
 const standardGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, done) { done(); } }),
   terminal: false, prompt: '', ignoreUndefined: true, replMode: repl.REPL_MODE_STRICT,
@@ -179,23 +201,28 @@ const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, do
   // not always its callback. Capture that public hook rather than swallowing
   // the error output and eventually misclassifying it as a timeout.
   writer(value) {
-    const reject = evaluations.get(output.getStore());
-    // The REPL domain receives promise rejections created while evaluating and
-    // does not emit process unhandledRejection. A reader listener still means
-    // native Node would treat that rejection as handled.
-    const readers = readerRejectionListeners();
-    if (reject && !evaluating && readers.length) {
+    // Returning '' makes the domain handler call writer again for an Error.
+    if (pairedWriterCall) {
+      pairedWriterCall = false;
+      return '';
+    }
+    if (value !== null && typeof value === 'object') pairedWriterCall = true;
+    // A top-level await continuation is scheduled by the REPL, outside this
+    // block's async context. The active completion is still the block.
+    const stored = output.getStore();
+    const reject = (stored && evaluations.get(stored)) || active?.reject;
+    const promiseRejection = !evaluating && takePromiseRejection(value);
+    if (reject && promiseRejection && readerRejectionListeners().length) {
       const completion = active;
       if (completion) completion.handledRejection = true;
-      if (!(value && typeof value === 'object' && deliveredRejections.has(value))) {
-        if (value && typeof value === 'object') deliveredRejections.add(value);
-        for (const listener of readers) {
-          try { listener(value); }
-          catch (failure) {
-            reject(failure);
-            return '';
-          }
-        }
+      try {
+        // emit, not listeners(): once() wrappers remove themselves only when
+        // EventEmitter delivers the event. Each promise is its own event, even
+        // when two rejections share one reason object.
+        process.emit('unhandledRejection', value);
+      } catch (failure) {
+        reject(failure);
+        return '';
       }
       if (completion && !completion.evaluated) completion.evaluated = true;
       return '';
@@ -204,6 +231,7 @@ const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, do
     else process.exit(1); // an unowned/background error loses the interpreter
     return '';
   } });
+server._domain.prependListener('error', noteDomainError);
 // Interactive Node preloads names such as `fs` on first use. Reader snippets
 // must supply their own imports, as their original modules did.
 for (const name of builtinModules) {
