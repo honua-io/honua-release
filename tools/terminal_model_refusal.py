@@ -59,7 +59,9 @@ class RefusalReceiptBuilder(c.ReceiptBuilder):
                 raise c.CanaryError("unsuccessful refusal profile must retain failure attribution")
             return
         prerequisite = r["linkedEvidence"]["deterministicReceipt"] or {}
-        if (r["failureAttribution"] is not None or not c.LOCK_DIGEST.fullmatch(str(r["lockDigest"] or ""))
+        # Bound like the shared canary (lock digest, or the manifest-pinned image the green deterministic
+        # receipt verified): the dispatcher admits exactly that binding, so a pass must accept it too.
+        if (r["failureAttribution"] is not None or not self.bound()
                 or not r["endpoint"]["configured"] or not r["driver"]["configured"]
                 or not r["endpoint"]["runtime"] or not r["endpoint"]["quantization"]
                 or r["scope"]["executionToGreen"] != "pass"

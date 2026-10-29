@@ -553,3 +553,17 @@ def test_unlocked_run_bound_to_the_pinned_image_executes_instead_of_refusing(tmp
     endpoint = types.SimpleNamespace(configured=True, require_api_key=False, api_key=None, runtime="r", quantization="q")
     refusal.main_from_args(args, endpoint)
     assert calls == ["live"]
+
+
+def test_successful_unlocked_run_bound_to_the_pinned_image_validates(tmp_path, monkeypatch):
+    # The dispatcher admits a run bound to the manifest-pinned image without --lock-digest; the pass
+    # invariant must accept the same binding, or the receipt never validates and is never written.
+    b, result, _ = _runner(tmp_path, monkeypatch)
+    assert result["status"] == "pass"
+    b.receipt["lockDigest"] = None
+    assert b.bound()
+    assert b.validated_receipt()["status"] == "pass"
+    b.receipt["linkedEvidence"]["deterministicReceipt"]["candidateVerified"] = False
+    assert not b.bound()
+    with pytest.raises(c.CanaryError):
+        b.validated_receipt()
