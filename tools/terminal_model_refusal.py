@@ -59,7 +59,9 @@ class RefusalReceiptBuilder(c.ReceiptBuilder):
                 raise c.CanaryError("unsuccessful refusal profile must retain failure attribution")
             return
         prerequisite = r["linkedEvidence"]["deterministicReceipt"] or {}
-        if (r["failureAttribution"] is not None or not c.LOCK_DIGEST.fullmatch(str(r["lockDigest"] or ""))
+        # Bound like the shared canary (lock digest, or the manifest-pinned image the green deterministic
+        # receipt verified): the dispatcher admits exactly that binding, so a pass must accept it too.
+        if (r["failureAttribution"] is not None or not self.bound()
                 or not r["endpoint"]["configured"] or not r["driver"]["configured"]
                 or not r["endpoint"]["runtime"] or not r["endpoint"]["quantization"]
                 or r["scope"]["executionToGreen"] != "pass"
@@ -253,7 +255,7 @@ def main_from_args(args, endpoint):
         if builder.receipt["status"] != "fail":
             if (not endpoint.configured or (endpoint.require_api_key and not endpoint.api_key)
                     or not args.driver_command or not args.driver_command.is_file()
-                    or not builder.receipt["linkedEvidence"]["deterministicReceipt"] or not args.lock_digest
+                    or not builder.receipt["linkedEvidence"]["deterministicReceipt"] or not builder.bound()
                     or not endpoint.runtime or not endpoint.quantization):
                 c.unavailable_receipt(builder, endpoint, args.driver_command)
             else:
