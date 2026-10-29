@@ -91,6 +91,23 @@ class CloudTargetDocumentTests(unittest.TestCase):
         self.assertEqual(unavailable["blockedBy"], [cloud_target.OTHER_TENANT_BLOCKER])
         self.assertIn("none is fabricated", unavailable["reason"])
 
+    def test_retry_table_name_is_the_only_allowed_fixture_change(self):
+        base = TEMPLATE["execution"]["upload"]["tableName"]
+        for name, ok in ((f"{base}_attempt2", True), (f"{base}_attempt12", True), (f"{base}_attempt1", False),
+                         (f"{base}_attempt2x", False), ("other_table", False), (f"{base}_attempt2;drop", False)):
+            target = cloud()
+            target["execution"]["upload"]["tableName"] = name
+            if ok:
+                cloud_target.validate(target, template=TEMPLATE)
+            else:
+                with self.assertRaises(cloud_target.TargetError):
+                    cloud_target.validate(target, template=TEMPLATE)
+        target = cloud()
+        target["execution"]["upload"]["tableName"] = f"{base}_attempt2"
+        target["execution"]["upload"]["sha256"] = "0" * 64
+        with self.assertRaises(cloud_target.TargetError):
+            cloud_target.validate(target, template=TEMPLATE)
+
     def test_validation_fails_closed_on_leaks_and_weakened_fixtures(self):
         def broken(change):
             target = cloud()

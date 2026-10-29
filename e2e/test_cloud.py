@@ -5840,3 +5840,19 @@ def test_drivers_start_only_after_the_bulk_import_settles(monkeypatch, s10_ran):
     journey = run_cloud.journey_phase(state, admin_key="k")
     assert order == (["s10", "settle", "drivers"] if s10_ran else ["drivers"])
     assert ("postImportSettle" in journey) is s10_ran
+
+
+def test_verify_journey_expects_the_manifest_bound_server_identity(monkeypatch, tmp_path):
+    # An EKS cell advertises source=image-digest; the receipt binds the manifest sha via the pinned
+    # manifest, so the handoff verifier must apply the same conversion or reject every such receipt.
+    import cloud_journey
+    seen = []
+    monkeypatch.setattr(cloud_journey, "observed_server", lambda identity, image, pinned=None: seen.append(pinned) or {})
+    with pytest.raises(Exception):
+        run_cloud.verify_journey({"cell": "aws-eks/redis-off"}, {"journeyAttempts": "not-a-list"}, tmp_path)
+    run_cloud_state = {"cell": "aws-eks/redis-off", "observedServer": {"source": "image-digest"}, "runningImage": "x"}
+    try:
+        run_cloud.verify_journey(run_cloud_state, {"journeyAttempts": []}, tmp_path)
+    except Exception:
+        pass
+    assert seen and seen[-1] is not None and "components" in seen[-1]
