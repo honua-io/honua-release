@@ -651,7 +651,12 @@ the exception class there; the tool envelope does not carry it), with a bounded 
 Gateway access log (`/aws/apigateway/<api function name>`) is tailed and its 4xx/5xx lines counted
 by status and by route (`accessErrors`): a response API Gateway produced itself carries no CORS
 header, so a demo page reports it as a CORS refusal and only this log tells it from a server
-response. When `gp_batch_enabled` is true it also tails and sweeps every `/aws/batch/<stem>-*` job
+response. For each 5xx API Gateway generated itself (`errorMessage` set, such as the 503 "Service
+Unavailable" at the 30 s integration timeout; up to 10), `gatewayFailureWindows` keeps the API
+function's `START`/`REPORT`/`INIT_*`/`Task timed out` and server request lines from 2 s before the
+request to 40 s after, with the request's latencies and Lambda RequestId when the stage logs them:
+that is what tells a cold start, a queued invocation and a slow handler apart (run 40832719280).
+When `gp_batch_enabled` is true it also tails and sweeps every `/aws/batch/<stem>-*` job
 log group. This is where a Lambda server's own startup and refusal reasons
 (a `dependency-unavailable` capability, a GP job that never left `running`) survive the cell.
 
