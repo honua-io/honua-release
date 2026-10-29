@@ -1531,11 +1531,11 @@
       "id": "honua-release-docs-install-2026-1",
       "repo": "honua-io/honua-release",
       "path": "docs/INSTALL-2026.1.md",
-      "revision": "3e0617bea59d33b532a47482b4eded2527567743",
+      "revision": "3fcb356f2dfba2db2988f0195939222fcc76dece",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/3e0617bea59d33b532a47482b4eded2527567743/docs/INSTALL-2026.1.md",
+      "url": "https://github.com/honua-io/honua-release/blob/3fcb356f2dfba2db2988f0195939222fcc76dece/docs/INSTALL-2026.1.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -1543,17 +1543,17 @@
       "blocks": [
         {
           "index": 0,
-          "line": 17,
+          "line": 21,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "file",
           "intentSource": "marker",
-          "sha256": "4877d1512e3dfa487adc32bade34a2c305056d5117b3b8d183733141bd172624",
+          "sha256": "6af7d45fc8d05f4876fde70c565008c1e46aa28021b9f81fc16cfca1db79cb33",
           "file": "compose.yaml"
         },
         {
           "index": 1,
-          "line": 58,
+          "line": 63,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
@@ -1562,7 +1562,7 @@
         },
         {
           "index": 2,
-          "line": 67,
+          "line": 72,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "illustrative",
@@ -1572,7 +1572,7 @@
         },
         {
           "index": 3,
-          "line": 82,
+          "line": 87,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
@@ -1585,11 +1585,11 @@
       "id": "honua-release-docs-customer-install",
       "repo": "honua-io/honua-release",
       "path": "docs/CUSTOMER-INSTALL.md",
-      "revision": "3e0617bea59d33b532a47482b4eded2527567743",
+      "revision": "3fcb356f2dfba2db2988f0195939222fcc76dece",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/3e0617bea59d33b532a47482b4eded2527567743/docs/CUSTOMER-INSTALL.md",
+      "url": "https://github.com/honua-io/honua-release/blob/3fcb356f2dfba2db2988f0195939222fcc76dece/docs/CUSTOMER-INSTALL.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -1597,17 +1597,17 @@
       "blocks": [
         {
           "index": 0,
-          "line": 37,
+          "line": 41,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "file",
           "intentSource": "marker",
-          "sha256": "df233ddeeb38ddaae0c8555c593817fe65171ca8f380e5299920cd3110a14f67",
+          "sha256": "b36e0cb09e2493261236e8d6d1b03790647ad4275955e4565e827d76599c471e",
           "file": "compose.yaml"
         },
         {
           "index": 1,
-          "line": 77,
+          "line": 82,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
@@ -1616,7 +1616,7 @@
         },
         {
           "index": 2,
-          "line": 87,
+          "line": 92,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
