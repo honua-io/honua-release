@@ -4413,6 +4413,120 @@ def test_serverless_migration_failure_is_a_redacted_reason_and_the_container_is_
         target.migrate(run=_Docker(), probe=lambda url: 200, sleep=lambda _s: None)
 
 
+# ---- honua-server#6750: the Lambda cell stays closed until the pre-serving migration is Ready -------
+def _closing_target(monkeypatch, base, *declared, migration_ready=True):
+    """A serverless target on a fake pinned root that records every terraform and docker call in
+    order; `show -json` answers with the cell's connection secret for the migration."""
+    _serverless_env(monkeypatch)
+    monkeypatch.setenv("HONUA_MIGRATE_IMAGE", "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64)
+    _iac_root_with(monkeypatch, base, "aws-serverless", *declared)
+    target = serverless(run_id="run42")
+    calls = []
+    state = {"values": {"root_module": {"resources": [], "child_modules": [{"resources": [
+        {"type": "aws_secretsmanager_secret_version", "name": "connection_string",
+         "values": {"secret_string": _CONNECTION}}]}]}}}
+
+    def tf(root, *args, check=True):
+        calls.append(("terraform", *args))
+        if args[0] == "show":
+            return subprocess.CompletedProcess(args, 0, json.dumps(state), "")
+        if args[0] == "output":
+            return subprocess.CompletedProcess(args, 0, "https://abc.execute-api.us-east-1.amazonaws.com\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(target, "_tf", tf)
+    docker = _Docker() if migration_ready else _Docker(running="false 1", logs="migration 0031 failed\n")
+
+    def run(argv, **kwargs):
+        calls.append(tuple(argv[:2]))
+        return docker(argv, **kwargs)
+
+    return target, calls, run
+
+
+def _applies(calls):
+    return [_tf_vars(call).get("serving_closed") for call in calls if call[:2] == ("terraform", "apply")]
+
+
+def test_serverless_cell_applies_closed_migrates_then_opens(monkeypatch):
+    with tempfile.TemporaryDirectory() as base:
+        target, calls, run = _closing_target(monkeypatch, base, "serving_closed")
+        endpoint = target.provision(redis_enabled=True)
+        assert endpoint.startswith("https://")
+        # One apply so far, closed; nothing opened before the migration.
+        assert _applies(calls) == ["true"]
+        # The open input set is what update/rollback and the sealed transition inputs re-apply.
+        assert "serving_closed" not in _tf_vars(target._last_vars)
+        result = target.migrate(redis_enabled=True, run=run, probe=lambda url: 200, sleep=lambda _s: None)
+        assert result["ready"] is True and result["servingOpened"] is True
+        assert _applies(calls) == ["true", "false"]
+        order = [call[:2] for call in calls]
+        closed_apply = order.index(("terraform", "apply"))
+        docker_run, docker_rm = order.index(("docker", "run")), order.index(("docker", "rm"))
+        open_apply = len(order) - 1 - order[::-1].index(("terraform", "apply"))
+        # closed apply -> migration container -> Ready -> container removed -> opening apply.
+        assert closed_apply < docker_run < docker_rm < open_apply == len(order) - 1
+        # Both applies carry the same open inputs; only serving_closed differs.
+        applies = [_tf_vars(call) for call in calls if call[:2] == ("terraform", "apply")]
+        assert {k: v for k, v in applies[0].items() if k != "serving_closed"} == \
+            {k: v for k, v in applies[1].items() if k != "serving_closed"}
+        # Opening is idempotent: a second call applies nothing.
+        assert target.open_serving() is False and _applies(calls) == ["true", "false"]
+
+
+def test_serverless_cell_on_an_older_root_applies_once_open(monkeypatch):
+    # The pinned honua-iac v0.4.1 root does not declare serving_closed: passing it would be a hard
+    # terraform error, so the cell applies once, open, exactly as before (activates on the re-pin).
+    with tempfile.TemporaryDirectory() as base:
+        target, calls, run = _closing_target(monkeypatch, base)
+        target.provision(redis_enabled=False)
+        result = target.migrate(redis_enabled=False, run=run, probe=lambda url: 200, sleep=lambda _s: None)
+        assert result["ready"] is True and result["servingOpened"] is False
+        assert _applies(calls) == [None]
+        assert not any("serving_closed" in arg for call in calls for arg in call)
+
+
+def test_ecs_cell_never_applies_closed(monkeypatch):
+    # No pre-serving migration on ECS, so nothing would ever open it: never closed, even if declared.
+    with tempfile.TemporaryDirectory() as base:
+        _ecs_env(monkeypatch)
+        _iac_root_with(monkeypatch, base, "aws", "serving_closed")
+        target = ecs(run_id="r1")
+        calls = []
+        monkeypatch.setattr(target, "_tf", lambda root, *args, check=True: (
+            calls.append(args), subprocess.CompletedProcess(args, 0, "http://alb.example\n", ""))[1])
+        target.provision(redis_enabled=False)
+        assert [_tf_vars(c).get("serving_closed") for c in calls if c[0] == "apply"] == [None]
+
+
+def test_serverless_migration_failure_leaves_the_cell_closed(monkeypatch):
+    with tempfile.TemporaryDirectory() as base:
+        target, calls, run = _closing_target(monkeypatch, base, "serving_closed", migration_ready=False)
+        target.provision(redis_enabled=True)
+        with pytest.raises(ProvisionError, match="exited 1 before Ready"):
+            target.migrate(redis_enabled=True, run=run, probe=lambda url: 503, sleep=lambda _s: None)
+        # No opening apply: teardown destroys a cell nothing could invoke.
+        assert _applies(calls) == ["true"] and target._serving_closed is True
+        assert calls[-1][:2] == ("docker", "rm")
+
+
+def test_serverless_failed_opening_apply_is_a_provision_error(monkeypatch):
+    with tempfile.TemporaryDirectory() as base:
+        target, calls, run = _closing_target(monkeypatch, base, "serving_closed")
+        target.provision(redis_enabled=False)
+        recorded = target._tf
+
+        def failing(root, *args, check=True):
+            if args[0] == "apply":
+                raise subprocess.CalledProcessError(1, "terraform", stderr="PutFunctionConcurrency denied")
+            return recorded(root, *args, check=check)
+
+        monkeypatch.setattr(target, "_tf", failing)
+        with pytest.raises(ProvisionError, match="apply opening the cell failed: PutFunctionConcurrency denied"):
+            target.migrate(redis_enabled=False, run=run, probe=lambda url: 200, sleep=lambda _s: None)
+        assert target._serving_closed is True
+
+
 class _MigratingStub(_ServingStub):
     migrates_before_serving = True
 

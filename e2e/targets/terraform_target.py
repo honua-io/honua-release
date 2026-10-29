@@ -130,6 +130,9 @@ class TfTargetSpec:
     # probed. The serverless root keeps skip_migrations=true (a Lambda cold start must not race a
     # schema migration), so without this step the Lambda serves an unmigrated database.
     migrate_image_env: str = ""
+    # honua-server#6750: on a migrating root that declares SERVING_CLOSED_VAR, the first apply holds
+    # the cell closed (reserved concurrency 0 on the API and control-plane event Lambdas), migrate()
+    # runs, and only then a second apply opens it. See TerraformTarget.provision/open_serving.
     # honua-release#450: give the cell a per-run HTTPS hostname under the account's public hosted
     # zone (domain_name + route53_zone_id: the module issues an ACM certificate, validates it in that
     # zone and aliases the name to the ALB, or to the API Gateway regional custom domain on the
@@ -192,6 +195,15 @@ DEMO_SITE_ORIGIN = "http://127.0.0.1:18099"
 _ACM_DOMAIN_MAX = 64
 _DNS_LABEL_MAX = 63
 _ZONE_ID = re.compile(r"^Z[A-Z0-9]{1,31}$")
+# honua-server#6750 (run 40746787170): an internet scanner called the Lambda cell's API Gateway URL
+# before the pre-serving migration finished; the cold-started API instance logged
+# DatabaseSchemaFloorException and answered every readiness probe 503 schema-floor until the cell
+# was torn down. honua-iac's serverless root (v0.4.2+) declares serving_closed: reserved concurrency
+# 0 on the API and control-plane event functions, so nothing can start an instance. A migrating
+# target applies closed, migrates, then applies open. An older pin that does not declare it applies
+# once, open, exactly as before.
+SERVING_CLOSED_VAR = "serving_closed"
+
 _DNS_NAME = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 
@@ -206,6 +218,8 @@ class TerraformTarget(DeployTarget):
         self.region = region or os.environ.get("AWS_REGION", "us-east-1")
         self._workdir: Path | None = None
         self._last_vars: list[str] = []
+        # True between a closed provision apply and the opening apply (open_serving).
+        self._serving_closed = False
 
     @property
     def admin_api_key(self) -> str:
@@ -220,6 +234,11 @@ class TerraformTarget(DeployTarget):
     @property
     def migrates_before_serving(self) -> bool:
         return bool(self.spec.migrate_image_env)
+
+    def _closes_until_migrated(self) -> bool:
+        """Provision closed only when a migration follows and the pinned root can hold the cell
+        closed; an older root without the input keeps the single open apply."""
+        return self.migrates_before_serving and self._root_declares(SERVING_CLOSED_VAR)
 
     # --- prerequisites -------------------------------------------------------------------------
     def _iac_root(self) -> Path | None:
@@ -676,9 +695,17 @@ class TerraformTarget(DeployTarget):
             else:
                 print(f"{self.name}: HTTPS cell hostname {domain[0]} (ACM DNS validation in the hosted "
                       "zone; the apply waits for issuance)", flush=True)
+        # _last_vars stays the open input set: update/rollback and the sealed transition inputs
+        # re-apply it, and open_serving() applies it with the cell opened.
+        closed = self._closes_until_migrated()
+        if closed:
+            print(f"{self.name}: applying with {SERVING_CLOSED_VAR}=true; the cell opens only after the "
+                  "pre-serving migration is Ready (honua-server#6750)", flush=True)
         try:
             self._tf(root, "init", "-input=false", "-no-color")
-            self._tf(root, "apply", "-auto-approve", *self._last_vars)
+            self._tf(root, "apply", "-auto-approve", *self._last_vars,
+                     *((f"-var={SERVING_CLOSED_VAR}=true",) if closed else ()))
+            self._serving_closed = closed
             out = self._tf(root, "output", "-raw", self.spec.endpoint_output)
         except subprocess.CalledProcessError as e:
             raise ProvisionError(f"{self.name} terraform failed: {e.stderr or e.stdout or e}") from e
@@ -932,14 +959,38 @@ class TerraformTarget(DeployTarget):
 
     def migrate(self, redis_enabled: bool = False, *, run=subprocess.run, probe=None,
                 sleep=time.sleep) -> dict:
-        """Migrate the cell's database with the generic server image, then stop it.
+        """Migrate the cell's database with the generic server image, stop it, then open the cell.
 
         The image runs on this runner (the cell's RDS admits the runner's /32) with migrations
         enabled and the cell's own connection string, admin password and master key, until
         /healthz/ready answers 200. Secrets reach docker through the process environment
         (`-e NAME` with no value), never argv. Raises ProvisionError with the reason; the container
-        is always removed.
+        is always removed. A cell provisioned closed is opened only after Ready (open_serving); a
+        failed migration leaves it closed for teardown.
         """
+        result = self._run_migration(redis_enabled, run=run, probe=probe, sleep=sleep)
+        result["servingOpened"] = self.open_serving()
+        return result
+
+    def open_serving(self) -> bool:
+        """Second apply of a cell provisioned closed: the same open inputs as the first apply, with
+        the cell opened. Only reserved concurrency changes (the module sizes pools and environments
+        from the open values). Returns False when the cell was never closed (nothing to do)."""
+        if not self._serving_closed:
+            return False
+        root = self._workdir or self._iac_root()
+        if root is None:
+            raise ProvisionError(f"{self.name}: cannot open the cell: honua-iac root not found")
+        try:
+            self._tf(root, "apply", "-auto-approve", *self._last_vars, f"-var={SERVING_CLOSED_VAR}=false")
+        except subprocess.CalledProcessError as e:
+            raise ProvisionError(f"{self.name}: migration Ready, but the apply opening the cell failed: "
+                                 f"{e.stderr or e.stdout or e}") from e
+        self._serving_closed = False
+        print(f"{self.name}: migration Ready; cell opened ({SERVING_CLOSED_VAR}=false)", flush=True)
+        return True
+
+    def _run_migration(self, redis_enabled: bool, *, run, probe, sleep) -> dict:
         image = os.environ.get(self.spec.migrate_image_env, "").strip()
         if not image:
             raise ProvisionError(f"{self.name}: {self.spec.migrate_image_env} is unset; cannot migrate")

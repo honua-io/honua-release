@@ -212,6 +212,14 @@ container that fails to start, exits, or never reports Ready fails the cell with
 step under `migration`. A server-side `HONUA_MIGRATE_ONLY` exit mode would replace the poll; it is
 tracked for 2026.1.x.
 
+The cell stays closed until that migration is Ready (honua-server#6750: in run 40746787170 an internet
+scanner cold-started the API Lambda before the migration finished, and the instance answered `503
+schema-floor` until teardown). When the pinned serverless root declares `serving_closed` (honua-iac
+v0.4.2+), `provision` applies with `serving_closed=true` (reserved concurrency 0 on the API and
+control-plane event Lambdas), `migrate` runs, and only after Ready a second apply with the same inputs
+and `serving_closed=false` opens the cell (`migration.servingOpened` in the report). A failed migration
+leaves it closed for teardown. An older pin without the input applies once, open, as before.
+
 ### The EKS cell (bring-your-own Kubernetes, honua-release#203)
 `aws-eks` is an informational 2026.1 Preview cell (October 16 amendment supersedes decisions 12/18; GP on Kubernetes is
 honua-server#4719 and honua-helm#77). It runs the same provision → admit → journey → teardown chain as
