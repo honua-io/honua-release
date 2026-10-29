@@ -57,17 +57,17 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "97cf1830e1de60ed7e14983c22ba88c348e298cd.tar.gz",
-          "sha256": "40c7a9f059574d691e134f3d830967b28c3a7458966f71ab922594501ae5ae06",
-          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/97cf1830e1de60ed7e14983c22ba88c348e298cd"
+          "filename": "91a886fb466afc31df73af5efba481d10c6eedc2.tar.gz",
+          "sha256": "4da7f1d8cdbe58853e05240e319f2c792af36925389858d3bbd28dc4712b73d2",
+          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/91a886fb466afc31df73af5efba481d10c6eedc2"
         }
       ],
       "id": "iac:git-archive",
-      "publication": "honua-iac Git archive 97cf1830e1de60ed7e14983c22ba88c348e298cd",
+      "publication": "honua-iac Git archive 91a886fb466afc31df73af5efba481d10c6eedc2",
       "registry_http_status": 404,
       "urls": [
         "https://registry.terraform.io/v1/modules/honua-io",
-        "https://github.com/honua-io/honua-iac/archive/97cf1830e1de60ed7e14983c22ba88c348e298cd.tar.gz"
+        "https://github.com/honua-io/honua-iac/archive/91a886fb466afc31df73af5efba481d10c6eedc2.tar.gz"
       ]
     },
     {
@@ -776,6 +776,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-28T21:15:26Z",
+  "observed_at": "2026-10-29T05:07:46Z",
   "schema": "honua.first-publication-preflight/v1"
 }
