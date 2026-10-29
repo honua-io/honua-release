@@ -245,14 +245,30 @@ def _inconclusive_github_denial(response: Response) -> bool:
     )
 
 
-def _probe_qgis_repo(transport) -> Response:
+class QgisRepoProbe:
+    """Canonical API coordinate plus the response that was actually observed.
+
+    A public-page 404 during an API denial is not rewritten onto the API URL.
+    `api` stays the GitHub API response. `observed` is that page, or None when
+    the API itself answered.
+    """
+
+    def __init__(self, api: Response, observed: Response | None = None):
+        self.api = api
+        self.observed = observed
+
+    @property
+    def fallback(self) -> bool:
+        return self.observed is not None
+
+
+def _probe_qgis_repo(transport) -> QgisRepoProbe:
     """Classify the QGIS repo without treating an API denial as privacy evidence.
 
     A definitive API status is returned as-is. A rate-limit or abuse denial is
-    retried within a 300 second budget. While that denial persists, an anonymous
-    404 from the public repository page is the same non-visibility the receipt
-    records; the denied status is not stored. Any other denial is returned so
-    the caller can refuse it.
+    retried within a 300 second budget. A public-page 404 during that denial is
+    kept as its own observation (URL and status); it does not replace the API
+    status. Any other denial is returned so the caller can refuse it.
     """
     response = transport.get(QGIS_REPO_URL)
     waited = 0
@@ -260,7 +276,7 @@ def _probe_qgis_repo(transport) -> Response:
     while _inconclusive_github_denial(response):
         page = transport.get(QGIS_PUBLIC_REPO_URL)
         if page.status == 404:
-            return Response(404, page.body, QGIS_REPO_URL)
+            return QgisRepoProbe(response, page)
         try:
             delay = next(delays)
         except StopIteration:
@@ -271,7 +287,7 @@ def _probe_qgis_repo(transport) -> Response:
         _sleep(delay)
         waited += delay
         response = transport.get(QGIS_REPO_URL)
-    return response
+    return QgisRepoProbe(response)
 
 
 def _status_only(status: int, url: str, *, allowed: set[int]) -> int:
@@ -961,21 +977,34 @@ def build_receipt(
     qgis_plugin_url = QGIS_PLUGIN_URL
     qgis_repo = _probe_qgis_repo(transport)
     qgis_plugin = transport.get(qgis_plugin_url)
-    if qgis_repo.status in {403, 429}:
+    if not qgis_repo.fallback and qgis_repo.api.status in {403, 429}:
         raise PreflightError("GitHub API denied the QGIS repo probe; that is not evidence the repo is private")
-    if qgis_repo.status not in {200, 404} or qgis_plugin.status not in {200, 404}:
+    # Visibility uses the public page only when the API denial fell back to it.
+    # The channel still stores the API status beside that page, not in its place.
+    repo_visibility = qgis_repo.observed.status if qgis_repo.fallback else qgis_repo.api.status
+    if repo_visibility not in {200, 404} or qgis_plugin.status not in {200, 404}:
         raise PreflightError(
-            f"QGIS probe returned repo HTTP {qgis_repo.status} and plugin HTTP {qgis_plugin.status}"
+            f"QGIS probe returned repo HTTP {qgis_repo.api.status} and plugin HTTP {qgis_plugin.status}"
         )
-    if qgis_plugin.status == 200 or (qgis_repo.status == 200 and qgis_plugin.status != 404):
+    if qgis_plugin.status == 200 or (repo_visibility == 200 and qgis_plugin.status != 404):
         raise PreflightError("QGIS visibility changed; inspect the listing before recording publication")
+    qgis_fields = {
+        "http_status": qgis_repo.api.status,
+        "plugin_http_status": qgis_plugin.status,
+        "urls": [qgis_repo_url, qgis_plugin_url],
+    }
+    if qgis_repo.fallback:
+        qgis_fields.update(
+            canonical_url=qgis_repo_url,
+            api_http_status=qgis_repo.api.status,
+            observed_url=qgis_repo.observed.url,
+            observed_http_status=qgis_repo.observed.status,
+        )
     channels.append(_channel(
         "qgis:honua-qgis-plugin",
         "QGIS plugin honua_gis_assistant",
         "blocked-on-operator",
-        http_status=qgis_repo.status,
-        plugin_http_status=qgis_plugin.status,
-        urls=[qgis_repo_url, qgis_plugin_url],
+        **qgis_fields,
     ))
 
     terraform_url = "https://registry.terraform.io/v1/modules/honua-io"
@@ -1073,8 +1102,22 @@ def _blockers(channels: list[dict]) -> list[dict]:
             HELM_BOUNDARY,
             ["helm:oci://ghcr.io/honua-io/charts/honua"],
         )
-    if by_id["qgis:honua-qgis-plugin"]["disposition"] == "blocked-on-operator":
-        add("blocked-on-operator", "QGIS plugin honua_gis_assistant", QGIS_BOUNDARY, ["qgis:honua-qgis-plugin"])
+    qgis = by_id["qgis:honua-qgis-plugin"]
+    if qgis["disposition"] == "blocked-on-operator":
+        if qgis.get("observed_url"):
+            qgis_boundary = (
+                f"{qgis['canonical_url']} returned {qgis['api_http_status']} to an unauthenticated request "
+                f"(not evidence the repository is private). "
+                f"{qgis['observed_url']} returned {qgis['observed_http_status']}. "
+                f"{QGIS_PLUGIN_URL} returned {qgis['plugin_http_status']}. "
+                "honua-qgis-plugin CI builds a ZIP artifact only; "
+                "it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, "
+                "history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). "
+                "No signing secret is recorded here."
+            )
+        else:
+            qgis_boundary = QGIS_BOUNDARY
+        add("blocked-on-operator", "QGIS plugin honua_gis_assistant", qgis_boundary, ["qgis:honua-qgis-plugin"])
     missing_sdk = [
         f"nuget:{package_id}"
         for package_id in SDK_PACKAGE_IDS
