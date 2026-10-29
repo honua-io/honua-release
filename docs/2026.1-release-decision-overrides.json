@@ -787,17 +787,23 @@
           "reason": "published before attestation workflows existed; cannot be attested retroactively",
           "expires": "first attested release of geospatial-mcp",
           "target": "2026.1.1"
-        },
+        }
+      ],
+      "expired": [
         {
-          "component": "honua-iac",
-          "kind": "archive",
-          "coordinate": "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz",
-          "version": "0.3.0",
-          "digest": "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308",
-          "owner": "Mike McDougall",
-          "reason": "published before attestation workflows existed; cannot be attested retroactively",
-          "expires": "first attested release of honua-iac",
-          "target": "2026.1.1"
+          "date": "2026-10-28",
+          "note": "Expired by its own terms (expires: first attested release of honua-iac). honua-release#1039 re-pins honua-iac to v0.4.0 as the commit archive archive/97cf1830e1de60ed7e14983c22ba88c348e298cd.tar.gz (sha256:40c7a9f059574d691e134f3d830967b28c3a7458966f71ab922594501ae5ae06), which honua-iac attest-source-archive.yml attests with CycloneDX SBOM and SLSA provenance. The v0.3.0 bytes below no longer ship, so their entry left the artifacts list the collector reads; the ruling text above is unchanged.",
+          "entry": {
+            "component": "honua-iac",
+            "kind": "archive",
+            "coordinate": "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz",
+            "version": "0.3.0",
+            "digest": "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308",
+            "owner": "Mike McDougall",
+            "reason": "published before attestation workflows existed; cannot be attested retroactively",
+            "expires": "first attested release of honua-iac",
+            "target": "2026.1.1"
+          }
         }
       ],
       "target": "2026.1.1",

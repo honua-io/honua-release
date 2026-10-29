@@ -939,11 +939,21 @@ components:
     # Floor Validate, Terraform Policy Gates, both standing-certification control jobs, CodeQL. The
     # nightly resolver keeps a released archive on its tag commit (select_release) instead of walking
     # trunk past it; moving forward is a new release and a re-pin.
-    version: "0.3.0"                   # release tag v0.3.0; Git-source distribution
-    sha: "d5b7bec9073e72ad294da5ce802aff0c58abad07"   # v0.3.0^{} = trunk HEAD 2026-10-26 (honua-iac#312 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/refs/tags/v0.3.0.tar.gz"
-    artifactSourceRevision: "d5b7bec9073e72ad294da5ce802aff0c58abad07"   # the tarball's pax comment
-    artifactSha256: "sha256:10b35775b080f41ea49aedcc17cde11e07d4c1da989ca933f934c7eaa4fa0308"   # two anonymous downloads, identical bytes
+    # 2026-10-28 RELEASE v0.3.0 -> v0.4.0 at trunk 97cf1830 (honua-iac#328 merge commit): the aws-ecs
+    # module emits the Studio Bedrock disclosure approval and the AI execution admission deployment id
+    # whenever Bedrock is on, without which honua-server refuses every genuine-model Studio call
+    # (fail-closed AiDisclosurePolicy; #6597 admission). A 0.x minor (new optional input), published
+    # as an annotated tag (object 8cf53764) and GitHub Release. Push CI at 97cf1830 is green, including
+    # Static Terraform Validate, Terraform 1.5 Floor Validate and Attest the commit archive.
+    # The pin is the COMMIT archive, not the refs/tags archive: honua-iac attest-source-archive.yml
+    # (honua-iac#316) attests archive/<commit>.tar.gz, and these exact bytes carry its CycloneDX SBOM
+    # and SLSA provenance attestations (the tag archive's different bytes carry none). With the
+    # publisher attestations present, honua-iac leaves the sdk-attestation-exception-2026-10-27 set.
+    version: "0.4.0"                   # release tag v0.4.0 (annotated, v0.4.0^{} = sha); Git-source distribution
+    sha: "97cf1830e1de60ed7e14983c22ba88c348e298cd"   # v0.4.0^{} = trunk HEAD 2026-10-28 (honua-iac#328 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/97cf1830e1de60ed7e14983c22ba88c348e298cd.tar.gz"
+    artifactSourceRevision: "97cf1830e1de60ed7e14983c22ba88c348e298cd"   # the tarball's pax comment (git get-tar-commit-id)
+    artifactSha256: "sha256:40c7a9f059574d691e134f3d830967b28c3a7458966f71ab922594501ae5ae06"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
