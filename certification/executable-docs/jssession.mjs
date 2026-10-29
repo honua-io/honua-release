@@ -18,6 +18,57 @@ const ts = createRequire(import.meta.url)(compilerPath);
 if (ts.version !== '5.9.3') throw new Error(`unexpected TypeScript parser ${ts.version}`);
 const importedBindings = new ImportBindings(ts);
 
+// REPL evaluation is a script, so top-level `this` is the global. An ES module's
+// top-level `this` is undefined, including arrows. Function, method and class
+// `this` stay as written. Splice the original text; do not reprint the block.
+function rewriteModuleThis(source) {
+  const prefix = 'export {}\n';
+  const sf = ts.createSourceFile('block.mjs', prefix + source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  if (sf.parseDiagnostics?.length) return source;
+  const functionLike = new Set([
+    ts.SyntaxKind.FunctionDeclaration,
+    ts.SyntaxKind.FunctionExpression,
+    ts.SyntaxKind.MethodDeclaration,
+    ts.SyntaxKind.Constructor,
+    ts.SyntaxKind.GetAccessor,
+    ts.SyntaxKind.SetAccessor,
+    ts.SyntaxKind.ClassStaticBlockDeclaration,
+  ]);
+  const spans = [];
+  let depth = 0;
+  const visit = node => {
+    if (node.kind === ts.SyntaxKind.ClassDeclaration || node.kind === ts.SyntaxKind.ClassExpression) {
+      for (const modifier of node.modifiers ?? []) visit(modifier);
+      for (const clause of node.heritageClauses ?? []) visit(clause);
+      depth++;
+      for (const member of node.members) visit(member);
+      depth--;
+      return;
+    }
+    if (functionLike.has(node.kind)) {
+      depth++;
+      ts.forEachChild(node, visit);
+      depth--;
+      return;
+    }
+    if (depth === 0 && node.kind === ts.SyntaxKind.ThisKeyword) {
+      const start = node.getStart(sf) - prefix.length;
+      const end = node.end - prefix.length;
+      if (start >= 0) spans.push([start, end]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  if (!spans.length) return source;
+  let out = '', cursor = 0;
+  for (const [start, end] of spans) {
+    if (start < cursor || end > source.length || source.slice(start, end) !== 'this') return source;
+    out += source.slice(cursor, start) + '(void 0)';
+    cursor = end;
+  }
+  return out + source.slice(cursor);
+}
+
 const output = new AsyncLocalStorage();
 const initialEnvironment = { ...process.env };
 let injectedEnvironment = {};
@@ -35,6 +86,7 @@ for (const [stream, suffix] of [[process.stdout, '.out'], [process.stderr, '.err
 }
 const input = new PassThrough();
 const evaluations = new Map();
+let evaluating = false;
 const refInput = process.stdin.ref.bind(process.stdin);
 const unrefInput = process.stdin.unref.bind(process.stdin);
 const resources = ownResources(output);
@@ -103,11 +155,45 @@ function checkpoint() {
   });
 }
 process.on('beforeExit', checkpoint);
-process.on('unhandledRejection', reason => {
+function readerRejectionListeners() {
+  return process.listeners('unhandledRejection').filter(listener => listener !== onUnhandledRejection);
+}
+function onUnhandledRejection(reason) {
   const reject = evaluations.get(output.getStore());
-  if (reject) reject(reason);
-  else process.exit(1);
-});
+  // Rejections created outside the REPL domain still reach this listener first.
+  // Reader listeners registered after it are what native Node treats as handling.
+  if (!reject) {
+    process.exit(1);
+    return;
+  }
+  if (readerRejectionListeners().length) return;
+  reject(reason);
+}
+process.on('unhandledRejection', onUnhandledRejection);
+// Promise rejections the domain swallowed, keyed by the reason object. A primitive
+// reason has no identity, so those are counted. Async exceptions are not recorded.
+const promiseRejections = new WeakSet();
+let primitiveRejections = 0;
+let pairedWriterCall = false;
+function noteDomainError(error) {
+  const site = new Error().stack ?? '';
+  // emitUnhandledRejection is the only path native Node would offer to
+  // unhandledRejection listeners. Top-level await failures are emitted by the
+  // REPL itself, and timer or nextTick throws arrive with domainThrown set.
+  if (!site.includes('node:internal/process/promises:')) return;
+  if (error !== null && typeof error === 'object') promiseRejections.add(error);
+  else primitiveRejections += 1;
+}
+function takePromiseRejection(value) {
+  if (value !== null && typeof value === 'object') {
+    if (!promiseRejections.has(value)) return false;
+    promiseRejections.delete(value);
+    return true;
+  }
+  if (primitiveRejections === 0) return false;
+  primitiveRejections -= 1;
+  return true;
+}
 const standardGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, done) { done(); } }),
   terminal: false, prompt: '', ignoreUndefined: true, replMode: repl.REPL_MODE_STRICT,
@@ -115,11 +201,37 @@ const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, do
   // not always its callback. Capture that public hook rather than swallowing
   // the error output and eventually misclassifying it as a timeout.
   writer(value) {
-    const reject = evaluations.get(output.getStore());
+    // Returning '' makes the domain handler call writer again for an Error.
+    if (pairedWriterCall) {
+      pairedWriterCall = false;
+      return '';
+    }
+    if (value !== null && typeof value === 'object') pairedWriterCall = true;
+    // A top-level await continuation is scheduled by the REPL, outside this
+    // block's async context. The active completion is still the block.
+    const stored = output.getStore();
+    const reject = (stored && evaluations.get(stored)) || active?.reject;
+    const promiseRejection = !evaluating && takePromiseRejection(value);
+    if (reject && promiseRejection && readerRejectionListeners().length) {
+      const completion = active;
+      if (completion) completion.handledRejection = true;
+      try {
+        // emit, not listeners(): once() wrappers remove themselves only when
+        // EventEmitter delivers the event. Each promise is its own event, even
+        // when two rejections share one reason object.
+        process.emit('unhandledRejection', value);
+      } catch (failure) {
+        reject(failure);
+        return '';
+      }
+      if (completion && !completion.evaluated) completion.evaluated = true;
+      return '';
+    }
     if (reject) reject(value);
     else process.exit(1); // an unowned/background error loses the interpreter
     return '';
   } });
+server._domain.prependListener('error', noteDomainError);
 // Interactive Node preloads names such as `fs` on first use. Reader snippets
 // must supply their own imports, as their original modules did.
 for (const name of builtinModules) {
@@ -180,13 +292,14 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       }
       Object.assign(process.env, request.env);
       injectedEnvironment = { ...request.env };
-      server.context.require = createRequire(file);
       if (file.endsWith('.cjs')) {
+        server.context.require = createRequire(file);
         commonjsModule = { id: '.', filename: file, path: path.dirname(file), exports: {}, loaded: false,
           require: server.context.require };
         server.context.module = commonjsModule;
         server.context.exports = commonjsModule.exports;
       } else {
+        delete server.context.require;
         delete server.context.module;
         delete server.context.exports;
       }
@@ -199,6 +312,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
         server.context[prepared.metadataIdentifier] = await nativeMetadata(file);
       }
       source = prepared.code;
+      if (!file.endsWith('.cjs')) source = rewriteModuleThis(source);
       await new Promise((resolve, reject) => {
         let finished = false;
         const completion = {
@@ -217,12 +331,20 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
         active = completion;
         unrefInput();
         try {
+          evaluating = true;
           server.eval(source, server.context, file, failure => {
-            if (failure) completion.reject(failure);
-            else completion.evaluated = true;
+            if (failure) {
+              if (completion.handledRejection) {
+                completion.evaluated = true;
+                return;
+              }
+              completion.reject(failure);
+            } else completion.evaluated = true;
           });
         } catch (failure) {
           completion.reject(failure);
+        } finally {
+          evaluating = false;
         }
       });
       if (commonjsModule) commonjsModule.loaded = true;

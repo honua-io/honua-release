@@ -53,7 +53,9 @@ export class ImportBindings {
     }
     if(!imports.length&&!this.bindings.size&&!usesMetadata){
       for(const symbol of checker.getSymbolsInScope(sf,ts.SymbolFlags.Value|ts.SymbolFlags.Alias))this.declared.add(symbol.name);
-      return {code: source, metadataIdentifier: null};
+      // REPLServer.eval rejects a hashbang. The transform path strips it; this fast path must too.
+      const end=hashbangEnd(source);
+      return {code: end ? source.slice(end) : source, metadataIdentifier: null};
     }
     // Node's stdin syntax check rejects a BOM before a valid file hashbang;
     // remove that inert BOM only from the grammar-check input.

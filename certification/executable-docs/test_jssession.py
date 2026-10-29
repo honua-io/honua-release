@@ -131,6 +131,105 @@ def test_hashbang_line_terminators_match_native_node(reader, prefix, terminator)
     assert retained.stdout == "1\n"
 
 
+def test_hashbang_without_imports_matches_native_node(reader):
+    source = "#!/usr/bin/env node\nconsole.log(1);\n"
+    native = Path(reader.cwd, "native-fast-hashbang.mjs")
+    native.write_text(source)
+    oracle = subprocess.run(["node", str(native)], cwd=reader.cwd,
+                            capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == "1\n", oracle.stderr
+    result = run(reader, source)
+    assert result.status == "pass", result.stderr
+    assert result.stdout == oracle.stdout
+
+
+def test_reader_unhandled_rejection_listener_matches_native_node(reader):
+    source = "process.on('unhandledRejection', () => console.log('handled')); Promise.reject(new Error('x'));"
+    oracle = subprocess.run(["node", "--input-type=module", "-e", source],
+                            capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == "handled\n", oracle.stderr
+    result = run(reader, source)
+    assert result.status == "pass", result.stderr
+    assert result.stdout == oracle.stdout
+
+
+def test_timer_throw_is_not_cleared_by_an_unhandled_rejection_listener(reader):
+    result = run(reader, "process.on('unhandledRejection', () => {}); "
+                  "setTimeout(() => { throw new Error('fatal-timer'); }, 5);")
+    assert result.status == "fail"
+    assert "fatal-timer" in result.stderr
+
+
+def test_throw_after_await_is_not_cleared_by_an_unhandled_rejection_listener(reader):
+    result = run(reader, "process.on('unhandledRejection', () => {}); "
+                  "await Promise.resolve(); throw new Error('fatal-await');")
+    assert result.status == "fail"
+    assert "fatal-await" in result.stderr
+
+
+def test_awaited_rejection_is_not_cleared_by_an_unhandled_rejection_listener(reader):
+    result = run(reader, "process.on('unhandledRejection', () => {}); "
+                  "await Promise.reject(new Error('fatal-awaited'));")
+    assert result.status == "fail"
+    assert "fatal-awaited" in result.stderr
+
+
+def test_once_unhandled_rejection_listener_does_not_cover_a_second_promise(reader):
+    result = run(reader, "let seen = 0; process.once('unhandledRejection', () => { seen++; }); "
+                  "Promise.reject(new Error('first')); "
+                  "await new Promise((resolve) => setTimeout(resolve, 10)); "
+                  "Promise.reject(new Error('second'));")
+    assert result.status == "fail"
+    assert "second" in result.stderr
+
+
+def test_each_promise_rejection_is_delivered_when_the_reason_is_reused(reader):
+    source = ("const error = new Error('same'); let seen = 0; "
+              "process.on('unhandledRejection', () => { seen++; }); "
+              "Promise.reject(error); Promise.reject(error); "
+              "await new Promise((resolve) => setTimeout(resolve, 0)); "
+              "console.log(seen);")
+    result = run(reader, source)
+    assert result.status == "pass", result.stderr
+    assert result.stdout == "2\n"
+
+
+def test_unhandled_rejection_without_a_reader_listener_fails(reader):
+    result = run(reader, "Promise.reject(new Error('boom'));")
+    assert result.status == "fail"
+
+
+def test_esm_blocks_do_not_define_commonjs_require(reader):
+    commonjs = run(reader, "console.log(typeof require, require('node:path').basename('a/b'));")
+    assert commonjs.status == "pass", commonjs.stderr
+    assert commonjs.stdout == "function b\n"
+    source = "console.log(typeof require);"
+    oracle = subprocess.run(["node", "--input-type=module", "-e", source],
+                            capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == "undefined\n", oracle.stderr
+    result = run(reader, source)
+    assert result.status == "pass", result.stderr
+    assert result.stdout == oracle.stdout
+    loaded = run(reader, "const load = require; load('node:fs');")
+    assert loaded.status == "fail"
+
+
+def test_esm_top_level_this_matches_native_module(reader):
+    source = ("const arrow = () => this; function method() { return this; } "
+              "const object = { method() { return this; } }; "
+              "class Box { constructor() { this.ok = 1; } value() { return this.ok; } } "
+              "console.log(this === undefined, this === globalThis, arrow() === undefined, "
+              "method() === undefined, object.method() === object, new Box().value());")
+    native = Path(reader.cwd, "native-this.mjs")
+    native.write_text(source)
+    oracle = subprocess.run(["node", str(native)], cwd=reader.cwd,
+                            capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == "true false true true true 1\n", oracle.stderr
+    result = run(reader, source)
+    assert result.status == "pass", result.stderr
+    assert result.stdout == oracle.stdout
+
+
 def test_import_meta_uses_native_filename_and_resolution_without_replaying_body(reader):
     source = "const retainedMeta = () => import.meta; " \
              "console.log(import.meta.url, import.meta.filename, import.meta.dirname, " \
