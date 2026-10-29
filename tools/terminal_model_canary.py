@@ -792,7 +792,8 @@ class ReceiptBuilder:
     def mark_failed(self, why: str, attribution: str = INFRASTRUCTURE) -> None:
         self.attribute(attribution)
         self.receipt["status"] = "fail"
-        self.receipt["notices"].append(why)
+        # A failure can carry the driver's own error text: strip this run's secret values from it.
+        self.receipt["notices"].append(self.redactor.text(why))
         for stage in self.receipt["stages"]:
             if stage["status"] == "running":
                 stage["status"] = "fail"
@@ -1240,8 +1241,31 @@ def driver_failure_diagnostic(response: Any) -> str:
         category = error.split(":", 1)[0] if isinstance(error, str) else ""
     if category in {"DriverError", "ExecutionError", "KeyError", "ValueError", "TypeError",
                     "AttributeError", "OSError", "RuntimeError", "JSONDecodeError", "NameError"}:
-        return "; driverError=" + category
+        message = driver_error_message(error, category)
+        return "; driverError=" + category + (": " + message if message else "")
     return "; structuredFailure=" + str(response.get("status") == "fail").lower()
+
+
+DRIVER_ERROR_MESSAGE_LIMIT = 240
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]+")
+
+
+def driver_error_message(error: Any, category: str) -> str:
+    """The driver's own error text, redacted, single-line and bounded, for the receipt notice.
+
+    Without it a failed setup records only the exception type (run 40947050732 read
+    "driverError=DriverError"), which names no failing check. Credential patterns are removed here;
+    the receipt builder also strips the run's known secret values from every notice.
+    """
+    if not isinstance(error, str):
+        return ""
+    text = error.strip()
+    if text.startswith(category + ":"):
+        text = text[len(category) + 1:].strip()
+    text = Redactor().text(_CONTROL_CHARACTERS.sub(" ", text)).strip()
+    if len(text) > DRIVER_ERROR_MESSAGE_LIMIT:
+        text = text[:DRIVER_ERROR_MESSAGE_LIMIT - 3].rstrip() + "..."
+    return text
 
 
 class DriverAdapter:
