@@ -630,7 +630,8 @@ def test_eks_diagnostics_admit_the_runner_and_redact(cell, monkeypatch):
         a, 0, f"line\nPassword={cell._db_password}\n", ""))
     report = run_cloud.eks_readiness_diagnostics(cell, redis_enabled=True, redact=run_cloud._redact_log)
     assert granted == [{"redis_enabled": True}]
-    assert [s["title"] for s in report["sections"]] == ["pods", "events", "honua log tail", "jobs"]
+    assert [s["title"] for s in report["sections"]] == ["pods", "events", "honua log tail", "jobs",
+                                                        "job pod exits", "job worker log tail"]
     assert all(cell._db_password not in line for s in report["sections"] for line in s["lines"])
 
 

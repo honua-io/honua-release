@@ -431,6 +431,15 @@ class AwsEksTarget(DeployTarget):
             ("honua log tail", ("logs", f"deployment/{RELEASE}", "-n", NAMESPACE,
                                 "--all-containers=true", "--tail=300")),
             ("jobs", ("get", "jobs", "-n", NAMESPACE, "-o", "wide")),
+            # Kubernetes Job workers (GP and background import). On e2e-cloud-aws run 40857079489
+            # the S10 import's three worker pods ended in Error and the server reported only
+            # "Import failed."; neither their exit reason nor their output was captured.
+            ("job pod exits", ("get", "pods", "-n", NAMESPACE, "-l", "job-name", "-o",
+                               "jsonpath={range .items[*]}{.metadata.name}{' '}{.status.phase}{' '}"
+                               "{.status.containerStatuses[*].state.terminated.reason}{' exit='}"
+                               "{.status.containerStatuses[*].state.terminated.exitCode}{'\\n'}{end}")),
+            ("job worker log tail", ("logs", "-n", NAMESPACE, "-l", "job-name", "--all-containers=true",
+                                     "--prefix", "--tail=150", "--max-log-requests=6")),
         ):
             result = self._kubectl(*args, check=False)
             body = (result.stdout or result.stderr or "").strip()

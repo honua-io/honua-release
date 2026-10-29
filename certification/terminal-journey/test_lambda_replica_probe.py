@@ -22,7 +22,7 @@ SAVED = {"itemId": "item", "versionId": "version", "contentHash": "hash",
 
 
 class LambdaReplicaProbeTests(unittest.TestCase):
-    def run_probe(self, mode):
+    def run_probe(self, mode, kind="aws-serverless"):
         state = {"reads": 0, "active": 0, "maxActive": 0, "credentials": [], "barrierFailures": 0}
         lock = threading.Lock()
         overlap = threading.Barrier(executor.REPLICA_READS, timeout=5)
@@ -86,7 +86,7 @@ class LambdaReplicaProbeTests(unittest.TestCase):
             with TemporaryDirectory() as workdir:
                 endpoint = f"http://127.0.0.1:{server.server_port}"
                 transport = Transport(endpoint, None, None, workdir, {"proposer": credential})
-                target = {"kind": "aws-serverless", "replicaBaseUrl": endpoint,
+                target = {"kind": kind, "replicaBaseUrl": endpoint,
                           "replicaTopology": {"id": "lambda-function", "description": "loopback concurrency control"}}
                 observation = stages.Observation(setup_view_present=True,
                     setup_discovery={"tools": [], "metadata": {}})
@@ -111,6 +111,17 @@ class LambdaReplicaProbeTests(unittest.TestCase):
         self.assertEqual(row["status"], "pass")
         self.assertEqual(proof["reads"], executor.REPLICA_READS)
         self.assertEqual({item["id"] for item in proof["instances"]}, {"lambda-0", "lambda-1"})
+
+    def test_eks_reads_are_concurrent_so_a_pooled_lb_connection_cannot_pin_them(self):
+        # The EKS Service's classic ELB pools backend connections; sequential reads all rode one
+        # connection to one pod on e2e-cloud-aws run 40857079489. The peer barrier above fails
+        # any read that does not overlap the others.
+        row, proof = self.run_probe("two-instances", kind="aws-eks")
+        self.assertEqual(row["status"], "pass")
+        self.assertEqual({item["id"] for item in proof["instances"]}, {"lambda-0", "lambda-1"})
+        row, proof = self.run_probe("one-instance", kind="aws-eks")
+        self.assertEqual(row["status"], "blocked")
+        self.assertIsNone(proof)
 
     def test_concurrency_does_not_turn_one_instance_into_a_pass(self):
         row, proof = self.run_probe("one-instance")
