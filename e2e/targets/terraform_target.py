@@ -203,6 +203,13 @@ _ZONE_ID = re.compile(r"^Z[A-Z0-9]{1,31}$")
 # target applies closed, migrates, then applies open. An older pin that does not declare it applies
 # once, open, exactly as before.
 SERVING_CLOSED_VAR = "serving_closed"
+# The genuine-model canary verifies the candidate's public transcript-signing manifest against the
+# protected TERMINAL_MODEL_SIGNING_MANIFEST_SHA256. The local-docker canary signs with key id
+# terminal-model-canary and the TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED seed; a Bedrock cell signs
+# with the same pair (a run-owned secret, e2e/run_cloud.py configure_transcript_signer) so its
+# manifest hashes to the same digest. honua-iac v0.4.2 declares the input on both AWS roots.
+TRANSCRIPT_SIGNING_VAR = "transcript_signing"
+TRANSCRIPT_SIGNING_KEY_ID = "terminal-model-canary"
 
 _DNS_NAME = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
@@ -309,6 +316,11 @@ class TerraformTarget(DeployTarget):
     def _tf(self, root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(["terraform", f"-chdir={root}", *args], text=True, capture_output=True, check=check)
 
+    def name_prefix(self, redis_enabled: bool) -> str:
+        """The cell's name_prefix; it also opens the release-cell honuar*/honuan* namespaces."""
+        redis_tag = "r" if redis_enabled else "n"
+        return f"honua{redis_tag}{self.name.replace('-', '')[:5]}{self.run_id[:6]}".lower()[:18]
+
     def _vars(self, redis_enabled: bool, *, destroy: bool = False) -> list[str]:
         # The Redis mode MUST be part of the prefix. The cert harness runs the redis-on and redis-off
         # cells for the same target with the SAME run_id (one GITHUB_RUN_ID across the whole matrix) IN
@@ -317,8 +329,7 @@ class TerraformTarget(DeployTarget):
         # / ResourceExistsException). The `r`/`n` (redis / no-redis) tag, placed right after the "honua"
         # prefix so it survives the length cap, keeps the two cells' resource sets independent. Bounded
         # to 18 chars to stay well inside RDS(63)/Lambda(64) identifier budgets once the module suffixes.
-        redis_tag = "r" if redis_enabled else "n"
-        prefix = f"honua{redis_tag}{self.name.replace('-', '')[:5]}{self.run_id[:6]}".lower()[:18]
+        prefix = self.name_prefix(redis_enabled)
         # honua-iac requires at least 32 characters plus mixed-case, digit and special characters.
         # The teardown job is a fresh runner without the provision job's password; destroy evaluates
         # but never applies the value, so a throwaway one satisfies the input contract there.
@@ -424,6 +435,15 @@ class TerraformTarget(DeployTarget):
                 "issuer": "https://terminal-journey.invalid", "audience": "terminal-journey",
                 "signing_key_secret_arn": fixture_secret["arn"],
                 "signing_key_secret_version_id": fixture_secret["versionId"]}, separators=(",", ":")))
+        signer = getattr(self, "transcript_signing_secret", None)
+        if signer is not None and not destroy:
+            if not self._root_declares(TRANSCRIPT_SIGNING_VAR):
+                raise ProvisionError(f"pinned root does not declare {TRANSCRIPT_SIGNING_VAR}")
+            # The canary's public key id and an existing-secret reference pinned to its version;
+            # Terraform never sees the seed.
+            values.append(f"-var={TRANSCRIPT_SIGNING_VAR}=" + json.dumps({
+                "key_id": TRANSCRIPT_SIGNING_KEY_ID, "secret_arn": signer["arn"],
+                "version_id": signer["versionId"]}, separators=(",", ":")))
         release = getattr(self, "transition_release", None)
         if release is not None and not destroy:
             if not self._root_declares("platform_release"):

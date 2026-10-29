@@ -10,6 +10,7 @@ Missing, blocked or invalid journey evidence cannot certify a GA cloud cell.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
@@ -32,6 +33,7 @@ from runner.cloud import run_drivers, seed_cell  # noqa: E402
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
+from targets.terraform_target import TRANSCRIPT_SIGNING_VAR as TS_VAR, reaper_tags  # noqa: E402
 
 import cloud_journey  # noqa: E402
 import cost_meter  # noqa: E402
@@ -177,6 +179,14 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         state["provisionAttempted"] = True
         configure_tenant_fixture(target, cell)
         state["tenantFixtureEnabled"] = bool(getattr(target, "journey_signing_key", None))
+        try:
+            signer = configure_transcript_signer(target, cell)
+        except Exception as error:
+            # The canary is out of RC admission: an unsigned cell still runs its GA journey, and its
+            # canary stops at the manifest check. Teardown deletes the name whatever happened here.
+            print(f"::warning title=transcript signer::{cell}: provisioning failed ({type(error).__name__})")
+            signer = "create-failed"
+        state["transcriptSigner"] = report["transcriptSigner"] = signer
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
         # The scheme the pinned clients will be handed and the host they will see (honua-release#450:
@@ -758,6 +768,15 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         report = teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
                                 cost_ceiling_usd=cost_ceiling_usd, cost_report=cost_report)
     finally:
+        if _transcript_signer_wanted(getattr(target, "name", "")):
+            try:
+                forget_secret(transcript_signer_secret_name(target, state["cell"]))
+            except Exception as error:
+                if report is None:
+                    raise RuntimeError("run-owned transcript signer cleanup failed") from None
+                report["status"] = "fail"
+                report["why"] = f"run-owned transcript signer cleanup failed: {type(error).__name__}"
+                report.setdefault("cleanupFailures", []).append("owned-secret-delete-failed")
         if os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true":
             try:
                 forget_secret(tenant_secret_name(state["cell"]))
@@ -835,6 +854,76 @@ def configure_tenant_fixture(target, cell: str, *, run=subprocess.run) -> None:
         raise ValueError("tenant signing secret has no immutable identity")
     target.journey_signing_key = key
     target.journey_signing_secret = {"arn": arn, "versionId": version}
+
+
+# Bedrock cells sign genuine-model transcripts with the canary's key (key id terminal-model-canary,
+# seed from the TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED repository secret), exactly as the
+# local-docker canary does, so the candidate's public manifest hashes to the protected
+# TERMINAL_MODEL_SIGNING_MANIFEST_SHA256. The seed lives in a run-owned Secrets Manager secret named
+# inside the cell's honuar*/honuan* namespace (the release-cell runtime boundary admits only those)
+# and tagged for the release-cell reaper; teardown deletes it.
+TRANSCRIPT_SIGNER_SEED_ENV = "TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED"
+TRANSCRIPT_SIGNER_TARGETS = ("aws-ecs", "aws-serverless")
+_SECRET_ARN = re.compile(r"arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}")
+_SECRET_VERSION = re.compile(r"[A-Za-z0-9-]{32,64}")
+
+
+def _transcript_signer_wanted(target_name: str) -> bool:
+    return target_name in TRANSCRIPT_SIGNER_TARGETS and os.environ.get("HONUA_ENABLE_BEDROCK_AI") == "true"
+
+
+def transcript_signer_secret_name(target, cell: str) -> str:
+    run_id, run_attempt = _run_identity()
+    return f"{target.name_prefix(cell.endswith('/redis-on'))}-{run_id}-{run_attempt}-model-signer"
+
+
+def _valid_signing_seed(seed: str) -> bool:
+    try:
+        return len(base64.b64decode(seed, validate=True)) == 32
+    except (ValueError, TypeError):
+        return False
+
+
+def configure_transcript_signer(target, cell: str, *, run=subprocess.run) -> str:
+    """Provision the run-owned canary signer for a Bedrock cell; returns a public status word.
+
+    The seed is read once and removed from this process's environment, so no later child (terraform,
+    docker, drivers) inherits it; it reaches the AWS CLI on an inherited pipe, never argv or a file.
+    A missing seed or root input leaves the cell unsigned: its canary then stops at the manifest
+    check, which is the honest outcome, and the GA journey is unaffected.
+    """
+    seed = os.environ.pop(TRANSCRIPT_SIGNER_SEED_ENV, "").strip()
+    if not _transcript_signer_wanted(getattr(target, "name", "")):
+        return "not-requested"
+    if not target._root_declares(TS_VAR):
+        print(f"::warning title=transcript signer::{cell}: the pinned root does not declare {TS_VAR}; "
+              "the genuine-model canary's manifest cannot match")
+        return "root-unsupported"
+    if not seed:
+        print(f"::warning title=transcript signer::{cell}: {TRANSCRIPT_SIGNER_SEED_ENV} is unset; "
+              "the genuine-model canary's manifest cannot match")
+        return "seed-unset"
+    if not _valid_signing_seed(seed):
+        print(f"::warning title=transcript signer::{cell}: {TRANSCRIPT_SIGNER_SEED_ENV} is not a base64 "
+              "32-byte Ed25519 seed")
+        return "seed-invalid"
+    redis_enabled = cell.endswith("/redis-on")
+    tags = {**cost_meter.run_tags(target.run_id, cell), **reaper_tags(target.run_id, target.name, redis_enabled)}
+    result = _with_secret_fd(run, ["aws", "secretsmanager", "create-secret",
+                                   "--name", transcript_signer_secret_name(target, cell),
+                                   "--description", "Ephemeral genuine-model canary transcript signer; deleted by teardown",
+                                   "--tags", json.dumps([{"Key": k, "Value": str(v)} for k, v in sorted(tags.items())],
+                                                        separators=(",", ":")),
+                                   "--secret-string", "file:///dev/fd/{fd}",
+                                   "--query", "{ARN:ARN,VersionId:VersionId}", "--output", "json"],
+                             seed, capture_output=True, text=True, check=True)
+    observed = json.loads(result.stdout)
+    arn, version = observed.get("ARN"), observed.get("VersionId")
+    if (not isinstance(arn, str) or not _SECRET_ARN.fullmatch(arn)
+            or not isinstance(version, str) or not _SECRET_VERSION.fullmatch(version)):
+        raise ValueError("transcript signer secret has no immutable identity")
+    target.transcript_signing_secret = {"arn": arn, "versionId": version}
+    return "configured"
 
 
 def _with_secret_fd(run, argv, secret: str, **kwargs):
@@ -1632,10 +1721,12 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
 
     Every attempt is bound to the lock digest under certification and chained to this job's passing
     deterministic receipt. Without a lock digest (a manual dispatch: no nightly lock to bind to) the
-    harness runs once in its own unbound mode, which writes an honest `blocked` receipt, and the row
-    is `blocked`: never a pass, never retried. The cell's application key reaches the harness only
-    through the environment of its own process. The result is the journey row the nightly mint retains as
-    promotion-receipts/nightly-model-journey (tools/model_journey_report.py).
+    harness runs once, bound to the manifest-pinned server image the deterministic receipt verified
+    (honua-release#1047), and the row passes or fails with that binding and a null lockDigest, so it
+    counts for no lock; a harness that cannot bind writes `blocked`. An unbound run is never retried.
+    The cell's application key reaches the harness only through the environment of its own process.
+    The result is the journey row the nightly mint retains as promotion-receipts/nightly-model-journey
+    (tools/model_journey_report.py).
     """
     import model_journey_report  # noqa: PLC0415 (tools/ is added to sys.path by the caller)
 
@@ -1941,6 +2032,8 @@ def _phase_teardown(args) -> int:
                         "reached teardown; reap it by hand (honua-iac#142)")
     secret_names = [app_key_secret_name(cell)] + ([tenant_secret_name(cell)] if
         state.get("tenantFixtureEnabled") or os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true" else []) + ([state_secret_name(cell)] if state.get("destroyed") and not report.get("retirement", {}).get("originalStateKeyRetained") else [])
+    if _transcript_signer_wanted(args.target) or state.get("transcriptSigner") == "configured":
+        secret_names.append(transcript_signer_secret_name(target, cell))
     for name in secret_names:
         try:
             forget_secret(name)
@@ -1984,7 +2077,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="the application key sealed to the journey runner (deliver-key writes, journey reads)")
     ap.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
     ap.add_argument("--lock-digest", help="sha256:<hex> of the platform lock the genuine-model canary binds to; "
-                                          "omitted on a manual dispatch, the canary records an unbound `blocked`")
+                                          "omitted on a manual dispatch, the canary binds to the pinned server image "
+                                          "and its row counts for no lock")
     ap.add_argument("--prior-inputs", type=Path, help="retained authenticated baseline input directory")
     ap.add_argument("--transition-inputs", type=Path, help="retained authenticated destination input directory")
     ap.add_argument("--update-rollback-mode", choices=("rehearsal", "qualification"), default="rehearsal")

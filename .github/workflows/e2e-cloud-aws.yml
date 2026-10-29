@@ -90,6 +90,8 @@ on:
       UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
       RELEASE_GH_TOKEN:
         required: false
+      TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED:
+        required: false
     outputs:
       overall_status:
         description: "pass | fail | blocked | skipped — aggregate of exactly the six GA journey cells"
@@ -414,6 +416,7 @@ jobs:
     secrets:
       UPDATE_ROLLBACK_CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
       RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+      TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED: ${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
   iac-live:

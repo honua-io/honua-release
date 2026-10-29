@@ -10,9 +10,13 @@ It fails closed: an attempt bound to another lock digest, another cell, a differ
 order, or a failed attempt without a model/infrastructure attribution makes the row `fail`. Each
 attempt keeps its own lockDigest so promotion compares the lock the canary actually ran against.
 
-Without a lock digest (a manual dispatch before any nightly lock exists) the canary harness writes its
-own unbound `blocked` receipt, and this tool records the row as `blocked` with a null lockDigest: an
-unbound run counts for no lock, and an unbound attempt that claims a pass or fails is a `fail`.
+Without a lock digest (a manual dispatch before any nightly lock exists) the harness runs live only
+when bound to the manifest-pinned server image its green deterministic receipt verified (2026-10-22
+ruling: RC gates bind any build; honua-release#1047). Such a row passes or fails on its attempts like
+a lock-bound row, records that image binding, and keeps a null lockDigest, so it counts for no lock
+(the nightly mint and promotion compare every attempt's lockDigest with the lock). A harness that
+could not bind writes its own `blocked` receipt and the row is `blocked`. An unbound attempt that
+names no pinned image, or a mix of blocked and executed attempts, is a `fail`.
 """
 from __future__ import annotations
 
@@ -30,6 +34,25 @@ CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
 DRIVER = "genuine-model"
 UNBOUND_WHY = ("no platform lock to bind to (manual dispatch without a lock digest): the canary ran unbound "
                "and its receipt is blocked; it counts for no lock")
+IMAGE_BOUND_WHY = ("no platform lock to bind to (manual dispatch without a lock digest): bound to the "
+                   "manifest-pinned server image {reference}; it counts for no lock")
+
+
+def _image_binding(receipts: list[dict], *, passed: bool) -> dict:
+    """The one pinned server image every executed unbound attempt names (honua-release#1047)."""
+    images = []
+    for receipt in receipts:
+        image = receipt.get("serverImage") or {}
+        digest, reference = str(image.get("digest") or ""), str(image.get("reference") or "")
+        if not LOCK_DIGEST.fullmatch(digest) or not reference.endswith("@" + digest):
+            raise ValueError("an unbound attempt executed without the manifest-pinned server image binding")
+        images.append({"reference": reference, "digest": digest})
+    if any(image != images[0] for image in images):
+        raise ValueError("unbound attempts name different server images")
+    deterministic = ((receipts[-1].get("linkedEvidence") or {}).get("deterministicReceipt") or {})
+    if passed and deterministic.get("candidateVerified") is not True:
+        raise ValueError("an image-bound pass lacks the deterministic receipt that verified the candidate image")
+    return {"kind": "server-image", **images[0]}
 
 
 def _attempt(path: Path, number: int, cell: str, lock_digest: str | None) -> dict:
@@ -87,21 +110,25 @@ def build(receipts: list[Path], *, cell: str, lock_digest: str | None, candidate
             raise ValueError("a cell records one or two attempts")
         attempts = [_attempt(path, number, cell, lock_digest) for number, path in enumerate(receipts, 1)]
         row["attempts"] = attempts
-        if lock_digest is None and any(attempt["status"] == "pass" for attempt in attempts):
-            raise ValueError("an unbound attempt claims a pass; a pass requires the lock digest")
         if any(attempt["status"] == "pass" for attempt in attempts[:-1]):
             raise ValueError("an attempt was recorded after a passing attempt")
         times = [attempt["completedAt"] for attempt in attempts]
         if times != sorted(times):
             raise ValueError("attempts are not in completion order")
-        if lock_digest is None:
-            # Only the harness's own unbound refusal is `blocked`; an attempt that failed for another
-            # reason (the deterministic prerequisite, the endpoint) stays a `fail`.
-            raw = [json.loads(path.read_bytes()) for path in receipts]
-            if any(receipt.get("status") != "blocked" for receipt in raw):
-                raise ValueError("the unbound genuine-model canary did not stop at the harness's blocked refusal")
+        raw = [json.loads(path.read_bytes()) for path in receipts] if lock_digest is None else []
+        if lock_digest is None and all(receipt.get("status") == "blocked" for receipt in raw):
+            # The harness's own refusal to run unbound: no binding, no execution, no verdict.
             notices = [str(notice) for notice in raw[-1].get("notices") or []]
             row.update(status="blocked", why=UNBOUND_WHY + (f"; harness: {notices[-1]}" if notices else ""))
+        elif lock_digest is None:
+            if any(receipt.get("status") == "blocked" for receipt in raw):
+                raise ValueError("an unbound run mixes a blocked refusal with executed attempts")
+            binding = _image_binding(raw, passed=attempts[-1]["status"] == "pass")
+            row["binding"] = binding
+            if attempts[-1]["status"] != "pass":
+                raise ValueError("genuine-model journey did not pass within the recorded attempts "
+                                 f"(bound to the pinned server image {binding['reference']}; no lock)")
+            row.update(status="pass", why=IMAGE_BOUND_WHY.format(reference=binding["reference"]))
         elif attempts[-1]["status"] != "pass":
             raise ValueError("genuine-model journey did not pass within the recorded attempts")
         else:

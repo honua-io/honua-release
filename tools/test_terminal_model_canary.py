@@ -1744,16 +1744,59 @@ def test_model_journey_report_records_an_unbound_run_as_blocked_never_pass(tmp_p
         path.write_text(json.dumps({**builder.receipt, **fields}), encoding="utf-8")
         return path
 
+    image = {"reference": "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64, "digest": "sha256:" + "c" * 64}
+    verified = {**builder.receipt["linkedEvidence"], "deterministicReceipt": {"status": "pass", "candidateVerified": True}}
     for receipts, reason in (
-        ([write("pass.json", status="pass", failureAttribution=None)], "claims a pass"),
-        ([write("fail.json", status="fail")], "did not stop at the harness"),
+        ([write("pass-no-image.json", status="pass", failureAttribution=None, serverImage=None,
+                linkedEvidence=verified)], "without the manifest-pinned server image"),
+        ([write("pass-unverified.json", status="pass", failureAttribution=None, serverImage=image)],
+         "lacks the deterministic receipt"),
+        ([write("fail.json", status="fail", serverImage=image)], "did not pass within the recorded attempts"),
+        ([write("fail-no-image.json", status="fail", serverImage=None)], "without the manifest-pinned server image"),
         ([write("bound.json", lockDigest=LOCK)], "another lock"),
     ):
         bad = report_tool.build(receipts, **args)
         assert bad["status"] == bad["cells"][0]["status"] == "fail" and reason in bad["why"], reason
+    # A blocked attempt beside an executed one is neither an honest refusal nor a verdict.
+    mixed = report_tool.build([write("m1.json", status="fail", completedAt="2026-10-08T12:01:00Z"),
+                               write("m2.json", attempt=2, completedAt="2026-10-08T12:02:00Z")], **args)
+    assert mixed["status"] == "fail" and "mixes a blocked refusal" in mixed["why"]
     # A bound run never takes the unbound path: a blocked attempt there is still a fail.
     assert report_tool.build([write("blocked-bound.json", lockDigest=LOCK)],
                              **{**args, "lock_digest": LOCK})["status"] == "fail"
+
+
+def test_model_journey_report_passes_an_image_bound_unbound_run_that_counts_for_no_lock(tmp_path: Path):
+    """2026-10-22 ruling (RC gates bind any build): a manual dispatch executes bound to the pinned image."""
+    import model_journey_report as report_tool
+
+    image = {"reference": "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64, "digest": "sha256:" + "c" * 64,
+             "sourceSha": "a" * 40}
+    path = tmp_path / "model-canary-1.json"
+    path.write_text(json.dumps({"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": 1,
+                                "lockDigest": None, "status": "pass", "failureAttribution": None,
+                                "profile": "redis-off-serving-refusal", "executionOutcome": "refused",
+                                "functionalGpExecuted": False, "completedAt": "2026-10-08T12:01:00Z",
+                                "serverImage": image,
+                                "linkedEvidence": {"deterministicReceipt": {"candidateVerified": True}}}),
+                    encoding="utf-8")
+    report = report_tool.build([path], cell="aws-ecs/redis-off", lock_digest=None, candidate_digest="e" * 64,
+                               run_id="7", run_attempt="1")
+    row = report["cells"][0]
+    assert report["status"] == row["status"] == "pass"
+    assert row["binding"] == {"kind": "server-image", "reference": image["reference"], "digest": image["digest"]}
+    assert "counts for no lock" in report["why"] and image["reference"] in report["why"]
+    # Counts for no lock: the report and every attempt keep a null lockDigest, which the nightly mint and
+    # promotion readiness compare with the lock they evaluate.
+    assert report["lockDigest"] is None and [a["lockDigest"] for a in row["attempts"]] == [None]
+    import check_promotion_readiness as readiness
+    from datetime import datetime, timezone
+    receipt = {"cells": [{"cell": "aws-ecs/redis-off", "mode": "genuine-model", "attemptCount": 1,
+                          "attempts": [{**{k: row["attempts"][0][k] for k in ("profile", "executionOutcome",
+                                         "functionalGpExecuted", "completedAt", "lockDigest")},
+                                        "attempt": 1, "status": "pass", "failureAttribution": None}]}]}
+    window = (datetime(2026, 10, 8, tzinfo=timezone.utc), datetime(2026, 10, 9, tzinfo=timezone.utc))
+    assert not readiness._journey(receipt, frozenset({"aws-ecs/redis-off"}), "genuine-model", LOCK, *window)
 
 
 # ---- owner ruling canary-http-cell-2026-10-08: plain HTTP only to the provisioned cell host ---------
