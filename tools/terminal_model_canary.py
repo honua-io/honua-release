@@ -280,7 +280,12 @@ def validate_deterministic_receipt(
                                             else {"pass"} if required else {"pass", "blocked"})
             or (required and (not isinstance(evidence, dict)
                 or evidence.get("freshness") != "verified-current"
-                or evidence.get("completeness") != "complete" or not evidence.get("uri")))
+                # ga-cells-single-tenant: the ruled stage holds its one declared N/A check blocked, so
+                # its evidence is partial by construction (admits() proved that check is the only gap).
+                or evidence.get("completeness") not in (
+                    {"complete", "partial"} if single_tenant and expected["number"] == _ga_single_tenant().STAGE
+                    else {"complete"})
+                or not evidence.get("uri")))
             or (bounded_off and required and evidence.get("source") != "live-" + cell.split("/")[0])
         ):
             raise CanaryError(
