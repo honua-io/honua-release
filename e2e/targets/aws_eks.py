@@ -121,6 +121,27 @@ GP_IMAGE_ENV = "HONUA_GP_BATCH_IMAGE"
 SERVER_PIN_HONOURS_GP_JOB_ENV_FROM = True
 
 NAMESPACE = "honua-cert"
+# The Redis-on EKS cell runs two server replicas, as the Redis-on ECS cell runs two tasks
+# (terraform_target.REDIS_ON_TASKS): the journey's 6.replica-map re-reads the saved map through the
+# cell endpoint and needs two distinct Honua-Instance ids. On one replica e2e-cloud-aws run
+# 40832572972 recorded "topology served one instance: honua-58766cdf67-qb875 (8 re-reads ...)".
+# The pinned chart renders more than one replica only in the MultiNode topology
+# (templates/validations.yaml: replicaCount > 1 with Deployment__Mode=SingleInstance fails the
+# render), which also needs Redis and shared cloud file storage, so the cell scales only when the
+# operator-owned bucket the ECS cells share is configured and the pinned root can grant the server's
+# workload role that bucket (gp_job_data_bucket_*); anything else keeps one replica (6.replica-map
+# then stays blocked on it) rather than refusing the cell. The replicas fit the two default nodes
+# the root already runs, so the cell's cost does not change.
+REDIS_ON_REPLICAS = _tt.REDIS_ON_TASKS
+FILE_STORAGE_BUCKET_ENV = "HONUA_AWS_CELL_FILE_STORAGE_BUCKET"
+DATA_BUCKET_VARS = ("gp_job_data_bucket_arn", "gp_job_data_bucket_enabled")
+# Database pools for the two replicas. honua-server defaults to MaxConnectionPoolSize 200 and
+# MinConnectionPoolSize 20 per pool, two pools per process; the root's db.t3.micro allows about 84.
+# A root that declares server_max_replicas sizes them itself (modules/aws-eks db-pool-sizing.tf);
+# the pinned root does not, so the cell renders the module's arithmetic for its default class:
+# floor((84 - 5) * 0.85) = 67 usable over (2 + ceil(2 * 0.25)) processes x 2 pools -> 11, kept at 10.
+SERVER_MAX_REPLICAS_VAR = "server_max_replicas"
+MULTI_NODE_POOL_SIZE = 10
 RELEASE = "honua"
 SECRET_NAME = "honua-runtime"
 REDIS_RELEASE = "honua-redis"
@@ -183,6 +204,7 @@ class AwsEksTarget(DeployTarget):
         self._cluster_name: str | None = None
         self._kubeconfig: Path | None = None
         self._outputs: dict | None = None
+        self.observed_image_detail: str | None = None
         self._endpoint_host: str | None = None
         # Per-cell ephemeral credentials. The Actions run id is public, so it never participates in
         # credential generation. The literal prefix satisfies the chart's preflight complexity rules
@@ -493,8 +515,28 @@ class AwsEksTarget(DeployTarget):
                     "owner step in e2e/README.md)")
         if self._root_declares("cors_allowed_origins"):
             values.append("-var=cors_allowed_origins=" + json.dumps([_tt.DEMO_SITE_ORIGIN], separators=(",", ":")))
+        bucket = self._multi_node_bucket(redis_enabled)
+        if bucket is not None:
+            # The server's workload role (and the GP Job role) may use the shared bucket.
+            values += [f"-var=gp_job_data_bucket_arn=arn:aws:s3:::{bucket}", "-var=gp_job_data_bucket_enabled=true"]
+            if self._root_declares(SERVER_MAX_REPLICAS_VAR):
+                values.append(f"-var={SERVER_MAX_REPLICAS_VAR}={REDIS_ON_REPLICAS}")
         values.extend(self._domain_vars(redis_enabled, destroy=destroy))
         return values
+
+    def _multi_node_bucket(self, redis_enabled: bool) -> str | None:
+        """The operator-owned bucket the Redis-on cell's MultiNode replicas share, or None.
+
+        None (one replica) unless the cell is Redis-on, FILE_STORAGE_BUCKET_ENV is set, the pinned
+        root declares DATA_BUCKET_VARS and the pinned chart declares replicaCount.
+        """
+        bucket = os.environ.get(FILE_STORAGE_BUCKET_ENV, "").strip()
+        if (not redis_enabled or not bucket or not all(self._root_declares(v) for v in DATA_BUCKET_VARS)
+                or not self._chart_declares("replicaCount")):
+            return None
+        if not _tt._S3_BUCKET.fullmatch(bucket):
+            raise ProvisionError(f"{self.name}: {FILE_STORAGE_BUCKET_ENV} is not an S3 bucket name")
+        return bucket
 
     # --- per-run HTTPS cell hostname (honua-release#450, as on the ECS cells) ---------------------
     def cell_domain_label(self, redis_enabled: bool) -> str:
@@ -792,6 +834,24 @@ class AwsEksTarget(DeployTarget):
             # takes server environment directly, so this cell needs no root input for it.
             env[IMPORT_THRESHOLD_ENV] = str(IMPORT_THRESHOLD_BYTES)
         values: dict = {"config": {"env": env}}
+        bucket = self._multi_node_bucket(redis_enabled)
+        if bucket is not None:
+            # MultiNode, as the Redis-on ECS cell (honua-iac modules/aws-ecs): Redis comes from the
+            # runtime Secret, objects go to the shared bucket under this cell's own key prefix.
+            values["replicaCount"] = REDIS_ON_REPLICAS
+            env.update({
+                "Deployment__Mode": "MultiNode",
+                "FileStorage__Provider": "AwsS3",
+                "FileStorage__AwsS3__BucketName": bucket,
+                "FileStorage__AwsS3__Region": self.region,
+                "FileStorage__AwsS3__KeyPrefix": _tt.cell_file_storage_prefix(
+                    self._prefix or self._name_prefix(redis_enabled)),
+            })
+            if not self._root_declares(SERVER_MAX_REPLICAS_VAR) and not any(
+                    key.startswith("Limits__Connections__") for key in env):
+                env.update({"Limits__Connections__MaxConnectionPoolSize": str(MULTI_NODE_POOL_SIZE),
+                            "Limits__Connections__MaxConcurrentQueries": str(MULTI_NODE_POOL_SIZE),
+                            "Limits__Connections__MinConnectionPoolSize": str(MULTI_NODE_POOL_SIZE)})
         self._check_identity_binding()
         server_account = self._service_account_values(
             SERVER_SERVICE_ACCOUNT, SERVER_SA_ANNOTATIONS_OUTPUT, SERVER_ROLE_OUTPUT)
@@ -1073,15 +1133,19 @@ class AwsEksTarget(DeployTarget):
     def observed_image(self, pinned: dict) -> str | None:
         """The pinned server image only if every server pod of the release runs it.
 
-        Read from the pods' container statuses (the digest the kubelet pulled), never inferred from
-        the helm inputs; the EKS analogue of cloud_journey.observed_ecs_image. Anything else is None.
+        Read from the cluster (the digest the kubelet pulled), never inferred from the helm inputs;
+        the EKS analogue of cloud_journey.observe_ecs_image. Anything else is None, and
+        `observed_image_detail` says why (the 1.1-candidate-image detail, as on ECS).
 
-        The chart deploys `repository@digest`, and the manifest's `image` carries the immutable
-        per-sha tag, so a container is matched by repository (tag and digest stripped on both
-        sides), as on ECS. Comparing the container's repository with the tagged `image` matched no
-        container, so 1.1-candidate-image stayed blocked on both EKS cells of e2e-cloud-aws run
-        40742242038. The reported digest must be the index digest or one of its platform children.
+        The server container is found by the pod SPEC (the chart renders `repository@digest`
+        there), then its status is looked up by container name. The status' own `image` field is
+        not usable: for a digest-only reference the kubelet hands containerd the image id, and with
+        no repo tag on the node containerd reports `image: sha256:<config id>`, so matching the
+        status image by repository found no server container on either EKS cell of e2e-cloud-aws
+        run 40832572972 and 1.1 stayed blocked even after #1045. The status `imageID` is the repo
+        digest that was pulled; it must be the index digest or one of its platform children.
         """
+        self.observed_image_detail = None
         server = pinned["components"]["honua-server"]
         repository = _repository(str(server["image"]))
         accepted = {server["digest"], *(server.get("platformDigests") or {}).values()} - {None, ""}
@@ -1089,18 +1153,31 @@ class AwsEksTarget(DeployTarget):
                                 f"app.kubernetes.io/instance={RELEASE},app.kubernetes.io/component=server",
                                 "-o", "json", check=False)
         if listing.returncode:
+            self.observed_image_detail = "listing the server pods failed"
             return None
         pods = json.loads(listing.stdout or "{}").get("items") or []
         if not pods:
+            self.observed_image_detail = "no server pod is listed for the release"
             return None
         for pod in pods:
+            name = str((pod.get("metadata") or {}).get("name", "?"))[:80]
             status = pod.get("status") or {}
-            containers = [c for c in status.get("containerStatuses") or []
-                          if _repository(str(c.get("image", ""))) == repository]
-            if (status.get("phase") != "Running" or not containers
-                    or any(not c.get("ready") or str(c.get("imageID", "")).rsplit("@", 1)[-1] not in accepted
-                           for c in containers)):
+            names = {str(c.get("name")) for c in (pod.get("spec") or {}).get("containers") or []
+                     if _repository(str(c.get("image", ""))) == repository}
+            containers = [c for c in status.get("containerStatuses") or [] if str(c.get("name")) in names]
+            if status.get("phase") != "Running" or not names or len(containers) != len(names):
+                self.observed_image_detail = (f"pod {name} is {status.get('phase')!s:.20} with "
+                                              f"{len(containers)} of {len(names)} server containers reported")
                 return None
+            for container in containers:
+                pulled = str(container.get("imageID", ""))
+                digest = pulled.rsplit("@", 1)[-1]
+                if not container.get("ready") or digest not in accepted or (
+                        "@" in pulled and _repository(pulled.split("://", 1)[-1]) != repository):
+                    self.observed_image_detail = (f"pod {name} runs {pulled[-120:] or 'no image id'}"
+                                                  f" (ready={bool(container.get('ready'))})")
+                    return None
+        self.observed_image_detail = f"{len(pods)} server pod(s) running the candidate"
         return f"{server['image']}@{server['digest']}"
 
     def _await_endpoint(self, url: str, timeout_seconds: float = 900.0) -> None:
