@@ -385,6 +385,11 @@ class TerraformTarget(DeployTarget):
                     raise ProvisionError(f"{self.name}: {BEDROCK_MODEL_ENV} is set but the pinned root does not "
                                          "declare bedrock_ai_model")
                 values.append(f"-var=bedrock_ai_model={model}")
+            # The genuine-model canary's turn carries the bounded tool view plus signed provenance; the
+            # local canary stack raises the proxy limits the same way (build-compose.yml). Passed only when
+            # the pinned root declares the input (honua-iac studio_ai_proxy_limits), else server defaults.
+            if self._root_declares("studio_ai_proxy_limits"):
+                values.append("-var=studio_ai_proxy_limits=" + STUDIO_AI_PROXY_LIMITS)
         if (redis_enabled and self.name == "aws-serverless" and getattr(self, "transition_release", None) is not None):
             if not self._root_declares("gp_batch_retain_prior_definitions") and not destroy:
                 raise ProvisionError("update/rollback requires a root with explicit prior Batch revision retention")
@@ -1185,6 +1190,9 @@ IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=6710886
 # Optional Bedrock model for an opt-in cell (e2e-cloud-aws bedrock_model input). The same id must
 # satisfy honua-iac's bedrock_ai_model validation: exact Claude or OpenAI GPT ids or us. profiles.
 BEDROCK_MODEL_ENV = "HONUA_BEDROCK_AI_MODEL"
+# Same limits as certification/terminal-journey/targets/build-compose.yml for the local canary.
+STUDIO_AI_PROXY_LIMITS = ("{max_prompt_characters=400000,max_request_bytes=4194304,"
+                          "max_event_bytes=4194304,max_response_bytes=8388608}")
 BEDROCK_MODEL = re.compile(r"(us[.])?(anthropic[.]claude-[a-z0-9-]+(-v[0-9]+:[0-9]+)?|openai[.]gpt-[a-z0-9.-]+)")
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).

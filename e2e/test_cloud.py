@@ -6251,3 +6251,22 @@ def test_cell_workflow_hands_the_signing_seed_only_to_the_bedrock_provision_step
                                       "|| '' }}")
     caller = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws.yml").read_text())
     assert caller["jobs"]["parity"]["secrets"][seed] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
+
+
+def test_ecs_bedrock_cell_raises_studio_proxy_limits_only_when_declared(monkeypatch):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    monkeypatch.delenv("HONUA_BEDROCK_AI_MODEL", raising=False)
+    from targets.terraform_target import STUDIO_AI_PROXY_LIMITS
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", "enable_bedrock_ai", "bedrock_ai_region", "studio_ai_proxy_limits")
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+        assert _tf_vars(ecs(run_id="r1")._vars(False))["studio_ai_proxy_limits"] == STUDIO_AI_PROXY_LIMITS
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "false")
+        assert "studio_ai_proxy_limits" not in _tf_vars(ecs(run_id="r1")._vars(False))
+        _iac_root_with(monkeypatch, base, "aws", "enable_bedrock_ai", "bedrock_ai_region")
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+        assert "studio_ai_proxy_limits" not in _tf_vars(ecs(run_id="r1")._vars(False))
+    assert "400000" in STUDIO_AI_PROXY_LIMITS and "8388608" in STUDIO_AI_PROXY_LIMITS
