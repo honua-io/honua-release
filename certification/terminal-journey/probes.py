@@ -199,6 +199,9 @@ class Compose:
     def up(self) -> subprocess.CompletedProcess[str]:
         return self._run("up", "-d", "--wait", timeout=900)
 
+    def logs(self, service: str, tail: int = 4000) -> str:
+        return self._run("logs", "--no-color", "--tail", str(tail), service, timeout=120).stdout
+
     def down(self) -> subprocess.CompletedProcess[str]:
         return self._run("down", "-v", "--remove-orphans", timeout=300)
 

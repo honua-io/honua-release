@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -679,6 +680,7 @@ def op_teardown(request: dict[str, Any]) -> dict[str, Any]:
                   else "run-owned application principals revoked; external cell retained")
     else:
         compose, _base_url, _image = _compose_for(target, manifest, Path(state["workdir"]))
+        _retain_server_log(compose, target)
         result = compose.down()
         result_code, detail = result.returncode, (result.stderr or result.stdout).strip()[:300]
     if result_code == 0:
@@ -689,6 +691,36 @@ def op_teardown(request: dict[str, Any]) -> dict[str, Any]:
         "workspaceId": workspace_id,
         "detail": detail or "isolated namespace removed",
     }
+
+
+# Opt-in diagnostics: before the local stack is removed, keep the candidate's warning/error and
+# AI-proxy log lines (the proxy reports only "Provider request failed"; the exception type is logged
+# server-side). Lines are filtered and the run's credentials redacted, because the artifact is public.
+SERVER_LOG_ENV = "HONUA_JOURNEY_SERVER_LOG"
+_SERVER_LOG_LINE = re.compile(r"\b(WRN|ERR|FTL|EROR|fail|warn)\b|StudioAi|Bedrock|Provider|Exception|Admission", re.IGNORECASE)
+
+
+def _retain_server_log(compose, target: dict[str, Any]) -> None:
+    destination = os.environ.get(SERVER_LOG_ENV)
+    if not destination:
+        return
+    try:
+        raw = compose.logs(str((target.get("compose") or {}).get("serverService") or "server"))
+    except Exception as exc:  # diagnostics must never block teardown
+        raw = f"server log unavailable: {type(exc).__name__}"
+    secrets = [value for value in (os.environ.get("HONUA_ADMIN_PASSWORD"), os.environ.get("TERMINAL_MODEL_API_KEY"),
+                                   os.environ.get("HONUA_JOURNEY_SIGNING_KEY")) if value]
+    kept = []
+    for line in raw.splitlines():
+        if _SERVER_LOG_LINE.search(line):
+            for secret in secrets:
+                line = line.replace(secret, "[redacted]")
+            kept.append(line[:2000])
+    try:
+        Path(destination).parent.mkdir(parents=True, exist_ok=True)
+        Path(destination).write_text("\n".join(kept[-1500:]) + "\n", encoding="utf-8")
+    except OSError:
+        pass  # diagnostics are best-effort; teardown must still remove the stack and its credentials
 
 
 OPERATIONS = {
