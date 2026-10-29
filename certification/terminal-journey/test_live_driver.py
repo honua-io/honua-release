@@ -249,11 +249,12 @@ def test_failed_cloud_principal_revocation_retains_private_session_for_retry(tmp
     target_path = tmp_path / "target.json"
     _cloud_target_file(target_path)
     with mock.patch.object(live_driver, "STATE_ROOT", tmp_path / "sessions"), \
-         mock.patch.object(live_driver.local_fixture, "revoke", return_value=([], ["operator"])):
+         mock.patch.object(live_driver.local_fixture, "revoke", return_value=(["approver"], ["viewer", "operator"])):
         live_driver._write_state("cloud", {"workspaceId": "cloud", "targetPath": str(target_path),
             "workdir": str(tmp_path), "baseUrl": "https://owned-cell.example", "external": True})
         response = live_driver.op_teardown({"workspaceId": "cloud"})
         assert response["status"] == "fail" and live_driver._state_path("cloud").exists()
+        assert response["detail"] == "run-owned application principals not revoked: operator, viewer"
 
 
 def test_driver_refuses_target_changed_after_setup(tmp_path):

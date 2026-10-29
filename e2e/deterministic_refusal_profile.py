@@ -23,6 +23,25 @@ CELLS = {'aws-ecs/redis-off', 'aws-serverless/redis-off'}
 ASSERTIONS = {'servingRead', 'typedRedisRefusal', 'authentication', 'anonymousDenial', 'viewerDenial', 'catalogExact'}
 
 
+REASON_LIMIT = 300
+
+
+def failure_reason(exc):
+    """A public, bounded reason. Driver and validation errors carry harness-authored labels and
+    reasons (e.g. 'POST /mcp: HTTP 503'); any other exception contributes its type only, plus the
+    type of its cause (a transport timeout, for example)."""
+    name = type(exc).__name__
+    driver = {'ExecutionError', 'DriverError'} & {kind.__name__ for kind in type(exc).__mro__}
+    if driver or isinstance(exc, ValueError):
+        text = f'{name}: {exc}'
+    else:
+        text = name
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and cause is not exc:
+        text += f' (caused by {type(cause).__name__})'
+    return text[:REASON_LIMIT]
+
+
 def require(ok, reason):
     if not ok:
         raise ValueError(reason)
@@ -155,15 +174,22 @@ def produce(record, raw_path, target_path, *, adapter, pinned, digest, cell):
             servingProof=verified['servingProof'],
             refusalProof={key: value for key, value in verified['typedRefusal'].items() if key != 'message'})
     except Exception as exc:
-        result.update(status='fail', why='profile execution failed: ' + type(exc).__name__)
+        result.update(status='fail', why='profile execution failed: ' + failure_reason(exc))
     finally:
         if workspace:
             try:
-                result['cleanup'] = adapter.op_teardown({'workspaceId': workspace}).get('status')
-            except Exception:
-                result['cleanup'] = 'fail'
+                teardown = adapter.op_teardown({'workspaceId': workspace})
+                result['cleanup'] = teardown.get('status')
+                detail = teardown.get('detail')
+            except Exception as exc:
+                result['cleanup'], detail = 'fail', 'teardown raised ' + failure_reason(exc)
+            if result['cleanup'] != 'pass' and detail:
+                result['cleanupDetail'] = str(detail)[:REASON_LIMIT]
         if result['cleanup'] != 'pass':
-            result.update(status='fail', why='profile run-owned principal cleanup incomplete')
+            # Keep the execution failure that preceded an incomplete cleanup: on e2e-cloud-aws run
+            # 40832719280 the cleanup message replaced it, so the sidecar never named the first fault.
+            prior = [result['why']] if result.get('why') else []
+            result.update(status='fail', why='; '.join(prior + ['profile run-owned principal cleanup incomplete']))
         result['generatedAt'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     return result
 

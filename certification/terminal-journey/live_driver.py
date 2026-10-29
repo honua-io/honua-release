@@ -679,7 +679,8 @@ def op_teardown(request: dict[str, Any]) -> dict[str, Any]:
         # Revoke only run-minted application principals. Cell teardown belongs to its provisioner.
         _revoked, failed = local_fixture.revoke(target, Path(state["workdir"]), state["baseUrl"])
         result_code = 1 if failed else 0
-        detail = ("one or more run-owned application principals could not be revoked" if failed
+        # Principal names (operator, viewer, ...) are fixture labels, never key material.
+        detail = ("run-owned application principals not revoked: " + ", ".join(sorted(failed)) if failed
                   else "run-owned application principals revoked; external cell retained")
     else:
         compose, _base_url, _image = _compose_for(target, manifest, Path(state["workdir"]))
