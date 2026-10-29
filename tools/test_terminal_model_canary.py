@@ -1979,6 +1979,8 @@ def _single_tenant_deterministic_receipt(cell: str = GA_CELL) -> dict:
     last = receipt["stages"][7]
     last.update(status="blocked", blockedBy=[TENANT_BLOCKER])
     last["checks"].append({"id": "8.tenant-isolation", "status": "blocked", "blockedBy": [TENANT_BLOCKER]})
+    # The live harness records a stage holding a blocked check as partial (run 40843752639).
+    last["evidence"]["completeness"] = "partial"
     return receipt
 
 
@@ -2000,7 +2002,8 @@ def test_green_admitted_single_tenant_journey_is_the_canary_prerequisite(tmp_pat
     assert list(Draft202012Validator(linked).iter_errors(proof)) == []
 
 
-@pytest.mark.parametrize("defect", ["preview-cell", "second-blocked", "other-blocker", "stale-evidence"])
+@pytest.mark.parametrize("defect", ["preview-cell", "second-blocked", "other-blocker", "stale-evidence",
+                                    "partial-elsewhere"])
 def test_red_anything_beyond_the_ruled_admission_is_not_a_prerequisite(tmp_path: Path, defect):
     cell = "aws-serverless/redis-on" if defect == "preview-cell" else GA_CELL
     receipt = _single_tenant_deterministic_receipt(cell)
@@ -2011,7 +2014,9 @@ def test_red_anything_beyond_the_ruled_admission_is_not_a_prerequisite(tmp_path:
         receipt["stages"][7]["blockedBy"] = receipt["stages"][7]["checks"][-1]["blockedBy"] = [
             "https://github.com/honua-io/honua-release/issues/123"]
     elif defect == "stale-evidence":
-        receipt["stages"][7]["evidence"]["completeness"] = "partial"
+        receipt["stages"][7]["evidence"]["freshness"] = "stale"
+    elif defect == "partial-elsewhere":
+        receipt["stages"][6]["evidence"]["completeness"] = "partial"
     with pytest.raises(canary.CanaryError):
         _validate_single_tenant(tmp_path, receipt, cell)
 
