@@ -10,7 +10,9 @@ owner key. An acknowledgement is only an intermediate observation: the
 producer also requires durable `Cancelled`, an empty result package, and a
 second job/result/store read after three seconds with no late output. The
 read-only managed key and anonymous caller must receive typed denials for
-the same job; the owner may repeat the cancellation idempotently.
+the same job. The read-only denial is sent in that job's tenant; a
+cross-tenant `not_found` does not prove the key lacks cancel permission.
+The owner may repeat the cancellation idempotently.
 
 The exact owned Docker tenant options are read back before any call. An admin
 key selects a fresh tenant on both fixed-client HTTP requests, then the same
