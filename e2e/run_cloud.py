@@ -1560,7 +1560,12 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
     elif not state.get("endpoint") or not admin_key:
         why = "the cell has no endpoint or application key for the canary"
     profile = "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow"
-    deterministic = _passing_deterministic_receipt(directory, prerequisite_profile=profile) if why is None else None
+    # Only the Redis-off profile is a bounded prerequisite; the full workflow keeps the plain rule, which
+    # admits a ruled single-tenant GA cell's receipt (ga-cells-single-tenant-2026-10-27). Passing
+    # "full-workflow" here skipped that branch and refused every aws-ecs/redis-on canary (run 40824511213).
+    deterministic = (_passing_deterministic_receipt(
+        directory, prerequisite_profile=profile if profile == "redis-off-serving-refusal" else None)
+        if why is None else None)
     if why is None and deterministic is None:
         why = "the cell's deterministic journey did not pass in this job; the canary is refused"
     target = (deterministic.with_name(deterministic.name.replace("receipt-", "target-"))
