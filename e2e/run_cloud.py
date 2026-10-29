@@ -1066,6 +1066,19 @@ _SIGNATURE_SAMPLES = 60
 # (throttle, Lambda init or invoke failure) carries no CORS header, so a browser reports it as a CORS
 # refusal; only the access log tells it apart from a response the server sent.
 _ACCESS_ERROR_PATTERN = '{ ($.status = "4*") || ($.status = "5*") }'
+# A 5xx API Gateway produced itself (errorMessage set, e.g. 503 "Service Unavailable" at the 30 s
+# integration timeout) names no failure in the function log, and the log group dies with the cell.
+# For each one (bounded) the API function's platform and request lines from just before the request
+# to past the timeout are kept: START/REPORT (Duration, Init Duration), INIT_*, "Task timed out" and
+# the server's request lines, which tell a cold start, a queued invocation and a slow handler apart
+# (run 40832719280 aws-serverless/redis-off: three 30 s stalls, no Lambda line to place them).
+_GATEWAY_FAILURE_WINDOWS = 10
+_GATEWAY_WINDOW_BEFORE_MS = 2_000
+_GATEWAY_WINDOW_AFTER_MS = 40_000
+_GATEWAY_WINDOW_EVENTS = 200
+_GATEWAY_WINDOW_PHRASES = ("START RequestId", "REPORT RequestId", "INIT_START", "INIT_REPORT",
+                           "Task timed out", "Request starting", "Request finished",
+                           "The operation has timed out", "Unhandled exception")
 
 
 def _cell_readers(target, run, redact):
@@ -1188,6 +1201,65 @@ def _access_log_errors(aws, group: str, redact) -> dict:
             "truncated": len(events) >= _SIGNATURE_EVENTS, "samples": samples}
 
 
+def _request_start_ms(record: dict, fallback: int) -> int:
+    """When an access-log request started: requestTimeEpoch (ms) when the stage logs it, else
+    requestTime (whole seconds, CLF format), else the log event's own timestamp."""
+    epoch = str(record.get("requestTimeEpoch", ""))
+    if epoch.isdigit():
+        return int(epoch)
+    try:
+        return int(datetime.strptime(str(record.get("requestTime", "")), "%d/%b/%Y:%H:%M:%S %z").timestamp() * 1000)
+    except ValueError:
+        return fallback
+
+
+def _gateway_failure_windows(aws, access_group: str, api_group: str, redact) -> list[dict]:
+    """For each 5xx API Gateway generated itself, the API function's platform and request lines
+    around it (_GATEWAY_WINDOW_PHRASES), read while the cell exists."""
+    try:
+        events = _filter_events(aws, access_group, '{ $.status = "5*" }')
+    except RuntimeError as error:
+        return [{"error": str(error)}]
+    failures = []
+    for timestamp, _, message in events:
+        try:
+            record = json.loads(message)
+        except ValueError:
+            continue
+        if (not isinstance(record, dict) or not str(record.get("status", "")).startswith("5")
+                or str(record.get("errorMessage", "-")) in ("-", "")):
+            continue
+        failures.append((timestamp, record))
+    windows = []
+    pattern = " ".join(f'?"{phrase}"' for phrase in _GATEWAY_WINDOW_PHRASES)
+    for timestamp, record in failures[:_GATEWAY_FAILURE_WINDOWS]:
+        start = _request_start_ms(record, timestamp)
+        window: dict = {
+            "request": {key: redact(str(record[key])) for key in (
+                "requestTime", "requestTimeEpoch", "httpMethod", "path", "status", "errorMessage",
+                "integrationStatus", "integrationErrorMessage", "integrationError", "integrationLatency",
+                "responseLatency", "integrationRequestId") if key in record},
+            "from": _iso_ms(start - _GATEWAY_WINDOW_BEFORE_MS),
+            "to": _iso_ms(start + _GATEWAY_WINDOW_AFTER_MS)}
+        try:
+            page = aws("logs", "filter-log-events", "--log-group-name", api_group,
+                       "--start-time", str(start - _GATEWAY_WINDOW_BEFORE_MS),
+                       "--end-time", str(start + _GATEWAY_WINDOW_AFTER_MS),
+                       "--filter-pattern", pattern, "--max-items", str(_GATEWAY_WINDOW_EVENTS))
+        except RuntimeError as error:
+            windows.append({**window, "error": str(error)})
+            continue
+        rows = sorted((int(e.get("timestamp") or 0), str(e.get("logStreamName", "")), str(e.get("message", "")))
+                      for e in page.get("events", []))
+        window["lines"] = [f"{_iso_ms(t)} [{stream}] {redact(message.rstrip(chr(10)))[:600]}"
+                           for t, stream, message in rows]
+        window["truncated"] = len(rows) >= _GATEWAY_WINDOW_EVENTS
+        windows.append(window)
+    if len(failures) > _GATEWAY_FAILURE_WINDOWS:
+        windows.append({"omitted": len(failures) - _GATEWAY_FAILURE_WINDOWS})
+    return windows
+
+
 def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
     """The serverless counterpart of ecs_readiness_diagnostics: what the cell's Lambda functions and
     Batch jobs logged about their own startup, dependency refusals and job execution.
@@ -1231,7 +1303,10 @@ def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> 
     # /aws/apigateway/<api name>: the only record of a response API Gateway produced itself.
     access_group = f"/aws/apigateway/{api}"
     report["logs"].append({"accessLog": True, **_log_group_tail(aws, access_group, redact),
-                           "accessErrors": _access_log_errors(aws, access_group, redact)})
+                           "accessErrors": _access_log_errors(aws, access_group, redact),
+                           # report["functions"][0] is the API function (sorted first above).
+                           "gatewayFailureWindows": _gateway_failure_windows(
+                               aws, access_group, report["functions"][0]["logGroup"], redact)})
     report["gpBatchEnabled"] = out("gp_batch_enabled").lower() == "true"
     if report["gpBatchEnabled"]:
         try:
@@ -1414,6 +1489,18 @@ def _phase_diagnose(args) -> int:
             print(f"   access-log 4xx/5xx by status: {access['byStatus']}")
             for route, count in access.get("byRoute", {}).items():
                 print(f"   access-log {route}: {count}")
+        for window in log.get("gatewayFailureWindows") or []:
+            if "omitted" in window:
+                print(f"   gateway-generated 5xx windows omitted: {window['omitted']}")
+                continue
+            request = window.get("request") or {}
+            print(f"   gateway-generated {request.get('status')} {request.get('httpMethod')} "
+                  f"{request.get('path')} at {request.get('requestTime')}: "
+                  f"integrationLatency={request.get('integrationLatency')} "
+                  f"lambdaRequestId={request.get('integrationRequestId')}"
+                  + (f"; function log unavailable: {window['error']}" if "error" in window else ""))
+            for line in window.get("lines", []):
+                print(f"     | {line}")
         for error in log.get("errors", []):
             print(f"   stream unavailable: {error}")
         for line in log.get("lines", []):

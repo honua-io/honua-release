@@ -4705,7 +4705,7 @@ def _filter_matches(pattern, message):
             status = str(json.loads(message).get("status", ""))
         except ValueError:
             return False
-        return status[:1] in ("4", "5")
+        return status[:1] in [c for c in "45" if f'"{c}*"' in pattern]
     phrases = re.findall(r'\?"([^"]+)"', pattern)
     assert phrases, pattern
     return any(phrase in message for phrase in phrases)
@@ -4741,9 +4741,12 @@ def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=
             if group not in groups:
                 return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException: token=abc gone")
             pattern = argv[argv.index("--filter-pattern") + 1]
+            start = int(argv[argv.index("--start-time") + 1]) if "--start-time" in argv else None
+            end = int(argv[argv.index("--end-time") + 1]) if "--end-time" in argv else None
             events = sorted(({"timestamp": t, "logStreamName": n, "message": m + "\n"}
                              for n, rows in groups[group].items() for t, m in rows
-                             if _filter_matches(pattern, m)), key=lambda e: e["timestamp"])
+                             if _filter_matches(pattern, m) and (start is None or t >= start)
+                             and (end is None or t <= end)), key=lambda e: e["timestamp"])
             return subprocess.CompletedProcess(argv, 0, json.dumps(
                 {"events": events[:int(argv[argv.index("--max-items") + 1])]}), "")
         assert verb == "get-log-events"
@@ -4890,6 +4893,52 @@ def test_lambda_diagnostics_read_every_stream_sweep_failure_signatures_and_the_a
     assert access_log["accessErrors"]["byStatus"] == {"429": 1, "500": 2}
     assert access_log["accessErrors"]["byRoute"]["500 GET /odata/Layers"] == 2
     assert len(access_log["accessErrors"]["samples"]) == 3
+
+
+def test_lambda_diagnostics_keep_the_function_lines_around_a_gateway_generated_5xx(monkeypatch, capsys):
+    """Run 40832719280 aws-serverless/redis-off: POST /mcp got API Gateway's own 503 "Service
+    Unavailable" at the 30 s integration timeout, and the function log that would place the 30 s
+    (cold start, queue or handler) was deleted with the cell before anyone read it."""
+    target = serverless(run_id="r5")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    api = "cell-it-honua"
+    t0 = 1_791_000_000_000
+    stall = {"requestTime": "03/Oct/2026:04:00:00 +0000", "requestTimeEpoch": str(t0), "httpMethod": "POST",
+             "path": "/mcp", "status": "503", "errorMessage": "Service Unavailable",
+             "integrationStatus": "200", "integrationLatency": "-", "responseLatency": "30001",
+             "integrationRequestId": "req-stall", "sourceIp": "203.0.113.9"}
+    access = [(t0 + 30_001, json.dumps(stall)),
+              # The server's own 503 (a typed refusal) and a gateway 4xx are not stalls.
+              (t0 + 40_000, json.dumps({"status": "503", "errorMessage": "-", "path": "/api/v1/studio/package-drafts"})),
+              (t0 + 41_000, json.dumps({"status": "429", "errorMessage": "Too Many Requests", "path": "/"})),
+              # An older stage format: no requestTimeEpoch, so requestTime (whole seconds) places it.
+              (t0 + 90_000, json.dumps({"requestTime": "03/Oct/2026:04:01:00 +0000", "status": "503",
+                                        "errorMessage": "Service Unavailable", "path": "/api/v1/admin/api-keys/k/revoke"}))]
+    function = [(t0 - 60_000, "START RequestId: req-old Version: 1"),
+                (t0 + 5, "INIT_START Runtime Version: provided:al2023 Password=hunter2"),
+                (t0 + 9_000, "START RequestId: req-stall Version: 1"),
+                (t0 + 9_001, "an ordinary debug line"),
+                (t0 + 31_000, "REPORT RequestId: req-stall\tDuration: 22001.00 ms\tInit Duration: 9000.00 ms"),
+                (t0 + 60_500, "Task timed out after 30.00 seconds"),
+                (t0 + 200_000, "REPORT RequestId: req-late\tDuration: 3.00 ms")]
+    run = _lambda_cli({"lambda_function_name": api, "gp_batch_enabled": "false"},
+                      functions=[{"FunctionName": api}],
+                      groups={f"/aws/lambda/{api}": {"2026/10/03/[1]env": function},
+                              f"/aws/apigateway/{api}": {"access": access}})
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    access_log = next(log for log in report["logs"] if log.get("accessLog"))
+    windows = access_log["gatewayFailureWindows"]
+    assert [w["request"]["path"] for w in windows] == ["/mcp", "/api/v1/admin/api-keys/k/revoke"]
+    first, second = windows
+    assert first["request"]["integrationRequestId"] == "req-stall" and "sourceIp" not in first["request"]
+    assert first["from"] == "2026-10-03T03:59:58.000Z" and first["to"] == "2026-10-03T04:00:40.000Z"
+    # Only platform and request lines inside the window; redacted; stream named.
+    assert [line.split("] ", 1)[1][:22] for line in first["lines"]] == [
+        "INIT_START Runtime Ver", "START RequestId: req-s", "REPORT RequestId: req-"]
+    assert "Password=[redacted]" in first["lines"][0] and "[2026/10/03/[1]env]" in first["lines"][0]
+    assert first["truncated"] is False
+    assert [line.split("] ", 1)[1] for line in second["lines"]] == ["Task timed out after 30.00 seconds"]
+    assert "hunter2" not in json.dumps(report)
 
 
 def test_lambda_diagnostics_record_unreadable_signature_and_access_sweeps(monkeypatch):
