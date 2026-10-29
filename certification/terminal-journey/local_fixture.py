@@ -43,9 +43,19 @@ AUTHOR_GRANTS = [{"service": "StudioDraft", "layer": "*", "operation": operation
 # Targets whose principals are minted through the candidate's own admin API.
 CLOUD_KINDS = ("aws-ecs", "aws-serverless", "aws-eks")
 MINTED_KINDS = ("local-docker", *CLOUD_KINDS)
+# The author's tenant is the deployment's default tenant (honua-server
+# TenantContextOptions.DefaultTenantId, "public"; no cell overrides it). The operator, approver
+# and viewer are API keys, which carry no tenant claim and resolve to that default. The approver
+# can therefore read and approve the author's proposal: GET/approve
+# /api/v1/admin/proposals/{id} answer 404 unless the reader's tenant owns the proposal
+# (OperationTenantAuthorization.CanAccess, plus the evidence tenant), and an API key cannot
+# take another tenant (X-Honua-Tenant needs a multi-tenant admin role). With a separate
+# author tenant, e2e-cloud-aws run 40857079489 (aws-eks/redis-on) got 7.durable-proposal
+# HTTP 404 on the pod that had just created the proposal. Tenant isolation still differs in
+# the signed tenant only: records owned by the default tenant are not readable from another.
 TENANT_FIXTURE = {"schema": "honua-cloud-tenant-fixture/v1", "issuer": ISSUER, "audience": AUDIENCE,
                   "subject": "journey-author", "role": AUTHOR_ROLE,
-                  "authorTenant": "journey-author-tenant", "otherTenant": "journey-other-tenant"}
+                  "authorTenant": "public", "otherTenant": "journey-other-tenant"}
 
 
 def validate_tenant_signing_key(signing_key):

@@ -927,9 +927,14 @@ class JourneyExecutor:
         """
         import local_fixture
         observed = []
-        if self.target.get("kind") == "aws-serverless" and self._instance(self.transport) is not None:
-            # Sequential requests can all reuse one warm Lambda environment. Give the real
-            # endpoint bounded concurrent work; only observed distinct responders prove a pass.
+        if (self.target.get("kind") in ("aws-serverless", "aws-eks")
+                and self._instance(self.transport) is not None):
+            # Sequential requests can all reuse one warm Lambda environment. On aws-eks the
+            # Service's classic ELB terminates TLS and keeps pooled HTTP connections to the
+            # backends, and kube-proxy picks a pod per connection, not per request: on
+            # e2e-cloud-aws run 40857079489 (attempt 1) eight sequential reads rode one pooled
+            # connection to one of the two running pods. Give the real endpoint bounded
+            # concurrent work; only observed distinct responders prove a pass.
             observed = self._concurrent_replica_reads(command)
         else:
             for number in range(REPLICA_READS):

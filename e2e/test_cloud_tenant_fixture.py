@@ -39,6 +39,9 @@ def test_same_subject_role_signed_tenants_and_private_storage(tmp_path):
     assert claims[0]["sub"] == claims[1]["sub"] == "journey-author"
     assert claims[0]["role"] == claims[1]["role"] == local_fixture.AUTHOR_ROLE
     assert claims[0]["tenant_id"] != claims[1]["tenant_id"]
+    # The author shares the API-key approver's tenant (the server's default, "public"), or the
+    # approver's GET /api/v1/admin/proposals/{id} answers 404 (e2e-cloud-aws run 40857079489).
+    assert claims[0]["tenant_id"] == "public"
     assert claims[0]["exp"] - claims[0]["iat"] == 300
     assert (tmp_path / "private-principals.json").stat().st_mode & 0o777 == 0o600
     assert KEY not in (tmp_path / "private-principals.json").read_text()
