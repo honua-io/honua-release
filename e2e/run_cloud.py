@@ -2069,6 +2069,11 @@ def _phase_teardown(args) -> int:
         except Exception as error:
             problems.append(f"{name} could not be deleted: {type(error).__name__}")
             report.setdefault("cleanupFailures", []).append("owned-secret-delete-failed")
+    if args.target == "aws-eks":
+        # The diagnose step ran earlier in this job; a failed S10 import names its worker's own reason.
+        diagnostics = _read_json(directory / EKS_DIAGNOSTICS_NAME)
+        if isinstance(diagnostics, dict) and diagnostics.get("cell") == cell:
+            large_import.annotate_worker_failure(report, diagnostics)
     if problems:
         report["status"] = "fail"
         report["why"] = "; ".join(filter(None, [report.get("why"), *problems]))

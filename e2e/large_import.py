@@ -120,7 +120,7 @@ RECEIPT_FIELDS = ("scenario", "topology", "variant", "fixture", "fixtureSha256",
                   "statusInstances", "stall", "refusal", "publishPath", "publishAnswered", "publishMs",
                   "publishConvergedSeconds", "publishReads", "publishJobId", "publishJobStatus",
                   "publishJobTransitions", "publishJobDurationMs", "publishRowsTotal",
-                  "publishRowsMaterialized", "publishStatusInstances")
+                  "publishRowsMaterialized", "publishStatusInstances", "workerFailure")
 
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 _CELL = re.compile(r"(aws-ecs|aws-serverless|aws-eks|stub)/redis-(on|off)\Z")
@@ -694,3 +694,73 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
                         f"bytes from {fields.get('sourceUrlHost')} ({last} in "
                         f"{fields.get('durationSeconds', 'unknown')}s); {service}/{layer} holds the pinned {rows} rows"
                         + publish_note, fields)
+
+
+# --- The worker's own failure reason (teardown side) ------------------------------------------------
+# A Kubernetes Job worker that dies leaves the server only its generic "Import failed." On e2e-cloud-aws
+# run 40947860102 (aws-eks/redis-on) the reason, an AccessDeniedException resolving
+# AuditLog:ChainVerification:Key at worker startup (honua-release#1059), was only in diagnostics-eks.json.
+# Teardown reads that file (it runs after the journey, with cluster access) and copies the exits and the
+# exception line of this job's worker pods into the S10 evidence as `workerFailure`.
+WORKER_EXITS_SECTION = "job pod exits"
+WORKER_LOG_SECTION = "job worker log tail"
+_WORKER_LOG_LINE = re.compile(r"\[pod/([^/\]]+)/[^\]]*\]\s?(.*)\Z")
+_WORKER_EXIT_LINE = re.compile(r"(\S+)\s+(\S+)\s+(\S*)\s*exit=(\S*)\Z")
+_EXCEPTION = re.compile(r"(Unhandled exception\.|^\s*--->\s|Exception:)")
+MAX_WORKER_REASONS = 3
+
+
+def _worker_pod(pod: str, job: str) -> bool:
+    """honua-server names an import's worker Job `honua-<jobId>` and its retries `honua-<jobId>-a<n>`."""
+    return bool(job) and job.lower() in pod.lower()
+
+
+def worker_failure(diagnostics, job: str) -> dict | None:
+    """The exits and exception lines of `job`'s Kubernetes Job worker pods, from diagnostics-eks.json."""
+    if not isinstance(diagnostics, dict) or not isinstance(job, str) or not _JOB_ID.match(job):
+        return None
+    sections = {s.get("title"): s.get("lines") for s in diagnostics.get("sections") or []
+                if isinstance(s, dict) and isinstance(s.get("lines"), list)}
+    pods = []
+    for line in sections.get(WORKER_EXITS_SECTION) or []:
+        match = _WORKER_EXIT_LINE.match(str(line).strip())
+        if match and _worker_pod(match.group(1), job):
+            name, phase, reason, code = match.groups()
+            pods.append({"pod": name[:128], "phase": phase[:32], "reason": reason[:64],
+                         "exitCode": int(code) if code.lstrip("-").isdigit() else None})
+    reasons: list[str] = []
+    for line in sections.get(WORKER_LOG_SECTION) or []:
+        match = _WORKER_LOG_LINE.match(str(line))
+        if not match or not _worker_pod(match.group(1), job) or not _EXCEPTION.search(match.group(2)):
+            continue
+        text = scrub(match.group(2))
+        if text and text not in reasons:
+            reasons.append(text)
+        if len(reasons) >= MAX_WORKER_REASONS:
+            break
+    if not pods and not reasons:
+        return None
+    return {"source": "diagnostics-eks.json", "pods": pods, "reasons": reasons}
+
+
+def annotate_worker_failure(report: dict, diagnostics) -> dict | None:
+    """Add the worker's failure reason to a failed S10 row in the cell report; never changes a verdict."""
+    for row in report.get("scenarioCoverage") or []:
+        if not isinstance(row, dict) or row.get("name") != ROW:
+            continue
+        for line in (row.get("evidence") or {}).get("scenarios") or []:
+            evidence = line.get("evidence") if isinstance(line, dict) else None
+            if (not isinstance(evidence, dict) or line.get("scenario") != SCENARIO or line.get("status") == "pass"
+                    or evidence.get("jobStatus") in (None, "completed")):
+                continue
+            failure = worker_failure(diagnostics, evidence.get("jobId"))
+            if failure is None:
+                continue
+            evidence["workerFailure"] = failure
+            exits = sorted({f"exit={p['exitCode']}" for p in failure["pods"] if p.get("exitCode") is not None})
+            note = (f"; {len(failure['pods'])} worker pod(s) {', '.join(exits) or 'ended'}"
+                    + (f", worker: {failure['reasons'][0]}" if failure["reasons"] else ""))
+            line["why"] = f"{line.get('why', '')}{note}"
+            row["why"] = f"{row.get('why', '')}{note}"
+            return failure
+    return None

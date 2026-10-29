@@ -750,3 +750,81 @@ def test_async_publish_completion_still_requires_actual_published_row_count():
     row, receipt = _scenario(_AsyncPublishCell(count=329999))
     assert row.status == "fail" and "329999 rows, not the pinned 330000" in row.why
     assert receipt["publishJobStatus"] == "completed"
+
+
+# --- The worker's failure reason from diagnostics-eks.json (honua-release#1059) ---------------------
+
+_JOB = "e6623f57766c4df6866498e1ef94cda8"
+
+
+def _eks_diagnostics(job=_JOB):
+    pods = [f"honua-{job}-2tx4r", f"honua-{job}-a2-nt8zp"]
+    log = []
+    for pod in pods:
+        log += [f"[pod/{pod}/worker] Unhandled exception. System.InvalidOperationException: Failed to resolve "
+                "the security setting 'AuditLog:ChainVerification:Key' from AWS Secrets Manager.",
+                f"[pod/{pod}/worker]  ---> System.InvalidOperationException: AWS Secrets Manager request "
+                "failed with status code 400 (AccessDeniedException).",
+                f"[pod/{pod}/worker]    at Program.<Main>(String[] args) + 0x24"]
+    log.append("[pod/honua-0123456789abcdef0123456789abcdef-x1/worker] Unhandled exception. Other job.")
+    return {"cell": "aws-eks/redis-on", "sections": [
+        {"title": "job pod exits", "lines": [f"{pod} Failed Error exit=139" for pod in pods]
+         + ["honua-0123456789abcdef0123456789abcdef-x1 Failed Error exit=1"]},
+        {"title": "job worker log tail", "lines": log}]}
+
+
+def _failed_s10_report(job=_JOB, status="fail", job_status="failed"):
+    why = f"job {job} ended {job_status}: Import failed."
+    return {"scenarioCoverage": [
+        {"name": "mcp-handshake", "status": "pass", "why": "ok", "evidence": {}},
+        {"name": s10.ROW, "status": status, "why": f"{s10.SCENARIO}: {why}", "evidence": {"scenarios": [
+            {"scenario": s10.SCENARIO, "status": status, "why": why,
+             "evidence": {"scenario": s10.SCENARIO, "jobId": job, "jobStatus": job_status,
+                          "featuresProcessed": 0}}]}}]}
+
+
+def test_worker_failure_reads_only_this_jobs_pods_exits_and_exception_lines():
+    failure = s10.worker_failure(_eks_diagnostics(), _JOB)
+    assert failure["source"] == "diagnostics-eks.json"
+    assert [p["exitCode"] for p in failure["pods"]] == [139, 139]
+    assert all(_JOB in p["pod"] for p in failure["pods"])
+    assert failure["reasons"] == [
+        "Unhandled exception. System.InvalidOperationException: Failed to resolve the security setting "
+        "'AuditLog:ChainVerification:Key' from AWS Secrets Manager.",
+        "---> System.InvalidOperationException: AWS Secrets Manager request failed with status code 400 "
+        "(AccessDeniedException)."]
+    assert s10.worker_failure(_eks_diagnostics(), "ffffffffffffffffffffffffffffffff") is None
+    assert s10.worker_failure({"error": "kubectl unavailable"}, _JOB) is None
+    assert s10.worker_failure(_eks_diagnostics(), "not a job id!") is None
+
+
+def test_a_failed_s10_row_gains_the_worker_reason_and_keeps_its_verdict():
+    report = _failed_s10_report()
+    assert s10.annotate_worker_failure(report, _eks_diagnostics()) is not None
+    row = report["scenarioCoverage"][1]
+    line = row["evidence"]["scenarios"][0]
+    assert row["status"] == line["status"] == "fail"
+    assert line["evidence"]["workerFailure"]["pods"][0]["exitCode"] == 139
+    assert "2 worker pod(s) exit=139" in line["why"] and "AuditLog:ChainVerification:Key" in line["why"]
+    assert row["why"].startswith(f"{s10.SCENARIO}: job {_JOB} ended failed") and "worker:" in row["why"]
+    # The annotated evidence is still a valid receipt.
+    assert s10.receipt(line["evidence"])["workerFailure"] == line["evidence"]["workerFailure"]
+
+
+def test_a_passing_or_unmatched_s10_row_is_left_alone():
+    passed = _failed_s10_report(status="pass", job_status="completed")
+    before = json.dumps(passed)
+    assert s10.annotate_worker_failure(passed, _eks_diagnostics()) is None
+    assert json.dumps(passed) == before
+    other = _failed_s10_report(job="ffffffffffffffffffffffffffffffff")
+    assert s10.annotate_worker_failure(other, _eks_diagnostics()) is None
+    assert "workerFailure" not in other["scenarioCoverage"][1]["evidence"]["scenarios"][0]["evidence"]
+
+
+def test_worker_reasons_are_scrubbed_and_bounded():
+    diagnostics = _eks_diagnostics()
+    diagnostics["sections"][1]["lines"] = [
+        f"[pod/honua-{_JOB}-z/worker] Unhandled exception. System.Exception: GET "
+        "https://b.s3.amazonaws.com/k?X-Amz-Signature=abc123def " + "x" * 400]
+    reason = s10.worker_failure(diagnostics, _JOB)["reasons"][0]
+    assert "abc123def" not in reason and reason.endswith("...(truncated)")
