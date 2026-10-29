@@ -147,6 +147,8 @@ def test_expired_after_retention_cannot_send(wiring, server):
 
 @pytest.mark.parametrize('raw', [b'{"token":"private-setup-token"}', b'{"token":"private-setup-\\u0074oken"}',
                                b'{"token":"private-setup-%74oken"}',
+                               b'{"token":"private-setup-%2574oken"}',
+                               b'{"note":"private-setup-%252574oken"}',
                                b'{"x":1,"x":2}', b'{"x":NaN}'])
 def test_unsafe_or_ambiguous_response_is_not_retained(wiring, server, raw):
     server.respond = lambda *args: (200, {}, raw)
@@ -186,7 +188,8 @@ def test_bad_endpoint_rejected_before_authorization_or_retention(wiring, endpoin
     assert not wiring.records
 
 
-@pytest.mark.parametrize('path', ['/read?token=private-setup-token', '/read?token=private-setup-%74oken'])
+@pytest.mark.parametrize('path', ['/read?token=private-setup-token', '/read?token=private-setup-%74oken',
+                                 '/read?token=private-setup-%2574oken'])
 def test_request_url_cannot_disclose_credentials_to_retention(wiring, server, path):
     with pytest.raises(PackError, match='credential'):
         wiring.client().json('read', 'GET', path)

@@ -28,6 +28,25 @@ def require(condition, message):
         raise PackError(message)
 
 
+# One unquote decodes a single percent-encoding layer. `%2574` becomes `%74`,
+# which still hides `t`. Walk to a fixed point, bounded so a value that never
+# settles cannot smuggle a credential past the last checked layer.
+_PERCENT_DECODE_LIMIT = 8
+
+
+def percent_decoded_layers(value):
+    if not isinstance(value, str):
+        return None
+    current, layers = value, []
+    for _ in range(_PERCENT_DECODE_LIMIT + 1):
+        layers.append(current)
+        decoded = urllib.parse.unquote(current)
+        if decoded == current:
+            return layers
+        current = decoded
+    return None
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *_args, **_kwargs):
         raise PackError('fixture setup refuses endpoint redirects')
@@ -119,7 +138,9 @@ class SetupHttp:
             elif isinstance(item, list):
                 pending.extend(item)
             elif isinstance(item, str):
-                require(all(secret not in urllib.parse.unquote(item) for secret in self.private_values),
+                layers = percent_decoded_layers(item)
+                require(layers is not None and all(
+                    secret not in layer for layer in layers for secret in self.private_values),
                         'setup metadata disclosed credential')
 
     def _request(self, step, method, path, *, body=None, content_type='application/json'):
@@ -128,8 +149,9 @@ class SetupHttp:
                 and not path.startswith('//') and '\\' not in path and '#' not in path
                 and all(33 <= ord(c) <= 126 for c in path), 'invalid setup request')
         require(self.kind != 'anonymous' or method == 'GET', 'anonymous observation permits only GET')
-        decoded_path = urllib.parse.unquote(path)
-        require(all(secret not in path and secret not in decoded_path for secret in self.private_values),
+        path_layers = percent_decoded_layers(path)
+        require(path_layers is not None and all(
+            secret not in layer for layer in path_layers for secret in self.private_values),
                 'setup request URL disclosed credential')
         require(body is None or type(body) is bytes and len(body) <= MAX_RESPONSE_BYTES, 'oversized setup request')
         require(method != 'GET' or body is None, 'GET setup request cannot carry a body')
