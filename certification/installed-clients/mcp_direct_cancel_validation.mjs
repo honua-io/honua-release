@@ -116,7 +116,9 @@ export function createDirectCancelValidation({ directory, sourceSha, sha256, boo
         }
         const { launchCanonicalClient } = await import(pathToFileURL(join(directory, "mcp_fixed_client_launcher.mjs")).href);
         const call = async (id, method, params, role = "full", selectedTenant = undefined) => {
-          const tenantId = role === "anonymous" || role === "limited" ? undefined : selectedTenant ?? setup.tenantId;
+          const tenantId = role === "anonymous" ? undefined
+            : role === "limited" ? selectedTenant
+            : selectedTenant ?? setup.tenantId;
           const entry = { id, method, params, authenticated: role !== "anonymous", credentialRole: role,
             tenantId: tenantId ?? null, wire: null, client: null, result: null,
             startedAt: new Date().toISOString(), completedAt: null };
@@ -169,7 +171,7 @@ export function createDirectCancelValidation({ directory, sourceSha, sha256, boo
         }
         if (!running) throw new Error("direct cancellation never observed actual Running state");
         observed.snapshots.running = state(setup, jobId);
-        await tool("limited-target", "honua_cancel_job", { jobId }, "limited");
+        await call("limited-target", "tools/call", { name: "honua_cancel_job", arguments: { jobId } }, "limited", setup.tenantId);
         observed.snapshots.limited = state(setup, jobId);
         await tool("anonymous-target", "honua_cancel_job", { jobId }, "anonymous");
         observed.snapshots.anonymous = state(setup, jobId);

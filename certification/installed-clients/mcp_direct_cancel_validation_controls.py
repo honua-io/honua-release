@@ -129,7 +129,9 @@ def journey(*, inspector=False):
         ("late-results", "resources/read", {"uri": uri + "/results"}, "full", result_read(uri, job, package)),
     ]
     value["calls"] = [{"id": ident, "method": method, "params": params, "credentialRole": role,
-                       "tenantId": None if role in ("anonymous", "limited") else "public" if ident == "other-tenant" else authored["tenantId"],
+                       "tenantId": authored["tenantId"] if ident == "limited-target"
+                       else None if role in ("anonymous", "limited")
+                       else "public" if ident == "other-tenant" else authored["tenantId"],
                        "authenticated": role != "anonymous", "result": result,
                        "startedAt": stamp(index * 10), "completedAt": stamp(index * 10 + 1)}
                       for index, (ident, method, params, role, result) in enumerate(calls)]
@@ -205,6 +207,23 @@ class DirectCancelValidationControls(unittest.TestCase):
                 else: value["identityFixtures"]["limited"]["cleanupComplete"] = False
                 with self.subTest(inspector=inspector, mutation=mutation), self.assertRaises(ValueError):
                     judge(value)
+
+    def test_limited_target_denial_is_in_the_job_tenant_and_not_a_cross_tenant_miss(self):
+        for inspector in (False, True):
+            value = journey(inspector=inspector)
+            self.assertEqual(value["calls"][7]["tenantId"], value["tenantId"])
+            self.assertEqual(value["calls"][7]["result"]["structuredContent"]["code"], "permission_denied")
+            for mutation in ("public-default", "not-found"):
+                hidden = journey(inspector=inspector)
+                if mutation == "public-default":
+                    hidden["calls"][7]["tenantId"] = None
+                else:
+                    hidden["calls"][7]["result"] = envelope(
+                        {"status": "error", "code": "not_found", "message": "Job not visible in selected tenant"},
+                        error=True)
+                hidden = rebind(hidden, inspector=inspector)
+                with self.subTest(inspector=inspector, mutation=mutation), self.assertRaises(ValueError):
+                    judge(hidden)
 
     def test_other_tenant_denial_requires_distinct_wire_tenant_and_no_store_mutation(self):
         for inspector in (False, True):

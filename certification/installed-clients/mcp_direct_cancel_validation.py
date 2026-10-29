@@ -106,14 +106,16 @@ def catalog(result):
         raise ValueError("direct cancel workload was not actually job-callable")
 
 
-def refusal(result, *, anonymous=False):
+def refusal(result, *, anonymous=False, same_tenant=False):
     if anonymous:
         anonymous_tool_refusal(result)
         return
+    # A same-tenant read-only denial is permission, not a cross-tenant miss.
+    codes = ("permission_denied", "forbidden") if same_tenant else (
+        "invalid_argument", "permission_denied", "forbidden", "not_found")
     value = result.get("structuredContent") if isinstance(result, dict) else None
     if (result.get("isError") is not True or not isinstance(value, dict)
-            or value.get("status") != "error" or value.get("code") not in
-            ("invalid_argument", "permission_denied", "forbidden", "not_found")
+            or value.get("status") != "error" or value.get("code") not in codes
             or not isinstance(value.get("message"), str) or not value["message"]):
         raise ValueError("direct cancel negative lacked typed refusal")
 
@@ -237,7 +239,13 @@ def judge(fixture_bytes, bootstrap, observed):
         if index >= len(calls):
             raise ValueError("direct cancel omitted an authored call")
         entry = calls[index]
-        selected_tenant = (None if role in ("anonymous", "limited") else (tenant_id or authored["tenantId"]))
+        if role == "anonymous":
+            selected_tenant = None
+        elif role == "limited":
+            # Explicit only. Omitting it selects the public default and can hide the job.
+            selected_tenant = tenant_id
+        else:
+            selected_tenant = tenant_id or authored["tenantId"]
         if (not isinstance(entry, dict)
                 or set(entry) != {"id", "method", "params", "authenticated", "credentialRole", "wire", "client",
                                   "result", "startedAt", "completedAt", "tenantId"}
@@ -329,7 +337,7 @@ def judge(fixture_bytes, bootstrap, observed):
         raise ValueError("direct cancel durable Running read preceded MCP Running")
     previous = instant(snapshots["running"]["completedAt"])
     refusal(call(index, "limited-target", "tools/call", {"name": "honua_cancel_job", "arguments":
-           {"jobId": job_id}}, "limited")); index += 1
+           {"jobId": job_id}}, "limited", tenant_id=authored["tenantId"]), same_tenant=True); index += 1
     if instant(snapshots["limited"]["startedAt"]) < previous:
         raise ValueError("limited denial durable read preceded original refusal")
     previous = instant(snapshots["limited"]["completedAt"])
