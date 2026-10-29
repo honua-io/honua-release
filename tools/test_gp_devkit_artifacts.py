@@ -172,3 +172,16 @@ def test_rejects_unqualified_image_index(evidence):
     reference = "ghcr.io/honua-io/honua-gp-workspace@sha256:" + hashlib.sha256(manifest).hexdigest()
     with pytest.raises(gate.ArtifactError, match="platform manifest"):
         gate.published(candidate, reference, manifest)
+
+
+def test_candidate_scope_does_not_claim_unexecuted_host_oses(evidence):
+    """honua-release#615: an unexecuted macOS or Windows cell is not a pass."""
+    root, package = evidence
+    candidate = gate.qualify(root, package, SOURCE)
+    scope = candidate["scope"].lower()
+    assert scope.startswith("linux-x64")
+    for host in ("macos", "darwin", "windows"):
+        assert host not in scope
+    qualification = candidate["qualification"]
+    assert qualification["python"] is True and qualification["dotnet"] is True
+    assert "macos" not in qualification and "windows" not in qualification
