@@ -125,6 +125,75 @@ def test_check_fails_on_drift(tmp_path: Path, monkeypatch) -> None:
     assert "honua-sdk-dotnet" in why
 
 
+def _json(payload: dict) -> str:
+    import json
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+
+
+def test_check_names_an_additive_symbol_diff_and_still_fails(tmp_path: Path, monkeypatch) -> None:
+    before = _json({"exports": [".: value connect"]})
+    after = _json({"exports": [".: value connect", ".: value extra"]})
+    surfaces = {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS}
+    surfaces["honua-sdk-js"] = {"public-api.json": after}
+    _stub_extractors(monkeypatch, surfaces)
+    base = tmp_path / "baselines" / "2026.1"
+    _seed_baseline(base, {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS})
+    status, why, rows = cs.check("2026.1", tmp_path, _manifest(tmp_path), tmp_path / "baselines")
+    assert status == "fail"
+    row = next(item for item in rows if item["component"] == "honua-sdk-js")
+    assert "ADDITIVE: 1 added, 0 removed (baseline refresh needed)" in row["why"]
+    assert "BREAKING" not in row["why"]
+    assert "ADDITIVE: 1 added, 0 removed (baseline refresh needed)" in why
+
+
+def test_check_names_a_breaking_symbol_removal(tmp_path: Path, monkeypatch) -> None:
+    before = _json({"symbols": ["N: public class A", "N: public class B"]})
+    after = _json({"symbols": ["N: public class B", "N: public class C"]})
+    surfaces = {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS}
+    surfaces["honua-sdk-dotnet"] = {"public-api.json": after}
+    _stub_extractors(monkeypatch, surfaces)
+    base = tmp_path / "baselines" / "2026.1"
+    _seed_baseline(base, {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS})
+    status, why, rows = cs.check("2026.1", tmp_path, _manifest(tmp_path), tmp_path / "baselines")
+    assert status == "fail"
+    row = next(item for item in rows if item["component"] == "honua-sdk-dotnet")
+    assert 'BREAKING: 1 removed ("N: public class A"), 1 added' in row["why"]
+    assert "BREAKING:" in why
+
+
+def test_check_python_module_export_removal_is_breaking(tmp_path: Path, monkeypatch) -> None:
+    before = _json({"modules": {"honua": {"exports": ["connect", "keep"], "symbols": {}}}})
+    after = _json({"modules": {"honua": {"exports": ["keep"], "symbols": {}}}})
+    surfaces = {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS}
+    surfaces["honua-sdk-python"] = {"public-api.json": after}
+    _stub_extractors(monkeypatch, surfaces)
+    base = tmp_path / "baselines" / "2026.1"
+    _seed_baseline(base, {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS})
+    status, _why, rows = cs.check("2026.1", tmp_path, _manifest(tmp_path), tmp_path / "baselines")
+    assert status == "fail"
+    row = next(item for item in rows if item["component"] == "honua-sdk-python")
+    assert "BREAKING: 1 removed" in row["why"]
+    assert "honua: export connect" in row["why"]
+
+
+def test_check_openapi_drift_stays_a_document_fail(tmp_path: Path, monkeypatch) -> None:
+    before = _json({"openapi": "3.0.3", "paths": {}})
+    after = _json({"openapi": "3.0.3", "paths": {"/x": {}}})
+    surfaces = {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS}
+    surfaces["honua-server"] = {"openapi.json": after}
+    _stub_extractors(monkeypatch, surfaces)
+    seeded = {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS}
+    seeded["honua-server"] = {"openapi.json": before}
+    base = tmp_path / "baselines" / "2026.1"
+    _seed_baseline(base, seeded)
+    status, why, rows = cs.check("2026.1", tmp_path, _manifest(tmp_path), tmp_path / "baselines")
+    assert status == "fail"
+    row = next(item for item in rows if item["component"] == "honua-server")
+    assert "OpenAPI document changed in ['openapi.json']" in row["why"]
+    assert "ADDITIVE" not in row["why"] and "BREAKING" not in row["why"]
+    assert "OpenAPI document changed" in why
+
+
 def test_check_fails_on_added_artifact(tmp_path: Path, monkeypatch) -> None:
     surfaces = {c: {"public-api.json": f"{{{c}}}\n"} for c in cs.SURFACE_COMPONENTS}
     surfaces["honua-server"]["extra.json"] = "{}\n"  # extractor sees a new artifact
