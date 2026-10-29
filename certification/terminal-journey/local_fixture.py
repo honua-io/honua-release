@@ -55,6 +55,8 @@ def validate_tenant_signing_key(signing_key):
     return signing_key
 
 
+# Each run-minted key is revoked with at most this many requests (see revoke).
+REVOKE_ATTEMPTS = 2
 KEY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
 
 
@@ -273,16 +275,22 @@ def revoke(target, workdir, base_url):
         return [], sorted(key_ids)
     revoked, failed = [], []
     for name, key_id in sorted(key_ids.items()):
-        try:
-            raw, _ = transport.http("POST", f"/api/v1/admin/api-keys/{key_id}/revoke",
-                                    principal="bootstrap", expected=(200,))
-            document = json.loads(raw)
-            data = document.get("data", document) if isinstance(document, dict) else None
-            if not isinstance(data, dict) or data.get("id") != key_id or data.get("status") != "revoked":
-                raise ExecutionError("revoke journey principal", "candidate did not report the key revoked")
-            revoked.append(name)
-        except Exception:
-            failed.append(name)
+        # One retry: a single stalled request (API Gateway answered 503 after its 30 s integration
+        # timeout on e2e-cloud-aws run 40832719280, aws-serverless/redis-off) must not leave a key
+        # live when the very next request succeeds. Revoking a revoked key is harmless.
+        for attempt in range(REVOKE_ATTEMPTS):
+            try:
+                raw, _ = transport.http("POST", f"/api/v1/admin/api-keys/{key_id}/revoke",
+                                        principal="bootstrap", expected=(200,))
+                document = json.loads(raw)
+                data = document.get("data", document) if isinstance(document, dict) else None
+                if not isinstance(data, dict) or data.get("id") != key_id or data.get("status") != "revoked":
+                    raise ExecutionError("revoke journey principal", "candidate did not report the key revoked")
+                revoked.append(name)
+                break
+            except Exception:
+                if attempt == REVOKE_ATTEMPTS - 1:
+                    failed.append(name)
     return revoked, failed
 
 

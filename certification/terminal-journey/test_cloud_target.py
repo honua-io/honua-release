@@ -135,8 +135,10 @@ class CloudTargetDocumentTests(unittest.TestCase):
 class AdminApiPeer:
     """An authored loopback stand-in for the cell admin API's key and role routes."""
 
-    def __init__(self, *, revoke_status=200):
+    def __init__(self, *, revoke_status=200, revoke_failures=None):
+        # revoke_failures: answer revoke_status this many times, then 200 (a transient stall).
         self.seen, self.keys, self.revoke_status = [], {}, revoke_status
+        self.revoke_failures = revoke_failures
         peer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -174,7 +176,9 @@ class AdminApiPeer:
                     peer.keys[key_id] = {"permissions": body["permissions"], "name": body["name"]}
                     return self._reply(201, {"data": {"apiKey": {"id": key_id}, "key": f"hk_minted_{len(peer.keys)}"}})
                 key_id = self.path.split("/")[5]
-                if peer.revoke_status != 200:
+                if peer.revoke_status != 200 and (peer.revoke_failures is None or peer.revoke_failures > 0):
+                    if peer.revoke_failures is not None:
+                        peer.revoke_failures -= 1
                     return self._reply(peer.revoke_status, {"error": "unavailable"})
                 return self._reply(200, {"data": {"id": key_id, "status": "revoked"}})
 
@@ -235,7 +239,20 @@ class CloudPrincipalTests(unittest.TestCase):
         with AdminApiPeer(revoke_status=503) as peer:
             local_fixture.credentials(target, self.workdir, peer.url, mint=True)
             revoked, failed = local_fixture.revoke(target, self.workdir, peer.url)
+            revokes = [path for method, path, _ in peer.seen if path.endswith("/revoke")]
         self.assertEqual((revoked, sorted(failed)), ([], sorted(local_fixture.GRANTS)))
+        self.assertEqual(len(revokes), local_fixture.REVOKE_ATTEMPTS * len(local_fixture.GRANTS))
+
+    def test_a_single_stalled_revoke_is_retried_once(self):
+        # e2e-cloud-aws run 40832719280: one revoke drew an API Gateway 503, the next three passed.
+        target = cloud()
+        with AdminApiPeer(revoke_status=503, revoke_failures=1) as peer:
+            local_fixture.credentials(target, self.workdir, peer.url, mint=True)
+            revoked, failed = local_fixture.revoke(target, self.workdir, peer.url)
+            revokes = [path for method, path, _ in peer.seen if path.endswith("/revoke")]
+        self.assertEqual((sorted(revoked), failed), (sorted(local_fixture.GRANTS), []))
+        self.assertEqual(len(revokes), len(local_fixture.GRANTS) + 1)
+        self.assertEqual(revokes[0], revokes[1])
 
     def test_local_docker_is_never_revoked_through_the_cloud_path_and_unminted_cloud_resolves_refs(self):
         self.assertEqual(local_fixture.revoke(TEMPLATE, self.workdir, "http://127.0.0.1:1"), ([], []))

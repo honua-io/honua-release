@@ -180,6 +180,53 @@ def test_producer_fails_for_real_execution_security_or_cleanup_contradiction(sam
     assert adapter.calls[-1][0] == 'teardown'
 
 
+# Stands in for the terminal driver's ExecutionError, which the profile recognizes by class name.
+LiveOperationError = type('ExecutionError', (RuntimeError,), {})
+
+
+@pytest.mark.parametrize('cleanup', ['pass', 'fail', 'raises'])
+def test_incomplete_cleanup_keeps_the_execution_failure_that_preceded_it(sample, cleanup):
+    # e2e-cloud-aws run 40832719280 (aws-serverless/redis-off): a live MCP request stalled into an
+    # API Gateway 503, then one revoke stalled too, and the sidecar said only "cleanup incomplete".
+    adapter = Adapter(sample[0])
+    def stalled(request):
+        adapter.calls.append(('execute', request))
+        raise LiveOperationError('POST /mcp: HTTP 503') from TimeoutError()
+    adapter.op_execute = stalled
+    if cleanup == 'fail':
+        adapter.op_teardown = lambda request: {'status': 'fail',
+            'detail': 'run-owned application principals not revoked: approver'}
+    elif cleanup == 'raises':
+        def broken(request): raise KeyError('state')
+        adapter.op_teardown = broken
+    result = produce(sample, adapter)
+    assert result['status'] == 'fail' and result['executionOutcome'] == 'not-attempted'
+    failure = 'profile execution failed: ExecutionError: POST /mcp: HTTP 503 (caused by TimeoutError)'
+    if cleanup == 'pass':
+        assert result['cleanup'] == 'pass' and result['why'] == failure and 'cleanupDetail' not in result
+    else:
+        assert result['cleanup'] == 'fail'
+        assert result['why'] == failure + '; profile run-owned principal cleanup incomplete'
+        assert result['cleanupDetail'] == ('run-owned application principals not revoked: approver'
+                                           if cleanup == 'fail' else 'teardown raised KeyError')
+
+
+def test_cleanup_failure_alone_still_fails_and_names_the_teardown_detail(sample):
+    adapter = Adapter(sample[0])
+    adapter.op_teardown = lambda request: {'status': 'fail', 'detail': 'run-owned application principals not revoked: viewer'}
+    result = produce(sample, adapter)
+    assert result['status'] == 'fail' and result['cleanup'] == 'fail'
+    assert result['why'] == 'profile run-owned principal cleanup incomplete'
+    assert result['cleanupDetail'] == 'run-owned application principals not revoked: viewer'
+
+
+def test_failure_reason_is_bounded_and_never_echoes_arbitrary_exception_text():
+    assert profile.failure_reason(RuntimeError('Bearer secret-token')) == 'RuntimeError'
+    assert profile.failure_reason(ValueError('profile driver setup unavailable')) == \
+        'ValueError: profile driver setup unavailable'
+    assert len(profile.failure_reason(ValueError('x' * 1000))) == profile.REASON_LIMIT
+
+
 @pytest.mark.parametrize('change', ['empty', 'short', 'reverse', 'wrong-id', 'wrong-command', 'wrong-number'])
 def test_standalone_validator_rejects_incomplete_or_relabelled_canonical_source(sample, change):
     stages = sample[2]['stages']
