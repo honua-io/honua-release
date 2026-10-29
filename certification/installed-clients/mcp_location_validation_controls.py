@@ -175,7 +175,7 @@ class LocationControls(unittest.TestCase):
 
     def test_ordered_batch_partial_failure_and_duplicate_input_refuse(self):
         operation = validation.OPERATIONS[1]
-        for mode in ("order", "missing", "duplicate-omitted", "count", "boolean-count", "false-success", "error-leak", "coordinates", "provider"):
+        for mode in ("order", "missing", "duplicate-omitted", "count", "boolean-count", "false-success", "error-leak", "coordinates", "provider", "failure-provider", "failure-mock"):
             with self.subTest(mode=mode):
                 value = observations(operation); item = value["cases"][0]; out = item["result"]["structuredContent"]; rows = out["results"]
                 if mode == "order": rows[0], rows[2] = rows[2], rows[0]
@@ -185,9 +185,23 @@ class LocationControls(unittest.TestCase):
                 elif mode == "false-success": rows[1]["ok"] = True
                 elif mode == "error-leak": rows[1]["location"] = {"x": 0, "y": 0, "srid": 4326}
                 elif mode == "coordinates": rows[0]["location"]["y"] = -122.1298
+                elif mode == "failure-provider": rows[1]["provider"] = "nominatim"
+                elif mode == "failure-mock": rows[1]["provider"] = "mock"
                 else: rows[0]["provider"] = "nominatim"
                 sync(item)
                 with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind(value), operation)
+
+    def test_unmatched_batch_failure_may_omit_provider_or_name_local(self):
+        operation = validation.OPERATIONS[1]
+        for provider in (None, "local"):
+            with self.subTest(provider=provider):
+                value = observations(operation)
+                item = value["cases"][0]
+                rows = item["result"]["structuredContent"]["results"]
+                rows[1]["provider"] = provider
+                sync(item)
+                proof = validation.judge(FIXTURE, bootstrap(), bind(value), operation)
+                self.assertTrue(proof["positive"])
 
     def test_accepted_but_ignored_country_filter_is_not_success(self):
         for operation in validation.OPERATIONS[:2]:

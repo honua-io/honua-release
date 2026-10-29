@@ -128,7 +128,9 @@ def batch_output(result, arguments, excluded=False):
         if not isinstance(actual, dict) or actual.get("input") != query.strip():
             raise ValueError("batch geocoding reordered, omitted or failed to trim an input")
         if index is None:
+            # Absent or explicitly local. nominatim/mock on a clean failure is still external output.
             if (actual.get("ok") is not False or not isinstance(actual.get("error"), str) or not actual["error"]
+                    or actual.get("provider") not in (None, "local")
                     or any(actual.get(key) is not None for key in ("location", "score", "matchedAddress"))):
                 raise ValueError("unmatched batch address did not retain a clean per-item failure")
             continue
