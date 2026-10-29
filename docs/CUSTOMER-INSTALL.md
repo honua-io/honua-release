@@ -33,6 +33,10 @@ following file as `compose.yaml`. It uses the digest-pinned server and the
 checking a newer signed release lock, set `HONUA_SERVER_IMAGE` to that lock's
 digest-pinned server image before starting.
 
+2026.1 qualifies linux/amd64 only. The `honua` service sets `platform: linux/amd64`
+so an arm64 host pulls that child and runs it under emulation.
+Emulation is not a supported 2026.1 topology.
+
 <!-- doc-run: file=compose.yaml -->
 ```yaml
 services:
@@ -50,6 +54,7 @@ services:
 
   honua:
     image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a}
+    platform: linux/amd64
     depends_on:
       db:
         condition: service_healthy
