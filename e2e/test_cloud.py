@@ -2386,6 +2386,36 @@ def test_a_retry_creates_its_own_connection_when_attempt_ones_is_still_in_use():
     assert cell.connections == {_OTHER_CONNECTION: "customer_db"}
 
 
+def test_a_retry_imports_into_its_own_table_so_publish_meets_no_layer_conflict():
+    # e2e-cloud-aws run 40742242038: attempt 2 re-imported into attempt 1's table, whose published
+    # layer survived (its connection is held: 409), so service.publish refused the layer conflict.
+    cj = run_cloud.cloud_journey
+    assert cj.attempt_table_name("journey_source", 1) == "journey_source"
+    assert cj.attempt_table_name("journey_source", 2) == "journey_source_attempt2"
+    assert re.fullmatch(r"[a-z_][a-z0-9_]*", cj.attempt_table_name("journey_source", 3))
+    assert cj.attempt_table_name("", 2) == ""
+
+
+def test_an_image_digest_identity_binds_the_candidate_sha_only_when_both_observations_agree():
+    # The honua-helm chart injects HONUA_IMAGE_DIGEST, so an EKS cell advertises source=image-digest.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    server = pinned["components"]["honua-server"]
+    sha, image = _manifest_server()
+    digest = image.rsplit("@", 1)[1]
+    assert cj.observed_server({"revision": digest, "source": "image-digest"}, image, pinned) == {
+        "sourceSha": sha, "image": image}
+    # Without the control plane's agreement, or on another digest, nothing is bound.
+    assert cj.observed_server({"revision": digest, "source": "image-digest"}, None, pinned)[
+        "sourceSha"] == cj.UNOBSERVED_SHA
+    other = "sha256:" + "9" * 64
+    assert other not in {server["digest"], *(server.get("platformDigests") or {}).values()}
+    assert cj.observed_server({"revision": other, "source": "image-digest"}, image.split("@")[0] + "@" + other,
+                              pinned)["sourceSha"] == cj.UNOBSERVED_SHA
+    assert cj.observed_server({"revision": digest, "source": "image-digest"}, image) == {
+        "sourceSha": cj.UNOBSERVED_SHA, "image": image}
+
+
 def test_reset_is_a_no_op_for_the_first_attempt():
     cj = run_cloud.cloud_journey
     cell = _CellHoldingAttempt1()

@@ -541,8 +541,10 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                                   file=sys.stderr, flush=True)
                     after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"
                                    else cloud_journey.observed_lambda_image(target, pinned))
-                    after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image)
-                    before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+                    after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image,
+                                                          pinned)
+                    before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"),
+                                                           pinned)
                     for record in report["journeyAttempts"]:
                         record["profileObservation"] = {"source": "aws-control-plane", "before": before,
                             "after": after, "observedAt": cloud_journey.now(),

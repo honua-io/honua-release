@@ -231,6 +231,16 @@ def test_chart_values_carry_the_root_rendered_server_environment(cell):
     assert "geoprocessing" not in values and "service" not in values
 
 
+@pytest.mark.parametrize("redis_enabled", [False, True])
+def test_chart_values_admit_non_admins_to_the_studio_api_without_the_tenant_fixture(cell, redis_enabled):
+    # e2e-cloud-aws run 40742242038: without Studio:EndUserAuthorization:Enabled journey stage 6 got
+    # HTTP 403 on GET /api/v1/studio/package-families for the proposer on both EKS cells. The ECS
+    # and Lambda cells pass studio_end_user_authorization=true; the chart takes the env directly.
+    assert getattr(cell, "journey_signing_key", None) is None
+    env = cell.chart_values(redis_enabled)["config"]["env"]
+    assert env[aws_eks.STUDIO_END_USER_AUTHORIZATION_ENV] == "true"
+
+
 def test_redis_on_chart_values_open_the_s10_background_import_window(cell):
     # honua-release#548: the same threshold the ECS and serverless roots take as a cell input.
     assert cell.chart_values(True)["config"]["env"][aws_eks.IMPORT_THRESHOLD_ENV] == "67108864"
@@ -240,7 +250,8 @@ def test_redis_on_chart_values_open_the_s10_background_import_window(cell):
 def test_chart_values_ignore_outputs_the_root_does_not_declare(cell):
     _outputs(cell, chart_config_env={"Leak": "x"}, server_role_arn="arn:x")
     values = cell.chart_values(False)
-    assert values == {"config": {"env": {"Cors__AllowedOrigins__0": tt.DEMO_SITE_ORIGIN}}}
+    assert values == {"config": {"env": {"Cors__AllowedOrigins__0": tt.DEMO_SITE_ORIGIN,
+                                         aws_eks.STUDIO_END_USER_AUTHORIZATION_ENV: "true"}}}
 
 
 @pytest.mark.parametrize("bad", [{"not an env name": "x"}, {"Ok": {"nested": "x"}}, ["Ok=x"]])
@@ -382,6 +393,19 @@ def test_the_running_image_is_read_back_from_every_server_pod(cell, monkeypatch,
                                               "digest": "sha256:" + "a" * 64}}}
     monkeypatch.setattr(cell, "_kubectl", lambda *a, **k: subprocess.CompletedProcess(a, 0, _pods(*pods), ""))
     assert cell.observed_image(pinned) == expected
+
+
+def test_the_running_image_matches_a_tagged_manifest_image_by_repository_and_candidate_digest(cell, monkeypatch):
+    # The manifest's image carries its per-sha tag while the chart deploys repository@digest; on
+    # e2e-cloud-aws run 40742242038 the tag made every pod mismatch, so 1.1 stayed blocked.
+    index, amd64 = "sha256:" + "a" * 64, "sha256:" + "b" * 64
+    pinned = {"components": {"honua-server": {"image": "ghcr.io/honua-io/honua-server:nightly-a4bde4b",
+                                              "digest": index, "platformDigests": {"amd64": amd64}}}}
+    expected = "ghcr.io/honua-io/honua-server:nightly-a4bde4b@" + index
+    for pods, want in (([_pod()], expected), ([_pod(digest="b" * 64)], expected),
+                       ([_pod(), _pod(digest="c" * 64)], None)):
+        monkeypatch.setattr(cell, "_kubectl", lambda *a, _p=pods, **k: subprocess.CompletedProcess(a, 0, _pods(*_p), ""))
+        assert cell.observed_image(pinned) == want
 
 
 def test_the_cell_name_is_pointed_at_the_load_balancer_and_deleted_before_destroy(cell, monkeypatch):

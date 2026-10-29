@@ -336,6 +336,25 @@ class StageDisciplineTests(unittest.TestCase):
         identity = next(c for c in stagelib.stage_1(observation, self._no_blockers) if c.id == "1.3-candidate-identity")
         self.assertEqual(identity.status, "fail")
 
+    def test_candidate_identity_accepts_only_a_pinned_image_digest(self):
+        # The honua-helm chart injects HONUA_IMAGE_DIGEST (e2e-cloud-aws run 40742242038, EKS).
+        index, child = "sha256:" + "a" * 64, "sha256:" + "b" * 64
+        manifest = {"components": {"honua-server": {"digest": index, "platformDigests": {"amd64": child}}}}
+        digests = stagelib.candidate_image_digests(manifest)
+        self.assertEqual(digests, (index, child))
+        for revision, source, expected in ((index, "image-digest", "pass"), (child, "image-digest", "pass"),
+                                           ("sha256:" + "c" * 64, "image-digest", "fail"),
+                                           ("e" * 40, "commit-sha", "pass"), (index, "commit-sha", "fail"),
+                                           ("e" * 40, "image-digest", "fail")):
+            with self.subTest(revision=revision, source=source):
+                observation = stagelib.Observation(
+                    image_ref="candidate", expected_revision="e" * 40, expected_image_digests=digests,
+                    capability_manifest={"server": {"deploymentRevision": revision,
+                                                    "deploymentRevisionSource": source}})
+                identity = next(c for c in stagelib.stage_1(observation, self._no_blockers)
+                                if c.id == "1.3-candidate-identity")
+                self.assertEqual(identity.status, expected, identity.detail)
+
     def test_api_key_check_uses_its_independent_observation(self):
         observation = stagelib.Observation(anonymous_admin_status=401, anonymous_api_keys_status=404)
         check = next(c for c in stagelib.stage_2(observation, self._no_blockers) if c.id == "2.2-admin-endpoint-present")
