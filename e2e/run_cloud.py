@@ -768,7 +768,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         report = teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
                                 cost_ceiling_usd=cost_ceiling_usd, cost_report=cost_report)
     finally:
-        if _transcript_signer_wanted(target.name):
+        if _transcript_signer_wanted(getattr(target, "name", "")):
             try:
                 forget_secret(transcript_signer_secret_name(target, state["cell"]))
             except Exception as error:
@@ -893,7 +893,7 @@ def configure_transcript_signer(target, cell: str, *, run=subprocess.run) -> str
     check, which is the honest outcome, and the GA journey is unaffected.
     """
     seed = os.environ.pop(TRANSCRIPT_SIGNER_SEED_ENV, "").strip()
-    if not _transcript_signer_wanted(target.name):
+    if not _transcript_signer_wanted(getattr(target, "name", "")):
         return "not-requested"
     if not target._root_declares(TS_VAR):
         print(f"::warning title=transcript signer::{cell}: the pinned root does not declare {TS_VAR}; "
