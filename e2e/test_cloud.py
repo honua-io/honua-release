@@ -4941,6 +4941,43 @@ def test_lambda_diagnostics_keep_the_function_lines_around_a_gateway_generated_5
     assert "hunter2" not in json.dumps(report)
 
 
+def test_lambda_diagnostics_reach_the_stalled_report_past_a_burst_and_share_same_second_windows(monkeypatch):
+    """Run 40865466550 aws-serverless/redis-on: six gateway 503s of one demo burst started in the same
+    second; 22 environments' request lines filled the 200-event read within two seconds, so the
+    stalled invocation's REPORT ... Status: timeout 30 s later was never kept. A trace id containing
+    53300 was counted as a connection-slot refusal, and the timeout line was not counted at all."""
+    target = serverless(run_id="r6")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    api = "cell-it-honua"
+    t0 = 1_791_000_000_000
+    stall = {"requestTime": "03/Oct/2026:04:00:00 +0000", "status": "503", "httpMethod": "GET",
+             "errorMessage": "Service Unavailable", "integrationStatus": "200"}
+    access = [(t0 + i, json.dumps({**stall, "requestTimeEpoch": str(t0 + i * 100),
+                                    "path": f"/rest/services/maui-place-names/FeatureServer/6/query?{i}"}))
+              for i in range(6)]
+    access.append((t0 + 60_000, json.dumps({**stall, "requestTimeEpoch": str(t0 + 60_000), "path": "/odata/Layers"})))
+    burst = [(t0 - 1_500 + i, f'Request starting GET /tile/{i} "@tr":"6ae353300b8cfe22"') for i in range(400)]
+    function = burst + [
+        (t0 + 30_100, "REPORT RequestId: req-stall\tDuration: 30000.00 ms\tStatus: timeout"),
+        (t0 + 60_200, "INIT_REPORT Init Duration: 30000.13 ms\tPhase: invoke\tStatus: timeout")]
+    run = _lambda_cli({"lambda_function_name": api, "gp_batch_enabled": "false"},
+                      functions=[{"FunctionName": api}],
+                      groups={f"/aws/lambda/{api}": {"2026/10/03/[1]env": function},
+                              f"/aws/apigateway/{api}": {"access": access}})
+    monkeypatch.setattr(run_cloud, "_GATEWAY_FAILURE_WINDOWS", 1)
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    api_log = next(log for log in report["logs"] if log.get("logGroup") == f"/aws/lambda/{api}")
+    signatures = api_log["failureSignatures"]["signatures"]
+    assert "db-connection-slots" not in signatures
+    assert signatures["invoke-timeout"]["lines"] == 2
+    windows = next(log for log in report["logs"] if log.get("accessLog"))["gatewayFailureWindows"]
+    first, omitted = windows
+    # One window for the six same-second requests; the 60 s one is beyond the (patched) bound.
+    assert first["sameWindow"] == 6 and omitted == {"omitted": 1}
+    assert first["truncated"] is True
+    assert any("REPORT RequestId: req-stall" in line and "Status: timeout" in line for line in first["lines"])
+
+
 def test_lambda_diagnostics_record_unreadable_signature_and_access_sweeps(monkeypatch):
     target = serverless(run_id="r4")
     monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
