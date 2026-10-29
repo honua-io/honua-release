@@ -5145,21 +5145,31 @@ def test_model_canary_without_a_lock_runs_once_unbound_and_records_an_honest_blo
         shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990003", ignore_errors=True)
 
 
-def test_model_canary_without_a_lock_never_turns_a_claimed_pass_or_a_failure_into_blocked(monkeypatch):
+def test_model_canary_without_a_lock_reports_the_image_bound_verdict_never_blocked(monkeypatch):
+    """#1047 lets a manual dispatch execute bound to the pinned image: its verdict is the row's."""
     sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
     _model_cell(monkeypatch, "990004", deterministic_status="pass")
+    image = {"reference": "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64, "digest": "sha256:" + "c" * 64}
+    bound = {"serverImage": image, "linkedEvidence": {"deterministicReceipt": {"candidateVerified": True}}}
     try:
-        for status, attribution, reason in (("pass", None, "claims a pass"),
-                                            ("fail", "infrastructure", "did not stop at the harness")):
-            def fake_run(argv, *, env, cwd, check, status=status, attribution=attribution):
-                receipt = {**_canary_receipt(1, status, attribution), "lockDigest": None}
+        for status, attribution, extra, expected, reason in (
+                ("pass", None, bound, "pass", "counts for no lock"),
+                ("fail", "infrastructure", bound, "fail", "did not pass within the recorded attempts"),
+                ("pass", None, {}, "fail", "without the manifest-pinned server image")):
+            calls = []
+
+            def fake_run(argv, *, env, cwd, check, status=status, attribution=attribution, extra=extra):
+                calls.append(argv)
+                receipt = {**_canary_receipt(1, status, attribution), "lockDigest": None, **extra}
                 Path(argv[argv.index("--output") + 1]).write_text(json.dumps(receipt))
                 return subprocess.CompletedProcess(argv, 0 if status == "pass" else 1)
 
             report = run_cloud.model_canary_phase(
                 {"cell": "aws-ecs/redis-off", "endpoint": "http://cell.example"}, admin_key="k",
                 lock_digest=None, run=fake_run)
-            assert report["status"] == "fail" and reason in report["why"], status
+            assert len(calls) == 1, "an unbound run is never retried"
+            assert report["status"] == expected and reason in report["why"], (status, extra)
+            assert report["lockDigest"] is None
     finally:
         shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990004", ignore_errors=True)
 
@@ -6018,3 +6028,140 @@ def test_the_eks_image_read_back_names_why_1_1_stays_unobserved(monkeypatch, obs
     monkeypatch.setattr(run_cloud, "_mark_provision_attempt", lambda: None)
     state = run_cloud.provision_phase(stub, "aws-eks", require_real=False, redis_enabled=False)
     assert state["runningImage"] is None and state["runningImageDetail"] == detail
+
+
+# ---- genuine-model transcript signer on the AWS Bedrock cells ---------------------------------------
+_SIGNER_SEED = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="  # base64 of bytes 0..31; a test value
+_SIGNER_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honuanawsec408437-408437-1-model-signer-AbC123"
+_SIGNER_VERSION = "12345678-1234-1234-1234-123456789012"
+
+
+def _signer_run(seen):
+    def run(argv, *, pass_fds, **kwargs):
+        # The seed arrives on the inherited pipe the argv names, never in argv itself.
+        seen.append({"argv": argv, "secret": os.read(pass_fds[0], 1024).decode(), "kwargs": kwargs})
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"ARN": _SIGNER_ARN, "VersionId": _SIGNER_VERSION}), "")
+    return run
+
+
+@pytest.mark.parametrize("target_factory,cell,namespace", [
+    (ecs, "aws-ecs/redis-off", "honuanawsec"), (serverless, "aws-serverless/redis-on", "honuarawsse")])
+def test_bedrock_cell_signs_with_a_run_owned_cell_namespaced_canary_secret(monkeypatch, target_factory, cell, namespace):
+    monkeypatch.setenv("GITHUB_RUN_ID", "40843752639")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+    monkeypatch.setenv(run_cloud.TRANSCRIPT_SIGNER_SEED_ENV, _SIGNER_SEED + "\n")
+    seen = []
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws" if cell.startswith("aws-ecs") else "aws-serverless",
+                       "transcript_signing", "enable_bedrock_ai", "bedrock_ai_region")
+        monkeypatch.delenv("HONUA_BEDROCK_AI_MODEL", raising=False)
+        target = target_factory(run_id="40843752639")
+        assert run_cloud.configure_transcript_signer(target, cell, run=_signer_run(seen)) == "configured"
+        # Read once and dropped: no later child of this process inherits the seed.
+        assert run_cloud.TRANSCRIPT_SIGNER_SEED_ENV not in os.environ
+        (call,) = seen
+        argv = call["argv"]
+        assert call["secret"] == _SIGNER_SEED and _SIGNER_SEED not in " ".join(argv)
+        name = argv[argv.index("--name") + 1]
+        # The release-cell runtime boundary admits only honuar*/honuan* secrets.
+        assert name.startswith(namespace + "408437") and name.endswith("-40843752639-2-model-signer")
+        assert name == run_cloud.transcript_signer_secret_name(target, cell)
+        tags = {tag["Key"]: tag["Value"] for tag in json.loads(argv[argv.index("--tags") + 1])}
+        assert tags["Owner"] == "release-cell" and tags["ValidationRunId"].startswith("gha-40843752639-aws-")
+        assert re.fullmatch(r"file:///dev/fd/\d+", argv[argv.index("--secret-string") + 1])
+        assert target.transcript_signing_secret == {"arn": _SIGNER_ARN, "versionId": _SIGNER_VERSION}
+        if target_factory is serverless:
+            _serverless_env(monkeypatch)
+        else:
+            monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+            monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+            monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+            monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+        monkeypatch.setenv("HONUA_ADMIN_PASSWORD", "Honua-Gate-Aa1!" + "x" * 32)
+        values = _tf_vars(target._vars(cell.endswith("/redis-on")))
+        assert json.loads(values["transcript_signing"]) == {
+            "key_id": "terminal-model-canary", "secret_arn": _SIGNER_ARN, "version_id": _SIGNER_VERSION}
+        assert "transcript_signing" not in _tf_vars(target._vars(cell.endswith("/redis-on"), destroy=True))
+        assert _SIGNER_SEED not in json.dumps(target._vars(cell.endswith("/redis-on")))
+
+
+@pytest.mark.parametrize("bedrock,declared,seed,expected", [
+    ("false", True, _SIGNER_SEED, "not-requested"),
+    ("true", False, _SIGNER_SEED, "root-unsupported"),
+    ("true", True, "", "seed-unset"),
+    ("true", True, "c2hvcnQ=", "seed-invalid"),
+    ("true", True, "not base64!", "seed-invalid"),
+])
+def test_transcript_signer_creates_nothing_without_bedrock_a_declaring_root_or_a_valid_seed(
+        monkeypatch, bedrock, declared, seed, expected, capsys):
+    monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", bedrock)
+    monkeypatch.setenv(run_cloud.TRANSCRIPT_SIGNER_SEED_ENV, seed)
+    seen = []
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *(["transcript_signing"] if declared else []))
+        target = ecs(run_id="r1")
+        assert run_cloud.configure_transcript_signer(target, "aws-ecs/redis-off", run=_signer_run(seen)) == expected
+    assert seen == [] and not hasattr(target, "transcript_signing_secret")
+    assert run_cloud.TRANSCRIPT_SIGNER_SEED_ENV not in os.environ
+    assert seed.strip() == "" or seed not in capsys.readouterr().out
+    # The EKS Preview cell never runs Bedrock and gets no signer.
+    monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+    assert not run_cloud._transcript_signer_wanted("aws-eks")
+
+
+def test_transcript_signer_refuses_a_secret_without_an_immutable_identity(monkeypatch):
+    monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+    monkeypatch.setenv(run_cloud.TRANSCRIPT_SIGNER_SEED_ENV, _SIGNER_SEED)
+    run = lambda argv, **kw: subprocess.CompletedProcess(argv, 0, json.dumps({"ARN": "arn:aws:secretsmanager:*", "VersionId": "v"}), "")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", "transcript_signing")
+        target = ecs(run_id="r1")
+        with pytest.raises(ValueError, match="immutable identity"):
+            run_cloud.configure_transcript_signer(target, "aws-ecs/redis-off", run=run)
+    assert not hasattr(target, "transcript_signing_secret")
+
+
+def test_teardown_deletes_the_bedrock_cells_transcript_signer(monkeypatch):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "false")
+    monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+    directory = _phase_env(monkeypatch, run_id="phase1060")
+    with tempfile.TemporaryDirectory() as scratch:
+        stub = _PhaseStub(Path(scratch))
+        stub.name_prefix = lambda redis_enabled: "honuanawsecphase1"
+        monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
+        monkeypatch.setattr(run_cloud, "REPORT_PATH", Path(scratch) / "report.json")
+        monkeypatch.setattr(cj, "check_cost", lambda *a, **k: {"status": "pass"})
+        monkeypatch.setenv("HONUA_CLOUD_PROVISION_MARKER", str(Path(scratch) / "marker"))
+        forgotten = []
+        monkeypatch.setattr(run_cloud, "forget_secret", lambda name: forgotten.append(name))
+        monkeypatch.setattr(run_cloud.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+        try:
+            state = {"cell": "aws-ecs/redis-off", "redis": "redis-off", "runId": "phase1060",
+                     "runAttempt": "1", "candidateDigest": cj.candidate_digest(),
+                     "startedAt": cj.now(), "requireReal": True, "provisionAttempted": True,
+                     "transcriptSigner": "configured", "endpoint": None,
+                     "report": {"cell": "aws-ecs/redis-off", "status": "fail", "why": "provision failed",
+                                "journeyAttempts": []}}
+            run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, state)
+            run_cloud.main(["--phase", "teardown", "--target", "aws-ecs", "--redis", "off"])
+            assert "honuanawsecphase1-phase1060-1-model-signer" in forgotten
+        finally:
+            shutil.rmtree(cj.EVIDENCE / "phase1060", ignore_errors=True)
+
+
+def test_cell_workflow_hands_the_signing_seed_only_to_the_bedrock_provision_step():
+    import yaml
+    workflow = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws-cell.yml").read_text())
+    seed = run_cloud.TRANSCRIPT_SIGNER_SEED_ENV
+    assert seed in workflow[True]["workflow_call"]["secrets"]
+    assert seed not in json.dumps(workflow.get("env", {}))
+    holders = [(job, step.get("name")) for job, body in workflow["jobs"].items() for step in body.get("steps", [])
+               if seed in json.dumps(step.get("env", {})) or seed in json.dumps(step.get("with", {}))]
+    assert holders == [("provision", "Provision ${{ inputs.target }} / redis-${{ inputs.redis }}")]
+    provision = next(step for step in workflow["jobs"]["provision"]["steps"] if step.get("id") == "provision")
+    assert provision["env"][seed] == ("${{ inputs.enable_bedrock && secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED "
+                                      "|| '' }}")
+    caller = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws.yml").read_text())
+    assert caller["jobs"]["parity"]["secrets"][seed] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
