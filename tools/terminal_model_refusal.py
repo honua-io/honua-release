@@ -253,7 +253,7 @@ def main_from_args(args, endpoint):
         if builder.receipt["status"] != "fail":
             if (not endpoint.configured or (endpoint.require_api_key and not endpoint.api_key)
                     or not args.driver_command or not args.driver_command.is_file()
-                    or not builder.receipt["linkedEvidence"]["deterministicReceipt"] or not args.lock_digest
+                    or not builder.receipt["linkedEvidence"]["deterministicReceipt"] or not builder.bound()
                     or not endpoint.runtime or not endpoint.quantization):
                 c.unavailable_receipt(builder, endpoint, args.driver_command)
             else:

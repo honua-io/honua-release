@@ -516,3 +516,40 @@ def test_nonboolean_error_marker_cannot_become_typed_refusal(tmp_path, monkeypat
         profile.execute(driver, {'profile': r.PROFILE, 'stage': 'durable-refusal',
             'action': {'kind': 'tool_call', 'tool': 'honua_execute_plan', 'arguments': _plan_arguments()}})
     assert state['modelRefusal']['refusal'] is None
+
+
+def test_unlocked_run_bound_to_the_pinned_image_executes_instead_of_refusing(tmp_path, monkeypatch):
+    # A manual dispatch has no lock digest, but the receipt is bound to the manifest-pinned image the
+    # green deterministic receipt verified (operator ruling 2026-10-22). The dispatcher must agree with
+    # unavailable_receipt, which treats that as runnable; requiring --lock-digest made it raise.
+    import types
+    import terminal_model_refusal as refusal
+    driver = tmp_path / "driver.py"
+    driver.write_text("")
+    calls = []
+
+    class Builder:
+        def __init__(self, **_kwargs):
+            self.receipt = {"status": "pending", "linkedEvidence": {"deterministicReceipt": None}}
+
+        def bound(self):
+            return True
+
+        def validated_receipt(self):
+            return self.receipt
+
+    monkeypatch.setattr(refusal, "RefusalReceiptBuilder", Builder)
+    monkeypatch.setattr(refusal.c, "build_receipt_builder", lambda **_k: types.SimpleNamespace(
+        protocol={}, redactor=c.Redactor([]), journey={}))
+    monkeypatch.setattr(refusal.c, "load_manifest", lambda _p: {})
+    monkeypatch.setattr(refusal.c, "validate_deterministic_receipt", lambda *a, **k: {"candidateVerified": True})
+    monkeypatch.setattr(refusal.c, "write_receipt", lambda *_a: None)
+    monkeypatch.setattr(refusal.c, "unavailable_receipt", lambda *a: calls.append("unavailable"))
+    monkeypatch.setattr(refusal, "execute_live", lambda builder, **_k: calls.append("live"))
+    args = types.SimpleNamespace(manifest=tmp_path / "m", journey=tmp_path / "j", driver_protocol=tmp_path / "p",
+                                 driver_command=driver, lock_digest=None, lock=None, cell="aws-ecs/redis-off",
+                                 attempt=1, deterministic_receipt=tmp_path / "d.json", output=tmp_path / "o.json",
+                                 max_actions_per_stage=4, target=None)
+    endpoint = types.SimpleNamespace(configured=True, require_api_key=False, api_key=None, runtime="r", quantization="q")
+    refusal.main_from_args(args, endpoint)
+    assert calls == ["live"]
