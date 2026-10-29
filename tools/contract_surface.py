@@ -29,7 +29,10 @@ Semantics (mirrors the proto half + the repo's bootstrap/strict enforcement mode
       "no platform contract baseline yet; run `contract_surface.py update` to establish one"
   * baseline present, current surface == baseline -> PASS   (rc.0: baseline established, diff empty)
   * baseline present, current surface != baseline -> FAIL   (a surface changed since the baseline;
-      review it and, if intended, refresh the baseline in the same PR)
+      review it and, if intended, refresh the baseline in the same PR). Symbol-list
+      artifacts (C# `symbols`, JS `exports`, Python `modules`) say ADDITIVE or
+      BREAKING with counts. OpenAPI stays a document-level fail; an operation
+      comparator is a separate change. Verdicts do not auto-accept additive drift.
 
 The FIRST platform release (2026.1-rc.0) is the baseline-setting release: `update` captures the
 current surfaces, `check` then diffs empty => PASS honestly. Future releases diff against it.
@@ -597,6 +600,113 @@ def cmd_update(platform: str, repos_root: Path, manifest_path: Path, baseline_ro
     return 0
 
 
+def _symbol_names(text: str) -> set[str] | None:
+    """Names a reviewer can diff, or None when the artifact is not a symbol list."""
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    symbols = payload.get("symbols")
+    if isinstance(symbols, list) and all(isinstance(item, str) for item in symbols):
+        return set(symbols)
+    exports = payload.get("exports")
+    if isinstance(exports, list) and all(isinstance(item, str) for item in exports):
+        return set(exports)
+    modules = payload.get("modules")
+    if not isinstance(modules, dict):
+        return None
+    names: set[str] = set()
+    for module, body in modules.items():
+        if not isinstance(body, dict):
+            return None
+        for export in body.get("exports") or []:
+            if not isinstance(export, str):
+                return None
+            names.add(f"{module}: export {export}")
+        symbol_map = body.get("symbols") or {}
+        if not isinstance(symbol_map, dict):
+            return None
+        for name, spec in symbol_map.items():
+            if not isinstance(spec, dict):
+                names.add(f"{module}: {name}")
+                continue
+            kind = spec.get("kind") or ""
+            signature = spec.get("signature") or spec.get("type") or ""
+            names.add(f"{module}: {name} {kind} {signature}".strip())
+            for field in spec.get("fields") or []:
+                if isinstance(field, dict):
+                    names.add(f"{module}: {name}.{field.get('name')} {field.get('annotation')}")
+            methods = spec.get("methods") or {}
+            if isinstance(methods, dict):
+                for method, method_spec in methods.items():
+                    if isinstance(method_spec, dict):
+                        names.add(
+                            f"{module}: {name}.{method} {method_spec.get('kind')} {method_spec.get('signature')}"
+                        )
+    return names
+
+
+def _is_openapi(text: str) -> bool:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(payload, dict) and ("openapi" in payload or "swagger" in payload)
+
+
+def _preview(items: list[str], limit: int = 3) -> str:
+    shown = ", ".join(json.dumps(item) for item in items[:limit])
+    if len(items) > limit:
+        shown += ", …"
+    return shown
+
+
+def _describe_changes(changed: list[str], current: dict[str, str], baseline: dict[str, str]) -> str:
+    """Say what moved. Any difference is still a fail; this only names it."""
+    removed: set[str] = set()
+    added: set[str] = set()
+    saw_symbols = False
+    unchanged: list[str] = []
+    openapi: list[str] = []
+    other: list[str] = []
+    for name in changed:
+        before, after = baseline[name], current[name]
+        if _is_openapi(before) or _is_openapi(after):
+            openapi.append(name)
+            continue
+        old, new = _symbol_names(before), _symbol_names(after)
+        if old is None or new is None:
+            other.append(name)
+            continue
+        saw_symbols = True
+        if old == new:
+            unchanged.append(name)
+        removed |= old - new
+        added |= new - old
+    parts: list[str] = []
+    if saw_symbols:
+        removed_names = sorted(removed)
+        added_names = sorted(added)
+        if removed_names:
+            parts.append(
+                f"BREAKING: {len(removed_names)} removed ({_preview(removed_names)}), "
+                f"{len(added_names)} added"
+            )
+        elif added_names:
+            parts.append(f"ADDITIVE: {len(added_names)} added, 0 removed (baseline refresh needed)")
+        elif unchanged:
+            parts.append(f"symbol set unchanged in {unchanged}")
+    if openapi:
+        parts.append(
+            f"OpenAPI document changed in {openapi} (operation/schema comparator is separate)"
+        )
+    if other:
+        parts.append(f"surface changed in {other}")
+    return "; ".join(parts) if parts else f"surface changed in {changed}"
+
+
 # ── check: the gate ─────────────────────────────────────────────────────────
 def check(platform: str, repos_root: Path, manifest_path: Path, baseline_root: Path) -> tuple[str, str, list[dict]]:
     """Return (status, why, rows). status in {pass, fail, blocked}."""
@@ -637,7 +747,7 @@ def check(platform: str, repos_root: Path, manifest_path: Path, baseline_root: P
             if removed:
                 detail.append(f"removed artifacts {removed}")
             if changed:
-                detail.append(f"surface changed in {changed}")
+                detail.append(_describe_changes(changed, current, baseline))
             rows.append({"component": component, "status": "fail", "why": "; ".join(detail)})
         else:
             rows.append({"component": component, "status": "pass",
@@ -649,7 +759,10 @@ def check(platform: str, repos_root: Path, manifest_path: Path, baseline_root: P
         status = "blocked"
     else:
         status = "pass"
-    why = "; ".join(f"{r['component']}={r['status']}" for r in rows) or "no components checked"
+    why = "; ".join(
+        f"{r['component']}={r['status']}" + (f" ({r['why']})" if r["status"] != "pass" else "")
+        for r in rows
+    ) or "no components checked"
     return (status, why, rows)
 
 
