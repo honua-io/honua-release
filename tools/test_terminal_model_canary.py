@@ -1638,12 +1638,22 @@ def test_failed_observation_preserves_only_bounded_assertion_diagnostics(tmp_pat
 
 
 @pytest.mark.parametrize("error,expected", [
-    ("TypeError: private-sentinel", "; driverError=TypeError"),
+    ("TypeError: missing principal", "; driverError=TypeError: missing principal"),
     ("private-sentinel: arbitrary error", "; structuredFailure=true"),
     ({"private-sentinel": True}, "; structuredFailure=true"),
 ])
-def test_driver_exception_diagnostics_never_include_arbitrary_error_values(error, expected):
+def test_driver_exception_diagnostics_carry_only_a_recognised_category_and_its_message(error, expected):
     assert canary.driver_failure_diagnostic({"status": "fail", "error": error}) == expected
+
+
+def test_driver_error_message_is_redacted_single_line_and_bounded():
+    # Run 40947050732 read only "driverError=DriverError": the failing check must be visible, never a secret.
+    diagnostic = canary.driver_failure_diagnostic({"status": "fail", "errorCategory": "DriverError",
+        "error": "bad target\npassword=hunter2 Authorization: Bearer abc.def sk-0123456789abcdef " + "x" * 400})
+    assert diagnostic.startswith("; driverError=DriverError: bad target password=[REDACTED] ")
+    assert "hunter2" not in diagnostic and "abc.def" not in diagnostic and "sk-0123" not in diagnostic
+    assert "\n" not in diagnostic and diagnostic.endswith("...")
+    assert len(diagnostic) <= len("; driverError=DriverError: ") + canary.DRIVER_ERROR_MESSAGE_LIMIT
 
 
 def test_render_dimension_diagnostic_only_retains_bounded_integer_pairs():
@@ -1663,7 +1673,7 @@ def test_render_dimension_diagnostic_only_retains_bounded_integer_pairs():
     ("DriverError", "live_driver.DriverError('private-sentinel')"),
     ("ExecutionError", "live_driver.ExecutionError('private-command', 'private-sentinel')"),
 ])
-def test_real_driver_handled_exceptions_preserve_category_without_error_text(tmp_path, category, exception):
+def test_real_driver_handled_exceptions_preserve_category_and_error_text(tmp_path, category, exception):
     script = tmp_path / "driver.py"
     script.write_text(
         "import sys\n"
@@ -1675,8 +1685,8 @@ def test_real_driver_handled_exceptions_preserve_category_without_error_text(tmp
     driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()))
     with pytest.raises(canary.CanaryError) as failed:
         driver.invoke("observe", {"workspaceId": "w", "stage": "style-render"})
-    assert str(failed.value) == "#123 driver observe failed with exit code 1; driverError=" + category
-    assert "private-" not in str(failed.value)
+    message = "private-sentinel" if category == "DriverError" else "private-command: private-sentinel"
+    assert str(failed.value) == f"#123 driver observe failed with exit code 1; driverError={category}: {message}"
     assert canary.driver_failure_diagnostic({"status": "fail", "errorCategory": "private-sentinel"}) == "; structuredFailure=true"
 
 

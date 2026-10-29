@@ -346,3 +346,122 @@ def test_unwritable_server_log_never_blocks_teardown(tmp_path, monkeypatch):
             return "[ERR] StudioAiProxy failure\n"
 
     live_driver._retain_server_log(Compose(), {})  # must not raise
+
+
+# ---- ga-cells-single-tenant-2026-10-27: the canary's admitted GA journey also passes driver setup ----
+# Run 40947050732: the canary admitted the aws-ecs/redis-on journey (blocked only on the declared
+# 8.tenant-isolation check), then live_driver setup refused the same receipt because its status was
+# "blocked", so every redis-on model canary failed with zero model calls.
+def _single_tenant_cloud_receipt(tmp_path, target, target_path, *, mutate=None):
+    from datetime import datetime, timezone
+    import tools.terminal_model_canary as canary
+    manifest = canary.load_manifest(live_driver.ROOT / "platform-manifest.yaml")
+    journey = canary.load_journey(live_driver.HERE / "journey.v1.json")
+    server = manifest["components"]["honua-server"]
+    kind = target["kind"]
+    stages_ = []
+    for stage in journey["stages"]:
+        checks = [{"id": "1.1-candidate-image" if stage["number"] == 1 else f"{stage['number']}.probe",
+                   "status": "pass"}]
+        stages_.append({"number": stage["number"], "stage": stage["id"], "command": stage["command"],
+            "status": "pass", "checks": checks, "evidence": {"uri": f"artifact://{stage['id']}",
+            "source": "live-" + kind, "freshness": "verified-current", "completeness": "complete"}})
+    blocker = "https://github.com/honua-io/honua-release/issues/377"
+    stages_[7].update(status="blocked", blockedBy=[blocker])
+    stages_[7]["checks"].append({"id": "8.tenant-isolation", "status": "blocked", "blockedBy": [blocker]})
+    stages_[7]["evidence"]["completeness"] = "partial"
+    receipt = {"schemaVersion": 1, "evidenceKey": journey["evidenceKey"], "mode": "live", "status": "blocked",
+        "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "release": manifest["platformRelease"],
+        "clientArtifacts": {name: {key: pin.get(key) for key in ("package", "version", "integrity", "digest", "sourceSha")}
+                            for name, pin in manifest["clientArtifacts"].items()
+                            if name in {"honua-sdk-js", "honua-mcp-server"}},
+        "server": {"sourceSha": server["sha"], "image": f"{server['image'].split('@', 1)[0]}@{server['digest']}"},
+        "roster": {"status": "pass"},
+        "target": {"id": target["id"], "kind": kind, "baseUrl": target["replicaBaseUrl"],
+                   "configSha256": live_driver.hashlib.sha256(target_path.read_bytes()).hexdigest()},
+        "stages": stages_}
+    if mutate:
+        mutate(receipt)
+    path = tmp_path / "receipt-1.json"
+    path.write_text(json.dumps(receipt))
+    return manifest, path
+
+
+def _admit(tmp_path, path):
+    """The canary's own admission, as execute_live links it (paths relative to the repository root)."""
+    import tools.terminal_model_canary as canary
+    return canary.validate_deterministic_receipt(path, manifest=canary.load_manifest(
+        live_driver.ROOT / "platform-manifest.yaml"), journey=canary.load_journey(
+        live_driver.HERE / "journey.v1.json"), repo_root=tmp_path, cell="aws-ecs/redis-on")
+
+
+def _cloud_image_from(tmp_path, target, target_path, manifest, proof, profile="full-workflow"):
+    import tools.terminal_model_canary as canary
+    real = canary.validate_deterministic_receipt
+    with mock.patch.object(live_driver, "ROOT", tmp_path), \
+         mock.patch.object(canary, "validate_deterministic_receipt",
+                           side_effect=lambda path, **kw: real(path, repo_root=tmp_path, **kw)):
+        return live_driver._cloud_image(target, manifest,
+            live_driver.hashlib.sha256(target_path.read_bytes()).hexdigest(), proof, profile=profile)
+
+
+def test_admitted_single_tenant_journey_is_the_driver_deployment_proof(tmp_path):
+    target_path = tmp_path / "target-1.json"
+    target = _cloud_target_file(target_path)
+    manifest, path = _single_tenant_cloud_receipt(tmp_path, target, target_path)
+    proof = _admit(tmp_path, path)
+    assert proof["prerequisiteProfile"] == "ga-single-tenant" and proof["sourceStatus"] == "blocked"
+    image, detail = _cloud_image_from(tmp_path, target, target_path, manifest, proof)
+    assert image == json.loads(path.read_text())["server"]["image"] and proof["sha256"] in detail
+
+
+def test_blocked_journey_without_the_single_tenant_admission_names_the_status_mismatch(tmp_path):
+    target_path = tmp_path / "target-1.json"
+    target = _cloud_target_file(target_path)
+    manifest, path = _single_tenant_cloud_receipt(tmp_path, target, target_path)
+    proof = {"path": "receipt-1.json", "sha256": live_driver.hashlib.sha256(path.read_bytes()).hexdigest()}
+    with unittest.TestCase().assertRaisesRegex(live_driver.DriverError, r"mismatched: status\)"):
+        _cloud_image_from(tmp_path, target, target_path, manifest, proof)
+
+
+def test_single_tenant_label_never_admits_a_receipt_the_canary_would_not(tmp_path):
+    target_path = tmp_path / "target-1.json"
+    target = _cloud_target_file(target_path)
+    manifest, path = _single_tenant_cloud_receipt(tmp_path, target, target_path)
+    proof = _admit(tmp_path, path)
+    # A second blocked stage: the ruling admits only 8.tenant-isolation, whatever the proof claims.
+    def second_gap(receipt):
+        receipt["stages"][6].update(status="blocked")
+        receipt["stages"][6]["checks"][0]["status"] = "blocked"
+    _single_tenant_cloud_receipt(tmp_path, target, target_path, mutate=second_gap)
+    forged = {**proof, "sha256": live_driver.hashlib.sha256(path.read_bytes()).hexdigest()}
+    with unittest.TestCase().assertRaisesRegex(live_driver.DriverError, "invalid single-tenant"):
+        _cloud_image_from(tmp_path, target, target_path, manifest, forged)
+    # The admission metadata must be exactly what the canary linked.
+    _single_tenant_cloud_receipt(tmp_path, target, target_path)
+    proof = _admit(tmp_path, path)
+    with unittest.TestCase().assertRaisesRegex(live_driver.DriverError, "admission metadata changed"):
+        _cloud_image_from(tmp_path, target, target_path, manifest, {**proof, "ruling": "other"})
+    # Never a substitute for the explicit Redis-off serving-refusal profile.
+    with unittest.TestCase().assertRaisesRegex(live_driver.DriverError, "not a Redis-off"):
+        _cloud_image_from(tmp_path, target, target_path, manifest, proof, profile="redis-off-serving-refusal")
+
+
+def test_driver_setup_failure_message_reaches_the_canary_notice(tmp_path):
+    """The canary records the driver's own (redacted, bounded) error, not only its exception type."""
+    import tools.terminal_model_canary as canary
+    script = tmp_path / "driver.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(live_driver.HERE)!r})\n"
+        "import live_driver\n"
+        "def fail(request):\n"
+        "    raise live_driver.DriverError('deployment receipt does not verify this cell (mismatched: status)')\n"
+        "live_driver.OPERATIONS['setup'] = fail\n"
+        "raise SystemExit(live_driver.main())\n")
+    protocol = json.loads((live_driver.ROOT / "certification/terminal-model-canary/driver-protocol.v1.json").read_text())
+    with unittest.TestCase().assertRaises(canary.CanaryError) as failed:
+        canary.DriverAdapter(script, protocol).invoke("setup", {})
+    assert str(failed.exception) == ("#123 driver setup failed with exit code 1; driverError=DriverError: "
+                                     "deployment receipt does not verify this cell (mismatched: status)")

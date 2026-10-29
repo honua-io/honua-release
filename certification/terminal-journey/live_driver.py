@@ -215,13 +215,36 @@ def _cloud_image(target, manifest, target_digest, proof, *, profile=None):
             raise DriverError("invalid bounded Redis-off deployment prerequisite") from exc
         if proof != validated:
             raise DriverError("bounded prerequisite metadata changed")
-    if (receipt.get("status") not in ({"pass", "blocked"} if bounded_off else {"pass"}) or receipt.get("server") != expected
-            or recorded.get("id") != target["id"] or recorded.get("configSha256") != target_digest
-            or str(recorded.get("baseUrl", "")).rstrip("/") != target["replicaBaseUrl"].rstrip("/")
-            or first.get("status") != "pass" or image.get("status") != "pass"
-            or first.get("evidence", {}).get("source") != "live-" + target["kind"]
-            or first.get("evidence", {}).get("freshness") != "verified-current"):
-        raise DriverError("deployment receipt does not verify this cell, target and candidate image")
+    # ga-cells-single-tenant-2026-10-27: the canary admits a ruled GA cell's deterministic receipt whose
+    # only gap is the declared 8.tenant-isolation check (status "blocked"). Re-derive that admission
+    # from the receipt itself; the proof's profile label alone never relaxes the status rule. Without
+    # this every aws-ecs/redis-on model canary failed setup (run 40947050732).
+    single_tenant = proof.get("prerequisiteProfile") == "ga-single-tenant"
+    if single_tenant:
+        if bounded_off or profile == "redis-off-serving-refusal":
+            raise DriverError("the single-tenant admission is not a Redis-off serving prerequisite")
+        from tools.terminal_model_canary import validate_deterministic_receipt, load_journey, CanaryError
+        try:
+            validated = validate_deterministic_receipt(path, manifest=manifest,
+                journey=load_journey(HERE / "journey.v1.json"), cell=target["id"])
+        except CanaryError as exc:
+            raise DriverError(f"invalid single-tenant deterministic receipt: {exc}") from exc
+        if validated.get("prerequisiteProfile") != "ga-single-tenant" or proof != validated:
+            raise DriverError("single-tenant deterministic receipt admission metadata changed")
+    mismatches = [name for name, failed in (
+        ("status", receipt.get("status") not in ({"pass", "blocked"} if bounded_off or single_tenant else {"pass"})),
+        ("server", receipt.get("server") != expected),
+        ("cell", recorded.get("id") != target["id"]),
+        ("configSha256", recorded.get("configSha256") != target_digest),
+        ("baseUrl", str(recorded.get("baseUrl", "")).rstrip("/") != target["replicaBaseUrl"].rstrip("/")),
+        ("stage1", first.get("status") != "pass" or image.get("status") != "pass"),
+        ("stage1Evidence", first.get("evidence", {}).get("source") != "live-" + target["kind"]
+            or first.get("evidence", {}).get("freshness") != "verified-current"),
+    ) if failed]
+    if mismatches:
+        # Names only the failing bindings (never values), so the canary notice says which one.
+        raise DriverError("deployment receipt does not verify this cell, target and candidate image"
+                          f" (mismatched: {', '.join(mismatches)})")
     return receipt["server"]["image"], f"same-job deployment readback; receipt SHA-256 {proof['sha256']}"
 
 
