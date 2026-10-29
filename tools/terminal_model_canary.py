@@ -1580,6 +1580,9 @@ def execute_live(
             setup_request["target"] = str(target_path.resolve())
         if receipt["cell"] != "local-docker":
             setup_request["deploymentReceipt"] = linked
+            # The driver scopes this model attempt's connection, table and publication route past
+            # the deterministic attempts' (cloud_target.MODEL_ATTEMPT_OFFSET): those still hold theirs.
+            setup_request["modelAttempt"] = receipt["attempt"]
         setup = builder.redactor.value(driver.invoke("setup", setup_request))
         # A failed setup can still own resources; always attempt its teardown.
         if isinstance(setup.get("workspaceId"), str) and setup["workspaceId"]:

@@ -1958,6 +1958,8 @@ def test_cloud_target_reaches_driver_setup_without_claiming_unexecuted_model_suc
     receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
         max_actions_per_stage=1, target_path=config)
     assert seen[0][1]["target"] == str(config.resolve())
+    # The driver scopes this attempt's connection, table and route past the deterministic attempts'.
+    assert seen[0][1]["modelAttempt"] == builder.receipt["attempt"] == 1
     assert [operation for operation, _ in seen] == ["setup", "teardown"]
     assert receipt["status"] == "fail" and receipt["totals"]["modelCalls"] == 0
 

@@ -248,6 +248,12 @@ def _cloud_image(target, manifest, target_digest, proof, *, profile=None):
     return receipt["server"]["image"], f"same-job deployment readback; receipt SHA-256 {proof['sha256']}"
 
 
+def _scoped(target: dict[str, Any], number: int) -> dict[str, Any]:
+    import cloud_target  # noqa: PLC0415
+
+    return {**target, "execution": cloud_target.scope_execution(target.get("execution") or {}, number)}
+
+
 def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     target_path = Path(request.get("target") or DEFAULT_TARGET)
     target_bytes = target_path.read_bytes()
@@ -261,6 +267,18 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     if cloud:
         deployment_image, deployment_detail = _cloud_image(target, manifest,
             hashlib.sha256(target_bytes).hexdigest(), request.get("deploymentReceipt"), profile=request.get("profile"))
+
+    # A cloud cell keeps every deterministic attempt's connection, layer and governed publication
+    # route. A model attempt therefore gets its own names (cloud_target.scope_execution), applied
+    # to the hashed target in memory each time it is read; the retained file stays the one the
+    # deterministic receipt binds.
+    execution_scope = None
+    if cloud:
+        model_attempt = request.get("modelAttempt", 1)
+        if type(model_attempt) is not int or not 1 <= model_attempt <= 2:
+            raise DriverError("a cloud model attempt must be 1 or 2")
+        execution_scope = cloud_target.MODEL_ATTEMPT_OFFSET + model_attempt
+        target = _scoped(target, execution_scope)
 
     serving_fixture = None
     if request.get("profile") == "redis-off-serving-refusal":
@@ -310,6 +328,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         "targetPath": str(target_path),
         "targetSha256": hashlib.sha256(target_bytes).hexdigest(),
         "targetConfig": target,
+        "executionScope": execution_scope,
         "servingFixtureBinding": serving_fixture,
         "servingFixturePath": str(fixture_path) if serving_fixture else None,
         "workdir": str(workdir),
@@ -382,6 +401,8 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
         if refusal_profile.fixture_binding(Path(state["servingFixturePath"])) != state["servingFixtureBinding"]:
             raise DriverError("serving fixture source or retained manifest changed after setup")
     target = json.loads(target_bytes)
+    if state.get("executionScope") is not None:
+        target = _scoped(target, state["executionScope"])
     manifest = _load_yaml(ROOT / "platform-manifest.yaml")
     workdir = Path(state["workdir"])
     workspace = pins.ClientWorkspace.from_receipt(state["clientWorkspace"], workdir / "clients")

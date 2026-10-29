@@ -885,6 +885,39 @@ def test_approval_poll_accepts_recorded_pending_executing_succeeded_sequence():
     assert engine.evidence["checks"]["8"]["separation"]["status"] == "pass"
 
 
+# e2e-cloud-aws run 40947860102 (aws-eks/redis-on): the run-signed bearer proposer resolves to
+# honua-server's percent-encoded canonical actor; the API-key approver to `apikey:api-key:<guid>`.
+SIGNED_PROPOSER = "bearer:subject:https%3A%2F%2Fterminal-journey.invalid:journey-author"
+KEY_APPROVER = "apikey:api-key:fe015b41-ea79-4ec1-aedc-5caccf968fe8"
+
+
+def test_approval_accepts_the_canonical_actor_of_a_signed_bearer_proposer():
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = approval_engine(transport)
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": SIGNED_PROPOSER, "diff": SEALED_DIFF}
+    handle = {"operationInstanceId": "opinst-exec", "operationId": "studio.content.create-publication-request",
+              "proposalId": "proposal-1", "auditId": "94", "correlationId": "00-corr", **SEALED_HANDLE}
+    transport.get_json.side_effect = [pending, pending, {**pending, "status": "Succeeded", "resolvedBy": KEY_APPROVER,
+                                                         "executionOperationId": "opinst-exec"}, handle]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    assert engine.approve("proposal-1")["resolvedBy"] == KEY_APPROVER
+    assert engine.evidence["approvalResolution"]["requestedBy"] == SIGNED_PROPOSER
+    assert engine.evidence["checks"]["8"]["separation"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("requested_by", ["bearer:subject:https://terminal-journey.invalid:journey-author",
+                                          "actor proposer", "actor%2", "x" * 513, "%41actor"])
+def test_approval_still_refuses_an_unbounded_or_raw_principal_and_names_the_field(requested_by):
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = approval_engine(transport)
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": requested_by, "diff": SEALED_DIFF}
+    transport.get_json.side_effect = [pending, pending, {**pending, "status": "Succeeded", "resolvedBy": KEY_APPROVER}]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    with pytest.raises(ExecutionError, match=r"bounded canonical identity \(requestedBy\)"):
+        engine.approve("proposal-1")
+    assert "approvalResolution" not in engine.evidence
+
+
 def test_approval_retains_a_server_reported_approval_id_and_rejects_an_unjoined_replay():
     transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
     engine = approval_engine(transport)

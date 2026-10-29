@@ -40,6 +40,13 @@ JOB_KEYS = ("jobId", "resourceUri", "jobStatus", "jobCreatedAt")
 # Stage 3 file import: the pinned CLI's multipart admin upload of the committed fixture.
 UPLOAD_COMMAND = "honua admin import uploadImportFile"
 TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
+# A proposal's requestedBy/resolvedBy is the server's canonical security actor, not an opaque token:
+# honua-server CanonicalSecurityActor.Resolve emits `<scheme>:subject:<issuer>:<subject>` with both
+# parts Uri.EscapeDataString-encoded (e.g. `bearer:subject:https%3A%2F%2Fterminal-journey.invalid:journey-author`
+# for the run-signed proposer), `<scheme>:api-key:<guid>`, or a legacy bare id. TOKEN refuses `%`, so
+# the first cell whose proposer is a signed bearer (aws-eks/redis-on, e2e-cloud-aws run 40947860102)
+# failed 8.execution with "omitted a bounded canonical identity" after a correct approval.
+PRINCIPAL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9_.:~-]|%[0-9A-Fa-f]{2}){0,511}\Z")
 STAGE_TOOLS = {
     1: {"honua_list_capabilities"},
     2: {"honua_list_capabilities"},
@@ -110,6 +117,13 @@ def _token(value):
 def identity(value, label):
     if not isinstance(value, str) or not TOKEN.fullmatch(value):
         raise ExecutionError(label, "candidate omitted a bounded canonical identity")
+    return value
+
+
+def principal_identity(value, label, field):
+    """A bounded canonical actor id (PRINCIPAL); the failure names the field that broke it."""
+    if not isinstance(value, str) or len(value) > 512 or not PRINCIPAL.fullmatch(value):
+        raise ExecutionError(label, f"candidate omitted a bounded canonical identity ({field})")
     return value
 
 
@@ -1083,8 +1097,10 @@ class JourneyExecutor:
             raise ExecutionError("GET approved proposal", "candidate did not prove separate principal resolution")
         self.require_publication_intent(final)
         self.evidence["approvalResolution"] = {"proposalId": proposal_id,
-                                              "requestedBy": identity(final["requestedBy"], "GET approved proposal"),
-                                              "resolvedBy": identity(final["resolvedBy"], "GET approved proposal")}
+                                              "requestedBy": principal_identity(final["requestedBy"], "GET approved proposal",
+                                                                                "requestedBy"),
+                                              "resolvedBy": principal_identity(final["resolvedBy"], "GET approved proposal",
+                                                                               "resolvedBy")}
         self._check(8, "separation", "typed CLI separate-principal approval", lambda: self.evidence["approvalResolution"])
         # The candidate emits no separate approval identity. The approval is keyed on
         # what it does report: the proposal, the resolving principal, and the audited
@@ -1116,7 +1132,7 @@ class JourneyExecutor:
             raise ExecutionError("GET approved execution handle", "approved replay handle does not join the proposal")
         operation_id = identity(handle.get("operationId"), "GET approved execution handle")
         self.evidence["approval"] = {"proposalId": proposal_id,
-                                     "resolvedBy": identity(final["resolvedBy"], "GET approved proposal"),
+                                     "resolvedBy": principal_identity(final["resolvedBy"], "GET approved proposal", "resolvedBy"),
                                      "executionOperationId": execution_id,
                                      "executionSource": source,
                                      "auditId": identity(handle.get("auditId"), "GET approved execution handle"),

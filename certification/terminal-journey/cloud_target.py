@@ -80,6 +80,74 @@ class TargetError(ValueError):
     pass
 
 
+# Per-attempt names (honua-release#1045 and e2e-cloud-aws run 40947860102). A cloud cell outlives
+# its attempts, and some objects an attempt creates cannot be removed by the next one: the connection
+# its published service holds (409), the layer that maps its import table, and the Studio publication
+# that governs its route. The server answers a second item's proposal for that route with
+# "Route '/journey-map' is already claimed by another Studio publication." (StudioDraftOperations
+# ValidatePublicationIntent), and it has no admin call that releases a governed route. So attempt N >= 2
+# gets its own connection name, import table, publication route and published path. Attempt 1 keeps
+# the authored names. The genuine-model canary runs on the same cell after the deterministic
+# attempts, so its attempt k uses number MODEL_ATTEMPT_OFFSET + k.
+ATTEMPT_NUMBER = r"([2-9]|[1-9][0-9])"
+DATASOURCE_SUFFIX = "-attempt"
+TABLE_SUFFIX = "_attempt"
+ROUTE_SUFFIX = "-attempt"
+# e2e/run_cloud.py journey_phase runs at most two deterministic attempts.
+MODEL_ATTEMPT_OFFSET = 2
+
+
+def _unsuffixed(value, suffix):
+    head, sep, tail = str(value or "").rpartition(suffix)
+    return head if sep and head and re.fullmatch(ATTEMPT_NUMBER, tail) else str(value or "")
+
+
+def _suffixed(value, suffix, number):
+    base = _unsuffixed(value, suffix)
+    return base if number <= 1 or not base else f"{base}{suffix}{number}"
+
+
+def attempt_datasource_name(base, number):
+    return _suffixed(base, DATASOURCE_SUFFIX, number)
+
+
+def attempt_table_name(base, number):
+    return _suffixed(base, TABLE_SUFFIX, number)
+
+
+def attempt_route(base, number):
+    return _suffixed(base, ROUTE_SUFFIX, number)
+
+
+def scope_execution(execution, number):
+    """A copy of a cloud execution fixture whose cell-lasting names belong to attempt `number`.
+
+    Any earlier attempt's suffix is replaced, so the canary can scope a retained attempt-2 target."""
+    if not isinstance(number, int) or not 1 <= number <= 99:
+        raise TargetError("attempt number must be 1..99")
+    scoped = copy.deepcopy(execution)
+    if isinstance(scoped.get("datasource"), dict) and scoped["datasource"].get("name"):
+        scoped["datasource"]["name"] = attempt_datasource_name(scoped["datasource"]["name"], number)
+    if isinstance(scoped.get("upload"), dict) and scoped["upload"].get("tableName"):
+        scoped["upload"]["tableName"] = attempt_table_name(scoped["upload"]["tableName"], number)
+    for key in ("route", "publishedPath"):
+        if isinstance(scoped.get(key), str) and scoped[key]:
+            scoped[key] = attempt_route(scoped[key], number)
+    return scoped
+
+
+def _attempt_of(execution):
+    """The attempt number a scoped execution fixture names, or None when its names disagree."""
+    observed = set()
+    for value, suffix in (((execution.get("upload") or {}).get("tableName"), TABLE_SUFFIX),
+                          (execution.get("route"), ROUTE_SUFFIX), (execution.get("publishedPath"), ROUTE_SUFFIX)):
+        if not isinstance(value, str) or not value:
+            continue
+        match = re.search(re.escape(suffix) + ATTEMPT_NUMBER + r"\Z", value)
+        observed.add(int(match.group(1)) if match and match.start() > 0 else 1)
+    return observed.pop() if len(observed) == 1 else None
+
+
 def kind_of(cell):
     """The cloud target kind of a cell id, or None when the cell has no cloud target here."""
     match = CELL_ID.match(cell or "")
@@ -188,13 +256,10 @@ def validate(target, *, template=None):
     if template is not None:
         authored = {key: value for key, value in template["execution"].items() if key != "datasource"}
         observed = {key: value for key, value in execution.items() if key != "datasource"}
-        # A retry imports into its own table (e2e/cloud_journey.py attempt_table_name: <authored>_attemptN,
-        # N >= 2) so it cannot collide with attempt 1's published layer; that is the only allowed change.
-        authored_table = (authored.get("upload") or {}).get("tableName")
-        observed_table = (observed.get("upload") or {}).get("tableName")
-        if (isinstance(authored_table, str) and isinstance(observed_table, str) and authored_table
-                and re.fullmatch(re.escape(authored_table) + r"_attempt([2-9]|[1-9][0-9])", observed_table)):
-            observed = {**observed, "upload": {**observed["upload"], "tableName": authored_table}}
-        if observed != authored:
+        # A retry imports into its own table and publishes to its own route (scope_execution: the
+        # authored names with one shared _attemptN / -attemptN, N >= 2) so it cannot collide with an
+        # earlier attempt's published layer or governed route; that is the only allowed change.
+        number = _attempt_of(observed)
+        if number is None or scope_execution(authored, number) != observed:
             raise TargetError("cloud execution fixture must equal the authored local fixture")
     return target

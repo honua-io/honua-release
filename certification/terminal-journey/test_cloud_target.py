@@ -91,19 +91,42 @@ class CloudTargetDocumentTests(unittest.TestCase):
         self.assertEqual(unavailable["blockedBy"], [cloud_target.OTHER_TENANT_BLOCKER])
         self.assertIn("none is fabricated", unavailable["reason"])
 
-    def test_retry_table_name_is_the_only_allowed_fixture_change(self):
-        base = TEMPLATE["execution"]["upload"]["tableName"]
-        for name, ok in ((f"{base}_attempt2", True), (f"{base}_attempt12", True), (f"{base}_attempt1", False),
-                         (f"{base}_attempt2x", False), ("other_table", False), (f"{base}_attempt2;drop", False)):
+    def test_retry_scope_is_the_only_allowed_fixture_change(self):
+        authored = TEMPLATE["execution"]
+        table, route, path = authored["upload"]["tableName"], authored["route"], authored["publishedPath"]
+
+        def scoped(table_name, route_name, published):
             target = cloud()
-            target["execution"]["upload"]["tableName"] = name
-            if ok:
-                cloud_target.validate(target, template=TEMPLATE)
-            else:
-                with self.assertRaises(cloud_target.TargetError):
-                    cloud_target.validate(target, template=TEMPLATE)
+            target["execution"]["upload"]["tableName"] = table_name
+            target["execution"]["route"], target["execution"]["publishedPath"] = route_name, published
+            return target
+
+        for number in (2, 3, 4, 12):
+            target = cloud()
+            target["execution"] = cloud_target.scope_execution(target["execution"], number)
+            self.assertEqual(target["execution"]["upload"]["tableName"], f"{table}_attempt{number}")
+            self.assertEqual(target["execution"]["route"], f"{route}-attempt{number}")
+            self.assertEqual(target["execution"]["publishedPath"], f"{path}-attempt{number}")
+            cloud_target.validate(target, template=TEMPLATE)
+            # Re-scoping replaces an earlier attempt's suffix instead of stacking another.
+            again = cloud_target.scope_execution(target["execution"], 3)
+            self.assertEqual(again["route"], f"{route}-attempt3")
+            self.assertEqual(cloud_target.scope_execution(target["execution"], 1)["route"], route)
+        cloud_target.validate(scoped(table, route, path), template=TEMPLATE)
+        for table_name, route_name, published in (
+                (f"{table}_attempt2", route, path),  # the pre-route retry scope: route stays claimed
+                (table, f"{route}-attempt2", f"{path}-attempt2"),
+                (f"{table}_attempt2", f"{route}-attempt3", f"{path}-attempt3"),
+                (f"{table}_attempt2", f"{route}-attempt2", path),
+                (f"{table}_attempt1", f"{route}-attempt1", f"{path}-attempt1"),
+                (f"{table}_attempt2x", f"{route}-attempt2", f"{path}-attempt2"),
+                ("other_table", f"{route}-attempt2", f"{path}-attempt2"),
+                (f"{table}_attempt2;drop", f"{route}-attempt2", f"{path}-attempt2"),
+                (f"{table}_attempt2", "/other-attempt2", f"{path}-attempt2")):
+            with self.assertRaises(cloud_target.TargetError):
+                cloud_target.validate(scoped(table_name, route_name, published), template=TEMPLATE)
         target = cloud()
-        target["execution"]["upload"]["tableName"] = f"{base}_attempt2"
+        target["execution"] = cloud_target.scope_execution(target["execution"], 2)
         target["execution"]["upload"]["sha256"] = "0" * 64
         with self.assertRaises(cloud_target.TargetError):
             cloud_target.validate(target, template=TEMPLATE)
