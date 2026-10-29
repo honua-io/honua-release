@@ -1276,8 +1276,10 @@ class CandidateProxyClient:
         provider_events = [event for name, event in events if name != "transcript_provenance"]
         verified_digest = self._verify_provenance(signed, transcript, manifest, request_body, provider_events)
         content = "".join(event.get("text", "") for name, event in events if name == "text_delta")
-        if not isinstance(content, str) or not content.strip():
-            raise ModelFailure("model response content is empty")
+        if not isinstance(content, str):
+            raise CanaryError("model response content is not text")
+        # Empty or whitespace is a malformed action, not an infrastructure failure.
+        # Returning it lets parse_model_action issue the one corrective retry.
         stop = next(event for name, event in events if name == "message_stop")
         usage = {
             "prompt_tokens": stop.get("promptTokens", 0),
@@ -1607,11 +1609,19 @@ def _tool_names(tool_view: Any) -> list[str]:
     return sorted({name for name in names if isinstance(name, str) and name})
 
 
+# Server-authored names are untrusted. Only a single identifier can be copied into the
+# privileged system message; anything else stays in the user payload as data.
+_TOOL_NAME = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
+
+
 def _system_contract(tool_names: list[str] | None = None) -> str:
-    allowed = (" Allowed tool_call names (the server-authored view for this stage): "
-               + ", ".join(tool_names) + "." if tool_names
-               else " This stage admits no tool_call; select a terminal_command." if tool_names is not None
-               else "")
+    safe = [name for name in (tool_names or []) if isinstance(name, str) and _TOOL_NAME.fullmatch(name)]
+    if tool_names is None:
+        allowed = ""
+    elif not safe:
+        allowed = " This stage admits no tool_call; select a terminal_command."
+    else:
+        allowed = " Allowed tool_call names (JSON identifiers only): " + json.dumps(safe) + "."
     return (
         "Operate the bounded Honua terminal journey from observed state. Select exactly one real "
         "terminal command or server-authored tool call per response. Never claim success from prose, "
@@ -1859,10 +1869,11 @@ def execute_live(
                         f"stage {stage_id} exceeded the bounded limit of {max_actions_per_stage} model actions"
                     )
                 stage_tools = observed.get("stageTools")
-                allowed = (sorted(t for t in stage_tools if isinstance(t, str) and t)
-                           if isinstance(stage_tools, list) else _tool_names(observed.get("toolView")))
-                # Only names the server-authored view also lists are ever offered to the model.
-                allowed = [t for t in allowed if t in _tool_names(observed.get("toolView"))]
+                # No stage allowlist means advertise nothing. Falling back to the full
+                # server view would put other stages' names, including hostile ones, in the prompt.
+                names_in_view = set(_tool_names(observed.get("toolView")))
+                allowed = sorted({t for t in stage_tools if isinstance(t, str) and t in names_in_view}
+                                 if isinstance(stage_tools, list) else [])
                 system = _system_contract(allowed)
                 if messages and messages[0].get("role") == "system":
                     messages[0] = {"role": "system", "content": system}
@@ -1912,8 +1923,9 @@ def execute_live(
                     messages.append({"role": "assistant", "content": builder.redactor.text(content)})
                     return content, sequence
 
-                content, assistant_sequence = ask()
+                content = ""
                 try:
+                    content, assistant_sequence = ask()
                     kind, model_action = parse_model_action(content)
                 except ModelFailure as refused:
                     # One bounded correction after a well-formed instruction. A second malformed reply
