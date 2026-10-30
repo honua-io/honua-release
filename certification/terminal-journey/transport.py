@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,6 +15,10 @@ from pathlib import Path
 import discovery
 
 MAX_BYTES = 4 * 1024 * 1024
+# Above the 30 s integration ceiling of an API Gateway HTTP API (and the 30 s Lambda timeout the
+# serverless cell sets), so a request the candidate never answers is recorded with the gateway's own
+# status (503 after 30 s) rather than as a client socket timeout racing it (run 40961202761).
+HTTP_TIMEOUT_SECONDS = 35
 
 
 class ExecutionError(RuntimeError):
@@ -126,6 +131,23 @@ def describe_tool_error(fields):
     return f"candidate returned an MCP tool error ({describe_fields(fields)})"
 
 
+def elapsed_ms(started):
+    return int((time.monotonic() - started) * 1000)
+
+
+def request_failure(exc, started, secrets=()):
+    """Why a candidate request produced no HTTP status: the exception class (the URLError's
+    underlying reason when it has one), a masked bounded message and the elapsed time. Nothing of
+    the request itself (URL, headers, body) is kept."""
+    reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+    cause = reason if isinstance(reason, BaseException) else exc
+    message = str(reason)
+    fields = masked_fields({"exception": type(cause).__name__, "message": message}, secrets)
+    # Ordered for the receipt: what failed, how long it took, then the masked message.
+    return {"exception": fields.get("exception", "unknown"), "elapsedMs": str(elapsed_ms(started)),
+            "timeoutS": str(HTTP_TIMEOUT_SECONDS), **({"message": fields["message"]} if "message" in fields else {})}
+
+
 def safe_url(base, path):
     """Forbid credentials, query strings, fragments and cross-origin artifacts."""
     wanted = urllib.parse.urlsplit(urllib.parse.urljoin(base.rstrip("/") + "/", path))
@@ -170,18 +192,21 @@ class Transport:
         discovery.record_call("rest", label)
         discovery.record_http(method, url, None, None)
         self.last_response_headers = {}
+        started = time.monotonic()
         try:
-            with self.opener.open(urllib.request.Request(url, data=data, headers=headers, method=method), timeout=30) as response:
+            with self.opener.open(urllib.request.Request(url, data=data, headers=headers, method=method),
+                                  timeout=HTTP_TIMEOUT_SECONDS) as response:
                 raw, status = response.read(MAX_BYTES + 1), response.status
                 self.last_response_headers = {k.lower(): v for k, v in response.headers.items()}
         except urllib.error.HTTPError as exc:
             raw, status = exc.read(MAX_BYTES + 1), exc.code
             self.last_response_headers = {k.lower(): v for k, v in (exc.headers or {}).items()}
         except (OSError, urllib.error.URLError) as exc:
-            raise ExecutionError(label, "candidate request failed") from exc
+            raise ExecutionError(label, "candidate request failed ("
+                                 + describe_fields(request_failure(exc, started, self.secret_values())) + ")") from exc
         discovery.record_http(method, url, status, raw)
         if status not in expected:
-            raise ExecutionError(label, f"HTTP {status}")
+            raise ExecutionError(label, f"HTTP {status} (elapsedMs={elapsed_ms(started)})")
         if len(raw) > MAX_BYTES:
             raise ExecutionError(label, "response exceeds byte bound")
         return raw, status
