@@ -126,9 +126,14 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
 - [ ] Confirm the hourly `request-promotion.yml` run found the record ready and requested promotion as
   the scoped App identity, then obtain independent protected-environment approval. Verify the lock
   signature and publication tag against the minting train's exact source.
-- [ ] Promote `honua-2026.1.0`, publishing the selected lock's exact bytes and provenance. Only promotion
-  moves npm `latest` / `2026.1`, container `:stable` / `:2026.1`, Helm and customer-install-manifest
-  channels; each pointer resolves to immutable artifacts. No rebuild or unsigned update channel ships.
+- [ ] Promote `honua-2026.1.0` by dispatching `promote.yml` for the selected lock. That workflow
+  signs the publication tag with gitsign, pushes `refs/tags/<tag>`, verifies the published tag
+  against the certified commit, and runs `gh release create` with the lock assets listed in the
+  job. If the tag already exists it verifies instead of re-signing. If the GitHub release already
+  exists it exits 1 and does not overwrite it. `promote.yml` does not move an npm dist-tag, a
+  container `:stable` or `:2026.1` tag, or a Helm channel. The decision override that says
+  promotion moves those channels is intent, not a step in that workflow. See
+  [RELEASE-WITHDRAWAL.md](RELEASE-WITHDRAWAL.md). No rebuild or unsigned update channel ships.
 - [ ] Archive the readiness decision, lock, signatures, full receipts, approval and publication URLs.
   Preserve the previous promoted lock as rollback target and the next cut's upgrade baseline.
 
