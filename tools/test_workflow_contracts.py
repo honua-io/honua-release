@@ -1568,7 +1568,7 @@ def test_cloud_cell_lanes_keep_retirement_and_prefix_exclusion():
                  "Refuse while a cell retirement or a same-prefix cloud run is active")
     assert provision.index(guard) < next(i for i, step in enumerate(provision) if step.get("id") == "provision")
     assert "cloud-cell-retirement.yml" in guard["run"] and "e2e-cloud-aws.yml" in guard["run"]
-    assert "[:6]" in guard["run"]
+    assert "${id:0:6}" in guard["run"] and "--arg" not in guard["run"]
     retire = _step_text(next(step for step in _workflow("cloud-cell-retirement.yml")["jobs"]["retire"]["steps"]
                              if step.get("name") == "Refuse while any cloud e2e run is active"))
     assert "e2e-cloud-aws.yml" in retire and "exit 1" in retire
@@ -1598,3 +1598,34 @@ def test_cloud_candidate_pins_take_the_coordinate_of_a_digest_pinned_server_imag
     pins = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert pins["server_image"] == f"ghcr.io/honua-io/honua-server@{index}"
     assert pins["gp_batch_image"] == f"ghcr.io/honua-io/honua-server@{amd64}"
+
+
+@pytest.mark.parametrize("runs,retiring,expect_ok", [
+    ({"in_progress": ["41005085470"]}, 0, True),                    # only itself
+    ({"in_progress": ["41005085470", "41004840275"]}, 0, True),     # another lane, different prefix
+    ({"in_progress": ["41005085470"], "queued": ["41005099999"]}, 0, False),  # same six-digit prefix
+    ({"in_progress": ["41005085470"]}, 1, False),                   # a retirement is active
+])
+def test_cell_provision_guard_runs_against_gh(tmp_path, runs, retiring, expect_ok):
+    # #1084 shipped this step with `gh api --jq --arg`, which gh rejects ("accepts 1 arg(s)"), and every
+    # lane run failed before provisioning. Execute the step's script with a stub gh.
+    import subprocess
+    step = next(s for s in _workflow("e2e-cloud-aws-cell.yml")["jobs"]["provision"]["steps"]
+                if s.get("name") == "Refuse while a cell retirement or a same-prefix cloud run is active")
+    stub = tmp_path / "gh"
+    stub.write_text("#!/usr/bin/env python3\n"
+                    "import json, re, sys\n"
+                    f"RUNS = {json.dumps(runs)}\n"
+                    f"RETIRING = {retiring}\n"
+                    "args = sys.argv[1:]\n"
+                    "assert args[0] == 'api' and '--arg' not in args, args\n"
+                    "url = args[1]; state = re.search(r'status=([a-z_]+)', url).group(1)\n"
+                    "if 'cloud-cell-retirement.yml' in url:\n"
+                    "    print(RETIRING if state == 'in_progress' else 0)\n"
+                    "else:\n"
+                    "    print('\\n'.join(RUNS.get(state, [])))\n")
+    stub.chmod(0o755)
+    env = {"PATH": f"{tmp_path}:/usr/bin:/bin", "GITHUB_REPOSITORY": "honua-io/honua-release",
+           "RUN_ID": "41005085470", "GH_TOKEN": "x"}
+    result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
+    assert (result.returncode == 0) is expect_ok, result.stdout + result.stderr

@@ -110,9 +110,10 @@ jobs:
           for state in queued in_progress waiting requested pending; do
             n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/cloud-cell-retirement.yml/runs?status=${state}&per_page=1" --jq '.total_count')"
             retiring=$(( retiring + n ))
-            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-cloud-aws.yml/runs?status=${state}&per_page=100" \
-                 --jq --arg id "$RUN_ID" '[.workflow_runs[] | select((.id | tostring) != $id and ((.id | tostring)[:6]) == $id[:6])] | length')"
-            same_prefix=$(( same_prefix + n ))
+            # gh api --jq takes no jq variables; compare the ids in the shell.
+            for id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-cloud-aws.yml/runs?status=${state}&per_page=100" --jq '.workflow_runs[].id'); do
+              if [ "$id" != "$RUN_ID" ] && [ "${id:0:6}" = "${RUN_ID:0:6}" ]; then same_prefix=$(( same_prefix + 1 )); fi
+            done
           done
           if [ "$retiring" -gt 0 ]; then
             echo "::error title=cell retirement active::a cloud-cell-retirement run is active; rerun this cell after it completes"
