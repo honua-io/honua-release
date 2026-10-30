@@ -330,6 +330,48 @@ def validate_deterministic_receipt(
     }
 
 
+# ga-cells-single-tenant-2026-10-27, stage 8: the deterministic executor's required stage-8 checks other
+# than the declared not-applicable 8.tenant-isolation (executor.JourneyExecutor.result). Each must have
+# executed and passed for the ruled stage to stand in for a pass, exactly as admits() requires.
+SINGLE_TENANT_STAGE_CHECKS = frozenset({"8.separation", "8.final-map", "8.canonical-join",
+                                        "8.current-authority", "8.rbac-denial", "8.canonical-evidence"})
+
+
+def single_tenant_admitted(receipt: dict[str, Any]) -> bool:
+    """This canary's linked deterministic receipt was admitted under the ruling for this very cell."""
+    module = _ga_single_tenant()
+    linked = (receipt.get("linkedEvidence") or {}).get("deterministicReceipt") or {}
+    return (linked.get("prerequisiteProfile") == module.PROFILE and linked.get("ruling") == module.RULING
+            and linked.get("sourceStatus") == "blocked" and module.single_tenant(str(receipt.get("cell"))))
+
+
+def single_tenant_ruled_stage(stage_status: Any) -> bool:
+    """Stage-8 evidence whose sole non-pass check is 8.tenant-isolation, blocked on the tracked
+    second-tenant gap, with every other required stage-8 check executed and passing.
+
+    The same shape ga_single_tenant.admits() accepts for the deterministic receipt's stage 8; any
+    other blocked or failed check, or a required check that never ran, keeps the stage non-passing.
+    """
+    module = _ga_single_tenant()
+    if (not isinstance(stage_status, dict) or stage_status.get("number") != module.STAGE
+            or stage_status.get("status") != "blocked" or stage_status.get("blockedBy") != [module.BLOCKER]):
+        return False
+    checks = stage_status.get("checks")
+    if not isinstance(checks, list) or not checks or any(not isinstance(check, dict) for check in checks):
+        return False
+    non_pass = [check for check in checks if check.get("status") != "pass"]
+    passed = {check.get("id") for check in checks if check.get("status") == "pass"}
+    return (len(non_pass) == 1 and non_pass[0].get("id") == module.CHECK
+            and non_pass[0].get("status") == "blocked" and non_pass[0].get("blockedBy") == [module.BLOCKER]
+            and SINGLE_TENANT_STAGE_CHECKS <= passed)
+
+
+def single_tenant_ruled_assertions(assertions: Any) -> bool:
+    """Final verification whose only non-pass assertion is the ruling's tenant isolation (blocked)."""
+    return (isinstance(assertions, dict) and assertions.get("tenantIsolation") == "blocked"
+            and all(assertions.get(name) == "pass" for name in ASSERTION_NAMES if name != "tenantIsolation"))
+
+
 @dataclass(frozen=True)
 class EndpointConfig:
     base_url: str | None
@@ -802,6 +844,9 @@ class ReceiptBuilder:
     def mark_failed(self, why: str, attribution: str = INFRASTRUCTURE) -> None:
         self.attribute(attribution)
         self.receipt["status"] = "fail"
+        # The single-tenant declaration belongs only to a passing receipt; a failure that arrives
+        # after verification (e.g. teardown) must still leave a valid failed receipt.
+        self.receipt.pop("declaredNotApplicable", None)
         # A failure can carry the driver's own error text: strip this run's secret values from it.
         self.receipt["notices"].append(self.redactor.text(why))
         for stage in self.receipt["stages"]:
@@ -844,6 +889,12 @@ class ReceiptBuilder:
         if (self.receipt["status"] != "pass"
                 and self.receipt["failureAttribution"] not in (MODEL, INFRASTRUCTURE)):
             raise CanaryError("a receipt that did not pass must attribute its failure to model or infrastructure")
+        declared = self.receipt.get("declaredNotApplicable")
+        ruled = declared is not None
+        if ruled and (self.receipt["status"] != "pass" or not single_tenant_admitted(self.receipt)
+                      or declared != _ga_single_tenant().declaration(self.receipt["cell"])):
+            raise CanaryError("a single-tenant declaration needs a passing receipt on a ruled cell "
+                              "whose deterministic receipt the ruling admitted")
         if self.receipt["status"] == "pass":
             if self.receipt["failureAttribution"] is not None:
                 raise CanaryError("a pass cannot carry a failure attribution")
@@ -858,14 +909,20 @@ class ReceiptBuilder:
                 raise CanaryError("a pass requires the green deterministic #123 receipt")
             if not self.receipt["endpoint"]["runtime"] or not self.receipt["endpoint"]["quantization"]:
                 raise CanaryError("a pass requires explicit model runtime and quantization identifiers")
-            if any(
-                stage["status"] != "pass" or not stage["modelActionSequences"]
-                for stage in self.receipt["stages"]
-            ):
+            module = _ga_single_tenant()
+
+            def stage_passed(stage: dict[str, Any]) -> bool:
+                # ga-cells-single-tenant: the ruled stage alone reads blocked on the tracked gap.
+                if ruled and stage["number"] == module.STAGE:
+                    return stage["status"] == "blocked" and stage["blockedBy"] == [module.BLOCKER]
+                return stage["status"] == "pass"
+
+            if any(not stage_passed(stage) or not stage["modelActionSequences"] for stage in self.receipt["stages"]):
                 raise CanaryError("every imported #123 stage needs a model-selected action and pass")
             if self.receipt["errorInjection"]["status"] != "recovered":
                 raise CanaryError("a pass requires observed model recovery from the injected error")
-            if any(value != "pass" for value in self.receipt["assertions"].values()):
+            if not (all(value == "pass" for value in self.receipt["assertions"].values())
+                    or (ruled and single_tenant_ruled_assertions(self.receipt["assertions"]))):
                 raise CanaryError("a pass requires every security and proof assertion")
 
     def validated_receipt(self, schema: dict[str, Any]) -> dict[str, Any]:
@@ -1571,6 +1628,9 @@ def execute_live(
     workspace_id: str | None = None
     approved_proposals: set[str] = set()
     active_stage: dict[str, Any] | None = None
+    # The same predicate validate_deterministic_receipt applied to this run's linked receipt.
+    single_tenant = receipt["cell"] != "local-docker" and single_tenant_admitted(receipt)
+    ruled_stage = False
     try:
         if receipt["cell"] != "local-docker":
             if target_path is None:
@@ -1663,6 +1723,22 @@ def execute_live(
                 )
                 builder.capture_transcript("driver", observed, stage_id=stage_id)
                 stage_status = observed_stage_status(observed, stage)
+                if (stage_status == "blocked" and single_tenant and approved_proposals
+                        and single_tenant_ruled_stage(observed.get("stageStatus"))):
+                    # ga-cells-single-tenant-2026-10-27: the driver executed the separate-principal
+                    # approval and every other stage-8 assertion; only the declared tenant-isolation
+                    # check is blocked (#377). As in the deterministic journey that stage stays
+                    # blocked, never pass, and it still needs the model's own passing action.
+                    record = builder._stage_record(stage_id)
+                    if any(action["sequence"] in record["modelActionSequences"] and action["status"] == "pass"
+                           for action in receipt["actions"]):
+                        builder.mark_stage(stage_id, "blocked")
+                        record["blockedBy"] = [_ga_single_tenant().BLOCKER]
+                        builder.notice(f"stage {stage_id}: {_ga_single_tenant().CHECK} declared not applicable "
+                                       f"under ruling {_ga_single_tenant().RULING}; every other stage check passed")
+                        ruled_stage = True
+                        break
+                    stage_status = "ready"
                 if stage_status == "awaiting_approval":
                     proposal_id = observed.get("proposalId")
                     if not isinstance(proposal_id, str) or not proposal_id or proposal_id in approved_proposals:
@@ -1848,7 +1924,10 @@ def execute_live(
         verification_request = {"workspaceId": workspace_id, "candidate": receipt["candidate"]}
         verification = builder.redactor.value(driver.invoke("verify", verification_request))
         assertions = verification.get("assertions")
-        if verification.get("status") != "pass" or not isinstance(assertions, dict):
+        # ga-cells-single-tenant: verification then reads blocked on tenant isolation alone.
+        ruled_verification = (ruled_stage and verification.get("status") == "blocked"
+                              and single_tenant_ruled_assertions(assertions))
+        if not (verification.get("status") == "pass" or ruled_verification) or not isinstance(assertions, dict):
             raise CanaryError("final #123 verification did not pass")
         if (
             not verification.get("finalUrlProof")
@@ -1857,18 +1936,24 @@ def execute_live(
         ):
             raise CanaryError("final #123 verification omitted canonical IDs, pixel proof, or final-URL proof")
         for name in ASSERTION_NAMES:
-            receipt["assertions"][name] = "pass" if assertions.get(name) == "pass" else "fail"
+            receipt["assertions"][name] = ("blocked" if ruled_verification and name == "tenantIsolation"
+                                           else "pass" if assertions.get(name) == "pass" else "fail")
+        verified = (all(value == "pass" for value in receipt["assertions"].values())
+                    or (ruled_verification and single_tenant_ruled_assertions(receipt["assertions"])))
         builder.record_action(
             stage_id=last_stage,
             attribution=HARNESS_DRIVEN,
             kind="verification",
-            status="pass" if all(value == "pass" for value in receipt["assertions"].values()) else "fail",
+            status="pass" if verified else "fail",
             request=verification_request,
             result=verification,
         )
-        if any(value != "pass" for value in receipt["assertions"].values()):
+        if not verified:
             # Verification itself answered, so the final state the model produced is what failed.
             raise ModelFailure("one or more required final assertions failed")
+        if ruled_stage:
+            # Reported, never hidden: stage 8 and tenantIsolation keep their raw blocked verdicts.
+            receipt["declaredNotApplicable"] = _ga_single_tenant().declaration(receipt["cell"])
         receipt["status"] = "pass"
         receipt.update(executionOutcome="completed", functionalGpExecuted=True)
         receipt["scope"]["executionToGreen"] = "pass"

@@ -337,6 +337,9 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         "external": cloud,
         "deploymentImage": deployment_image,
         "deploymentDetail": deployment_detail,
+        # ga-cells-single-tenant-2026-10-27: _cloud_image re-derived this admission from the receipt.
+        "prerequisiteProfile": ("ga-single-tenant" if cloud and (request.get("deploymentReceipt") or {})
+                                .get("prerequisiteProfile") == "ga-single-tenant" else None),
         "armedError": None,
         "executionEnabled": bool(observation.setup_view_present and bindir is not None),
         "clientWorkspace": workspace.as_receipt(),
@@ -648,7 +651,7 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
     if request.get("profile") is not None:
         import refusal_profile
         return refusal_profile.verify(sys.modules[__name__], request)
-    from tools.terminal_model_canary import ASSERTION_NAMES
+    from tools.terminal_model_canary import ASSERTION_NAMES, single_tenant_ruled_stage
 
     state, target, _manifest, observation, workspace = _rehydrate(request)
     assertions = dict.fromkeys(ASSERTION_NAMES, "blocked")
@@ -675,8 +678,15 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
             lambda n: workspace.missing_for_stage(n) if workspace.status == "pass" else [stagelib.INSTALLED_CLIENTS])
         current = originals[:2] + [stagelib.merge_execution(original, engine.result(original.number))
                                   for original in originals[2:]]
+        # ga-cells-single-tenant-2026-10-27: on an admitted cell, stage 8 blocked on the declared
+        # 8.tenant-isolation check alone (every other stage-8 check passed) is current evidence;
+        # that check's own blocked verdict stays in the tenantIsolation assertion below.
+        single_tenant = state.get("prerequisiteProfile") == "ga-single-tenant"
+        fresh = [r for r in current if not (single_tenant and single_tenant_ruled_stage(
+            {"number": r.number, "status": r.status, "blockedBy": r.blocked_by,
+             "checks": [c.as_receipt() for c in r.checks]}))]
         assertions["evidenceFresh"] = ("fail" if any(r.status == "fail" for r in current) else
-                                      "pass" if all(r.status == "pass" for r in current) else "blocked")
+                                      "pass" if all(r.status == "pass" for r in fresh) else "blocked")
         assertions["fakeSuccessRejected"] = fake.status
         assertions["finalUrlProof"] = final.status
         pixel = evidence["checks"].get("4", {}).get("pixel", {})

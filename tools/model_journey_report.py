@@ -116,6 +116,15 @@ def build(receipts: list[Path], *, cell: str, lock_digest: str | None, candidate
         if times != sorted(times):
             raise ValueError("attempts are not in completion order")
         raw = [json.loads(path.read_bytes()) for path in receipts] if lock_digest is None else []
+        # ga-cells-single-tenant-2026-10-27: named, never hidden (the receipt keeps stage 8 blocked).
+        declared = json.loads(receipts[-1].read_bytes()).get("declaredNotApplicable")
+        note = ""
+        if declared is not None:
+            if (not isinstance(declared, dict) or attempts[-1]["status"] != "pass" or declared.get("cell") != cell
+                    or declared.get("notApplicable") != ["8.tenant-isolation"]):
+                raise ValueError("the passing attempt's not-applicable declaration does not match this cell")
+            note = (f"; {', '.join(declared['notApplicable'])} declared not applicable under ruling "
+                    f"{declared.get('ruling')} ({declared.get('profile')})")
         if lock_digest is None and all(receipt.get("status") == "blocked" for receipt in raw):
             # The harness's own refusal to run unbound: no binding, no execution, no verdict.
             notices = [str(notice) for notice in raw[-1].get("notices") or []]
@@ -133,6 +142,8 @@ def build(receipts: list[Path], *, cell: str, lock_digest: str | None, candidate
             raise ValueError("genuine-model journey did not pass within the recorded attempts")
         else:
             row.update(status="pass", why="genuine-model journey passed for the exact lock")
+        if note and row["status"] == "pass":
+            row["why"] += note
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         row["why"] = str(error) if isinstance(error, ValueError) else "missing or malformed canary receipt"
     status = row["status"]
