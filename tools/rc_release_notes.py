@@ -57,12 +57,16 @@ def render(manifest: dict, gate_md: str, label: str, server_image: str | None, s
         "and the Console. This candidate is for evaluation and feedback. It is admitted under the rc rule "
         "below, not the GA rule, and may contain defects; the known gaps are listed, not hidden."))
     parts.append("\n## Admission rule for this candidate\n")
-    parts.append("Every required release-train gate is admitted only by its most recent completed run on `trunk` "
-                 "inside the same 7-day window whose report or receipt names this candidate's honua-server digest, "
-                 "source SHA, and platform lock, with status pass and a qualifying scope (2026-10-30 admission fix). "
-                 "A newer failed or non-certifying run for that same candidate supersedes an older green one. "
-                 "A gate with no candidate-bound report is listed as a limitation and does not pass. "
-                 "The 2026-10-22 window (release#376) still bounds how recent the run must be.\n")
+    parts.append("Every required release-train gate that publishes a candidate receipt is admitted only by its "
+                 "most recent completed run on `trunk` inside the same 7-day window whose report or receipt names "
+                 "this candidate's honua-server digest, source SHA, and platform lock, with status pass and a "
+                 "qualifying scope (2026-10-30 admission fix). A newer failed or non-certifying run for that same "
+                 "candidate supersedes an older green one. A gate with no such receipt passes only when its most "
+                 "recent completed trunk run is a success, that run started after the commit that pinned this "
+                 "candidate in platform-manifest.yaml, the run is inside the 2026-10-22 window (release#376), and "
+                 "the run is not diagnostic, focused, or partial where the workflow exposes that. The record and "
+                 "this table label that weaker pass \"pass (manifest-pin bound, no receipt)\". A gate with no "
+                 "qualifying run does not pass.\n")
     parts.append("The AI gates, `gate-agent-e2e` and `terminal-model-canary`, are out of RC admission under the "
                  "2026-10-25 founder re-tier (honua-release#376); their runs are reported as Preview evidence in the "
                  "gate record and never admit or refuse this candidate. The gate-window record describes "

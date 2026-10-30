@@ -10,8 +10,11 @@ digest, as one identity. The SHA and digest come from the same object; the lock 
 its parent's. An upgrade receipt counts only its candidate phase, so the prior install and the
 rollback do not certify the previous build. A newer failed run, or a run with certifying:false or a
 partial target, for that same candidate supersedes an older green one. A diagnostic run never counts.
-A gate whose workflow does not publish a candidate-bound report is listed under
-UNBOUND_GATE_LIMITATIONS and does not pass.
+A gate whose workflow does not publish a candidate-bound report can still pass, and the record
+says so: "pass (manifest-pin bound, no receipt)". That requires its most recent completed trunk
+run to be a success, started after the honua-release commit that pinned this honua-server sha in
+platform-manifest.yaml, inside the window, and not a diagnostic or focused run where the workflow
+exposes that. A newer failure blocks. A gate with no qualifying run does not pass.
 
 Usage:
   GH_TOKEN=... python3 tools/rc_gate_window.py --window-days 7 \\
@@ -26,6 +29,7 @@ import hashlib
 import io
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -93,8 +97,10 @@ CANDIDATE_BOUND_GATES: frozenset[str] = frozenset({
     "gate-upgrade.yml",
     "terminal-model-canary.yml",
 })
-# Every other train or AI gate. The limitation is the admission record. A green Actions conclusion for
-# one of these workflows is not evidence that this candidate passed, and it does not satisfy the gate.
+# Gates with no receipt that names the honua-server digest, source SHA, and platform lock together.
+# They are not silently green and they are not an automatic failure. A pass is manifest-pin bound
+# and is recorded with that weaker label. The text says what receipt is missing.
+MANIFEST_PIN_PASS = "pass (manifest-pin bound, no receipt)"
 UNBOUND_GATE_LIMITATIONS: dict[str, str] = {
     "manifest-validate.yml":
         "validates this repository's manifests and pins; it publishes no honua-server digest, source SHA, or platform-lock receipt",
@@ -378,14 +384,40 @@ def fetch_run_reports(repo: str, token: str, run_id: int) -> list[dict]:
     return docs
 
 
+def _fetch_completed(repo: str, workflow: str, token: str, branch: str) -> list[dict]:
+    """Completed runs of one workflow on one branch, newest first. One page is the recent history."""
+    base = f"{API}/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
+    query = urllib.parse.urlencode({"branch": branch, "status": "completed", "per_page": 30, "page": 1})
+    try:
+        data = _get(base + "?" + query, token)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return []
+        raise
+    return list(data.get("workflow_runs") or [])
+
+
 def fetch_gate_runs(repo: str, workflow: str, token: str, branch: str, *,
                     bound: bool, since: dt.datetime) -> dict:
-    """Completed trunk runs of one workflow, newest first, with reports attached for bound gates.
+    """Completed trunk runs, newest first.
 
-    Unbound gates are not fetched. Their workflow conclusion must not become a pass.
+    A bound gate carries every in-window run's report, because only a run that names this candidate
+    counts. A gate with no receipt carries the newest completed runs, including one outside the
+    window, and the newest run's report when the workflow published one, so a diagnostic dispatch
+    is visible. The workflow conclusion of an older run is not a pass.
     """
     if not bound:
-        return {"runs": []}
+        raws = _fetch_completed(repo, workflow, token, branch)
+        runs = [_slim(run) for run in raws[:30]]
+        if runs:
+            def _newest(run: dict) -> tuple[dt.datetime, int]:
+                created = _parse(run.get("created_at")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+                return (created, int(run.get("id") or 0))
+
+            newest = max(runs, key=_newest)
+            # Only the deciding run's report matters, and only when the workflow published one.
+            newest["reports"] = fetch_run_reports(repo, token, newest.get("id"))
+        return {"runs": runs}
     base = f"{API}/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
     raws: list[dict] = []
     for page in range(1, 5):
@@ -445,15 +477,87 @@ def _blank_gate(name: str, advisory: tuple[str, ...]) -> dict:
     }
 
 
+def _completed_runs(runs: list) -> list[tuple[dt.datetime, int, dict]]:
+    """Completed runs with a timestamp, oldest first. A missing timestamp cannot be the newest run."""
+    found = []
+    for run in runs or []:
+        if run.get("status") not in (None, "completed"):
+            continue
+        created = _parse(run.get("created_at"))
+        if created is None:
+            continue
+        found.append((created, int(run.get("id") or 0), run))
+    found.sort()
+    return found
+
+
+def _unbound_run_would_pass(run: dict, created: dt.datetime, pin_at: dt.datetime,
+                            cutoff: dt.datetime) -> bool:
+    """True when this one run would itself be a manifest-pin pass. The newest run still decides."""
+    if created <= pin_at or created < cutoff:
+        return False
+    if run.get("conclusion") != "success":
+        return False
+    return not any(is_diagnostic(doc) for doc in _documents(run))
+
+
+def _judge_unbound(row: dict, rec: dict, note: str, pin_at: dt.datetime | None,
+                   cutoff: dt.datetime, window_days: float) -> None:
+    """The newest completed trunk run decides. An older green is never a fallback."""
+    row["candidate_bound"] = False
+    row["limitation"] = note
+    completed = _completed_runs(rec.get("runs") or [])
+    if not completed:
+        row["reason"] = "no completed trunk run"
+        return
+    created, _run_id, run = completed[-1]
+    row["latest_run"] = run.get("html_url")
+    row["latest_conclusion"] = run.get("conclusion")
+    if pin_at is None:
+        row["reason"] = ("manifest pin commit was not found; a run cannot be proved to start "
+                         "after the pin")
+        return
+    older_green = any(
+        _unbound_run_would_pass(older, older_at, pin_at, cutoff)
+        for older_at, _older_id, older in completed[:-1]
+    )
+    diagnostic = any(is_diagnostic(doc) for doc in _documents(run))
+    if created <= pin_at:
+        row["reason"] = "most recent completed run started before the manifest pin"
+    elif created < cutoff:
+        row["reason"] = (f"most recent completed run {created.date()} is outside the "
+                         f"{window_days:g}-day window")
+    elif diagnostic:
+        why = "most recent completed run is a diagnostic, focused, or partial run"
+        if older_green:
+            why += " and supersedes an older green run"
+        row["reason"] = why
+    elif run.get("conclusion") != "success":
+        why = f"most recent completed run conclusion {run.get('conclusion')}"
+        if older_green:
+            why += " and supersedes an older green run"
+        row["reason"] = why
+    else:
+        row["verdict"] = "green"
+        row["reason"] = MANIFEST_PIN_PASS
+        row["binding"] = "manifest-pin"
+        row["last_green_at"] = run.get("created_at")
+        row["last_green_run"] = run.get("html_url")
+        # Not the honua-server sha: this run has no receipt that names the candidate.
+        row["last_green_build"] = "manifest-pin"
+
+
 def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
              candidate: Candidate, advisory: tuple[str, ...] = (),
-             unbound: dict[str, str] | None = None) -> dict:
-    """Admit a gate only from its newest completed run that binds `candidate`.
+             unbound: dict[str, str] | None = None,
+             pin_at: dt.datetime | None = None) -> dict:
+    """Admit each gate from its newest completed run.
 
-    `records` is {gate: {'runs': [completed run, ...]}}. Each run may carry `report` (one document)
-    or `reports` (documents from the run's artifacts). A run with no matching document does not
-    count and does not supersede a different candidate. The aggregate is admissible only when every
-    non-advisory gate is green. Unbound gates are limitations, never green.
+    A bound gate counts only the newest run whose report names `candidate`. A gate with no such
+    receipt can still pass, and the reason is exactly "pass (manifest-pin bound, no receipt)":
+    its newest completed trunk run succeeded, started strictly after `pin_at`, falls inside the
+    window, and is not diagnostic or focused where a report says so. An older green never fills
+    in for a newer failure. The aggregate is admissible only when every non-advisory gate is green.
     """
     if unbound is None:
         unbound = UNBOUND_GATE_LIMITATIONS
@@ -462,10 +566,7 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
     for name, rec in records.items():
         row = _blank_gate(name, advisory)
         if name in unbound:
-            row["verdict"] = "limitation"
-            row["candidate_bound"] = False
-            row["limitation"] = unbound[name]
-            row["reason"] = "no candidate-bound report: " + unbound[name]
+            _judge_unbound(row, rec, unbound[name], pin_at, cutoff, window_days)
             gates[name] = row
             continue
         classified = []
@@ -514,6 +615,9 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
             "server_digest": candidate.server_digest,
             "platform_lock": candidate.platform_lock,
         },
+        "manifest_pin_at": pin_at.replace(microsecond=0).isoformat() if pin_at else None,
+        "manifest_pin_bound": sorted(
+            n for n, g in gates.items() if g.get("binding") == "manifest-pin"),
         "admissible": not red,
         "red": red,
         "advisory_red": advisory_red,
@@ -555,11 +659,14 @@ def render_markdown(result: dict) -> str:
             f"Admissible: **{'yes' if result['admissible'] else 'no'}**"
             + (f" — red: {', '.join(result['red'])}" if result["red"] else "") + "\n\n")
     tail = ""
-    limitations = [n for n in result.get("limitations") or [] if not result["gates"][n].get("advisory")]
-    if limitations:
-        tail += ("\nNo candidate-bound report (a green workflow conclusion is not admission evidence):\n")
-        for name in limitations:
-            tail += f"- `{name}`: {result['gates'][name]['limitation']}\n"
+    pinned = [n for n, g in sorted(result["gates"].items()) if g.get("binding") == "manifest-pin"]
+    if pinned:
+        tail += (f"\nThese gates passed as `{MANIFEST_PIN_PASS}`. That binding is weaker than a "
+                 "candidate receipt: the newest completed trunk run was a success, started after the "
+                 "platform-manifest pin, inside the window, and was not diagnostic, focused, or partial "
+                 "where the workflow exposes that. The receipt each gate does not publish:\n")
+        for name in pinned:
+            tail += f"- `{name}`: {result['gates'][name].get('limitation')}\n"
     advisory = sorted(n for n, g in result["gates"].items() if g.get("advisory"))
     if advisory:
         tail += ("\nAdvisory (Preview evidence, reported, not required for rc under the 2026-10-25 founder "
@@ -568,6 +675,56 @@ def render_markdown(result: dict) -> str:
         tail += ("\nDeferred to GA (reported, not required for rc): "
                 + ", ".join(f"`{g}`" for g in result["deferred_to_ga"]) + "\n")
     return identity + head + "\n".join(lines) + "\n" + tail
+
+
+def find_pin_time(server_sha: str, manifest: str = "platform-manifest.yaml",
+                  cwd: str | None = None) -> dt.datetime:
+    """Committer time of the first commit whose honua-server sha field is this candidate.
+
+    Uses `git log -G` on the manifest sha line, oldest first, then parses that commit's file.
+    A comment that mentions the sha is not the pin. Raises ValueError when no commit sets the field,
+    so a run cannot be treated as having started after a pin that was never found.
+    """
+    sha = normalize_sha(server_sha)
+    if not sha:
+        raise ValueError("pin lookup needs a full honua-server sha")
+    pattern = f'sha:[[:space:]]*"?{sha}"?'
+    log = subprocess.run(
+        ["git", "--no-pager", "log", "--reverse", "--format=%H%x09%cI", "-G", pattern, "--", manifest],
+        cwd=cwd, capture_output=True, text=True, check=False,
+    )
+    if log.returncode != 0:
+        detail = (log.stderr or log.stdout or "git log failed").strip().splitlines()
+        raise ValueError("cannot find the manifest pin commit: " + (detail[-1] if detail else "git log failed"))
+    try:
+        import yaml
+    except ImportError as exc:  # pragma: no cover
+        raise ValueError("PyYAML is required to read platform-manifest.yaml") from exc
+    for line in log.stdout.splitlines():
+        if "\t" not in line:
+            continue
+        commit, iso = line.split("\t", 1)
+        show = subprocess.run(
+            ["git", "--no-pager", "show", f"{commit}:{manifest}"],
+            cwd=cwd, capture_output=True, text=True, check=False,
+        )
+        if show.returncode != 0 or not show.stdout:
+            continue
+        try:
+            data = yaml.safe_load(show.stdout) or {}
+        except yaml.YAMLError:
+            continue
+        server = ((data.get("components") or {}).get("honua-server") or {}) if isinstance(data, dict) else {}
+        pinned = normalize_sha(server.get("sha") if isinstance(server, dict) else None)
+        if pinned != sha:
+            continue
+        parsed = _parse(iso.strip())
+        if parsed is None:
+            raise ValueError(f"pin commit {commit} has no committer timestamp")
+        return parsed
+    raise ValueError(
+        f"no commit pins honua-server sha {sha} in {manifest}; "
+        "admission cannot prove a run started after the pin")
 
 
 def server_identity(path: str) -> tuple[str, str]:
@@ -643,6 +800,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         candidate = resolve_candidate(args.server_sha, args.server_digest, args.platform_lock,
                                       args.platform_lock_file, args.manifest)
+        pin_at = find_pin_time(candidate.server_sha, args.manifest)
     except ValueError as exc:
         print(f"rc gate window: {exc}", file=sys.stderr)
         return 2
@@ -668,7 +826,8 @@ def main(argv: list[str] | None = None) -> int:
         except urllib.error.HTTPError as exc:
             print(f"rc gate window: {gate}: GitHub API HTTP {exc.code}", file=sys.stderr)
             return 2
-    result = evaluate(records, now, args.window_days, candidate=candidate, advisory=advisory)
+    result = evaluate(records, now, args.window_days, candidate=candidate, advisory=advisory,
+                      pin_at=pin_at)
     result["repo"], result["branch"], result["set"] = args.repo, args.branch, args.set
     result["deferred_to_ga"] = list(GA_DEFERRED) if args.set == "rc" and not args.gate else []
     with open(args.out, "w", encoding="utf-8") as fh:

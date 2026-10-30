@@ -32,6 +32,7 @@ def test_rc_notes_require_a_candidate_bound_run():
     assert "platform lock" in text
     assert "does not pass" in text
     assert "2026-10-22 window" in text
+    assert "pass (manifest-pin bound, no receipt)" in text
 
 
 def test_rc_notes_report_the_ai_gates_as_preview_evidence_outside_rc_admission():

@@ -1,10 +1,13 @@
-# rc release — admission by a candidate-bound gate window.
+# rc release — admission by a candidate-bound gate window, with manifest-pin binding where no receipt exists.
 #
-# rc.N is tagged only when every required gate's most recent completed trunk run for THIS candidate
-# certifies it: the run's report or receipt names the honua-server digest, source SHA, and platform
-# lock. A newer failure or non-certifying run for that candidate wins over an older green one. A gate
-# with no candidate-bound report is a limitation and does not pass. This workflow does not run the
-# gates; it reads their trunk history (tools/rc_gate_window.py) and fails closed. Dry run by default.
+# A gate that publishes a candidate receipt is green only when its most recent completed trunk run
+# for THIS candidate certifies it (honua-server digest, source SHA, and platform lock). A newer
+# failure or non-certifying run for that candidate wins over an older green one. A gate with no such
+# receipt passes only as "pass (manifest-pin bound, no receipt)": its most recent completed trunk run
+# is a success, started after the commit that pinned this candidate in platform-manifest.yaml, inside
+# the window, and not diagnostic or focused where that is exposed. A gate with no qualifying run does
+# not pass. This workflow does not run the gates; it reads their trunk history and fails closed.
+# Dry run by default.
 name: rc-release
 
 on:
@@ -50,6 +53,9 @@ jobs:
       admissible: ${{ steps.window.outputs.admissible }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the pin commit is found with git log on platform-manifest.yaml.
+          fetch-depth: 0
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
