@@ -643,7 +643,8 @@ run_idempotency() {
 #   with its one-shot HONUA_APPROVE_CONTRACT_MIGRATIONS nonce, the documented customer step)
 #   -> the journal advanced, the observed schema equals the declared one, seeded rows survived
 #   -> roll back to the prior image on the migrated database, or, at the documented boundary
-#   (typed schema_reader_incompatible after approved contract migrations or below schema 135),
+#   (typed schema_reader_incompatible after approved contract migrations, below schema 135,
+#   or a migration declared reader-incompatible rather than expand-only),
 #   restore the pre-upgrade backup -> the prior image serves the seeded rows again.
 # Only a recorded `pass` is a pass. COMPOSE_UPGRADE_FAULT injects a defect so CI can keep proving
 # the gate fails on it through its own assertion (gate-upgrade negative-control cell):
@@ -920,11 +921,14 @@ run_compose_upgrade_rollback() {
     CU_ROLLBACK_OUTCOME=image-rollback-served
   else
     compose logs server > "$OUT/compose-rollback-prior.log" 2>&1 || true
-    refusal="$(grep -hoE 'schema_reader_incompatible[^"]{0,200}' "$OUT/compose-rollback-prior.log" | head -n 1)" || refusal=""
+    # The reason sits past the migration name. A 200-character cap hid
+    # "declared reader-incompatible, not expand" on migration 142.
+    refusal="$(grep -hoE 'schema_reader_incompatible[^"]*' "$OUT/compose-rollback-prior.log" | head -n 1)" || refusal=""
     CU_ROLLBACK_OUTCOME=image-rollback-refused
     if [[ "$refusal" == schema_reader_incompatible* ]]; then
       if [ -n "$CU_NONCE" ]; then CU_BOUNDARY=contract-migrations-approved
       elif [[ "$CU_PRIOR_SCHEMA" =~ ^[0-9]+$ ]] && [ "$CU_PRIOR_SCHEMA" -lt "$READER_EXPAND_FLOOR" ]; then CU_BOUNDARY="prior-schema-$CU_PRIOR_SCHEMA-below-$READER_EXPAND_FLOOR"
+      elif [[ "$refusal" == *"declared reader-incompatible, not expand"* ]]; then CU_BOUNDARY=reader-incompatible-declaration
       fi
     fi
     if [ -z "$CU_BOUNDARY" ]; then

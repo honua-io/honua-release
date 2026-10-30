@@ -597,6 +597,10 @@ wait_ready_attempts() {
   if [ "$PROBE" = 1 ] && [ "${GUARD:-present}" = inconclusive ]; then
     SERVER_LOG='{"error":"database connection reset during startup"}'; return 1
   fi
+  if [ "$MIGRATED" = 1 ] && [ "${READER_INCOMPATIBLE:-0}" = 1 ] && [ "$CURRENT" = "$HONUA_PRIOR_SERVER_IMAGE" ] && [ "$PROBE" != 1 ]; then
+    SERVER_LOG='schema_reader_incompatible: applied migration Honua.Server.Migrations.142_CreateAiFinancialAccounting.sql (declared reader-incompatible, not expand).'
+    return 1
+  fi
   if [ "$PROBE" = 1 ] || { [ "$MIGRATED" = 1 ] && [ "${CONTRACT:-0}" = 1 ]; }; then
     [ "${GUARD:-present}" = absent ] && return 0
     SERVER_LOG='{"error":"schema_reader_incompatible: unknown journal entry"}'; return 1
@@ -691,6 +695,16 @@ def test_compose_contract_nonce_is_the_customer_step_and_the_boundary_restores_t
     rollback = observed["customerSteps"]["rollback"]
     assert rollback["outcome"] == "restored-from-pre-upgrade-backup"
     assert rollback["boundary"] == "contract-migrations-approved" and rollback["restoreVerified"] is True
+    assert rollback["certifiedRollbackPath"] == "restore-pre-upgrade-backup"
+
+
+def test_compose_reader_incompatible_declaration_restores_the_backup(tmp_path):
+    result, rows, observed = run_compose(tmp_path, READER_INCOMPATIBLE="1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    rollback = observed["customerSteps"]["rollback"]
+    assert rollback["outcome"] == "restored-from-pre-upgrade-backup"
+    assert rollback["boundary"] == "reader-incompatible-declaration"
+    assert rollback["restoreVerified"] is True
     assert rollback["certifiedRollbackPath"] == "restore-pre-upgrade-backup"
 
 
