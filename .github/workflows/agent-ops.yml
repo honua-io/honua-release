@@ -33,13 +33,13 @@ on:
           - local-docker
           - aws-ecs
       arm:
-        description: Arm label passed to the blinded grader
+        description: primary is the shipped configuration. exploratory is campaign E only.
         required: true
         type: choice
-        default: A
+        default: primary
         options:
-          - A
-          - B
+          - primary
+          - exploratory
 
 permissions:
   contents: read
@@ -66,6 +66,7 @@ jobs:
             --arm "${{ inputs.arm }}" \
             --rows certification/agent-ops/rows/development.jsonl \
             --out "$RUNNER_TEMP/operate"
+          # guidance=none is the runner's shipped configuration. This job does not add a tool sequence.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

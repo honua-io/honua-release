@@ -1,4 +1,4 @@
-"""Load town layers from the agent corpus. The corpus files stay the source of feature identity."""
+"""Load town layers from the agent corpus. Geometry identity is computed here, from geometry only."""
 
 from __future__ import annotations
 
@@ -33,33 +33,30 @@ def corpus_exact():
     return corpus_oracle().exact
 
 
-def load_layer(town_key: str, layer: str) -> list[dict]:
+def geometry_canonical(geometry: dict) -> str:
+    return json.dumps(
+        [geometry.get("type"), geometry.get("coordinates")],
+        separators=(",", ":"),
+    )
+
+
+def geometry_digest(geometry: dict) -> str:
+    """Identity of a geometry. Called only while reading a corpus file."""
+    return hashlib.sha256(geometry_canonical(geometry).encode("utf-8")).hexdigest()
+
+
+def load_layer(town_key: str, layer: str) -> dict:
     path = CORPUS / f"town-{town_key}" / f"{layer}.4326.geojson"
     document = json.loads(path.read_text(encoding="utf-8"))
     features = document["features"]
     if not isinstance(features, list) or not features:
         raise ValueError(f"{path} has no features")
-    return features
-
-
-def geometry_hash(feature: dict) -> str:
-    blob = json.dumps(feature["geometry"], sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
-def signature(features: list[dict]) -> dict:
-    rows = []
+    digests = {}
+    canonical = {}
     for feature in features:
         source_id = feature["properties"]["source_id"]
         if not isinstance(source_id, str) or not source_id:
             raise ValueError("feature is missing source_id")
-        rows.append((source_id, geometry_hash(feature)))
-    rows.sort()
-    ids = [row[0] for row in rows]
-    if len(ids) != len(set(ids)):
-        raise ValueError("duplicate source_id")
-    return {"ids": ids, "count": len(ids), "geometry": {row[0]: row[1] for row in rows}}
-
-
-def town_signatures(town_key: str) -> dict[str, dict]:
-    return {layer: signature(load_layer(town_key, layer)) for layer in LAYERS}
+        digests[source_id] = geometry_digest(feature["geometry"])
+        canonical[source_id] = geometry_canonical(feature["geometry"])
+    return {"features": features, "digests": digests, "canonical": canonical}

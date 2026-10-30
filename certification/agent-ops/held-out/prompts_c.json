@@ -1,0 +1,12 @@
+{
+  "O01": {"C": "Update {town} to the release named in the notes."},
+  "O02": {"C": "Restore {town} shelters to the saved version."},
+  "O03": {"C": "{town} shelters layer is down. Diagnose and fix what you can."},
+  "O04": {"C": "Health of {town}?"},
+  "O05": {"C": "Roll {town} back."},
+  "O06": {"C": "{town} parcels service, last hour: volume and slow requests."},
+  "O07": {"C": "Rotate {town}'s database password with no downtime."},
+  "O08": {"C": "Upgrade {town}; roll back if it fails."},
+  "O09": {"C": "Investigate the slow {town} parcels service."},
+  "O10": {"C": "Publish the {town} shelters change."}
+}

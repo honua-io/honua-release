@@ -1,4 +1,4 @@
-"""Run seeded operate scenarios and print one bar summary line.
+"""Run seeded operate scenarios and print one v2 summary line.
 
 The scripted operator is the local check. A live model call needs --model live and --priced-ok,
 and this lane does not pass those flags.
@@ -14,17 +14,23 @@ import uuid
 from pathlib import Path
 
 from blinding import assert_clean
+from catalog import advertised_tools
 from constants import (
     ARMS,
+    GUIDANCE,
+    MAX_ACTIONS,
+    MAX_CONTEXT_TOKENS,
     NEWER_IMAGE,
     NOTES_SECRET,
-    PHRASING_HELD_OUT,
+    PILOT_IDS,
     PRIOR_IMAGE,
     ROTATED_PASSWORD,
+    SHIPPED_TEMPERATURE,
 )
 from controller import apply_action
-from fixture import ENV_NAMES, write_fixture
-from scenarios import load_prompts, preamble, retry_prompt
+from fixture import ENV_NAMES, PROCESS_NAMES, write_fixture
+from oracles import infrastructure_evidence
+from scenarios import is_held_out_row, load_prompts, preamble, retry_prompt
 from score import preflight, stop_reasons, summarize, summary_line
 from state import INITIAL_PASSWORD, build_case
 from stub import stub_next
@@ -50,22 +56,43 @@ def _ledger_status(path: Path | None) -> str | None:
     return status if isinstance(status, str) else None
 
 
+def _tokens(text: str) -> int:
+    return (len(text) + 3) // 4
+
+
 def _arguments(action: dict) -> dict:
-    if "arguments" in action and isinstance(action["arguments"], dict):
+    if isinstance(action.get("arguments"), dict):
         return dict(action["arguments"])
-    return {key: value for key, value in action.items() if key != "tool"}
+    return {key: value for key, value in action.items() if key not in {"tool", "kind", "report", "text"}}
 
 
-def _drive_stub(scenario: str, state: dict, limit: int) -> list[dict]:
+def _measure(prompt: str, transcript: list[dict]) -> dict:
+    report = ""
+    tool_blob = []
+    for item in transcript:
+        if item.get("kind") == "report":
+            report = item.get("text") or ""
+        else:
+            tool_blob.append(item)
+    input_tokens = _tokens(preamble() + prompt + json.dumps(tool_blob, default=str))
+    output_tokens = _tokens(report)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "context_tokens": input_tokens + output_tokens,
+    }
+
+
+def _drive_stub(scenario: str, state: dict, limit: int) -> tuple[list[dict], bool]:
     transcript: list[dict] = []
     for _ in range(limit):
         action = stub_next(scenario, state, transcript)
-        if action["tool"] == "finish":
+        if action.get("kind") == "report":
             transcript.append(action)
-            return transcript
+            return transcript, False
         result = apply_action(state, action)
         transcript.append({"tool": action["tool"], "arguments": _arguments(action), "result": result})
-    return transcript
+    return transcript, True
 
 
 def _tool_action(kind: str, action: dict) -> dict:
@@ -74,14 +101,19 @@ def _tool_action(kind: str, action: dict) -> dict:
     return {"tool": "terminal_command", "arguments": {"command": action.get("command", "")}}
 
 
-def live_actions(state: dict, transcript: list[dict], row: dict, arm: str, limit: int) -> tuple[bool, bool]:
-    """Call the canary client. Returns (priced call issued, call completed without an infra error)."""
-    from client import CanaryError, ModelFailure, OperateClient, arm_temperature, build_endpoint, parse_model_action
+def live_actions(state: dict, transcript: list[dict], row: dict, arm: str, limit: int) -> tuple[bool, bool, dict | None]:
+    """Call the canary client. Returns (priced, completed, evidence)."""
+    from client import CanaryError, ModelFailure, OperateClient, build_endpoint, parse_model_action
 
     endpoint = build_endpoint(arm)
     if not endpoint.configured:
-        return False, False
-    client = OperateClient(endpoint, temperature=arm_temperature(arm))
+        return False, False, {
+            "kind": "transport_error",
+            "replay": "endpoint-unconfigured",
+            "model_acted": False,
+            "state_changed": False,
+        }
+    client = OperateClient(endpoint)
     messages = [
         {"role": "system", "content": preamble()},
         {"role": "user", "content": row["prompt"]},
@@ -97,59 +129,94 @@ def live_actions(state: dict, transcript: list[dict], row: dict, arm: str, limit
             "runNonce": uuid.uuid4().hex,
         }
         try:
-            content, _usage, _elapsed, _proof = client.complete(messages, certification)
-        except (CanaryError, ModelFailure, OSError):
-            return priced, False
+            content, usage, _elapsed, _proof = client.complete(messages, certification)
+        except (CanaryError, ModelFailure, OSError) as exc:
+            return priced, False, {
+                "kind": "provider_5xx" if priced else "transport_error",
+                "replay": type(exc).__name__,
+                "model_acted": priced,
+                "state_changed": any(item.get("tool") for item in transcript),
+            }
         priced = True
         messages.append({"role": "assistant", "content": content})
+        if isinstance(usage, dict):
+            state["_usage"] = usage
         try:
             kind, action = parse_model_action(content)
         except ModelFailure:
             if retries >= 1:
-                return priced, True
+                transcript.append({"kind": "report", "text": content, "report": {"summary": content}})
+                return priced, True, None
             retries += 1
             messages.append({"role": "user", "content": retry_prompt()})
             continue
         parsed = _tool_action(kind, action)
         if parsed["tool"] == "finish":
-            transcript.append({"tool": "finish", "arguments": parsed["arguments"]})
-            return priced, True
+            transcript.append({"kind": "report", "text": json.dumps(parsed["arguments"]), "report": parsed["arguments"]})
+            return priced, True, None
         result = apply_action(state, {"tool": parsed["tool"], **parsed["arguments"]})
         transcript.append({"tool": parsed["tool"], "arguments": parsed["arguments"], "result": result})
         messages.append({"role": "user", "content": json.dumps({"result": result}, default=str)})
-    return priced, True
+    return priced, True, None
+
+
+def _blind(row: dict, root: Path | None = None) -> None:
+    allow = advertised_tools()
+    assert_clean(
+        tree=root,
+        texts={
+            "prompt": row["prompt"],
+            "preamble": preamble(),
+            "retry": retry_prompt(),
+        },
+        env_names=list(ENV_NAMES),
+        names=list(PROCESS_NAMES),
+        allow=allow,
+    )
 
 
 def run_row(row: dict, *, arm: str, model: str, work: Path, execute: bool, priced_ok: bool) -> dict:
-    state, ground = build_case(row["scenario"], int(row["trial"]))
+    state, ground = build_case(row["scenario"], int(row["trial"]), phrasing=row["phrasing"])
     if state["town_name"] != row["town"] or state["town_slug"] != row["town_slug"]:
         raise RuntimeError(f"{row['id']} town does not match the seed")
     root = write_fixture(work / row["id"], state)
-    assert_clean(
-        tree=root,
-        texts={"prompt": row["prompt"], "preamble": preamble(), "retry": retry_prompt()},
-        env_names=list(ENV_NAMES),
-    )
+    _blind(row, root)
     plan = local_docker_plan(root, state)
     compose_note = {"executed": False, "server_readback": False}
+    evidence = None
     if execute:
         compose_note = execute_local_docker(root, state)
+        if compose_note.get("infrastructure"):
+            evidence = {
+                "kind": "harness_crash",
+                "replay": "compose-config",
+                "model_acted": False,
+                "state_changed": False,
+            }
     before = copy.deepcopy(state)
     transcript: list[dict] = []
-    infrastructure = bool(compose_note.get("infrastructure"))
     priced_call = False
-    if not infrastructure and model == "live":
+    cap_exhausted = False
+    if evidence is None and model == "live":
         if not priced_ok:
-            infrastructure = True
+            evidence = {"kind": "harness_crash", "replay": "priced-refused", "model_acted": False, "state_changed": False}
         else:
             try:
-                priced_call, completed = live_actions(state, transcript, row, arm, ARMS[arm]["max_actions"])
-            except Exception:
-                priced_call, completed = False, False
+                priced_call, completed, live_evidence = live_actions(
+                    state, transcript, row, arm, ARMS[arm]["max_actions"],
+                )
+            except Exception as exc:
+                priced_call, completed, live_evidence = False, False, {
+                    "kind": "harness_crash",
+                    "replay": type(exc).__name__,
+                    "model_acted": False,
+                    "state_changed": False,
+                }
             if not completed:
-                infrastructure = True
-    elif not infrastructure and model == "stub":
-        transcript = _drive_stub(row["scenario"], state, ARMS[arm]["max_actions"])
+                evidence = live_evidence
+    elif evidence is None and model == "stub":
+        transcript, cap_exhausted = _drive_stub(row["scenario"], state, ARMS[arm]["max_actions"])
+    measured = _measure(row["prompt"], transcript)
     record = {
         "id": row["id"],
         "scenario": row["scenario"],
@@ -157,25 +224,51 @@ def run_row(row: dict, *, arm: str, model: str, work: Path, execute: bool, price
         "trial": int(row["trial"]),
         "target": "local-docker",
         "town": row["town"],
-        "passed": False,
-        "destructive": False,
+        "outcome": "fail",
         "false_success": False,
+        "unsafe": False,
+        "invalid": False,
+        "cap_hit": False,
+        "o05": None,
         "healthy_false_alarm": False,
-        "infrastructure": infrastructure,
         "o04_healthy": row["scenario"] == "O04" and not ground["issues"],
+        "infrastructure": False,
+        "infrastructure_evidence": None,
+        "replacement": None,
         "priced_call": priced_call,
         "server_readback": False,
         "prior_image": plan["prior_image"],
-        "arm_label": arm,
+        "arm": arm,
+        "guidance": GUIDANCE,
+        "shipped_temperature": SHIPPED_TEMPERATURE,
+        **measured,
+        "actions": sum(1 for item in transcript if item.get("tool")),
     }
-    if infrastructure:
+    if evidence is not None and infrastructure_evidence(evidence):
+        record["infrastructure"] = True
+        record["infrastructure_evidence"] = {"kind": evidence["kind"], "replay": evidence["replay"]}
+        record["outcome"] = "infrastructure"
         return record
     from oracles import grade
 
-    graded = grade(before, state, transcript, ground, arm_label=arm)
-    record["passed"] = graded["passed"]
-    record["destructive"] = graded["destructive"]
+    graded = grade(
+        before,
+        state,
+        transcript,
+        ground,
+        actions=record["actions"] + (1 if cap_exhausted else 0),
+        tokens=measured["context_tokens"] if measured["context_tokens"] > MAX_CONTEXT_TOKENS else None,
+    )
+    if cap_exhausted or measured["context_tokens"] > MAX_CONTEXT_TOKENS or record["actions"] > MAX_ACTIONS:
+        graded["cap_hit"] = True
+        if graded["outcome"] == "success":
+            graded["outcome"] = "fail"
+    record["outcome"] = graded["outcome"]
     record["false_success"] = graded["false_success"]
+    record["unsafe"] = graded["unsafe"]
+    record["invalid"] = graded["invalid"]
+    record["cap_hit"] = graded["cap_hit"]
+    record["o05"] = graded["o05"]
     record["healthy_false_alarm"] = graded["healthy_false_alarm"]
     _write_receipt(work.parent / "receipts" / f"{row['id']}.json", row, transcript, state)
     return record
@@ -191,39 +284,36 @@ def _write_receipt(path: Path, row: dict, transcript: list[dict], state: dict) -
         state.get("notes_secret") or "",
         state.get("database_password") or "",
     ])
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_receipt(path, {
         "id": row["id"],
-        "arm_label": row.get("arm_label") or "",
         "phrasing": row["phrasing"],
+        "guidance": GUIDANCE,
         "tools": redactor.value(transcript),
         "server_readback": False,
     })
 
 
-def _empty_summary(target: str, arm: str, driver: str, status: str) -> dict:
-    summary = summarize([])
-    summary.update({
-        "target": target,
-        "arm_label": arm,
-        "model": None,
-        "priced": False,
-        "driver": driver,
-        "status": status,
-    })
-    return summary
-
-
 def _emit(summary: dict) -> int:
-    reasons = summary.get("stop_reasons") or []
+    reasons = (summary.get("stop") or {}).get("reasons") or []
     sys.stdout.write(summary_line(summary) + "\n")
-    return 0 if summary["bars_ok"] and not reasons else 2
+    return 0 if not reasons else 2
+
+
+def _select_rows(rows: list[dict], *, pilot: bool, max_rows: int | None) -> list[dict]:
+    if pilot:
+        by_id = {row["id"]: row for row in rows}
+        return [by_id[row_id] for row_id in PILOT_IDS if row_id in by_id]
+    if max_rows is not None:
+        return rows[:max_rows]
+    return rows
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Operate-stage runner. Prints one JSON summary line.")
     parser.add_argument("--target", choices=("local-docker", "aws-ecs"), default="local-docker")
     parser.add_argument("--model", choices=("stub", "live"), default="stub")
-    parser.add_argument("--arm", choices=tuple(ARMS), default="A")
+    parser.add_argument("--arm", choices=tuple(ARMS), default="primary")
     parser.add_argument("--rows", type=Path, default=DEFAULT_ROWS)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--qualification", action="store_true")
@@ -240,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.write_rows:
         from rows import write_development
+
         written = write_development(Path(args.write_rows))
         sys.stderr.write(f"wrote {written}\n")
         return 0
@@ -250,11 +341,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if report["ok"] else 2
 
     if args.pilot and args.max_rows not in (None, 3):
-        sys.stderr.write("--pilot runs the first 3 rows\n")
+        sys.stderr.write("the pilot is the three local trials named by the preregistration\n")
         return 2
-    if args.pilot:
-        args.max_rows = 3
-    pilot = bool(args.pilot or args.max_rows == 3)
 
     if args.prior_image and args.prior_image != PRIOR_IMAGE:
         sys.stderr.write("the prior image is the published release named by the preregistration\n")
@@ -263,15 +351,21 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write("the newer image is the trunk build named by the preregistration\n")
         return 2
 
+    gate = preflight()
+    ledger = _ledger_status(args.ledger)
+
     if args.target == "aws-ecs":
         plan = aws_ecs_plan()
-        summary = _empty_summary("aws-ecs", args.arm, "unwired", plan["status"])
-        gate = preflight()
-        summary["stop_reasons"] = stop_reasons(
-            summary, pilot=False, preflight_ok=gate["ok"], ledger_status=_ledger_status(args.ledger),
-        )
-        if "unwired" not in summary["stop_reasons"]:
-            summary["stop_reasons"] = ["unwired", *summary["stop_reasons"]]
+        summary = summarize([])
+        summary["target"] = "aws-ecs"
+        summary["arm"] = args.arm
+        summary["model"] = None
+        summary["priced"] = False
+        summary["driver"] = "unwired"
+        summary["status"] = plan["status"]
+        summary["stop"]["reasons"] = ["unwired", *stop_reasons(
+            summary, pilot=False, preflight_ok=gate["ok"], ledger_status=ledger,
+        )]
         if args.out:
             args.out.mkdir(parents=True, exist_ok=True)
             (args.out / "summary.json").write_text(summary_line(summary) + "\n", encoding="utf-8")
@@ -279,13 +373,11 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(summary)
 
     rows = _read_rows(args.rows)
-    if any(row.get("phrasing") == PHRASING_HELD_OUT for row in rows) and not args.qualification:
-        sys.stderr.write("phrasing C requires --qualification\n")
+    if any(is_held_out_row(row) for row in rows) and not args.qualification:
+        sys.stderr.write("held-out rows require --qualification\n")
         return 2
-    needs_held_out = args.qualification and any(row.get("phrasing") == PHRASING_HELD_OUT for row in rows)
-    load_prompts(qualification=needs_held_out)
-    if args.max_rows is not None:
-        rows = rows[: args.max_rows]
+    load_prompts(qualification=bool(args.qualification and any(is_held_out_row(row) for row in rows)))
+    rows = _select_rows(rows, pilot=bool(args.pilot), max_rows=args.max_rows)
     if not rows:
         sys.stderr.write("no rows\n")
         return 2
@@ -294,26 +386,46 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     for row in rows:
-        assert_clean(texts={row["id"]: row["prompt"], "preamble": preamble(), "retry": retry_prompt()})
+        _blind(row)
 
-    gate = preflight()
-    ledger = _ledger_status(args.ledger)
     if not gate["ok"] or ledger == "budget_exhausted":
-        summary = _empty_summary(args.target, args.arm, args.model, "stopped")
-        summary["pilot_passes"] = 0 if pilot else None
-        summary["pilot_destructive"] = False
-        summary["stop_reasons"] = stop_reasons(summary, pilot=pilot, preflight_ok=gate["ok"], ledger_status=ledger)
+        summary = summarize([])
+        summary.update({
+            "target": args.target,
+            "arm": args.arm,
+            "model": None,
+            "priced": False,
+            "driver": args.model,
+            "status": "stopped",
+        })
+        summary["stop"]["reasons"] = stop_reasons(summary, pilot=bool(args.pilot), preflight_ok=gate["ok"], ledger_status=ledger)
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / "summary.json").write_text(summary_line(summary) + "\n", encoding="utf-8")
         return _emit(summary)
 
     if args.model == "live" and not args.priced_ok:
-        summary = _empty_summary(args.target, args.arm, "live", "priced-refused")
-        summary["stop_reasons"] = ["priced_refused"]
+        summary = summarize([])
+        summary.update({
+            "target": args.target,
+            "arm": args.arm,
+            "model": None,
+            "priced": False,
+            "driver": "live",
+            "status": "priced-refused",
+        })
+        summary["stop"]["reasons"] = ["priced_refused"]
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / "summary.json").write_text(summary_line(summary) + "\n", encoding="utf-8")
         sys.stderr.write("live mode needs --priced-ok and was not started\n")
         return _emit(summary)
+
+    if args.qualification and any(is_held_out_row(row) for row in rows):
+        from scenarios import exposure_record
+
+        (args.out / "held-out-exposure.json").write_text(
+            json.dumps({"opened": True, "prior": exposure_record()}, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     work = args.out / "fixtures"
     work.mkdir(parents=True, exist_ok=True)
@@ -333,19 +445,16 @@ def main(argv: list[str] | None = None) -> int:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
 
     summary = summarize(trials)
-    counted = [trial for trial in trials if not trial["infrastructure"]]
     summary.update({
         "target": args.target,
-        "arm_label": args.arm,
+        "arm": args.arm,
         "model": ARMS[args.arm]["model"] if any(trial["priced_call"] for trial in trials) else None,
         "priced": any(trial["priced_call"] for trial in trials),
         "driver": "stub" if args.model == "stub" else "live",
         "status": "complete",
-        "pilot_passes": sum(1 for trial in counted if trial["passed"]) if pilot else None,
-        "pilot_destructive": any(trial["destructive"] for trial in counted) if pilot else False,
     })
-    summary["stop_reasons"] = stop_reasons(
-        summary, pilot=pilot, preflight_ok=True, ledger_status=ledger,
+    summary["stop"]["reasons"] = stop_reasons(
+        summary, pilot=bool(args.pilot), preflight_ok=True, ledger_status=ledger, trials=trials,
     )
     line = summary_line(summary)
     (args.out / "summary.json").write_text(line + "\n", encoding="utf-8")

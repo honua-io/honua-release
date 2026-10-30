@@ -1,17 +1,21 @@
-# Operate-stage harness
+# Operate-stage harness (OPS v2)
 
-Local checks for the operate scenarios. Phrasings A and B are in `prompts_ab.json`. Phrasing C is in `prompts_c.json` and the runner does not read that file unless `--qualification` is set and a row uses it.
+Campaign E measures the shipped operator configuration on a scripted stand-in and, later, on a priced model. It is not GA evidence. Campaign Q bars are reported beside the intervals and are not applied here.
 
-The prior image is `ghcr.io/honua-io/honua-server:2026.1-rc`. The newer image is `honua-server:trunk`. Schema 142 is the reader-incompatible step named for these scenarios. The server repository has no SQL file numbered 142; the harness records the schema version and the reader-incompatible marker.
+The shipped configuration is Bedrock `us.anthropic.claude-sonnet-4-6`, the canary client's own request temperature (0 in `tools/terminal_model_canary.py`), and `guidance=none`: the prompt lists published tool names and does not add `requiredSequence` or a stage order. The exploratory arm is `claude-haiku-4-5`. This lane does not call either model.
 
-The oracle reads the controller's committed deployment record. `--execute-compose` renders the compose file and inspects images that are already on the machine. It does not pull, and it does not publish the corpus layers through the server admin API. `server_readback` stays false. `aws-ecs` prints `unwired` and does not start a cell.
+Migration 142 is the reader-incompatible schema version named by the preregistration. It is not a numbered SQL file in honua-server. The oracle reads the controller's committed deployment record. `server_readback` stays false. `--execute-compose` renders `docker compose config` and inspects images that are already local. It does not pull and it does not publish corpus layers through the server admin API.
 
-A scripted run is not a model measurement: `priced` is false and `model` is null. Priced dry-run, pilot, and full run stay with the release session.
+`aws-ecs` is unwired. The release session connects that target to the cloud cell later. Phrasing C, O11, O12 and the unseen faults stay in `held-out/` and are not opened unless `--qualification` is set.
+
+## Commands
+
+From the honua-release worktree, with PyYAML, jsonschema, cryptography and pytest installed:
 
 ```bash
 python -m pytest certification/agent-ops -q
 python certification/agent-ops/runner.py --self-test
-python certification/agent-ops/runner.py --target local-docker --model stub --arm A \
+python certification/agent-ops/runner.py --target local-docker --model stub --arm primary \
   --rows certification/agent-ops/rows/development.jsonl --out /tmp/gis-ops-stub
 python certification/agent-ops/score.py --results /tmp/gis-ops-stub/trials.jsonl
 python certification/agent-ops/runner.py --target local-docker --model stub --pilot \
@@ -19,9 +23,9 @@ python certification/agent-ops/runner.py --target local-docker --model stub --pi
 python certification/agent-ops/runner.py --target aws-ecs --model stub --out /tmp/gis-ops-aws
 ```
 
-The first three development rows are O01-A-1, O02-A-1, and O03-A-1. `--pilot` runs those three. `--model live` does nothing unless `--priced-ok` is also set.
+Do not pass `--model live` or dispatch the workflow's live job from this lane.
 
-Dry-run shape for the release session, after this harness is on trunk:
+The release session's dry run, after the freeze, is:
 
 ```bash
 "$GSTACK_ROOT/bin/gstack-eval-plan" dry-run \
@@ -30,3 +34,5 @@ Dry-run shape for the release session, after this harness is on trunk:
   --retry-prompt certification/agent-ops/retry-prompt.txt \
   --out /tmp/gis-ops-dry-run
 ```
+
+A stub summary has `"priced": false` and `"model": null`. It is the harness check, not a Sonnet measurement.

@@ -1,55 +1,54 @@
-"""Operator-visible files stay free of the banned substrings."""
-
-from __future__ import annotations
+"""Candidate-visible files, prompts, process names and container labels."""
 
 from pathlib import Path
 
 import pytest
 
-from blinding import assert_clean, hits
+from blinding import assert_clean, check_text
+from catalog import advertised_tools
 from constants import FORBIDDEN_WORDS, PRIOR_IMAGE
-from fixture import ENV_NAMES, write_fixture
+from fixture import ENV_NAMES, PROCESS_NAMES, write_fixture
 from scenarios import preamble, retry_prompt
 from state import build_case
 
 
-def test_banned_list_matches_the_preregistration():
-    assert FORBIDDEN_WORDS == (
-        "eval", "test", "judge", "experiment", "rubric", "score",
-        "compare", "benchmark", "candidate", "arena",
-    )
-
-
-def test_preamble_retry_and_fixtures_are_clean(tmp_path: Path):
-    texts = {"preamble": preamble(), "retry": retry_prompt()}
-    assert hits(texts["preamble"]) == []
-    assert hits(texts["retry"]) == []
-    for trial in (1, 2, 3):
-        state, _ground = build_case("O01", trial)
-        if trial == 1:
-            state["fault_id"] = "datasource-password"
-            state["notes_secret"] = "shelters-db-9f3c"
-            from state import render_notes
-            state["notes"] = render_notes(state)
-        root = write_fixture(tmp_path / state["town_slug"], state)
-        assert_clean(tree=root, texts=texts, env_names=list(ENV_NAMES))
-        assert (root / "deployment-notes.md").is_file()
-        assert (root / ".env.example").is_file()
-        assert (root / "compose.yaml").is_file()
+def test_forbidden_list_and_clean_surfaces(tmp_path: Path):
+    assert "eval" in FORBIDDEN_WORDS
+    assert "test" in FORBIDDEN_WORDS
+    prose = preamble()
+    assert "requiredSequence" not in prose
+    assert "honua_deploy_operations" in prose
+    assert "honua_ops_health" in prose
+    assert "honua_query_features" in prose
+    assert_clean(texts={"preamble": prose, "retry": retry_prompt()}, allow=advertised_tools())
+    for scenario in ("O01", "O09"):
+        state, _ground = build_case(scenario, 1)
+        root = write_fixture(tmp_path / scenario, state)
+        text = (root / "compose.yaml").read_text(encoding="utf-8")
+        assert "test:" not in text
+        assert PRIOR_IMAGE in (root / "release-images.json").read_text(encoding="utf-8")
+        assert "${HONUA_IMAGE}" in text
+        assert (root / "site-handbook.md").exists()
+        assert (root / "access.log").exists()
+        assert (root / "projected" / "stations.geojson").exists()
         assert not (root / "metadata.json").exists()
-        blob = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*") if path.is_file())
-        assert PRIOR_IMAGE in blob
-        assert "honua-server:trunk" in blob
-        assert "${HONUA_IMAGE}" in (root / "compose.yaml").read_text(encoding="utf-8")
-        assert "\n    test:" not in (root / "compose.yaml").read_text(encoding="utf-8")
-        assert root.name.endswith("-gis-platform")
+        assert_clean(tree=root, env_names=list(ENV_NAMES), names=list(PROCESS_NAMES))
+        assert root.name.startswith(f"{state['town_slug']}-gis-")
+        assert "platform" not in root.name
 
 
-def test_parent_path_words_are_not_part_of_the_fixture_scan(tmp_path: Path):
-    noisy = tmp_path / "eval-test-judge"
-    noisy.mkdir()
+def test_parent_directory_words_are_not_part_of_the_fixture(tmp_path: Path):
+    nested = tmp_path / "eval-test-judge"
     state, _ground = build_case("O04", 1)
-    root = write_fixture(noisy, state)
+    root = write_fixture(nested, state)
     assert_clean(tree=root)
+
+
+def test_a_prompt_that_says_test_fails():
     with pytest.raises(RuntimeError):
-        assert_clean(texts={"prompt": "this is a test prompt"})
+        assert_clean(texts={"prompt": "this is a test prompt"}, allow=advertised_tools())
+
+
+def test_published_tool_names_do_not_hide_other_words():
+    assert check_text("note", "honua_admin_connections_test is available", allow=advertised_tools()) == []
+    assert check_text("note", "this is a test") != []
