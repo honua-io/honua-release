@@ -81,7 +81,7 @@ components:
   honua-sdk-js:
     source:
       repository: https://github.com/honua-io/honua-sdk-js
-      revision: 45e2fb2c7c35216521319f0e3447661988f2981f
+      revision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
     contractVersions:
       connect-parity: '1.0'
     schemaVersions:
@@ -90,39 +90,39 @@ components:
     artifacts:
     - kind: npm
       coordinate: '@honua/sdk-js'
-      version: 0.2.6
-      integrity: sha512-Hq0g50tERfIyNiw7gtoEpshAyDWG2UosRk/SBo96c/CrcwJR4pcTKiLsDOHqkPUtP3OUIa1/SaH7AV6bejHtlg==
-      sourceRevision: 45e2fb2c7c35216521319f0e3447661988f2981f
+      version: 0.2.10
+      integrity: sha512-luqpr9Xn8A7e0wUFRdSh4wTYdpVFSVQT5YxYPRSJiNu9CM/m8vAPKvkLvAy6u0Mjvl1hBKFJI0E2YMGZr/jicA==
+      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
     - kind: npm
       coordinate: '@honua/mcp-server'
-      version: 0.2.6
-      sourceRevision: 54ae5bc51387771264d19fc3fb9a7255a6fff2ab
-      integrity: sha512-82N2lefwbafZ3umcGV/3ZfmQPvyJGbthFOS8y9uQt5HCOlIcadLl6u13bM4vV/6gvd8bbAey+td50Jh3G4fnZA==
+      version: 0.2.10
+      sourceRevision: 64173dd6a5101736655a8737c4adc592c9989595
+      integrity: sha512-D3j29U5BfyhUN38SQ1NvzqiCTSWwepXubOXzRLzziqA/4Z6PyEjP0Jmv2b9hMJsvABy1EERsNDp6FUdpO0qQJg==
     - kind: npm
       coordinate: '@honua/sdk'
-      version: 0.2.6
-      sourceRevision: 45e2fb2c7c35216521319f0e3447661988f2981f
-      integrity: sha512-GJklpJ0SZC6Ef2zr91FEeRs0YV7AfztdXx2TdYW6+fX3BZFbmMR379gJi6xjXR32HL+s3rz0YtyZBjEFo1Vppg==
+      version: 0.2.10
+      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
+      integrity: sha512-5CrY3zyY+97nnbuERfvHOOgTco4eB+ELZ2UuvYsLT8A7d23bmg8KSiKD6T7HJFfeG4zAsdggz+lw6a+DGm/cuA==
     - kind: npm
       coordinate: '@honua/sdk-esri-compat'
-      version: 0.2.6
-      sourceRevision: 45e2fb2c7c35216521319f0e3447661988f2981f
-      integrity: sha512-1HOppeBmYSYyuHPAaOXhXohvo3erk8iOVveal1I0r+blYOMeTXa1B5dmANe28N1AEb2iU+QQaxPLSXzjCyn4bA==
+      version: 0.2.10
+      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
+      integrity: sha512-tK7PV5rAa3bVVWtE7n9iD+G1vuVIQRADaG0C7EfBmkUJpUgaKVSJz6gtemonn/nSTKSF3fTYHwX13b1WdRn1AQ==
     - kind: npm
       coordinate: '@honua/react'
-      version: 0.2.6
-      sourceRevision: 45e2fb2c7c35216521319f0e3447661988f2981f
-      integrity: sha512-HI+ZupSM6psakjjTNToZTwdnX0fHgp8ci+kBbVdWp3m3icF9QSoLl8SEqwWjhZsTdxSXjRH/WF2/SZv+3hCRBQ==
+      version: 0.2.10
+      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
+      integrity: sha512-NtQw2Da5IwNK+xfy2lKCfHxuVjU2WSZKVrTIHkDXK56Jr28yrWs40HU6bgsq+PyXTXSQPi3V/ocJqZxw9TgiqA==
     - kind: npm
       coordinate: '@honua/geometry'
-      version: 0.2.6
-      sourceRevision: 45e2fb2c7c35216521319f0e3447661988f2981f
-      integrity: sha512-QJL+9U7jAjHqTUdYPoe2a716TvsvHZu9gkXcu1mowFTIFa4W8wMUcaAkZusDJd4sRziIJDe/FtW2gJ+hJv50OA==
+      version: 0.2.10
+      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
+      integrity: sha512-KkqFsBGkUIBSAK73pwwyjKfEXbVAFHw5i5P7Ntbzkgno1RdHO4llrZNSWZ5pi8ta6Y3roH4i4xzqZDqafHJ8fA==
     - kind: npm
       coordinate: '@honua/app-platform'
-      version: 0.2.6
-      sourceRevision: 45e2fb2c7c35216521319f0e3447661988f2981f
-      integrity: sha512-wvlLgq1q60QeKbEY+otJTZij52AhnVaWval2tuSUXPxe8BFt0uP1LKVfMPbuO8WwgIDLsiDg6XnMG7+GfyZ83w==
+      version: 0.2.10
+      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
+      integrity: sha512-d4gxBGGeW1Rv42gRShHcF+tTV6lIaIkI1Mw30jiH/SFJx1lSsNAnKo/i+bLOvLJqZIpOpHs2mSc6DC4TKNeV+g==
     - kind: npm
       coordinate: create-honua-app
       version: 0.2.3
@@ -134,16 +134,16 @@ components:
   honua-sdk-python:
     source:
       repository: https://github.com/honua-io/honua-sdk-python
-      revision: 361978e86e816a35d93ee527b029a0c8f6e97efa
+      revision: 4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352
     contractVersions:
       protocol-factories: '1'
     schemaVersions: {}
     artifacts:
     - kind: wheel
       coordinate: honua-sdk
-      version: 0.1.18
-      sha256: sha256:11d5c0074a8c3065b2ca2777a33efab6672dd1f03e0d664abc5f9f964727b033
-      sourceRevision: 361978e86e816a35d93ee527b029a0c8f6e97efa
+      version: 0.1.19
+      sha256: sha256:01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7
+      sourceRevision: 4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352
     - kind: wheel
       coordinate: honua-admin
       version: 0.1.12

@@ -272,3 +272,43 @@ def test_the_generator_resolves_the_floor_once_every_component_is_built(tmp_path
     assert [row.split(".serverCompatibility")[0] for row in refused] == [
         f"[PUBLISH] $.components.{name}" for name in SDK_COMPONENTS]
     assert all("2026.1.0-rc.4, which no locked publisher artifact declares" in row for row in refused)
+
+
+def test_committed_compatibility_table_uses_manifest_sdk_pins():
+    """The published table is render(lock), and the lock copies the manifest's client pins.
+
+    platform-manifest.yaml is the pin source. generate_platform_lock.py copies each
+    clientArtifacts identity into the lock, and generate_compatibility_table.py prints
+    those versions. A stale lock draft leaves the table on an older cohort.
+    """
+    root = resolver.ROOT
+    manifest = yaml.safe_load((root / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    lock = yaml.safe_load((root / "docs/platform-lock.v1.draft.yaml").read_text(encoding="utf-8"))
+    artifacts = {
+        (artifact.get("kind"), artifact.get("coordinate")): artifact
+        for component in lock["components"].values()
+        for artifact in component.get("artifacts") or []
+    }
+    kinds = {"npm": "npm", "pypi": "wheel", "nuget": "nuget"}
+    for name, published in manifest["clientArtifacts"].items():
+        if not isinstance(published, dict) or published.get("required", True) is False:
+            continue
+        kind = kinds[published["ecosystem"]]
+        artifact = artifacts[(kind, published["package"])]
+        assert artifact["version"] == str(published["version"]), name
+        hash_key = "integrity" if kind == "npm" else "sha256"
+        published_hash = published["integrity" if kind == "npm" else "digest"]
+        assert artifact[hash_key] == published_hash, name
+        assert artifact["sourceRevision"] == published["sourceSha"], name
+    for component_name in ("honua-sdk-js", "honua-sdk-python", "honua-sdk-dotnet"):
+        assert lock["components"][component_name]["source"]["revision"] == manifest["components"][component_name]["sha"]
+    table = (root / "docs/SDK-SERVER-COMPATIBILITY.md").read_text(encoding="utf-8")
+    assert table == render(lock)
+    pins = (
+        ("@honua/sdk-js", manifest["clientArtifacts"]["honua-sdk-js"]["version"]),
+        ("honua-sdk", manifest["clientArtifacts"]["honua-sdk-python-wheel"]["version"]),
+        ("Honua.Sdk", manifest["clientArtifacts"]["honua-sdk-dotnet"]["version"]),
+        ("honua-admin", manifest["clientArtifacts"]["honua-admin-python-wheel"]["version"]),
+    )
+    for package, version in pins:
+        assert f"{package} {version}" in table
