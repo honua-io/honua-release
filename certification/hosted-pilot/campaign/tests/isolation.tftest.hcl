@@ -207,6 +207,38 @@ run "reviewed_model_resources_only" {
   }
 }
 
+run "latest_models_grant_exact_profile_and_member_arns" {
+  command = plan
+  variables {
+    controller_model_resource_arns = [
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-opus-5-5",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-opus-5-5",
+      "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-opus-5-5",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-5-5",
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.openai.gpt-6.1-sol",
+      "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-6.1-sol",
+      "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-6.1-sol",
+      "arn:aws:bedrock:us-west-2::foundation-model/openai.gpt-6.1-sol",
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.openai.gpt-6.1-terra",
+      "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-6.1-terra",
+      "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-6.1-terra",
+      "arn:aws:bedrock:us-west-2::foundation-model/openai.gpt-6.1-terra",
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-6",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6",
+      "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-6",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6",
+    ]
+  }
+  assert {
+    condition     = toset(one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if can(index(statement.Action, "bedrock:InvokeModel"))]).Resource) == toset(var.controller_model_resource_arns)
+    error_message = "The controller may invoke only the exact latest-model profile and member ARNs, including the shipped Sonnet 4.6 default."
+  }
+}
+
 run "reject_wildcard_model_authority" {
   command = plan
   variables {
