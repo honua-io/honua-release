@@ -21,6 +21,8 @@ PLAN = Path(__file__).resolve().parents[1] / "terminal-model-canary/redis-off-se
 STAGE_TOOLS = {1: {"honua_list_capabilities", "honua_list_layers", "honua_query_features"},
                2: {"honua_plan_analysis", "honua_validate_plan", "honua_dry_run_plan",
                    "honua_execute_plan", "honua_list_capabilities"}}
+PLAN_TOOLS = ("honua_validate_plan", "honua_dry_run_plan", "honua_execute_plan")
+_IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
 
 
 def _digest(value):
@@ -84,6 +86,7 @@ def observe(driver, request):
     complete = bool(profile["serving"] if stage["number"] == 1 else profile["refusal"] and profile["acknowledged"])
     available = observation.ready and observation.setup_view_present and state.get("stackUp")
     status = "pass" if complete else "ready" if available else "blocked"
+    tools = stage_tools(engine.view(), stage["number"]) if available else []
     return {"status": "pass" if complete else "ready" if available else "blocked",
             "stageStatus": {**stage, "status": status, "blockedBy": [] if available else ["candidate-serving"],
                 "checks": [{"status": "pass", "invocation": stage["command"], "detail": "independent profile oracle passed"}] if complete else []},
@@ -92,8 +95,52 @@ def observe(driver, request):
                 "servingFixture": {key: state["servingFixtureBinding"][key] for key in ("serviceId", "layerId")},
                 "requiredOutcome": {"executionOutcome": "refused", "functionalGpExecuted": False},
                 "bufferFixture": {**((engine.fixture or {}).get("buffer") or {}),
-                    "wkb": executor.oracles.point_wkb(*engine.fixture["buffer"]["point"])} if engine.fixture.get("buffer") else None},
-            "toolView": driver._tool_view(observation)}
+                    "wkb": executor.oracles.point_wkb(*engine.fixture["buffer"]["point"])} if engine.fixture.get("buffer") else None,
+                "planContract": plan_contract(engine.fixture, tools) if stage["number"] == 2 else None},
+            "toolView": driver._tool_view(observation),
+            # The only tool calls execute admits for this stage (same view, same reviewed set).
+            "stageTools": tools}
+
+
+def stage_tools(view, number):
+    """The tool calls this stage admits: its reviewed set intersected with the observed bounded view.
+
+    observe advertises exactly this list and execute admits exactly this list, both from engine.view(),
+    so the model is never offered a tool the check refuses (run 41013398407 offered all 41 view tools).
+    """
+    names = [tool.get("name") for tool in view.get("tools") or [] if isinstance(tool, dict)]
+    return sorted(name for name in STAGE_TOOLS.get(number, set()) if names.count(name) == 1)
+
+
+def plan_contract(fixture, tools):
+    """The independently authored buffer input validate_durable_plan requires, stated to the model.
+
+    The candidate descriptors point at a catalog resource the bounded view cannot read, so without
+    this the model cannot know the reviewed input encoding (string srid/distance, geodesic "false").
+    """
+    spec = (fixture or {}).get("buffer")
+    if not spec:
+        return None
+    return {"tools": [name for name in PLAN_TOOLS if name in tools],
+            "arguments": {"plan": {"planId": "<your token>", "intentId": "<your token>", "outputs": ["FeatureLayer"],
+                "steps": [{"stepId": "<your token>", "kind": "Geoprocess", "processId": "geometry.buffer",
+                           "inputs": {"wkb": executor.oracles.point_wkb(*spec["point"]), "srid": str(spec["srid"]),
+                                      "distance": str(spec["distance"]), "geodesic": "false"}}]}},
+            "requirement": "Call one of these tools with exactly this plan. Choose your own planId, intentId and "
+                           "stepId tokens (letters, digits, '-', '_'); copy outputs, kind, processId and inputs "
+                           "unchanged; add no other plan or step fields. A typed Redis refusal is the expected result."}
+
+
+def action_summary(action):
+    """Safe receipt detail for a rejected action: its kind and tool name when each is an identifier."""
+    action = action if isinstance(action, dict) else {}
+    parts = []
+    for key in ("kind", "tool"):
+        value = action.get(key)
+        if value is None:
+            continue
+        parts.append(f"{key}={value if isinstance(value, str) and _IDENTIFIER.fullmatch(value) else '<non-identifier>'}")
+    return "; ".join(parts) or "no kind or tool"
 
 
 def _reference_features(transport, arguments):
@@ -187,15 +234,17 @@ def execute(driver, request):
     view = engine.view()
     name, arguments = action.get("tool"), action.get("arguments")
     descriptors = [tool for tool in view["tools"] if tool.get("name") == name]
-    if (action.get("kind") != "tool_call" or name not in STAGE_TOOLS[stage["number"]]
+    if (action.get("kind") != "tool_call" or name not in stage_tools(view, stage["number"])
             or len(descriptors) != 1 or not isinstance(arguments, dict)):
-        raise ExecutionError("model action", "action is outside the refusal stage and observed bounded view")
+        # The notice carries the kind and tool name (identifiers only), never the arguments.
+        raise ExecutionError("model action", "action is outside the refusal stage and observed bounded view "
+                             f"({action_summary(action)})")
     import jsonschema
     try:
         jsonschema.validate(arguments, descriptors[0]["inputSchema"])
     except jsonschema.ValidationError as exc:
         raise ExecutionError("model action", "arguments differ from the observed server schema") from exc
-    if name in {"honua_validate_plan", "honua_dry_run_plan", "honua_execute_plan"}:
+    if name in PLAN_TOOLS:
         validate_durable_plan(arguments, engine.fixture)
     try:
         raw = engine.transport.tool(name, arguments, view, "operator")

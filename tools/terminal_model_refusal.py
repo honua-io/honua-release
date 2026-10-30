@@ -107,6 +107,35 @@ class RefusalReceiptBuilder(c.ReceiptBuilder):
         return self.receipt
 
 
+# What each stage asks of the model. Run 41013398407 sent stage 2 the same system contract as
+# stage 1 with no admitted tool names, so the model chose among all 41 view tools and was refused.
+STAGE_TASKS = {
+    "serving-read": "Read the published serving fixture: call honua_query_features for observation.servingFixture "
+                    "(serviceId, layerId) with no filter, returning geometry at SRID 4326.",
+    "durable-refusal": "Attempt the durable buffer plan in observation.planContract with one of its tools. If "
+                       "observation.lastActionResult already shows the typed Redis refusal, instead call "
+                       "honua_list_capabilities with the action-level assessment.",
+}
+
+
+def admitted_tools(observed):
+    """The stage's admitted tool names the driver advertised, kept only where the shown view lists them."""
+    stage_tools = observed.get("stageTools")
+    shown = set(c._tool_names(observed.get("toolView")))
+    return sorted({t for t in stage_tools if isinstance(t, str) and t in shown}) if isinstance(stage_tools, list) else []
+
+
+def stage_system(stage, allowed):
+    return c._system_contract(allowed) + (
+        " This explicit Redis-off profile proves serving and refusal only; select only tool_call actions. "
+        f"Current stage: {stage['id']}. {STAGE_TASKS[stage['id']]} "
+        "A typed Redis dependency refusal is the required outcome of the plan, never GP completion. "
+        "After observing refusal, call honua_list_capabilities with arguments {} and the action-level "
+        'assessment {"executionOutcome":"refused","missingDependency":"redis","functionalGpExecuted":false}, '
+        "a top-level key beside tool and arguments, never inside the tool arguments. "
+        "Never invent refusal or execution evidence.")
+
+
 def execute_live(builder, *, endpoint, driver_command, max_actions_per_stage, target_path):
     r = builder.receipt
     client, driver = c.CandidateProxyClient(endpoint), c.DriverAdapter(driver_command, builder.protocol)
@@ -146,14 +175,7 @@ def execute_live(builder, *, endpoint, driver_command, max_actions_per_stage, ta
         for stage in builder.journey["stages"]:
             stage_id = stage["id"]
             builder.mark_stage(stage_id, "running")
-            system = c._system_contract() + (
-                " This explicit Redis-off profile proves serving and refusal only. Query a published layer "
-                "without filters with geometry at SRID 4326. Then attempt a valid buffer plan using the "
-                "observed fixture. A typed Redis dependency refusal is the required outcome, never GP "
-                "completion. After observing refusal, call honua_list_capabilities with action-level "
-                "assessment {executionOutcome:refused,missingDependency:redis,functionalGpExecuted:false}. "
-                "The assessment is outside the tool arguments. Never invent refusal or execution evidence.")
-            messages = [{"role": "system", "content": system}]
+            messages = [{"role": "system", "content": ""}]
             # One final observe is allowed after the bounded number of actual model actions.
             for index in range(max_actions_per_stage + 1):
                 request = {"workspaceId": workspace, "stage": stage_id, "profile": PROFILE}
@@ -169,7 +191,12 @@ def execute_live(builder, *, endpoint, driver_command, max_actions_per_stage, ta
                     raise c.CanaryError("refusal driver cannot advance the declared profile")
                 if index == max_actions_per_stage:
                     raise c.ModelFailure("refusal profile exceeded its bounded actual model-action limit")
-                user = json.dumps({"task": "advance exactly this explicit serving/refusal stage", "stage": stage,
+                allowed = admitted_tools(observed)
+                if not allowed:
+                    raise c.CanaryError(f"refusal driver advertised no admitted tool for stage {stage_id}")
+                system = stage_system(stage, allowed)
+                messages[0] = {"role": "system", "content": system}
+                user = json.dumps({"task": STAGE_TASKS[stage_id], "stage": stage, "allowedTools": allowed,
                                    "observation": observed.get("observation"),
                                    "serverAuthoredToolView": observed.get("toolView")}, separators=(",", ":"))
                 builder.capture_transcript("system", system, stage_id=stage_id)
