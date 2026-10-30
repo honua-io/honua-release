@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 import executor
-from transport import ExecutionError, has_execution_evidence
+from transport import ActionRejected, ExecutionError, has_execution_evidence
 
 PROFILE = "redis-off-serving-refusal"
 PLAN = Path(__file__).resolve().parents[1] / "terminal-model-canary/redis-off-serving-refusal.v1.json"
@@ -281,7 +281,22 @@ def validate_durable_plan(arguments, fixture):
 
 
 def execute(driver, request):
+    """Execute the model's action; a rejected action is model feedback, never infrastructure.
+
+    An action outside the stage's admitted tools or an assessment that does not acknowledge the
+    observed refusal returns an invalid-action response (as live_driver.op_execute does for the full
+    workflow), so the runner can return the bounded reason to the model. No state changes.
+    """
     stage = _stage(request)
+    try:
+        return _execute(driver, request, stage)
+    except ActionRejected as exc:
+        return {"status": "fail", "stageStatus": stage, "refusal": "invalid-action",
+                "result": {"accepted": False, "command": exc.command, "reason": exc.reason},
+                "canonicalIds": {}, "blockedBy": []}
+
+
+def _execute(driver, request, stage):
     state, _target, _manifest, _observation, engine, profile = _context(driver, request)
     action = request.get("action") or {}
     view = engine.view()
@@ -290,7 +305,7 @@ def execute(driver, request):
     if (action.get("kind") != "tool_call" or name not in stage_tools(view, stage["number"])
             or len(descriptors) != 1 or not isinstance(arguments, dict)):
         # The notice carries the kind and tool name (identifiers only), never the arguments.
-        raise ExecutionError("model action", "action is outside the refusal stage and observed bounded view "
+        raise ActionRejected("model action", "action is outside the refusal stage and observed bounded view "
                              f"({action_summary(action)})")
     import jsonschema
     try:
@@ -329,7 +344,7 @@ def execute(driver, request):
         elif name == "honua_list_capabilities" and profile["refusal"]:
             problems = assessment_problems(action, profile["refusal"])
             if problems:
-                raise ExecutionError("model assessment", "acknowledgement of the observed refusal differs: "
+                raise ActionRejected("model assessment", "acknowledgement of the observed refusal differs: "
                                      + "; ".join(problems))
             profile["acknowledged"] = True
             result = {"accepted": True, "modelAcknowledgedRefusal": True, "executionOutcome": "refused"}
