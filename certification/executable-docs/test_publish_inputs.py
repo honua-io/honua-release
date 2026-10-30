@@ -110,14 +110,14 @@ def test_create_honua_app_sdk_flag_binds_to_the_manifest_pin():
     from run import client_package_version, substitute
     import yaml
     variables = load_vars(HERE / "vars", "honua-sdk-js-packages-create-honua-app-readme")
-    entry = variables["substitute"]["--sdk-version 0.2.6"]
+    entry = variables["substitute"]["--sdk-version 0.2.10"]
     assert entry["value"] == "--sdk-version {client.sdkJs}"
-    assert "0.2.6" in entry["documentedAt"]
+    assert "0.2.10" in entry["documentedAt"]
     manifest = yaml.safe_load((HERE.parents[1] / "platform-manifest.yaml").read_text(encoding="utf-8"))
     version = client_package_version(manifest, "@honua/sdk-js")
     assert version
-    code = "npm create honua-app@latest my-map -- --sdk-version 0.2.6\n"
-    table = {"--sdk-version 0.2.6": render(entry["value"], {"client.sdkJs": version})}
+    code = "npm create honua-app@latest my-map -- --sdk-version 0.2.10\n"
+    table = {"--sdk-version 0.2.10": render(entry["value"], {"client.sdkJs": version})}
     assert substitute(code, table) == f"npm create honua-app@latest my-map -- --sdk-version {version}\n"
 
 
