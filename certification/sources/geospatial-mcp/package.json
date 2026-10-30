@@ -2,14 +2,23 @@
   "name": "geospatial-mcp-protocol-certification",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.19.0" },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "run:sdk": "node run-sdk.mjs",
     "prepare:plan": "python3 fetch-plan-validation.py --destination .plan-validation",
+    "prepare:planning": "python3 fetch-planning-validation.py --destination .planning-validation",
+    "prepare:ops-health": "python3 fetch-ops-health-validation.py --destination .ops-health-validation",
     "prepare:location": "python3 fetch-location-validation.py --destination .location-validation",
     "prepare:render": "python3 fetch-render-validation.py --destination .render-validation",
-    "prepare:app": "python3 fetch-app-validation.py --destination .app-validation"
+    "prepare:historical-render": "python3 fetch-render-validation.py --pins historical-render-validation-pins.json --destination .historical-render-validation",
+    "prepare:app": "python3 fetch-app-validation.py --destination .app-validation",
+    "prepare:ops-events": "python3 fetch-ops-events-validation.py --destination .ops-events-validation",
+    "prepare:grounding-status": "python3 fetch-grounding-status-validation.py --destination .grounding-status-validation",
+    "prepare:direct-cancel": "python3 fetch-direct-cancel-validation.py --destination .direct-cancel-validation",
+    "prepare:deployment-workspace": "python3 fetch-deployment-workspace-validation.py --destination .deployment-workspace-validation"
   },
   "dependencies": {
     "@modelcontextprotocol/inspector": "2.10.1",
