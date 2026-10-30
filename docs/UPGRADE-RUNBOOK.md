@@ -193,6 +193,71 @@ train fails it); it never falls back to the candidate, a floating tag or a manif
 not survive the upgrade") fails the harness. The harness also supports `journal-stall` and
 `rollback-unreadable`; `e2e/test_upgrade_chaos.py` proves each fails through its own assertion.
 
+## 7. AWS ECS (GA) and Lambda (Preview)
+
+Founder re-tier 2026-10-25: only the `aws-ecs` cells are GA. Lambda (`aws-serverless`) can still
+run as Preview. The aggregate promotion proof is the GA set (`GA_CELLS` in
+`e2e/runner/update_rollback.py`). This section is the operator reading of that driver. It does
+not add a gate. The Compose gate in section 6 stays the required runtime proof (founder decision
+D9). Do not cite the nginx ECS certification in
+[`docs/2026.1-evidence-map.md`](2026.1-evidence-map.md) I-07 as a Honua server rollback: that
+workflow's image is nginx.
+
+`preflight` refuses a schema mismatch before any provider mutation. Qualification mode needs two
+distinct signed locks. A rehearsal must not claim lock qualification: both lock digests are absent.
+
+The customer deploy API is `DeployApi` in `e2e/runner/update_rollback.py`. Prefix
+`/api/v1/admin/deploy`.
+
+1. `POST /plan` with `targetId`, `currentRevision` and `desiredRevision`. The plan must report
+   `backendRegistered`, the expected backend and target, no `blockingReasons`,
+   `capabilities.supportsRollback`, and `readyToSubmit` or `requiresApproval`.
+2. `POST /operations` with `submitImmediately: false`, an idempotency key, and reason
+   `reviewed candidate-bound AWS update/rollback qualification`. Expect `201` and an `operationId`.
+3. A separate caller `POST /operations/{id}/submit` with reason
+   `operator approved qualification switch`.
+4. Poll `GET /operations/{id}`. Stop on `Failed`, `ManualInterventionRequired` or `Cancelled`.
+   The forward switch is accepted when status is `Succeeded`, `Observing` or `Protected`, or when
+   `protection.phase` is `observing` or `protected`, and `observedState` equals the desired revision.
+5. Roll back with `POST /operations/{id}/rollback` and reason
+   `operator approved return to retained baseline`, then poll until status is `RolledBack` and
+   `observedState` equals the retained revision.
+
+Actuators in `ACTUATORS`:
+
+| Cell | Actuator | What the driver checks |
+|---|---|---|
+| `aws-ecs/redis-off` | `terraform-exact-apply` | `terraform_target.rollback` reapplies the retained exact Terraform baseline variables. `update()` refuses every other cell. |
+| `aws-ecs/redis-on` | `honua-aws-ecs-alb` | The ALB listener rule has exactly one target group with weight greater than 0. That ARN is `aws.alb.canary_target_group_arn` in the candidate phase and `aws.alb.stable_target_group_arn` after rollback. Staging copies the running task definition, sets the essential container image to the candidate digest, and sets the `ControlPlane__PlatformRelease__*` environment entries to that image. |
+| `aws-serverless/redis-off` and `aws-serverless/redis-on` | `honua-gitops-aws-lambda` | Preview. Alias name `live` has no `AdditionalVersionWeights`. `ResolvedImageUri` ends with the selected Lambda image digest. Staging pins the alias to the previous version and requires `deregister_on_new_revision=false`. |
+
+In-flight geoprocessing, from the same driver: submit a centroid job and require it still `Running`
+across the switch, then finished exactly once (`attemptCount` 1, and started count equals completed
+count equals 1). A redis-off cell does not run that job. It records the typed `503`
+`dependency-unavailable` refusal for `jobs.runner` / `redis`.
+
+`tools/ecs_honua_recovery.py` is proposal-only. It does not mutate AWS, approve, or retry. Its
+scope document is `honua.ecs-recovery-scope/v1`, on an isolated `honua-qual-*` substrate. The
+trusted signers it accepts are `promote.yml`, `nightly-certification.yml` and `release-train.yml`.
+
+`mcp/release_rollback.py` is a command-line program. This repo ships no MCP server for 2026.1.
+One invocation creates one durable parent operation from exact lock B to retained lock A:
+
+```bash
+python mcp/release_rollback.py \
+  --environment environment.json \
+  --from-lock retained/lock-b.json \
+  --to-lock retained/lock-a.json \
+  --store operations \
+  --receipt rollback-receipt.json
+```
+
+Reissuing that call resumes the same operation. A divergent plane ends
+`ManualInterventionRequired`. The provider command comes from `environment.json`.
+
+This page does not record an ECS or Lambda execution against `ghcr.io/honua-io/honua-server:2026.1-rc`.
+The AWS cells were not run for this document.
+
 ## Where the evidence is
 
 The required runtime evidence is the GA Docker Compose cell `upgrade-compose-normal` and, on the
