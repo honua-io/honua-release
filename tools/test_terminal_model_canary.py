@@ -1995,12 +1995,55 @@ def test_a_refused_model_action_is_returned_to_the_model_not_raised_as_a_driver_
     with pytest.raises(canary.CanaryError, match="execute failed with exit code 1: tool is outside") as structured:
         driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-execution"})
     assert not isinstance(structured.value, canary.InfrastructureFailure)
+    assert canary.failure_cause(structured.value) == "undetermined"
     # A bare failing observation is a protocol result. A crash is infrastructure.
     with pytest.raises(canary.CanaryError, match="observe failed with exit code 1") as observed:
         script.write_text("import sys\nsys.stdout.write('{\"status\":\"fail\"}')\nsys.exit(1)\n")
         driver.invoke("observe", {"workspaceId": "w", "stage": "s"})
     assert not isinstance(observed.value, canary.InfrastructureFailure)
     assert observed.value.driver_response == {"status": "fail"}
+
+
+def _failing_execute(tmp_path: Path, reason: str) -> canary.DriverAdapter:
+    script = tmp_path / "driver.py"
+    body = {"status": "fail", "refusal": "candidate-execution",
+            "result": {"accepted": False, "reason": reason, "injectedError": None, "recoveredError": None}}
+    script.write_text("import json,sys\njson.dump(" + repr(body) + ",sys.stdout)\nsys.exit(1)\n")
+    return canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()), timeout_seconds=30)
+
+
+@pytest.mark.parametrize("reason", [
+    'candidate request failed (exception=TimeoutError; elapsedMs=35012; timeoutS=35; message="timed out")',
+    "candidate request failed (exception=ConnectionRefusedError; elapsedMs=3; timeoutS=35)",
+    'candidate request failed (exception=URLError; elapsedMs=4; timeoutS=0.3; message="[redacted] ...(truncated)")',
+    "candidate request failed (exception=gaierror; elapsedMs=8; timeoutS=35)",
+    "HTTP 502 (elapsedMs=1)",
+    "HTTP 503 (elapsedMs=30001)",
+    "HTTP 504 (elapsedMs=0)",
+])
+def test_driver_reported_transport_failure_is_infrastructure(tmp_path, reason):
+    driver = _failing_execute(tmp_path, reason)
+    with pytest.raises(canary.InfrastructureFailure, match="execute failed with exit code 1") as failed:
+        driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}})
+    assert canary.failure_cause(failed.value) == "infrastructure"
+    assert failed.value.driver_response["result"]["reason"] == reason
+
+
+@pytest.mark.parametrize("reason", [
+    "candidate request failed (exception=FileNotFoundError; elapsedMs=1; timeoutS=35)",
+    "candidate request failed (exception=TimeoutError; elapsedMs=1; timeoutS=35) extra",
+    "note: candidate request failed (exception=TimeoutError; elapsedMs=1; timeoutS=35)",
+    "HTTP 500 (elapsedMs=10)",
+    "HTTP 404 (elapsedMs=10)",
+    "HTTP 503",
+    'candidate returned an MCP tool error (message="connection timeout")',
+])
+def test_unclear_candidate_execution_stays_undetermined(tmp_path, reason):
+    driver = _failing_execute(tmp_path, reason)
+    with pytest.raises(canary.CanaryError, match="execute failed with exit code 1") as failed:
+        driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}})
+    assert not isinstance(failed.value, canary.InfrastructureFailure)
+    assert canary.failure_cause(failed.value) == "undetermined"
 
 
 def test_driver_setup_failure_is_undetermined(monkeypatch):

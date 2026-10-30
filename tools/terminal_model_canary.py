@@ -1472,6 +1472,46 @@ def _driver_crashed(response: Any, returncode: int) -> bool:
     return _response_error_category(response) in _DRIVER_CRASH_CATEGORIES
 
 
+# transport.request_failure records the exception class, elapsed time, and client timeout.
+# A gateway that answers before the client socket gives up is HTTP 502, 503, or 504.
+# Other candidate-execution text is not transport evidence.
+_TRANSPORT_EXCEPTIONS = frozenset({
+    "BrokenPipeError",
+    "ConnectionAbortedError",
+    "ConnectionError",
+    "ConnectionRefusedError",
+    "ConnectionResetError",
+    "RemoteDisconnected",
+    "TimeoutError",
+    "URLError",
+    "gaierror",
+})
+_CANDIDATE_TRANSPORT_REASON = re.compile(
+    r"candidate request failed \(exception=(?P<exception>[A-Za-z_][A-Za-z0-9_]*)"
+    r"; elapsedMs=[0-9]+; timeoutS=[0-9]+(?:\.[0-9]+)?"
+    r"(?:; message=.*)?\)\Z"
+)
+_CANDIDATE_GATEWAY_TIMEOUT = re.compile(r"HTTP (?:502|503|504) \(elapsedMs=[0-9]+\)\Z")
+
+
+def _driver_reported_transport_failure(response: Any) -> bool:
+    """The driver proved a candidate connection failure or gateway timeout.
+
+    The evidence is the driver's own reason string, not a phrase inside an arbitrary
+    candidate message. A permission failure, a 4xx, or an HTTP 500 stays undetermined.
+    """
+    if not isinstance(response, dict) or response.get("refusal") != "candidate-execution":
+        return False
+    result = response.get("result")
+    reason = result.get("reason") if isinstance(result, dict) else None
+    if not isinstance(reason, str):
+        return False
+    match = _CANDIDATE_TRANSPORT_REASON.fullmatch(reason)
+    if match is not None:
+        return match.group("exception") in _TRANSPORT_EXCEPTIONS
+    return _CANDIDATE_GATEWAY_TIMEOUT.fullmatch(reason) is not None
+
+
 def _stage_oracle_rejection(response: Any) -> bool:
     """A stage oracle named a failed or blocked check. A bare status is not enough."""
     if not isinstance(response, dict):
@@ -1551,7 +1591,8 @@ class DriverAdapter:
         if completed.returncode != 0:
             # live_driver.py exits 1 when its protocol response says status "fail". For execute, an
             # invalid-action or candidate refusal is model feedback: the model must see it and may
-            # recover. A driver crash is infrastructure. A structured protocol failure keeps the
+            # recover. A driver crash is infrastructure. So is a candidate-execution whose reason is
+            # the driver's transport diagnostic. Any other structured protocol failure keeps the
             # response so the caller can separate a model oracle from an undetermined cause.
             if not (operation == "execute" and isinstance(response, dict) and response.get("status") == "fail"
                     and response.get("refusal") in MODEL_FEEDBACK_REFUSALS):
@@ -1560,8 +1601,9 @@ class DriverAdapter:
                 detail = (f": {str(reason)[:240]}" if operation == "execute" and reason
                           else driver_failure_diagnostic(response))
                 message = f"#123 driver {operation} failed with exit code {completed.returncode}{detail}"
-                error = (InfrastructureFailure(message) if _driver_crashed(response, completed.returncode)
-                         else CanaryError(message))
+                evidenced = (_driver_crashed(response, completed.returncode)
+                             or (operation == "execute" and _driver_reported_transport_failure(response)))
+                error = InfrastructureFailure(message) if evidenced else CanaryError(message)
                 if isinstance(response, dict):
                     error.driver_response = response
                 raise error
