@@ -22,7 +22,7 @@ from mcp_execute_plan_validation import timestamp
 from mcp_render_validation import scenario as fixture_binding
 from mcp_ingest_publish_validation import (OWNED_DATABASE, json_tool_output,
     resource_output as published_resource, query_arguments as published_query_arguments,
-    snapshot_output as persisted_table, connection_provenance, invocation_wire)
+    snapshot_output as persisted_table, connection_provenance, invocation_wire, registry_output)
 
 SCHEMA = "honua.mcp-publish-result-scenario/v1"
 OPERATION = "tools/call:publish_result"
@@ -284,6 +284,18 @@ def census_output(census):
     return census
 
 
+def committed_endpoint_fingerprint(connection, authored):
+    """SHA-256 hex of the verified registry endpoint, ``host|port|database``.
+
+    Same canonical form as the server's ``ConnectionEndpointFingerprint``:
+    trimmed lowercase host, decimal port, trimmed database name. The user,
+    password, and connection string never enter the hash.
+    """
+    row = registry_output(connection["registry"], authored["connectionId"], authored["ownedDatabase"])
+    canonical = f"{row['host'].strip().lower()}|{row['port']}|{row['databaseName'].strip()}"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def workflow_output(setup, authored):
     identity = setup_output(setup, authored)
     value = setup["workflow"]
@@ -349,8 +361,10 @@ def workflow_output(setup, authored):
             or not isinstance(references[0], str) or not references[0].startswith("data:application/json;base64,") or len(references[0]) > 4096):
         raise ValueError("actual worker lacks exactly one matching committed sink receipt")
     receipt = strict_json(base64.b64decode(references[0].split(",",1)[1], validate=True))
+    fingerprint = committed_endpoint_fingerprint(setup["connection"], authored)
     expected = {"processId": "sink.external-postgis", "schema": "public", "table": authored["table"],
-                "batchId": authored["batchId"], "committed": True, "featuresWritten": len(authored["expectedRows"]), "featuresRejected": 0}
+                "batchId": authored["batchId"], "committed": True, "featuresWritten": len(authored["expectedRows"]),
+                "featuresRejected": 0, "endpointFingerprint": fingerprint}
     if not same_json(receipt, expected):
         raise ValueError("worker committed receipt is partial or differs from authored destination/counts")
     artifacts = result.get("artifacts")
@@ -362,7 +376,8 @@ def workflow_output(setup, authored):
     if (not isinstance(artifact, dict) or artifact.get("artifactId") != job_id+":artifact:1"
             or type(artifact.get("kind")) is not int or artifact["kind"] != 1
             or artifact.get("uri") != references[0] or artifact.get("contentType") != "application/json"
-            or not same_json(artifact.get("metadata"), {"connectionId": authored["connectionId"], "schema": "public", "table": authored["table"]})):
+            or not same_json(artifact.get("metadata"), {"connectionId": authored["connectionId"], "schema": "public", "table": authored["table"],
+                "connectionEndpointFingerprint": fingerprint})):
         raise ValueError("actual result artifact has conflicting media or missing committed destination metadata")
     for family, identifier in (("workflows", identity["runId"]), ("definitions", identity["workflowId"]), ("jobs", job_id), ("results", job_id)):
         if sum(row["id"] == identifier for row in census[family]) != 1:
