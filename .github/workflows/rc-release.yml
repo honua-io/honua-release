@@ -1,9 +1,10 @@
-# rc release — admission by rolling gate window (release#376 owner amendment, 2026-10-22).
+# rc release — admission by a candidate-bound gate window.
 #
-# rc.N is tagged when every release-train gate has one green trunk run inside the window, against any
-# build. This workflow does not run the gates; it reads their trunk history (tools/rc_gate_window.py),
-# fails closed when any gate is red or never ran, renders honest notes (components, gate record, known
-# gaps, not-certified list) and publishes a GitHub pre-release tag on trunk. Dry run by default.
+# rc.N is tagged only when every required gate's most recent completed trunk run for THIS candidate
+# certifies it: the run's report or receipt names the honua-server digest, source SHA, and platform
+# lock. A newer failure or non-certifying run for that candidate wins over an older green one. A gate
+# with no candidate-bound report is a limitation and does not pass. This workflow does not run the
+# gates; it reads their trunk history (tools/rc_gate_window.py) and fails closed. Dry run by default.
 name: rc-release
 
 on:
@@ -17,9 +18,16 @@ on:
         description: honua-server image tag the candidate ships (e.g. nightly-6302c5e)
         required: true
       window_days:
-        description: Rolling window (days) a gate's green trunk run must fall inside
+        description: Rolling window (days) a gate's candidate-bound run must fall inside
         required: false
         default: "7"
+      server_sha:
+        description: Full honua-server source SHA for this candidate. Empty uses platform-manifest.yaml.
+        required: false
+        default: ""
+      platform_lock:
+        description: "sha256:<64 hex> of platform-lock.json for the candidate being released"
+        required: true
       dry_run:
         description: "true: compute and upload the notes only; false: create the pre-release tag"
         required: false
@@ -48,21 +56,7 @@ jobs:
       - run: python -m pip install "pyyaml>=6.0" pytest
       - name: Self-test the window logic (it must be able to fail)
         run: python -m pytest tools/test_rc_gate_window.py -q
-      - name: Evaluate every train gate against the window
-        id: window
-        env:
-          GH_TOKEN: ${{ github.token }}
-          WINDOW_DAYS: ${{ inputs.window_days }}
-        run: |
-          set -euo pipefail
-          rc=0
-          python tools/rc_gate_window.py --window-days "$WINDOW_DAYS" \
-            --out gate-window.json --markdown gate-window.md --enforce || rc=$?
-          echo "admissible=$([ "$rc" = 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          cat gate-window.md >> "$GITHUB_STEP_SUMMARY"
-          exit $rc
       - name: Resolve the server image digest
-        if: always()
         env:
           IMAGE: ghcr.io/honua-io/honua-server:${{ inputs.server_image_tag }}
         run: |
@@ -70,6 +64,28 @@ jobs:
           docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])' > server-digest.txt
           echo "server digest: $(cat server-digest.txt)"
+      - name: Evaluate every train gate against the window
+        id: window
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOW_DAYS: ${{ inputs.window_days }}
+          SERVER_SHA: ${{ inputs.server_sha }}
+          PLATFORM_LOCK: ${{ inputs.platform_lock }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SERVER_SHA" ]; then
+            sha="$SERVER_SHA"
+          else
+            sha="$(python3 -c 'import yaml; print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-server"]["sha"].strip())')"
+          fi
+          digest="$(tr -d '[:space:]' < server-digest.txt)"
+          rc=0
+          python tools/rc_gate_window.py --window-days "$WINDOW_DAYS" \
+            --server-sha "$sha" --server-digest "$digest" --platform-lock "$PLATFORM_LOCK" \
+            --out gate-window.json --markdown gate-window.md --enforce || rc=$?
+          echo "admissible=$([ "$rc" = 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          cat gate-window.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
       - name: Collect known gaps (open must-fix issues across the org)
         if: always()
         env:
