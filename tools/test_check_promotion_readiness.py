@@ -904,3 +904,39 @@ def test_update_rollback_requires_retained_routing_and_concrete_actuator_proof(c
     elif mutation == 'wrong-release': cell['candidate']['lambdaImageDigest' if cell_name.startswith('aws-serverless/') else 'imageDigest'] = cell['fromDigest']
     else: cell['candidate']['sourceRevision'] = cell['prior']['sourceRevision']
     assert not readiness._update_rollback_cells(cells, targets), (cell_name, mutation)
+
+
+def test_serving_refusal_is_excluded_from_gp_and_operate_credit(tmp_path):
+    decision = _decision(_fixture(tmp_path))
+    assert decision["status"] == "pass"
+    credit = decision["gpOperateCredit"]
+    assert credit["gp"] == ["aws-ecs/redis-on"]
+    assert credit["operate"] == []
+    assert "aws-ecs/redis-off" in credit["excluded"]
+    assert "aws-ecs/redis-on" not in credit["excluded"]
+
+
+def test_a_false_gp_claim_on_a_refusal_cell_is_refused(tmp_path):
+    fixture = _fixture(tmp_path)
+    def claim(receipt):
+        for cell in receipt["cells"]:
+            if cell["cell"].endswith("/redis-off"):
+                cell["coversGp"] = True
+    _edit(_receipt(fixture, "nightly-model-journey"), claim)
+    decision = _decision(fixture)
+    assert decision["checks"]["evidence:nightly-model-journey"]["status"] == "pass"
+    assert decision["checks"]["gp-operate-credit"]["status"] == "fail"
+    assert decision["status"] == "refused"
+
+
+def test_serving_plus_a_refusal_does_not_become_operate_credit(tmp_path):
+    fixture = _fixture(tmp_path)
+    def claim(receipt):
+        for cell in receipt["cells"]:
+            if cell["cell"].endswith("/redis-on"):
+                cell["coversOperate"] = True
+    _edit(_receipt(fixture, "genuine-model-journey"), claim)
+    decision = _decision(fixture)
+    assert decision["checks"]["evidence:genuine-model-journey"]["status"] == "pass"
+    assert decision["gpOperateCredit"]["operate"] == []
+    _failed(fixture, "gp-operate-credit")

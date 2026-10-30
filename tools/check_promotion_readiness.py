@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from arc_coverage import journey_cell_credit
+
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 RUN_ID_RE = re.compile(r"^[1-9][0-9]*$")
@@ -421,6 +423,7 @@ def evaluate(
                               and value in ("nightly", "qualifying") for key, value in declarations.items())
                       and all(declarations.get(key) == value for key, value in EVIDENCE_CLASSES.items()))
     declarations = declarations if isinstance(declarations, dict) else {}
+    gp_credit, operate_credit, excluded, false_claim = [], [], [], False
     rows = record.get("evidence")
     rows = rows if isinstance(rows, list) else []
     classes = [row.get("class") for row in rows if isinstance(row, dict)]
@@ -469,6 +472,22 @@ def evaluate(
             if name in JOURNEYS:
                 mode, required = JOURNEYS[name]
                 ok &= _journey(receipt, required, mode, digest, earliest, latest)
+                # Nightly Redis-off is a serving-plus-refusal pass. It must not be
+                # read as GP or operate coverage. Credit comes only from a first
+                # attempt that actually executed the capability.
+                if name in ("nightly-model-journey", "genuine-model-journey"):
+                    for cell in receipt.get("cells") or []:
+                        label, gp, operate, denied, claimed = journey_cell_credit(cell)
+                        if not isinstance(label, str):
+                            false_claim = True
+                            continue
+                        if gp:
+                            gp_credit.append(label)
+                        if operate:
+                            operate_credit.append(label)
+                        if denied:
+                            excluded.append(label)
+                        false_claim = false_claim or claimed
             if name == "update-rollback":
                 target_images = _update_rollback_target_images(
                     lock_path, evidence_dir / "trains" / rc_run_id / "platform-manifest.yaml")
@@ -481,6 +500,10 @@ def evaluate(
         except (ReadinessError, OSError, TypeError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)
+
+    overlap = set(gp_credit) & set(excluded) or set(operate_credit) & set(excluded)
+    check("gp-operate-credit", not false_claim and not overlap,
+          "a cell with functionalGpExecuted false, or only serving plus refusal, does not cover GP or operate")
 
     canaries = record.get("demoCanaries")
     if not isinstance(canaries, list):
@@ -566,6 +589,8 @@ def evaluate(
         "lockDigest": actual_digest, "rcTrainRunId": rc_run_id, "profile": policy["name"],
         "evaluatedAt": now.isoformat().replace("+00:00", "Z"),
         "status": "pass" if not failures else "refused", "checks": checks,
+        "gpOperateCredit": {"gp": sorted(set(gp_credit)), "operate": sorted(set(operate_credit)),
+                            "excluded": sorted(set(excluded))},
     }
     return decision, failures
 
