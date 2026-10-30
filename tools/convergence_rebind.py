@@ -91,10 +91,53 @@ HARNESS_WALK = 30
 # The published artifact each SDK producer's governed source names (nightly_receipts.SDK_PACKAGE_ARTIFACTS).
 SDK_PACKAGE_ARTIFACTS = {"sdk-dotnet": "honua-sdk-dotnet", "sdk-python": "honua-sdk-python-wheel"}
 
+# Nightly run 40921054416 selected a CI-green geospatial-mcp pin whose workflow_dispatch
+# inputs predate nightly_dispatch_id, requirements_ref and requirements_revision. The ledger
+# job then refused before dispatching any producer. A frozen pin that still declares those
+# inputs stays the producer source. Otherwise stage the newest trunk commit that declares
+# them, even when that commit's own certify check is red: the red run leaves the ledger
+# unbound and is not reclassified as advisory. esri-compat is not in this table.
+PROTOCOL_DISPATCH_SOURCES: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    "geospatial-mcp": (
+        "honua-io/geospatial-mcp",
+        ".github/workflows/protocol-certification.yml",
+        ("nightly_dispatch_id:", "requirements_ref:", "requirements_revision:"),
+    ),
+}
+PROTOCOL_DISPATCH_WALK = 40
+PROTOCOL_DISPATCH_RULE = "newest trunk commit with the protocol dispatch contract"
+
+
+def workflow_declares(workflow: bytes, markers: tuple[str, ...]) -> bool:
+    text = workflow.decode("utf-8", errors="replace")
+    return all(marker in text for marker in markers)
+
 
 def harness_has_contract(workflow: bytes) -> bool:
-    text = workflow.decode("utf-8", errors="replace")
-    return all(marker in text for marker in HARNESS_CONTRACT)
+    return workflow_declares(workflow, HARNESS_CONTRACT)
+
+
+def select_protocol_dispatch_pin(gh: Any, name: str, frozen: str) -> tuple[str, str]:
+    """The commit whose workflow the nightly can dispatch for this producer source.
+
+    Trunk commits are newest-first. Green CI is not required: a red producer is the night's
+    evidence, and selecting an older pin that cannot accept the inputs dispatches nothing.
+    """
+    repository, workflow, markers = PROTOCOL_DISPATCH_SOURCES[name]
+    checked_sha(frozen, f"manifest target for {name}")
+    if workflow_declares(gh.content(repository, workflow, frozen), markers):
+        return frozen, "manifest/frozen"
+    reasons = []
+    for sha in gh.trunk_commits(repository, PROTOCOL_DISPATCH_WALK):
+        checked_sha(sha, f"{repository} trunk commit")
+        if workflow_declares(gh.content(repository, workflow, sha), markers):
+            return sha, PROTOCOL_DISPATCH_RULE
+        reasons.append(f"{sha[:12]} lacks the protocol dispatch contract")
+    raise Finding(
+        f"{name}: manifest pin {frozen[:12]} lacks the protocol dispatch contract and no "
+        f"{repository} trunk commit in the newest {PROTOCOL_DISPATCH_WALK} declares it; "
+        + "; ".join(reasons[:5])
+    )
 
 
 def select_harness(gh: Any, name: str) -> str:
@@ -294,8 +337,12 @@ def targets(root: Path, gh: GitHub) -> tuple[dict[str, str], dict[str, str]]:
     rules: dict[str, str] = {}
     for name, item in revisions.items():
         if name in frozen:
-            result[name] = checked_sha(frozen[name], f"manifest target for {name}")
-            rules[name] = "manifest/frozen"
+            frozen_sha = checked_sha(frozen[name], f"manifest target for {name}")
+            if name in PROTOCOL_DISPATCH_SOURCES:
+                result[name], rules[name] = select_protocol_dispatch_pin(gh, name, frozen_sha)
+            else:
+                result[name] = frozen_sha
+                rules[name] = "manifest/frozen"
         elif name in HARNESS_SOURCES:
             result[name] = select_harness(gh, name)
             rules[name] = "newest green trunk commit with the harness dispatch contract"
