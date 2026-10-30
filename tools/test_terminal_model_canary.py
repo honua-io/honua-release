@@ -909,7 +909,7 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     env = local["env"]
     assert env["HONUA_CANARY_STUDIO_AI_ENABLED"] == "true"
     assert env["HONUA_CANARY_BEDROCK_REGION"] == "us-east-1"
-    assert "us.anthropic.claude-sonnet-5-5" in env["HONUA_CANARY_BEDROCK_MODEL"]
+    assert "us.anthropic.claude-sonnet-4-6" in env["HONUA_CANARY_BEDROCK_MODEL"]
     assert env["HONUA_CANARY_TRANSCRIPT_SIGNING_SEED"] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
 
     cloud = workflow["jobs"]["aws-ecs"]
@@ -926,7 +926,7 @@ def test_compose_routes_studio_ai_to_bedrock_only_when_the_canary_enables_it():
     assert env["StudioAiProxy__Enabled"] == "${HONUA_CANARY_STUDIO_AI_ENABLED:-false}"
     assert env["StudioAiProxy__DefaultProvider"] == "bedrock"
     assert env["StudioAiProxy__Providers__bedrock__Kind"] == "bedrock"
-    assert "us.anthropic.claude-sonnet-5-5" in env["StudioAiProxy__Providers__bedrock__Model"]
+    assert "us.anthropic.claude-sonnet-4-6" in env["StudioAiProxy__Providers__bedrock__Model"]
     assert "us-east-1" in env["StudioAiProxy__Providers__bedrock__Region"]
     # The disclosure approval must match the provider the canary configures, exactly.
     assert env["StudioAiProxy__Disclosure__Approvals__0__Provider"] == "bedrock"
