@@ -86,3 +86,16 @@ def test_image_placeholders_bind_only_to_supplied_candidate():
         assert entry["value"] == "{candidate.image}"
         assert render(entry["value"], {"candidate.image": "test@sha256:abc"}) == "test@sha256:abc"
         assert render(entry["value"], {}) == "{candidate.image}"
+
+
+def test_docs_html_channel_tag_binds_to_the_candidate():
+    from run import substitute
+    code = 'export HONUA_SERVER_IMAGE="ghcr.io/honua-io/honua-server:2026.1-rc"\n'
+    for document in ("honua-site-docs", "honua-site-docs-playbooks-install-with-docker-index"):
+        variables = load_vars(HERE / "vars", document)
+        entry = variables["substitute"]["ghcr.io/honua-io/honua-server:2026.1-rc"]
+        assert entry["value"] == "{candidate.image}"
+        assert "2026.1-rc" in entry["documentedAt"]
+        table = {key: render(value["value"], {"candidate.image": "test@sha256:abc"})
+                 for key, value in variables["substitute"].items()}
+        assert substitute(code, table) == 'export HONUA_SERVER_IMAGE="test@sha256:abc"\n'

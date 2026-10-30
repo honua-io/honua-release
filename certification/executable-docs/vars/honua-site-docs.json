@@ -5,6 +5,10 @@
     "<CANDIDATE_SERVER_IMAGE>": {
       "value": "{candidate.image}",
       "documentedAt": "docs.html \u00a7Pin what you evaluate \u2014 choose a public digest-qualified server image and replace <CANDIDATE_SERVER_IMAGE>; the gate supplies its manifest-pinned candidate, without claiming a qualified customer release"
+    },
+    "ghcr.io/honua-io/honua-server:2026.1-rc": {
+      "value": "{candidate.image}",
+      "documentedAt": "docs.html #pin \u2014 \"The 2026.1 Release Candidate image is ghcr.io/honua-io/honua-server:2026.1-rc\" (server 2026.1-rc.1). The gate certifies the candidate behind the channel, so the executed block pulls the manifest image@digest; the published page keeps the channel tag"
     }
   }
 }

@@ -1,0 +1,15 @@
+{
+  "document": "honua-server-docs-get-started-with-ai",
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "docs/get-started/with-ai.md:161 — \"Export its admin password as `HONUA_API_KEY`\"; the quickstart's admin password is the key this check uses"
+    }
+  },
+  "substitute": {
+    "http://localhost:18080": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "docs/get-started/with-ai.md:160-161 — \"Prove authenticated access against the server the quickstart started. That page publishes on `http://localhost:18080`\""
+    }
+  }
+}
