@@ -293,6 +293,12 @@ The complete producer, pre-apply durable handoff and live import/recovery
 demonstration are still prerequisites. These import routines do not provision
 infrastructure or make an unauthenticated local ledger a trusted bootstrap.
 There is currently no completed live bootstrap producer run to import.
+`certification/agent-e2e/campaign-inputs.json` and
+`certification/agent-e2e/controller-handoff.json` stay absent until that
+artifact and a terraform `controller_handoff` snapshot exist. A synthetic
+digest, bucket, or `honua-pilot` ARN would be treated as reviewed authority.
+The checked P10 local-docker expectations and scenario adapters do not supply
+those values.
 
 The final trusted inventory uses version 2 and includes `operationReports`: one
 hash-bound report per candidate operation, covering every operation in the full

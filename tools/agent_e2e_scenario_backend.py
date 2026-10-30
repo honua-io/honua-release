@@ -1,9 +1,11 @@
 """Concrete controller HTTP setup and independent point-query observations.
 
 These adapters operate on an already deployed, independently isolated candidate.
-They do not create infrastructure or run model-selected commands. Installation,
-custody changes, separate approval, fault injection, rendering and Batch need
-their own reviewed adapters before a complete campaign backend can report ready.
+They do not create infrastructure or run model-selected commands. Local Docker
+installation, separate approval, fault injection and rendering are
+agent_e2e_scenario_install, agent_e2e_scenario_approval, agent_e2e_scenario_fault
+and agent_e2e_scenario_render. agent_e2e_scenario_batch refuses local-docker.
+Custody changes and a complete 252-case backend are still not ready.
 """
 from __future__ import annotations
 
