@@ -1307,8 +1307,12 @@ jobs:
           else
             # Per-run admin secret: production refuses credentials shipped in example files.
             E2E_API_KEY="$(openssl rand -hex 24)"; echo "::add-mask::$E2E_API_KEY"; export E2E_API_KEY
+            # The runner starts with errexit. pipefail would abort on the harness's own
+            # non-zero (the negative control, or a real fail) before classify records it.
+            set +e
             bash e2e/harness/upgrade-chaos.sh 2>&1 | tee /tmp/cu/harness.log
             RC="${PIPESTATUS[0]}"
+            set -e
             python tools/compose_upgrade_prior.py classify --scenario "$SCENARIO" --exit-code "$RC" \
               --harness /tmp/cu/harness/scenario-matrix.json --expect-why "$EXPECT_WHY" > /tmp/cu/classify.env
             STATUS="$(sed -n 's/^status=//p' /tmp/cu/classify.env)"; WHY="$(sed -n 's/^why=//p' /tmp/cu/classify.env)"
