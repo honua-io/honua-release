@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import sys
 import uuid
 from decimal import Decimal
@@ -193,6 +194,27 @@ def _tool_action(kind: str, action: dict) -> dict:
     return {"tool": "terminal_command", "arguments": {"command": action.get("command", "")}}
 
 
+def _endpoint_block(arm_id: str) -> str | None:
+    """Refuse a live run before any trial when the Studio AI proxy is not configured."""
+    from client import CanaryError, build_endpoint
+
+    endpoint = build_endpoint(arm_id)
+    if not getattr(endpoint, "configured", False):
+        return "the model endpoint is unset"
+    if getattr(endpoint, "require_api_key", False) and not getattr(endpoint, "api_key", None):
+        return "the model endpoint has no admin API key"
+    if getattr(endpoint, "require_api_key", False):
+        digest = str(getattr(endpoint, "signing_manifest_sha256", "") or "").lower()
+        if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+            return "the transcript signing manifest is unset"
+    try:
+        if hasattr(endpoint, "proxy_chat_url"):
+            endpoint.proxy_chat_url()
+    except CanaryError as exc:
+        return str(exc)
+    return None
+
+
 def live_actions(
     state: dict,
     transcript: list[dict],
@@ -202,9 +224,17 @@ def live_actions(
     *,
     allow_call,
     on_usage,
+    wait_for_server: bool = False,
 ) -> tuple[bool, bool, dict | None]:
     """Call the canary client. Returns (priced, completed, evidence)."""
-    from client import CanaryError, ModelFailure, OperateClient, build_endpoint, parse_model_action
+    from client import (
+        CanaryError,
+        ModelFailure,
+        OperateClient,
+        build_endpoint,
+        parse_model_action,
+        server_ready,
+    )
 
     endpoint = build_endpoint(arm)
     if not endpoint.configured:
@@ -214,7 +244,24 @@ def live_actions(
             "model_acted": False,
             "state_changed": False,
         }
+    if wait_for_server and not server_ready(endpoint):
+        return False, False, {
+            "kind": "transport_error",
+            "replay": "server-not-ready",
+            "model_acted": False,
+            "state_changed": False,
+        }
     client = OperateClient(endpoint)
+    if hasattr(client, "ensure_admission"):
+        try:
+            client.ensure_admission()
+        except (CanaryError, ModelFailure, OSError) as exc:
+            return False, False, {
+                "kind": "transport_error",
+                "replay": type(exc).__name__,
+                "model_acted": False,
+                "state_changed": False,
+            }
     messages = [
         {"role": "system", "content": preamble()},
         {"role": "user", "content": row["prompt"]},
@@ -315,7 +362,7 @@ def run_row(
     started = False
     try:
         if execute:
-            compose_note = start_deployment(root, state)
+            compose_note = start_deployment(root, state, proxy=(model == "live"))
             started = True
             if compose_note.get("infrastructure"):
                 evidence = {
@@ -335,7 +382,7 @@ def run_row(
                 try:
                     priced_call, completed, live_evidence = live_actions(
                         state, transcript, row, arm, ARMS[arm]["max_actions"],
-                        allow_call=allow_call, on_usage=on_usage,
+                        allow_call=allow_call, on_usage=on_usage, wait_for_server=execute,
                     )
                 except Exception as exc:
                     acted = any(item.get("tool") for item in transcript)
@@ -456,9 +503,9 @@ def _resolve_ambiguous(graded: dict, row_id: str, out: Path, *, live: bool) -> d
         try:
             decision = classify_decision(invoke_fallback(one))
             detail = "unresolved"
-        except Exception as exc:
+        except Exception:
             decision = None
-            detail = type(exc).__name__
+            detail = HUMAN_REVIEW
         if decision is None:
             _write_review(out, row_id, packet, detail)
             return graded
@@ -661,6 +708,23 @@ def main(argv: list[str] | None = None) -> int:
         summary["stop"]["reasons"] = ["priced_refused"]
         sys.stderr.write("live mode needs --priced-ok and was not started\n")
         return _finish(args, summary)
+
+    if args.model == "live":
+        os.environ["HONUA_CANARY_BEDROCK_MODEL"] = ARMS[args.arm]["bedrock"]
+        os.environ.setdefault("HONUA_CANARY_BEDROCK_REGION", "us-east-1")
+        blocked = _endpoint_block(args.arm)
+        if blocked:
+            summary = summarize([])
+            summary.update({
+                "target": args.target,
+                "arm": args.arm,
+                "model": None,
+                "priced": False,
+                "driver": "live",
+                "status": "stopped",
+            })
+            summary["stop"]["reasons"] = ["endpoint"]
+            return _finish(args, summary, blocked)
 
     images = None
     if args.execute_compose:

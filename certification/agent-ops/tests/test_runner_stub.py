@@ -312,7 +312,14 @@ def test_missing_images_stop_before_a_model_call(monkeypatch, tmp_path: Path):
             called["n"] += 1
             raise AssertionError("priced call")
 
+    class Endpoint:
+        configured = True
+
+        def validated_base_url(self):
+            return "https://example.invalid"
+
     monkeypatch.setattr("runner.prepare_images", missing)
+    monkeypatch.setattr("client.build_endpoint", lambda arm: Endpoint())
     monkeypatch.setattr("client.OperateClient", Boom)
     out = tmp_path / "images"
     assert main([
@@ -408,6 +415,29 @@ def test_prepare_images_pulls_and_tags_the_recorded_sha(monkeypatch, tmp_path: P
     compose = next(argv for argv in calls if "up" in argv)
     assert compose[compose.index("-p") + 1] == "kestrel-gis-abc123"
     assert "--pull" in compose and "never" in compose
+    assert not any(part.endswith("studio-proxy.yml") for part in compose)
+
+    recorded = {}
+
+    def capture(argv, **kwargs):
+        calls.append(list(argv))
+        recorded["env"] = kwargs.get("env") or {}
+
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Completed()
+
+    monkeypatch.setattr("targets.subprocess.run", capture)
+    calls.clear()
+    proxied = start_deployment(Path("/tmp/operate-fixture"), state, proxy=True)
+    assert proxied["executed"] is True
+    proxy_up = next(argv for argv in calls if "up" in argv)
+    assert any(part.endswith("studio-proxy.yml") for part in proxy_up)
+    assert recorded["env"]["HONUA_MASTER_KEY"] != "local-only"
+    assert len(recorded["env"]["HONUA_MASTER_KEY"]) >= 32
 
 
 def test_ledger_records_bedrock_tokens_and_stops_at_the_cap(monkeypatch, tmp_path: Path):
@@ -541,6 +571,81 @@ def test_unresolved_fallback_is_not_scored(monkeypatch, tmp_path: Path):
     saved = json.loads((tmp_path / "queue" / "review-queue" / "O04-A-2.json").read_text(encoding="utf-8"))
     assert saved["detail"] == HUMAN_REVIEW
 
+    def unavailable(packet):
+        del packet
+        raise RuntimeError("not available for this account")
+
+    monkeypatch.setattr("runner.JUDGE", dict(JUDGE))
+    monkeypatch.setattr(judge, "invoke_fallback", unavailable)
+    failed = _resolve_ambiguous(dict(graded), "O04-A-2", tmp_path / "unavailable", live=True)
+    assert failed["outcome"] == "undetermined"
+    assert failed["false_success"] is None
+    queued_failure = json.loads(
+        (tmp_path / "unavailable" / "review-queue" / "O04-A-2.json").read_text(encoding="utf-8")
+    )
+    assert queued_failure["detail"] == HUMAN_REVIEW
+
+
+def test_the_operator_client_uses_the_admin_api_key_header(monkeypatch):
+    monkeypatch.setenv("TERMINAL_MODEL_BASE_URL", "http://127.0.0.1:8147/api")
+    monkeypatch.setenv("TERMINAL_MODEL_API_KEY", "minted-admin-key")
+    monkeypatch.setenv("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256", "ab" * 32)
+    from client import build_endpoint
+    from runner import _endpoint_block
+
+    endpoint = build_endpoint("primary")
+    assert endpoint.api_key_header == "x-api-key"
+    assert endpoint.require_api_key is True
+    assert endpoint.api_key == "minted-admin-key"
+    assert endpoint.model == "us.anthropic.claude-sonnet-4-6"
+    assert endpoint.proxy_chat_url() == "http://127.0.0.1:8147/api/v1/studio/ai/chat"
+    assert _endpoint_block("primary") is None
+
+
+def test_live_refuses_when_the_signing_manifest_is_unset(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("TERMINAL_MODEL_BASE_URL", "http://127.0.0.1:8147/api")
+    monkeypatch.setenv("TERMINAL_MODEL_API_KEY", "minted-admin-key")
+    monkeypatch.delenv("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256", raising=False)
+    out = tmp_path / "manifest"
+    code = main([
+        "--target", "local-docker",
+        "--model", "live",
+        "--priced-ok",
+        "--arm", "primary",
+        "--pilot",
+        "--rows", str(HERE / "rows" / "development.jsonl"),
+        "--out", str(out),
+    ])
+    assert code == 2
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["stop"]["reasons"] == ["endpoint"]
+    assert summary["priced"] is False
+    assert not (out / "trials.jsonl").exists()
+
+
+def test_live_refuses_before_a_trial_when_the_endpoint_is_unset(monkeypatch, tmp_path: Path):
+    for name in (
+        "TERMINAL_MODEL_BASE_URL",
+        "TERMINAL_MODEL_API_KEY",
+        "TERMINAL_MODEL_SIGNING_MANIFEST_SHA256",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    out = tmp_path / "unset"
+    code = main([
+        "--target", "local-docker",
+        "--model", "live",
+        "--priced-ok",
+        "--arm", "primary",
+        "--pilot",
+        "--rows", str(HERE / "rows" / "development.jsonl"),
+        "--out", str(out),
+    ])
+    assert code == 2
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["stop"]["reasons"] == ["endpoint"]
+    assert summary["priced"] is False
+    assert not (out / "trials.jsonl").exists()
+
 
 def test_workflow_runs_the_pilot_before_a_priced_call():
     workflow = (HERE.parents[1] / ".github" / "workflows" / "agent-ops.yml").read_text(encoding="utf-8")
@@ -561,5 +666,23 @@ def test_workflow_runs_the_pilot_before_a_priced_call():
     assert "retention-days: 90" in workflow
     assert "us.openai.gpt-6.1-terra" in readme
     assert "omitted" in readme
+    assert "vars.TERMINAL_MODEL_BASE_URL" not in workflow
+    assert "HONUA_CANARY_STUDIO_AI_ENABLED" in workflow
+    assert "HONUA_CANARY_BEDROCK_MODEL" in workflow
+    assert "HONUA_CANARY_BEDROCK_REGION" in workflow
+    assert "HONUA_CANARY_TRANSCRIPT_SIGNING_SEED" in workflow
+    assert "TERMINAL_MODEL_SIGNING_MANIFEST_SHA256" in workflow
+    assert "TERMINAL_MODEL_API_KEY" in workflow
+    assert "http://127.0.0.1:8147/api" in workflow
+    assert 'HONUA_PORT: "8147"' in workflow
+    assert "Refuse a live client with no endpoint" in workflow
+    proxy = (HERE / "studio-proxy.yml").read_text(encoding="utf-8")
+    assert "StudioAiProxy__Enabled" in proxy
+    assert "HONUA_CANARY_BEDROCK_MODEL" in proxy
+    assert "HONUA_CANARY_TRANSCRIPT_SIGNING_SEED" in proxy
+    assert "StudioAiProxy__Disclosure__Approvals__0__Model" in proxy
+    assert "AiExecutionAdmission__DeploymentId: operate-live" in proxy
+    assert "test:" not in proxy
+    assert "x-api-key" in (HERE / "client.py").read_text(encoding="utf-8")
     for name in ("summary.json", "ledger.json", "trials.jsonl", "transcripts", "audit"):
         assert name in workflow
