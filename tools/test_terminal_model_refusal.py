@@ -232,7 +232,8 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
     b.receipt["linkedEvidence"]["deterministicReceipt"]["path"]=str(receipt)
     (tmp_path/"extended").mkdir()
     (tmp_path/"extended/seed-manifest.json").write_text(json.dumps(_seed_manifest()))
-    state={"serving":False,"refused":False,"ack":False,"calls":0,"teardown":False,"bindings":[],"admission":False}
+    state={"serving":False,"refused":False,"ack":False,"calls":0,"teardown":False,"bindings":[],"admission":False,
+           "messages":[]}
     serving={"featureCount":2,"featureIds":["1","2"],"featuresSha256":"a"*64,"independentReadMatches":True,
              "fixtureBinding":{k:v for k,v in _fixture().items() if k!="expectedFeatures"}}
     refused={"topology":"redis-off","ruling":"redis-off","rulingStatus":"ruled","tool":"honua_validate_plan",
@@ -246,8 +247,11 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
             if op=="observe":
                 stage=next(s for s in b.journey["stages"] if s["id"]==payload["stage"])
                 done=state["serving"] if stage["number"]==1 else state["ack"]
+                tools=sorted(profile.STAGE_TOOLS[stage["number"]])
+                if mutation=="no-stage-tools":tools=[]
                 return {"status":"pass" if done else "ready","stageStatus":{**stage,"status":"pass" if done else "ready",
-                        "checks":[{"status":"pass"}] if done else [],"blockedBy":[]},"observation":{},"toolView":{}}
+                        "checks":[{"status":"pass"}] if done else [],"blockedBy":[]},"observation":{},
+                        "toolView":{"tools":[{"name":n} for n in tools+["honua_list_jobs"]]},"stageTools":tools}
             if op=="execute":
                 if payload["stage"]=="serving-read":state["serving"]=True;result={"servingProof":serving}
                 elif not state["refused"]:
@@ -272,7 +276,7 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
                     {"operation":"admin.ai.admission.resume","status":"Completed"}]
         def complete(self,messages,bindings):
             assert state["admission"],"a chat was sent before the AI admission ledger was opened"
-            state["calls"]+=1;state["bindings"].append(bindings)
+            state["calls"]+=1;state["bindings"].append(bindings);state["messages"].append(copy.deepcopy(messages))
             if mutation=="unsigned" and state["calls"]==2:raise c.CanaryError("signed provenance verification failed")
             proof={"transcriptDigest":("a"*64 if mutation=="replay" else f"{state['calls']:064x}"),
                 "keyId":"unit","manifestDigest":"a"*64,"provider":"bedrock","reportedModel":"unit-only",
@@ -590,3 +594,83 @@ def test_successful_unlocked_run_bound_to_the_pinned_image_validates(tmp_path, m
     assert not b.bound()
     with pytest.raises(c.CanaryError):
         b.validated_receipt()
+
+
+def _run_view():
+    """The bounded setup view run 41013398407 showed the model (41 tools; names only)."""
+    names=["list_capabilities","resolve_entity","ingest_dataset","ingest_job_artifact","publish_result",
+        "publish_service","describe_layer","list_layers","query_features","apply_style_preset","get_style",
+        "render_map","dry_run_plan","execute_plan","get_job_results","list_jobs","plan_analysis","validate_plan",
+        "create_app_package","create_map_package","studio_create_draft","studio_get_draft","studio_save_version",
+        "studio_propose_publication","supported_operation_kinds"]
+    plan={"type":"object","required":["plan"],"properties":{"plan":{"type":"object"}}}
+    return [{"name":"honua_"+n,"inputSchema":plan if n.endswith("_plan") else {"type":"object"}} for n in names]
+
+
+def _view_driver(problem=GP):
+    driver,engine,state=_driver(problem=problem)
+    engine.observation.setup_discovery={"metadata":{"view":"setup"},"tools":_run_view()}
+    driver._observation_payload=lambda _o:{}
+    driver._tool_view=lambda o:{"bounded":True,"tools":o.setup_discovery["tools"]}
+    return driver,engine,state
+
+
+def test_refusal_stage_advertises_exactly_the_tools_execute_admits_and_a_correct_plan_is_refused():
+    # Run 41013398407: stage 2 was shown 41 tools and no admitted names; the model's action was refused.
+    driver,engine,state=_view_driver()
+    observed=profile.observe(driver,{"profile":r.PROFILE,"stage":"durable-refusal"})
+    assert observed["stageTools"]==sorted(profile.STAGE_TOOLS[2])
+    assert r.admitted_tools(observed)==observed["stageTools"]
+    assert profile.observe(driver,{"profile":r.PROFILE,"stage":"serving-read"})["stageTools"]==sorted(profile.STAGE_TOOLS[1])
+    contract=observed["observation"]["planContract"]
+    assert contract["tools"]==list(profile.PLAN_TOOLS)
+    arguments=copy.deepcopy(contract["arguments"]);plan=arguments["plan"]
+    plan.update(planId="model-buffer",intentId="model-intent");plan["steps"][0]["stepId"]="buffer"
+    assert arguments==_plan_arguments()
+    result=profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal",
+        "action":{"kind":"tool_call","tool":"honua_validate_plan","arguments":arguments,"intent":"attempt"}})["result"]
+    assert result["executionOutcome"]=="refused" and state["modelRefusal"]["refusal"]
+    system=r.stage_system(observed["stageStatus"],observed["stageTools"])
+    assert "Current stage: durable-refusal" in system and ", ".join(sorted(profile.STAGE_TOOLS[2])) in system
+
+
+def test_refusal_stage_omits_a_stage_tool_the_view_does_not_list():
+    driver,engine,_=_view_driver()
+    engine.observation.setup_discovery["tools"]=[t for t in _run_view() if t["name"]!="honua_dry_run_plan"]
+    observed=profile.observe(driver,{"profile":r.PROFILE,"stage":"durable-refusal"})
+    assert "honua_dry_run_plan" not in observed["stageTools"]
+    assert "honua_dry_run_plan" not in observed["observation"]["planContract"]["tools"]
+    with pytest.raises(ExecutionError,match="tool=honua_dry_run_plan"):
+        profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal",
+            "action":{"kind":"tool_call","tool":"honua_dry_run_plan","arguments":_plan_arguments()}})
+
+
+@pytest.mark.parametrize("action,summary",[
+    ({"kind":"tool_call","tool":"honua_list_jobs","arguments":{"secret":"s3cr3t"}},"kind=tool_call; tool=honua_list_jobs"),
+    ({"kind":"terminal_command","command":"curl s3cr3t"},"kind=terminal_command)"),
+    ({"kind":"tool_call","tool":"x y; s3cr3t","arguments":{}},"kind=tool_call; tool=<non-identifier>"),
+    ({"kind":"tool_call","tool":"honua_query_features","arguments":{}},"tool=honua_query_features")])
+def test_rejected_refusal_action_names_kind_and_identifier_tool_only(action,summary):
+    driver,engine,_=_view_driver()
+    with pytest.raises(ExecutionError) as caught:
+        profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal","action":action})
+    assert summary in str(caught.value) and "s3cr3t" not in str(caught.value)
+    engine.transport.tool.assert_not_called()
+
+
+def test_runner_tells_each_stage_its_admitted_tools_and_task(tmp_path,monkeypatch):
+    b,result,state=_runner(tmp_path,monkeypatch)
+    assert result["status"]=="pass"
+    systems=[m[0]["content"] for m in state["messages"]]
+    assert systems[0]!=systems[1] and "Current stage: serving-read" in systems[0]
+    assert "Current stage: durable-refusal" in systems[1]
+    for stage,system,messages in zip((1,2,2),systems,state["messages"]):
+        allowed=sorted(profile.STAGE_TOOLS[stage])
+        assert "Allowed tool_call names (the server-authored view for this stage): "+", ".join(allowed)+"." in system
+        assert "honua_list_jobs" not in system
+        assert json.loads(messages[1]["content"])["allowedTools"]==allowed
+
+
+def test_runner_without_advertised_stage_tools_is_infrastructure_without_a_model_call(tmp_path,monkeypatch):
+    b,result,state=_runner(tmp_path,monkeypatch,mutation="no-stage-tools")
+    assert result["status"]=="fail" and result["failureAttribution"]==c.INFRASTRUCTURE and state["calls"]==0
