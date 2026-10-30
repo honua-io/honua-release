@@ -31,8 +31,9 @@ permissions:
   actions: read
 
 concurrency:
-  # Share the provisioner's lock: no new qualification/rerun may recreate a
-  # cell while its original state is being inspected and retired.
+  # Retirements stay serialized with each other and the reaper; e2e-cloud-aws now runs per-target
+  # lanes, so the job also refuses while any e2e run is active (below), and e2e refuses while a
+  # retirement is active.
   group: e2e-cloud-aws
   cancel-in-progress: false
 
@@ -62,6 +63,20 @@ jobs:
           terraform_version: 1.17.0
           terraform_wrapper: false
       - run: python -m pip install -r e2e/requirements.txt
+      # e2e-cloud-aws runs in per-target lanes, so sharing its lock group no longer excludes every
+      # provisioning run. Refuse to retire while any is active (a rerun could recreate the cell).
+      - name: Refuse while any cloud e2e run is active
+        run: |
+          set -euo pipefail
+          active=0
+          for state in queued in_progress waiting requested pending; do
+            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-cloud-aws.yml/runs?status=${state}&per_page=100" --jq '[.workflow_runs[] | select(.id != ${{ github.run_id }})] | length')"
+            active=$(( active + n ))
+          done
+          if [ "$active" -gt 0 ]; then
+            echo "::error title=cloud e2e active::an e2e-cloud-aws run is active; retire after it completes"
+            exit 1
+          fi
       - name: Verify completed original run and immutable resource source
         id: original
         env:

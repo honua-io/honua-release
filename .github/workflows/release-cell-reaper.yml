@@ -49,9 +49,10 @@ permissions:
   contents: read
 
 concurrency:
-  # Hold the cell lock for the WHOLE sweep: e2e-cloud-aws (provision -> teardown) and
-  # cloud-cell-retirement.yml (state-based recovery) use this group, so no recovery or new cell can
-  # start mid-sweep and race native deletion against a Terraform-state retirement. A pre-sweep
+  # Hold the cell lock for the WHOLE sweep: cloud-cell-retirement.yml (state-based recovery) uses this
+  # group, so no recovery can start mid-sweep. e2e-cloud-aws runs per-target lanes outside it; the sweep
+  # defers while any e2e run is active and only removes resources older than its grace (>= 4 h), so a
+  # cell provisioned mid-sweep is never in scope and race native deletion against a Terraform-state retirement. A pre-sweep
   # status check alone cannot give that (review of #973). GitHub keeps one pending run per group: a
   # newer queued run cancels an older pending one, so dispatch cell work one run at a time.
   group: e2e-cloud-aws
@@ -93,10 +94,13 @@ jobs:
           for state in queued in_progress waiting requested pending; do
             n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/cloud-cell-retirement.yml/runs?status=${state}&per_page=1" --jq '.total_count')"
             active=$(( active + n ))
+            # e2e-cloud-aws runs per-target lanes, outside this lock group: defer while any is active.
+            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-cloud-aws.yml/runs?status=${state}&per_page=1" --jq '.total_count')"
+            active=$(( active + n ))
           done
           if [ "$active" -gt 0 ]; then
-            echo "::notice title=release-cell reaper deferred::a cloud-cell-retirement recovery is active"
-            echo "deferred: a cloud-cell-retirement recovery is active" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=release-cell reaper deferred::a cloud-cell-retirement recovery or an e2e-cloud-aws run is active"
+            echo "deferred: a cloud-cell-retirement recovery or an e2e-cloud-aws run is active" >> "$GITHUB_STEP_SUMMARY"
             echo "deferred=true" >> "$GITHUB_OUTPUT"
           else
             echo "deferred=false" >> "$GITHUB_OUTPUT"

@@ -102,8 +102,13 @@ permissions:
   actions: write                  # dispatch the honua-iac cloud harness (iac-live wrapper)
   id-token: write                 # OIDC -> AWS (no static creds)
 
+# One lane per target: a target never overlaps itself (its cells provision in order inside one run),
+# but ECS, Lambda+Batch and EKS dispatches run side by side. Cell names, DNS and state carry the run id,
+# the account has headroom for three cells (VPC 3/10, EIP 3/30, RDS 1/40 on 2026-10-30), and the
+# release-cell reaper only removes resources older than its grace (>= 4 h, default 48 h). The nightly
+# (target all) keeps its own lane.
 concurrency:
-  group: e2e-cloud-aws            # one ephemeral env at a time
+  group: e2e-cloud-aws-${{ inputs.target || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -121,6 +126,22 @@ jobs:
       gp_batch_image: ${{ steps.pins.outputs.gp_batch_image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Targets run in parallel lanes (see concurrency), so the shared lock no longer orders this run
+      # after a cloud-cell-retirement. Refuse to provision while one is active instead.
+      - name: Refuse while a cell retirement is active
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          active=0
+          for state in queued in_progress waiting requested pending; do
+            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/cloud-cell-retirement.yml/runs?status=${state}&per_page=100" --jq '[.workflow_runs[] | select(.id != ${{ github.run_id }})] | length')"
+            active=$(( active + n ))
+          done
+          if [ "$active" -gt 0 ]; then
+            echo "::error title=cell retirement active::a cloud-cell-retirement run is active; dispatch this run after it completes"
+            exit 1
+          fi
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
