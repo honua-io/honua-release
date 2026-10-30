@@ -3,7 +3,7 @@
   "profileId": "foss4g-ai-2026",
   "visibility": "controller-only",
   "sourcePack": "certification/agent-e2e/pack.v2.json",
-  "sourcePackDigest": "87461d79ec1e17052e1580091021306ebaafacd544f2c94a7af34df5ea2aabcd",
+  "sourcePackDigest": "5843f142701d6801fe115a20d439dba2d3adac0c6823704ff2b1f007d89f5059",
   "coverageAudit": "certification/coverage-audit.v1.json",
   "policy": {
     "totalBudgetUsd": 2000,
