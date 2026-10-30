@@ -5,7 +5,10 @@ The full delivery checklist is tracked in
 [honua-release #619](https://github.com/honua-io/honua-release/issues/619).
 The 36 scenarios and 108 prompts are unchanged. Qualification still requires all
 252 cases across Docker, ECS with Redis, EKS, Lambda and Batch. No live cases have
-been qualified by the offline tests described here.
+been qualified by the offline tests described here. `pack.ga.json` is a separate
+GA generalization pack for high-latitude and antimeridian data, messy schemas,
+an existing deployment, and unseen adversarial channels. Its offline checks do
+not qualify the campaign.
 
 ## Implemented contracts
 

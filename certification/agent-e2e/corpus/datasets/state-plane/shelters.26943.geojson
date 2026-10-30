@@ -1,0 +1,45 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:26943"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          1844085.558,
+          645699.33
+        ],
+        "type": "Point"
+      },
+      "id": "s-state-plane-1",
+      "properties": {
+        "capacity": 55,
+        "is_open": true,
+        "name": "Harbor customer export shelter 1",
+        "source_id": "s-state-plane-1"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          1844295.558,
+          645729.33
+        ],
+        "type": "Point"
+      },
+      "id": "s-state-plane-2",
+      "properties": {
+        "capacity": 70,
+        "is_open": false,
+        "name": "Harbor customer export shelter 2",
+        "source_id": "s-state-plane-2"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

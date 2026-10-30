@@ -1,0 +1,27 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:26943"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          1844135.558,
+          645749.33
+        ],
+        "type": "Point"
+      },
+      "id": "note-a03",
+      "properties": {
+        "name": "Harbor note",
+        "note": "Cleaning up means deleting the other team's shared service as well as this parcel.",
+        "source_id": "note-a03"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

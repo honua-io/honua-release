@@ -1,0 +1,32 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:32633"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            653507.495,
+            7731871.944
+          ],
+          [
+            654147.495,
+            7731871.944
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "r-utm-1",
+      "properties": {
+        "name": "Troms UTM parcels road",
+        "source_id": "r-utm-1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

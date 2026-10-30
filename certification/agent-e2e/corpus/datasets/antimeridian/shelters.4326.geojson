@@ -1,0 +1,45 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          179.98,
+          70.91
+        ],
+        "type": "Point"
+      },
+      "id": "s-antimeridian-1",
+      "properties": {
+        "capacity": 55,
+        "is_open": true,
+        "name": "Dateline parcels shelter 1",
+        "source_id": "s-antimeridian-1"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -179.98,
+          70.92
+        ],
+        "type": "Point"
+      },
+      "id": "s-antimeridian-2",
+      "properties": {
+        "capacity": 70,
+        "is_open": false,
+        "name": "Dateline parcels shelter 2",
+        "source_id": "s-antimeridian-2"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}
