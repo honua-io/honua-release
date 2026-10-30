@@ -335,6 +335,65 @@ def test_inventory_build_resolves_revision_rules_and_reports_drift():
     assert drift(inventory, changed) == [f"honua-site-docs: revision {'e' * 12} -> {'f' * 12}"]
 
 
+def test_npm_published_revision_follows_provenance_when_git_head_is_absent():
+    import base64
+    from inventory import InventoryError
+
+    commit = "c6f766ec77b3e13e314a9938d211bc077ff14fbf"
+    statement = {
+        "predicate": {
+            "buildDefinition": {
+                "resolvedDependencies": [{
+                    "uri": "git+https://github.com/honua-io/honua-sdk-js@refs/tags/create-honua-app-v0.2.4",
+                    "digest": {"gitCommit": commit},
+                }]
+            }
+        }
+    }
+    payload = base64.b64encode(json.dumps(statement).encode()).decode()
+    attestation = json.dumps({"attestations": [{"bundle": {"dsseEnvelope": {"payload": payload}}}]}).encode()
+    latest_no_head = json.dumps({"version": "0.2.4", "name": "create-honua-app"}).encode()
+    latest_with_head = json.dumps({"version": "0.2.3", "gitHead": "a" * 40}).encode()
+    doc = {
+        "repo": "honua-io/honua-sdk-js",
+        "path": "packages/create-honua-app/README.md",
+        "revision": {"npmPublished": "create-honua-app"},
+    }
+
+    def fetch(url, accept=None, token=None):
+        if url == "https://registry.npmjs.org/create-honua-app/latest":
+            return latest_no_head
+        if url == "https://registry.npmjs.org/-/npm/v1/attestations/create-honua-app@0.2.4":
+            return attestation
+        raise AssertionError(url)
+
+    assert Resolver({}, fetch=fetch).revision(doc) == commit
+
+    seen = []
+
+    def fetch_head(url, accept=None, token=None):
+        seen.append(url)
+        if url.endswith("/latest"):
+            return latest_with_head
+        raise AssertionError(url)
+
+    assert Resolver({}, fetch=fetch_head).revision(doc) == "a" * 40
+    assert all("attestations" not in url for url in seen)
+
+    def fetch_foreign(url, accept=None, token=None):
+        if url.endswith("/latest"):
+            return latest_no_head
+        bad = json.loads(json.dumps(statement))
+        bad["predicate"]["buildDefinition"]["resolvedDependencies"][0]["uri"] = (
+            "git+https://github.com/other/repo@refs/tags/v1"
+        )
+        foreign_payload = base64.b64encode(json.dumps(bad).encode()).decode()
+        return json.dumps({"attestations": [{"bundle": {"dsseEnvelope": {"payload": foreign_payload}}}]}).encode()
+
+    with pytest.raises(InventoryError, match="no gitHead"):
+        Resolver({}, fetch=fetch_foreign).revision(doc)
+
+
 def test_committed_inventory_matches_sources_and_records_every_block():
     sources = json.loads((HERE / "sources.json").read_text())
     inventory = json.loads((HERE / "inventory.json").read_text())
