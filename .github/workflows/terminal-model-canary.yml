@@ -49,7 +49,7 @@ on:
         required: false
         type: string
       model:
-        description: Endpoint model identifier; empty uses the repository variable or the Sonnet 5.5 profile
+        description: Endpoint model identifier; empty uses the repository variable or the Sonnet 4.6 profile
         required: false
         type: string
       authentication:
@@ -101,8 +101,8 @@ permissions:
   contents: read
 
 env:
-  # Claude Sonnet 5.5 us. cross-region inference profile (operator ruling 2026-10-22; routes to us-east-1, us-east-2, us-west-2).
-  TERMINAL_MODEL_DEFAULT: us.anthropic.claude-sonnet-5-5
+  # Claude Sonnet 4.6 us. cross-region inference profile: the shipped default and the only Sonnet enabled on the account (Sonnet 5.5 is not; TERMINAL_MODEL_NAME has been 4.6 since 2026-10-29).
+  TERMINAL_MODEL_DEFAULT: us.anthropic.claude-sonnet-4-6
   TERMINAL_MODEL_BEDROCK_REGION: us-east-1
 
 jobs:
@@ -166,7 +166,7 @@ jobs:
       contents: read
       id-token: write                 # OIDC -> the Bedrock-enabled role; no static AWS keys
     env:
-      TERMINAL_MODEL_NAME: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
+      TERMINAL_MODEL_NAME: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-6' }}
       TERMINAL_MODEL_RUNTIME: ${{ inputs.runtime || 'aws-bedrock' }}
       TERMINAL_MODEL_QUANTIZATION: ${{ inputs.quantization || 'provider-managed' }}
       # Trust anchor: SHA-256 of the canonical transcript-signing manifest the candidate publishes
@@ -174,7 +174,7 @@ jobs:
       TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
       # targets/build-compose.yml routes the candidate's StudioAiProxy to Bedrock from these.
       HONUA_CANARY_STUDIO_AI_ENABLED: "true"
-      HONUA_CANARY_BEDROCK_MODEL: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
+      HONUA_CANARY_BEDROCK_MODEL: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-6' }}
       HONUA_CANARY_BEDROCK_REGION: us-east-1
       HONUA_CANARY_TRANSCRIPT_KEY_ID: terminal-model-canary
       HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE: env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED
