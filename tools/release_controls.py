@@ -77,6 +77,31 @@ def capture_repository(repo: str) -> dict:
     }
 
 
+def review_parameters(model: dict | None) -> dict:
+    """Pull-request rule for the adopted review model.
+
+    None keeps the two-person contract. The 2026-09-29 operator-approval ruling
+    requires count 0: the sole human writer cannot approve their own pull request,
+    so a required review, code-owner review, or last-push approval would block every merge.
+    """
+    if model is None or model.get('independent_code_owner_required', True):
+        count, independent = 1, True
+    else:
+        if model.get('required_approving_review_count') != 0:
+            raise ValueError('operator-approval review_model requires approving review count 0')
+        if not model.get('id') or not model.get('ruling') or not model.get('deferred_to'):
+            raise ValueError('review_model must name its id, ruling, and deferred_to')
+        count, independent = 0, False
+    return {
+        'required_approving_review_count': count,
+        'dismiss_stale_reviews_on_push': True,
+        'require_code_owner_review': independent,
+        'require_last_push_approval': independent,
+        'required_review_thread_resolution': True,
+        'allowed_merge_methods': ['merge', 'squash', 'rebase'],
+    }
+
+
 def branch_rules(policy: dict) -> dict:
     checks = policy['required_checks']
     if not checks or len(checks) != len(set(checks)) or any(not c.strip() for c in checks):
@@ -90,14 +115,7 @@ def branch_rules(policy: dict) -> dict:
         'conditions': {'ref_name': {'include': refs, 'exclude': []}},
         'rules': [
             {'type': 'deletion'}, {'type': 'non_fast_forward'},
-            {'type': 'pull_request', 'parameters': {
-                'required_approving_review_count': 1,
-                'dismiss_stale_reviews_on_push': True,
-                'require_code_owner_review': True,
-                'require_last_push_approval': True,
-                'required_review_thread_resolution': True,
-                'allowed_merge_methods': ['merge', 'squash', 'rebase'],
-            }},
+            {'type': 'pull_request', 'parameters': review_parameters(policy.get('review_model'))},
             {'type': 'required_status_checks', 'parameters': {
                 'strict_required_status_checks_policy': True,
                 'do_not_enforce_on_create': False,
@@ -123,6 +141,8 @@ def operator_actions(policy: dict, trust: dict) -> list:
     """Click-ops this repository must not perform. Derived from the committed policies."""
     repositories = policy['repositories']
     release_owner = policy.get('owner', 'mikemcdougall')
+    model = policy.get('review_model') if isinstance(policy.get('review_model'), dict) else None
+    independent_required = model is None or model.get('independent_code_owner_required', True)
     missing = sorted(name for name, row in repositories.items() if not row.get('required_checks'))
     tagged = sorted(name for name, row in repositories.items() if row.get('tag_refs'))
     lacking_independent = sorted(
@@ -138,15 +158,29 @@ def operator_actions(policy: dict, trust: dict) -> list:
         return {'id': action_id, 'status': status, 'performs_github_writes': False,
                 'summary': summary, 'repositories': names, 'steps': steps}
 
-    return [
-        row('independent-code-owner', 'open' if lacking_independent else 'satisfied',
+    if independent_required:
+        ownership = row(
+            'independent-code-owner', 'open' if lacking_independent else 'satisfied',
             'The author of a pull request cannot satisfy CODEOWNERS review of that change.',
             ['Nominate one existing human who is not the release owner. Do not invent a login.',
              'Grant that human write access on every repository in policy.json.',
              'Add the login to each code_owners list and to the catch-all CODEOWNERS line, '
              'including the file already in honua-release.',
              'Land CODEOWNERS in every other repository. This repository cannot open those pulls.'],
-            lacking_independent),
+            lacking_independent)
+    else:
+        ownership = row(
+            'independent-code-owner', 'deferred',
+            f"Review model {model['id']} defers two-person review to {model['deferred_to']}. "
+            'The operator is the named code owner and approves by merging.',
+            ['Land the catch-all CODEOWNERS line naming the operator in every repository other than '
+             'honua-release. This repository cannot open those pulls.',
+             'Keep the deferred two-person rule recorded as an accepted limitation. Do not invent a login.'],
+            lacking_independent)
+    approval = ('one change approved by the independent code owner' if independent_required
+                else 'one change merged by the operator after every required check passed')
+    return [
+        ownership,
         row('missing-check-denominators', 'open' if missing else 'satisfied',
             'A ruleset with an empty required_checks list is refused and must not be installed.',
             ['Implement a nonempty fail-closed aggregate in each listed repository.',
@@ -161,7 +195,7 @@ def operator_actions(policy: dict, trust: dict) -> list:
              'Target only refs/heads/release/* and the declared tag namespaces. Leave default-branch protection '
              'unchanged, including honua-server trunk strict=false.',
              'Read each ruleset back and compare it with the rendered payload.',
-             'Prove one denied unreviewed release-line change and one change approved by the independent code owner.',
+             f'Prove one denied release-line change and {approval}.',
              'Do not use an organization ruleset for this rollout: required checks differ by repository, and '
              'organization rulesets need admin:org. Repository rulesets do not.'],
             sorted(name for name, row in repositories.items() if row.get('required_checks'))),
@@ -215,8 +249,11 @@ def rule_drift(expected: dict, actual: dict) -> list[str]:
                 if not isinstance(live, list) or any(c not in live for c in value):
                     errors.append('required_status_checks denominator/source differs')
             elif key == 'required_approving_review_count':
-                if type(live) is not int or live < value:
-                    errors.append('human approval missing')
+                # A positive contract accepts a stronger count. Count 0 is the
+                # sole-writer ruling and rejects any required approving review.
+                if type(live) is not int or live < value or (value == 0 and live != 0):
+                    errors.append('human approval missing' if value else
+                                  'approving review count blocks the sole writer')
             elif live != value:
                 errors.append(f'{kind}.{key} differs')
     return errors
@@ -249,9 +286,12 @@ def audit_repository(policy: dict, snapshot: dict, signing=None, repository: str
         errors.append('catch-all human CODEOWNERS not verified')
     elif owners.get('source_sha') != snapshot.get('source_sha') or not re.fullmatch('[0-9a-f]{40}', owners.get('source_sha', '')):
         errors.append('CODEOWNERS source SHA differs')
-    # A designated owner must be able to approve a change authored by the release owner.
+    # A designated owner must be able to approve a change authored by the release owner,
+    # unless the committed review model defers two-person review and names the operator.
     humans = snapshot.get('human_writers', [])
-    if not any(h != 'mikemcdougall' and h in designated for h in humans):
+    model = policy.get('review_model') if isinstance(policy.get('review_model'), dict) else None
+    independent = model is None or model.get('independent_code_owner_required', True)
+    if independent and not any(h != 'mikemcdougall' and h in designated for h in humans):
         errors.append('no independent human code owner available to approve owner-authored changes')
     if policy['tag_refs']:
         tags = tag_rules(policy)
@@ -290,7 +330,14 @@ def audit(policy: dict, snapshot: dict, receipts: dict | None = None,
     if not isinstance(snapshot.get('repositories'), dict):
         raise ValueError('snapshot repositories missing')
     observed = snapshot['repositories']
-    results = {repo: audit_repository(row, observed[repo], (receipts or {}).get(repo), repo,
+    model = policy.get('review_model') if isinstance(policy.get('review_model'), dict) else None
+
+    def audited_row(row: dict) -> dict:
+        if model is None:
+            return row
+        return {**row, 'review_model': model}
+
+    results = {repo: audit_repository(audited_row(row), observed[repo], (receipts or {}).get(repo), repo,
                                       (release_identity or {}).get(repo))
                if repo in observed else ['repository missing from snapshot']
                for repo, row in expected.items()}
@@ -327,6 +374,8 @@ def main() -> int:
         return 0
     if args.command == 'render':
         row = policy['repositories'][args.repository]
+        if not args.tags and isinstance(policy.get('review_model'), dict):
+            row = {**row, 'review_model': policy['review_model']}
         print(json.dumps(tag_rules(row) if args.tags else branch_rules(row), indent=2))
         return 0
     if args.command == 'operator-actions':
