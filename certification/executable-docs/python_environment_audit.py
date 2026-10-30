@@ -29,7 +29,8 @@ def default_metadata_sites() -> list[Path]:
                   | {Path(site.getusersitepackages())})
 
 
-def inspect_honua_metadata(site_path: Path) -> None:
+def inspect_honua_metadata(site_path: Path, *, source_admission=None) -> dict | None:
+    admitted = None
     for entry in site_path.iterdir():
         suffix = next((value for value in (".dist-info", ".egg-info") if entry.name.lower().endswith(value)), None)
         if suffix is None:
@@ -61,7 +62,18 @@ def inspect_honua_metadata(site_path: Path) -> None:
             if not isinstance(origin, dict):
                 raise ValueError(f"Honua origin metadata is malformed: {entry}")
             # Guarded-index installs have no PEP610 direct origin. Never log its URL.
-            raise ValueError(f"Honua direct-origin installation bypasses the guarded package index: {entry}")
+            if source_admission is None:
+                raise ValueError(f"Honua direct-origin installation bypasses the guarded package index: {entry}")
+            from python_source_admission import AdmissionRefusal, judge_distribution
+            try:
+                decision = judge_distribution(source_admission, site_path, entry)
+            except AdmissionRefusal as refusal:
+                raise ValueError(
+                    f"Honua direct-origin installation bypasses the guarded package index: {entry}: {refusal}"
+                ) from None
+            if not decision.get("sourceAdmitted") or decision.get("publishedWheelIdentity") or decision.get("candidateQualified"):
+                raise ValueError(f"Honua direct-origin installation bypasses the guarded package index: {entry}")
+            admitted = decision
         name, version = canonical_name(names[0].strip()), versions[0].strip()
         stem = entry.name[:-len(suffix)]
         matches = False
@@ -73,9 +85,10 @@ def inspect_honua_metadata(site_path: Path) -> None:
                        (not remainder or re.fullmatch(re.escape(f"-{version}") + r"-py[0-9.]+", remainder) is not None))
         if not name.startswith("honua") or not matches:
             raise ValueError(f"Honua metadata name/version contradicts its installed path: {entry}")
+    return admitted
 
 
-def inventory(roots: list[Path], interpreters: list[str] | None = None) -> dict:
+def inventory(roots: list[Path], interpreters: list[str] | None = None, *, source_admission=None) -> dict:
     environments: set[Path] = set()
     visited: set[Path] = set()
     for root in roots:
@@ -120,6 +133,16 @@ def inventory(roots: list[Path], interpreters: list[str] | None = None) -> dict:
         invoked.append(str(selected))
 
     packages: dict[tuple[str, str, str], dict] = {}
+    evidence = None
+
+    def inspect(site_path: Path) -> None:
+        nonlocal evidence
+        decision = inspect_honua_metadata(site_path, source_admission=source_admission)
+        if decision is None:
+            return
+        if evidence is not None and evidence != decision:
+            raise ValueError("Honua direct-origin installation bypasses the guarded package index: conflicting source admission")
+        evidence = decision
 
     def retain(distributions) -> None:
         for distribution in distributions:
@@ -137,7 +160,7 @@ def inventory(roots: list[Path], interpreters: list[str] | None = None) -> dict:
     # explicitly without executing its .pth files or sitecustomize code.
     for default_site in default_metadata_sites():
         if default_site.exists():
-            inspect_honua_metadata(default_site)
+            inspect(default_site)
             retain(metadata.distributions(path=[str(default_site)]))
     audited = []
     for environment in sorted(environments):
@@ -152,10 +175,17 @@ def inventory(roots: list[Path], interpreters: list[str] | None = None) -> dict:
         for site_path in sites:
             if not site_path.resolve().is_relative_to(environment):
                 raise ValueError(f"Python environment site-packages escapes its root: {site_path}")
-            inspect_honua_metadata(site_path)
+            inspect(site_path)
             retain(metadata.distributions(path=[str(site_path)]))
         audited.append({"environment": str(environment), "sitePackages": [str(site_path) for site_path in sites]})
-    return {"environments": audited, "documentedInterpreters": invoked, "packages": [packages[key] for key in sorted(packages)]}
+    result = {"environments": audited, "documentedInterpreters": invoked, "packages": [packages[key] for key in sorted(packages)]}
+    if source_admission is not None:
+        if evidence is None or evidence.get("publishedWheelIdentity") or evidence.get("candidateQualified"):
+            raise ValueError("Honua direct-origin installation bypasses the guarded package index: unbound")
+        result["sourceBuildEvidence"] = evidence
+        result["publishedWheelIdentity"] = False
+        result["candidateQualified"] = False
+    return result
 
 
 if __name__ == "__main__":
