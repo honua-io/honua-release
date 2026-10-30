@@ -913,9 +913,89 @@ def test_approval_still_refuses_an_unbounded_or_raw_principal_and_names_the_fiel
     pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": requested_by, "diff": SEALED_DIFF}
     transport.get_json.side_effect = [pending, pending, {**pending, "status": "Succeeded", "resolvedBy": KEY_APPROVER}]
     transport.cli_approve.side_effect = [(1, None), (0, None)]
-    with pytest.raises(ExecutionError, match=r"bounded canonical identity \(requestedBy\)"):
+    with pytest.raises(ExecutionError, match=r"bounded canonical identity \(requestedBy; length="):
         engine.approve("proposal-1")
     assert "approvalResolution" not in engine.evidence
+
+
+def _escape_data_string(value):
+    # .NET Uri.EscapeDataString: RFC 3986 unreserved characters kept, everything else uppercase %XX.
+    import urllib.parse
+    return urllib.parse.quote(value, safe="-_.~")
+
+
+def _studio_caller_id(issuer, subject, tenant):
+    # honua-server StudioAuthorizationService.ResolveCallerId for an issuer-bearing token: the id the
+    # operation gateway records as requestedBy for honua_studio_propose_publication.
+    return (f"subject:{_escape_data_string(issuer)}:{_escape_data_string(subject)}"
+            f"@tenant:{_escape_data_string(tenant)}")
+
+
+def _eks_tenant_proposer():
+    import local_fixture
+    fixture = local_fixture.TENANT_FIXTURE
+    return _studio_caller_id(fixture["issuer"], fixture["subject"], fixture["authorTenant"])
+
+
+def _approve_with(requested_by, resolved_by=KEY_APPROVER):
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = approval_engine(transport)
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": requested_by, "diff": SEALED_DIFF}
+    handle = {"operationInstanceId": "opinst-exec", "operationId": "studio.content.create-publication-request",
+              "proposalId": "proposal-1", "auditId": "94", "correlationId": "00-corr", **SEALED_HANDLE}
+    transport.get_json.side_effect = [pending, pending, {**pending, "status": "Succeeded", "resolvedBy": resolved_by,
+                                                         "executionOperationId": "opinst-exec"}, handle]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    return engine, engine.approve("proposal-1")
+
+
+def test_eks_tenant_proposer_is_the_studio_caller_id_with_its_tenant_suffix():
+    # e2e-cloud-aws run 40981429785 (aws-eks/redis-on): #1075 admitted %XX but not `@tenant:`.
+    assert _eks_tenant_proposer() == "subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:public"
+
+
+@pytest.mark.parametrize("requested_by", [
+    _eks_tenant_proposer(),
+    _studio_caller_id("https://login.example.com/7f0c1e2a-0000-4000-8000-000000000001/v2.0",
+                      "AAAAAAAAAAAAAAAAAAAAAIkzqFVrSaSaFHy782bbtaQ", "journey-other-tenant"),
+    _studio_caller_id("https://idp.example/realms/a b", "user+tag=1/x", ""),
+    SIGNED_PROPOSER,
+    "operatorbearer:subject:-:svc~account",
+    "apikey:name:journey%20key",
+    "fe015b41-ea79-4ec1-aedc-5caccf968fe8",
+])
+def test_approval_accepts_each_server_actor_encoding(requested_by):
+    engine, _ = _approve_with(requested_by)
+    assert engine.evidence["approvalResolution"]["requestedBy"] == requested_by
+    assert engine.evidence["checks"]["8"]["separation"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("requested_by", [
+    "subject:https://terminal-journey.invalid:journey-author@tenant:public",  # raw '/'
+    "subject:https%3A%2F%2Fterminal-journey.invalid:journey author@tenant:public",  # whitespace
+    "subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:pub\x00lic",  # control
+    "subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:public%2",  # malformed escape
+    "subject:https%3a%2f%2fterminal-journey.invalid:journey-author@tenant:public",  # not .NET's uppercase hex
+    "subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@public",  # wrong suffix
+    "subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:a@tenant:b",
+    "subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:" + "x" * 500,  # over 512
+    "Bearer:subject:https%3A%2F%2Fterminal-journey.invalid:journey-author",  # scheme is lowercased
+])
+def test_approval_refuses_a_non_canonical_actor_and_reports_only_its_shape(requested_by):
+    with pytest.raises(ExecutionError) as caught:
+        _approve_with(requested_by)
+    detail = str(caught.value)
+    assert "bounded canonical identity (requestedBy; length=" in detail
+    assert "journey-author" not in detail and "terminal-journey" not in detail and "public" not in detail
+
+
+def test_principal_shape_names_length_and_character_classes_without_the_value():
+    shape = executor.principal_shape(_eks_tenant_proposer())
+    assert shape == "length=75 classes=lower,upper,digit,'%','-','.',':','@' segments=4"
+    assert "malformed" in executor.principal_shape("a%2g b")
+    assert "whitespace" in executor.principal_shape("a b")
+    assert executor.principal_shape(None) == "absent"
+    assert executor.principal_shape(7) == "type=int"
 
 
 def test_approval_retains_a_server_reported_approval_id_and_rejects_an_unjoined_replay():
