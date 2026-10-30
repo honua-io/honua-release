@@ -74,7 +74,8 @@ def test_no_profile_fallback_or_guessed_token_counter():
 def test_actual_geo_standard_prices_stop_at_supported_input_boundary_before_invoke(count):
     config = configuration()
     assert config['inputUsdPerMillion'] == '3.30' and config['outputUsdPerMillion'] == '16.50'
-    assert config['returnedModelId'] == 'claude-sonnet-4-5-20250929'
+    assert config['returnedModelId'] == 'claude-sonnet-4-6'
+    assert config['modelId'] == 'us.anthropic.claude-sonnet-4-6'
     client = Mock()
     client.count_tokens.return_value = {'inputTokens': count}
     model = BedrockModel(config, client=client)

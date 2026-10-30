@@ -86,7 +86,7 @@ variable "enable_agent_controller" {
 }
 
 variable "controller_model_resource_arns" {
-  description = "Reviewed exact Bedrock profile and member-model resources. Empty refuses model invocation. No wildcard, provider change or model substitution at runtime."
+  description = "Reviewed exact Bedrock profile and member-model resources. Empty refuses model invocation. No wildcard, provider change or model substitution at runtime. Pass the profile ARN plus the three routed foundation-model ARNs for Claude Opus 5.5, Claude Sonnet 5.5, GPT-6.1 Sol, GPT-6.1 Terra, and, while it remains the shipped default, Claude Sonnet 4.6."
   type        = list(string)
   default     = []
   validation {

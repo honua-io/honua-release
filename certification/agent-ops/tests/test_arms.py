@@ -1,17 +1,19 @@
 """Latest-model arms stay beside the shipped Sonnet 4.6 primary."""
 
+from decimal import Decimal
 from pathlib import Path
 
-from constants import ARMS, PRIMARY_ARM, SHIPPED_TEMPERATURE
+from constants import ARMS, PRICES_USD_PER_MTOK, PRIMARY_ARM, SHIPPED_TEMPERATURE
 
 
 def test_primary_arm_is_unchanged_shipped_sonnet_4_6():
     assert PRIMARY_ARM["id"] == "primary"
     assert PRIMARY_ARM["model"] == "claude-sonnet-4-6"
     assert PRIMARY_ARM["bedrock"] == "us.anthropic.claude-sonnet-4-6"
-    assert PRIMARY_ARM["temperature"] == SHIPPED_TEMPERATURE == 0
+    assert PRIMARY_ARM["temperature"] == SHIPPED_TEMPERATURE
     assert PRIMARY_ARM["max_actions"] == 40
     assert ARMS["primary"] is PRIMARY_ARM
+    assert PRICES_USD_PER_MTOK["primary"] == {"input": "3", "output": "15"}
 
 
 def test_latest_models_are_priced_exploratory_arms():
@@ -34,14 +36,26 @@ def test_latest_models_are_priced_exploratory_arms():
         assert price["output_per_mtok"] == out
         assert price["cached_input_per_mtok"] == cached
         assert price["as_of"] == "2026-10"
+        ledger = PRICES_USD_PER_MTOK[arm_id]
+        assert Decimal(ledger["input"]) == Decimal(str(inp))
+        assert Decimal(ledger["output"]) == Decimal(str(out))
+
+
+def _arm_input_block(text: str) -> str:
+    start = text.index("      arm:\n")
+    lines = [text[start:].splitlines()[0]]
+    for line in text[start:].splitlines()[1:]:
+        if line.startswith("      ") and not line.startswith("        "):
+            break
+        lines.append(line)
+    return "\n".join(lines) + "\n"
 
 
 def test_dispatch_arm_choices_match_the_registry():
     text = (
         Path(__file__).resolve().parents[3] / ".github/workflows/agent-ops.yml"
     ).read_text()
-    start = text.index("      arm:\n")
-    block = text[start : text.index("\npermissions:", start)]
+    block = _arm_input_block(text)
     options = [
         line.strip()[2:]
         for line in block.splitlines()
@@ -50,6 +64,7 @@ def test_dispatch_arm_choices_match_the_registry():
     assert options == list(ARMS)
     assert "default: primary" in block
     assert "exploratory" not in block
+    assert "scope:" in text
 
 
 def test_older_models_are_not_arms():

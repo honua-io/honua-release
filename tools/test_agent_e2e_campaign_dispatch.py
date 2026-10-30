@@ -19,6 +19,13 @@ def step(job, name):
     return next(value for value in JOBS[job]['steps'] if name in value.get('name', ''))
 
 
+def test_development_dispatch_defaults_to_one_local_docker_case_and_sonnet_46():
+    text = WORKFLOW.read_text()
+    assert 'default: P10:A:local-docker' in text
+    assert "vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-6'" in text
+    assert 'us.anthropic.claude-sonnet-5-5' not in text
+
+
 @pytest.mark.parametrize('job', ['develop', *TARGETS, 'finalize'])
 def test_only_fixed_private_handoff_runs_controller_operations(job):
     steps = JOBS[job]['steps']

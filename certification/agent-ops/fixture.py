@@ -7,7 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from constants import LAYERS, PRIOR_IMAGE, PROJECTED_CRS
+from constants import LAYERS, POSTGIS_IMAGE, PRIOR_IMAGE, PROJECTED_CRS
 from corpus_io import CORPUS
 
 ENV_NAMES = (
@@ -30,7 +30,7 @@ def render_compose(state: dict) -> str:
         f"name: {slug}-gis",
         "services:",
         "  db:",
-        "    image: postgis/postgis:16-3.4",
+        f"    image: {POSTGIS_IMAGE}",
         "    environment:",
         "      POSTGRES_USER: gis",
         "      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}",

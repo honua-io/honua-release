@@ -147,14 +147,19 @@ def test_complete_receipt_transition_replaces_only_after_write(tmp_path):
     assert not path.with_name(path.name + ".pending").exists()
 
 
-def test_canary_allowlist_is_sonnet_5_5_sonnet_4_6_and_gpt_6_1_terra_without_sonnet_4_5():
+def test_canary_allowlist_is_the_latest_models_plus_shipped_sonnet_4_6():
     profiles = [arn for arn in CANARY_MODELS if ":inference-profile/" in arn]
     assert profiles == [
         "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-5-5",
         "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-sonnet-4-6",
         "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.openai.gpt-6.1-terra",
+        "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-opus-5-5",
+        "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.openai.gpt-6.1-sol",
     ]
-    assert len(CANARY_MODELS) == 12 and not [arn for arn in CANARY_MODELS if "sonnet-4-5" in arn]
+    # Sonnet 4.6 stays because it is the shipped default. Sonnet 4.5, Haiku, and GPT-5 are not granted.
+    assert len(CANARY_MODELS) == 20 and not [
+        arn for arn in CANARY_MODELS if "sonnet-4-5" in arn or "haiku" in arn or "gpt-5" in arn
+    ]
     main = (SOURCE / "main.tf").read_text()
     assert all(f'"{arn}"' in main for arn in CANARY_MODELS)
 
