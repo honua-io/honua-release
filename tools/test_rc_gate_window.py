@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -419,6 +420,18 @@ def test_find_pin_time_is_the_commit_that_set_the_server_sha_field(tmp_path):
         assert "no commit pins" in str(exc)
     else:
         raise AssertionError("a missing pin commit must fail closed")
+
+
+def test_artifact_redirect_drops_the_github_token_on_a_different_host():
+    handler = w._NoCrossHostAuth()
+    req = urllib.request.Request(
+        "https://api.github.com/repos/honua-io/honua-release/actions/artifacts/1/zip",
+        headers=w._headers("local-test-token"),
+    )
+    blob = handler.redirect_request(req, None, 302, "Found", {}, "https://blob.example/artifact.zip")
+    assert blob.get_header("Authorization") is None
+    same = handler.redirect_request(req, None, 302, "Found", {}, "https://api.github.com/repos/honua-io/honua-release/x")
+    assert same.get_header("Authorization") == "Bearer local-test-token"
 
 
 def test_artifact_zip_yields_report_objects_and_ignores_other_members():

@@ -170,15 +170,28 @@ def _headers(token: str) -> dict[str, str]:
     }
 
 
+class _NoCrossHostAuth(urllib.request.HTTPRedirectHandler):
+    """GitHub artifact downloads redirect to blob storage. That host rejects the GitHub bearer token."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlparse(req.full_url).netloc != urllib.parse.urlparse(newurl).netloc:
+            new.remove_header("Authorization")
+        return new
+
+
+_OPENER = urllib.request.build_opener(_NoCrossHostAuth)
+
+
 def _get(url: str, token: str) -> dict:
     req = urllib.request.Request(url, headers=_headers(token))
-    with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 (fixed https host)
+    with _OPENER.open(req, timeout=60) as resp:  # noqa: S310 (api.github.com, redirects stripped of the token)
         return json.load(resp)
 
 
 def _get_bytes(url: str, token: str, limit: int) -> bytes:
     req = urllib.request.Request(url, headers=_headers(token))
-    with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 (fixed https host)
+    with _OPENER.open(req, timeout=60) as resp:  # noqa: S310 (api.github.com, redirects stripped of the token)
         return resp.read(limit)
 
 
