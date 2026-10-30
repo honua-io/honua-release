@@ -1,87 +1,24 @@
-# Compatibility matrix — the interop rules. The product differentiator: "keeping track of version
-# compatibility, iac<->server<->sdk." Enforced at build (drift tests), deploy (iac/helm preflight),
-# runtime (server advertises contractVersion; SDK checks), and upgrade (preflight).
-#
-# rc.1 snapshot: each client range is a SUPPORT WINDOW, not a current-version pin. The
-# FLOOR is the OLDEST supported client (a support commitment), and the ceiling is the next breaking
-# boundary (for 0.x the next MINOR is breaking, so ceiling = next minor; for >=1.x, ceiling = next
-# MAJOR). The manifest's `components.*.version` tracks the currently-shipped/pinned build — a
-# DIFFERENT concept — and a newer shipped version simply sits inside this window, it does NOT move
-# the floor. Raising a floor drops support for older clients, which the drift gate treats as a
-# breaking change requiring a contract-version bump (see tools/validate_platform.py check_drift), so
-# floors stay at the phase-0 baseline until a contract is deliberately bumped. These are initial
-# bounds to make the gates real, not the final negotiated support window — widen (never silently
-# narrow) as the compat suite proves pairings.
-#
-# 2026.1: Licensing__Mode=Disabled on every deployment. All catalog entitlements are active;
-# no edition gating, license enforcement or serving-unit metering/bands. Maturity and safety limits apply.
-# See docs/INSTALL-2026.1.md and the operating envelope (operator ruling 2026-09-12).
-# Floors retain the 2026-07-01 compatibility baseline. Where a component has no
-# release it is pinned by sha in the manifest and excluded from semver ranges here (noted inline).
-# Release-gate PRs were still merging at snapshot; sha-pinned couplings that reference a still-open
-# gate PR carry a `# pending` flag mirroring the manifest.
-
-# Each rule: a contract surface at a version, and the component version ranges that satisfy it.
 contracts:
   geoservices:
-    # WIRED (honua-release#83): the server advertises this. RE-READ on 2026-08-18 from a running
-    # instance of the CURRENT pinned image (ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8,
-    # index sha256:4fd2c1be…), not carried forward from the aa894e1 pin —
-    #   /api/v1/capabilities/manifest -> transports.items[id=geoservices-rest].contractVersion = 1.0.0
-    #   (same envelope: server.deploymentRevision = 6b6d3b898f4abb6b34833d953b50d44f3d38c6c1)
-    # (it still deliberately does not emit ArcGIS `currentVersion`). Client floors below are NOT
-    # tightened here: raising a floor drops support for older clients and validate_platform's drift
-    # check treats that as breaking, so floors stay at the phase-0 baseline until the SDKs actually
-    # negotiate on this version. Nothing in honua-server#3347/#3349/#3352/#3353 moved a floor: the
-    # only advertised-surface change in that range is a capability-ID set (#3349), which is not a
-    # client support window.
-    # 2026-10-09 hand re-pin to 3ecd214: the server's release/component-versions.json declares
-    # geoservices 2.0.0 (honua-server#5427, honua-release#425): layer geometryType is omitted unless it
-    # is one of the five layer tokens, which drops a previously accepted token. The contract version
-    # follows the pinned server's declaration. The client support windows below are carried, not
-    # narrowed; no SDK negotiates on the geoservices contract version today.
-    version: "2.0.0"
+    version: 2.0.0
     clients:
-      honua-sdk-js:     ">=0.0.14-alpha.0 <0.3.0"   # sealed SDK 0.2.2 GeoServices run 38492974391
-      honua-sdk-dotnet: ">=1.3.0 <2.0.0"            # floor = oldest supported (published artifact is 1.10.4)
-      honua-sdk-python: ">=0.1.4 <0.2.0"            # floor = oldest supported (published artifact is 0.1.12); 0.x: ceiling = next minor
-  # NOTE: the same capability envelope now also advertises ogc-http and stac at contractVersion
-  # 1.0.0 (recorded in platform-manifest.yaml honua-server.contractVersions). They are deliberately
-  # NOT given contract entries here yet: a contract row is a client SUPPORT WINDOW commitment, and
-  # no SDK negotiates on those two surfaces today, so inventing floors for them would be fiction.
+      honua-sdk-js: '>=0.0.14-alpha.0 <0.3.0'
+      honua-sdk-dotnet: '>=1.3.0 <2.0.0'
+      honua-sdk-python: '>=0.1.4 <0.2.0'
   grpc:
-    version: v1        # proto package geospatial.v1 (geospatial-grpc VERSIONING.md; server advertises grpc v1)
-    # geospatial-grpc 0.2.0-alpha.1 is the schema source; SDK floors are where grpc clients live.
-    # 0.2.0-alpha.1 is a sanctioned pre-v1 wire break (geospatial-grpc#48/#69) that does NOT change
-    # the proto package: the surface stays geospatial.v1, so no client floor moves. See
-    # docs/GRPC-0.2.0-ALPHA.1-CUT.md.
-    clients:
-      honua-sdk-dotnet: ">=1.3.0"                   # floor = oldest supported (published artifact is 1.10.4)
-      honua-sdk-js:     ">=0.0.14-alpha.0"          # floor = oldest supported (published artifact is 0.1.14)
-  admin:               # console <-> server admin/control-plane API
-    # REAL: advertised at /api/v1/admin/capabilities (AdminApiMajor="v1", AdminApiMajorNumber=1,
-    # basePath /api/v1/admin; capabilities exposes compatibility.controlPlaneApi.major=1).
     version: v1
     clients:
-      # console has no release (pinned by sha); floor is its declared package.json version.
-      honua-console:    ">=0.1.0"
-      # python SDK gates on this surface: baseline controlPlaneApiMajor 1
-      # (honua-sdk-python compatibility/server-matrix.json).
-      honua-sdk-python: ">=0.1.4"                   # floor = oldest supported (published artifact is 0.1.12)
-  metadata:            # metadata surface advertised in the capabilities envelope
-    version: "metadata.honua.io/v2alpha1"   # MetadataV2Constants.ApiVersion; schemaVersion 2.0.0-alpha.1
+      honua-sdk-dotnet: '>=1.3.0'
+      honua-sdk-js: '>=0.0.14-alpha.0'
+  admin:
+    version: v1
     clients:
-      # NOTE(drift): honua-sdk-python compatibility/server-matrix.json still declares an expected
-      # metadataSchemas version of "v1"; the server now advertises metadata.honua.io/v2alpha1. Now
-      # TRACKED in honua-sdk-python#161 (reconcile the SDK fixture to accept v2alpha1 before 2026.1
-      # promotion) — the fix lands in that repo's CI. rc.1 keeps this lag explicit until that gate
-      # is reconciled.
-      honua-sdk-python: ">=0.1.9"
-
-# Deploy/runtime coupling. honua-iac ships Git-tag releases (manifest pins the tag's sha and archive
-# digest); honua-helm has no releases yet (pinned by sha). Ranges below bound the SERVER artifact
-# they are allowed to deploy. honua-server is
-# itself pre-release (pinned by sha), so these couplings are sha-pinned, not semver-ranged.
+      honua-console: '>=0.1.0'
+      honua-sdk-python: '>=0.1.4'
+  metadata:
+    version: metadata.honua.io/v2alpha1
+    clients:
+      honua-sdk-python: '>=0.1.9'
 deploy:
   honua-server:
     awsLambda:
@@ -91,8 +28,11 @@ deploy:
           status: preview
           releaseScope: preview
           qualification: pending
-          evidenceGate: "https://github.com/honua-io/honua-release/issues/282"
-          reason: "2026-10-25 founder decision (2026.1 wedge-critical re-tier) supersedes 2026-09-06 ruling A: Lambda is Preview in 2026.1, informational and not GA qualified; AWS ECS stays GA. Security, isolation and integrity floors remain required; pending evidence is not a pass."
+          evidenceGate: https://github.com/honua-io/honua-release/issues/282
+          reason: '2026-10-25 founder decision (2026.1 wedge-critical re-tier) supersedes
+            2026-09-06 ruling A: Lambda is Preview in 2026.1, informational and not
+            GA qualified; AWS ECS stays GA. Security, isolation and integrity floors
+            remain required; pending evidence is not a pass.'
           operatingEnvelope: docs/2026.1-operating-envelope.md
     awsFargate:
       architectures:
@@ -100,17 +40,12 @@ deploy:
           status: certified
         arm64:
           status: excluded
-          reason: "Published child exists, but native Fargate readiness is not certified for 2026.1 (honua-release#98)."
+          reason: Published child exists, but native Fargate readiness is not certified
+            for 2026.1 (honua-release#98).
   honua-iac:
-    # TODO: encode against a released server version once honua-server cuts a tag; today server is
-    # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
-    # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-10-27 rc re-pin #4 (8cb074f -> a4bde4b).
-    deploysServerImage: "sha:a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"
+    deploysServerImage: sha:08ace249b20bc2c27bd7326fd77cd48525719eb7
   honua-helm:
-    # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-10-27 rc re-pin #4 (a4bde4b).
-    appVersion: "sha:a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"
+    appVersion: sha:08ace249b20bc2c27bd7326fd77cd48525719eb7
     awsEks:
       target: aws-eks
       architectures:
@@ -118,72 +53,35 @@ deploy:
           status: preview
           releaseScope: preview
           qualification: pending
-          evidenceGate: "https://github.com/honua-io/honua-release/issues/203"
-          reason: "2026-10-16 owner amendment supersedes decisions 12/18: EKS/Helm is Preview in 2026.1, informational and not GA qualified. Security, isolation and integrity floors remain required; pending evidence is not a pass."
+          evidenceGate: https://github.com/honua-io/honua-release/issues/203
+          reason: '2026-10-16 owner amendment supersedes decisions 12/18: EKS/Helm
+            is Preview in 2026.1, informational and not GA qualified. Security, isolation
+            and integrity floors remain required; pending evidence is not a pass.'
           operatingEnvelope: docs/2026.1-operating-envelope.md
-
 data:
   honua-server:
-    # DB schema version = highest applied migration in the PINNED server source
-    # (src/Honua.Server/Migrations/, NNN_ prefix); max at 6b6d3b8 is
-    # 106_CreateManagedUsersAndScimGroups.sql — RE-VERIFIED at this pin, not carried forward (none of
-    # honua-server#3347/#3349/#3352/#3353 adds a migration). DbUp journals to public.schema_versions
-    # (no single constant), so the filename list is not the verdict; the pinned image was run against
-    # postgres and the journal read back:
-    #   docker exec <pg> psql -U honua -d honua -c \
-    #     "select scriptname from public.schema_versions order by scriptname desc limit 1;"
-    #   -> Honua.Server.Migrations.106_CreateManagedUsersAndScimGroups.sql
-    # 2026-09-11 candidate re-pin to 7ba4226: the migration-filename floor is
-    # 115_AddDropImportStagingTable.sql (`git ls-tree 7ba4226 src/Honua.Server/Migrations/`). The
-    # DbUp journal read-back above was NOT repeated for this pin.
-    # 2026-09-16 re-pin to 8862065 moves manifest honua-server.dbSchema to 119
-    # (119_CreateGeoprocessingWorkspaces.sql). This field is the CLIENT-COMPATIBILITY FLOOR, not the
-    # candidate's schema: it stays at >=115 deliberately so clients certified against 115..119 remain
-    # in range. validate_platform.check_coherence only compares the two when this value is not a
-    # range, so the >= form is what keeps them independent.
-    # 2026-09-16 third re-pin to 87966c3 moves manifest honua-server.dbSchema to 120
-    # (120_AddStudioTenantOwnership.sql); the client-compatibility floor stays >=115 for the same reason.
-    # 2026-10-09 hand re-pin to 3ecd214 moves manifest honua-server.dbSchema to 125
-    # (125_AddImportedAttachmentIdentity.sql); the client-compatibility floor stays >=115.
-    # 2026-10-10 hand re-pin to 798d517 adds no migration (dbSchema stays 125).
-    # 2026-10-11 hand re-pin to 93cad86 adds no migration (dbSchema stays 125).
-    # 2026-10-12 hand re-pin to 0e03bdd moves manifest honua-server.dbSchema to 128
-    # (126_AddStudioContentHashInput.sql, 127_CompleteSensorThingsSensing.sql,
-    # 128_AddNetworkTopologyPromotionRequestHash.sql); the client-compatibility floor stays >=115.
-    # 2026-10-22 rc re-pin to 4709145 moves manifest honua-server.dbSchema to 133 (129..133, through
-    # 133_CreatePortalSharing.sql); the client-compatibility floor stays >=115.
-    # 2026-10-22 rc re-pin #2 to 199bce7 moves it to 135 (134_VersionCanonicalDeployments.sql,
-    # 135_RecordMigrationReaderCompatibility.sql); the floor stays >=115.
-    # 2026-10-22 rc re-pin #3 to 8cb074f moves it to 136 (136_CreateAdminApiKeys.sql); the floor stays >=115.
-    # 2026-10-27 rc re-pin #4 to a4bde4b moves it to 140 (140_CreateAiExecutionAdmission.sql); the floor stays >=115.
-    requiresDbSchema: ">=115"
-    # Graph schema (metadataSchemaVersion), not the metadata API id under contracts.metadata.
-    # The pinned server declaration names this value. The manifest copies it as
-    # honua-server.schemaVersions.metadata; coherence errors if the two disagree.
-    metadataSchema: "2.0.0-alpha.1"
-
-# Capability lifecycle vocabulary. Every row under `capabilities:` takes exactly one of these values
-# (tools/validate_platform.py check_capability_lifecycle).
+    requiresDbSchema: '>=115'
+    metadataSchema: 2.0.0-alpha.1
 lifecycle:
-  ga: "Generally available: supported for customer deployment and counted in the GA denominator; requires candidate-bound qualification evidence."
-  preview: "Offered to customers for evaluation, with no production availability, performance or durability commitment; security and isolation floors still apply."
-  experimental: "Present in the binary, opt-in and disabled by default; no customer support claim."
-  excluded: "Not part of 2026.1 for any deployment."
-  # Ruling R29 (honua-release#376, 2026-10-03); supersedes the 2026-09-04 Preview/trial wording.
-  internal: "Used only on Honua's own demo infrastructure. Not offered for customer deployment in 2026.1 and not GA, Preview or Experimental. Carries no availability, performance or support claim and is not counted in any GA denominator."
-
-# Capability rows whose lifecycle is declared here rather than derived from a component's
-# lifecycleStatus. `capabilityKeys` name honua-evidence capability-matrix keys; an internal key must
-# not appear in e2e/expected-ga-manifest.json `expectedGa`.
+  ga: 'Generally available: supported for customer deployment and counted in the GA
+    denominator; requires candidate-bound qualification evidence.'
+  preview: Offered to customers for evaluation, with no production availability, performance
+    or durability commitment; security and isolation floors still apply.
+  experimental: Present in the binary, opt-in and disabled by default; no customer
+    support claim.
+  excluded: Not part of 2026.1 for any deployment.
+  internal: Used only on Honua's own demo infrastructure. Not offered for customer
+    deployment in 2026.1 and not GA, Preview or Experimental. Carries no availability,
+    performance or support claim and is not counted in any GA denominator.
 capabilities:
   multi-tenancy:
     lifecycle: internal
-    capabilityKeys: [admin.multi-tenancy]
-    deployment: "Honua's own demo stack (honua-demo-infra, demo.honua.io) only."
-    reason: "Ruling R29: no customer-facing multi-tenant claim exists; ELv2 bars third parties from operating Honua as a managed service."
-    ruling: "https://github.com/honua-io/honua-release/issues/376"
-
-# Support window policy: server supports clients within N-2 minor of its contract version.
+    capabilityKeys:
+    - admin.multi-tenancy
+    deployment: Honua's own demo stack (honua-demo-infra, demo.honua.io) only.
+    reason: 'Ruling R29: no customer-facing multi-tenant claim exists; ELv2 bars third
+      parties from operating Honua as a managed service.'
+    ruling: https://github.com/honua-io/honua-release/issues/376
 supportWindow:
   clientMinorsBack: 2
-  deprecationReleases: 2     # deprecated surfaces carried >= 2 platform releases before removal
+  deprecationReleases: 2
