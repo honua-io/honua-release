@@ -1629,11 +1629,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "115c42a384862ad855a0969342ceeeb293cb8ebb",
+      "revision": "35b5f70eaea2e24ed64a550bb1c92008ba2b38e9",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/115c42a384862ad855a0969342ceeeb293cb8ebb/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/35b5f70eaea2e24ed64a550bb1c92008ba2b38e9/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1739,11 +1739,11 @@
       "id": "honua-server-docs-get-started-first-dataset",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-dataset.md",
-      "revision": "115c42a384862ad855a0969342ceeeb293cb8ebb",
+      "revision": "35b5f70eaea2e24ed64a550bb1c92008ba2b38e9",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/115c42a384862ad855a0969342ceeeb293cb8ebb/docs/get-started/first-dataset.md",
+      "url": "https://github.com/honua-io/honua-server/blob/35b5f70eaea2e24ed64a550bb1c92008ba2b38e9/docs/get-started/first-dataset.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1842,11 +1842,11 @@
       "id": "honua-server-docs-get-started-first-map",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-map.md",
-      "revision": "115c42a384862ad855a0969342ceeeb293cb8ebb",
+      "revision": "35b5f70eaea2e24ed64a550bb1c92008ba2b38e9",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/115c42a384862ad855a0969342ceeeb293cb8ebb/docs/get-started/first-map.md",
+      "url": "https://github.com/honua-io/honua-server/blob/35b5f70eaea2e24ed64a550bb1c92008ba2b38e9/docs/get-started/first-map.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1914,11 +1914,11 @@
       "id": "honua-server-docs-get-started-with-ai",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/with-ai.md",
-      "revision": "115c42a384862ad855a0969342ceeeb293cb8ebb",
+      "revision": "35b5f70eaea2e24ed64a550bb1c92008ba2b38e9",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/115c42a384862ad855a0969342ceeeb293cb8ebb/docs/get-started/with-ai.md",
+      "url": "https://github.com/honua-io/honua-server/blob/35b5f70eaea2e24ed64a550bb1c92008ba2b38e9/docs/get-started/with-ai.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -1953,11 +1953,11 @@
       "id": "honua-server-docs-guides-connect-ai-agents-mcp",
       "repo": "honua-io/honua-server",
       "path": "docs/guides/connect/ai-agents-mcp.md",
-      "revision": "115c42a384862ad855a0969342ceeeb293cb8ebb",
+      "revision": "35b5f70eaea2e24ed64a550bb1c92008ba2b38e9",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/115c42a384862ad855a0969342ceeeb293cb8ebb/docs/guides/connect/ai-agents-mcp.md",
+      "url": "https://github.com/honua-io/honua-server/blob/35b5f70eaea2e24ed64a550bb1c92008ba2b38e9/docs/guides/connect/ai-agents-mcp.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2013,7 +2013,7 @@
         },
         {
           "index": 5,
-          "line": 382,
+          "line": 383,
           "language": "jsonc",
           "infoString": "jsonc",
           "intent": "illustrative",
