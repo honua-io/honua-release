@@ -96,7 +96,7 @@ SDK_PACKAGE_ARTIFACTS = {"sdk-dotnet": "honua-sdk-dotnet", "sdk-python": "honua-
 # job then refused before dispatching any producer. A frozen pin that still declares those
 # inputs stays the producer source. Otherwise stage the newest trunk commit that declares
 # them, even when that commit's own certify check is red: the red run leaves the ledger
-# unbound and is not reclassified as advisory. esri-compat is not in this table.
+# unbound and is not reclassified as advisory. Only geospatial-mcp is in this table.
 PROTOCOL_DISPATCH_SOURCES: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "geospatial-mcp": (
         "honua-io/geospatial-mcp",
