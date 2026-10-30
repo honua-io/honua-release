@@ -2,7 +2,7 @@
 
 Campaign E measures the shipped operator configuration on a scripted stand-in and, later, on a priced model. It is not GA evidence. Campaign Q bars are reported beside the intervals and are not applied here.
 
-The shipped configuration is Bedrock `us.anthropic.claude-sonnet-4-6` and `guidance=none`: the prompt lists published tool names and does not add `requiredSequence` or a stage order. The exploratory arm is `claude-haiku-4-5`. This lane does not call either model.
+The shipped configuration is Bedrock `us.anthropic.claude-sonnet-4-6` and `guidance=none`: the prompt lists published tool names and does not add `requiredSequence` or a stage order. Exploratory arms, beside that default, are Claude Opus 5.5, Claude Sonnet 5.5, GPT-6.1 Sol and GPT-6.1 Terra. This lane does not call any of them. Haiku 4.5 is no longer an arm.
 
 ## Temperature
 
@@ -33,7 +33,7 @@ Migration 142 is the reader-incompatible schema version named by the preregistra
 
 `--scope` on the workflow is `pilot` (default) or `full`. Pilot passes `--pilot` and runs `O01-A-1`, `O05-A-1`, and `O08-A-1`. A full run passes `--pilot-summary` and refuses, before any trial, unless that file is a completed priced live pilot of the same arm with `n: 3` and no stop reasons. A stub summary or a full-run summary does not authorize the next full run. The workflow loads the file from the `operate-summary` artifact of `prior_run_id`.
 
-`--ledger` writes `cap_usd`, `spent_usd`, and one entry per trial. The default cap is 250 USD. Live cost uses the measured Bedrock token counts (`promptTokens` / `completionTokens`, mapped from `InputTokenCount` / `OutputTokenCount`) and the arm rates: primary $3 / $15 per million input / output tokens, exploratory $1 / $5. Stub rows keep the character estimate, record `cost_usd: null`, and do not add spend. A trial that would start at or above the cap is not started. The trial that crosses the cap is kept. The workflow uploads `summary.json`, `ledger.json`, `trials.jsonl`, `transcripts/`, and `audit/` as artifact `operate-summary` for 90 days.
+`--ledger` writes `cap_usd`, `spent_usd`, and one entry per trial. The default cap is 250 USD. Live cost uses the measured Bedrock token counts (`promptTokens` / `completionTokens`, mapped from `InputTokenCount` / `OutputTokenCount`) and the arm rates: primary $3 / $15 per million input / output tokens, and the latest-model rates in the table below. Stub rows keep the character estimate, record `cost_usd: null`, and do not add spend. A trial that would start at or above the cap is not started. The trial that crosses the cap is kept. The workflow uploads `summary.json`, `ledger.json`, `trials.jsonl`, `transcripts/`, and `audit/` as artifact `operate-summary` for 90 days.
 
 ## Commands
 
@@ -69,9 +69,20 @@ The release session's dry run, after the freeze, is:
 ```bash
 "$GSTACK_ROOT/bin/gstack-eval-plan" dry-run \
   --input certification/agent-ops/rows/development.jsonl \
-  --arms claude-sonnet-4-6,claude-haiku-4-5 \
+  --arms claude-sonnet-4-6,claude-opus-5-5,claude-sonnet-5-5,gpt-6.1-sol,gpt-6.1-terra \
   --retry-prompt certification/agent-ops/retry-prompt.txt \
   --out /tmp/gis-ops-dry-run
 ```
 
 A stub summary has `"priced": false` and `"model": null`. It is the harness check, not a Sonnet measurement.
+
+Prices below are USD per 1M tokens for the `us.` profile (geo / US cross-region), standard short context, as of 2026-10. Cache writes and long-context rates are not in the table. Global CRIS is cheaper and is not the profile this grant uses.
+
+| Arm | Bedrock id | Input | Output | Cache read |
+|---|---|---:|---:|---:|
+| `opus-5-5` | `us.anthropic.claude-opus-5-5` | 4.40 | 22.00 | 0.22 |
+| `sonnet-5-5` | `us.anthropic.claude-sonnet-5-5` | 2.20 | 11.00 | 0.11 |
+| `gpt-6.1-sol` | `us.openai.gpt-6.1-sol` | 2.20 | 11.00 | 0.11 |
+| `gpt-6.1-terra` | `us.openai.gpt-6.1-terra` | 1.10 | 5.50 | 0.055 |
+
+Opus 5.5 and Sonnet 5.5 come from the Amazon Bedrock pricing page, Geo and In-region table, price map `bedrockfoundationmodels` published 2026-10-12. Sol and Terra come from the AWS model cards that page links (US CRIS for Sol, Geo CRIS for Terra, at most 272K input).

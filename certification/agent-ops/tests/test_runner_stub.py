@@ -276,7 +276,7 @@ def test_full_run_refuses_without_a_clean_pilot_summary(tmp_path: Path):
     for name, overrides in (
         ("stub-driver", {"driver": "stub", "priced": False}),
         ("full-scope", {"scope": "full"}),
-        ("other-arm", {"arm": "exploratory"}),
+        ("other-arm", {"arm": "opus-5-5"}),
         ("unpriced", {"priced": False}),
     ):
         blocked = tmp_path / name
