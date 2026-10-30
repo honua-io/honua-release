@@ -275,13 +275,10 @@ def test_export_recovery_requires_exact_settled_attempt(tmp_path, execution):
     assert backend.call('export_attempt', payload)['evidence'] == {}
 
 
-def test_retry_uses_retained_independent_bytes_without_import_or_new_liability(tmp_path, execution):
-    backend, _ = configured(tmp_path)
-    bind(backend, execution, tmp_path)
-    assert backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})['authorized'] is False
+def _retain_probe(execution, document):
     identity = {key: CONTEXT[key] for key in ('campaignId', 'caseId', 'attempt')}
     key = canonical_digest(identity)
-    diagnosis = b'independent offline probe fixture'
+    diagnosis = document if isinstance(document, bytes) else json.dumps(document).encode()
     digest = digest_bytes(diagnosis)
     receipt = {**identity, 'failureAttribution': 'infrastructure', 'status': 'fail',
                'cleanup': {'status': 'pass'}, 'failureEvidence': {'path': 'probe.json', 'sha256': digest}}
@@ -289,11 +286,84 @@ def test_retry_uses_retained_independent_bytes_without_import_or_new_liability(t
         'evidence': {'probe.json': base64.b64encode(diagnosis).decode()}}}
     execution.state['journals'] = {key: [{'event': 'diagnosis', 'attribution': 'infrastructure',
         'basis': 'independent-infrastructure-probe', 'evidenceDigest': digest}]}
+    return key
+
+
+def test_retry_uses_retained_independent_bytes_without_import_or_new_liability(tmp_path, execution):
+    backend, _ = configured(tmp_path)
+    bind(backend, execution, tmp_path)
+    assert backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})['authorized'] is False
+    key = _retain_probe(execution, {
+        'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'provider-5xx',
+        'observedBeforeModelActed': True, 'modelStateChanged': False, 'actionsDispatched': 0,
+        'independentOfModel': True, 'httpStatus': 503, 'providerRequestId': 'req-1',
+        'replay': {'independentOfModel': True, 'reproduced': True, 'httpStatus': 503}})
     result = backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})
-    assert result['authorized'] is True and result['previousAttemptDigest']
+    assert result['authorized'] is True and result['previousFailureAttribution'] == 'infrastructure'
+    assert result['previousAttemptDigest']
     assert backend.module is None and execution.state['ledger']['entries'] == []
     execution.state['attemptArtifacts'][key]['evidence']['probe.json'] = base64.b64encode(b'changed').decode()
-    assert backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})['authorized'] is False
+    refused = backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})
+    assert refused['authorized'] is False and refused['previousFailureAttribution'] == 'undetermined'
+
+
+@pytest.mark.parametrize('document', [
+    {'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'transport-error',
+     'observedBeforeModelActed': True, 'modelStateChanged': False, 'actionsDispatched': 0,
+     'independentOfModel': True, 'errorClass': 'connection-refused',
+     'replay': {'independentOfModel': True, 'reproduced': True, 'errorClass': 'connection-refused'}},
+    {'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'harness-crash',
+     'observedBeforeModelActed': True, 'modelStateChanged': False, 'actionsDispatched': 0,
+     'independentOfModel': True, 'component': 'driver', 'exitCode': 2,
+     'replay': {'independentOfModel': True, 'reproduced': True}},
+    {'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'cell-provisioning-failure',
+     'observedBeforeModelActed': True, 'modelStateChanged': False, 'actionsDispatched': 0,
+     'independentOfModel': True, 'provisioningStatus': 'failed', 'errorClass': 'subnet-missing',
+     'replay': {'independentOfModel': True, 'reproduced': True, 'errorClass': 'subnet-missing'}},
+])
+def test_each_causal_probe_kind_can_authorize_one_retry(tmp_path, execution, document):
+    backend, _ = configured(tmp_path)
+    bind(backend, execution, tmp_path)
+    _retain_probe(execution, document)
+    result = backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})
+    assert result['authorized'] is True and result['previousFailureAttribution'] == 'infrastructure'
+
+
+def test_retry_label_and_hash_without_a_causal_probe_stay_undetermined(tmp_path, execution):
+    """A diagnosis label and matching evidence hash do not prove an infrastructure fault."""
+    backend, _ = configured(tmp_path)
+    bind(backend, execution, tmp_path)
+    _retain_probe(execution, b'independent offline probe fixture')
+    result = backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})
+    assert result['authorized'] is False and result['previousAttemptDigest'] is None
+    assert result['previousFailureAttribution'] == 'undetermined'
+    assert backend.module is None
+
+
+@pytest.mark.parametrize('document', [
+    {'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'provider-5xx',
+     'observedBeforeModelActed': True, 'modelStateChanged': True, 'actionsDispatched': 0,
+     'independentOfModel': True, 'httpStatus': 503, 'providerRequestId': 'req-1',
+     'replay': {'independentOfModel': True, 'reproduced': True, 'httpStatus': 503}},
+    {'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'provider-5xx',
+     'observedBeforeModelActed': True, 'modelStateChanged': False, 'actionsDispatched': 1,
+     'independentOfModel': True, 'httpStatus': 503, 'providerRequestId': 'req-1',
+     'replay': {'independentOfModel': True, 'reproduced': True, 'httpStatus': 500}},
+    {'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'transport-error',
+     'observedBeforeModelActed': False, 'modelStateChanged': False, 'actionsDispatched': 0,
+     'independentOfModel': True, 'errorClass': 'timeout-before-request',
+     'replay': {'independentOfModel': True, 'reproduced': True, 'errorClass': 'timeout-before-request'}},
+    {'schemaVersion': 'honua.agent-e2e.infrastructure-probe/v1', 'probeKind': 'model-timeout',
+     'observedBeforeModelActed': True, 'modelStateChanged': False, 'actionsDispatched': 0,
+     'independentOfModel': True, 'replay': {'independentOfModel': True, 'reproduced': True}},
+])
+def test_probe_that_does_not_prove_infrastructure_is_undetermined(tmp_path, execution, document):
+    backend, _ = configured(tmp_path)
+    bind(backend, execution, tmp_path)
+    _retain_probe(execution, document)
+    result = backend.call('authorize_retry', {**CONTEXT, 'attempt': 2})
+    assert result == {'protocol': 'honua.agent-e2e.backend/v1', 'authorized': False,
+                      'previousAttemptDigest': None, 'previousFailureAttribution': 'undetermined'}
 
 
 def test_fixture_intent_and_evidence_are_exact_create_only_durable_records(execution):
