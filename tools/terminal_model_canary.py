@@ -30,7 +30,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 from cryptography.exceptions import InvalidSignature
@@ -937,6 +937,57 @@ class ReceiptBuilder:
         return self.receipt
 
 
+class ProviderTransientFailure(CanaryError):
+    """A model call failed at the provider before the candidate signed any terminal result: the proxy
+    stream ended with a lone ``error`` event and no ``message_stop``/``transcript_provenance``, or the
+    proxy answered a 5xx. Nothing from the call was accepted, so the same call may be re-issued.
+    ``code`` is an identifier only (``unspecified`` when the proxy named none)."""
+
+    def __init__(self, message: str, *, code: str, elapsed_ms: int):
+        super().__init__(message)
+        self.code = code
+        self.elapsed_ms = elapsed_ms
+
+
+# Bounded re-issue of a model call that failed transiently at the provider: two more attempts.
+PROVIDER_RETRY_BACKOFF_SECONDS: tuple[float, ...] = (2, 5)
+PROVIDER_RETRY_NOTICE = re.compile(r"provider transient failure on model call \d+ \([A-Za-z0-9_.:-]+\); retried$")
+_TRANSIENT_HTTP_STATUSES = {500, 502, 503, 504}
+# A failure naming any of these is a refusal of the request itself; re-issuing it cannot succeed.
+_NON_TRANSIENT_CODE = re.compile(
+    r"validation|access.?denied|authori[sz]|forbidden|too.?large|context.?length|admission|"
+    r"not.?found|invalid|quota.?exceeded|refus", re.IGNORECASE)
+
+
+def _identifier(value: Any) -> str:
+    return re.sub(r"[^A-Za-z0-9_.:-]", "", str(value or ""))[:80] or "unspecified"
+
+
+def complete_with_provider_retry(
+    client: Any,
+    messages: list[dict[str, str]],
+    certification_for: Callable[[], dict[str, str]],
+    builder: "ReceiptBuilder",
+) -> tuple[str, dict[str, Any], int, dict[str, Any]]:
+    """Issue one model call, re-issuing the same messages after a transient provider failure.
+
+    Only ProviderTransientFailure is retried: the failed attempt carried no signed result, so nothing
+    from it reaches the transcript or provenance. Each retried attempt is counted as a model call (its
+    elapsed time included, no tokens reported) and gets a fresh certification (run nonce) from
+    ``certification_for``. When every attempt fails, the last failure propagates unchanged."""
+    for attempt in range(len(PROVIDER_RETRY_BACKOFF_SECONDS) + 1):
+        try:
+            return client.complete(messages, certification_for())
+        except ProviderTransientFailure as failure:
+            if attempt >= len(PROVIDER_RETRY_BACKOFF_SECONDS):
+                raise
+            call = builder.receipt["totals"]["modelCalls"] + 1
+            builder.add_usage({}, failure.elapsed_ms)
+            builder.notice(f"provider transient failure on model call {call} ({_identifier(failure.code)}); retried")
+            time.sleep(PROVIDER_RETRY_BACKOFF_SECONDS[attempt])
+    raise CanaryError("unreachable provider retry state")  # pragma: no cover
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -1137,8 +1188,13 @@ class CandidateProxyClient:
                     detail = self.redactor.text(re.sub(r"\s+", " ", "; ".join(fields)))[:300]
             except (ValueError, OSError):
                 detail = ""
-            raise CanaryError(f"candidate Studio proxy request failed: {exc}"
-                              + (f" ({detail})" if detail else "")) from exc
+            message = f"candidate Studio proxy request failed: {exc}" + (f" ({detail})" if detail else "")
+            # A 5xx is the provider/proxy failing, not a refusal of the request; any 4xx is final.
+            if exc.code in _TRANSIENT_HTTP_STATUSES and not _NON_TRANSIENT_CODE.search(detail):
+                raise ProviderTransientFailure(
+                    message, code=f"http-{exc.code}",
+                    elapsed_ms=round((time.monotonic() - started) * 1000)) from exc
+            raise CanaryError(message) from exc
         except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as exc:
             raise CanaryError(f"candidate Studio proxy request failed: {exc}") from exc
         elapsed_ms = round((time.monotonic() - started) * 1000)
@@ -1173,18 +1229,29 @@ class CandidateProxyClient:
             # no prompt or key material, and the message is bounded. Attribution is unchanged.
             reported = [event for name, event in events if name == "error"]
             detail = ""
+            code = "unspecified"
+            message = ""
             if reported:
                 error = reported[0]
                 # Untrusted candidate text: the code is reduced to identifier characters and the message
                 # passes the same Redactor boundary as every other candidate-supplied value before it
                 # can reach the receipt's notices.
-                code = re.sub(r"[^A-Za-z0-9_.:-]", "", str(error.get("errorCode") or "unspecified"))[:80] or "unspecified"
+                code = _identifier(error.get("errorCode") or error.get("errorType") or error.get("failureType"))
                 message = self.redactor.text(re.sub(r"\s+", " ", str(error.get("errorMessage") or "")))[:240]
                 detail = f"; proxy error {code}: {message}" if message else f"; proxy error {code}"
             elif not events:
                 detail = "; the response carried no SSE events"
-            raise CanaryError("candidate proxy omitted the unique terminal signed provenance event"
-                              f" (events: {[name for name, _ in events][:12]}){detail}")
+            failure = ("candidate proxy omitted the unique terminal signed provenance event"
+                       f" (events: {[name for name, _ in events][:12]}){detail}")
+            names = [name for name, _ in events]
+            # The provider failed before the candidate signed anything: one error event ends the stream,
+            # with no message_stop and no provenance. That call produced no result and may be re-issued;
+            # an error after a stop or a signed event, or one naming a request refusal, may not.
+            if (names and names[-1] == "error" and names.count("error") == 1
+                    and "message_stop" not in names and "transcript_provenance" not in names
+                    and not _NON_TRANSIENT_CODE.search(f"{code} {message}")):
+                raise ProviderTransientFailure(failure, code=code, elapsed_ms=elapsed_ms)
+            raise CanaryError(failure)
         if terminals[0] != "message_stop":
             raise CanaryError("candidate proxy ended the certified call with an error")
         signed = provenance[0].get("provenance")
@@ -1824,9 +1891,10 @@ def execute_live(
                     _compact_observations(messages)
                 _append_user(messages, user_content)
                 def ask() -> tuple[str, int]:
-                    content, usage, elapsed_ms, provenance_evidence = client.complete(
+                    content, usage, elapsed_ms, provenance_evidence = complete_with_provider_retry(
+                        client,
                         messages,
-                        {
+                        lambda: {
                             "candidateId": receipt["candidate"]["components"]["honua-server"]["digest"],
                             "releaseId": receipt["candidate"]["platformRelease"],
                             "endpointIdentity": endpoint.validated_base_url(),
@@ -1836,6 +1904,7 @@ def execute_live(
                                 f"{receipt['totals']['modelCalls'] + 1}"
                             ),
                         },
+                        builder,
                     )
                     receipt["provenance"]["verifiedCalls"].append(provenance_evidence)
                     sequence = builder.capture_transcript("assistant", content, stage_id=stage_id)

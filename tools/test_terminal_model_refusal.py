@@ -286,13 +286,18 @@ def _runner(tmp_path,monkeypatch,*,mutation=None,max_actions=2):
         def complete(self,messages,bindings):
             assert state["admission"],"a chat was sent before the AI admission ledger was opened"
             state["calls"]+=1;state["bindings"].append(bindings);state["messages"].append(copy.deepcopy(messages))
-            if mutation=="unsigned" and state["calls"]==2:raise c.CanaryError("signed provenance verification failed")
-            proof={"transcriptDigest":("a"*64 if mutation=="replay" else f"{state['calls']:064x}"),
+            if mutation=="transient" and state["calls"]==2:
+                state["failed"]=1
+                raise c.ProviderTransientFailure("proxy error ServiceUnavailableException",
+                                                 code="ServiceUnavailableException",elapsed_ms=5)
+            n=state["calls"]-state.get("failed",0)
+            if mutation=="unsigned" and n==2:raise c.CanaryError("signed provenance verification failed")
+            proof={"transcriptDigest":("a"*64 if mutation=="replay" else f"{n:064x}"),
                 "keyId":"unit","manifestDigest":"a"*64,"provider":"bedrock","reportedModel":"unit-only",
                 "verifierVerdict":"pass","replayVerdict":"consumed","bindings":bindings}
             action={"kind":"tool_call","tool":"unit-only","arguments":{}}
-            if state["calls"]>=3:
-                bad=mutation=="bad-ack-twice" or (mutation=="bad-ack" and state["calls"]==3)
+            if n>=3:
+                bad=mutation=="bad-ack-twice" or (mutation=="bad-ack" and n==3)
                 action["assessment"]={**ASSESSMENT,**({"missingDependency":"memcached"} if bad else {})}
             return json.dumps(action),{},1,proof
     monkeypatch.setattr(c,"DriverAdapter",Driver);monkeypatch.setattr(c,"CandidateProxyClient",Model)
@@ -306,6 +311,17 @@ def test_separate_runner_counts_three_distinct_signed_actions_and_never_claims_g
     assert state["calls"]==3 and state["teardown"]
     assert len({x["runNonce"] for x in state["bindings"]})==3
     assert result["servingProof"]["modelActionSequence"]<result["refusalProof"]["modelActionSequence"]<result["refusalProof"]["acknowledgementActionSequence"]
+    assert b.validated_receipt()["profile"]==r.PROFILE
+
+
+def test_a_retried_provider_failure_counts_as_a_call_without_signed_provenance(tmp_path,monkeypatch):
+    monkeypatch.setattr(c,"PROVIDER_RETRY_BACKOFF_SECONDS",(0,0))
+    b,result,state=_runner(tmp_path,monkeypatch,mutation="transient")
+    assert result["status"]=="pass" and state["calls"]==4
+    assert result["totals"]["modelCalls"]==4 and len(result["provenance"]["verifiedCalls"])==3
+    assert len({x["runNonce"] for x in state["bindings"]})==4
+    assert state["messages"][1]==state["messages"][2]
+    assert "provider transient failure on model call 2 (ServiceUnavailableException); retried" in result["notices"]
     assert b.validated_receipt()["profile"]==r.PROFILE
 
 

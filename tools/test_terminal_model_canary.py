@@ -611,6 +611,161 @@ def test_a_provider_error_stream_names_the_proxy_error_and_stays_refused(monkeyp
     assert "proxy error badscriptcode" in text
 
 
+def _sse_client(monkeypatch, *responses):
+    """A real CandidateProxyClient whose chat calls answer with the given SSE bodies or HTTP errors."""
+    manifest = {"requiredForCertification": True, "keys": []}
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8000/api", signing_manifest_sha256=digest,
+                       model="us.anthropic.claude-sonnet-4-6")
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, _limit):
+            return self.payload
+
+    capabilities = json.dumps({"providers": [{"provider": "bedrock", "configured": True, "kind": "bedrock"}],
+                               "transcriptSigning": manifest}).encode()
+    queue = []
+    for item in responses:
+        queue += [Response(capabilities), item if isinstance(item, Exception) else Response(item.encode())]
+    queue = iter(queue)
+
+    def opener(*_args, **_kwargs):
+        item = next(queue)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(opener))
+    return canary.CandidateProxyClient(endpoint)
+
+
+_START = 'event: message_start\ndata: {"type": "MessageStart", "provider": "bedrock"}'
+
+
+def _http_error(status, problem):
+    import io
+    import urllib.error
+    return urllib.error.HTTPError("http://x", status, "refused", {}, io.BytesIO(json.dumps(problem).encode()))
+
+
+@pytest.mark.parametrize("error, code", [
+    ({"type": "Error", "errorCode": "ServiceUnavailableException", "errorMessage": "Provider request failed."},
+     "ServiceUnavailableException"),
+    ({"type": "Error", "errorMessage": "Provider request failed."}, "unspecified"),
+    ({"type": "Error", "errorType": "ThrottlingException"}, "ThrottlingException"),
+])
+def test_an_unsigned_stream_ending_in_a_provider_error_is_a_transient_failure(monkeypatch, error, code):
+    # Run 41029590939 (aws-ecs/redis-on): Bedrock answered ServiceUnavailableException mid-stream and
+    # the proxy ended the call with message_start, error and nothing signed.
+    client = _sse_client(monkeypatch, f"{_START}\n\nevent: error\ndata: {json.dumps(error)}")
+    with pytest.raises(canary.ProviderTransientFailure) as failed:
+        client.complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+    assert failed.value.code == code
+    assert "omitted the unique terminal signed provenance event" in str(failed.value)
+
+
+@pytest.mark.parametrize("body", [
+    # An error after the signed terminal event: the call completed and was signed.
+    f'{_START}\n\nevent: message_stop\ndata: {{"type": "MessageStop"}}\n\n'
+    'event: transcript_provenance\ndata: {"type": "TranscriptProvenance", "provenance": {}}\n\n'
+    'event: error\ndata: {"type": "Error", "errorCode": "ServiceUnavailableException"}',
+    # An error after the model already stopped.
+    f'{_START}\n\nevent: message_stop\ndata: {{"type": "MessageStop"}}\n\n'
+    'event: error\ndata: {"type": "Error", "errorCode": "ServiceUnavailableException"}',
+    # A provider refusal of the request itself.
+    f'{_START}\n\nevent: error\ndata: {{"type": "Error", "errorCode": "provider_access_denied"}}',
+    f'{_START}\n\nevent: error\ndata: {{"type": "Error", "errorCode": "ValidationException"}}',
+])
+def test_errors_after_a_signed_or_stopped_call_or_naming_a_refusal_are_not_transient(monkeypatch, body):
+    client = _sse_client(monkeypatch, body)
+    with pytest.raises(canary.CanaryError) as failed:
+        client.complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+    assert not isinstance(failed.value, canary.ProviderTransientFailure)
+
+
+@pytest.mark.parametrize("status, problem, transient", [
+    (400, {"code": "studio_ai/prompt_too_large"}, False),
+    (403, {"code": "studio_ai/admission_denied"}, False),
+    (401, {"title": "Unauthorized"}, False),
+    (429, {"code": "throttled"}, False),
+    (503, {"title": "Service Unavailable"}, True),
+    (502, {}, True),
+    (503, {"detail": "AI invocation admission is unavailable or denied"}, False),
+])
+def test_only_a_proxy_5xx_that_names_no_request_refusal_is_transient(monkeypatch, status, problem, transient):
+    client = _sse_client(monkeypatch, _http_error(status, problem))
+    with pytest.raises(canary.CanaryError) as failed:
+        client.complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+    assert isinstance(failed.value, canary.ProviderTransientFailure) is transient
+    if transient:
+        assert failed.value.code == f"http-{status}"
+
+
+def _transient(code="ServiceUnavailableException"):
+    return canary.ProviderTransientFailure(
+        "candidate proxy omitted the unique terminal signed provenance event (events: ['message_start', 'error'])"
+        f"; proxy error {code}", code=code, elapsed_ms=7)
+
+
+def test_a_transient_provider_failure_is_retried_and_only_the_success_is_signed(monkeypatch):
+    monkeypatch.setattr(canary, "PROVIDER_RETRY_BACKOFF_SECONDS", (0, 0))
+    action = json.dumps({"kind": "tool_call", "tool": "honua_read", "arguments": {}})
+    calls, certifications = [], []
+    receipt = _attribution_run(monkeypatch, replies=[_transient(), action], calls=calls,
+                               certifications=certifications)
+    # The same messages were re-sent, under a fresh run nonce.
+    assert calls[0] == calls[1]
+    assert certifications[0]["runNonce"] != certifications[1]["runNonce"]
+    assert "provider transient failure on model call 1 (ServiceUnavailableException); retried" in receipt["notices"]
+    # The stage proceeded on the retried call: its action was executed and attributed to the model.
+    first = next(a for a in receipt["actions"] if a["attribution"] == canary.MODEL_SELECTED)
+    assert first["kind"] == "tool_call" and first["status"] == "pass"
+    # Provenance and transcript carry only signed calls; the failed attempt is counted, not recorded.
+    verified = receipt["provenance"]["verifiedCalls"]
+    assert verified[0] == {"transcriptDigest": "call-2"}
+    assert receipt["totals"]["modelCalls"] == len(verified) + 1
+    assert receipt["totals"]["elapsedMs"] >= 7
+    assistant = [e for e in receipt["transcript"]["entries"] if e["role"] == "assistant"]
+    assert len(assistant) == len(verified)
+
+
+def test_three_transient_provider_failures_fail_the_run_as_infrastructure(monkeypatch):
+    monkeypatch.setattr(canary, "PROVIDER_RETRY_BACKOFF_SECONDS", (0, 0))
+    calls = []
+    receipt = _attribution_run(monkeypatch, replies=[_transient(), _transient("unspecified"), _transient()],
+                               calls=calls)
+    assert len(calls) == 3
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["provenance"]["verifiedCalls"] == []
+    assert receipt["totals"]["modelCalls"] == 2
+    assert [n for n in receipt["notices"] if n.startswith("provider transient")] == [
+        "provider transient failure on model call 1 (ServiceUnavailableException); retried",
+        "provider transient failure on model call 2 (unspecified); retried",
+    ]
+    assert any("omitted the unique terminal signed provenance event" in n for n in receipt["notices"])
+    assert not any(a["attribution"] == canary.MODEL_SELECTED for a in receipt["actions"])
+
+
+@pytest.mark.parametrize("failure", [
+    canary.CanaryError("candidate Studio proxy request failed: HTTP Error 400 (studio_ai/prompt_too_large)"),
+    canary.CanaryError("candidate proxy omitted the unique terminal signed provenance event; proxy error x"),
+])
+def test_a_non_transient_proxy_failure_is_never_retried(monkeypatch, failure):
+    monkeypatch.setattr(canary, "PROVIDER_RETRY_BACKOFF_SECONDS", (0, 0))
+    calls = []
+    receipt = _attribution_run(monkeypatch, replies=[failure], calls=calls)
+    assert len(calls) == 1
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["totals"]["modelCalls"] == 0
+    assert not any(n.startswith("provider transient") for n in receipt["notices"])
+
+
 def test_run_nonces_are_random_and_run_scoped():
     first = canary._new_run_nonce()
     second = canary._new_run_nonce()
@@ -1396,7 +1551,7 @@ def test_live_run_without_lock_or_same_job_deterministic_receipt_is_refused():
     assert builder.receipt["failureAttribution"] == "infrastructure"
 
 
-def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None, calls=None):
+def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None, calls=None, certifications=None):
     class Driver:
         def __init__(self, *_):
             pass
@@ -1421,8 +1576,12 @@ def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None,
         def complete(self, messages, certification):
             if calls is not None:
                 calls.append([dict(m) for m in messages])
+            if certifications is not None:
+                certifications.append(dict(certification))
             reply = replies.pop(0) if replies else model_reply
-            return reply, {}, 0, {}
+            if isinstance(reply, Exception):
+                raise reply
+            return reply, {}, 0, {"transcriptDigest": f"call-{len(certifications or calls or [])}"}
 
     monkeypatch.setattr(canary, "DriverAdapter", Driver)
     monkeypatch.setattr(canary, "CandidateProxyClient", Model)
