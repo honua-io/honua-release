@@ -12,6 +12,7 @@
     "completedAt",
     "status",
     "mode",
+    "guidance",
     "profile",
     "executionOutcome",
     "functionalGpExecuted",
@@ -46,6 +47,10 @@
     },
     "status": {"enum": ["pass", "fail", "blocked", "skipped"]},
     "mode": {"const": "genuine-model"},
+    "guidance": {
+      "description": "full repeats the reviewed stage sequence. none sends the customer goal without requiredSequence, tool order, or the refusal acknowledgement object.",
+      "enum": ["full", "none"]
+    },
     "profile": {"const": "full-workflow"},
     "executionOutcome": {"enum": ["not-completed", "completed"]},
     "functionalGpExecuted": {"enum": [true, null]},
