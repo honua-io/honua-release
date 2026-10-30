@@ -122,7 +122,10 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
   every server security-review finding and the measured AWS spending ceilings.
 - [ ] Rehearse fix-forward patching before GA ([release#380](https://github.com/honua-io/honua-release/issues/380)):
   fix on trunk → next certified lock → 12-hour patch burn and two canaries → `2026.1.1` promotion →
-  rollback to the previous promoted lock. `release/2026.1` is a recorded Sev1 break-glass path only.
+  rollback to the previous promoted lock. Maintenance commits reach `release/2026.1` only as labelled
+  cherry-picks ([PATCH-BACKPORT.md](PATCH-BACKPORT.md)). Creating and protecting that branch is a
+  founder or release-session step after the accepted RC and before GA. The backport workflow refuses
+  to create it. The non-promotable patch rehearsal still needs a published GA baseline.
 - [ ] Confirm the hourly `request-promotion.yml` run found the record ready and requested promotion as
   the scoped App identity, then obtain independent protected-environment approval. Verify the lock
   signature and publication tag against the minting train's exact source.

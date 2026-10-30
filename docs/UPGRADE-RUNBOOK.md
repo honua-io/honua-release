@@ -99,7 +99,10 @@ migrations, and never across a contract-phase migration without a restore.
 
 - **Older image at schema 135 or later** (honua-server#6478). It starts on a database migrated by a
   newer image only when every migration it does not ship is expand-only, and when it can verify
-  that itself. Otherwise it refuses.
+  that itself. Otherwise it refuses. A migration marked `-- honua:reader-incompatible` is that
+  refusal: the typed error names `declared reader-incompatible, not expand`. That is a documented
+  boundary. Restore the pre-upgrade backup. A refusal of an expand-only migration is not this
+  boundary and fails the gate.
 - **Older image below schema 135 that still has the schema-reader guard.** It refuses **any**
   migration it does not ship. It fails startup with the typed `schema_reader_incompatible` error
   and never serves silently. This does not include 2026.1, which has no guard.
@@ -152,7 +155,8 @@ x86_64 only: pull and run `linux/amd64` images.
 6. **Roll back to the prior image.** Set `HONUA_SERVER_IMAGE` back to the digest from step 1 and
    recreate the server. The database stays migrated. A guarded prior (schema 135 or later) serves an
    expand-only edge; if it exits with the typed `schema_reader_incompatible` refusal at the documented
-   boundary (section 5), or after you approved contract migrations, **restore** instead:
+   boundary (section 5: below schema 135, an approved contract migration, or a migration declared
+   reader-incompatible rather than expand-only), **restore** instead:
    ```sh
    docker compose stop honua
    docker compose exec -T db psql -U honua -d postgres \
@@ -187,6 +191,15 @@ walking honua-server trunk back from the candidate's commit, whose commit has a 
 published, the rc rule applies again. An rc, lock or nightly that ships the candidate's own image or
 commit is refused. When no source yields a different immutable digest, the cell is `blocked` (a strict
 train fails it); it never falls back to the candidate, a floating tag or a manifest-history pin. Multi-tenant deployments are out of scope (ADR-0024: internal only).
+
+**Pinned rc.1 proof.** `gate-compose-ga-rc1` (workflow dispatch only, not part of `e2e-cloud-aws`)
+installs the server image the `2026.1-rc.1` release notes publish, and refuses to run if that digest
+no longer matches the pin in `tools/compose_ga_rc1_gate.py`. It loads the real e2e seed, upgrades to
+a newer trunk build (a supplied digest, or a JIT image built from honua-server trunk when none is
+published), verifies the journal and the seed, rolls back, verifies again, then runs
+`partial-migration-failure` so the candidate runner is interrupted inside a real pending migration.
+The receipt is `compose-ga-rc1-receipt.json` (`honua.compose-ga-rc1-receipt/v1`). This does not
+replace the `compose-upgrade` cell above.
 
 **Negative control.** On the schedule a second cell, `negative-control`, runs the same lifecycle with
 `COMPOSE_UPGRADE_FAULT=drop-seed-rows` and passes only if the gate's own assertion ("seeded rows did
