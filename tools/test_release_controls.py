@@ -186,6 +186,13 @@ def test_operator_approval_model_rejects_a_required_review_and_accepts_the_sole_
     data['codeowners']['content'] = '* @mikemcdougall\n'
     data['human_writers'] = ['mikemcdougall']
     assert audit_repository(policy, data) == []
+    unread = copy.deepcopy(data)
+    unread['human_writers'] = []
+    unread['collaborator_read_error'] = 'HTTP 403'
+    assert 'collaborator inventory unreadable' in audit_repository(policy, unread)
+    unnamed = copy.deepcopy(data)
+    unnamed['human_writers'] = []
+    assert 'named operator is not a verified human writer' in audit_repository(policy, unnamed)
     blocked = copy.deepcopy(rendered)
     blocked['rules'][2]['parameters']['required_approving_review_count'] = 1
     assert rule_drift(branch_rules(policy), blocked)

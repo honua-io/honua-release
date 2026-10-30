@@ -291,8 +291,12 @@ def audit_repository(policy: dict, snapshot: dict, signing=None, repository: str
     humans = snapshot.get('human_writers', [])
     model = policy.get('review_model') if isinstance(policy.get('review_model'), dict) else None
     independent = model is None or model.get('independent_code_owner_required', True)
-    if independent and not any(h != 'mikemcdougall' and h in designated for h in humans):
+    if snapshot.get('collaborator_read_error') or not isinstance(humans, list):
+        errors.append('collaborator inventory unreadable')
+    elif independent and not any(h != 'mikemcdougall' and h in designated for h in humans):
         errors.append('no independent human code owner available to approve owner-authored changes')
+    elif not independent and (not humans or any(owner not in humans for owner in designated)):
+        errors.append('named operator is not a verified human writer')
     if policy['tag_refs']:
         tags = tag_rules(policy)
         if not any(isinstance(r, dict) and not rule_drift(tags, r) for r in rulesets):
