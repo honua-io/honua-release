@@ -29,8 +29,8 @@ def default_metadata_sites() -> list[Path]:
                   | {Path(site.getusersitepackages())})
 
 
-def inspect_honua_metadata(site_path: Path, *, source_admission=None) -> dict | None:
-    admitted = None
+def inspect_honua_metadata(site_path: Path, *, source_admission=None) -> dict | list | None:
+    admitted = []
     for entry in site_path.iterdir():
         suffix = next((value for value in (".dist-info", ".egg-info") if entry.name.lower().endswith(value)), None)
         if suffix is None:
@@ -64,16 +64,18 @@ def inspect_honua_metadata(site_path: Path, *, source_admission=None) -> dict | 
             # Guarded-index installs have no PEP610 direct origin. Never log its URL.
             if source_admission is None:
                 raise ValueError(f"Honua direct-origin installation bypasses the guarded package index: {entry}")
-            from python_source_admission import AdmissionRefusal, judge_distribution
+            from python_source_admission import AdmissionRefusal, binding_for_distribution, judge_distribution
             try:
-                decision = judge_distribution(source_admission, site_path, entry)
+                decision = judge_distribution(binding_for_distribution(source_admission, names[0].strip()), site_path, entry)
             except AdmissionRefusal as refusal:
                 raise ValueError(
                     f"Honua direct-origin installation bypasses the guarded package index: {entry}: {refusal}"
                 ) from None
             if not decision.get("sourceAdmitted") or decision.get("publishedWheelIdentity") or decision.get("candidateQualified"):
                 raise ValueError(f"Honua direct-origin installation bypasses the guarded package index: {entry}")
-            admitted = decision
+            if any(item.get("packageName") == decision.get("packageName") for item in admitted):
+                raise ValueError(f"Honua direct-origin installation bypasses the guarded package index: {entry}")
+            admitted.append(decision)
         name, version = canonical_name(names[0].strip()), versions[0].strip()
         stem = entry.name[:-len(suffix)]
         matches = False
@@ -85,7 +87,9 @@ def inspect_honua_metadata(site_path: Path, *, source_admission=None) -> dict | 
                        (not remainder or re.fullmatch(re.escape(f"-{version}") + r"-py[0-9.]+", remainder) is not None))
         if not name.startswith("honua") or not matches:
             raise ValueError(f"Honua metadata name/version contradicts its installed path: {entry}")
-    return admitted
+    if isinstance(source_admission, list):
+        return admitted
+    return admitted[0] if admitted else None
 
 
 def inventory(roots: list[Path], interpreters: list[str] | None = None, *, source_admission=None) -> dict:
@@ -138,7 +142,7 @@ def inventory(roots: list[Path], interpreters: list[str] | None = None, *, sourc
     def inspect(site_path: Path) -> None:
         nonlocal evidence
         decision = inspect_honua_metadata(site_path, source_admission=source_admission)
-        if decision is None:
+        if decision is None or decision == []:
             return
         if evidence is not None and evidence != decision:
             raise ValueError("Honua direct-origin installation bypasses the guarded package index: conflicting source admission")
@@ -179,8 +183,19 @@ def inventory(roots: list[Path], interpreters: list[str] | None = None, *, sourc
             retain(metadata.distributions(path=[str(site_path)]))
         audited.append({"environment": str(environment), "sitePackages": [str(site_path) for site_path in sites]})
     result = {"environments": audited, "documentedInterpreters": invoked, "packages": [packages[key] for key in sorted(packages)]}
-    if source_admission is not None:
-        if evidence is None or evidence.get("publishedWheelIdentity") or evidence.get("candidateQualified"):
+    if isinstance(source_admission, list):
+        rows = evidence if isinstance(evidence, list) else None
+        expected = sorted(canonical_name(str(item.get("packageName", ""))) for item in source_admission)
+        got = sorted(canonical_name(str(item.get("packageName", ""))) for item in rows) if rows else []
+        if (rows is None or len(rows) != len(source_admission) or got != expected
+                or any(not item.get("sourceAdmitted") or item.get("publishedWheelIdentity") or item.get("candidateQualified")
+                       for item in rows)):
+            raise ValueError("Honua direct-origin installation bypasses the guarded package index: unbound")
+        result["sourceBuildEvidence"] = rows
+        result["publishedWheelIdentity"] = False
+        result["candidateQualified"] = False
+    elif source_admission is not None:
+        if not isinstance(evidence, dict) or evidence.get("publishedWheelIdentity") or evidence.get("candidateQualified"):
             raise ValueError("Honua direct-origin installation bypasses the guarded package index: unbound")
         result["sourceBuildEvidence"] = evidence
         result["publishedWheelIdentity"] = False

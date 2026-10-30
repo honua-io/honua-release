@@ -297,6 +297,100 @@ def test_unreviewed_block_and_parent_path_are_refused(admitted):
             dependencies=[])
 
 
+def test_changed_installed_dependency_bytes_fail_closed(admitted):
+    target = admitted["site"] / "offline_build_pin" / "__init__.py"
+    original = target.read_bytes()
+    entry = next(admitted["site"].glob("honua_sdk-*.dist-info"))
+    try:
+        target.write_bytes(original + b"\n# mutated\n")
+        with pytest.raises(admission.AdmissionRefusal, match="dependency contents"):
+            admission.judge_distribution(admitted["binding"], admitted["site"], entry)
+    finally:
+        target.write_bytes(original)
+
+
+def _admin_tree(repo):
+    package = repo / "packages" / "honua-admin"
+    (package / "honua_admin").mkdir(parents=True)
+    (package / "pyproject.toml").write_text(
+        "[build-system]\nrequires = []\nbuild-backend = \"backend\"\nbackend-path = [\".\"]\n\n"
+        "[project]\nname = \"honua-admin\"\nversion = \"0.1.16\"\n")
+    (package / "backend.py").write_text(BACKEND.replace("honua_sdk", "honua_admin").replace("honua-sdk", "honua-admin"))
+    (package / "honua_admin" / "__init__.py").write_text("MARKER = 'admin'\n")
+    return package
+
+
+def test_two_reviewed_packages_need_independent_bindings(tmp_path, monkeypatch):
+    monkeypatch.setattr(probe, "default_metadata_sites", lambda: [])
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    relative, digest = write_checkout(repo)
+    _admin_tree(repo)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "add admin")
+    environment = tmp_path / "venv"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(environment)
+    pip_install(environment, str(repo / relative))
+    pip_install(environment, "--no-build-isolation", str(repo / PACKAGE), str(repo / "packages" / "honua-admin"))
+    sdk = binding_for(repo, relative, digest)
+    admin = admission.bind(
+        repo, document="README.md", block_index=1, package_relative="packages/honua-admin",
+        package_name="honua-admin", package_version="0.1.16",
+        metadata_files=["packages/honua-admin/pyproject.toml"],
+        backend_files=["packages/honua-admin/backend.py"],
+        package_files=[{"source": "honua_admin/__init__.py", "installed": "honua_admin/__init__.py"}],
+        dependencies=[{"name": "offline-build-pin", "version": "1.0.0", "sha256": digest, "path": relative}])
+    result = probe.inventory([tmp_path], [str(environment / "bin/python")], source_admission=[sdk, admin])
+    names = sorted(item["packageName"] for item in result["sourceBuildEvidence"])
+    assert names == ["honua-admin", "honua-sdk"]
+    assert result["publishedWheelIdentity"] is False
+    assert result["candidateQualified"] is False
+    with pytest.raises(ValueError, match="does not match the binding"):
+        probe.inventory([tmp_path], [str(environment / "bin/python")], source_admission=sdk)
+
+
+def test_editable_install_maps_the_bound_checkout(tmp_path, monkeypatch):
+    monkeypatch.setattr(probe, "default_metadata_sites", lambda: [])
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    relative, digest = write_checkout(repo)
+    backend = (repo / PACKAGE / "backend.py").read_text()
+    editable = '''
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    import pathlib, zipfile
+    root = pathlib.Path(__file__).resolve().parent
+    name = "honua_sdk-0.1.16-py3-none-any.whl"
+    with zipfile.ZipFile(pathlib.Path(wheel_directory) / name, "w") as archive:
+        archive.writestr("honua_sdk-0.1.16.dist-info/METADATA", "Metadata-Version: 2.1\\nName: honua-sdk\\nVersion: 0.1.16\\n")
+        archive.writestr("honua_sdk-0.1.16.dist-info/WHEEL", "Wheel-Version: 1.0\\nGenerator: offline-control\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n")
+        archive.writestr("honua_sdk-0.1.16.dist-info/RECORD", "")
+        archive.writestr("__editable__.honua_sdk-0.1.16.pth", str(root) + "\\n")
+    return name
+'''
+    (repo / PACKAGE / "backend.py").write_text(backend + editable)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "editable backend")
+    environment = tmp_path / "venv"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(environment)
+    pip_install(environment, str(repo / relative))
+    pip_install(environment, "--no-build-isolation", "-e", str(repo / PACKAGE))
+    site = next((environment / "lib").glob("python*/site-packages"))
+    origin = json.loads(next(site.glob("honua_sdk-0.1.16.dist-info/direct_url.json")).read_text())
+    assert origin.get("dir_info", {}).get("editable") is True
+    bound = binding_for(repo, relative, digest)
+    evidence = admission.judge(bound, site)
+    assert evidence["sourceAdmitted"] is True
+    assert evidence["candidateQualified"] is False
+    pth = next(site.glob("__editable__.honua_sdk-*.pth"))
+    original = pth.read_text()
+    try:
+        pth.write_text("/tmp/outside-editable\n")
+        with pytest.raises(admission.AdmissionRefusal, match="escapes the bound package"):
+            admission.judge(bound, site)
+    finally:
+        pth.write_text(original)
+
+
 def test_replay_requires_protected_delivery_of_every_governed_document():
     identifiers = admission.governed_document_ids()
     assert len(identifiers) == len(set(identifiers)) > 1

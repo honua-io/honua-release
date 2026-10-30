@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 import subprocess
+import zipfile
 from email.parser import Parser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -154,6 +155,26 @@ def recheck(binding: dict) -> None:
     _require_clean(root)
 
 
+def bindings_for(source_admission):
+    """One binding dict, or one dict per distribution in a multi-package block."""
+    if isinstance(source_admission, dict):
+        return [source_admission]
+    if isinstance(source_admission, list) and source_admission and all(isinstance(item, dict) for item in source_admission):
+        names = [canonical_name(str(item.get("packageName", ""))) for item in source_admission]
+        if any(not name for name in names) or len(names) != len(set(names)):
+            raise AdmissionRefusal("admission bindings do not name distinct packages")
+        return source_admission
+    raise AdmissionRefusal("admission binding is missing")
+
+
+def binding_for_distribution(source_admission, package_name: str) -> dict:
+    matches = [item for item in bindings_for(source_admission)
+               if canonical_name(str(item.get("packageName", ""))) == canonical_name(package_name)]
+    if len(matches) != 1:
+        raise AdmissionRefusal("installed package identity does not match the binding")
+    return matches[0]
+
+
 def judge(binding: dict, site_path: Path) -> dict | None:
     """Return source-build evidence for the one admitted distribution, or None when this site has no direct origin."""
     recheck(binding)
@@ -192,7 +213,7 @@ def judge_distribution(binding: dict, site_path: Path, entry: Path) -> dict:
     except (OSError, ValueError):
         raise AdmissionRefusal("installed origin cannot be inspected") from None
     _require_bound_origin(binding, origin)
-    _require_installed_contents(binding, site_path)
+    _require_installed_contents(binding, site_path, origin)
     _require_installed_dependencies(binding, site_path)
     return _evidence(binding)
 
@@ -425,7 +446,11 @@ def _require_bound_origin(binding: dict, origin: dict) -> None:
         raise AdmissionRefusal("version control origin is not the bound checkout")
 
 
-def _require_installed_contents(binding: dict, site_path: Path) -> None:
+def _require_installed_contents(binding: dict, site_path: Path, origin: dict) -> None:
+    editable = isinstance(origin.get("dir_info"), dict) and origin["dir_info"].get("editable") is True
+    if editable:
+        _require_editable_mapping(binding, site_path)
+        return
     expected = {item["installed"] for item in binding["packageFiles"]}
     if not expected:
         raise AdmissionRefusal("observed installed contents do not match the bound package")
@@ -447,6 +472,38 @@ def _require_installed_contents(binding: dict, site_path: Path) -> None:
             raise AdmissionRefusal("observed installed contents do not match the bound package")
 
 
+def _require_editable_mapping(binding: dict, site_path: Path) -> None:
+    package = (Path(binding["checkout"]) / binding["packageRelative"]).resolve()
+    mapped = _editable_paths(site_path, binding["packageName"])
+    if not mapped:
+        raise AdmissionRefusal("editable install does not map the bound package")
+    expected = {(package / item["source"]).resolve() for item in binding["packageFiles"]}
+    saw_package = False
+    for raw in mapped:
+        resolved = Path(raw).resolve()
+        if not resolved.is_relative_to(package):
+            raise AdmissionRefusal("editable install escapes the bound package")
+        saw_package = saw_package or resolved == package or resolved in expected
+    if not saw_package:
+        raise AdmissionRefusal("editable install does not map the bound package")
+
+
+def _editable_paths(site_path: Path, package_name: str) -> list[str]:
+    token = canonical_name(package_name).replace("-", "_")
+    paths = []
+    for path in site_path.iterdir():
+        name = path.name.lower()
+        if not path.is_file():
+            continue
+        if not (name.endswith(".pth") or "editable" in name or (name.endswith(".py") and "finder" in name)):
+            continue
+        if token not in name.replace("-", "_") and canonical_name(package_name) not in name:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        paths.extend(re.findall(r"(?m)(?:^|['\"])(/(?:[^'\"\r\n])+)", text))
+    return paths
+
+
 def _require_installed_dependencies(binding: dict, site_path: Path) -> None:
     import importlib.metadata as metadata
 
@@ -460,3 +517,32 @@ def _require_installed_dependencies(binding: dict, site_path: Path) -> None:
         versions = found.get(canonical_name(item["name"]), [])
         if versions != [item["version"]]:
             raise AdmissionRefusal("dependency is not installed at the bound version")
+        _require_dependency_bytes(binding, site_path, item)
+
+
+def _require_dependency_bytes(binding: dict, site_path: Path, item: dict) -> None:
+    wheel_path = Path(binding["checkout"]) / item["path"]
+    try:
+        archive = zipfile.ZipFile(wheel_path)
+    except (OSError, zipfile.BadZipFile):
+        raise AdmissionRefusal("dependency contents do not match the bound artifact") from None
+    with archive:
+        members = [name for name in archive.namelist() if ".dist-info/" not in name and not name.endswith("/")]
+        if not members:
+            raise AdmissionRefusal("dependency contents do not match the bound artifact")
+        payloads = {name: archive.read(name) for name in members}
+    tops = {Path(name).parts[0] for name in payloads}
+    for name, payload in payloads.items():
+        installed = site_path / name
+        if (not installed.is_file() or not installed.resolve().is_relative_to(site_path.resolve())
+                or installed.read_bytes() != payload):
+            raise AdmissionRefusal("dependency contents do not match the bound artifact")
+    for top in tops:
+        root = site_path / top
+        if not root.is_dir() or not root.resolve().is_relative_to(site_path.resolve()):
+            raise AdmissionRefusal("dependency contents do not match the bound artifact")
+        for path in root.rglob("*"):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            if path.relative_to(site_path).as_posix() not in payloads:
+                raise AdmissionRefusal("dependency contents do not match the bound artifact")
