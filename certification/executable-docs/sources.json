@@ -30,9 +30,11 @@
     {"repo": "honua-io/honua-sdk-dotnet", "path": "docs/quickstart.md", "revision": {"clientArtifact": "honua-sdk-dotnet"}, "runtime": "dotnet"},
     {"repo": "honua-io/honua-release", "path": "docs/INSTALL-2026.1.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
     {"repo": "honua-io/honua-release", "path": "docs/CUSTOMER-INSTALL.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
-    {"repo": "honua-io/honua-server", "path": "docs/get-started/quickstart.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
-    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-dataset.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started", "prerequisites": {"node": "docs/get-started/first-dataset.md:10 — \"Python with `honua-admin`, and Node.js with `npx`\""}},
-    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-map.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/quickstart.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "session": "server-get-started"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-dataset.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "session": "server-get-started", "prerequisites": {"node": "docs/get-started/first-dataset.md:10 — \"Python with `honua-admin`, and Node.js with `npx`\""}},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-map.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "session": "server-get-started"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/with-ai.md", "revision": {"defaultBranch": true}, "runtime": "python"},
+    {"repo": "honua-io/honua-server", "path": "docs/guides/connect/ai-agents-mcp.md", "revision": {"defaultBranch": true}, "runtime": "python"},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/registry-clients.md", "revision": {"component": "honua-server"}, "runtime": "dotnet"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/javascript/javascript-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "node"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/python/python-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "python"},
@@ -64,7 +66,7 @@
           "blocks": [
             {
               "index": 0,
-              "sha256": "ccf4d54ff8309eeeebd7b454c23ce149c7920a9e7108a9a0c113c10649f668e6"
+              "sha256": "e35aa17c2cd7e7ffac38564e5982d0712af67104fa7b22c33232d904acf30082"
             },
             {
               "index": 1,
@@ -79,7 +81,7 @@
           "blocks": [
             {
               "index": 2,
-              "sha256": "809fb7617cb2b6f02580816ce865ba5c90e55d3e545985b7faae5d0b50489e19"
+              "sha256": "ffbdfd09b8acaa2e8e05911086cd4e9a5831a35f47fe48903f35308b810ebf24"
             },
             {
               "index": 3,

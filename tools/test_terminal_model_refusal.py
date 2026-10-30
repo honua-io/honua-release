@@ -24,13 +24,13 @@ import stages
 from transport import ExecutionError
 
 
-def _builder():
+def _builder(guidance="full"):
     return r.RefusalReceiptBuilder(manifest=c.load_manifest(MANIFEST), protocol=c._load_json(PROTOCOL),
         protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=c.DEFAULT_DRIVER,
         deterministic_receipt={"path": "receipt.json", "sha256": "a"*64, "generatedAt": c._now(),
             "status": "pass", "prerequisiteProfile": r.PROFILE, "sourceStatus": "blocked",
             "candidateVerified": True, "freshnessVerified": True},
-        redactor=c.Redactor([]), lock_digest=LOCK, cell="aws-ecs/redis-off", attempt=1)
+        redactor=c.Redactor([]), lock_digest=LOCK, cell="aws-ecs/redis-off", attempt=1, guidance=guidance)
 
 
 def _prerequisite(tmp_path, cell="aws-ecs/redis-off"):
@@ -227,9 +227,9 @@ def test_preparse_refusal_cannot_certify_an_invalid_or_unexecuted_plan(mutation)
     engine.transport.tool.assert_not_called()
 
 
-def _runner(tmp_path,monkeypatch,*,mutation=None,max_actions=2):
+def _runner(tmp_path,monkeypatch,*,mutation=None,max_actions=2,guidance="full"):
     """State-machine test only. Fake responses here cannot qualify a candidate."""
-    b=_builder();endpoint=_endpoint()
+    b=_builder(guidance=guidance);endpoint=_endpoint()
     target=tmp_path/"target.json";target.write_text(json.dumps({"id":"aws-ecs/redis-off","replicaBaseUrl":endpoint.base_url}))
     receipt=tmp_path/"receipt.json";receipt.write_text(json.dumps({"target":{"id":"aws-ecs/redis-off","configSha256":c._sha256(target)}}))
     b.receipt["linkedEvidence"]["deterministicReceipt"]["path"]=str(receipt)
@@ -241,6 +241,14 @@ def _runner(tmp_path,monkeypatch,*,mutation=None,max_actions=2):
              "fixtureBinding":{k:v for k,v in _fixture().items() if k!="expectedFeatures"}}
     refused={"topology":"redis-off","ruling":"redis-off","rulingStatus":"ruled","tool":"honua_validate_plan",
              **GP,"manifestCapability":"jobs.runner","manifestReasonCode":"dependency-unavailable"}
+    def _echo(stage, body):
+        if guidance!="none":
+            return body
+        echoed={**body,"stageStatus":{**stage,"status":body.get("status"),
+            "checks":[{"status":"pass","invocation":stage["command"],"detail":stage["command"]}]},
+            "requiredSequence":stage["command"]}
+        state.setdefault("rawExecutions",[]).append(echoed)
+        return echoed
     class Driver:
         def __init__(self,*_):pass
         def invoke(self,op,payload):
@@ -252,10 +260,15 @@ def _runner(tmp_path,monkeypatch,*,mutation=None,max_actions=2):
                 done=state["serving"] if stage["number"]==1 else state["ack"]
                 tools=sorted(profile.STAGE_TOOLS[stage["number"]])
                 if mutation=="no-stage-tools":tools=[]
+                observation={"layerId":7,"requiredOutcome":{"executionOutcome":"refused","functionalGpExecuted":False},
+                    "planContract":{"tools":["honua_execute_plan"],
+                                    "requirement":"Call one of these tools with exactly this plan."}} if guidance=="none" else {}
                 return {"status":"pass" if done else "ready","stageStatus":{**stage,"status":"pass" if done else "ready",
-                        "checks":[{"status":"pass"}] if done else [],"blockedBy":[]},"observation":{},
+                        "checks":[{"status":"pass","invocation":stage["command"]}] if done else [],"blockedBy":[]},
+                        "observation":observation,
                         "toolView":{"tools":[{"name":n} for n in tools+["honua_list_jobs"]]},"stageTools":tools}
             if op=="execute":
+                stage=next(s for s in b.journey["stages"] if s["id"]==payload["stage"])
                 if payload["stage"]=="serving-read":state["serving"]=True;result={"servingProof":serving}
                 elif not state["refused"]:
                     state["refused"]=True
@@ -264,11 +277,12 @@ def _runner(tmp_path,monkeypatch,*,mutation=None,max_actions=2):
                 else:
                     problems=profile.assessment_problems(payload["action"],refused)
                     if problems:
-                        return {"status":"fail","refusal":"invalid-action","result":{"accepted":False,
+                        body={"status":"fail","refusal":"invalid-action","result":{"accepted":False,
                                 "command":"model assessment","reason":"acknowledgement of the observed refusal "
                                 "differs: "+"; ".join(problems)}}
+                        return _echo(stage, body)
                     state["ack"]=True;result={"modelAcknowledgedRefusal":True}
-                return {"status":"pass","result":result}
+                return _echo(stage, {"status":"pass","result":result})
             if op=="verify":
                 assertions=dict.fromkeys(r.ASSERTIONS[:-1],"pass")
                 if mutation in assertions:assertions[mutation]="fail"
@@ -807,6 +821,77 @@ def test_a_second_rejected_action_in_the_stage_fails_it_as_the_models(tmp_path,m
     assert any("after one corrective retry: model assessment:" in n and "missingDependency='memcached'" in n
                for n in result["notices"])
     assert state["teardown"] and b.validated_receipt()["status"]=="fail"
+
+
+def test_guided_refusal_prompts_match_the_reviewed_bytes_and_unguided_is_only_the_goal():
+    stage = {"number": 2, "id": "durable-refusal",
+             "command": "attempt a valid durable geometry plan, observe the typed Redis refusal, "
+                        "then independently reread capabilities and acknowledge refusal"}
+    allowed = ["honua_execute_plan", "honua_list_capabilities"]
+    observed = {"observation": {
+                    "layerId": 7,
+                    "planContract": {"tools": ["honua_execute_plan"], "requirement": "Call one of these tools"},
+                    "requiredOutcome": {"executionOutcome": "refused", "functionalGpExecuted": False},
+                },
+                "toolView": {"tools": [{"name": name} for name in allowed]}}
+    assert r.stage_system(stage, allowed) == r.stage_system(stage, allowed, "full")
+    assert r.stage_user_message(stage, observed, allowed) == json.dumps(
+        {"task": r.STAGE_TASKS["durable-refusal"], "stage": stage, "allowedTools": allowed,
+         "observation": observed["observation"], "serverAuthoredToolView": observed["toolView"]},
+        separators=(",", ":"))
+    none_system = r.stage_system(stage, allowed, "none")
+    none_user = r.stage_user_message(stage, observed, allowed, "none")
+    payload = json.loads(none_user)
+    assert set(payload) == {"goal", "observation", "serverAuthoredToolView"}
+    assert payload["goal"] == r.CUSTOMER_GOALS["durable-refusal"]
+    assert payload["observation"] == {"layerId": 7}
+    for leaked in (r.ACKNOWLEDGEMENT_SHAPE, r.STAGE_TASKS["durable-refusal"], r.STAGE_TASKS["serving-read"],
+                   "executionOutcome", "missingDependency", "functionalGpExecuted", "requiredSequence",
+                   "allowedTools", "typed Redis", stage["command"]):
+        assert leaked not in none_user, leaked
+    # The server-authored tool view may still list honua_list_capabilities. The goal must not.
+    assert "honua_list_capabilities" not in payload["goal"]
+    # The admitted-name list may still name honua_list_capabilities. It must not prescribe the call
+    # or the acknowledgement object.
+    for leaked in (r.ACKNOWLEDGEMENT_SHAPE, r.STAGE_TASKS["durable-refusal"], r.STAGE_TASKS["serving-read"],
+                   "executionOutcome", "missingDependency", "functionalGpExecuted", "requiredSequence",
+                   "typed Redis", "call honua_list_capabilities"):
+        assert leaked not in none_system, leaked
+    serving = {"id": "serving-read"}
+    serving_system = r.stage_system(serving, ["honua_query_features"], "none")
+    serving_user = r.stage_user_message(serving, {"observation": {}, "toolView": {}}, ["honua_query_features"], "none")
+    assert r.CUSTOMER_GOALS["serving-read"] in serving_system
+    assert json.loads(serving_user)["goal"] == r.CUSTOMER_GOALS["serving-read"]
+    assert "call honua_query_features" not in serving_system and "honua_query_features" not in serving_user
+    assert "SRID" not in serving_system and "SRID" not in serving_user
+    with pytest.raises(c.CanaryError):
+        r.stage_system(stage, allowed, "scripted")
+    builder = _builder()
+    assert builder.receipt["guidance"] == "full"
+    builder.validated_receipt()
+    builder.receipt.pop("guidance")
+    with pytest.raises(c.CanaryError, match="guidance"):
+        builder.validated_receipt()
+
+
+def test_unguided_refusal_conversation_omits_the_sequence_and_the_acknowledgement_object(tmp_path, monkeypatch):
+    import hashlib
+    b, result, state = _runner(tmp_path, monkeypatch, mutation="bad-ack", max_actions=3, guidance="none")
+    assert result["status"] == "pass" and result["guidance"] == "none"
+    spoken = json.dumps(state["messages"])
+    for stage in b.journey["stages"]:
+        assert stage["command"] not in spoken
+    for leaked in ("requiredOutcome", "planContract", "requiredSequence", "Call one of these tools",
+                   "extended object shape", r.ACKNOWLEDGEMENT_SHAPE):
+        assert leaked not in spoken, leaked
+    assert "layerId" in spoken and "model assessment" in spoken
+    assert state["rawExecutions"] and all(item["stageStatus"]["command"] for item in state["rawExecutions"])
+    for item in state["rawExecutions"]:
+        raw = json.dumps(b.redactor.value(item), sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False, allow_nan=False).encode()
+        digest = hashlib.sha256(raw).hexdigest()
+        assert any(entry["role"] == "driver" and entry["content"]["sha256"] == digest
+                   for entry in result["transcript"]["entries"])
 
 
 def test_refusal_stage_states_the_extended_acknowledgement_object():

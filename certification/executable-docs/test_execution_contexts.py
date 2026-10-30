@@ -38,27 +38,25 @@ def gp_source():
     sources = json.loads((HERE / "sources.json").read_text())
     doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
                and d["path"] == "docs/geoprocessing/index.md")
-    return doc, (HERE / "fixtures/site-geoprocessing-94dd703.md").read_text()
+    return doc, (HERE / "fixtures/site-geoprocessing-b56533b9fd2c.md").read_text()
 
 
 def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     doc, text = gp_source()
-    # Full source bytes from honua-site 94dd703553024d695e03b36dcbc9362b5b267fc9, Git blob
-    # 05703de35fafcd3c6c1f2f63f6bc407c71e71d62; the published .NET installation now selects Honua.Sdk 1.12.0.
-    assert hashlib.sha256(text.encode()).hexdigest() == "93d38dd2ec5fa36a64a962405eaad4e650b7c5335d20aff59fb0422347c843b9"
+    # Published geoprocessing page at honua-site b56533b9fd2c (unchanged through 851d9943cb98).
+    # The two shell install blocks are @honua/sdk-js@0.2.10 and honua-sdk==0.1.19.
+    assert hashlib.sha256(text.encode()).hexdigest() == "6a10734164314cb3c85ee9e82756488f842ff86f8bf50c8639e9197cb14f2f20"
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    # The renewed source has the exact same Git blob as the retained full snapshot
-    # (inventory regenerated for rc re-pin #4 at honua-site default-branch head).
-    assert row["revision"] == "593093de9ab05e44709070e28c764b64ba14b407"
+    assert row["revision"] == "851d9943cb987dbdbfe915d73b17f082cbd21298"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])
     assert set(variables["substitute"]) == {"<your-api-key>"}
     assert render(variables["substitute"]["<your-api-key>"]["value"], {"candidate.apiKey": "owned"}) == "owned"
     assert {p for b in extract(text, "markdown") for p in needs(b, set())["placeholders"]} == {"<your-api-key>"}
-    assert len(frozen["documents"]) == 35
+    assert len(frozen["documents"]) == 37
 
 
 @pytest.mark.parametrize("mutation", ["absent-block", "unknown-key", "runtime", "wrong-language", "hash", "bool-index",

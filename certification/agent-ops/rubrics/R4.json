@@ -1,0 +1,10 @@
+{
+  "id": "R4",
+  "purpose": "Per-issue entity match. The issue id or every phrase. No unseeded issue.",
+  "issues": {
+    "api-key-expiring": ["api key", "expir"],
+    "replica-readiness": ["replica", "not ready"],
+    "disk-space": ["disk"],
+    "scheduled-job": ["scheduled", "job"]
+  }
+}

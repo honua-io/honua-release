@@ -1740,8 +1740,193 @@ def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(mo
     assert "terminalSurface" in system
     prompt = json.loads(calls[0][-1]["content"])
     assert prompt["terminalSurface"] == terminal_surface
+    stage = canary.load_journey(JOURNEY)["stages"][0]
+    assert prompt["requiredSequence"] == stage["command"]
     assert all(a["role"] != b["role"] for call in calls for a, b in zip(call[1:], call[2:]))
     assert "This stage admits no tool_call" in canary._system_contract([])
+    unguided = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                            endpoint=endpoint, driver_command=None, lock_digest=LOCK, guidance="none")
+    calls.clear()
+    canary.execute_live(unguided, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER, max_actions_per_stage=2)
+    raw = calls[0][-1]["content"]
+    assert "requiredSequence" not in raw and stage["command"] not in raw
+    assert json.loads(raw)["stage"]["id"] == stage["id"]
+    assert unguided.receipt["guidance"] == "none"
+
+
+def test_guided_stage_prompt_is_byte_identical_and_unguided_drops_the_tool_order():
+    stage = {
+        "number": 4,
+        "id": "style-render",
+        "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG",
+        "clientCommands": ["honua-mcp-proxy"],
+        "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"],
+    }
+    observed = {
+        "observation": {
+            "terminalSurface": {"sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY"},
+            "resources": {"layer": "roads", "empty": ""},
+        },
+        "toolView": {"tools": [{"name": "honua_render_map"}]},
+    }
+    guided = canary.stage_user_message(
+        stage=stage, candidate_release="2026.1", observed=observed, guidance="full")
+    expected = json.dumps({
+        "task": "advance exactly this imported #123 stage from observed state",
+        "candidateRelease": "2026.1",
+        "stage": stage,
+        "requiredSequence": stage["command"],
+        "terminalSurface": {"sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY"},
+        "currentState": {"layer": "roads"},
+        "observation": observed["observation"],
+        "serverAuthoredToolView": observed["toolView"],
+    }, separators=(",", ":"))
+    assert guided == expected
+    assert guided.startswith(canary._OBSERVATION_PREFIX)
+    unguided = canary.stage_user_message(
+        stage=stage, candidate_release="2026.1", observed=observed, guidance="none")
+    payload = json.loads(unguided)
+    assert "requiredSequence" not in payload and "command" not in payload["stage"]
+    assert "honua_get_style" not in unguided and "honua_apply_style_preset" not in unguided
+    assert payload["stage"]["id"] == "style-render"
+    assert payload["stage"]["clientCommands"] == ["honua-mcp-proxy"]
+    assert payload["observation"] == observed["observation"]
+    assert unguided.startswith(canary._OBSERVATION_PREFIX)
+    with pytest.raises(canary.CanaryError):
+        canary.stage_user_message(stage=stage, candidate_release="2026.1", observed=observed, guidance="scripted")
+
+
+def test_unguided_later_turns_omit_the_tool_order_the_receipt_keeps(monkeypatch):
+    """A second model call must not be handed stageStatus.command. The receipt keeps the raw driver response."""
+    stage = canary.load_journey(JOURNEY)["stages"][0]
+    command = stage["command"]
+    execution = {
+        "status": "pass",
+        "stageStatus": {
+            "number": stage["number"],
+            "id": stage["id"],
+            "command": command,
+            "status": "ready",
+            "checks": [{"status": "pass", "invocation": command, "detail": f"ran {command}"}],
+        },
+        "requiredSequence": command,
+        "result": {"accepted": True, "command": "model action"},
+    }
+    shown = canary.model_facing_payload(execution, "none")
+    assert canary.model_facing_payload(execution, "full") is execution
+    assert command not in json.dumps(shown) and "requiredSequence" not in shown
+    assert shown["stageStatus"]["id"] == stage["id"] and shown["result"]["command"] == "model action"
+    calls = []
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "w", "toolView": {"v": 1},
+                        "credentialReferences": [{"envVar": "K"}]}
+            if operation == "observe":
+                return {"status": "ready", "stageStatus": "ready",
+                        "observation": {"resources": {}},
+                        "toolView": {"tools": [{"name": "honua_list_capabilities"}]},
+                        "stageTools": ["honua_list_capabilities"]}
+            if operation == "execute":
+                return execution
+            return {"status": "pass"}
+
+    class Model:
+        def __init__(self, *_):
+            pass
+
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
+        def complete(self, messages, _certification):
+            calls.append([dict(message) for message in messages])
+            return (json.dumps({"kind": "tool_call", "tool": "honua_list_capabilities",
+                                "arguments": {}, "intent": "advance"}), {}, 0, {})
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api")
+
+    def run(guidance):
+        calls.clear()
+        builder = canary.build_receipt_builder(
+            manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+            endpoint=endpoint, driver_command=None, lock_digest=LOCK, guidance=guidance)
+        canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                            max_actions_per_stage=2)
+        return builder
+
+    guided = run("full")
+    assert len(calls) >= 2 and command in json.dumps(calls[1])
+    unguided = run("none")
+    spoken = json.dumps(calls)
+    assert len(calls) >= 2 and command not in spoken and "requiredSequence" not in spoken
+    assert "model action" in spoken
+    raw = json.dumps(unguided.redactor.value(execution), sort_keys=True, separators=(",", ":"),
+                     ensure_ascii=False, allow_nan=False).encode()
+    digest = hashlib.sha256(raw).hexdigest()
+    assert any(entry["role"] == "driver" and entry["content"]["sha256"] == digest
+               for entry in unguided.receipt["transcript"]["entries"])
+    assert guided.receipt["guidance"] == "full" and unguided.receipt["guidance"] == "none"
+
+
+def test_receipt_records_guidance_and_the_schema_rejects_any_other_mode():
+    endpoint = canary.EndpointConfig(None, None, None, "TERMINAL_MODEL_API_KEY", None, None)
+    full = canary.build_receipt_builder(
+        manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL, endpoint=endpoint,
+        driver_command=None, lock_digest=LOCK)
+    canary.unavailable_receipt(full, endpoint, None)
+    receipt = full.validated_receipt(_schema())
+    assert receipt["guidance"] == "full"
+    schema = _schema()
+    assert "guidance" in schema["required"] and schema["properties"]["guidance"]["enum"] == ["full", "none"]
+    validator = Draft202012Validator(schema)
+    missing = copy.deepcopy(receipt)
+    del missing["guidance"]
+    assert list(validator.iter_errors(missing))
+    assert list(validator.iter_errors({**receipt, "guidance": "scripted"}))
+    unguided = canary.build_receipt_builder(
+        manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL, endpoint=endpoint,
+        driver_command=None, lock_digest=LOCK, guidance="none")
+    canary.unavailable_receipt(unguided, endpoint, None)
+    assert unguided.validated_receipt(schema)["guidance"] == "none"
+    with pytest.raises(canary.CanaryError):
+        canary.build_receipt_builder(
+            manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL, endpoint=endpoint,
+            driver_command=None, guidance="scripted")
+
+
+def test_cli_records_the_guidance_mode(tmp_path: Path, monkeypatch):
+    for name in ("TERMINAL_MODEL_BASE_URL", "TERMINAL_MODEL_NAME", "TERMINAL_MODEL_API_KEY",
+                 "TERMINAL_MODEL_RUNTIME", "TERMINAL_MODEL_QUANTIZATION"):
+        monkeypatch.delenv(name, raising=False)
+    full = tmp_path / "full.json"
+    assert canary.main(["--output", str(full)]) == 1
+    assert json.loads(full.read_text(encoding="utf-8"))["guidance"] == "full"
+    none = tmp_path / "none.json"
+    assert canary.main(["--output", str(none), "--guidance", "none"]) == 1
+    assert json.loads(none.read_text(encoding="utf-8"))["guidance"] == "none"
+
+
+def test_workflow_dispatch_guidance_defaults_to_full_and_refuses_an_unguided_cloud_cell():
+    workflow, triggers = _workflow()
+    guidance = triggers["workflow_dispatch"]["inputs"]["guidance"]
+    assert guidance["default"] == "full" and guidance["required"] is False
+    assert guidance["type"] == "choice" and set(guidance["options"]) == {"full", "none"}
+    for name in ("harness", "local-docker"):
+        steps = workflow["jobs"][name]["steps"]
+        text = "\n".join(str(step.get("run", "")) for step in steps)
+        env = "\n".join(str(step.get("env", "")) for step in steps)
+        assert '--guidance "${GUIDANCE:-full}"' in text
+        assert "inputs.guidance || 'full'" in env
+    assert "inputs.guidance != 'none'" in workflow["jobs"]["aws-ecs"]["if"]
+    refused = workflow["jobs"]["unguided-cloud-refused"]
+    assert "inputs.guidance == 'none'" in refused["if"]
+    assert "aws-ecs/redis-off" in refused["if"]
 
 
 def test_parser_accepts_one_fenced_json_block_and_names_the_shape_of_a_refusal():

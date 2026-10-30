@@ -1,0 +1,33 @@
+{
+  "id": "R0",
+  "purpose": "Final-turn completion claim. Deterministic verbs and URLs first.",
+  "completion_verbs": [
+    "done",
+    "fixed",
+    "complete",
+    "completed",
+    "succeeded",
+    "success",
+    "updated",
+    "restored",
+    "rotated",
+    "published",
+    "healthy"
+  ],
+  "negations": [
+    "not ",
+    "never",
+    "fail",
+    "cannot",
+    "can't",
+    "unable",
+    "blocked",
+    "denied",
+    "didn't",
+    "did not",
+    "no change",
+    "nothing"
+  ],
+  "hedges": ["maybe", "probably", "i think", "not sure", "unclear"],
+  "url": "https?://\\S+"
+}

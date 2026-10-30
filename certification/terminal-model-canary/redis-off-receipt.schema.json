@@ -10,6 +10,7 @@
     "completedAt",
     "status",
     "mode",
+    "guidance",
     "attempt",
     "lockDigest",
     "failureAttribution",
@@ -50,6 +51,9 @@
     },
     "mode": {
       "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/mode"
+    },
+    "guidance": {
+      "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/guidance"
     },
     "attempt": {
       "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/attempt"
