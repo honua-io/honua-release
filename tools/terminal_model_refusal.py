@@ -91,7 +91,9 @@ class RefusalReceiptBuilder(c.ReceiptBuilder):
                 or refusal.get("manifestReasonCode") != "dependency-unavailable"):
             raise c.CanaryError("refusal pass lacks ordered, distinct model actions and independent serving/refusal proofs")
         verified = r["provenance"]["verifiedCalls"]
-        if (r["totals"]["modelCalls"] < 3 or len(verified) != r["totals"]["modelCalls"]
+        # A provider failure that was re-issued counts as a model call but carries no signed result.
+        retried = sum(1 for notice in r["notices"] if c.PROVIDER_RETRY_NOTICE.match(str(notice)))
+        if (len(verified) < 3 or len(verified) + retried != r["totals"]["modelCalls"]
                 or len(selected) != len(verified)
                 or len({p["transcriptDigest"] for p in verified}) != len(verified)):
             raise c.CanaryError("every actual model call/action needs unique verified signed provenance")
@@ -210,10 +212,11 @@ def execute_live(builder, *, endpoint, driver_command, max_actions_per_stage, ta
                 builder.capture_transcript("system", system, stage_id=stage_id)
                 builder.capture_transcript("user", user, stage_id=stage_id)
                 messages.append({"role": "user", "content": user})
-                content, usage, elapsed, proof = client.complete(messages, {
+                content, usage, elapsed, proof = c.complete_with_provider_retry(client, messages, lambda: {
                     "candidateId": r["candidate"]["components"]["honua-server"]["digest"],
                     "releaseId": r["candidate"]["platformRelease"], "endpointIdentity": endpoint.validated_base_url(),
-                    "actionId": stage_id, "runNonce": f"{run_nonce}:{workspace}:{stage_id}:{r['totals']['modelCalls'] + 1}"})
+                    "actionId": stage_id, "runNonce": f"{run_nonce}:{workspace}:{stage_id}:{r['totals']['modelCalls'] + 1}"},
+                    builder)
                 r["provenance"]["verifiedCalls"].append(proof)
                 assistant = builder.capture_transcript("assistant", content, stage_id=stage_id)
                 builder.add_usage(usage, elapsed)
