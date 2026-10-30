@@ -50,6 +50,9 @@ HARNESS_DRIVEN = "HARNESS_DRIVEN"
 MODEL_ACTION_KINDS = frozenset({"terminal_command", "tool_call"})
 HARNESS_ACTION_KINDS = frozenset({"setup", "error_injection", "approval", "verification", "teardown"})
 JOURNEY_MODE = "genuine-model"
+# full is the reviewed prompt, including requiredSequence. none withholds sequence and
+# acknowledgement-object hints. The receipt records which one ran.
+GUIDANCE_MODES = ("full", "none")
 # Local Docker and the four approved AWS GA cells. EKS remains Preview.
 # Nightly still selects ECS Redis-off; GA qualification selects all four cloud cells.
 CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
@@ -570,6 +573,7 @@ class ReceiptBuilder:
         lock_digest: str | None = None,
         cell: str = "local-docker",
         attempt: int = 1,
+        guidance: str = "full",
     ):
         if lock_digest is not None and not LOCK_DIGEST.fullmatch(lock_digest):
             raise CanaryError("lock digest must be sha256:<64 lowercase hex>")
@@ -577,6 +581,8 @@ class ReceiptBuilder:
             raise CanaryError(f"unknown genuine-model cell {cell!r}; expected one of {', '.join(CELLS)}")
         if type(attempt) is not int or attempt not in (1, 2):
             raise CanaryError("a genuine-model cell permits attempt 1 or 2")
+        if guidance not in GUIDANCE_MODES:
+            raise CanaryError(f"unknown guidance {guidance!r}; expected full or none")
         self.journey = journey
         self.protocol = protocol
         self.redactor = redactor
@@ -591,6 +597,9 @@ class ReceiptBuilder:
             "completedAt": None,
             "status": "blocked",
             "mode": JOURNEY_MODE,
+            # full repeats the reviewed sequence; none is the customer goal only.
+            # Both record the mode so a receipt cannot be read as the other.
+            "guidance": guidance,
             "profile": "full-workflow",
             "executionOutcome": "not-completed",
             "functionalGpExecuted": None,
@@ -1516,6 +1525,7 @@ def build_receipt_builder(
     lock_digest: str | None = None,
     cell: str = "local-docker",
     attempt: int = 1,
+    guidance: str = "full",
 ) -> ReceiptBuilder:
     manifest = load_manifest(manifest_path)
     journey = load_journey(journey_path)
@@ -1542,6 +1552,7 @@ def build_receipt_builder(
         lock_digest=lock_digest,
         cell=cell,
         attempt=attempt,
+        guidance=guidance,
     )
 
 
@@ -1641,6 +1652,50 @@ def _system_contract(tool_names: list[str] | None = None) -> str:
 
 _CORRECTIVE = ("Your previous reply was not a single JSON action object ({shape}). Reply again with exactly "
                "one JSON object of kind terminal_command or tool_call as specified, and nothing else.")
+
+
+def stage_user_message(
+    *,
+    stage: dict[str, Any],
+    candidate_release: str,
+    observed: dict[str, Any],
+    guidance: str = "full",
+) -> str:
+    """User turn for one journey stage. full matches the reviewed prompt bytes."""
+    if guidance not in GUIDANCE_MODES:
+        raise CanaryError(f"unknown guidance {guidance!r}; expected full or none")
+    resources = (observed.get("observation") or {}).get("resources")
+    current_state = {
+        key: value for key, value in resources.items()
+        if value not in (None, "", [], {})
+    } if isinstance(resources, dict) else {}
+    terminal_surface = (observed.get("observation") or {}).get("terminalSurface", {})
+    if guidance == "none":
+        # The stage command is the tool order (the same string requiredSequence copies).
+        # The stage id remains so the model knows which observed stage it is on.
+        payload: dict[str, Any] = {
+            "task": "advance exactly this imported #123 stage from observed state",
+            "candidateRelease": candidate_release,
+            "stage": {key: value for key, value in stage.items() if key != "command"},
+            "terminalSurface": terminal_surface,
+            "currentState": current_state,
+            "observation": observed.get("observation"),
+            "serverAuthoredToolView": observed.get("toolView"),
+        }
+    else:
+        payload = {
+            "task": "advance exactly this imported #123 stage from observed state",
+            "candidateRelease": candidate_release,
+            "stage": stage,
+            # The stage's declared order and what already exists, so the model can sequence
+            # (e.g. publish a service before querying it).
+            "requiredSequence": stage.get("command"),
+            "terminalSurface": terminal_surface,
+            "currentState": current_state,
+            "observation": observed.get("observation"),
+            "serverAuthoredToolView": observed.get("toolView"),
+        }
+    return json.dumps(payload, separators=(",", ":"))
 
 
 def observed_stage_status(observed: dict[str, Any], stage: dict[str, Any]) -> str:
@@ -1877,24 +1932,11 @@ def execute_live(
                 system = _system_contract(allowed)
                 if messages and messages[0].get("role") == "system":
                     messages[0] = {"role": "system", "content": system}
-                user_content = json.dumps(
-                    {
-                        "task": "advance exactly this imported #123 stage from observed state",
-                        "candidateRelease": receipt["candidate"]["platformRelease"],
-                        "stage": stage,
-                        # The stage's declared order and what already exists, so the model can sequence
-                        # (e.g. publish a service before querying it).
-                        "requiredSequence": stage.get("command"),
-                        "terminalSurface": (observed.get("observation") or {}).get("terminalSurface", {}),
-                        "currentState": {
-                            key: value for key, value in
-                            ((observed.get("observation") or {}).get("resources") or {}).items()
-                            if value not in (None, "", [], {})
-                        } if isinstance((observed.get("observation") or {}).get("resources"), dict) else {},
-                        "observation": observed.get("observation"),
-                        "serverAuthoredToolView": observed.get("toolView"),
-                    },
-                    separators=(",", ":"),
+                user_content = stage_user_message(
+                    stage=stage,
+                    candidate_release=receipt["candidate"]["platformRelease"],
+                    observed=observed,
+                    guidance=receipt.get("guidance", "full"),
                 )
                 builder.capture_transcript("system", system, stage_id=stage_id)
                 builder.capture_transcript("user", user_content, stage_id=stage_id)
@@ -2104,6 +2146,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock", type=Path, help="platform-lock.json whose bytes must hash to --lock-digest")
     parser.add_argument("--cell", choices=CELLS, default="local-docker")
     parser.add_argument("--profile", choices=("full-workflow", "redis-off-serving-refusal"), default="full-workflow")
+    parser.add_argument("--guidance", choices=GUIDANCE_MODES, default="full",
+                        help="full keeps the reviewed sequence hints; none sends the customer goal only")
     parser.add_argument("--target", type=Path, help="the reviewed target config chained to this cell's deterministic receipt")
     parser.add_argument("--attempt", type=int, choices=(1, 2), default=1)
     parser.add_argument("--allow-http-cell", metavar="HOSTNAME",
@@ -2144,6 +2188,7 @@ def main(argv: list[str] | None = None) -> int:
             lock_digest=args.lock_digest,
             cell=args.cell,
             attempt=args.attempt,
+            guidance=args.guidance,
         )
         if args.lock is not None and lock_digest_of(args.lock) != args.lock_digest:
             builder.mark_failed("the platform lock's bytes do not hash to --lock-digest; "

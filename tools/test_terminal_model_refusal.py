@@ -809,6 +809,53 @@ def test_a_second_rejected_action_in_the_stage_fails_it_as_the_models(tmp_path,m
     assert state["teardown"] and b.validated_receipt()["status"]=="fail"
 
 
+def test_guided_refusal_prompts_match_the_reviewed_bytes_and_unguided_is_only_the_goal():
+    stage = {"number": 2, "id": "durable-refusal",
+             "command": "attempt a valid durable geometry plan, observe the typed Redis refusal, "
+                        "then independently reread capabilities and acknowledge refusal"}
+    allowed = ["honua_execute_plan", "honua_list_capabilities"]
+    observed = {"observation": {"planContract": {"distance": 10}},
+                "toolView": {"tools": [{"name": name} for name in allowed]}}
+    assert r.stage_system(stage, allowed) == r.stage_system(stage, allowed, "full")
+    assert r.stage_user_message(stage, observed, allowed) == json.dumps(
+        {"task": r.STAGE_TASKS["durable-refusal"], "stage": stage, "allowedTools": allowed,
+         "observation": observed["observation"], "serverAuthoredToolView": observed["toolView"]},
+        separators=(",", ":"))
+    none_system = r.stage_system(stage, allowed, "none")
+    none_user = r.stage_user_message(stage, observed, allowed, "none")
+    payload = json.loads(none_user)
+    assert set(payload) == {"goal", "observation", "serverAuthoredToolView"}
+    assert payload["goal"] == r.CUSTOMER_GOALS["durable-refusal"]
+    assert payload["observation"] == observed["observation"]
+    for leaked in (r.ACKNOWLEDGEMENT_SHAPE, r.STAGE_TASKS["durable-refusal"], r.STAGE_TASKS["serving-read"],
+                   "executionOutcome", "missingDependency", "functionalGpExecuted", "requiredSequence",
+                   "allowedTools", "typed Redis", stage["command"]):
+        assert leaked not in none_user, leaked
+    # The server-authored tool view may still list honua_list_capabilities. The goal must not.
+    assert "honua_list_capabilities" not in payload["goal"]
+    # The admitted-name list may still name honua_list_capabilities. It must not prescribe the call
+    # or the acknowledgement object.
+    for leaked in (r.ACKNOWLEDGEMENT_SHAPE, r.STAGE_TASKS["durable-refusal"], r.STAGE_TASKS["serving-read"],
+                   "executionOutcome", "missingDependency", "functionalGpExecuted", "requiredSequence",
+                   "typed Redis", "call honua_list_capabilities"):
+        assert leaked not in none_system, leaked
+    serving = {"id": "serving-read"}
+    serving_system = r.stage_system(serving, ["honua_query_features"], "none")
+    serving_user = r.stage_user_message(serving, {"observation": {}, "toolView": {}}, ["honua_query_features"], "none")
+    assert r.CUSTOMER_GOALS["serving-read"] in serving_system
+    assert json.loads(serving_user)["goal"] == r.CUSTOMER_GOALS["serving-read"]
+    assert "call honua_query_features" not in serving_system and "honua_query_features" not in serving_user
+    assert "SRID" not in serving_system and "SRID" not in serving_user
+    with pytest.raises(c.CanaryError):
+        r.stage_system(stage, allowed, "scripted")
+    builder = _builder()
+    assert builder.receipt["guidance"] == "full"
+    builder.validated_receipt()
+    builder.receipt.pop("guidance")
+    with pytest.raises(c.CanaryError, match="guidance"):
+        builder.validated_receipt()
+
+
 def test_refusal_stage_states_the_extended_acknowledgement_object():
     # Run 41029900234: the strict output format names only kind/tool/arguments/intent, and the model
     # omitted the assessment twice. The stage must give the complete extended object.
