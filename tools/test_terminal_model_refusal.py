@@ -807,3 +807,15 @@ def test_a_second_rejected_action_in_the_stage_fails_it_as_the_models(tmp_path,m
     assert any("after one corrective retry: model assessment:" in n and "missingDependency='memcached'" in n
                for n in result["notices"])
     assert state["teardown"] and b.validated_receipt()["status"]=="fail"
+
+
+def test_refusal_stage_states_the_extended_acknowledgement_object():
+    # Run 41029900234: the strict output format names only kind/tool/arguments/intent, and the model
+    # omitted the assessment twice. The stage must give the complete extended object.
+    import json as _json
+    text = r.stage_system({"id": "durable-refusal"}, ["honua_execute_plan", "honua_list_capabilities"])
+    assert r.ACKNOWLEDGEMENT_SHAPE in text and "extended" in text
+    shape = _json.loads(r.ACKNOWLEDGEMENT_SHAPE.replace('"..."', '"x"'))
+    assert set(shape) == {"kind", "tool", "arguments", "assessment", "intent"}
+    assert shape["assessment"] == {"executionOutcome": "refused", "missingDependency": "redis",
+                                   "functionalGpExecuted": False}
