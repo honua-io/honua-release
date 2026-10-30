@@ -1,0 +1,10 @@
+{
+  "document": "honua-sdk-js-packages-create-honua-app-readme",
+  "env": {},
+  "substitute": {
+    "--sdk-version 0.2.6": {
+      "value": "--sdk-version {client.sdkJs}",
+      "documentedAt": "packages/create-honua-app/README.md:9 — \"npm create honua-app@latest my-map -- --sdk-version 0.2.6\" (the same flag at lines 35 and 56). The published scaffold names its certified 0.2.6 fallback; the gate installs the manifest pin, the only @honua/sdk-js the registry front serves"
+    }
+  }
+}

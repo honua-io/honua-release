@@ -288,7 +288,10 @@ def test_guard_pins_and_filters():
     packument = {"name": "@honua/sdk-js", "versions": {"0.1.11": {}, "0.1.12": {}, "0.2.0-beta.0": {}},
                  "dist-tags": {"latest": "0.2.0-beta.0", "next": "0.2.0-beta.0"}, "time": {"0.1.12": "t", "created": "c"}}
     filtered = filter_npm_packument("@honua/sdk-js", packument, pins["npm"])
-    assert list(filtered["versions"]) == ["0.1.12"] and filtered["dist-tags"] == {"latest": "0.1.12"}
+    assert list(filtered["versions"]) == ["0.1.12"]
+    # create-honua-app reads the release-2026.1 tag. The guard serves only the pin,
+    # so the channel names that pin; prerelease tags such as next stay dropped.
+    assert filtered["dist-tags"] == {"latest": "0.1.12", "release-2026.1": "0.1.12"}
     assert filter_npm_packument("@honua-io/sdk-js", packument, pins["npm"]) is None   # old scope
     assert filter_npm_packument("create-honua-app", packument, pins["npm"]) is None    # not pinned
     assert filter_npm_packument("maplibre-gl", packument, pins["npm"]) is packument   # third party
