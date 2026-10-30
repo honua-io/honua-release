@@ -1,0 +1,95 @@
+# Open or admit a cherry-pick onto release/2026.1. Does not create that branch.
+# Branch creation and protection stay a founder or release-session step. See
+# docs/PATCH-BACKPORT.md. Privileged release workflows are not invoked from here.
+
+name: backport-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-character trunk commit to cherry-pick"
+        required: true
+        type: string
+  pull_request:
+    branches:
+      - release/2026.1
+
+permissions:
+  contents: read
+
+jobs:
+  open:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: trunk
+
+      - name: Plan the backport, or stop for the founder
+        id: plan
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin trunk "$SHA"
+          git merge-base --is-ancestor "$SHA" origin/trunk
+          if git ls-remote --exit-code origin refs/heads/release/2026.1 >/dev/null 2>&1; then
+            exists=yes
+          else
+            exists=no
+          fi
+          set +e
+          python3 tools/backport_release.py plan --sha "$SHA" --branch-exists "$exists"
+          rc=$?
+          set -e
+          if [ "$rc" = 2 ]; then
+            exit 2
+          fi
+          [ "$rc" = 0 ]
+          git fetch origin release/2026.1
+          short="${SHA:0:12}"
+          git checkout -B "backport/${short}" origin/release/2026.1
+          git -c user.name='Mike McDougall' -c user.email=mike@honua.io cherry-pick "$SHA"
+          git push origin "backport/${short}"
+          gh label create "backport/2026.1" --color 5319e7 \
+            --description "Cherry-pick onto release/2026.1" || true
+          body="$(mktemp)"
+          cat > "$body" <<EOF
+          Cherry-pick ${SHA} from trunk onto release/2026.1.
+
+          The commit is already on trunk. This pull request does not cut a release.
+
+          Refs #380
+          EOF
+          gh pr create --base release/2026.1 --head "backport/${short}" \
+            --title "backport: ${short}" --label "backport/2026.1" --body-file "$body"
+
+  admit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Admit only a labelled cherry-pick of trunk
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin trunk
+          git cherry -v origin/trunk HEAD > cherry.txt
+          python3 tools/backport_release.py admit --base "$BASE" --labels "$LABELS" --cherry-file cherry.txt

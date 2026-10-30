@@ -188,6 +188,15 @@ published, the rc rule applies again. An rc, lock or nightly that ships the cand
 commit is refused. When no source yields a different immutable digest, the cell is `blocked` (a strict
 train fails it); it never falls back to the candidate, a floating tag or a manifest-history pin. Multi-tenant deployments are out of scope (ADR-0024: internal only).
 
+**Pinned rc.1 proof.** `gate-compose-ga-rc1` (workflow dispatch only, not part of `e2e-cloud-aws`)
+installs the server image the `2026.1-rc.1` release notes publish, and refuses to run if that digest
+no longer matches the pin in `tools/compose_ga_rc1_gate.py`. It loads the real e2e seed, upgrades to
+a newer trunk build (a supplied digest, or a JIT image built from honua-server trunk when none is
+published), verifies the journal and the seed, rolls back, verifies again, then runs
+`partial-migration-failure` so the candidate runner is interrupted inside a real pending migration.
+The receipt is `compose-ga-rc1-receipt.json` (`honua.compose-ga-rc1-receipt/v1`). This does not
+replace the `compose-upgrade` cell above.
+
 **Negative control.** On the schedule a second cell, `negative-control`, runs the same lifecycle with
 `COMPOSE_UPGRADE_FAULT=drop-seed-rows` and passes only if the gate's own assertion ("seeded rows did
 not survive the upgrade") fails the harness. The harness also supports `journal-stall` and

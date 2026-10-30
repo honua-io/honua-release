@@ -1,0 +1,72 @@
+# Deterministic GA Compose upgrade/rollback plus a real migration interrupt.
+# Dispatch only. It does not call the cloud end-to-end suite, and it is not a
+# substitute for gate-upgrade's compose-upgrade cell (that cell still resolves
+# the newest published rc).
+# Prior is the server image published by the 2026.1-rc.1 release. The candidate is
+# the image input, or a JIT build of honua-server trunk when the input is empty.
+# There is no published trunk image newer than rc.1, so an empty input builds one.
+
+name: gate-compose-ga-rc1
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_image:
+        description: "Newer trunk server image, repository@sha256:<64 hex>. Empty builds honua-server trunk."
+        required: false
+        type: string
+        default: ""
+      candidate_sha:
+        description: "Full honua-server commit of candidate_image. Required when candidate_image is set."
+        required: false
+        type: string
+        default: ""
+      candidate_schema:
+        description: "Candidate dbSchema, an integer newer than the rc.1 schema. Required when candidate_image is set."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: gate-compose-ga-rc1
+  cancel-in-progress: false
+
+jobs:
+  compose-ga-rc1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out honua-release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out honua-server trunk for the candidate build and ancestry proof
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: trunk
+          path: server-trunk
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Install rc.1, load, upgrade, verify, roll back, verify, interrupt
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_SCHEMA: ${{ inputs.candidate_schema }}
+          HONUA_SERVER_CHECKOUT: server-trunk
+          E2E_OUT: /tmp/compose-ga-rc1
+          GATE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GATE_COMMIT: ${{ github.sha }}
+        run: bash e2e/harness/compose-ga-rc1-gate.sh
+
+      - name: Upload the receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compose-ga-rc1-receipt
+          path: /tmp/compose-ga-rc1
+          if-no-files-found: error
