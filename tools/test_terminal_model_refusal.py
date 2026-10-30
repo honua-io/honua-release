@@ -178,7 +178,10 @@ def test_actual_tool_refusal_must_match_independent_live_dependency_manifest(mut
         assert state["modelRefusal"]["acknowledged"] is False
         engine.transport.tool.return_value={"structuredContent":{"available":False}}
         request["action"]={"kind":"tool_call","tool":"honua_list_capabilities","arguments":{}}
-        with pytest.raises(ExecutionError,match="acknowledge"):profile.execute(driver,request)
+        rejected=profile.execute(driver,request)
+        assert rejected["status"]=="fail" and rejected["refusal"]=="invalid-action"
+        assert rejected["result"]["reason"].endswith("differs: assessment absent")
+        assert state["modelRefusal"]["acknowledged"] is False
         request["action"]["assessment"]={"executionOutcome":"refused","missingDependency":"redis","functionalGpExecuted":False}
         assert profile.execute(driver,request)["result"]["modelAcknowledgedRefusal"] is True
 
@@ -224,7 +227,7 @@ def test_preparse_refusal_cannot_certify_an_invalid_or_unexecuted_plan(mutation)
     engine.transport.tool.assert_not_called()
 
 
-def _runner(tmp_path,monkeypatch,*,mutation=None):
+def _runner(tmp_path,monkeypatch,*,mutation=None,max_actions=2):
     """State-machine test only. Fake responses here cannot qualify a candidate."""
     b=_builder();endpoint=_endpoint()
     target=tmp_path/"target.json";target.write_text(json.dumps({"id":"aws-ecs/redis-off","replicaBaseUrl":endpoint.base_url}))
@@ -258,7 +261,13 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
                     state["refused"]=True
                     result=({"executionOutcome":"unexpectedly-accepted","functionalGpExecuted":None} if mutation=="accepted"
                             else {"typedRefusal":refused,"executionOutcome":"refused","functionalGpExecuted":False})
-                else:state["ack"]=True;result={"modelAcknowledgedRefusal":True}
+                else:
+                    problems=profile.assessment_problems(payload["action"],refused)
+                    if problems:
+                        return {"status":"fail","refusal":"invalid-action","result":{"accepted":False,
+                                "command":"model assessment","reason":"acknowledgement of the observed refusal "
+                                "differs: "+"; ".join(problems)}}
+                    state["ack"]=True;result={"modelAcknowledgedRefusal":True}
                 return {"status":"pass","result":result}
             if op=="verify":
                 assertions=dict.fromkeys(r.ASSERTIONS[:-1],"pass")
@@ -281,9 +290,13 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
             proof={"transcriptDigest":("a"*64 if mutation=="replay" else f"{state['calls']:064x}"),
                 "keyId":"unit","manifestDigest":"a"*64,"provider":"bedrock","reportedModel":"unit-only",
                 "verifierVerdict":"pass","replayVerdict":"consumed","bindings":bindings}
-            return json.dumps({"kind":"tool_call","tool":"unit-only","arguments":{}}),{},1,proof
+            action={"kind":"tool_call","tool":"unit-only","arguments":{}}
+            if state["calls"]>=3:
+                bad=mutation=="bad-ack-twice" or (mutation=="bad-ack" and state["calls"]==3)
+                action["assessment"]={**ASSESSMENT,**({"missingDependency":"memcached"} if bad else {})}
+            return json.dumps(action),{},1,proof
     monkeypatch.setattr(c,"DriverAdapter",Driver);monkeypatch.setattr(c,"CandidateProxyClient",Model)
-    result=r.execute_live(b,endpoint=endpoint,driver_command=c.DEFAULT_DRIVER,max_actions_per_stage=2,target_path=target)
+    result=r.execute_live(b,endpoint=endpoint,driver_command=c.DEFAULT_DRIVER,max_actions_per_stage=max_actions,target_path=target)
     return b,result,state
 
 
@@ -640,9 +653,9 @@ def test_refusal_stage_omits_a_stage_tool_the_view_does_not_list():
     observed=profile.observe(driver,{"profile":r.PROFILE,"stage":"durable-refusal"})
     assert "honua_dry_run_plan" not in observed["stageTools"]
     assert "honua_dry_run_plan" not in observed["observation"]["planContract"]["tools"]
-    with pytest.raises(ExecutionError,match="tool=honua_dry_run_plan"):
-        profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal",
-            "action":{"kind":"tool_call","tool":"honua_dry_run_plan","arguments":_plan_arguments()}})
+    rejected=profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal",
+        "action":{"kind":"tool_call","tool":"honua_dry_run_plan","arguments":_plan_arguments()}})
+    assert rejected["refusal"]=="invalid-action" and "tool=honua_dry_run_plan" in rejected["result"]["reason"]
 
 
 @pytest.mark.parametrize("action,summary",[
@@ -652,9 +665,9 @@ def test_refusal_stage_omits_a_stage_tool_the_view_does_not_list():
     ({"kind":"tool_call","tool":"honua_query_features","arguments":{}},"tool=honua_query_features")])
 def test_rejected_refusal_action_names_kind_and_identifier_tool_only(action,summary):
     driver,engine,_=_view_driver()
-    with pytest.raises(ExecutionError) as caught:
-        profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal","action":action})
-    assert summary in str(caught.value) and "s3cr3t" not in str(caught.value)
+    rejected=profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal","action":action})
+    assert rejected["status"]=="fail" and rejected["refusal"]=="invalid-action"
+    assert summary in rejected["result"]["reason"] and "s3cr3t" not in json.dumps(rejected)
     engine.transport.tool.assert_not_called()
 
 
@@ -674,3 +687,107 @@ def test_runner_tells_each_stage_its_admitted_tools_and_task(tmp_path,monkeypatc
 def test_runner_without_advertised_stage_tools_is_infrastructure_without_a_model_call(tmp_path,monkeypatch):
     b,result,state=_runner(tmp_path,monkeypatch,mutation="no-stage-tools")
     assert result["status"]=="fail" and result["failureAttribution"]==c.INFRASTRUCTURE and state["calls"]==0
+
+
+ASSESSMENT={"executionOutcome":"refused","missingDependency":"redis","functionalGpExecuted":False}
+
+
+def _real_driver_path(monkeypatch):
+    """parse_model_action -> DriverAdapter.invoke (real JSON request) -> live_driver.main/handle/op_execute
+    -> refusal_profile.execute, with only the candidate transport and workspace state faked."""
+    import io
+    import live_driver
+    driver,engine,state=_driver(problem=GP)
+    profile.execute(driver,{"profile":r.PROFILE,"stage":"durable-refusal",
+        "action":{"kind":"tool_call","tool":"honua_validate_plan","arguments":_plan_arguments()}})
+    assert state["modelRefusal"]["refusal"]["missingDependency"]=="redis"
+    engine.transport.tool.return_value={"structuredContent":{"available":False}}
+    for name in ("_rehydrate","_executor","_write_state"):
+        monkeypatch.setattr(live_driver,name,getattr(driver,name))
+    seen=[];real=profile.execute
+    monkeypatch.setattr(profile,"execute",lambda d,req:(seen.append(copy.deepcopy(req)),real(d,req))[1])
+    def run(argv,*,input,**_):
+        assert argv[-1]==str(c.DEFAULT_DRIVER)
+        stdout=io.StringIO()
+        with mock.patch.object(sys,"stdin",io.StringIO(input)),mock.patch.object(sys,"stdout",stdout):
+            code=live_driver.main()
+        return SimpleNamespace(returncode=code,stdout=stdout.getvalue(),stderr="")
+    monkeypatch.setattr(c.subprocess,"run",run)
+    adapter=c.DriverAdapter(c.DEFAULT_DRIVER,c._load_json(PROTOCOL))
+    def invoke(action):
+        kind,parsed=c.parse_model_action(json.dumps(action))
+        return adapter.invoke("execute",{"workspaceId":"w","stage":"durable-refusal","profile":r.PROFILE,"action":parsed})
+    return invoke,seen,state
+
+
+def test_model_assessment_reaches_refusal_profile_unchanged_through_the_real_driver_path(monkeypatch):
+    # Run 41018933357: the third model call was refused as "model must acknowledge the observed refusal".
+    # Nothing between the model reply and refusal_profile drops, nests or stringifies the assessment.
+    invoke,seen,state=_real_driver_path(monkeypatch)
+    response=invoke({"kind":"tool_call","tool":"honua_list_capabilities","arguments":{},
+                     "assessment":ASSESSMENT,"intent":"acknowledge the typed Redis refusal"})
+    assessment=seen[0]["action"]["assessment"]
+    assert assessment==ASSESSMENT and assessment["functionalGpExecuted"] is False
+    assert seen[0]["action"]["arguments"]=={}
+    assert response["status"]=="pass" and response["result"]["modelAcknowledgedRefusal"] is True
+    assert state["modelRefusal"]["acknowledged"] is True
+
+
+@pytest.mark.parametrize("change,expected",[
+    (lambda a:a.pop("assessment"),"assessment absent"),
+    (lambda a:a["arguments"].update(assessment=a.pop("assessment")),"assessment absent (placed inside the tool arguments)"),
+    (lambda a:a.update(assessment=["refused"]),"assessment is not an object (<array>)"),
+    (lambda a:a["assessment"].update(missingDependency="postgres"),"missingDependency='postgres'"),
+    (lambda a:a["assessment"].update(functionalGpExecuted="false"),"functionalGpExecuted='false'"),
+    (lambda a:a["assessment"].update(functionalGpExecuted=None),"functionalGpExecuted=null"),
+    (lambda a:a["assessment"].pop("executionOutcome"),"executionOutcome absent"),
+    (lambda a:a["assessment"].update(executionOutcome="completed"),"executionOutcome='completed'"),
+    (lambda a:a["assessment"].update(executionOutcome="the job ran and s3cr3t completed fine"),
+     "executionOutcome=<string of 37 chars>"),
+    (lambda a:a["assessment"].update(note="x"),"1 unexpected key"),
+])
+def test_assessment_mismatch_names_the_field_and_only_a_safe_value(monkeypatch,change,expected):
+    invoke,seen,state=_real_driver_path(monkeypatch)
+    action={"kind":"tool_call","tool":"honua_list_capabilities","arguments":{},"assessment":dict(ASSESSMENT)}
+    change(action)
+    response=invoke(action)  # an invalid-action refusal is model feedback, not a driver failure
+    assert response["status"]=="fail" and response["refusal"]=="invalid-action"
+    message=r.rejection_reason(response["result"])
+    assert message.startswith("model assessment: acknowledgement of the observed refusal differs: ")
+    assert expected in message and "s3cr3t" not in json.dumps(response)
+    assert state["modelRefusal"]["acknowledged"] is False
+
+
+def test_assessment_dependency_matches_the_observed_refusal_case_insensitively_only():
+    refusal={"missingDependency":"redis"}
+    ok={**ASSESSMENT,"missingDependency":"Redis"}
+    assert profile.assessment_problems({"assessment":ok},refusal)==[]
+    # Derived from the observed refusal, never hard-coded: another dependency is a different refusal.
+    assert profile.assessment_problems({"assessment":ok},{"missingDependency":"postgres"})==["missingDependency='Redis'"]
+    assert profile.assessment_problems({"assessment":ASSESSMENT},{})==["observed typed refusal names no missingDependency"]
+    assert profile.assessment_problems({"assessment":{**ASSESSMENT,"functionalGpExecuted":0}},refusal)==["functionalGpExecuted=0"]
+
+
+def test_rejected_assessment_is_returned_to_the_model_and_one_corrective_retry_can_pass(tmp_path,monkeypatch):
+    b,result,state=_runner(tmp_path,monkeypatch,mutation="bad-ack",max_actions=3)
+    assert result["status"]=="pass" and result["failureAttribution"] is None and state["calls"]==4
+    finding=[n for n in result["notices"] if "model finding" in n]
+    assert finding==["stage durable-refusal: model finding - the model-selected tool_call was rejected: model assessment: "
+                     "acknowledgement of the observed refusal differs: missingDependency='memcached'; "
+                     "the result was returned to the model for one corrective retry"]
+    retry=json.loads(state["messages"][3][-2]["content"])
+    assert retry["untrustedActionResult"]["refusal"]=="invalid-action" and "corrected action" in retry["instruction"]
+    # The model is told which field it got wrong and its own value, never the expected value.
+    assert "missingDependency='memcached'" in retry["untrustedActionResult"]["result"]["reason"]
+    assert "redis" not in json.dumps(retry).lower()
+    rejected=[a for a in result["actions"] if a["attribution"]==c.MODEL_SELECTED and a["status"]=="fail"]
+    assert len(rejected)==1 and result["refusalProof"]["acknowledgementActionSequence"]>rejected[0]["sequence"]
+    assert b.validated_receipt()["status"]=="pass"
+
+
+def test_a_second_rejected_action_in_the_stage_fails_it_as_the_models(tmp_path,monkeypatch):
+    b,result,state=_runner(tmp_path,monkeypatch,mutation="bad-ack-twice",max_actions=4)
+    assert result["status"]=="fail" and result["failureAttribution"]==c.MODEL and state["calls"]==4
+    assert any("after one corrective retry: model assessment:" in n and "missingDependency='memcached'" in n
+               for n in result["notices"])
+    assert state["teardown"] and b.validated_receipt()["status"]=="fail"
