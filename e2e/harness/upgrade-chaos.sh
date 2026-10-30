@@ -655,7 +655,9 @@ run_idempotency() {
 #   install the prior image -> real seed -> rollback-target guard probe -> mandatory pg_dump backup
 #   -> recreate the server on the candidate digest (a typed contract-migration refusal is answered
 #   with its one-shot HONUA_APPROVE_CONTRACT_MIGRATIONS nonce, the documented customer step)
-#   -> the journal advanced, the observed schema equals the declared one, seeded rows survived
+#   -> every prior journal entry remains and the journal grew, or it held because this
+#      candidate image (not the prior image) ships no new migration; the observed schema
+#      equals the declared one; seeded rows survived
 #   -> roll back to the prior image on the migrated database, or, at the documented boundary
 #   (typed schema_reader_incompatible after approved contract migrations, below schema 135,
 #   or a migration declared reader-incompatible rather than expand-only),
@@ -812,7 +814,7 @@ run_compose_upgrade_rollback() {
   local before_journal="$OUT/compose-before-journal.txt" before_sums="$OUT/compose-before-checksums.txt"
   local after_journal="$OUT/compose-after-journal.txt" after_sums="$OUT/compose-after-checksums.txt"
   local rollback_journal="$OUT/compose-rollback-journal.txt" rollback_sums="$OUT/compose-rollback-checksums.txt"
-  local upgrade_image="$CANDIDATE_IMAGE" refusal=""
+  local upgrade_image="$CANDIDATE_IMAGE" refusal="" journal_phrase=""
   cu_reset_observations
   case "$COMPOSE_FAULT" in
     none|drop-seed-rows|rollback-unreadable) ;;
@@ -885,8 +887,19 @@ run_compose_upgrade_rollback() {
   cmp -s "$before_sums" "$after_sums" && CU_CHECKSUMS_MATCHED=true || CU_CHECKSUMS_MATCHED=false
   diff -u "$before_journal" "$after_journal" > "$OUT/compose-journal-advance.diff" || true
   cu_identity candidate "$upgrade_image" || { cu_fail "running candidate container is not exactly $upgrade_image on $COMPOSE_PLATFORM"; return 1; }
-  if ! [ "$CU_AFTER_VERSIONS" -gt "$CU_BEFORE_VERSIONS" ] || [ -n "$(comm -23 "$before_journal" "$after_journal")" ]; then
+  # A later image can ship the same migrations. That is a real upgrade of the server,
+  # and the journal holding is the proof. journal-stall reruns the prior image, so a
+  # held journal there is still a failure. A missing or replaced prior entry never passes.
+  local missing_prior
+  missing_prior="$(comm -23 "$before_journal" "$after_journal")"
+  if [ -n "$missing_prior" ] || [ "$CU_AFTER_VERSIONS" -lt "$CU_BEFORE_VERSIONS" ] \
+     || { [ "$CU_AFTER_VERSIONS" -eq "$CU_BEFORE_VERSIONS" ] && [ "$upgrade_image" = "$PRIOR_IMAGE" ]; }; then
     cu_fail "candidate did not advance public.schema_versions ($CU_BEFORE_VERSIONS -> $CU_AFTER_VERSIONS rows; every prior entry must remain)"; return 1
+  fi
+  if [ "$CU_AFTER_VERSIONS" -gt "$CU_BEFORE_VERSIONS" ]; then
+    journal_phrase="schema_versions advanced $CU_BEFORE_VERSIONS->$CU_AFTER_VERSIONS"
+  else
+    journal_phrase="schema_versions held at $CU_AFTER_VERSIONS (candidate image ships no new migration)"
   fi
   if [ -n "$CANDIDATE_DB_SCHEMA" ] && [ "$CU_CANDIDATE_SCHEMA" != "$CANDIDATE_DB_SCHEMA" ]; then
     cu_fail "observed schema $CU_CANDIDATE_SCHEMA does not exactly match the declared candidate schema $CANDIDATE_DB_SCHEMA"; return 1
@@ -894,7 +907,7 @@ run_compose_upgrade_rollback() {
   if [ "$CU_AFTER_COUNTS" != "$CU_BEFORE_COUNTS" ] || [ "$CU_CHECKSUMS_MATCHED" != true ]; then
     cu_fail "seeded rows did not survive the upgrade ($CU_BEFORE_COUNTS -> $CU_AFTER_COUNTS, checksums matched: $CU_CHECKSUMS_MATCHED)"; return 1
   fi
-  echo "UPGRADE VERIFIED: schema_versions $CU_BEFORE_VERSIONS -> $CU_AFTER_VERSIONS rows, schema $CU_PRIOR_SCHEMA -> $CU_CANDIDATE_SCHEMA, seeded rows $CU_AFTER_COUNTS (checksums matched)"
+  echo "UPGRADE VERIFIED: $journal_phrase, schema $CU_PRIOR_SCHEMA -> $CU_CANDIDATE_SCHEMA, seeded rows $CU_AFTER_COUNTS (checksums matched)"
 
   echo "== $CU_NAME: roll back to the prior image on the migrated database =="
   stop_server
@@ -967,7 +980,7 @@ run_compose_upgrade_rollback() {
   fi
   CU_ROLLBACK_COUNTS="$(cu_counts "$rollback_sums")"
   cu_write_observed
-  record "$CU_NAME" pass "schema_versions advanced $CU_BEFORE_VERSIONS->$CU_AFTER_VERSIONS (schema $CU_PRIOR_SCHEMA->$CU_CANDIDATE_SCHEMA, contract approval: $CU_APPROVAL); seeded rows survived ($CU_AFTER_COUNTS, checksums matched); rollback $CU_ROLLBACK_OUTCOME${CU_BOUNDARY:+ at $CU_BOUNDARY}: the prior image served 2 seeded features and the seeded checksums are unchanged"
+  record "$CU_NAME" pass "$journal_phrase (schema $CU_PRIOR_SCHEMA->$CU_CANDIDATE_SCHEMA, contract approval: $CU_APPROVAL); seeded rows survived ($CU_AFTER_COUNTS, checksums matched); rollback $CU_ROLLBACK_OUTCOME${CU_BOUNDARY:+ at $CU_BOUNDARY}: the prior image served 2 seeded features and the seeded checksums are unchanged"
 }
 
 cleanup() {

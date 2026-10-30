@@ -625,7 +625,9 @@ wait_ready_attempts() {
       SERVER_LOG="Migration safety gate blocked pending contract-phase migration(s) on an existing database: 136_Narrow.sql. These reviewed ... then set 'HONUA_APPROVE_CONTRACT_MIGRATIONS=0123abcd' to apply them"
       return 1
     fi
-    MIGRATED=1; return 0
+    # SAME_SCHEMA=1: a different image that ships no new migration. The journal stays put.
+    if [ "${SAME_SCHEMA:-0}" != 1 ]; then MIGRATED=1; fi
+    return 0
   fi
   if [ "$PROBE" = 1 ] && [ "${GUARD:-present}" = inconclusive ]; then
     SERVER_LOG='{"error":"database connection reset during startup"}'; return 1
@@ -642,7 +644,12 @@ wait_ready_attempts() {
 }
 wait_ready() { wait_ready_attempts 1; }
 cu_wait_ready() { wait_ready_attempts 1; }
-journal() { printf 'Honua.Server.Migrations.135_A.sql\n'; [ "$MIGRATED" = 1 ] && printf 'Honua.Server.Migrations.136_B.sql\n'; [ "$PROBE" = 1 ] && printf 'Honua.Server.Migrations.999_RollbackTargetGuardProbe.sql\n'; return 0; }
+journal() {
+  if [ "${DROP_PRIOR_ENTRY:-0}" = 1 ] && [ "$CURRENT" = "$HONUA_CANDIDATE_SERVER_IMAGE" ]; then
+    printf 'Honua.Server.Migrations.136_B.sql\n'; return 0
+  fi
+  printf 'Honua.Server.Migrations.135_A.sql\n'; [ "$MIGRATED" = 1 ] && printf 'Honua.Server.Migrations.136_B.sql\n'; [ "$PROBE" = 1 ] && printf 'Honua.Server.Migrations.999_RollbackTargetGuardProbe.sql\n'; return 0
+}
 db_exec() {
   case "$1" in
     *999_RollbackTargetGuardProbe*INSERT*|INSERT*999_RollbackTargetGuardProbe*) PROBE=1 ;;
@@ -684,8 +691,9 @@ run_compose_upgrade_rollback
 
 
 def run_compose(tmp_path, **env):
+    schema = env.pop("schema", "136")
     result = run_driver(tmp_path, COMPOSE_STUB, HONUA_PRIOR_SERVER_IMAGE=env.pop("prior", PRIOR),
-                        HONUA_CANDIDATE_SERVER_IMAGE=CANDIDATE, HONUA_CANDIDATE_DB_SCHEMA="136", **env)
+                        HONUA_CANDIDATE_SERVER_IMAGE=CANDIDATE, HONUA_CANDIDATE_DB_SCHEMA=schema, **env)
     rows = [s for s in json.loads((tmp_path / "scenario-matrix.json").read_text())["scenarios"]
             if s["scenario"] == "compose-upgrade-rollback"]
     observed = json.loads((tmp_path / "compose-observed.json").read_text())
@@ -704,6 +712,22 @@ def test_compose_upgrade_passes_only_through_the_full_customer_lifecycle(tmp_pat
     for phase in ("install", "candidate", "rollback"):
         identity = json.loads((tmp_path / f"compose-{phase}-identity.json").read_text())
         assert identity["platform"] == "linux/amd64" and identity["imageID"] == identity["expectedImageID"]
+
+
+def test_compose_same_schema_candidate_holds_the_journal_and_still_rolls_back(tmp_path):
+    result, rows, observed = run_compose(tmp_path, SAME_SCHEMA="1", schema="135")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [r["status"] for r in rows] == ["pass"]
+    assert "schema_versions held at 1 (candidate image ships no new migration)" in rows[0]["why"]
+    assert "schema_versions advanced" not in rows[0]["why"]
+    assert observed["customerSteps"]["rollback"]["outcome"] == "image-rollback-served"
+
+
+def test_compose_upgrade_fails_when_the_candidate_drops_a_prior_journal_entry(tmp_path):
+    result, rows, _observed = run_compose(tmp_path, DROP_PRIOR_ENTRY="1")
+    assert result.returncode != 0
+    assert rows[0]["status"] == "fail"
+    assert "every prior entry must remain" in rows[0]["why"]
 
 
 @pytest.mark.parametrize("fault,why", [

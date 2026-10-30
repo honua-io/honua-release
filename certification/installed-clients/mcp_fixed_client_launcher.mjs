@@ -44,7 +44,8 @@ const ANONYMOUS_DISCOVERY_VIEWS = Object.freeze({
     "honua_execute_plan", "honua_publish_result", "honua_create_map_package", "honua_create_app_package"],
   operate: ["honua_ops_findings", "honua_alert_events", "honua_operate_events", "honua_ops_health",
     "honua_platform_release_status"],
-  analyze: ["honua_ground_candidates", "honua_clarify_intent", "honua_cancel_job"],
+  // analyze.v2 lists honua_geocode_address. geocode_addresses and solve_route stay off every anonymous view.
+  analyze: ["honua_ground_candidates", "honua_clarify_intent", "honua_cancel_job", "honua_geocode_address"],
 });
 
 export function anonymousDiscoveryView(name) {
