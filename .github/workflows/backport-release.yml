@@ -12,6 +12,8 @@ on:
         required: true
         type: string
   pull_request:
+    # labeled and unlabeled re-run admit. The default set does not.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     branches:
       - release/2026.1
 
@@ -36,6 +38,8 @@ jobs:
         id: plan
         env:
           SHA: ${{ inputs.sha }}
+          # Checkout authenticates git. gh label/pr create needs this token.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git fetch origin trunk "$SHA"

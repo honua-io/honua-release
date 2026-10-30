@@ -49,6 +49,10 @@ def test_workflow_does_not_create_the_release_branch_or_call_privileged_workflow
     # PyYAML 1.1 parses the unquoted Actions key `on` as boolean true.
     triggers = document.get("on", document.get(True))
     assert "workflow_dispatch" in triggers
+    pull_request = triggers["pull_request"]
+    assert {"opened", "synchronize", "reopened", "labeled", "unlabeled"} <= set(pull_request["types"])
+    plan = next(step for step in document["jobs"]["open"]["steps"] if step.get("id") == "plan")
+    assert plan["env"]["GH_TOKEN"] == "${{ github.token }}"
     assert "git push origin release/2026.1" not in text
     assert "git checkout -b release/2026.1" not in text
     for forbidden in ("e2e-cloud-aws", "rc-release", "release-train", "nightly-certification",
