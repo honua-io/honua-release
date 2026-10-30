@@ -76,10 +76,13 @@ learned on run 38192851328): the import job service runs in-process without Redi
 large-import scenario on a Redis-off cell follows the job like a Redis-on cell, and the typed 503
 counts only from a host without the import job service.
 
-Each required journey cell passes within two attempts. A cell records `mode`, `attemptCount` and the
-complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
-status and lock digest. A first-attempt failure must have `failureAttribution: model` or
-`failureAttribution: infrastructure`; the last attempt must pass. Skipped, missing, out-of-period or
+Each required journey cell records `mode`, `attemptCount` and the complete ordered `attempts` array.
+Every attempt records its consecutive number, completion time, status and lock digest. A deterministic
+cell passes within two attempts: a first-attempt failure must have `failureAttribution: model` or
+`failureAttribution: infrastructure`, and the last attempt must pass. A genuine-model cell
+(`nightly-model-journey`, `genuine-model-journey`) qualifies only when its first attempt passes.
+`undetermined` counts as a qualification failure. An infrastructure failure may be followed by one
+separately recorded retry, and that retry does not qualify the cell. Skipped, missing, out-of-period or
 wrong-lock attempts fail. The mixed ECS + Batch cell is out of the rc.3 matrix. The two aws-eks cells are informational Preview under the 2026-10-16 owner amendment in #376,
 superseding decisions 12/18. Their unknown/failed observations remain visible; no EKS success
 replaces an ECS/Lambda requirement or establishes GA qualification. The journey producers enforce

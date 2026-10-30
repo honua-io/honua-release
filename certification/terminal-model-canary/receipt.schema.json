@@ -78,8 +78,8 @@
       ]
     },
     "failureAttribution": {
-      "description": "Where an attempt that did not pass failed; null exactly when it passed.",
-      "enum": ["model", "infrastructure", null]
+      "description": "Where an attempt that did not pass failed: model, infrastructure, or undetermined. Null exactly when it passed. Undetermined counts as a qualification failure.",
+      "enum": ["model", "infrastructure", "undetermined", null]
     },
     "scope": {
       "type": "object",
@@ -377,7 +377,7 @@
       {"required": ["serverImage"], "properties": {"serverImage": {"type": "object"}}}
     ]
   },
-  "else": {"properties": {"failureAttribution": {"enum": ["model", "infrastructure"]}}},
+  "else": {"properties": {"failureAttribution": {"enum": ["model", "infrastructure", "undetermined"]}}},
   "$defs": {
     "payloadSummary": {
       "description": "Digest of the redacted payload; arbitrary model/tool content is never retained.",

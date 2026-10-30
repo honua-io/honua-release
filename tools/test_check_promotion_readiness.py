@@ -352,6 +352,7 @@ def test_nightly_model_canary_attempt_bound_to_another_lock_does_not_count(tmp_p
 
 @pytest.mark.parametrize("attribution", ["model", "infrastructure"])
 def test_second_attempt_pass_and_preview_failure_are_allowed(tmp_path, attribution):
+    """Deterministic journeys still qualify on a passing last attempt. Preview cells do not count."""
     fixture = _fixture(tmp_path)
     def change(receipt):
         for cell in receipt["cells"]:
@@ -359,9 +360,27 @@ def test_second_attempt_pass_and_preview_failure_are_allowed(tmp_path, attributi
             cell["attemptCount"] = 2
             cell["attempts"] = [{**attempt, "status": "fail", "failureAttribution": attribution}, {**attempt, "attempt": 2}]
         receipt["cells"].append({"cell": "aws-eks/redis-off", "status": "fail"})
-    for name in JOURNEYS:
-        _edit(_receipt(fixture, name), change)
+    _edit(_receipt(fixture, "deterministic-journey"), change)
+    def preview(receipt):
+        receipt["cells"].append({"cell": "aws-eks/redis-off", "status": "fail"})
+    for name in ("nightly-model-journey", "genuine-model-journey"):
+        _edit(_receipt(fixture, name), preview)
     assert _decision(fixture)["status"] == "pass"
+
+
+@pytest.mark.parametrize("name", ["nightly-model-journey", "genuine-model-journey"])
+@pytest.mark.parametrize("attribution", ["model", "infrastructure", "undetermined"])
+def test_genuine_model_promotion_reads_only_the_first_attempt(tmp_path, name, attribution):
+    fixture = _fixture(tmp_path)
+    def change(receipt):
+        for cell in receipt["cells"]:
+            attempt = cell["attempts"][0]
+            cell["attemptCount"] = 2
+            cell["attempts"] = [{**attempt, "status": "fail", "failureAttribution": attribution,
+                                 "executionOutcome": "completed", "functionalGpExecuted": True},
+                                {**attempt, "attempt": 2}]
+    _edit(_receipt(fixture, name), change)
+    _failed(fixture, f"evidence:{name}")
 
 
 def test_update_and_rollback_must_both_pass_all_ga_cells(tmp_path):
