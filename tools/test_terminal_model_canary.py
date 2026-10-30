@@ -34,7 +34,16 @@ def test_final_publication_diagnostic_retains_only_bounded_http_status(status):
     assert canary.driver_failure_diagnostic(response) == f'; checks=8.final-map=fail/http-{status}; nativeMap=[]'
 
 
+@pytest.mark.parametrize('status', [404, 503])
+def test_final_publication_diagnostic_keeps_status_when_transport_appends_timing(status):
+    response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail',
+                                          'detail': f'HTTP {status} (elapsedMs=30012)'}]},
+                'observation': {'mapReadbacks': []}}
+    assert canary.driver_failure_diagnostic(response) == f'; checks=8.final-map=fail/http-{status}; nativeMap=[]'
+
+
 @pytest.mark.parametrize('detail', ['HTTP 404 private-secret', 'HTTP 999', 'HTTP 40',
+                                  'HTTP 503 (elapsedMs=1) private-secret', 'HTTP 503 (elapsedMs=abc)',
                                   'HTTP 404\nprivate-secret', 'candidate private-secret'])
 def test_publication_diagnostic_never_copies_arbitrary_error_text(detail):
     response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail', 'detail': detail}]}}

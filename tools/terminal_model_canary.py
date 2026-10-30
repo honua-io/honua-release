@@ -1217,8 +1217,9 @@ def driver_failure_diagnostic(response: Any) -> str:
             reason = "render-pixel-mismatch"
         elif isinstance(detail, str) and detail.startswith("PNG decoder refused:"):
             reason = "render-png-invalid"
-        elif isinstance(detail, str) and re.fullmatch(r"HTTP [1-5][0-9]{2}", detail):
-            reason = "http-" + detail[5:]
+        elif isinstance(detail, str) and re.fullmatch(r"HTTP [1-5][0-9]{2}( \(elapsedMs=[0-9]{1,9}\))?", detail):
+            # The transport may append its own bounded timing; only the status is copied.
+            reason = "http-" + detail[5:8]
         rows.append(identifier + "=" + check["status"] + "/" + reason)
     if rows:
         diagnostic = "; checks=" + ",".join(rows)
