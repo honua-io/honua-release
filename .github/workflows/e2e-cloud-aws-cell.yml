@@ -110,8 +110,10 @@ jobs:
           for state in queued in_progress waiting requested pending; do
             n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/cloud-cell-retirement.yml/runs?status=${state}&per_page=1" --jq '.total_count')"
             retiring=$(( retiring + n ))
-            # gh api --jq takes no jq variables; compare the ids in the shell.
-            for id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-cloud-aws.yml/runs?status=${state}&per_page=100" --jq '.workflow_runs[].id'); do
+            # gh api --jq takes no jq variables; compare the ids in the shell. A checked assignment
+            # first, so a failed lookup fails the step instead of reading as "no other runs".
+            ids="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-cloud-aws.yml/runs?status=${state}&per_page=100" --jq '.workflow_runs[].id')"
+            for id in $ids; do
               if [ "$id" != "$RUN_ID" ] && [ "${id:0:6}" = "${RUN_ID:0:6}" ]; then same_prefix=$(( same_prefix + 1 )); fi
             done
           done

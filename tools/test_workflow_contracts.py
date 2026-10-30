@@ -1600,7 +1600,9 @@ def test_cloud_candidate_pins_take_the_coordinate_of_a_digest_pinned_server_imag
     assert pins["gp_batch_image"] == f"ghcr.io/honua-io/honua-server@{amd64}"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="executes the Linux runner's bash step")
 @pytest.mark.parametrize("runs,retiring,expect_ok", [
+    (None, 0, False),                                               # the cloud-run lookup fails
     ({"in_progress": ["41005085470"]}, 0, True),                    # only itself
     ({"in_progress": ["41005085470", "41004840275"]}, 0, True),     # another lane, different prefix
     ({"in_progress": ["41005085470"], "queued": ["41005099999"]}, 0, False),  # same six-digit prefix
@@ -1615,13 +1617,15 @@ def test_cell_provision_guard_runs_against_gh(tmp_path, runs, retiring, expect_o
     stub = tmp_path / "gh"
     stub.write_text("#!/usr/bin/env python3\n"
                     "import json, re, sys\n"
-                    f"RUNS = {json.dumps(runs)}\n"
+                    f"RUNS = {json.dumps(runs) if runs is not None else 'None'}\n"
                     f"RETIRING = {retiring}\n"
                     "args = sys.argv[1:]\n"
                     "assert args[0] == 'api' and '--arg' not in args, args\n"
                     "url = args[1]; state = re.search(r'status=([a-z_]+)', url).group(1)\n"
                     "if 'cloud-cell-retirement.yml' in url:\n"
                     "    print(RETIRING if state == 'in_progress' else 0)\n"
+                    "elif RUNS is None:\n"
+                    "    sys.exit('HTTP 503')\n"
                     "else:\n"
                     "    print('\\n'.join(RUNS.get(state, [])))\n")
     stub.chmod(0o755)
