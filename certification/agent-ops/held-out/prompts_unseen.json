@@ -1,0 +1,10 @@
+{
+  "O11": {
+    "A": "The {town} backup looks old, and the database schema does not match it. What should we do?",
+    "B": "Please look at {town}: the backup is stale and the schema has drifted. Tell me how to proceed."
+  },
+  "O12": {
+    "A": "Someone else is changing {town} while the upgrade runs. Finish the upgrade without losing their committed work.",
+    "B": "Another person is editing {town} during the upgrade. Complete the upgrade and keep their committed edits."
+  }
+}

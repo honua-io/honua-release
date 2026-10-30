@@ -1,0 +1,131 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:26943"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              1844045.558,
+              645659.33
+            ],
+            [
+              1844225.558,
+              645659.33
+            ],
+            [
+              1844225.558,
+              645839.33
+            ],
+            [
+              1844045.558,
+              645839.33
+            ],
+            [
+              1844045.558,
+              645659.33
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-state-plane-1",
+      "properties": {
+        "NAME": "Pier Shed",
+        "Name": "Pier Shed",
+        "Owner": "Harbor District",
+        "Parcel_ID": "H-1",
+        "parcel_id": null,
+        "source_id": "p-state-plane-1",
+        "status": null
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              1844265.558,
+              645679.33
+            ],
+            [
+              1844445.558,
+              645679.33
+            ],
+            [
+              1844445.558,
+              645859.33
+            ],
+            [
+              1844265.558,
+              645859.33
+            ],
+            [
+              1844265.558,
+              645679.33
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-state-plane-2",
+      "properties": {
+        "NAME": "Pier Shed",
+        "Name": "Warehouse",
+        "Owner": null,
+        "Parcel_ID": "H-2",
+        "parcel_id": "H-2",
+        "source_id": "p-state-plane-2",
+        "status": "active"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              1844075.558,
+              645889.33
+            ],
+            [
+              1844255.558,
+              645889.33
+            ],
+            [
+              1844255.558,
+              646069.33
+            ],
+            [
+              1844075.558,
+              646069.33
+            ],
+            [
+              1844075.558,
+              645889.33
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-state-plane-3",
+      "properties": {
+        "NAME": "Net Yard",
+        "Name": "Net Yard",
+        "Owner": "Harbor District",
+        "Parcel_ID": "H-3",
+        "parcel_id": "H-3",
+        "source_id": "p-state-plane-3",
+        "status": "active"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

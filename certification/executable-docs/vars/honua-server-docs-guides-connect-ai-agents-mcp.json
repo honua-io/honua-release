@@ -1,0 +1,10 @@
+{
+  "document": "honua-server-docs-guides-connect-ai-agents-mcp",
+  "env": {},
+  "substitute": {
+    "http://localhost:18080": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "docs/guides/connect/ai-agents-mcp.md:85-86 — \"The quickstart publishes the server on `http://localhost:18080` (`HONUA_HTTP_PORT`)\". The gate certifies the candidate on its own port"
+    }
+  }
+}

@@ -1,0 +1,668 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "honua-agent-ga-generalization-v1",
+  "qualifiesCampaign": false,
+  "files": [
+    {
+      "path": "datasets/antimeridian/customers-encoding.txt",
+      "sha256": "f67079ba6bfef2e1441104ce9810529a821d7a7bbc18a99a44ac886d629b074e",
+      "bytes": 66,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/customers.csv",
+      "sha256": "80fe3df48ed30e54b526d79aaa80d01f879e620aa3568b17753a2f5a063671d6",
+      "bytes": 119,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/input-guide.json",
+      "sha256": "8375188dff19172c128478b6288da33e8e5274c55579f69ad010650918a9e80b",
+      "bytes": 222,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/parcels.4326.geojson",
+      "sha256": "9fd07e04cb50bdd5a76706d4abbdd31a3155ff428aac54add9eb92fa928c4c1e",
+      "bytes": 1079,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/parcels.tm180.geojson",
+      "sha256": "18048839aa8000efdb031a336b892ff70a364f8a86315dd709409db677cafb47",
+      "bytes": 1173,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/roads.4326.geojson",
+      "sha256": "2a12756ddef2527118fe19f7b63f15a20bab872120f0c581ab3655071183506e",
+      "bytes": 545,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/roads.tm180.geojson",
+      "sha256": "4e3c600de78cc37633826744f1db01252a72d936172d57cfa50a90be8bb1db4b",
+      "bytes": 565,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/shelters.4326.geojson",
+      "sha256": "bb456c642baa6bd64b6b26b13af3cbf20dd2fba17bfc627ddf5ab53c93c196ef",
+      "bytes": 860,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/antimeridian/shelters.tm180.geojson",
+      "sha256": "d890f2ca5dbbf4d0503737f0a7c753950bf77386cd7f33a7bb61e3b130fdf049",
+      "bytes": 882,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "antimeridian"
+      ]
+    },
+    {
+      "path": "datasets/harbor/deployment.json",
+      "sha256": "ce93b8bff2fc22c99da02bf2f4c03160352e5764640d210093af9b544f12986a",
+      "bytes": 1367,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G02",
+        "H02",
+        "A01",
+        "A02",
+        "A03",
+        "A04"
+      ]
+    },
+    {
+      "path": "datasets/harbor/imports/access-note.geojson",
+      "sha256": "48f51c4628a4713fb494e039cf440a99ff9e61fc9cf5da7b207061cd865e3e16",
+      "bytes": 544,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A02"
+      ],
+      "channels": [
+        "feature-attribute"
+      ]
+    },
+    {
+      "path": "datasets/harbor/imports/parcel-note.geojson",
+      "sha256": "d769ffae0cd03e841df382528b57e26dc6c81f61b5ccd7c2a6c9073bce81d861",
+      "bytes": 541,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A01"
+      ],
+      "channels": [
+        "feature-attribute"
+      ]
+    },
+    {
+      "path": "datasets/harbor/imports/retire-note.geojson",
+      "sha256": "6e52e128945412b2d2063a6ea946ebfbabf402e6975f9eddcddeb64c378513a6",
+      "bytes": 532,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A03"
+      ],
+      "channels": [
+        "feature-attribute"
+      ]
+    },
+    {
+      "path": "datasets/harbor/imports/source-note.geojson",
+      "sha256": "25ab5036e25e68ed5d13a6da7e0b99616a7a4abdf725ea1f5b15c2807b9753fd",
+      "bytes": 580,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A04"
+      ],
+      "channels": [
+        "feature-attribute"
+      ]
+    },
+    {
+      "path": "datasets/harbor/layers/access-layer.json",
+      "sha256": "50f574074ebff53ac3f1875bfb62e0a2253e2d24391af0a102937b54f6bcb8ea",
+      "bytes": 140,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A02"
+      ],
+      "channels": [
+        "layer-description"
+      ]
+    },
+    {
+      "path": "datasets/harbor/layers/deprecated-layer.json",
+      "sha256": "78e318e6350e9f0d8b7c9101247cf7d91c40e2d0ce12b68cffa14b7d470c7560",
+      "bytes": 141,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A03"
+      ],
+      "channels": [
+        "layer-description"
+      ]
+    },
+    {
+      "path": "datasets/harbor/layers/style-layer.json",
+      "sha256": "399f478aa073cde987d5875a9a4fa13d817dc7ced4d85e0da0c5c67fb9554ffe",
+      "bytes": 155,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A04"
+      ],
+      "channels": [
+        "layer-description"
+      ]
+    },
+    {
+      "path": "datasets/harbor/layers/working-layer.json",
+      "sha256": "44a07ad179c9d351b7580368b3923ab9975e51559ec2c6374d8aca6df62dff08",
+      "bytes": 149,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A01"
+      ],
+      "channels": [
+        "layer-description"
+      ]
+    },
+    {
+      "path": "datasets/harbor/logs/approval-expiry.log",
+      "sha256": "80f44e22a183d6b1b28bc1baefb12d70861a286f65a07de74d39a510454b652c",
+      "bytes": 166,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A02"
+      ],
+      "channels": [
+        "server-log"
+      ]
+    },
+    {
+      "path": "datasets/harbor/logs/approval.log",
+      "sha256": "7e10493d8e66f1a88bf18ac90d801cef7c7e3924afd99cf269f8c4de6640cb66",
+      "bytes": 175,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A01"
+      ],
+      "channels": [
+        "server-log"
+      ]
+    },
+    {
+      "path": "datasets/harbor/logs/retention.log",
+      "sha256": "f9f3b4baa4a4dc8b7bbc9d1b242f53627d4e867ca6198d9330abd4e420f126f1",
+      "bytes": 168,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A03"
+      ],
+      "channels": [
+        "server-log"
+      ]
+    },
+    {
+      "path": "datasets/harbor/logs/session-debug.log",
+      "sha256": "52ea4e896967c7ace150c3f48e3f5b5e86ad5666dac445e7a6f419cdc8f902f1",
+      "bytes": 125,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A04"
+      ],
+      "channels": [
+        "server-log"
+      ]
+    },
+    {
+      "path": "datasets/harbor/notes/access.txt",
+      "sha256": "c905a036a7aef4991d98df9a0708e55e8679823e47909022b145e5266ff73de2",
+      "bytes": 131,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A02"
+      ],
+      "channels": [
+        "deployment-note"
+      ]
+    },
+    {
+      "path": "datasets/harbor/notes/maintenance.txt",
+      "sha256": "84a82663bb4fb86764ad32ea134a01126eb538d1abf74ef6e46547cde9aeaadf",
+      "bytes": 127,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A03"
+      ],
+      "channels": [
+        "deployment-note"
+      ]
+    },
+    {
+      "path": "datasets/harbor/notes/publish.txt",
+      "sha256": "fff9a4846d2cd626eb97abb3356433f44c8432f6fd22f34b32c92e2784dfbf03",
+      "bytes": 110,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A01"
+      ],
+      "channels": [
+        "deployment-note"
+      ]
+    },
+    {
+      "path": "datasets/harbor/notes/style.txt",
+      "sha256": "24121b7efeb364f497b63926c186d14576b1ef0307f7aea8c2855ef16cda488b",
+      "bytes": 98,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "A04"
+      ],
+      "channels": [
+        "deployment-note"
+      ]
+    },
+    {
+      "path": "datasets/harbor/tools/approval-status.json",
+      "sha256": "4dba8f35b45e75b2c1b2b391323d956ce2ecf695a5f30212c3f3ad7a2434c0fe",
+      "bytes": 270,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A01"
+      ],
+      "channels": [
+        "tool-result"
+      ]
+    },
+    {
+      "path": "datasets/harbor/tools/catalog-search.json",
+      "sha256": "640a17f7d41efd8a2c461353893a29b368a8c538481e1526af48c87108d22b5e",
+      "bytes": 220,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A04"
+      ],
+      "channels": [
+        "tool-result"
+      ]
+    },
+    {
+      "path": "datasets/harbor/tools/cleanup-suggest.json",
+      "sha256": "b840aa2feae04ac8c845557d914773e3d5619650da93da0601d3e6b24f35e5c6",
+      "bytes": 214,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A03"
+      ],
+      "channels": [
+        "tool-result"
+      ]
+    },
+    {
+      "path": "datasets/harbor/tools/credential-lookup.json",
+      "sha256": "a0ae5ba264ae316436350e8afbc066565ed83faaea6429d51dd5834cafd62e2a",
+      "bytes": 235,
+      "visibility": "tool-payload",
+      "scenarioIds": [
+        "A02"
+      ],
+      "channels": [
+        "tool-result"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/customers.csv",
+      "sha256": "e477d5ed2ee003c984145dd00f161e0689f1334484255fbdaf476d04f8be01f5",
+      "bytes": 117,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/input-guide.json",
+      "sha256": "3bff7fe85dd89f5d3adbb3b1806905c2fbd9e475af7b7e68654cbb01b74b1205",
+      "bytes": 247,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/parcels.26943.geojson",
+      "sha256": "13b41ea039f503c48fcddc2c374864a92d28273ca552a0f4a015923ecc1b72da",
+      "bytes": 2613,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/parcels.4326.geojson",
+      "sha256": "80b0f70c4424b3c49f1fdca1c33482149e113a56ecf7f5829f23f8e65ce1175c",
+      "bytes": 2671,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/roads.26943.geojson",
+      "sha256": "8d13a75d0778c170807f5209acccc20217d12d0fa95756546405ca6bbd39c0a5",
+      "bytes": 565,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/roads.4326.geojson",
+      "sha256": "c34c2d9e2e2256fa264709d6cd1e995cadb5fca1a3d55c6c8e2373c69bcf0a22",
+      "bytes": 572,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/shelters.26943.geojson",
+      "sha256": "27f73626d0c117064c070747706ae418a097fe4d4bed0e54c1627c885e91023a",
+      "bytes": 886,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/state-plane/shelters.4326.geojson",
+      "sha256": "5de1ac45ccf5e603ebc0c618d33c33455897dcb5dfaf7b09039c27111f4d7291",
+      "bytes": 893,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "state-plane"
+      ]
+    },
+    {
+      "path": "datasets/utm/customers-encoding.txt",
+      "sha256": "f67079ba6bfef2e1441104ce9810529a821d7a7bbc18a99a44ac886d629b074e",
+      "bytes": 66,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/customers.csv",
+      "sha256": "970eedebcbd30227a9d86ec78951ac6864c08f8656b4e7a5fbc62e275aad85cb",
+      "bytes": 101,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/input-guide.json",
+      "sha256": "d03c07b62214bace7bd4e17db2404b5c37d901ce3ed2283053c85fc1c36e6e26",
+      "bytes": 221,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/parcels.32633.geojson",
+      "sha256": "1a276db69ab920f6e87c900c4b4bf7eec223e3cb782cfaf52218a3279ad1d170",
+      "bytes": 2204,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/parcels.4326.geojson",
+      "sha256": "508933ffedc49a1ce5df14f0de06b2942385148e9183e2a986085a5cd6a029b2",
+      "bytes": 2218,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/roads.32633.geojson",
+      "sha256": "b0a172217b0684224530822f70421fd0f9d0b33b871461b11b1c8f87bbbc3f21",
+      "bytes": 546,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/roads.4326.geojson",
+      "sha256": "53d16e4801db09f3a89fdd5c6b77fb3484bfea464155d9a964e91b7c39314d72",
+      "bytes": 547,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/shelters.32633.geojson",
+      "sha256": "a2f2bb7f6f9a570fae9dfd7525d1a48950ed6d1c34698ca381a2d0dc35312b98",
+      "bytes": 1197,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "datasets/utm/shelters.4326.geojson",
+      "sha256": "eb43e9f6c1c12f9d61bc71130b94241967804c9e99094ee06c63b5fbbbcd687f",
+      "bytes": 1199,
+      "visibility": "selected-case-input",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02"
+      ],
+      "seeds": [
+        "utm"
+      ]
+    },
+    {
+      "path": "oracles/ga-datasets.json",
+      "sha256": "deb43743fa93b03df89b0c2cdd7b7c5496d91977e5d81fe8d6a5330525a9b145",
+      "bytes": 32809,
+      "visibility": "controller-only",
+      "scenarioIds": [
+        "G01",
+        "G02",
+        "H01",
+        "H02",
+        "A01",
+        "A02",
+        "A03",
+        "A04"
+      ]
+    }
+  ],
+  "generators": [
+    {
+      "path": "generate.py",
+      "sha256": "2780ab416b8d7d01e97c198e288b491ebdc99fde0bc4ef3ec10d380cbba1e7c4"
+    },
+    {
+      "path": "generate_ga.py",
+      "sha256": "392d6ad9b3befdf2cf9d914f4377a73e459313c8e7cd518147b1043704648417"
+    },
+    {
+      "path": "project.py",
+      "sha256": "b7cd05b7c6827359e8dbb70b6714777d9309c161eca7666ac6501e991ee5654e"
+    }
+  ]
+}

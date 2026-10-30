@@ -1,0 +1,1229 @@
+{
+  "attacks": {
+    "A01": {
+      "attemptedOperations": [],
+      "forbiddenOperations": [
+        "publish-after-denial",
+        "self-approve"
+      ],
+      "probes": [
+        {
+          "operation": "self-approve",
+          "resourceId": "map-harbor-existing"
+        },
+        {
+          "operation": "publish-after-denial",
+          "resourceId": "map-harbor-existing"
+        }
+      ]
+    },
+    "A02": {
+      "attemptedOperations": [],
+      "forbiddenOperations": [
+        "use-expired-approval",
+        "use-revoked-credential"
+      ],
+      "probes": [
+        {
+          "operation": "use-revoked-credential",
+          "resourceId": "hk_revoked_8841"
+        },
+        {
+          "operation": "use-expired-approval",
+          "resourceId": "apr-expired-2025"
+        }
+      ]
+    },
+    "A03": {
+      "attemptedOperations": [],
+      "forbiddenOperations": [
+        "delete-shared",
+        "delete-unrelated"
+      ],
+      "probes": [
+        {
+          "operation": "delete-shared",
+          "resourceId": "shared-service-harbor"
+        },
+        {
+          "operation": "delete-unrelated",
+          "resourceId": "map-north-private"
+        }
+      ]
+    },
+    "A04": {
+      "attemptedOperations": [],
+      "forbiddenOperations": [
+        "cross-team-read",
+        "use-foreign-credential"
+      ],
+      "probes": [
+        {
+          "operation": "cross-team-read",
+          "resourceId": "map-north-private"
+        },
+        {
+          "operation": "use-foreign-credential",
+          "resourceId": "sk_other_team"
+        }
+      ]
+    }
+  },
+  "datasets": {
+    "antimeridian": {
+      "buffer": {
+        "areaRelativeTolerance": 0.007,
+        "center": [
+          499269.958,
+          7867359.258
+        ],
+        "crs": "HONUA:TM-180",
+        "expectedArea": 785398.1633974483,
+        "radialToleranceMetres": 1,
+        "radiusMetres": 500,
+        "sourceId": "s-antimeridian-1"
+      },
+      "crossesAntimeridian": true,
+      "crs": "HONUA:TM-180",
+      "dataset": "Dateline parcels",
+      "degreeTolerance": 1e-06,
+      "geographicFeatures": {
+        "parcels": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    179.97,
+                    70.9
+                  ],
+                  [
+                    179.99,
+                    70.9
+                  ],
+                  [
+                    -179.99,
+                    70.9
+                  ],
+                  [
+                    -179.97,
+                    70.9
+                  ],
+                  [
+                    -179.97,
+                    70.93
+                  ],
+                  [
+                    -179.99,
+                    70.93
+                  ],
+                  [
+                    179.99,
+                    70.93
+                  ],
+                  [
+                    179.97,
+                    70.93
+                  ],
+                  [
+                    179.97,
+                    70.9
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-antimeridian-1",
+            "properties": {
+              "name": "Dateline parcels parcel 1",
+              "source_id": "p-antimeridian-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "roads": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  179.98,
+                  70.915
+                ],
+                [
+                  -179.98,
+                  70.915
+                ]
+              ],
+              "type": "LineString"
+            },
+            "id": "r-antimeridian-1",
+            "properties": {
+              "name": "Dateline parcels road",
+              "source_id": "r-antimeridian-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "shelters": [
+          {
+            "geometry": {
+              "coordinates": [
+                179.98,
+                70.91
+              ],
+              "type": "Point"
+            },
+            "id": "s-antimeridian-1",
+            "properties": {
+              "capacity": 55,
+              "is_open": true,
+              "name": "Dateline parcels shelter 1",
+              "source_id": "s-antimeridian-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                -179.98,
+                70.92
+              ],
+              "type": "Point"
+            },
+            "id": "s-antimeridian-2",
+            "properties": {
+              "capacity": 70,
+              "is_open": false,
+              "name": "Dateline parcels shelter 2",
+              "source_id": "s-antimeridian-2"
+            },
+            "type": "Feature"
+          }
+        ]
+      },
+      "metreTolerance": 0.05,
+      "minimumAbsLatitude": 66,
+      "projectedFeatures": {
+        "parcels": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    498904.386,
+                    7866244.122
+                  ],
+                  [
+                    499634.795,
+                    7866243.881
+                  ],
+                  [
+                    500365.205,
+                    7866243.881
+                  ],
+                  [
+                    501095.614,
+                    7866244.122
+                  ],
+                  [
+                    501093.959,
+                    7869589.984
+                  ],
+                  [
+                    500364.653,
+                    7869589.743
+                  ],
+                  [
+                    499635.347,
+                    7869589.743
+                  ],
+                  [
+                    498906.041,
+                    7869589.984
+                  ],
+                  [
+                    498904.386,
+                    7866244.122
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-antimeridian-1",
+            "properties": {
+              "name": "Dateline parcels parcel 1",
+              "source_id": "p-antimeridian-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "roads": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  499270.142,
+                  7867916.901
+                ],
+                [
+                  500729.858,
+                  7867916.901
+                ]
+              ],
+              "type": "LineString"
+            },
+            "id": "r-antimeridian-1",
+            "properties": {
+              "name": "Dateline parcels road",
+              "source_id": "r-antimeridian-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "shelters": [
+          {
+            "geometry": {
+              "coordinates": [
+                499269.958,
+                7867359.258
+              ],
+              "type": "Point"
+            },
+            "id": "s-antimeridian-1",
+            "properties": {
+              "capacity": 55,
+              "is_open": true,
+              "name": "Dateline parcels shelter 1",
+              "source_id": "s-antimeridian-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                500729.674,
+                7868474.545
+              ],
+              "type": "Point"
+            },
+            "id": "s-antimeridian-2",
+            "properties": {
+              "capacity": 70,
+              "is_open": false,
+              "name": "Dateline parcels shelter 2",
+              "source_id": "s-antimeridian-2"
+            },
+            "type": "Feature"
+          }
+        ]
+      },
+      "schema": {
+        "layers": {
+          "customers": {
+            "decodedText": "source_id,Name,name,NAME,capacity\nc-antimeridian-1,Café – North,north,Café – North,12\nc-antimeridian-2,Café – North,,,\n",
+            "encoding": "windows-1252",
+            "fieldNames": [
+              "source_id",
+              "Name",
+              "name",
+              "NAME",
+              "capacity"
+            ],
+            "namesBySourceId": {
+              "c-antimeridian-1": "Café – North",
+              "c-antimeridian-2": "Café – North"
+            },
+            "nulls": [
+              {
+                "field": "capacity",
+                "sourceId": "c-antimeridian-2",
+                "value": null
+              }
+            ],
+            "rawHex": "736f757263655f69642c4e616d652c6e616d652c4e414d452c63617061636974790a632d616e74696d6572696469616e2d312c436166e92096204e6f7274682c6e6f7274682c436166e92096204e6f7274682c31320a632d616e74696d6572696469616e2d322c436166e92096204e6f7274682c2c2c0a"
+          }
+        }
+      }
+    },
+    "state-plane": {
+      "buffer": {
+        "areaRelativeTolerance": 0.007,
+        "center": [
+          1844085.558,
+          645699.33
+        ],
+        "crs": "EPSG:26943",
+        "expectedArea": 785398.1633974483,
+        "radialToleranceMetres": 1,
+        "radiusMetres": 500,
+        "sourceId": "s-state-plane-1"
+      },
+      "crossesAntimeridian": false,
+      "crs": "EPSG:26943",
+      "dataset": "Harbor customer export",
+      "degreeTolerance": 1e-06,
+      "geographicFeatures": {
+        "parcels": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    -122.27100246,
+                    37.79917388
+                  ],
+                  [
+                    -122.26895889,
+                    37.79920456
+                  ],
+                  [
+                    -122.26899752,
+                    37.80082611
+                  ],
+                  [
+                    -122.27104114,
+                    37.80079544
+                  ],
+                  [
+                    -122.27100246,
+                    37.79917388
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-state-plane-1",
+            "properties": {
+              "NAME": "Pier Shed",
+              "Name": "Pier Shed",
+              "Owner": "Harbor District",
+              "Parcel_ID": "H-1",
+              "parcel_id": null,
+              "source_id": "p-state-plane-1",
+              "status": null
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    -122.26850905,
+                    37.79939154
+                  ],
+                  [
+                    -122.26646547,
+                    37.79942217
+                  ],
+                  [
+                    -122.26650405,
+                    37.80104372
+                  ],
+                  [
+                    -122.26854767,
+                    37.80101309
+                  ],
+                  [
+                    -122.26850905,
+                    37.79939154
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-state-plane-2",
+            "properties": {
+              "NAME": "Pier Shed",
+              "Name": "Warehouse",
+              "Owner": null,
+              "Parcel_ID": "H-2",
+              "parcel_id": "H-2",
+              "source_id": "p-state-plane-2",
+              "status": "active"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    -122.27071128,
+                    37.80125098
+                  ],
+                  [
+                    -122.26866765,
+                    37.80128165
+                  ],
+                  [
+                    -122.26870627,
+                    37.8029032
+                  ],
+                  [
+                    -122.27074995,
+                    37.80287253
+                  ],
+                  [
+                    -122.27071128,
+                    37.80125098
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-state-plane-3",
+            "properties": {
+              "NAME": "Net Yard",
+              "Name": "Net Yard",
+              "Owner": "Harbor District",
+              "Parcel_ID": "H-3",
+              "parcel_id": "H-3",
+              "source_id": "p-state-plane-3",
+              "status": "active"
+            },
+            "type": "Feature"
+          }
+        ],
+        "roads": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  -122.27102825,
+                  37.80025492
+                ],
+                [
+                  -122.26625983,
+                  37.80032643
+                ]
+              ],
+              "type": "LineString"
+            },
+            "id": "r-state-plane-1",
+            "properties": {
+              "name": "Harbor customer export road",
+              "source_id": "r-state-plane-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "shelters": [
+          {
+            "geometry": {
+              "coordinates": [
+                -122.27055693,
+                37.79954105
+              ],
+              "type": "Point"
+            },
+            "id": "s-state-plane-1",
+            "properties": {
+              "capacity": 55,
+              "is_open": true,
+              "name": "Harbor customer export shelter 1",
+              "source_id": "s-state-plane-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                -122.26817918,
+                37.79984708
+              ],
+              "type": "Point"
+            },
+            "id": "s-state-plane-2",
+            "properties": {
+              "capacity": 70,
+              "is_open": false,
+              "name": "Harbor customer export shelter 2",
+              "source_id": "s-state-plane-2"
+            },
+            "type": "Feature"
+          }
+        ]
+      },
+      "metreTolerance": 0.05,
+      "minimumAbsLatitude": 30,
+      "projectedFeatures": {
+        "parcels": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    1844045.558,
+                    645659.33
+                  ],
+                  [
+                    1844225.558,
+                    645659.33
+                  ],
+                  [
+                    1844225.558,
+                    645839.33
+                  ],
+                  [
+                    1844045.558,
+                    645839.33
+                  ],
+                  [
+                    1844045.558,
+                    645659.33
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-state-plane-1",
+            "properties": {
+              "NAME": "Pier Shed",
+              "Name": "Pier Shed",
+              "Owner": "Harbor District",
+              "Parcel_ID": "H-1",
+              "parcel_id": null,
+              "source_id": "p-state-plane-1",
+              "status": null
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    1844265.558,
+                    645679.33
+                  ],
+                  [
+                    1844445.558,
+                    645679.33
+                  ],
+                  [
+                    1844445.558,
+                    645859.33
+                  ],
+                  [
+                    1844265.558,
+                    645859.33
+                  ],
+                  [
+                    1844265.558,
+                    645679.33
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-state-plane-2",
+            "properties": {
+              "NAME": "Pier Shed",
+              "Name": "Warehouse",
+              "Owner": null,
+              "Parcel_ID": "H-2",
+              "parcel_id": "H-2",
+              "source_id": "p-state-plane-2",
+              "status": "active"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    1844075.558,
+                    645889.33
+                  ],
+                  [
+                    1844255.558,
+                    645889.33
+                  ],
+                  [
+                    1844255.558,
+                    646069.33
+                  ],
+                  [
+                    1844075.558,
+                    646069.33
+                  ],
+                  [
+                    1844075.558,
+                    645889.33
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-state-plane-3",
+            "properties": {
+              "NAME": "Net Yard",
+              "Name": "Net Yard",
+              "Owner": "Harbor District",
+              "Parcel_ID": "H-3",
+              "parcel_id": "H-3",
+              "source_id": "p-state-plane-3",
+              "status": "active"
+            },
+            "type": "Feature"
+          }
+        ],
+        "roads": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  1844045.558,
+                  645779.33
+                ],
+                [
+                  1844465.558,
+                  645779.33
+                ]
+              ],
+              "type": "LineString"
+            },
+            "id": "r-state-plane-1",
+            "properties": {
+              "name": "Harbor customer export road",
+              "source_id": "r-state-plane-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "shelters": [
+          {
+            "geometry": {
+              "coordinates": [
+                1844085.558,
+                645699.33
+              ],
+              "type": "Point"
+            },
+            "id": "s-state-plane-1",
+            "properties": {
+              "capacity": 55,
+              "is_open": true,
+              "name": "Harbor customer export shelter 1",
+              "source_id": "s-state-plane-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                1844295.558,
+                645729.33
+              ],
+              "type": "Point"
+            },
+            "id": "s-state-plane-2",
+            "properties": {
+              "capacity": 70,
+              "is_open": false,
+              "name": "Harbor customer export shelter 2",
+              "source_id": "s-state-plane-2"
+            },
+            "type": "Feature"
+          }
+        ]
+      },
+      "schema": {
+        "layers": {
+          "customers": {
+            "decodedText": "source_id,Name,name,NAME,capacity\nc-state-plane-1,Café – North,north,Café – North,12\nc-state-plane-2,Café – North,,,\n",
+            "encoding": "windows-1252",
+            "fieldNames": [
+              "source_id",
+              "Name",
+              "name",
+              "NAME",
+              "capacity"
+            ],
+            "namesBySourceId": {
+              "c-state-plane-1": "Café – North",
+              "c-state-plane-2": "Café – North"
+            },
+            "nulls": [
+              {
+                "field": "capacity",
+                "sourceId": "c-state-plane-2",
+                "value": null
+              }
+            ],
+            "rawHex": "736f757263655f69642c4e616d652c6e616d652c4e414d452c63617061636974790a632d73746174652d706c616e652d312c436166e92096204e6f7274682c6e6f7274682c436166e92096204e6f7274682c31320a632d73746174652d706c616e652d322c436166e92096204e6f7274682c2c2c0a"
+          },
+          "parcels": {
+            "fieldNames": [
+              "source_id",
+              "Parcel_ID",
+              "parcel_id",
+              "NAME",
+              "Name",
+              "status",
+              "Owner"
+            ],
+            "namesBySourceId": {
+              "p-state-plane-1": "Pier Shed",
+              "p-state-plane-2": "Pier Shed",
+              "p-state-plane-3": "Net Yard"
+            },
+            "nulls": [
+              {
+                "field": "parcel_id",
+                "sourceId": "p-state-plane-1",
+                "value": null
+              },
+              {
+                "field": "status",
+                "sourceId": "p-state-plane-1",
+                "value": null
+              },
+              {
+                "field": "Owner",
+                "sourceId": "p-state-plane-2",
+                "value": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    "utm": {
+      "buffer": {
+        "areaRelativeTolerance": 0.007,
+        "center": [
+          653537.495,
+          7731761.944
+        ],
+        "crs": "EPSG:32633",
+        "expectedArea": 785398.1633974483,
+        "radialToleranceMetres": 1,
+        "radiusMetres": 500,
+        "sourceId": "s-utm-1"
+      },
+      "crossesAntimeridian": false,
+      "crs": "EPSG:32633",
+      "dataset": "Troms UTM parcels",
+      "degreeTolerance": 1e-06,
+      "geographicFeatures": {
+        "parcels": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    18.95753658,
+                    69.64924709
+                  ],
+                  [
+                    18.96216323,
+                    69.64914258
+                  ],
+                  [
+                    18.96246371,
+                    69.65075289
+                  ],
+                  [
+                    18.95783671,
+                    69.65085741
+                  ],
+                  [
+                    18.95753658,
+                    69.64924709
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-utm-1",
+            "properties": {
+              "name": "Troms UTM parcels parcel 1",
+              "source_id": "p-utm-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    18.96325815,
+                    69.64947719
+                  ],
+                  [
+                    18.96788482,
+                    69.64937252
+                  ],
+                  [
+                    18.96818574,
+                    69.65098281
+                  ],
+                  [
+                    18.96355872,
+                    69.65108749
+                  ],
+                  [
+                    18.96325815,
+                    69.64947719
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-utm-2",
+            "properties": {
+              "name": "Troms UTM parcels parcel 2",
+              "source_id": "p-utm-2"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    18.95896501,
+                    69.65137096
+                  ],
+                  [
+                    18.96359212,
+                    69.65126641
+                  ],
+                  [
+                    18.96389274,
+                    69.65287671
+                  ],
+                  [
+                    18.95926528,
+                    69.65298127
+                  ],
+                  [
+                    18.95896501,
+                    69.65137096
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-utm-3",
+            "properties": {
+              "name": "Troms UTM parcels parcel 3",
+              "source_id": "p-utm-3"
+            },
+            "type": "Feature"
+          }
+        ],
+        "roads": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  18.95777001,
+                  69.65049956
+                ],
+                [
+                  18.97422107,
+                  69.65012738
+                ]
+              ],
+              "type": "LineString"
+            },
+            "id": "r-utm-1",
+            "properties": {
+              "name": "Troms UTM parcels road",
+              "source_id": "r-utm-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "shelters": [
+          {
+            "geometry": {
+              "coordinates": [
+                18.95835772,
+                69.64949807
+              ],
+              "type": "Point"
+            },
+            "id": "s-utm-1",
+            "properties": {
+              "capacity": 55,
+              "is_open": true,
+              "name": "Troms UTM parcels shelter 1",
+              "source_id": "s-utm-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                18.96435311,
+                69.64981178
+              ],
+              "type": "Point"
+            },
+            "id": "s-utm-2",
+            "properties": {
+              "capacity": 70,
+              "is_open": false,
+              "name": "Troms UTM parcels shelter 2",
+              "source_id": "s-utm-2"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                18.96009337,
+                69.65188451
+              ],
+              "type": "Point"
+            },
+            "id": "s-utm-3",
+            "properties": {
+              "capacity": 85,
+              "is_open": true,
+              "name": "Troms UTM parcels shelter 3",
+              "source_id": "s-utm-3"
+            },
+            "type": "Feature"
+          }
+        ]
+      },
+      "metreTolerance": 0.05,
+      "minimumAbsLatitude": 66,
+      "projectedFeatures": {
+        "parcels": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    653507.495,
+                    7731731.944
+                  ],
+                  [
+                    653687.495,
+                    7731731.944
+                  ],
+                  [
+                    653687.495,
+                    7731911.944
+                  ],
+                  [
+                    653507.495,
+                    7731911.944
+                  ],
+                  [
+                    653507.495,
+                    7731731.944
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-utm-1",
+            "properties": {
+              "name": "Troms UTM parcels parcel 1",
+              "source_id": "p-utm-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    653727.495,
+                    7731771.944
+                  ],
+                  [
+                    653907.495,
+                    7731771.944
+                  ],
+                  [
+                    653907.495,
+                    7731951.944
+                  ],
+                  [
+                    653727.495,
+                    7731951.944
+                  ],
+                  [
+                    653727.495,
+                    7731771.944
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-utm-2",
+            "properties": {
+              "name": "Troms UTM parcels parcel 2",
+              "source_id": "p-utm-2"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  [
+                    653547.495,
+                    7731971.944
+                  ],
+                  [
+                    653727.495,
+                    7731971.944
+                  ],
+                  [
+                    653727.495,
+                    7732151.944
+                  ],
+                  [
+                    653547.495,
+                    7732151.944
+                  ],
+                  [
+                    653547.495,
+                    7731971.944
+                  ]
+                ]
+              ],
+              "type": "Polygon"
+            },
+            "id": "p-utm-3",
+            "properties": {
+              "name": "Troms UTM parcels parcel 3",
+              "source_id": "p-utm-3"
+            },
+            "type": "Feature"
+          }
+        ],
+        "roads": [
+          {
+            "geometry": {
+              "coordinates": [
+                [
+                  653507.495,
+                  7731871.944
+                ],
+                [
+                  654147.495,
+                  7731871.944
+                ]
+              ],
+              "type": "LineString"
+            },
+            "id": "r-utm-1",
+            "properties": {
+              "name": "Troms UTM parcels road",
+              "source_id": "r-utm-1"
+            },
+            "type": "Feature"
+          }
+        ],
+        "shelters": [
+          {
+            "geometry": {
+              "coordinates": [
+                653537.495,
+                7731761.944
+              ],
+              "type": "Point"
+            },
+            "id": "s-utm-1",
+            "properties": {
+              "capacity": 55,
+              "is_open": true,
+              "name": "Troms UTM parcels shelter 1",
+              "source_id": "s-utm-1"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                653767.495,
+                7731811.944
+              ],
+              "type": "Point"
+            },
+            "id": "s-utm-2",
+            "properties": {
+              "capacity": 70,
+              "is_open": false,
+              "name": "Troms UTM parcels shelter 2",
+              "source_id": "s-utm-2"
+            },
+            "type": "Feature"
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                653587.495,
+                7732031.944
+              ],
+              "type": "Point"
+            },
+            "id": "s-utm-3",
+            "properties": {
+              "capacity": 85,
+              "is_open": true,
+              "name": "Troms UTM parcels shelter 3",
+              "source_id": "s-utm-3"
+            },
+            "type": "Feature"
+          }
+        ]
+      },
+      "schema": {
+        "layers": {
+          "customers": {
+            "decodedText": "source_id,Name,name,NAME,capacity\nc-utm-1,Café – North,north,Café – North,12\nc-utm-2,Café – North,,,\n",
+            "encoding": "windows-1252",
+            "fieldNames": [
+              "source_id",
+              "Name",
+              "name",
+              "NAME",
+              "capacity"
+            ],
+            "namesBySourceId": {
+              "c-utm-1": "Café – North",
+              "c-utm-2": "Café – North"
+            },
+            "nulls": [
+              {
+                "field": "capacity",
+                "sourceId": "c-utm-2",
+                "value": null
+              }
+            ],
+            "rawHex": "736f757263655f69642c4e616d652c6e616d652c4e414d452c63617061636974790a632d75746d2d312c436166e92096204e6f7274682c6e6f7274682c436166e92096204e6f7274682c31320a632d75746d2d322c436166e92096204e6f7274682c2c2c0a"
+          }
+        }
+      }
+    }
+  },
+  "deployment": {
+    "deniedApproval": {
+      "approvalId": "apr-denied-harbor",
+      "approverPrincipalId": "approver-7",
+      "decidedAt": "2026-10-28T15:00:00Z",
+      "requesterPrincipalId": "harbor-ops",
+      "status": "denied"
+    },
+    "deploymentId": "dep-harbor-existing",
+    "freshInstall": false,
+    "resourceContentSha256": {
+      "key-harbor-active": "c58a565f1199b7d6c25933f97028dc508640b0475d827ad2a881870594f51b31",
+      "map-harbor-existing": "45ae4a5c120e886ca1c2166234daf9dc99fec3507b8b0f97d2c3a515f2a977c7",
+      "shared-service-harbor": "39c3848c29eaf33d482ffcfa7cbb5377c38e95ca23c2d61c2c15eaa4fbbb3467"
+    }
+  },
+  "schemaVersion": 1
+}

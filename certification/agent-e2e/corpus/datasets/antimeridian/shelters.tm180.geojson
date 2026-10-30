@@ -1,0 +1,45 @@
+{
+  "crs": {
+    "properties": {
+      "name": "HONUA:TM-180"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          499269.958,
+          7867359.258
+        ],
+        "type": "Point"
+      },
+      "id": "s-antimeridian-1",
+      "properties": {
+        "capacity": 55,
+        "is_open": true,
+        "name": "Dateline parcels shelter 1",
+        "source_id": "s-antimeridian-1"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          500729.674,
+          7868474.545
+        ],
+        "type": "Point"
+      },
+      "id": "s-antimeridian-2",
+      "properties": {
+        "capacity": 70,
+        "is_open": false,
+        "name": "Dateline parcels shelter 2",
+        "source_id": "s-antimeridian-2"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

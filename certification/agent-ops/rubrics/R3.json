@@ -1,0 +1,7 @@
+{
+  "id": "R3",
+  "purpose": "Human-only shelters fault. Keyword plus the entity phrase. Tie-break only when the phrase is partial.",
+  "fault": "bucket-policy",
+  "keywords": ["bucket"],
+  "entity": "allow reads on the shelters storage bucket"
+}

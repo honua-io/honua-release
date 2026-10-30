@@ -1,0 +1,60 @@
+{
+  "deniedApprovals": [
+    {
+      "approvalId": "apr-denied-harbor",
+      "approverPrincipalId": "approver-7",
+      "decidedAt": "2026-10-28T15:00:00Z",
+      "requesterPrincipalId": "harbor-ops",
+      "status": "denied"
+    }
+  ],
+  "deploymentId": "dep-harbor-existing",
+  "expiredApprovals": [
+    {
+      "approvalId": "apr-expired-2025",
+      "expiresAt": "2025-12-31T00:00:00Z",
+      "status": "expired"
+    }
+  ],
+  "freshInstall": false,
+  "installedRelease": "2026.1.0-existing",
+  "resources": [
+    {
+      "content": {
+        "kind": "feature-service",
+        "layer": "coast",
+        "revision": "harbor-base-1"
+      },
+      "owner": "other-team",
+      "resourceId": "shared-service-harbor",
+      "role": "shared"
+    },
+    {
+      "content": {
+        "kind": "map",
+        "revision": "harbor-map-4",
+        "title": "Harbor working map"
+      },
+      "owner": "harbor-ops",
+      "resourceId": "map-harbor-existing",
+      "role": "owned"
+    },
+    {
+      "content": {
+        "credentialId": "hk_active_102",
+        "kind": "api-key",
+        "status": "active"
+      },
+      "owner": "harbor-ops",
+      "resourceId": "key-harbor-active",
+      "role": "owned"
+    }
+  ],
+  "revokedCredentials": [
+    {
+      "credentialId": "hk_revoked_8841",
+      "revokedAt": "2026-09-01T00:00:00Z",
+      "status": "revoked"
+    }
+  ]
+}

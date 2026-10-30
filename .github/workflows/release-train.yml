@@ -770,6 +770,22 @@ jobs:
             --manifest out/certified-candidate/platform-manifest.yaml \
             --out out/certified-candidate/release-evidence-pins.json
 
+      - name: Publish the arc-by-target model coverage table
+        if: inputs.dry_run || steps.assemble.outputs.overall == 'pass'
+        run: |
+          set -euo pipefail
+          python tools/arc_coverage.py \
+            --evidence journey-reports \
+            --out out/certified-candidate/arc-coverage.v1.json
+
+      - name: Upload the arc-by-target coverage table
+        if: inputs.dry_run || steps.assemble.outputs.overall == 'pass'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: arc-coverage
+          path: out/certified-candidate/arc-coverage.v1.json
+          if-no-files-found: error
+
       - name: Collect immutable post-gate SBOM, provenance and notes references
         if: inputs.nightly && inputs.dry_run == false && steps.assemble.outputs.overall == 'pass'
         env:

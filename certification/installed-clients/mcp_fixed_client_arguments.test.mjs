@@ -28,6 +28,7 @@ test("anonymous Inspector calls select the one view that advertises the operatio
     honua_ground_candidates: "analyze", honua_clarify_intent: "analyze", honua_cancel_job: "analyze",
     honua_geocode_address: "analyze",
     honua_create_map_package: "setup", honua_create_app_package: "setup",
+    honua_validate_package: "review", honua_preview_package: "review",
   };
   for (const [name, view] of Object.entries(expected)) assert.equal(anonymousDiscoveryView(name), view, name);
   // Not advertised to anonymous callers by any view: no view is invented for them.
