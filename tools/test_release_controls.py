@@ -165,6 +165,44 @@ def test_capture_writes_portable_hashable_bytes(tmp_path, monkeypatch):
     assert json.loads(raw)['repositories'] == {'example': snapshot()}
 
 
+OPERATOR_MODEL = {
+    'id': 'operator-approval-2026.1',
+    'ruling': 'https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519',
+    'independent_code_owner_required': False,
+    'required_approving_review_count': 0,
+    'deferred_to': '2026.2',
+}
+
+
+def test_operator_approval_model_rejects_a_required_review_and_accepts_the_sole_writer():
+    policy = {**POLICY, 'code_owners': ['mikemcdougall'], 'review_model': OPERATOR_MODEL}
+    rendered = branch_rules(policy)
+    params = rendered['rules'][2]['parameters']
+    assert params['required_approving_review_count'] == 0
+    assert params['require_code_owner_review'] is False
+    assert params['require_last_push_approval'] is False
+    data = snapshot()
+    data['rulesets'] = [rendered]
+    data['codeowners']['content'] = '* @mikemcdougall\n'
+    data['human_writers'] = ['mikemcdougall']
+    assert audit_repository(policy, data) == []
+    unread = copy.deepcopy(data)
+    unread['human_writers'] = []
+    unread['collaborator_read_error'] = 'HTTP 403'
+    assert 'collaborator inventory unreadable' in audit_repository(policy, unread)
+    unnamed = copy.deepcopy(data)
+    unnamed['human_writers'] = []
+    assert 'named operator is not a verified human writer' in audit_repository(policy, unnamed)
+    blocked = copy.deepcopy(rendered)
+    blocked['rules'][2]['parameters']['required_approving_review_count'] = 1
+    assert rule_drift(branch_rules(policy), blocked)
+
+
+def test_operator_approval_model_rejects_a_nonzero_count_in_policy():
+    with pytest.raises(ValueError, match='count 0'):
+        branch_rules({**POLICY, 'review_model': {**OPERATOR_MODEL, 'required_approving_review_count': 1}})
+
+
 def test_an_independent_writer_without_code_ownership_cannot_approve():
     data = snapshot()
     policy = {**POLICY, 'code_owners': ['mikemcdougall']}
@@ -194,10 +232,11 @@ def test_operator_actions_match_the_committed_policy_and_do_not_call_github(monk
     policy = json.loads((root / 'certification/release-controls/policy.json').read_text())
     trust = json.loads((root / 'certification/release-controls/tag-signing-policy.json').read_text())
     rows = {row['id']: row for row in operator_actions(policy, trust)}
-    assert rows['independent-code-owner']['status'] == 'open'
+    assert rows['independent-code-owner']['status'] == 'deferred'
     assert rows['independent-code-owner']['repositories'] == sorted(policy['repositories'])
+    assert '2026.2' in rows['independent-code-owner']['summary']
     assert rows['missing-check-denominators']['repositories'] == [
-        'honua-demo-infra', 'honua-esri-compat', 'honua-evidence', 'honua-iac']
+        'honua-esri-compat', 'honua-evidence', 'honua-iac']
     assert rows['nominate-signing-key']['status'] == 'open'
     assert rows['nominate-signing-key']['repositories'] == [
         'geospatial-grpc', 'honua-helm', 'honua-sdk-dotnet', 'honua-sdk-python']

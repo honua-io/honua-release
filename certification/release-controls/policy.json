@@ -2,6 +2,13 @@
   "schema_version": 1,
   "owner": "mikemcdougall",
   "issue": "honua-io/honua-release#236",
+  "review_model": {
+    "id": "operator-approval-2026.1",
+    "ruling": "https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519",
+    "independent_code_owner_required": false,
+    "required_approving_review_count": 0,
+    "deferred_to": "2026.2"
+  },
   "repositories": {
     "geospatial-grpc": {
       "release_refs": [
@@ -57,9 +64,12 @@
       "release_refs": [
         "refs/heads/release/*"
       ],
-      "required_checks": [],
+      "required_checks": [
+        "Terraform format and validate",
+        "demo-services.v1.json matches seed definitions"
+      ],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "Manifest Drift (manifest-drift.yml) runs on every pull_request and push with no path filter. Both contexts succeeded on pull_request run 40823946714 (2026-10-29). A negative fail-closed proof is still pending. This change records the denominator and does not install a ruleset.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"
@@ -85,7 +95,7 @@
       ],
       "required_checks": [],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "The contracts job runs on every pull_request, and it is failing on trunk as of 2026-10-30. A red context is not a release-line denominator.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"
@@ -97,7 +107,7 @@
       ],
       "required_checks": [],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "validate.yml is path-filtered. aggregate.yml runs on schedule and workflow_dispatch only, so it never reports on a pull request. Neither is a release-line denominator.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"
@@ -126,7 +136,7 @@
       ],
       "required_checks": [],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "Terraform CI and Documentation are path-filtered pull_request workflows. No always-on pull_request aggregate exists, so no denominator is recorded.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"

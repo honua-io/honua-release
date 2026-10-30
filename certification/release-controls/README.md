@@ -51,9 +51,9 @@ weakened, skipped or deleted to change these results.
 `policy.json` enumerates all 17 repositories from the adopted issue inventory,
 including all nine manifest components. The renderer preserves the currently
 required exact contexts as a baseline, binds them to the GitHub Actions app
-(15368), and adds strict release-line checks, one code-owner review, stale-review
-dismissal, last-push approval, resolved threads, deletion/force-push prevention,
-and **no bypass actors**. It targets `refs/heads/release/*`; it neither creates a
+(15368), and adds strict release-line checks, resolved threads, deletion and
+force-push prevention, and **no bypass actors**. Approving-review count follows
+the committed `review_model` in the next section. It targets `refs/heads/release/*`; it neither creates a
 maintenance branch nor changes default-branch policy. In particular, server
 trunk's adopted `strict=false` exception remains intact. SDK native `release/x.y`
 and platform `release/2026.1` branches both match this pattern. Existing scratch
@@ -61,11 +61,29 @@ branches under `release/` also match and must be considered during rollout.
 Site/demo/evidence may remain trunk-based and bind immutable snapshots to the
 platform lock; future maintenance refs still receive the proposed protection.
 
-The four empty denominators (IaC, demo-infra, evidence, Esri compatibility) are
-intentional recorded failures. Rendering them raises an error; no empty-check
+## 2026.1 operator-approval model
+
+Owner ruling 2026-09-29 (issue comment 5883910519): one human writer cannot approve
+their own pull request. The committed `review_model` therefore renders
+`required_approving_review_count` 0, `require_code_owner_review` false, and
+`require_last_push_approval` false. The operator approves by merging after the
+required checks pass. CODEOWNERS still names that operator. Two-person review is
+deferred to 2026.2. Do not install a payload that requires one approving review:
+it would block every owner-authored pull request. The default renderer, with no
+`review_model`, still emits the two-person contract for tests of that contract.
+
+`honua-demo-infra` now has a nonempty denominator: the two Manifest Drift contexts,
+which run on every pull request. The other three empty denominators stay
+unrenderable. This repository change does not call the rules API and does not
+install a ruleset. Organization rules still need admin:org and must not be used,
+because required checks differ by repository.
+
+The four empty denominators (IaC, demo-infra, evidence, Esri compatibility) were
+the 2026-09-06 recorded failures. demo-infra is no longer empty. Rendering a
+repository whose `required_checks` list is empty still raises; no empty-check
 ruleset can be installed by copying the output. Existing required contexts are
 **not** automatically evidence that their aggregate implementations fail closed.
-That implementation audit and missing aggregate work remain open under #236.
+That implementation audit and the three remaining aggregates remain open under #236.
 
 Render the exact reviewable API payloads without changing GitHub:
 
