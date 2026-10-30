@@ -6301,3 +6301,16 @@ def test_ecs_bedrock_cell_raises_studio_proxy_limits_only_when_declared(monkeypa
         monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
         assert "studio_ai_proxy_limits" not in _tf_vars(ecs(run_id="r1")._vars(False))
     assert "400000" in STUDIO_AI_PROXY_LIMITS and "8388608" in STUDIO_AI_PROXY_LIMITS
+
+
+def test_serverless_cell_shortens_the_proxy_idle_client_timeout_only_when_declared(monkeypatch):
+    _serverless_env(monkeypatch)
+    monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "enable_rds_proxy")
+        assert "rds_proxy_idle_client_timeout_seconds" not in _tf_vars(serverless(run_id="r1")._vars(False))
+        _iac_root_with(monkeypatch, base, "aws-serverless", "enable_rds_proxy",
+                       "rds_proxy_idle_client_timeout_seconds")
+        values = _tf_vars(serverless(run_id="r1")._vars(False))
+        assert values["rds_proxy_idle_client_timeout_seconds"] == "60"
+        assert values["enable_rds_proxy"] == "true"
