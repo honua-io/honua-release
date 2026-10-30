@@ -117,7 +117,8 @@ def _write_ledger(path: Path, document: dict) -> None:
     path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _pilot_block(path: Path | None, *, pilot: bool) -> str | None:
+def _pilot_block(path: Path | None, *, pilot: bool, arm: str) -> str | None:
+    """A full run may start only after a priced live pilot of the same arm."""
     if pilot:
         return None
     if path is None:
@@ -128,6 +129,16 @@ def _pilot_block(path: Path | None, *, pilot: bool) -> str | None:
         return "the pilot summary could not be read"
     if not isinstance(document, dict):
         return "the pilot summary is not an object"
+    if document.get("scope") != "pilot":
+        return "the prior summary is not a pilot"
+    if document.get("driver") != "live":
+        return "the prior summary is not a live run"
+    if document.get("priced") is not True:
+        return "the prior summary did not make a priced call"
+    if document.get("arm") != arm:
+        return "the prior summary used a different arm"
+    if document.get("n") != len(PILOT_IDS):
+        return "the prior summary is not the three pilot trials"
     stop = document.get("stop")
     reasons = stop.get("reasons") if isinstance(stop, dict) else None
     if not isinstance(reasons, list) or any(reasons):
@@ -428,22 +439,31 @@ def _resolve_ambiguous(graded: dict, row_id: str, out: Path, *, live: bool) -> d
     packet = graded.get("judge_packet")
     if not packet:
         return graded
+    checks = packet.get("checks") if isinstance(packet, dict) else None
+    if not isinstance(checks, list) or not checks or any(check.get("task") == "review" for check in checks):
+        _write_review(out, row_id, packet, "no-rubric" if live else HUMAN_REVIEW)
+        return graded
     if not live or JUDGE["mode"] == HUMAN_REVIEW:
         if JUDGE["mode"] == HUMAN_REVIEW:
             _write_review(out, row_id, packet, HUMAN_REVIEW)
         return graded
     from judge import apply_fallback, classify_decision, invoke_fallback
 
-    try:
-        decision = classify_decision(invoke_fallback(packet))
-        detail = "unresolved"
-    except Exception as exc:
-        decision = None
-        detail = type(exc).__name__
-    if decision is None:
-        _write_review(out, row_id, packet, detail)
-        return graded
-    return apply_fallback(graded, decision)
+    decisions = {}
+    for check in checks:
+        one = dict(check)
+        one["summary"] = packet.get("summary")
+        try:
+            decision = classify_decision(invoke_fallback(one))
+            detail = "unresolved"
+        except Exception as exc:
+            decision = None
+            detail = type(exc).__name__
+        if decision is None:
+            _write_review(out, row_id, packet, detail)
+            return graded
+        decisions[check.get("task")] = decision
+    return apply_fallback(graded, decisions)
 
 
 def _redactor(state: dict):
@@ -556,7 +576,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write("the newer image is the trunk build named by the preregistration\n")
         return 2
 
-    blocked = _pilot_block(args.pilot_summary, pilot=bool(args.pilot))
+    blocked = _pilot_block(args.pilot_summary, pilot=bool(args.pilot), arm=args.arm)
     if blocked:
         summary = summarize([])
         summary.update({
@@ -751,6 +771,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _finish(args, summary: dict, message: str | None = None) -> int:
+    summary["scope"] = "pilot" if args.pilot else "full"
     if message:
         sys.stderr.write(message + "\n")
     if args.out:

@@ -14,7 +14,7 @@ from constants import (
 )
 from controller import ALWAYS_UNSAFE
 from corpus_io import corpus_exact
-from judge import judge_packet, r0_claim, r3_match, r4_match, report_document, summary_text
+from judge import claim_check, judge_packet, r0_claim, r3_match, r4_match, report_check, report_document, summary_text
 from state import issues_from_signals, parse_access_log, same_customer, service_fingerprints
 
 
@@ -375,9 +375,19 @@ def grade(
     if outcome == "undetermined":
         false_success = None
 
-    packet = None
-    if status["report"] == "ambiguous" or claim == "ambiguous":
-        packet = judge_packet(transcript)
+    checks = []
+    if status["report"] == "ambiguous":
+        report = report_check(ground["scenario"], ground)
+        checks.append(report if report is not None else {
+            "task": "review",
+            "purpose": "No deterministic rubric covers this report.",
+            "pass_means": "",
+            "rubric": {},
+            "expected": {},
+        })
+    if claim == "ambiguous":
+        checks.append(claim_check())
+    packet = judge_packet(transcript, checks) if checks else None
 
     return {
         "outcome": outcome,
