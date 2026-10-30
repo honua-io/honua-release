@@ -187,15 +187,29 @@ capture_state() {
   db_exec "SELECT 'e2e_src_fs', count(*), md5(COALESCE(string_agg(to_jsonb(v)::text, E'\\n' ORDER BY to_jsonb(v)::text), '')) FROM honua_data.e2e_src_fs v UNION ALL SELECT 'maui_zoning', count(*), md5(COALESCE(string_agg(to_jsonb(v)::text, E'\\n' ORDER BY to_jsonb(v)::text), '')) FROM honua_data.maui_zoning v ORDER BY 1" > "$checksums_file"
 }
 
+# GitHub artifact paths reject " : < > | * ? CR LF. Scenario ids in the receipt keep
+# those characters; evidence files use this stem so upload-artifact can store them.
+evidence_stem() {
+  local stem
+  # tr, not sed: sed splits on LF, so a line feed would survive inside $(...).
+  stem="$(printf '%s' "$1" | tr $':"<>|*?\r\n' '_')"
+  [ -n "$stem" ] || stem="evidence"
+  printf '%s' "$stem"
+}
+
 assert_state() {
   local label="$1" passed="${2:-schema, journal and seeded data converged}"
-  local journal="$OUT/$label-journal.txt" checksums="$OUT/$label-checksums.txt"
-  if ! capture_state "$journal" "$checksums" || ! capture_schema "$OUT/$label-schema.sql"; then
+  local stem journal checksums schema_file
+  stem="$(evidence_stem "$label")"
+  journal="$OUT/${stem}-journal.txt"
+  checksums="$OUT/${stem}-checksums.txt"
+  schema_file="$OUT/${stem}-schema.sql"
+  if ! capture_state "$journal" "$checksums" || ! capture_schema "$schema_file"; then
     record "$label" fail "could not capture recovered database state"
     return 1
   fi
-  if ! cmp -s "$EXPECTED_SCHEMA" "$OUT/$label-schema.sql"; then
-    record "$label" fail "migrated schema diverged after restart; see $OUT/$label-schema.sql"
+  if ! cmp -s "$EXPECTED_SCHEMA" "$schema_file"; then
+    record "$label" fail "migrated schema diverged after restart; see $schema_file"
     return 1
   fi
   if ! cmp -s "$EXPECTED_JOURNAL" "$journal"; then

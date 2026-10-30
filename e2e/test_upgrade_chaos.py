@@ -218,6 +218,39 @@ capture_schema "$OUT/schema.sql"
     assert (tmp_path / "schema.sql").read_text() == "CREATE TABLE t (id integer);\n"
 
 
+def test_assert_state_evidence_paths_are_safe_for_github_artifacts(tmp_path):
+    # upload-artifact rejects " : < > | * ? CR LF in any path. Scenario ids in the
+    # receipt keep the colon; only the evidence filename changes.
+    (tmp_path / "expected-journal.txt").write_text("migration.sql\n")
+    (tmp_path / "expected-checksums.txt").write_text("rows\n")
+    (tmp_path / "expected-schema.sql").write_text("expected\n")
+    label = "partial-migration-failure:backend-terminated"
+    nasty = 'q"c:l<t>p|s*a?r\r\n'
+    result = run_driver(tmp_path, r'''
+capture_state() { cp "$EXPECTED_JOURNAL" "$1"; cp "$EXPECTED_CHECKSUMS" "$2"; }
+capture_schema() { cp "$EXPECTED_SCHEMA" "$1"; }
+assert_state "$LABEL" "converged"
+printf 'STEM:%s\n' "$(evidence_stem "$NASTY")"
+''', LABEL=label, NASTY=nasty)
+    assert result.returncode == 0, result.stdout + result.stderr
+    forbidden = set('" :<>|*?\r\n')
+    evidence = [
+        path for path in tmp_path.iterdir()
+        if path.name.startswith("partial-migration-failure")
+    ]
+    assert [path.name for path in sorted(evidence)] == [
+        "partial-migration-failure_backend-terminated-checksums.txt",
+        "partial-migration-failure_backend-terminated-journal.txt",
+        "partial-migration-failure_backend-terminated-schema.sql",
+    ]
+    for path in evidence:
+        assert not (forbidden & set(path.name)), path.name
+    assert "STEM:q_c_l_t_p_s_a_r__" in result.stdout
+    matrix = json.loads((tmp_path / "scenario-matrix.json").read_text())
+    assert matrix["scenarios"][-1]["scenario"] == label
+    assert "[PASS   ] partial-migration-failure:backend-terminated" in result.stdout
+
+
 def test_partial_failure_never_passes_when_postgres_only_succeeds(tmp_path):
     # Every database and compose call succeeds, as it would when PostgreSQL rollback works but no
     # candidate runner was ever observed paused inside a migration: vacuous, so never pass.
