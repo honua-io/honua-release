@@ -143,6 +143,59 @@ def action_summary(action):
     return "; ".join(parts) or "no kind or tool"
 
 
+ASSESSMENT_FIELDS = ("executionOutcome", "missingDependency", "functionalGpExecuted")
+_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}")
+
+
+def _shown(value):
+    """A receipt-safe rendering: short enum-like tokens and scalars verbatim, never free text."""
+    if value is None or isinstance(value, bool):
+        return json.dumps(value)
+    if isinstance(value, (int, float)) and len(repr(value)) <= 32:
+        return repr(value)
+    if isinstance(value, str):
+        return repr(value) if _TOKEN.fullmatch(value) else f"<string of {len(value)} chars>"
+    return "<object>" if isinstance(value, dict) else "<array>" if isinstance(value, list) else "<other>"
+
+
+def assessment_problems(action, refusal):
+    """Why the model's action-level assessment does not acknowledge the observed typed refusal.
+
+    It must say executionOutcome "refused", functionalGpExecuted false (the boolean) and name the
+    dependency the server's typed refusal named (case-insensitively; nothing is hard-coded), with no
+    other keys. Each problem names its field and shows the value only through _shown, so a model's
+    free text never reaches the receipt notice. An empty list means the acknowledgement holds.
+    """
+    observed = refusal.get("missingDependency") if isinstance(refusal, dict) else None
+    if not isinstance(observed, str) or not observed:
+        return ["observed typed refusal names no missingDependency"]
+    if "assessment" not in action:
+        arguments = action.get("arguments")
+        nested = isinstance(arguments, dict) and "assessment" in arguments
+        return ["assessment absent" + (" (placed inside the tool arguments)" if nested else "")]
+    assessment = action["assessment"]
+    if not isinstance(assessment, dict):
+        return [f"assessment is not an object ({_shown(assessment)})"]
+    problems = []
+    for field in ASSESSMENT_FIELDS:
+        if field not in assessment:
+            problems.append(f"{field} absent")
+            continue
+        value = assessment[field]
+        if field == "executionOutcome":
+            matches = value == "refused"
+        elif field == "missingDependency":
+            matches = isinstance(value, str) and value.casefold() == observed.casefold()
+        else:
+            matches = value is False
+        if not matches:
+            problems.append(f"{field}={_shown(value)}")
+    extra = len(set(assessment) - set(ASSESSMENT_FIELDS))
+    if extra:
+        problems.append(f"{extra} unexpected key{'s' if extra > 1 else ''}")
+    return problems
+
+
 def _reference_features(transport, arguments):
     # The independent oracle uses a distinct serving adapter, a fixed unfiltered read and an
     # encoded service/layer path. The model cannot select a host, URL or credential.
@@ -274,9 +327,10 @@ def execute(driver, request):
             profile["serving"] = serving_proof(output, _reference_features(engine.transport, arguments), fixture)
             result = {"accepted": True, "servingProof": profile["serving"]}
         elif name == "honua_list_capabilities" and profile["refusal"]:
-            assessment = action.get("assessment")
-            if assessment != {"executionOutcome": "refused", "missingDependency": "redis", "functionalGpExecuted": False}:
-                raise ExecutionError("model assessment", "model must acknowledge the observed refusal without claiming GP completion")
+            problems = assessment_problems(action, profile["refusal"])
+            if problems:
+                raise ExecutionError("model assessment", "acknowledgement of the observed refusal differs: "
+                                     + "; ".join(problems))
             profile["acknowledged"] = True
             result = {"accepted": True, "modelAcknowledgedRefusal": True, "executionOutcome": "refused"}
         else:
