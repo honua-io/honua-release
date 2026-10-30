@@ -1,0 +1,126 @@
+# Operate-stage harness. Dispatch only.
+#
+# mode=stub is the default and does not call a model. mode=live with priced=yes is trunk-only:
+# the Bedrock role trust accepts trunk, and the job refuses every other ref before it assumes a role.
+# This workflow does not start a cloud cell.
+name: Operate stage harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: stub is the scripted operator. live is a priced model call.
+        required: true
+        type: choice
+        default: stub
+        options:
+          - stub
+          - live
+      priced:
+        description: yes is required before a live model call
+        required: true
+        type: choice
+        default: "no"
+        options:
+          - "no"
+          - "yes"
+      target:
+        description: local-docker runs the compose target. aws-ecs is unwired.
+        required: true
+        type: choice
+        default: local-docker
+        options:
+          - local-docker
+          - aws-ecs
+      arm:
+        description: primary is the shipped configuration. exploratory is campaign E only.
+        required: true
+        type: choice
+        default: primary
+        options:
+          - primary
+          - exploratory
+
+permissions:
+  contents: read
+
+jobs:
+  stub:
+    if: inputs.mode != 'live'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install harness dependencies
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
+      - name: Unit checks
+        run: python -m pytest certification/agent-ops -q
+      - name: Scripted local run
+        run: |
+          python certification/agent-ops/runner.py \
+            --target "${{ inputs.target }}" \
+            --model stub \
+            --arm "${{ inputs.arm }}" \
+            --rows certification/agent-ops/rows/development.jsonl \
+            --out "$RUNNER_TEMP/operate"
+          # guidance=none is the runner's shipped configuration. This job does not add a tool sequence.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: operate-stub-summary
+          path: ${{ runner.temp }}/operate/summary.json
+          if-no-files-found: ignore
+
+  live-refused:
+    if: inputs.mode == 'live' && inputs.priced != 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse an unconfirmed live call
+        run: echo "live mode needs priced=yes and does not start a model call" && exit 1
+
+  live:
+    if: inputs.mode == 'live' && inputs.priced == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Refuse off trunk
+        run: test "$GITHUB_REF" = refs/heads/trunk
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install harness dependencies
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
+      - name: Assume the Bedrock-enabled role (OIDC)
+        id: aws
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          output-credentials: true
+          output-env-credentials: false
+      - name: Live run
+        env:
+          HONUA_CANARY_AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          HONUA_CANARY_AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+          TERMINAL_MODEL_BASE_URL: ${{ vars.TERMINAL_MODEL_BASE_URL }}
+          TERMINAL_MODEL_RUNTIME: aws-bedrock
+          TERMINAL_MODEL_QUANTIZATION: provider-managed
+          TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
+        run: |
+          python certification/agent-ops/runner.py \
+            --target "${{ inputs.target }}" \
+            --model live \
+            --priced-ok \
+            --arm "${{ inputs.arm }}" \
+            --rows certification/agent-ops/rows/development.jsonl \
+            --out "$RUNNER_TEMP/operate"

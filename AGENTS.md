@@ -15,6 +15,7 @@ python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
 python3 tools/coverage_audit.py --check
 python3 tools/release_decision_record.py --check
 python -m pytest tools/ -q                             # gate self-tests (CI adds e2e/test_*.py files)
+python -m pytest certification/agent-ops -q            # operate harness; own process, not mixed with e2e/
 ```
 Run the steps that cover what you changed; the workflow lists the rest.
 
