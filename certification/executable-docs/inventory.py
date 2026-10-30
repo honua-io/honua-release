@@ -11,8 +11,10 @@ and samples are served from). This script never edits a document.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -39,6 +41,48 @@ DELAYS = (0, 10, 30, 60, 120, 60)   # transient network errors retry for up to ~
 
 class InventoryError(RuntimeError):
     pass
+
+
+def npm_provenance_commit(fetch: Callable[..., bytes], package: str, version: str, repo: str) -> str:
+    """Commit attested for an npm publish that omitted gitHead.
+
+    Trusted publishing records the workflow's resolved git commit in the registry's
+    SLSA provenance and can leave gitHead unset. The commit counts only when the
+    attested dependency is this document's repository. Zero or several commits fail closed.
+    """
+    if not version or not repo:
+        return ""
+    name = urllib.parse.quote(package, safe="@")
+    ver = urllib.parse.quote(version, safe=".")
+    url = f"https://registry.npmjs.org/-/npm/v1/attestations/{name}@{ver}"
+    try:
+        body = json.loads(fetch(url))
+    except (InventoryError, json.JSONDecodeError, UnicodeError, TypeError):
+        return ""
+    found: list[str] = []
+    marker = f"github.com/{repo}"
+    for attestation in body.get("attestations") or []:
+        if not isinstance(attestation, dict):
+            continue
+        payload = ((attestation.get("bundle") or {}).get("dsseEnvelope") or {}).get("payload")
+        if not isinstance(payload, str) or not payload:
+            continue
+        try:
+            padded = payload + "=" * (-len(payload) % 4)
+            statement = json.loads(base64.b64decode(padded))
+        except (json.JSONDecodeError, ValueError, UnicodeError, TypeError):
+            continue
+        build = ((statement.get("predicate") or {}).get("buildDefinition") or {})
+        for dep in build.get("resolvedDependencies") or []:
+            if not isinstance(dep, dict):
+                continue
+            uri = str(dep.get("uri") or "")
+            commit = str((dep.get("digest") or {}).get("gitCommit") or "")
+            if marker in uri and re.fullmatch(r"[0-9a-f]{40}", commit) and commit not in found:
+                found.append(commit)
+    if len(found) == 1:
+        return found[0]
+    return ""
 
 
 def _get(url: str, *, accept: str | None = None, token: str | None = None) -> bytes:
@@ -71,7 +115,8 @@ class Resolver:
         self.token = token
         self.fetch = fetch
         self.checkout = checkout
-        self._heads: dict[str, str] = {}
+        self._branches: dict[str, str] = {}
+        self._documents: dict[tuple[str, str], str] = {}
 
     def revision(self, document: dict[str, Any]) -> str:
         rule = document["revision"]
@@ -88,18 +133,33 @@ class Resolver:
         if "npmPublished" in rule:
             name = urllib.parse.quote(rule["npmPublished"], safe="@")
             data = json.loads(self.fetch(f"https://registry.npmjs.org/{name}/latest"))
-            if not data.get("gitHead"):
+            if data.get("gitHead"):
+                return str(data["gitHead"])
+            # npm trusted publishing can omit gitHead. The registry attestation still
+            # names the commit the publish workflow resolved.
+            commit = npm_provenance_commit(self.fetch, rule["npmPublished"], str(data.get("version") or ""),
+                                           document["repo"])
+            if not commit:
                 raise InventoryError(f"npm {rule['npmPublished']}@latest records no gitHead")
-            return str(data["gitHead"])
+            return commit
         if rule.get("defaultBranch"):
+            # The last commit that changed this file on the default branch. The branch
+            # tip moves on unrelated merges; those merges do not change the document.
             repo = document["repo"]
-            if repo not in self._heads:
-                meta = json.loads(self.fetch(f"https://api.github.com/repos/{repo}", token=self.token))
-                branch = urllib.parse.quote(meta["default_branch"], safe="")
-                sha = self.fetch(f"https://api.github.com/repos/{repo}/commits/{branch}",
-                                 accept="application/vnd.github.sha", token=self.token).decode().strip()
-                self._heads[repo] = sha
-            return self._heads[repo]
+            key = (repo, document["path"])
+            if key not in self._documents:
+                if repo not in self._branches:
+                    meta = json.loads(self.fetch(f"https://api.github.com/repos/{repo}", token=self.token))
+                    self._branches[repo] = str(meta["default_branch"])
+                branch = self._branches[repo]
+                query = urllib.parse.urlencode({"sha": branch, "path": document["path"], "per_page": 1})
+                payload = json.loads(self.fetch(f"https://api.github.com/repos/{repo}/commits?{query}",
+                                                token=self.token))
+                sha = str(payload[0]["sha"]) if isinstance(payload, list) and payload else ""
+                if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                    raise InventoryError(f"{document['path']}: no commit on {repo} {branch}")
+                self._documents[key] = sha
+            return self._documents[key]
         if rule.get("checkout"):
             # The last commit that changed the document: stable across unrelated commits.
             sha = subprocess.run(["git", "-C", str(self.checkout), "log", "-1", "--format=%H", "--",

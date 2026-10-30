@@ -9,14 +9,6 @@
       "publication": "QGIS plugin honua_gis_assistant"
     },
     {
-      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.2.6 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.2.6 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.2.6': 200}; the platform manifest pins @honua/sdk-js 0.2.10. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
-      "channels": [
-        "npm:create-honua-app"
-      ],
-      "kind": "blocked-on-republish",
-      "publication": "npm create-honua-app@0.2.3 template pins"
-    },
-    {
       "boundary": "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so oci://ghcr.io/honua-io/charts/honua has no public tag list. honua-helm .github/workflows/release.yml refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image before it will push a chart. This repo does not invent that server SemVer or an appVersion.",
       "channels": [
         "helm:oci://ghcr.io/honua-io/charts/honua"
@@ -124,14 +116,14 @@
       "version": "0.2.10"
     },
     {
-      "disposition": "blocked-on-republish",
+      "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "create-honua-app-0.2.3.tgz",
-          "registry_shasum": "278b2c05c9b7f8b7e68c252fd4f6b26a2523bc0d",
-          "sha256": "3296650503441e6501174995b987abca14e98c59db37f4367d2eb93aeac205cc",
-          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.3.tgz"
+          "filename": "create-honua-app-0.2.4.tgz",
+          "registry_shasum": "10f655153b6a13ddbb59f41da72349825afca7e5",
+          "sha256": "914fadadc4f1d648f9a5955d34b46fe9fd7b8ed5a37acc9da499c8fdbc3be41a",
+          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.4.tgz"
         }
       ],
       "http_status": 200,
@@ -140,21 +132,21 @@
       "maplibre_pins": [
         "6.4.1"
       ],
-      "publication": "npm create-honua-app@0.2.3",
+      "publication": "npm create-honua-app@0.2.4",
       "sdk_pin_statuses": {
-        "0.2.6": 200
+        "0.2.10": 200
       },
       "templates": [
         {
           "dependencies": {
-            "@honua/sdk-js": "0.2.6",
+            "@honua/sdk-js": "0.2.10",
             "maplibre-gl": "6.4.1"
           },
           "path": "package/templates/react-ts/package.json"
         },
         {
           "dependencies": {
-            "@honua/sdk-js": "0.2.6",
+            "@honua/sdk-js": "0.2.10",
             "maplibre-gl": "6.4.1"
           },
           "path": "package/templates/vanilla-ts/package.json"
@@ -162,9 +154,9 @@
       ],
       "urls": [
         "https://registry.npmjs.org/create-honua-app",
-        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.3.tgz"
+        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.4.tgz"
       ],
-      "version": "0.2.3"
+      "version": "0.2.4"
     },
     {
       "disposition": "published",
@@ -776,6 +768,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-30T19:03:40Z",
+  "observed_at": "2026-10-30T21:08:24Z",
   "schema": "honua.first-publication-preflight/v1"
 }

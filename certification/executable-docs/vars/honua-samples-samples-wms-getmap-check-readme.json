@@ -1,0 +1,10 @@
+{
+  "document": "honua-samples-samples-wms-getmap-check-readme",
+  "env": {},
+  "substitute": {
+    "ghcr.io/honua-io/honua-server:nightly-8cb074f@sha256:2d7877c4d1cb3b30647fb225893d41b13728f0448997997cdf4bf40fe99be07d": {
+      "value": "{candidate.image}",
+      "documentedAt": "samples/wms-getmap-check/README.md:21 — export HONUA_SERVER_IMAGE=ghcr.io/honua-io/honua-server:nightly-8cb074f@sha256:2d7877c4…. The page names that digest; the gate certifies the manifest candidate behind it"
+    }
+  }
+}

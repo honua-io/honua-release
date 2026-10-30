@@ -1,16 +1,19 @@
-"""Deterministic, source-independent town fixtures. Never calls Honua.
+"""Deterministic, source-independent fixtures. Never calls Honua.
 
-Run this controller-only generator to recreate checked-in synthetic data. Coordinates
-are analytic EPSG:3857 metres near the equator, with exact inverse Mercator for 4326.
+Town coordinates are analytic EPSG:3857 metres near the equator, with exact
+inverse Mercator for 4326. generate_ga adds UTM, antimeridian and state-plane
+datasets plus the adversarial channel files. Town bytes do not depend on those.
 """
 from __future__ import annotations
 
 import csv
 import hashlib
+import importlib.util
 import json
 import math
 from pathlib import Path
 import random
+import sys
 
 ROOT = Path(__file__).resolve().parent
 SEEDS = {"A": 31001, "B": 31002, "C": 31003}
@@ -139,7 +142,21 @@ def generate(root=ROOT):
                 sql.append(f"INSERT INTO town_features VALUES ('{f['id']}', '{layer}', '{props}'::jsonb, ST_SetSRID(ST_GeomFromGeoJSON('{geom}'),3857));")
         write(f"town-{variant}/postgis.sql",("\n".join(sql)+"\n").encode("utf-8"),"controller-only")
         write(f"oracles/town-{variant}.json",encode(expected),"controller-only")
+    records.extend(_generate_ga(root))
     return records
+
+
+def _generate_ga(root):
+    """Load the sibling generator by path so corpus imports work under pytest."""
+    base = Path(__file__).resolve().parent
+    sys.path.insert(0, str(base))
+    try:
+        spec = importlib.util.spec_from_file_location("agent_corpus_generate_ga", base / "generate_ga.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(str(base))
+    return module.generate_ga(root)
 
 
 if __name__ == "__main__":

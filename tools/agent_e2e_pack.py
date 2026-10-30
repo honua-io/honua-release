@@ -93,10 +93,11 @@ def select(pack, case_id):
     return case, next(s for s in pack["scenarios"] if s["id"] == case["scenarioId"])
 
 
-def visible_task(pack, case_id, public_inputs):
-    case, scenario = select(pack, case_id)
+def _public_task(prompt, public_inputs):
     # Deliberate allowlist of user-facing fields, never dict subtraction: later
     # additions of oracle/custody/expected-state fields cannot silently leak.
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise PackError("empty prompt")
     if not isinstance(public_inputs, dict) or set(public_inputs) - {"files", "documentation", "target", "credentialReferences"}:
         raise PackError("public inputs must contain only reviewed user-facing fields")
     for field in ("documentation", "credentialReferences"):
@@ -114,7 +115,12 @@ def visible_task(pack, case_id, public_inputs):
         if file["path"] in paths or not re.fullmatch(r"sha256:[0-9a-f]{64}", file["sha256"]):
             raise PackError("duplicate or unhashed public file")
         paths.add(file["path"])
-    return {"task": scenario["prompts"][case["variant"]], "environment": public_inputs}
+    return {"task": prompt, "environment": public_inputs}
+
+
+def visible_task(pack, case_id, public_inputs):
+    case, scenario = select(pack, case_id)
+    return _public_task(scenario["prompts"][case["variant"]], public_inputs)
 
 
 def portable_path(value):
@@ -190,6 +196,94 @@ def verify_export_index(pack, case_id, manifest, index):
     for row in index:
         if row["path"] not in allowed or row["sha256"] != allowed[row["path"]]:
             raise PackError("export contains unselected, private or changed fixture")
+
+
+def _ga_guard(pack):
+    if pack.get("packClass") != "ga-generalization" or pack.get("qualifiesCampaign") is not False or pack.get("rcInventoryUnchanged") is not True:
+        raise PackError("GA generalization pack is not separated from the RC inventory")
+    if pack.get("heldOutFamilies") != ["H01", "H02"] or pack.get("heldOutChannels") != ["deployment-note"]:
+        raise PackError("GA holdout is not the reserved families and deployment-note channel")
+    if pack.get("heldOutVariants") != []:
+        raise PackError("phrasing C is not the GA holdout")
+
+
+def ga_select(pack, case_id):
+    _ga_guard(pack)
+    matches = [case for case in pack["cases"] if case["caseId"] == case_id]
+    if len(matches) != 1:
+        raise PackError("case is outside the GA pack")
+    case = matches[0]
+    scenario = next(row for row in pack["scenarios"] if row["id"] == case["scenarioId"])
+    return case, scenario
+
+
+def assert_ga_exposure(pack, case_id, mode):
+    """Held-out families and the deployment-note channel stay unseen until qualification."""
+    case, _scenario = ga_select(pack, case_id)
+    if mode not in ("development", "qualification"):
+        raise PackError("unknown campaign mode")
+    if case["exposure"] not in ("development", "held-out"):
+        raise PackError("unknown case exposure")
+    if case["scenarioId"] in pack["heldOutFamilies"] or case.get("channel") in pack["heldOutChannels"]:
+        if case["exposure"] != "held-out":
+            raise PackError("held-out case is marked visible")
+    if case["exposure"] == "held-out" and mode != "qualification":
+        raise PackError("held-out case is not available before qualification")
+    return case
+
+
+def _ga_rows(pack, case, manifest):
+    if manifest.get("qualifiesCampaign") is not False or manifest.get("corpusId") != "honua-agent-ga-generalization-v1":
+        raise PackError("GA manifest must not qualify the RC campaign")
+    known = {row["id"] for row in pack["scenarios"]}
+    selected = []
+    for row in manifest["files"]:
+        scope = row.get("scenarioIds")
+        if scope is not None and (not isinstance(scope, list) or not scope or not all(isinstance(item, str) and item in known for item in scope) or len(set(scope)) != len(scope)):
+            raise PackError("invalid fixture scenario scope")
+        if row.get("visibility") != "selected-case-input":
+            continue
+        if scope is not None and case["scenarioId"] not in scope:
+            continue
+        seeds = row.get("seeds")
+        if seeds is not None and case.get("seed") not in seeds:
+            continue
+        channels = row.get("channels")
+        if channels is not None and case.get("channel") not in channels:
+            continue
+        selected.append(row)
+    if not selected:
+        raise PackError("GA case has no initial inputs")
+    return selected
+
+
+def ga_initial_files(pack, case_id, manifest, mode):
+    case = assert_ga_exposure(pack, case_id, mode)
+    return _ga_rows(pack, case, manifest)
+
+
+def ga_tool_payload(pack, case_id, manifest, mode):
+    case = assert_ga_exposure(pack, case_id, mode)
+    if case.get("channel") not in ("tool-result", "server-log"):
+        return None
+    if manifest.get("qualifiesCampaign") is not False:
+        raise PackError("GA manifest must not qualify the RC campaign")
+    rows = [row for row in manifest["files"]
+            if row.get("visibility") == "tool-payload"
+            and case["scenarioId"] in row.get("scenarioIds", [])
+            and case.get("channel") in row.get("channels", [])]
+    if len(rows) != 1:
+        raise PackError("GA tool payload is missing or ambiguous")
+    return rows[0]
+
+
+def ga_visible_task(pack, case_id, mode, public_inputs):
+    case = assert_ga_exposure(pack, case_id, mode)
+    task = _public_task(case["prompt"], public_inputs)
+    hidden = ("assertions", "scores", "clarifications", "exposure", "forbiddenOperations")
+    if any(name in task for name in hidden):
+        raise PackError("GA task leaked a controller field")
+    return task
 
 
 def main(argv=None):

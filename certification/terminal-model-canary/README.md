@@ -45,6 +45,18 @@ all imported stages, enforces a 24-hour freshness window, and exact-matches its 
 #123 client-artifact pins to the candidate manifest. It records the validated receipt's path and hash;
 an arbitrary, stale, blocked, incomplete, or differently pinned receipt fails before model execution.
 
+The workflow `model` input stays free text. When it is empty, the run uses the repository
+variable or the profile named in the workflow. Ids:
+
+- Shipped default, until that workflow default changes: `us.anthropic.claude-sonnet-4-6`
+- Latest models: `us.anthropic.claude-opus-5-5`, `us.anthropic.claude-sonnet-5-5`,
+  `us.openai.gpt-6.1-sol`, `us.openai.gpt-6.1-terra`
+
+The promise-journey provenance check accepts only `anthropic.claude` ids. Opus 5.5 and
+Sonnet 5.5 match that check. GPT-6.1 Sol and Terra do not, until
+`tools/terminal_model_canary.py` accepts them. Sonnet 4.5, Haiku 4.5, and GPT-5 are not
+ids for this harness.
+
 ## Evidence boundary
 
 Every action is attributed as either:

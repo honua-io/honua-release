@@ -1,0 +1,116 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              18.95753658,
+              69.64924709
+            ],
+            [
+              18.96216323,
+              69.64914258
+            ],
+            [
+              18.96246371,
+              69.65075289
+            ],
+            [
+              18.95783671,
+              69.65085741
+            ],
+            [
+              18.95753658,
+              69.64924709
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-utm-1",
+      "properties": {
+        "name": "Troms UTM parcels parcel 1",
+        "source_id": "p-utm-1"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              18.96325815,
+              69.64947719
+            ],
+            [
+              18.96788482,
+              69.64937252
+            ],
+            [
+              18.96818574,
+              69.65098281
+            ],
+            [
+              18.96355872,
+              69.65108749
+            ],
+            [
+              18.96325815,
+              69.64947719
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-utm-2",
+      "properties": {
+        "name": "Troms UTM parcels parcel 2",
+        "source_id": "p-utm-2"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              18.95896501,
+              69.65137096
+            ],
+            [
+              18.96359212,
+              69.65126641
+            ],
+            [
+              18.96389274,
+              69.65287671
+            ],
+            [
+              18.95926528,
+              69.65298127
+            ],
+            [
+              18.95896501,
+              69.65137096
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-utm-3",
+      "properties": {
+        "name": "Troms UTM parcels parcel 3",
+        "source_id": "p-utm-3"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

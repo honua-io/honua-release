@@ -20,6 +20,7 @@ import time
 import uuid
 
 from agent_e2e_budget import BudgetError, money, update
+from agent_e2e_handoff import customer_text, score_final_answer
 from agent_e2e_pack import (PackError, canonical_digest, digest_bytes, load_json,
                             select, visible_task, verify_corpus, verify_export_index)
 from agent_e2e_telemetry import Journal
@@ -376,6 +377,23 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 if not isinstance(failures, list) or any(a not in scenario["assertions"] for a in failures):
                     raise ControllerError("unbound verifier failure categories")
                 journal.emit("verification", status=status, failedAssertions=failures)
+                # State verification does not grade the answer the customer receives.
+                check = pack.get("finalAnswerCheck")
+                if (not isinstance(check, dict) or check.get("required") is not True
+                        or check.get("judgeOnlyForAmbiguity") is not True
+                        or check.get("scores") != ["false_success", "unresolved-limitation-not-disclosed"]):
+                    raise ControllerError("corpus pack lacks the required final-answer check")
+                observations = result.get("handoffObservations") if isinstance(result, dict) else None
+                # A missing key is not an observation that the resource was absent.
+                handoff = score_final_answer(
+                    customer_text(content), observations if isinstance(observations, dict) else None,
+                    state_status=status)
+                result = {**result, "handoff": handoff}
+                if handoff["status"] != "pass" and status == "pass":
+                    status = "fail"
+                    definite = handoff["false_success"] or handoff["unresolved-limitation-not-disclosed"]
+                    attribution = "model" if definite else "undetermined"
+                    reason = "customer-handoff"
                 break
             replies = []
             for call in calls:

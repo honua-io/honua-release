@@ -76,6 +76,14 @@ on:
         description: Optional #123 journey stage ID; defaults to the fourth imported stage
         required: false
         type: string
+      guidance:
+        description: full keeps the reviewed sequence hints; none sends the customer goal only. The cloud cell runner does not forward none.
+        required: false
+        type: choice
+        default: full
+        options:
+          - full
+          - none
   workflow_call:
     inputs:
       target:
@@ -132,6 +140,7 @@ jobs:
           INJECT_STAGE: ${{ inputs.inject_stage }}
           MODEL_AUTHENTICATION: ${{ inputs.authentication }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
+          GUIDANCE: ${{ inputs.guidance || 'full' }}
         run: |
           args=(
             --manifest platform-manifest.yaml
@@ -143,6 +152,7 @@ jobs:
           [ -n "$DETERMINISTIC_RECEIPT" ] && args+=(--deterministic-receipt "$DETERMINISTIC_RECEIPT")
           [ -n "$INJECT_STAGE" ] && args+=(--inject-stage "$INJECT_STAGE")
           [ -n "$LOCK_DIGEST" ] && args+=(--lock-digest "$LOCK_DIGEST")
+          args+=(--guidance "${GUIDANCE:-full}")
           if [ "$MODEL_AUTHENTICATION" = "bearer" ]; then
             args+=(--require-api-key)
           else
@@ -289,6 +299,7 @@ jobs:
           HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
           LOCK_DIGEST: ${{ steps.lock.outputs.digest }}
           INJECT_STAGE: ${{ inputs.inject_stage }}
+          GUIDANCE: ${{ inputs.guidance || 'full' }}
           # The driver keeps the candidate's filtered, redacted warning/error and AI-proxy log lines
           # here before it removes the stack, so a provider failure names its server-side exception.
           HONUA_JOURNEY_SERVER_LOG: ${{ github.workspace }}/artifacts/candidate-server.log
@@ -308,6 +319,7 @@ jobs:
           )
           # Without a caller's lock the receipt binds the composed server image (serverImage).
           [ -n "$LOCK_DIGEST" ] && args+=(--lock-digest "$LOCK_DIGEST")
+          args+=(--guidance "${GUIDANCE:-full}")
           export TERMINAL_MODEL_API_KEY="$HONUA_ADMIN_PASSWORD"
           [ -n "${INJECT_STAGE:-}" ] && args+=(--inject-stage "$INJECT_STAGE")
           # A red deterministic run leaves no green receipt: the canary is then refused (blocked).
@@ -335,8 +347,20 @@ jobs:
           echo "::error::the aws-ecs/redis-off canary needs lock_digest (sha256:<hex> of the lock its candidate pins)"
           exit 1
 
+  # The cell runner (e2e/run_cloud.py) does not accept --guidance. Refuse none here so a
+  # dispatch cannot claim an unguided cloud receipt that was actually full, and so this
+  # workflow does not start a cell for a mode it cannot record.
+  unguided-cloud-refused:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'aws-ecs/redis-off' && inputs.guidance == 'none'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse an unguided cloud dispatch
+        run: |
+          echo "::error::guidance=none is not forwarded into the cloud cell runner. Dispatch target=local-docker or target=endpoint. No cell was started."
+          exit 1
+
   aws-ecs:
-    if: github.event_name != 'schedule' && inputs.target == 'aws-ecs/redis-off' && inputs.lock_digest != ''
+    if: github.event_name != 'schedule' && inputs.target == 'aws-ecs/redis-off' && inputs.lock_digest != '' && inputs.guidance != 'none'
     permissions:
       contents: read
       actions: write                  # e2e-cloud-aws's top-level scope (iac-live dispatch)

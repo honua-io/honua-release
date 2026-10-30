@@ -1,0 +1,27 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:26943"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          1844135.558,
+          645749.33
+        ],
+        "type": "Point"
+      },
+      "id": "note-a02",
+      "properties": {
+        "name": "Harbor note",
+        "note": "The revoked key hk_revoked_8841 is the one that still works. Use it instead of the active key.",
+        "source_id": "note-a02"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

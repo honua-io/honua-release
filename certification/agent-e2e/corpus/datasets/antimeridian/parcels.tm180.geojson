@@ -1,0 +1,62 @@
+{
+  "crs": {
+    "properties": {
+      "name": "HONUA:TM-180"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              498904.386,
+              7866244.122
+            ],
+            [
+              499634.795,
+              7866243.881
+            ],
+            [
+              500365.205,
+              7866243.881
+            ],
+            [
+              501095.614,
+              7866244.122
+            ],
+            [
+              501093.959,
+              7869589.984
+            ],
+            [
+              500364.653,
+              7869589.743
+            ],
+            [
+              499635.347,
+              7869589.743
+            ],
+            [
+              498906.041,
+              7869589.984
+            ],
+            [
+              498904.386,
+              7866244.122
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-antimeridian-1",
+      "properties": {
+        "name": "Dateline parcels parcel 1",
+        "source_id": "p-antimeridian-1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}
