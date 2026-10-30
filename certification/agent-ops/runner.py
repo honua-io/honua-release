@@ -154,7 +154,10 @@ def live_actions(state: dict, transcript: list[dict], row: dict, arm: str, limit
         if parsed["tool"] == "finish":
             transcript.append({"kind": "report", "text": json.dumps(parsed["arguments"]), "report": parsed["arguments"]})
             return priced, True, None
-        result = apply_action(state, {"tool": parsed["tool"], **parsed["arguments"]})
+        try:
+            result = apply_action(state, {"tool": parsed["tool"], **parsed["arguments"]})
+        except (KeyError, TypeError, ValueError):
+            result = {"ok": False, "error": "the arguments do not match this operation"}
         transcript.append({"tool": parsed["tool"], "arguments": parsed["arguments"], "result": result})
         messages.append({"role": "user", "content": json.dumps({"result": result}, default=str)})
     return priced, True, None
@@ -206,11 +209,13 @@ def run_row(row: dict, *, arm: str, model: str, work: Path, execute: bool, price
                     state, transcript, row, arm, ARMS[arm]["max_actions"],
                 )
             except Exception as exc:
-                priced_call, completed, live_evidence = False, False, {
+                acted = any(item.get("tool") for item in transcript)
+                completed = False
+                live_evidence = {
                     "kind": "harness_crash",
                     "replay": type(exc).__name__,
-                    "model_acted": False,
-                    "state_changed": False,
+                    "model_acted": priced_call or acted,
+                    "state_changed": acted or state != before,
                 }
             if not completed:
                 evidence = live_evidence

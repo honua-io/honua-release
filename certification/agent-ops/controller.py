@@ -218,7 +218,10 @@ def apply_action(state: dict, action: dict) -> dict:
         return {"ok": True, "map": copy.deepcopy(state["map"])}
     if tool == "honua_admin_services_settings_get":
         service_name = arguments.get("service") or "shelters"
-        service = state["services"][service_name]
+        service = state["services"].get(service_name)
+        if service is None:
+            _audit(state, tool, arguments, "read", None)
+            return {"ok": False, "error": "unknown service"}
         _audit(state, tool, arguments, "read", None)
         return {
             "ok": True,
@@ -227,7 +230,10 @@ def apply_action(state: dict, action: dict) -> dict:
         }
     if tool == "honua_admin_services_layer_metadata_set":
         service_name = arguments.get("service") or "shelters"
-        service = state["services"][service_name]
+        service = state["services"].get(service_name)
+        if service is None:
+            _audit(state, tool, arguments, "read", None)
+            return {"ok": False, "error": "unknown service"}
         for field in ("style", "fields", "filter", "publication"):
             if field in arguments:
                 service["governed"][field] = copy.deepcopy(arguments[field])

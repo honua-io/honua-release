@@ -50,6 +50,75 @@ def test_full_stub_run(tmp_path: Path):
     assert "claude" not in json.dumps(first)
 
 
+def test_bad_tool_arguments_keep_the_priced_call(monkeypatch, tmp_path: Path):
+    import client
+    from rows import build_row
+    from scenarios import load_prompts
+
+    calls = {"n": 0}
+
+    class Endpoint:
+        configured = True
+
+        def validated_base_url(self):
+            return "https://example.invalid"
+
+    class Client:
+        def __init__(self, endpoint):
+            del endpoint
+
+        def complete(self, messages, certification):
+            del messages, certification
+            calls["n"] += 1
+            if calls["n"] == 1:
+                body = {
+                    "kind": "tool_call",
+                    "tool": "honua_admin_services_settings_get",
+                    "arguments": {"service": "unknown"},
+                }
+            else:
+                body = {
+                    "kind": "tool_call",
+                    "tool": "finish",
+                    "arguments": {"summary": "The deployment is healthy. Nothing to worry about.", "issues": []},
+                }
+            return json.dumps(body), {"input_tokens": 10, "output_tokens": 4}, 0.0, {}
+
+    def reject_unknown(state, action):
+        if action.get("service") == "unknown":
+            raise KeyError(action["service"])
+        from controller import apply_action
+        return apply_action(state, action)
+
+    monkeypatch.setattr(client, "build_endpoint", lambda arm: Endpoint())
+    monkeypatch.setattr(client, "OperateClient", Client)
+    monkeypatch.setattr("runner.apply_action", reject_unknown)
+    row = build_row("O04", "A", 1, load_prompts(qualification=False))
+    out = tmp_path / "priced-tool-error"
+    code = main([
+        "--target", "local-docker",
+        "--model", "live",
+        "--arm", "primary",
+        "--priced-ok",
+        "--max-rows", "1",
+        "--rows", _one_row(out, row),
+        "--out", str(out / "run"),
+    ])
+    assert code == 0
+    trial = json.loads((out / "run" / "trials.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert trial["priced_call"] is True
+    assert trial["infrastructure"] is False
+    assert trial["outcome"] != "infrastructure"
+    assert calls["n"] == 2
+
+
+def _one_row(out: Path, row: dict) -> str:
+    path = out / "row.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(row, sort_keys=True) + "\n", encoding="utf-8")
+    return str(path)
+
+
 def test_pilot_is_the_three_named_trials(tmp_path: Path):
     out = tmp_path / "pilot"
     assert main([
