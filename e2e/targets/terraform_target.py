@@ -1234,6 +1234,12 @@ SERVERLESS_SPEC = TfTargetSpec(
                              # migrate/seed, PostGIS + role-defaults psql): 70% of ~87 max_connections
                              # = ~60 multiplexed proxy connections; ~21 of ~82 usable slots stay direct.
                              "rds_proxy_max_connections_percent=70",
+                             # honua-server#6760: the host-start migration advisory lock and `set lock_timeout`
+                             # pin a proxy connection per environment, and a frozen environment keeps its client
+                             # until the proxy closes it idle (600 s default). On run 40961202761 a ~60-request
+                             # demo burst pinned all 25 proxy connections for minutes and the stage 4 POST timed
+                             # out at 30 s. 60 s releases them before the next stage (honua-iac#335).
+                             "rds_proxy_idle_client_timeout_seconds=60",
                              "image_repository_policy_mode=reuse", "enable_control_plane_events=true",
                              OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
