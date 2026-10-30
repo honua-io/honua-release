@@ -276,9 +276,14 @@ class InProcessBackend:
                 spec.loader.exec_module(module)
                 require(callable(getattr(module, 'handle', None)), 'reviewed backend entry lacks handle')
                 self.module = module
+            # The handoff endpoint is the reviewed configuration. Capture it before
+            # handle runs so a handler cannot retarget the observation at model text.
+            handoff_configuration = copy.deepcopy(configuration) if operation == 'verify' else None
             result = self.module.handle(operation, copy.deepcopy(payload), durable=self.durable,
                 campaign=copy.deepcopy(self.campaign), bundle=self.bundle,
                 configuration=configuration, timeout=timeout)
+            if operation == 'verify':
+                result = self._emit_handoff(result, payload, handoff_configuration)
         require(isinstance(result, dict), 'backend returned a non-object response')
         require('consoleConversation' not in result, 'backend cannot invent Console turn delivery')
         if operation == 'prepare' and conversation_config is not None:
@@ -287,3 +292,42 @@ class InProcessBackend:
         require(result['protocol'] == PROTOCOL and len(json.dumps(result, allow_nan=False).encode()) <= 1024*1024,
                 'backend public response is unbound or exceeds observation limit')
         return result
+
+    def _handoff_spec(self, configuration):
+        chosen = None
+        for key in ('handoff', 'http'):
+            value = configuration.get(key)
+            if isinstance(value, dict) and isinstance(value.get('endpoint'), str):
+                chosen = value
+                break
+        if chosen is None:
+            return None
+        kind = chosen.get('credentialKind') or chosen.get('setupCredentialKind') or 'api-key'
+        require(kind in ('api-key', 'bearer', 'anonymous'), 'handoff observation credential kind is invalid')
+        if kind == 'anonymous':
+            return chosen['endpoint'], None, kind
+        credential_env = chosen.get('observerCredentialEnv') or chosen.get('credentialEnv') or chosen.get('setupCredentialEnv')
+        require(isinstance(credential_env, str) and credential_env, 'handoff observation lacks a server credential')
+        return chosen['endpoint'], credential_env, kind
+
+    def _emit_handoff(self, result, payload, configuration):
+        """Replace any handler-supplied handoff with a fresh candidate API read.
+
+        A document the handler returns can repeat the model. The catalogue,
+        resource, count and proposal reads are the observation. With no
+        candidate endpoint the handler document is dropped, so a missing
+        observation stays missing.
+        """
+        spec = self._handoff_spec(configuration)
+        if spec is None:
+            if isinstance(result, dict) and 'handoffObservations' in result:
+                return {key: value for key, value in result.items() if key != 'handoffObservations'}
+            return result
+        require(isinstance(result, dict), 'backend returned a non-object response')
+        endpoint, credential_env, kind = spec
+        from agent_e2e_scenario_backend import ScenarioHttp
+        from agent_e2e_scenario_handoff import observe_handoff
+        context = {key: payload[key] for key in ('campaignId', 'caseId', 'attempt', 'componentBindingDigest')}
+        http = ScenarioHttp(durable=self.durable, context=context, endpoint=endpoint,
+            credential_env=credential_env, attempt_id='verify-'+str(payload.get('attempt')), credential_kind=kind)
+        return {**result, 'handoffObservations': observe_handoff(http)}
