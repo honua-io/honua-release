@@ -1,4 +1,8 @@
-"""Frozen OPS v2 settings. Bars, arms, decoys, rubrics and stop rules match the preregistration."""
+"""OPS v2 settings. Bars, decoys, rubrics and stop rules match the preregistration.
+
+The founder replaced the Haiku exploratory arm on 2026-10-30 with the four latest
+Bedrock models. The primary arm remains the shipped Sonnet 4.6 default.
+"""
 
 from __future__ import annotations
 
@@ -54,14 +58,39 @@ PRIMARY_ARM = {
     "temperature": SHIPPED_TEMPERATURE,
     "max_actions": 40,
 }
-EXPLORATORY_ARM = {
-    "id": "exploratory",
-    "model": "claude-haiku-4-5",
-    "bedrock": "us.anthropic.claude-haiku-4-5",
-    "temperature": SHIPPED_TEMPERATURE,
-    "max_actions": 40,
+# USD per 1M tokens for the granted us. profile, standard short context.
+# Geo / US cross-region rates, not Global. Cache writes and long-context rates are omitted.
+# Opus 5.5 and Sonnet 5.5: Amazon Bedrock pricing page, "Geo and In-region Cross-region
+# Inference", price map bedrockfoundationmodels published 2026-10-12, US East (N. Virginia).
+# Sol and Terra: the model cards that page links, US/Geo CRIS, at most 272K input, read 2026-10-30.
+
+def _arm(arm_id, model, bedrock, input_per_mtok, output_per_mtok, cached_input_per_mtok):
+    return {
+        "id": arm_id,
+        "model": model,
+        "bedrock": bedrock,
+        "temperature": SHIPPED_TEMPERATURE,
+        "max_actions": 40,
+        "price": {
+            "input_per_mtok": input_per_mtok,
+            "output_per_mtok": output_per_mtok,
+            "cached_input_per_mtok": cached_input_per_mtok,
+            "as_of": "2026-10",
+        },
+    }
+
+
+OPUS_55_ARM = _arm("opus-5-5", "claude-opus-5-5", "us.anthropic.claude-opus-5-5", 4.40, 22.00, 0.22)
+SONNET_55_ARM = _arm("sonnet-5-5", "claude-sonnet-5-5", "us.anthropic.claude-sonnet-5-5", 2.20, 11.00, 0.11)
+SOL_ARM = _arm("gpt-6.1-sol", "gpt-6.1-sol", "us.openai.gpt-6.1-sol", 2.20, 11.00, 0.11)
+TERRA_ARM = _arm("gpt-6.1-terra", "gpt-6.1-terra", "us.openai.gpt-6.1-terra", 1.10, 5.50, 0.055)
+ARMS = {
+    "primary": PRIMARY_ARM,
+    "opus-5-5": OPUS_55_ARM,
+    "sonnet-5-5": SONNET_55_ARM,
+    "gpt-6.1-sol": SOL_ARM,
+    "gpt-6.1-terra": TERRA_ARM,
 }
-ARMS = {"primary": PRIMARY_ARM, "exploratory": EXPLORATORY_ARM}
 
 MAX_ACTIONS = 40
 MAX_CONTEXT_TOKENS = 200_000
