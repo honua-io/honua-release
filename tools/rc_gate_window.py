@@ -6,9 +6,12 @@ days. It no longer applies to "any build". A required gate is green only when it
 completed run for the exact candidate names that candidate in a report or receipt and certifies it.
 
 The candidate is the honua-server source SHA, the honua-server image digest, and the platform-lock
-digest. A newer failed run, or a run with certifying:false or a partial target, for that same
-candidate supersedes an older green one. A diagnostic run never counts. A gate whose workflow does
-not publish a candidate-bound report is listed under UNBOUND_GATE_LIMITATIONS and does not pass.
+digest, as one identity. The SHA and digest come from the same object; the lock is that object's or
+its parent's. An upgrade receipt counts only its candidate phase, so the prior install and the
+rollback do not certify the previous build. A newer failed run, or a run with certifying:false or a
+partial target, for that same candidate supersedes an older green one. A diagnostic run never counts.
+A gate whose workflow does not publish a candidate-bound report is listed under
+UNBOUND_GATE_LIMITATIONS and does not pass.
 
 Usage:
   GH_TOKEN=... python3 tools/rc_gate_window.py --window-days 7 \\
@@ -140,7 +143,9 @@ _DIGEST_KEYS = {"imageDigest", "serverDigest"}
 _DIGEST_PARENTS = {"honua-server", "serverImage", "runtimeIdentity"}
 _LOCK_KEYS = {"lockDigest", "platformLockDigest", "platformLock", "candidateLockDigest"}
 _FAIL_STATUSES = {"fail", "failed", "failure"}
-_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock")
+# "canary" covers terminal-model-canary-local-docker-<attempt>, whose name has none of the others.
+_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock", "canary")
+_NESTED_IDENTITY = ("runtimeIdentity", "serverImage", "honua-server")
 
 
 @dataclass(frozen=True)
@@ -190,39 +195,82 @@ def normalize_digest(value: object) -> str | None:
     return None
 
 
-def _collect_identity(doc: object, shas: set[str], digests: set[str], locks: set[str], parent: str = "") -> None:
-    if isinstance(doc, dict):
-        for key, value in doc.items():
-            if key in _SHA_KEYS:
-                sha = normalize_sha(value)
-                if sha:
-                    shas.add(sha)
-            if key == "sha" and parent == "honua-server":
-                sha = normalize_sha(value)
-                if sha:
-                    shas.add(sha)
-            if key in _DIGEST_KEYS or (key == "digest" and parent in _DIGEST_PARENTS):
-                digest = normalize_digest(value)
-                if digest:
-                    digests.add(digest)
-            if key in _LOCK_KEYS:
-                lock = normalize_digest(value)
-                if lock:
-                    locks.add(lock)
-            _collect_identity(value, shas, digests, locks, key)
-    elif isinstance(doc, list):
-        for item in doc:
-            _collect_identity(item, shas, digests, locks, parent)
-
-
-def matches_candidate(doc: object, candidate: Candidate) -> bool:
-    """True when this document names the candidate SHA, image digest, and platform lock."""
+def _scalars(obj: dict, parent: str = "") -> tuple[set[str], set[str], set[str]]:
+    """Identity values held directly by this object, not by a nested object."""
     shas: set[str] = set()
     digests: set[str] = set()
     locks: set[str] = set()
-    _collect_identity(doc, shas, digests, locks)
-    return (candidate.server_sha in shas and candidate.server_digest in digests
-            and candidate.platform_lock in locks)
+    for key, value in obj.items():
+        if isinstance(value, (dict, list)):
+            continue
+        if key in _SHA_KEYS or (key == "sha" and parent == "honua-server"):
+            sha = normalize_sha(value)
+            if sha:
+                shas.add(sha)
+        if key in _DIGEST_KEYS or (key == "digest" and parent in _DIGEST_PARENTS):
+            digest = normalize_digest(value)
+            if digest:
+                digests.add(digest)
+        if key in _LOCK_KEYS:
+            lock = normalize_digest(value)
+            if lock:
+                locks.add(lock)
+    return shas, digests, locks
+
+
+def _bindings(subject: dict, extra_locks: set[str] | None = None) -> list[tuple[set[str], set[str], set[str]]]:
+    """Coherent identities in one subject. SHA and digest come from the same object."""
+    parent_shas, parent_digests, parent_locks = _scalars(subject)
+    parent_locks = set(parent_locks)
+    if extra_locks:
+        parent_locks.update(extra_locks)
+    found: list[tuple[set[str], set[str], set[str]]] = []
+    if parent_shas and parent_digests and parent_locks:
+        found.append((parent_shas, parent_digests, parent_locks))
+    for key in _NESTED_IDENTITY:
+        child = subject.get(key)
+        if not isinstance(child, dict):
+            continue
+        child_shas, child_digests, child_locks = _scalars(child, key)
+        if not (child_shas and child_digests):
+            continue
+        if child_locks:
+            found.append((child_shas, child_digests, child_locks))
+        elif parent_locks and not parent_shas and not parent_digests:
+            # A canary receipt puts lockDigest beside serverImage, which holds the SHA and digest.
+            found.append((child_shas, child_digests, parent_locks))
+    return found
+
+
+def matches_candidate(doc: object, candidate: Candidate) -> bool:
+    """True when one coherent identity in this document is the candidate.
+
+    An upgrade receipt (``phases.candidate``) contributes only that phase. The install and rollback
+    phases name the previous build; mixing them with the candidate would certify the wrong one.
+    """
+    if not isinstance(doc, dict):
+        return False
+    phases = doc.get("phases")
+    if isinstance(phases, dict) and isinstance(phases.get("candidate"), dict):
+        extra: set[str] = set()
+        lock = normalize_digest(doc.get("candidateLockDigest"))
+        if lock:
+            extra.add(lock)
+        subjects = [(phases["candidate"], extra)]
+    else:
+        subjects = [(doc, set())]
+    for subject, extra in subjects:
+        for shas, digests, locks in _bindings(subject, extra):
+            if (candidate.server_sha in shas and candidate.server_digest in digests
+                    and candidate.platform_lock in locks):
+                return True
+    return False
+
+
+def artifact_carries_evidence(name: str) -> bool:
+    """True when a workflow artifact is a report, receipt, or the local canary bundle."""
+    lowered = name.lower()
+    return any(hint in lowered for hint in _ARTIFACT_HINTS)
 
 
 def is_diagnostic(doc: object) -> bool:
@@ -318,8 +366,7 @@ def fetch_run_reports(repo: str, token: str, run_id: int) -> list[dict]:
     for artifact in (data.get("artifacts") or [])[:20]:
         if artifact.get("expired"):
             continue
-        name = str(artifact.get("name") or "").lower()
-        if not any(hint in name for hint in _ARTIFACT_HINTS):
+        if not artifact_carries_evidence(str(artifact.get("name") or "")):
             continue
         size = artifact.get("size_in_bytes") or 0
         if not isinstance(size, int) or size > 25_000_000:

@@ -142,6 +142,60 @@ def test_canary_and_upgrade_receipt_shapes_match_the_candidate():
         assert result["admissible"] is True, name
 
 
+def _phase(sha: str, digest: str, lock: str) -> dict:
+    return {"runtimeIdentity": {"imageDigest": digest, "sourceRevision": sha, "platformLockDigest": lock}}
+
+
+def test_upgrade_receipt_matches_only_the_candidate_phase():
+    """A→B→A must certify B. The prior install and the rollback must not certify A, and a SHA, digest,
+    and lock taken from different phases must not assemble a candidate."""
+    prior_sha, prior_digest, prior_lock = "d" * 40, "sha256:" + "e" * 64, "sha256:" + "f" * 64
+    receipt = {
+        "overallStatus": "pass",
+        "priorLockDigest": prior_lock,
+        "candidateLockDigest": LOCK,
+        "phases": {
+            "install": _phase(prior_sha, prior_digest, prior_lock),
+            "candidate": _phase(SHA, DIGEST, LOCK),
+            "rollback": _phase(prior_sha, prior_digest, prior_lock),
+        },
+    }
+    assert w.matches_candidate(receipt, CANDIDATE)
+    assert not w.matches_candidate(receipt, w.Candidate(prior_sha, prior_digest, prior_lock))
+    assert not w.matches_candidate(receipt, w.Candidate(prior_sha, DIGEST, prior_lock))
+    admitted = _eval({"gate-upgrade.yml": {"runs": [_run(0.3, "success", receipt)]}}, unbound={})
+    assert admitted["admissible"] is True
+
+
+def test_a_failed_upgrade_of_another_candidate_does_not_supersede():
+    prior = _phase(SHA, DIGEST, LOCK)
+    other_sha, other_digest, other_lock = "d" * 40, "sha256:" + "e" * 64, "sha256:" + "f" * 64
+    failed = {
+        "status": "fail",
+        "priorLockDigest": LOCK,
+        "candidateLockDigest": other_lock,
+        "phases": {
+            "install": prior,
+            "candidate": _phase(other_sha, other_digest, other_lock),
+            "rollback": prior,
+        },
+    }
+    result = _eval({"gate-upgrade.yml": {"runs": [
+        _run(2, "success", _report(), run_id=1),
+        _run(0.2, "failure", failed, run_id=2),
+    ]}}, unbound={})
+    assert result["admissible"] is True
+    assert result["gates"]["gate-upgrade.yml"]["verdict"] == "green"
+
+
+def test_local_canary_artifact_name_is_evidence():
+    assert w.artifact_carries_evidence("terminal-model-canary-local-docker-1")
+    assert w.artifact_carries_evidence("terminal-model-canary-harness-receipt")
+    assert w.artifact_carries_evidence("cloud-gate-report")
+    assert w.artifact_carries_evidence("upgrade-kind-evidence-normal-pair")
+    assert not w.artifact_carries_evidence("candidate-server-log")
+
+
 def test_unbound_gate_stays_a_limitation_even_when_its_run_looks_green():
     records = {"manifest-validate.yml": {"runs": [_run(0.2, "success", _report())]}}
     result = _eval(records)
