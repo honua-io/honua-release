@@ -1,11 +1,16 @@
-# Operate-stage harness. Dispatch only.
+# Operate-stage harness.
 #
-# mode=stub is the default and does not call a model. mode=live with priced=yes is trunk-only:
-# the Bedrock role trust accepts trunk, and the job refuses every other ref before it assumes a role.
-# This workflow does not start a cloud cell.
+# pull_request runs the pilot on local stand-in images. workflow_dispatch runs the same
+# runner. mode=live with priced=yes is trunk-only and is not started by a pull request.
+# A full run downloads the named prior run's operate-summary and refuses unless that
+# summary completed with no stop reasons.
 name: Operate stage harness
 
 on:
+  pull_request:
+    paths:
+      - certification/agent-ops/**
+      - .github/workflows/agent-ops.yml
   workflow_dispatch:
     inputs:
       mode:
@@ -40,13 +45,41 @@ on:
         options:
           - primary
           - exploratory
+      scope:
+        description: pilot is the three named trials. full runs the development rows after a clean pilot.
+        required: true
+        type: choice
+        default: pilot
+        options:
+          - pilot
+          - full
+      prior_run_id:
+        description: GitHub run id whose operate-summary has no stop reasons. Required when scope is full.
+        required: false
+        type: string
+        default: ""
+      spend_cap_usd:
+        description: Stop before the next trial once measured spend reaches this many USD.
+        required: true
+        type: string
+        default: "250"
+      newer_sha:
+        description: honua-server trunk commit the newer image was built from. Required for a live run.
+        required: false
+        type: string
+        default: ""
+      newer_digest:
+        description: Published sha256 digest. Used instead of the trunk-<sha>-amd64 tag when set.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
-  stub:
-    if: inputs.mode != 'live'
+  pilot-stub:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -58,24 +91,94 @@ jobs:
         run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
       - name: Unit checks
         run: python -m pytest certification/agent-ops -q
-      - name: Scripted local run
+      - name: Tag local stand-in images
         run: |
+          docker build -t honua-server:trunk certification/agent-ops/ci-image
+          docker tag honua-server:trunk ghcr.io/honua-io/honua-server:2026.1-rc
+          docker tag honua-server:trunk postgis/postgis:16-3.4
+      - name: Pilot against local images
+        run: |
+          python certification/agent-ops/runner.py \
+            --target local-docker \
+            --model stub \
+            --arm primary \
+            --pilot \
+            --execute-compose \
+            --image-source local \
+            --ledger "$RUNNER_TEMP/operate/ledger.json" \
+            --spend-cap 250 \
+            --rows certification/agent-ops/rows/development.jsonl \
+            --out "$RUNNER_TEMP/operate"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: operate-summary
+          retention-days: 90
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/operate/summary.json
+            ${{ runner.temp }}/operate/ledger.json
+            ${{ runner.temp }}/operate/trials.jsonl
+            ${{ runner.temp }}/operate/transcripts
+            ${{ runner.temp }}/operate/audit
+
+  stub:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode != 'live'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install harness dependencies
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
+      - name: Unit checks
+        run: python -m pytest certification/agent-ops -q
+      - name: Scripted local run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ inputs.scope }}" = "full" ]; then
+            test -n "${{ inputs.prior_run_id }}"
+            gh run download "${{ inputs.prior_run_id }}" --repo "$GITHUB_REPOSITORY" -n operate-summary -D "$RUNNER_TEMP/prior"
+            SCOPE=(--pilot-summary "$RUNNER_TEMP/prior/summary.json")
+          else
+            SCOPE=(--pilot)
+          fi
+          EXTRA=()
+          if [ "${{ inputs.target }}" = "local-docker" ]; then
+            docker build -t honua-server:trunk certification/agent-ops/ci-image
+            docker tag honua-server:trunk ghcr.io/honua-io/honua-server:2026.1-rc
+            docker tag honua-server:trunk postgis/postgis:16-3.4
+            EXTRA=(--execute-compose --image-source local --ledger "$RUNNER_TEMP/operate/ledger.json" --spend-cap "${{ inputs.spend_cap_usd }}")
+          fi
           python certification/agent-ops/runner.py \
             --target "${{ inputs.target }}" \
             --model stub \
             --arm "${{ inputs.arm }}" \
+            "${SCOPE[@]}" \
+            "${EXTRA[@]}" \
             --rows certification/agent-ops/rows/development.jsonl \
             --out "$RUNNER_TEMP/operate"
-          # guidance=none is the runner's shipped configuration. This job does not add a tool sequence.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: operate-stub-summary
-          path: ${{ runner.temp }}/operate/summary.json
+          name: operate-summary
+          retention-days: 90
           if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/operate/summary.json
+            ${{ runner.temp }}/operate/ledger.json
+            ${{ runner.temp }}/operate/trials.jsonl
+            ${{ runner.temp }}/operate/transcripts
+            ${{ runner.temp }}/operate/audit
 
   live-refused:
-    if: inputs.mode == 'live' && inputs.priced != 'yes'
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live' && inputs.priced != 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -83,21 +186,35 @@ jobs:
         run: echo "live mode needs priced=yes and does not start a model call" && exit 1
 
   live:
-    if: inputs.mode == 'live' && inputs.priced == 'yes'
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live' && inputs.priced == 'yes'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     permissions:
       contents: read
       id-token: write
+      actions: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Refuse off trunk
         run: test "$GITHUB_REF" = refs/heads/trunk
+      - name: Require the recorded trunk sha
+        run: echo "${{ inputs.newer_sha }}" | grep -Eq '^[0-9a-f]{40}$'
+      - name: Require the prior pilot for a full run
+        if: inputs.scope == 'full'
+        run: test -n "${{ inputs.prior_run_id }}"
+      - name: Check out honua-server at the recorded sha
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: ${{ inputs.newer_sha }}
+          path: honua-server
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Install harness dependencies
-        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" "boto3>=1.35,<2" pytest
       - name: Assume the Bedrock-enabled role (OIDC)
         id: aws
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
@@ -107,8 +224,16 @@ jobs:
           aws-region: us-east-1
           output-credentials: true
           output-env-credentials: false
+      - name: Log in to the image registry
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Live run
         env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          DOCKER_BUILDKIT: "1"
           HONUA_CANARY_AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
           HONUA_CANARY_AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
           HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
@@ -117,10 +242,40 @@ jobs:
           TERMINAL_MODEL_QUANTIZATION: provider-managed
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
         run: |
+          if [ "${{ inputs.scope }}" = "full" ]; then
+            gh run download "${{ inputs.prior_run_id }}" --repo "$GITHUB_REPOSITORY" -n operate-summary -D "$RUNNER_TEMP/prior"
+            SCOPE=(--pilot-summary "$RUNNER_TEMP/prior/summary.json")
+          else
+            SCOPE=(--pilot)
+          fi
+          DIGEST=()
+          if [ -n "${{ inputs.newer_digest }}" ]; then
+            DIGEST=(--newer-digest "${{ inputs.newer_digest }}")
+          fi
           python certification/agent-ops/runner.py \
             --target "${{ inputs.target }}" \
             --model live \
             --priced-ok \
             --arm "${{ inputs.arm }}" \
+            --execute-compose \
+            --image-source pull \
+            --newer-sha "${{ inputs.newer_sha }}" \
+            --server-source honua-server \
+            "${DIGEST[@]}" \
+            --ledger "$RUNNER_TEMP/operate/ledger.json" \
+            --spend-cap "${{ inputs.spend_cap_usd }}" \
+            "${SCOPE[@]}" \
             --rows certification/agent-ops/rows/development.jsonl \
             --out "$RUNNER_TEMP/operate"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: operate-summary
+          retention-days: 90
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/operate/summary.json
+            ${{ runner.temp }}/operate/ledger.json
+            ${{ runner.temp }}/operate/trials.jsonl
+            ${{ runner.temp }}/operate/transcripts
+            ${{ runner.temp }}/operate/audit

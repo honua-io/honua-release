@@ -26,7 +26,7 @@ def test_frozen_q_bars_and_shipped_temperature():
     assert Q_BARS["false_success"] == 0
     assert Q_BARS["healthy_false_alarm"] == "1/20"
     assert SPEND_CAP_USD == 250
-    assert SHIPPED_TEMPERATURE == 0
+    assert SHIPPED_TEMPERATURE == 1
 
 
 def test_clopper_pearson_matches_the_preregistered_bounds():
@@ -47,7 +47,10 @@ def test_summary_is_one_json_object_with_intervals():
     assert parsed["qualification"] is False
     assert parsed["q_bars"]["apply"] is False
     assert parsed["guidance"] == "none"
-    assert parsed["shipped_temperature"] == 0
+    assert parsed["shipped_temperature"] == 1
+    assert "omitted" in parsed["shipped_temperature_source"]
+    assert parsed["judge"]["id"] == "us.openai.gpt-6.1-terra"
+    assert parsed["judge"]["mode"] == "bedrock-fallback"
     assert parsed["per_scenario"]["O01"]["n"] == 2
     assert parsed["per_scenario"]["O01"]["successes"] == 1
     assert parsed["per_scenario"]["O01"]["cp_lower_95"] is not None
