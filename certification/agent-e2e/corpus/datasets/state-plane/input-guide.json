@@ -1,0 +1,12 @@
+{
+  "customerTable": "customers.csv",
+  "customerTableEncoding": "windows-1252",
+  "dataset": "Harbor customer export",
+  "geographicCrs": "EPSG:4326",
+  "layers": [
+    "parcels",
+    "shelters",
+    "roads"
+  ],
+  "projectedCrs": "EPSG:26943"
+}

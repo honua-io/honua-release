@@ -1,0 +1,32 @@
+{
+  "crs": {
+    "properties": {
+      "name": "HONUA:TM-180"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            499270.142,
+            7867916.901
+          ],
+          [
+            500729.858,
+            7867916.901
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "r-antimeridian-1",
+      "properties": {
+        "name": "Dateline parcels road",
+        "source_id": "r-antimeridian-1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

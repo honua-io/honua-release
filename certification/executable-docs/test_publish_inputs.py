@@ -86,3 +86,49 @@ def test_image_placeholders_bind_only_to_supplied_candidate():
         assert entry["value"] == "{candidate.image}"
         assert render(entry["value"], {"candidate.image": "test@sha256:abc"}) == "test@sha256:abc"
         assert render(entry["value"], {}) == "{candidate.image}"
+
+
+PREVIOUS_SAMPLES_IMAGE = (
+    "ghcr.io/honua-io/honua-server:nightly-8cb074f"
+    "@sha256:2d7877c4d1cb3b30647fb225893d41b13728f0448997997cdf4bf40fe99be07d"
+)
+
+
+def test_samples_image_binds_to_the_candidate():
+    from run import substitute
+    code = f"export HONUA_SERVER_IMAGE={PREVIOUS_SAMPLES_IMAGE}\n"
+    for document in ("honua-samples-readme", "honua-samples-samples-wms-getmap-check-readme"):
+        variables = load_vars(HERE / "vars", document)
+        entry = variables["substitute"][PREVIOUS_SAMPLES_IMAGE]
+        assert entry["value"] == "{candidate.image}"
+        assert "nightly-8cb074f" in entry["documentedAt"]
+        table = {PREVIOUS_SAMPLES_IMAGE: render(entry["value"], {"candidate.image": "test@sha256:abc"})}
+        assert substitute(code, table) == 'export HONUA_SERVER_IMAGE=test@sha256:abc\n'
+
+
+def test_create_honua_app_sdk_flag_binds_to_the_manifest_pin():
+    from run import client_package_version, substitute
+    import yaml
+    variables = load_vars(HERE / "vars", "honua-sdk-js-packages-create-honua-app-readme")
+    entry = variables["substitute"]["--sdk-version 0.2.10"]
+    assert entry["value"] == "--sdk-version {client.sdkJs}"
+    assert "0.2.10" in entry["documentedAt"]
+    manifest = yaml.safe_load((HERE.parents[1] / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    version = client_package_version(manifest, "@honua/sdk-js")
+    assert version
+    code = "npm create honua-app@latest my-map -- --sdk-version 0.2.10\n"
+    table = {"--sdk-version 0.2.10": render(entry["value"], {"client.sdkJs": version})}
+    assert substitute(code, table) == f"npm create honua-app@latest my-map -- --sdk-version {version}\n"
+
+
+def test_docs_html_channel_tag_binds_to_the_candidate():
+    from run import substitute
+    code = 'export HONUA_SERVER_IMAGE="ghcr.io/honua-io/honua-server:2026.1-rc"\n'
+    for document in ("honua-site-docs", "honua-site-docs-playbooks-install-with-docker-index"):
+        variables = load_vars(HERE / "vars", document)
+        entry = variables["substitute"]["ghcr.io/honua-io/honua-server:2026.1-rc"]
+        assert entry["value"] == "{candidate.image}"
+        assert "2026.1-rc" in entry["documentedAt"]
+        table = {key: render(value["value"], {"candidate.image": "test@sha256:abc"})
+                 for key, value in variables["substitute"].items()}
+        assert substitute(code, table) == 'export HONUA_SERVER_IMAGE="test@sha256:abc"\n'

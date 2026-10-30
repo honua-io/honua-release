@@ -42,6 +42,14 @@ CANARY_MODELS = [
     "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-6.1-terra",
     "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-6.1-terra",
     "arn:aws:bedrock:us-west-2::foundation-model/openai.gpt-6.1-terra",
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.anthropic.claude-opus-5-5",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-opus-5-5",
+    "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-opus-5-5",
+    "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-5-5",
+    "arn:aws:bedrock:us-east-1:585192672263:inference-profile/us.openai.gpt-6.1-sol",
+    "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-6.1-sol",
+    "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-6.1-sol",
+    "arn:aws:bedrock:us-west-2::foundation-model/openai.gpt-6.1-sol",
 ]
 
 

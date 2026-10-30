@@ -25,6 +25,16 @@ def test_rc_notes_say_2026_1_is_not_a_safe_rollback_target():
     assert "no release-named immutable tag" in text
 
 
+def test_rc_notes_require_a_candidate_bound_run():
+    text = notes.render({"components": {}}, "| gate | pass |", "2026.1-rc.4", None, None, [])
+    assert "against any build" not in text
+    assert "honua-server digest" in text
+    assert "platform lock" in text
+    assert "does not pass" in text
+    assert "2026-10-22 window" in text
+    assert "pass (manifest-pin bound, no receipt)" in text
+
+
 def test_rc_notes_report_the_ai_gates_as_preview_evidence_outside_rc_admission():
     gate_record = "| gate-agent-e2e | fail |\n| terminal-model-canary | pass |"
     text = notes.render({"components": {}}, gate_record, "2026.1-rc.4", None, None, [])

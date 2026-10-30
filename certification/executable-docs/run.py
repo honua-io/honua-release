@@ -1119,6 +1119,14 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
     return tools
 
 
+def client_package_version(manifest: dict[str, Any], package: str) -> str:
+    """Version platform-manifest pins for an npm/PyPI/NuGet package name."""
+    for artifact in (manifest.get("clientArtifacts") or {}).values():
+        if artifact.get("package") == package and artifact.get("version"):
+            return str(artifact["version"])
+    return ""
+
+
 def candidate_from_manifest(manifest: dict[str, Any]) -> tuple[str, str]:
     server = manifest.get("components", {}).get("honua-server", {})
     image, digest = str(server.get("image", "")), str(server.get("digest", ""))
@@ -1275,7 +1283,8 @@ def main() -> int:
                                "candidate.adminPassword": api_key, "candidate.image": image,
                                "candidate.mcpUrl": base_url + "/mcp", "candidate.grpcAddress": "localhost:8081",
                                # a published layer of e2e/harness/seed (the seed asserts maui-zoning -> layer 2)
-                               "fixture.featureService": "maui-zoning", "fixture.featureLayerId": "2"}
+                               "fixture.featureService": "maui-zoning", "fixture.featureLayerId": "2",
+                               "client.sdkJs": client_package_version(manifest, "@honua/sdk-js")}
     context["_pins"] = {str(v["package"]): str(v["version"]) for v in manifest.get("clientArtifacts", {}).values()
                         if v.get("package") and v.get("version")}
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")

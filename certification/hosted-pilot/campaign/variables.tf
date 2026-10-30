@@ -114,7 +114,7 @@ variable "controller_max_seconds" {
 }
 
 variable "controller_model_resource_arns" {
-  description = "Exact reviewed Bedrock inference profile and member models. Empty grants no model calls; foundation permissions boundary must independently allow these same resources."
+  description = "Exact reviewed Bedrock inference profile and member models. Empty grants no model calls; the foundation permissions boundary must independently allow these same resources. A reviewed set is the profile ARN plus the three routed foundation-model ARNs for each of Claude Opus 5.5, Claude Sonnet 5.5, GPT-6.1 Sol, GPT-6.1 Terra, and the shipped default Claude Sonnet 4.6. No wildcards."
   type        = list(string)
   default     = []
   validation {

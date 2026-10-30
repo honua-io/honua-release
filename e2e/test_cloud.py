@@ -214,11 +214,31 @@ def test_capability_manifest_pass_unauthenticated():
 
 
 def test_capability_manifest_revision_match_passes():
-    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1",
+                       "capabilities": [{"id": "a.one", "supported": True, "available": True}]})
     r = cc.check_capability_manifest(
         "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
-        expected=_expected_ga([]), frozen_server=TEST_SERVER, observation=_observation(), enforcement="strict")
+        expected=_expected_ga(["a.one"]), frozen_server=TEST_SERVER, observation=_observation(),
+        enforcement="strict")
     assert r.status == "pass"
+
+
+def test_capability_manifest_empty_expected_ga_fails():
+    """A bound observation must not pass when expectedGa is missing or empty."""
+    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1",
+                       "capabilities": [{"id": "a.one", "supported": True, "available": True}]})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
+    cases = (
+        _expected_ga([]),
+        {"excluded": []},
+        {"expectedGa": [1, None, ""], "excluded": []},
+    )
+    for expected in cases:
+        result = cc.check_capability_manifest(
+            "http://x", fetch, expected=expected, frozen_server=TEST_SERVER, observation=_observation())
+        assert result.status == "fail", expected
+        assert "expectedGa is missing or empty" in result.why
+        assert "all supported=true" not in result.why
 
 
 def test_demo_canary_binds_revision_advertised_by_live_deployment():
@@ -273,9 +293,11 @@ def test_capability_manifest_unbound_or_missing_observation_fails_closed_in_all_
 
 def test_committed_observation_is_bound_to_the_committed_manifest_server():
     result = cc.check_capability_manifest(
-        "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, json.dumps(
-            {"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})))]),
-        expected=_expected_ga([]))
+        "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, json.dumps({
+            "schemaVersion": "honua.capability_manifest.v1",
+            "capabilities": [{"id": "a.one", "supported": True, "available": True}],
+        })))]),
+        expected=_expected_ga(["a.one"]))
     assert result.status == "pass", result.why
 
 

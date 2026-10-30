@@ -1,0 +1,12 @@
+{
+  "customerTable": null,
+  "customerTableEncoding": null,
+  "dataset": "Dateline parcels",
+  "geographicCrs": "EPSG:4326",
+  "layers": [
+    "parcels",
+    "shelters",
+    "roads"
+  ],
+  "projectedCrs": "HONUA:TM-180"
+}

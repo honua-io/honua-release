@@ -112,7 +112,10 @@ def filter_npm_packument(name: str, body: dict[str, Any], pins: dict[str, str],
         return None
     body = dict(body)
     body["versions"] = {version: body["versions"][version]}
-    body["dist-tags"] = {"latest": version}
+    # create-honua-app selects @honua/sdk-js from the release-2026.1 dist-tag and
+    # falls back to its certified version when that tag is absent. The guard serves
+    # only the pin, so the channel names the pin. Prerelease tags stay dropped.
+    body["dist-tags"] = {"latest": version, "release-2026.1": version}
     if isinstance(body.get("time"), dict):
         body["time"] = {k: v for k, v in body["time"].items() if k in {"created", "modified", version}}
     return body
