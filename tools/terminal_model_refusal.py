@@ -136,6 +136,13 @@ def execute_live(builder, *, endpoint, driver_command, max_actions_per_stage, ta
             raise c.CanaryError("refusal setup did not return the same ready candidate and bounded credentials")
         builder.record_action(stage_id="serving-read", attribution=c.HARNESS_DRIVEN, kind="setup", status="pass",
                               request=setup_request, result=setup)
+        # Every Studio proxy chat needs the deployment's durable AI admission ledger open (honua-server
+        # #6597). The full-workflow profile opens it; without it this profile's first chat is refused
+        # 503 "AI invocation admission is unavailable or denied" (code uninitialized) before any model call.
+        admission = client.ensure_admission()
+        builder.record_action(stage_id="serving-read", attribution=c.HARNESS_DRIVEN, kind="setup", status="pass",
+                              request={"aiAdmission": ["admin.ai.admission.initialize", "admin.ai.admission.resume"]},
+                              result={"aiAdmission": admission})
         for stage in builder.journey["stages"]:
             stage_id = stage["id"]
             builder.mark_stage(stage_id, "running")
