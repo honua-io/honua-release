@@ -281,6 +281,21 @@ def test_published_without_downloaded_bytes_fails_audit():
         preflight.audit(receipt)
 
 
+def test_committed_migrate_receipt_records_the_published_091_bytes():
+    receipt = json.loads(preflight.RECEIPT_PATH.read_text(encoding="utf-8"))
+    channel = _channel(receipt, "pypi:honua-migrate")
+    assert channel["version"] == "0.9.1"
+    assert channel["publication"] == "PyPI honua-migrate 0.9.1"
+    files = {item["filename"]: item["sha256"] for item in channel["files"]}
+    assert files == {
+        "honua_migrate-0.9.1-py3-none-any.whl":
+            "096099bc3179c2886837cc4aeaab8c6a69305822f776a9760f17b0f8ff0d344e",
+        "honua_migrate-0.9.1.tar.gz":
+            "b34a2e7a54d79328f6d87133381dee77fdfd5deeadaee813009c6338bc8e0392",
+    }
+    assert all(item["sha256"] == item["registry_sha256"] for item in channel["files"])
+
+
 def test_listing_must_not_carry_a_digest():
     receipt = _receipt()
     _channel(receipt, "nuget:Honua.Sdk")["files"] = [{
