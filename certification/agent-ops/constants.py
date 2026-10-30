@@ -14,6 +14,8 @@ PROJECTED_CRS = "EPSG:3338"
 
 PRIOR_IMAGE = "ghcr.io/honua-io/honua-server:2026.1-rc"
 NEWER_IMAGE = "honua-server:trunk"
+GHCR_SERVER = "ghcr.io/honua-io/honua-server"
+POSTGIS_IMAGE = "postgis/postgis:16-3.4"
 PRIOR_DIGEST = "sha256:" + ("a1" * 32)
 TARGET_DIGEST = "sha256:" + ("b2" * 32)
 OTHER_DIGEST = "sha256:" + ("c3" * 32)
@@ -42,10 +44,34 @@ HUMAN_FAULT = "bucket-policy"
 HUMAN_REQUEST = "allow reads on the shelters storage bucket"
 DEV_FAULTS = ("datasource-password", "dropped-table", HUMAN_FAULT)
 
-# Shipped canary client request body. Recorded from tools/terminal_model_canary.py.
-# Not selected for this campaign.
-SHIPPED_TEMPERATURE = 0
+# The customer Studio AI proxy omits temperature. StudioAiProxyConfiguration has no
+# Temperature field, and the customer environment docs do not set one. Bedrock's
+# Claude Messages API default for an omitted temperature is 1.
+# The canary client hardcodes 0; that value is not the customer default.
+SHIPPED_TEMPERATURE = 1
+SHIPPED_TEMPERATURE_SOURCE = (
+    "omitted by the customer Studio AI proxy; "
+    "Bedrock Claude Messages API default is 1 when temperature is omitted"
+)
 GUIDANCE = "none"
+
+# USD per million tokens. Primary rates are the preregistration. Exploratory rates are the
+# published Claude Haiku 4.5 list price ($1 input / $5 output per million tokens).
+# The fallback classifier has no published price here, so its cost stays unknown.
+PRICES_USD_PER_MTOK = {
+    "primary": {"input": "3", "output": "15"},
+    "exploratory": {"input": "1", "output": "5"},
+}
+
+# Fixed non-Anthropic model on the canary invoke allowlist
+# (certification/cloud-cell-inventory/main.tf). Sampler 0 is this classifier only.
+JUDGE = {
+    "id": "us.openai.gpt-6.1-terra",
+    "family": "openai",
+    "mode": "bedrock-fallback",
+    "sampler": 0,
+}
+HUMAN_REVIEW = "human-review-queue"
 
 PRIMARY_ARM = {
     "id": "primary",

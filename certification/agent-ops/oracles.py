@@ -389,6 +389,7 @@ def grade(
         "healthy_false_alarm": bool(status["healthy_false_alarm"]) and outcome != "success",
         "reasons": reasons,
         "judge_packet": packet,
+        "state_ok": bool(status["state_ok"]),
         "actions": action_count,
     }
 

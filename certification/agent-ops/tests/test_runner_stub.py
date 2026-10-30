@@ -1,18 +1,35 @@
 """Local scripted run, unwired cloud target, and the shipped client temperature."""
 
+import inspect
 import json
+from decimal import Decimal
 from pathlib import Path
 
-from constants import SHIPPED_TEMPERATURE
+from constants import HUMAN_REVIEW, JUDGE, PRIOR_IMAGE, SHIPPED_TEMPERATURE
 from runner import main
 
 HERE = Path(__file__).resolve().parents[1]
 
 
-def test_shipped_temperature_is_the_canary_request_value():
+def _clean_pilot(path: Path) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "status": "complete",
+        "stop": {"reasons": []},
+        "n": 3,
+    }), encoding="utf-8")
+    return str(path)
+
+
+def test_shipped_temperature_is_the_provider_default_not_the_canary_zero():
+    import client
+    from tools.terminal_model_canary import CandidateProxyClient
+
     source = (HERE.parents[1] / "tools" / "terminal_model_canary.py").read_text(encoding="utf-8")
     assert '"temperature": 0' in source
-    assert SHIPPED_TEMPERATURE == 0
+    assert "temperature" not in inspect.getsource(client.OperateClient.complete)
+    assert "temperature" in inspect.getsource(CandidateProxyClient.complete)
+    assert SHIPPED_TEMPERATURE == 1
 
 
 def test_self_test_command():
@@ -25,6 +42,7 @@ def test_full_stub_run(tmp_path: Path):
         "--target", "local-docker",
         "--model", "stub",
         "--arm", "primary",
+        "--pilot-summary", _clean_pilot(tmp_path / "prior.json"),
         "--rows", str(HERE / "rows" / "development.jsonl"),
         "--out", str(out),
     ])
@@ -82,7 +100,7 @@ def test_bad_tool_arguments_keep_the_priced_call(monkeypatch, tmp_path: Path):
                     "tool": "finish",
                     "arguments": {"summary": "The deployment is healthy. Nothing to worry about.", "issues": []},
                 }
-            return json.dumps(body), {"input_tokens": 10, "output_tokens": 4}, 0.0, {}
+            return json.dumps(body), {"prompt_tokens": 10, "completion_tokens": 4}, 0.0, {}
 
     def reject_unknown(state, action):
         if action.get("service") == "unknown":
@@ -100,7 +118,7 @@ def test_bad_tool_arguments_keep_the_priced_call(monkeypatch, tmp_path: Path):
         "--model", "live",
         "--arm", "primary",
         "--priced-ok",
-        "--max-rows", "1",
+        "--pilot-summary", _clean_pilot(out / "prior.json"),
         "--rows", _one_row(out, row),
         "--out", str(out / "run"),
     ])
@@ -136,7 +154,7 @@ def test_pilot_is_the_three_named_trials(tmp_path: Path):
 
 def test_aws_target_is_unwired_and_does_not_pass(tmp_path: Path):
     out = tmp_path / "aws"
-    code = main(["--target", "aws-ecs", "--model", "stub", "--out", str(out)])
+    code = main(["--target", "aws-ecs", "--model", "stub", "--pilot", "--out", str(out)])
     assert code == 2
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert summary["status"] == "unwired"
@@ -168,7 +186,11 @@ def test_held_out_rows_are_refused(tmp_path: Path):
 
     Path.read_text = spy
     try:
-        code = main(["--rows", str(rows), "--out", str(tmp_path / "out")])
+        code = main([
+            "--pilot-summary", _clean_pilot(tmp_path / "prior.json"),
+            "--rows", str(rows),
+            "--out", str(tmp_path / "out"),
+        ])
     finally:
         Path.read_text = original
     assert code == 2
@@ -181,6 +203,7 @@ def test_budget_and_priced_refusal(tmp_path: Path, monkeypatch):
     out = tmp_path / "budget"
     assert main([
         "--model", "stub",
+        "--pilot",
         "--ledger", str(ledger),
         "--rows", str(HERE / "rows" / "development.jsonl"),
         "--out", str(out),
@@ -200,8 +223,286 @@ def test_budget_and_priced_refusal(tmp_path: Path, monkeypatch):
     refused = tmp_path / "refused"
     assert main([
         "--model", "live",
+        "--pilot",
         "--rows", str(HERE / "rows" / "development.jsonl"),
         "--out", str(refused),
     ]) == 2
     assert called["complete"] == 0
     assert json.loads((refused / "summary.json").read_text(encoding="utf-8"))["status"] == "priced-refused"
+
+
+def test_full_run_refuses_without_a_clean_pilot_summary(tmp_path: Path):
+    out = tmp_path / "full"
+    assert main([
+        "--model", "stub",
+        "--max-rows", "1",
+        "--rows", str(HERE / "rows" / "development.jsonl"),
+        "--out", str(out),
+    ]) == 2
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["stop"]["reasons"] == ["pilot_required"]
+    assert not (out / "trials.jsonl").exists()
+
+    stopped = tmp_path / "stopped.json"
+    stopped.write_text(json.dumps({"status": "complete", "stop": {"reasons": ["pilot"]}}), encoding="utf-8")
+    refused = tmp_path / "refused-pilot"
+    assert main([
+        "--model", "stub",
+        "--max-rows", "1",
+        "--pilot-summary", str(stopped),
+        "--rows", str(HERE / "rows" / "development.jsonl"),
+        "--out", str(refused),
+    ]) == 2
+    assert not (refused / "trials.jsonl").exists()
+
+    accepted = tmp_path / "accepted"
+    assert main([
+        "--model", "stub",
+        "--max-rows", "1",
+        "--pilot-summary", _clean_pilot(tmp_path / "clean.json"),
+        "--rows", str(HERE / "rows" / "development.jsonl"),
+        "--out", str(accepted),
+    ]) == 0
+    assert json.loads((accepted / "summary.json").read_text(encoding="utf-8"))["n"] == 1
+
+
+def test_missing_images_stop_before_a_model_call(monkeypatch, tmp_path: Path):
+    called = {"n": 0}
+
+    def missing(**kwargs):
+        del kwargs
+        return {
+            "ok": False,
+            "detail": "missing",
+            "prior": {"ref": "prior", "digest": None},
+            "newer": {"ref": "newer", "sha": None, "digest": None},
+        }
+
+    class Boom:
+        def __init__(self, endpoint):
+            del endpoint
+            called["n"] += 1
+
+        def complete(self, *args, **kwargs):
+            del args, kwargs
+            called["n"] += 1
+            raise AssertionError("priced call")
+
+    monkeypatch.setattr("runner.prepare_images", missing)
+    monkeypatch.setattr("client.OperateClient", Boom)
+    out = tmp_path / "images"
+    assert main([
+        "--pilot",
+        "--model", "live",
+        "--priced-ok",
+        "--execute-compose",
+        "--rows", str(HERE / "rows" / "development.jsonl"),
+        "--out", str(out),
+    ]) == 2
+    assert called["n"] == 0
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["stop"]["reasons"] == ["images"]
+    assert not (out / "trials.jsonl").exists()
+
+
+def test_prepare_images_pulls_and_tags_the_recorded_sha(monkeypatch, tmp_path: Path):
+    from targets import prepare_images, start_deployment
+
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        del kwargs
+        calls.append(list(argv))
+
+        class Completed:
+            returncode = 0
+            stdout = '["ghcr.io/honua-io/honua-server@sha256:%s"]\tsha256:%s' % ("ab" * 32, "cd" * 32)
+            stderr = ""
+
+        return Completed()
+
+    monkeypatch.setattr("targets.subprocess.run", fake_run)
+    sha = "a" * 40
+    note = prepare_images(source="pull", newer_sha=sha, newer_digest=None)
+    assert note["ok"] is True
+    assert note["prior"]["digest"] == "sha256:" + ("ab" * 32)
+    assert note["newer"]["digest"] == "sha256:" + ("ab" * 32)
+    assert note["newer"]["sha"] == sha
+    assert ["docker", "pull", PRIOR_IMAGE] in calls
+    assert ["docker", "pull", "postgis/postgis:16-3.4"] in calls
+    published = f"ghcr.io/honua-io/honua-server:trunk-{sha}-amd64"
+    assert ["docker", "pull", published] in calls
+    assert ["docker", "tag", published, "honua-server:trunk"] in calls
+    assert not any(len(argv) > 1 and argv[1] == "build" for argv in calls)
+
+    calls.clear()
+    source = tmp_path / "server"
+    dockerfile = source / "docker" / "Dockerfile.aot"
+
+    def build_or_reject(argv, **kwargs):
+        del kwargs
+        calls.append(list(argv))
+
+        class Completed:
+            returncode = 0
+            stdout = '["ghcr.io/honua-io/honua-server@sha256:%s"]\tsha256:%s' % ("ab" * 32, "cd" * 32)
+            stderr = ""
+
+        completed = Completed()
+        if argv[:3] == ["docker", "pull", published]:
+            completed.returncode = 1
+            completed.stderr = "manifest unknown"
+        elif any("org.opencontainers.image.revision" in part for part in argv):
+            completed.stdout = sha + "\n"
+        return completed
+
+    monkeypatch.setattr("targets.subprocess.run", build_or_reject)
+    missing = prepare_images(source="pull", newer_sha=sha, newer_digest=None)
+    assert missing["ok"] is False
+    assert not any(len(argv) > 1 and argv[1] == "build" for argv in calls)
+
+    calls.clear()
+    dockerfile.parent.mkdir(parents=True, exist_ok=True)
+    dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+    built = prepare_images(source="pull", newer_sha=sha, newer_digest=None, server_source=source)
+    assert built["ok"] is True
+    assert built["newer"]["sha"] == sha
+    assert any(
+        argv[:2] == ["docker", "build"] and f"HONUA_GIT_SHA={sha}" in argv and str(dockerfile) in argv
+        for argv in calls
+    )
+
+    calls.clear()
+    local = prepare_images(source="local", newer_sha=None, newer_digest=None)
+    assert local["ok"] is True
+    assert not any(argv[1] == "pull" for argv in calls)
+
+    state = {"town_slug": "kestrel", "fixture_token": "abc123", "image_ref": PRIOR_IMAGE}
+    started = start_deployment(Path("/tmp/operate-fixture"), state)
+    assert started["project"] == "kestrel-gis-abc123"
+    assert started["executed"] is True
+    compose = next(argv for argv in calls if "up" in argv)
+    assert compose[compose.index("-p") + 1] == "kestrel-gis-abc123"
+    assert "--pull" in compose and "never" in compose
+
+
+def test_ledger_records_bedrock_tokens_and_stops_at_the_cap(monkeypatch, tmp_path: Path):
+    from rows import build_row
+    from scenarios import load_prompts
+
+    calls = {"n": 0}
+
+    class Endpoint:
+        configured = True
+
+        def validated_base_url(self):
+            return "https://example.invalid"
+
+    class Client:
+        def __init__(self, endpoint):
+            del endpoint
+
+        def complete(self, messages, certification):
+            del messages, certification
+            calls["n"] += 1
+            body = {
+                "kind": "tool_call",
+                "tool": "finish",
+                "arguments": {"summary": "The deployment is healthy. Nothing to worry about.", "issues": []},
+            }
+            return json.dumps(body), {"prompt_tokens": 1_000_000, "completion_tokens": 0}, 0.0, {}
+
+    monkeypatch.setattr("client.build_endpoint", lambda arm: Endpoint())
+    monkeypatch.setattr("client.OperateClient", Client)
+    prompts = load_prompts(qualification=False)
+    rows = [build_row("O04", "A", 1, prompts), build_row("O04", "A", 2, prompts)]
+    out = tmp_path / "cap"
+    ledger = out / "ledger.json"
+    assert main([
+        "--model", "live",
+        "--priced-ok",
+        "--arm", "primary",
+        "--spend-cap", "1",
+        "--ledger", str(ledger),
+        "--pilot-summary", _clean_pilot(tmp_path / "prior.json"),
+        "--rows", _rows(out, rows),
+        "--out", str(out / "run"),
+    ]) == 2
+    assert calls["n"] == 1
+    trial = json.loads((out / "run" / "trials.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert trial["input_tokens"] == 1_000_000
+    assert trial["output_tokens"] == 0
+    assert trial["usage_source"] == "bedrock-input-token-count"
+    assert Decimal(trial["cost_usd"]) == Decimal("3")
+    assert (out / "run" / "transcripts" / f"{trial['id']}.json").is_file()
+    assert (out / "run" / "audit" / f"{trial['id']}.json").is_file()
+    saved = json.loads(ledger.read_text(encoding="utf-8"))
+    assert saved["status"] == "budget_exhausted"
+    assert Decimal(saved["spent_usd"]) == Decimal("3")
+    assert Decimal(saved["cap_usd"]) == Decimal("1")
+    summary = json.loads((out / "run" / "summary.json").read_text(encoding="utf-8"))
+    assert "budget_exhausted" in summary["stop"]["reasons"]
+
+
+def _rows(out: Path, rows: list[dict]) -> str:
+    path = out / "rows.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+    return str(path)
+
+
+def test_unresolved_fallback_is_not_scored(monkeypatch, tmp_path: Path):
+    import judge
+    from runner import _resolve_ambiguous
+
+    graded = {
+        "outcome": "undetermined",
+        "false_success": None,
+        "state_ok": True,
+        "cap_hit": False,
+        "judge_packet": {"label": "A", "summary": "maybe"},
+    }
+    assert judge.apply_fallback(graded, None)["outcome"] == "undetermined"
+    assert JUDGE["id"] == "us.openai.gpt-6.1-terra"
+    assert JUDGE["family"] == "openai"
+    assert JUDGE["mode"] == "bedrock-fallback"
+    assert inspect.getsource(judge).index("import boto3") > inspect.getsource(judge).index("def invoke_fallback")
+
+    monkeypatch.setattr(judge, "invoke_fallback", lambda packet: "maybe")
+    unresolved = _resolve_ambiguous(graded, "O04-A-2", tmp_path, live=True)
+    assert unresolved["outcome"] == "undetermined"
+    assert (tmp_path / "review-queue" / "O04-A-2.json").is_file()
+
+    monkeypatch.setattr(judge, "invoke_fallback", lambda packet: "pass")
+    passed = _resolve_ambiguous(dict(graded), "O04-A-2", tmp_path / "pass", live=True)
+    assert passed["outcome"] == "success"
+    refused = _resolve_ambiguous({**graded, "state_ok": False}, "O04-A-2", tmp_path / "state", live=True)
+    assert refused["outcome"] == "fail"
+
+    monkeypatch.setattr("runner.JUDGE", {**JUDGE, "mode": HUMAN_REVIEW})
+    queued = _resolve_ambiguous(dict(graded), "O04-A-2", tmp_path / "queue", live=True)
+    assert queued["outcome"] == "undetermined"
+    saved = json.loads((tmp_path / "queue" / "review-queue" / "O04-A-2.json").read_text(encoding="utf-8"))
+    assert saved["detail"] == HUMAN_REVIEW
+
+
+def test_workflow_runs_the_pilot_before_a_priced_call():
+    workflow = (HERE.parents[1] / ".github" / "workflows" / "agent-ops.yml").read_text(encoding="utf-8")
+    readme = (HERE / "README.md").read_text(encoding="utf-8")
+    assert "e2e-cloud-aws" not in workflow
+    assert "scope:" in workflow
+    assert "pilot" in workflow and "full" in workflow
+    assert "--pilot" in workflow
+    assert "--execute-compose" in workflow
+    assert "--image-source local" in workflow
+    assert "--image-source pull" in workflow
+    assert "--server-source" in workflow
+    assert "trunk-" in readme
+    assert "--ledger" in workflow
+    assert "--spend-cap" in workflow
+    assert "operate-summary" in workflow
+    assert "retention-days: 90" in workflow
+    assert "us.openai.gpt-6.1-terra" in readme
+    assert "omitted" in readme
+    for name in ("summary.json", "ledger.json", "trials.jsonl", "transcripts", "audit"):
+        assert name in workflow

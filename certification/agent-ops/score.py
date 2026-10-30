@@ -8,12 +8,14 @@ import json
 from constants import (
     DECOY_TRANSCRIPTS,
     INFRA_STOP_RATE,
+    JUDGE,
     LAYERS,
     PILOT_INFRA_MAX,
     Q_BARS,
     SCENARIOS,
     SELFTEST_REQUIRED,
     SHIPPED_TEMPERATURE,
+    SHIPPED_TEMPERATURE_SOURCE,
     SPEND_CAP_USD,
 )
 from controller import apply_action
@@ -320,6 +322,8 @@ def summarize(trials: list[dict], *, campaign: str = "E") -> dict:
         "qualification": False,
         "guidance": "none",
         "shipped_temperature": SHIPPED_TEMPERATURE,
+        "shipped_temperature_source": SHIPPED_TEMPERATURE_SOURCE,
+        "judge": dict(JUDGE),
         "per_scenario": unconditional["per_scenario"],
         "unconditional": unconditional["overall"],
         "infrastructure_conditioned": conditioned["overall"],
