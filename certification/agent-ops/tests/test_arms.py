@@ -1,5 +1,7 @@
 """Latest-model arms stay beside the shipped Sonnet 4.6 primary."""
 
+from pathlib import Path
+
 from constants import ARMS, PRIMARY_ARM, SHIPPED_TEMPERATURE
 
 
@@ -32,6 +34,22 @@ def test_latest_models_are_priced_exploratory_arms():
         assert price["output_per_mtok"] == out
         assert price["cached_input_per_mtok"] == cached
         assert price["as_of"] == "2026-10"
+
+
+def test_dispatch_arm_choices_match_the_registry():
+    text = (
+        Path(__file__).resolve().parents[3] / ".github/workflows/agent-ops.yml"
+    ).read_text()
+    start = text.index("      arm:\n")
+    block = text[start : text.index("\npermissions:", start)]
+    options = [
+        line.strip()[2:]
+        for line in block.splitlines()
+        if line.strip().startswith("- ")
+    ]
+    assert options == list(ARMS)
+    assert "default: primary" in block
+    assert "exploratory" not in block
 
 
 def test_older_models_are_not_arms():

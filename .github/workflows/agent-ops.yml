@@ -33,13 +33,16 @@ on:
           - local-docker
           - aws-ecs
       arm:
-        description: primary is the shipped configuration. exploratory is campaign E only.
+        description: primary is the shipped Sonnet 4.6 configuration. The other choices are the latest models.
         required: true
         type: choice
         default: primary
         options:
           - primary
-          - exploratory
+          - opus-5-5
+          - sonnet-5-5
+          - gpt-6.1-sol
+          - gpt-6.1-terra
 
 permissions:
   contents: read
