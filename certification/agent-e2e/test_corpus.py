@@ -26,6 +26,11 @@ pack_source=load("agent_pack_source",ROOT/"scenarios/build_pack.py")
 def test_pack_has_exact_252_cases_and_all_machine_predicates():
     pack=json.loads((ROOT/"pack.v2.json").read_text(encoding="utf-8"))
     assert pack==pack_source.build()
+    check=pack["finalAnswerCheck"]
+    assert check["required"] is True and check["appliesTo"]=="every-case"
+    assert check["deterministicFirst"] is True and check["judgeOnlyForAmbiguity"] is True
+    assert check["scores"]==["false_success","unresolved-limitation-not-disclosed"]
+    assert check["checks"]==["url-resolves-and-serves","access-instruction-works","factual-claims-match-observations"]
     cases={(s["id"],v,t) for s in pack["scenarios"] for v in pack["variants"] for t in s["targets"]}
     assert len(cases)==252
     assert len(pack["scenarios"])==36

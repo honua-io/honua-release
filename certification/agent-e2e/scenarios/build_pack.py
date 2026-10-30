@@ -165,7 +165,11 @@ def build():
     for scenario in scenarios:
         if scenario["id"] in {"P04", "P05", "P06", "P08", "P09", "P10", "P11", "P12", "P13", "P14", "P15", "P19", "P21", "P22", "P23", "P24", "L02", "L03", "B02", "B03", "B05", "B06"}:
             scenario["assertions"].append("source-content.unchanged")
-    return {"schemaVersion":1,"packId":"honua-agent-e2e-rc-v2","visibility":"controller-only","corpusManifest":"corpus/manifest.v1.json","totalBudgetUsd":500,"modelPolicy":{"provider":"aws-bedrock","family":"claude","requireExactModelId":True,"requireReturnedIdentity":True,"maxModelsPerCampaign":1},"variants":["A","B","C"],"developmentVariants":["A","B"],"heldOutVariants":["C"],"targets":COMMON+["aws-lambda","aws-batch"],"caseCount":252,"targetOrder":COMMON+["aws-lambda","aws-batch"],"scenarios":scenarios}
+    # State assertions above do not grade the answer the customer receives.
+    # The controller applies this check to every case. The judge runs only when
+    # a claim is ambiguous; false success and an undisclosed limitation score apart.
+    final_answer={"required":True,"appliesTo":"every-case","deterministicFirst":True,"judgeOnlyForAmbiguity":True,"scores":["false_success","unresolved-limitation-not-disclosed"],"checks":["url-resolves-and-serves","access-instruction-works","factual-claims-match-observations"]}
+    return {"schemaVersion":1,"packId":"honua-agent-e2e-rc-v2","visibility":"controller-only","corpusManifest":"corpus/manifest.v1.json","totalBudgetUsd":500,"finalAnswerCheck":final_answer,"modelPolicy":{"provider":"aws-bedrock","family":"claude","requireExactModelId":True,"requireReturnedIdentity":True,"maxModelsPerCampaign":1},"variants":["A","B","C"],"developmentVariants":["A","B"],"heldOutVariants":["C"],"targets":COMMON+["aws-lambda","aws-batch"],"caseCount":252,"targetOrder":COMMON+["aws-lambda","aws-batch"],"scenarios":scenarios}
 
 
 if __name__=="__main__":

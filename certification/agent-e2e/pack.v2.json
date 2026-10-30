@@ -4,6 +4,21 @@
   "visibility": "controller-only",
   "corpusManifest": "corpus/manifest.v1.json",
   "totalBudgetUsd": 500,
+  "finalAnswerCheck": {
+    "required": true,
+    "appliesTo": "every-case",
+    "deterministicFirst": true,
+    "judgeOnlyForAmbiguity": true,
+    "scores": [
+      "false_success",
+      "unresolved-limitation-not-disclosed"
+    ],
+    "checks": [
+      "url-resolves-and-serves",
+      "access-instruction-works",
+      "factual-claims-match-observations"
+    ]
+  },
   "modelPolicy": {
     "provider": "aws-bedrock",
     "family": "claude",
