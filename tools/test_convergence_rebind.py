@@ -1023,6 +1023,77 @@ def test_stage_selects_the_newest_green_trunk_commit_with_the_contract():
         MODULE.select_harness(WalkGitHub([("1" * 40, False, True)]), "sdk-python-harness")
 
 
+class DispatchWalk:
+    """Newest-first trunk. `frozen` is the manifest pin and is not itself a trunk row."""
+
+    def __init__(self, frozen_declares, commits):
+        self.frozen_declares = frozen_declares
+        self.commits = commits
+
+    def content(self, repository, path, revision):
+        if revision == "f" * 40:
+            declares = self.frozen_declares
+        else:
+            declares = dict(self.commits)[revision]
+        if not declares:
+            return b"on:\n  workflow_dispatch:\n    inputs:\n      tier:\n        type: choice\n"
+        markers = MODULE.PROTOCOL_DISPATCH_SOURCES["geospatial-mcp"][2]
+        return ("\n".join(markers) + "\n").encode()
+
+    def trunk_commits(self, repository, limit):
+        return [sha for sha, _declares in self.commits][:limit]
+
+
+def test_frozen_mcp_pin_that_declares_the_dispatch_contract_stays_frozen():
+    sha, rule = MODULE.select_protocol_dispatch_pin(DispatchWalk(True, []), "geospatial-mcp", "f" * 40)
+    assert (sha, rule) == ("f" * 40, "manifest/frozen")
+
+
+def test_mcp_pin_without_the_dispatch_contract_uses_the_newest_declaring_commit():
+    # The newest declaring commit may be red. Green CI is not required, and an older
+    # non-declaring commit is not selected (nightly run 40921054416).
+    newer, older = "a" * 40, "b" * 40
+    sha, rule = MODULE.select_protocol_dispatch_pin(
+        DispatchWalk(False, [(newer, True), (older, False)]), "geospatial-mcp", "f" * 40)
+    assert sha == newer
+    assert rule == MODULE.PROTOCOL_DISPATCH_RULE
+
+
+def test_mcp_pin_refuses_when_no_walked_commit_declares_the_contract():
+    with pytest.raises(MODULE.Finding, match="lacks the protocol dispatch contract"):
+        MODULE.select_protocol_dispatch_pin(
+            DispatchWalk(False, [("c" * 40, False)]), "geospatial-mcp", "f" * 40)
+
+
+def test_plan_does_not_rewind_mcp_to_a_pin_the_night_cannot_dispatch(tmp_path):
+    root = fixture(tmp_path)
+    align_components_to_published(root)
+    manifest = yaml.safe_load((root / MODULE.MANIFEST).read_text(encoding="utf-8"))
+    frozen = manifest["components"]["geospatial-mcp"]["sha"]
+    dispatchable = "d" * 40
+
+    class GitHub(StubGitHub):
+        def content(self, repository, path, revision):
+            if repository == "honua-io/geospatial-mcp" and path.endswith("protocol-certification.yml"):
+                markers = MODULE.PROTOCOL_DISPATCH_SOURCES["geospatial-mcp"][2]
+                if revision == dispatchable:
+                    return ("\n".join(markers) + "\n").encode()
+                return b"on:\n  workflow_dispatch:\n    inputs:\n      tier:\n"
+            return super().content(repository, path, revision)
+
+        def trunk_commits(self, repository, limit):
+            if repository == "honua-io/geospatial-mcp":
+                return [dispatchable]
+            return super().trunk_commits(repository, limit)
+
+    plan, _, _ = MODULE.prepare(root, GitHub(root), "keep")
+    pins = {row["source"]: (row["target"], row["rule"]) for row in plan["sources"]}
+    assert pins["geospatial-mcp"] == (dispatchable, MODULE.PROTOCOL_DISPATCH_RULE)
+    assert pins["geospatial-grpc"][1] == "manifest/frozen"
+    reread = yaml.safe_load((root / MODULE.MANIFEST).read_text(encoding="utf-8"))
+    assert reread["components"]["geospatial-mcp"]["sha"] == frozen
+
+
 def test_grpc_ruling_is_rechecked_at_the_2026_1_rc_candidate_server():
     """Nightly run 40541809869 refused to stage at server 53bb94a: its mapped gRPC service blobs
     differ from 8cb074f, the last verified commit. The ruling was re-checked there by hand; the
