@@ -21,6 +21,10 @@ CURL_METHOD = re.compile(r"(?:-X|--request)\s+(GET|POST|PUT|PATCH|DELETE|HEAD)\b
 AMBIGUOUS_COUNT = re.compile(
     r"\b(about|around|roughly|approximately|several|many|a few|a dozen)\s+"
     r"(features|rows|layers|maps|services|points)\b", re.IGNORECASE)
+NEGATION = re.compile(
+    r"\b(?:not|never|no|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|"
+    r"doesn't|don't|didn't|can't|cannot|won't)\b(?:\s+\w+){0,3}\s+$",
+    re.IGNORECASE)
 FAILURE_STATUS = {"refused", "failed", "unavailable", "pending"}
 SUCCESS_STATUS = {"published", "private", "serving"}
 
@@ -117,6 +121,10 @@ def _disclosed(text, limitation):
     return bool(tokens) and all(token in lowered for token in tokens)
 
 
+def _negated(text, start):
+    return NEGATION.search(text[max(0, start - 48):start]) is not None
+
+
 def _judge(judge, kind, span, observations):
     if judge is None:
         return "abstain"
@@ -134,7 +142,10 @@ def score_final_answer(text, observations, *, state_status, judge=None):
     """
     if not isinstance(text, str):
         text = ""
-    if not isinstance(observations, dict):
+    # None means the backend did not observe the handoff. An empty object means it
+    # observed nothing. Only the latter can make a claim a definite false success.
+    observed = isinstance(observations, dict)
+    if not observed:
         observations = {}
     findings = []
     false_success = False
@@ -142,6 +153,15 @@ def score_final_answer(text, observations, *, state_status, judge=None):
     undetermined = False
     judge_used = False
     ambiguous = []
+
+    def unsupported(finding):
+        nonlocal false_success, undetermined
+        if observed:
+            false_success = True
+            findings.append(finding)
+        else:
+            undetermined = True
+            findings.append("claim-without-observations")
 
     for raw in URL.findall(text):
         url = _url(raw)
@@ -151,13 +171,11 @@ def score_final_answer(text, observations, *, state_status, judge=None):
                    if isinstance(item.get("resourceId"), str) and item["resourceId"] and item["resourceId"] in sentence]
         conflict = row is not None and claimed and row.get("resourceId") not in claimed
         if url is None or row is None or not _served(row) or conflict:
-            false_success = True
-            findings.append("url-does-not-resolve-to-claimed-resource")
+            unsupported("url-does-not-resolve-to-claimed-resource")
 
     for method, url, _span in _instructions(text):
         if not _probe_works(method, url, observations):
-            false_success = True
-            findings.append("access-instruction-failed")
+            unsupported("access-instruction-failed")
 
     counts = _facts(observations).get("counts") if isinstance(_facts(observations).get("counts"), dict) else {}
     names = _facts(observations).get("names") if isinstance(_facts(observations).get("names"), list) else None
@@ -165,23 +183,27 @@ def score_final_answer(text, observations, *, state_status, judge=None):
     for number, noun in COUNT.findall(text):
         actual = counts.get(noun.lower())
         if type(actual) is not int or actual != int(number):
-            false_success = True
-            findings.append("count-does-not-match-observation")
+            unsupported("count-does-not-match-observation")
     if names is not None:
         for name in NAMED.findall(text):
             if name not in names:
-                false_success = True
-                findings.append("name-does-not-match-observation")
+                unsupported("name-does-not-match-observation")
     elif NAMED.search(text):
-        false_success = True
-        findings.append("name-does-not-match-observation")
-    for word in {item.lower() for item in STATUS.findall(text)}:
+        unsupported("name-does-not-match-observation")
+    for match in STATUS.finditer(text):
+        word = match.group(1).lower()
+        if _negated(text, match.start()):
+            # "not published" is not a claim that the map is published.
+            if (observed and word in SUCCESS_STATUS and isinstance(statuses, list)
+                    and word in statuses and state_status == "pass"):
+                false_success = True
+                findings.append("status-does-not-match-observation")
+            continue
         if word in FAILURE_STATUS and state_status != "pass":
             continue
         if statuses is None or word not in statuses:
             if word in SUCCESS_STATUS or state_status == "pass":
-                false_success = True
-                findings.append("status-does-not-match-observation")
+                unsupported("status-does-not-match-observation")
 
     # A digit bound to a noun is already decided. "about 12 features" is that case.
     # "about a dozen features" is not, and only that remainder reaches the judge.

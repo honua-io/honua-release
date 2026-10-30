@@ -98,6 +98,15 @@ def test_state_pass_with_an_unresolved_customer_url_is_false_success(environment
     assert handoff["judgeUsed"] is False
 
 
+def test_a_url_without_backend_observations_is_undetermined(environment):
+    environment["model"] = Model([{"type": "text", "text": "Done. The map is at https://maps.example/towns"}])
+    result = run_goal(**environment)
+    handoff = result["verification"]["handoff"]
+    assert result["status"] == "fail" and result["failureAttribution"] == "undetermined"
+    assert result["reason"] == "customer-handoff"
+    assert handoff["false_success"] is False and handoff["undetermined"] is True
+
+
 def test_undisclosed_limitation_fails_apart_from_false_success(environment):
     environment["model"] = Model([{"type": "text", "text": "The map is ready."}])
     original = environment["backend"].call

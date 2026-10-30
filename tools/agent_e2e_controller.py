@@ -384,8 +384,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                         or check.get("scores") != ["false_success", "unresolved-limitation-not-disclosed"]):
                     raise ControllerError("corpus pack lacks the required final-answer check")
                 observations = result.get("handoffObservations") if isinstance(result, dict) else None
-                handoff = score_final_answer(customer_text(content), observations if isinstance(observations, dict) else {},
-                                             state_status=status)
+                # A missing key is not an observation that the resource was absent.
+                handoff = score_final_answer(
+                    customer_text(content), observations if isinstance(observations, dict) else None,
+                    state_status=status)
                 result = {**result, "handoff": handoff}
                 if handoff["status"] != "pass" and status == "pass":
                     status = "fail"

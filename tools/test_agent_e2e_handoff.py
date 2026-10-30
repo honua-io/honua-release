@@ -91,3 +91,25 @@ def test_exact_count_does_not_ask_the_judge_to_override_it():
         pytest.fail("a bound count is not ambiguous")
     result = score_final_answer("about 12 features", OBSERVATIONS, state_status="pass", judge=judge)
     assert result["status"] == "pass" and result["judgeUsed"] is False
+
+
+def test_a_claim_without_observations_is_undetermined_not_false_success():
+    result = score_final_answer("Done. The map is at https://maps.example/towns/kestrel.", None, state_status="pass")
+    assert result["status"] == "fail"
+    assert result["false_success"] is False
+    assert result["undetermined"] is True
+    assert result["findings"] == ["claim-without-observations"]
+
+
+def test_negated_status_is_not_a_positive_claim():
+    observations = {**OBSERVATIONS, "facts": {"counts": {}, "names": [], "statuses": ["failed"]}}
+    text = "The map is not published because deployment failed."
+    result = score_final_answer(text, observations, state_status="fail")
+    assert result["status"] == "pass"
+    assert result["false_success"] is False
+
+
+def test_negated_published_contradicts_an_observed_published_map():
+    result = score_final_answer("The map is not published.", OBSERVATIONS, state_status="pass")
+    assert result["false_success"] is True
+    assert "status-does-not-match-observation" in result["findings"]
