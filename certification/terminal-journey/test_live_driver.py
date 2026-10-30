@@ -504,3 +504,16 @@ def test_driver_setup_failure_message_reaches_the_canary_notice(tmp_path):
         canary.DriverAdapter(script, protocol).invoke("setup", {})
     assert str(failed.exception) == ("#123 driver setup failed with exit code 1; driverError=DriverError: "
                                      "deployment receipt does not verify this cell (mismatched: status)")
+
+
+def test_driver_run_import_survives_the_canary_receipt_validator():
+    # Driver setup validates a single-tenant receipt through tools/terminal_model_canary.py and then
+    # imports this directory's run.py; e2e/run.py must not shadow it (run 40968671034).
+    import importlib
+    import sys
+    sys.modules.pop("run", None)
+    sys.modules.pop("ga_single_tenant", None)
+    from tools import terminal_model_canary
+    terminal_model_canary._ga_single_tenant()
+    driver = importlib.import_module("run")
+    assert hasattr(driver, "observe")

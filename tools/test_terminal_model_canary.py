@@ -2150,3 +2150,15 @@ def test_admission_failure_redacts_before_truncating(monkeypatch):
     with pytest.raises(canary.CanaryError) as failure:
         client.ensure_admission()
     assert secret[:8] not in str(failure.value)
+
+
+def test_single_tenant_helper_never_puts_e2e_on_sys_path(monkeypatch):
+    # The journey driver calls the canary's receipt validator, then `import run` for its own
+    # certification/terminal-journey/run.py; e2e/run.py on sys.path shadowed it (run 40968671034).
+    e2e = str(REPO_ROOT / "e2e")
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != e2e])
+    monkeypatch.delitem(sys.modules, "ga_single_tenant", raising=False)
+    module = canary._ga_single_tenant()
+    assert e2e not in sys.path
+    assert module.STAGE and module.PROFILE and module.RULING
+    assert canary._ga_single_tenant() is module
