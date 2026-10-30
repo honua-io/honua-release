@@ -1920,7 +1920,10 @@ def execute_live(
                     receipt["provenance"]["verifiedCalls"].append(provenance_evidence)
                     sequence = builder.capture_transcript("assistant", content, stage_id=stage_id)
                     builder.add_usage(usage, elapsed_ms)
-                    messages.append({"role": "assistant", "content": builder.redactor.text(content)})
+                    # A blank turn stays in the transcript but is never sent back: the corrective
+                    # request then merges into the preceding user turn and alternation holds.
+                    if content.strip():
+                        messages.append({"role": "assistant", "content": builder.redactor.text(content)})
                     return content, sequence
 
                 content = ""

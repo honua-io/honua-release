@@ -1769,6 +1769,8 @@ def test_empty_and_whitespace_replies_get_one_corrective_retry(monkeypatch):
     assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
     assert len(calls) == 2
     assert calls[1][-1]["role"] == "user" and "starts as empty" in calls[1][-1]["content"]
+    assert all(m["content"].strip() for m in calls[1])
+    assert [m["role"] for m in calls[1]] == [m["role"] for m in calls[0]]
     raised = []
     receipt = _attribution_run(monkeypatch, raise_first=canary.ModelFailure("model response content is empty"),
                                model_reply="still prose", calls=raised)
