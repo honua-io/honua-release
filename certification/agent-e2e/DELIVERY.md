@@ -23,9 +23,10 @@ and [#628](https://github.com/honua-io/honua-release/issues/628) release activat
 - Terraform defines container jobs, networking, IAM, per-attempt queues, state,
   lifecycle orchestration and independent cleanup. Runtime APIs start/stop these
   predefined jobs. Worker output is untrusted; independent probes decide success.
-- Match the terminal canary model; currently its fallback is
-  `us.anthropic.claude-sonnet-5-5` (operator ruling 2026-10-22) via `us-east-1`. Verify the requested
-  and returned identities and pricing before freezing any campaign.
+- Match the terminal canary model. `TERMINAL_MODEL_NAME` is
+  `us.anthropic.claude-sonnet-4-6` in `us-east-1` (set 2026-10-29). The campaign
+  workflow uses that same fallback when the variable is absent. Verify the
+  requested and returned identities and pricing before freezing any campaign.
 
 ## Work packages and dependencies
 

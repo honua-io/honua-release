@@ -326,8 +326,10 @@ optional `controller_model` contains `modelId`, `returnedModelId`, `profileArn`,
 `tokenCountingModelArn` and `profileSha256`. It must match the frozen producer
 model and the installed controller environment. The profile ARN and counting
 member come from original `GetInferenceProfile` bytes, never a profile-name
-conversion. `model-profile.json` retains the actual observed Sonnet 4.5 profile;
-it does not prove inference or token-counting availability. Reviewed pricing must
+conversion. `model-profile.json` is the GetInferenceProfile document for
+`us.anthropic.claude-sonnet-4-6` observed 2026-10-30. It does not prove
+token-counting availability. The returned identity `claude-sonnet-4-6` is from
+one InvokeModel call that day. Reviewed pricing must
 bind its exact `{path, sha256}` as `model.profile`, plus `profileArn` and
 `tokenCountingModelArn`. The explicit counting ARN must be a profile member in
 the controller region. Token quotes use that ARN; inference keeps the original
