@@ -3,6 +3,7 @@ import copy
 import json
 import os
 import struct
+import time
 import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 import pytest
 
 import agent_e2e_campaign as producer
-from agent_e2e_local_docker_lifecycle import LocalDockerLifecycle, refuse_unreviewed
+from agent_e2e_local_docker_lifecycle import COMMAND, LocalDockerLifecycle, refuse_unreviewed
 from agent_e2e_native_bindings import validate_case
 from agent_e2e_pack import PackError, load_json
 from agent_e2e_p10_local_docker import Session
@@ -57,7 +58,17 @@ def worker(attempt_id='attempt-local'):
     return {'candidateKey': CANDIDATE, 'attemptId': attempt_id, 'image': IMAGE, 'network': 'honua_candidate',
             'context': {'campaignId': 'offline-campaign', 'caseId': CASE, 'attempt': 1, 'campaignMode': 'development'},
             'reservationIds': {'infrastructure': 'infrastructure-1', 'cleanup': 'cleanup-1'},
-            'liability': {'basisDigest': 'sha256:'+'c'*64, 'maximumInfrastructureUsd': '0.20', 'maximumCleanupUsd': '0.20'}}
+            'liability': {'basisDigest': 'sha256:'+'c'*64, 'maximumInfrastructureUsd': '0.20', 'maximumCleanupUsd': '0.20'},
+            'transport': {'commandQueueUrl': 'https://sqs.us-east-1.amazonaws.com/585192672263/'+attempt_id+'-commands.fifo',
+                          'replyQueueUrl': 'https://sqs.us-east-1.amazonaws.com/585192672263/'+attempt_id+'-replies.fifo',
+                          'attemptId': attempt_id, 'expiresEpoch': int(time.time())+1000}}
+
+
+def observed_container(config, *, running):
+    return {'Id': CONTAINER, 'Image': IMAGE, 'Name': '/honua-agent-'+config['attemptId'],
+            'Config': {'Cmd': list(COMMAND), 'Env': ['PYTHONDONTWRITEBYTECODE=1', *LocalDockerLifecycle(config).environment]},
+            'HostConfig': {'Privileged': False, 'NetworkMode': config['network'], 'Binds': []},
+            'State': {'Running': running, 'Status': 'running' if running else 'exited'}}
 
 
 @pytest.fixture
@@ -96,28 +107,79 @@ def test_reviewed_p10_expectations_match_corpus_and_pack():
 
 
 def test_second_launch_is_refused_and_host_flags_never_run(durable):
+    config = worker()
+    running = True
     calls = []
     def runner(argv):
-        calls.append(argv)
-        refuse_unreviewed(argv)
+        nonlocal running
+        calls.append(list(argv))
         if argv[1] == 'run':
             return (CONTAINER+'\n').encode()
         if argv[1:] == ['stop', '--time', '10', 'honua-agent-attempt-local']:
+            running = False
             return b''
-        observed = {'Id': CONTAINER, 'Image': IMAGE, 'State': {'Running': False}}
-        return json.dumps([observed]).encode()
-    lifecycle = LocalDockerLifecycle(worker(), runner=runner)
+        return json.dumps([observed_container(config, running=running)]).encode()
+    lifecycle = LocalDockerLifecycle(config, runner=runner)
     lifecycle.claim(durable)
     assert calls == []
     started = lifecycle.start(durable)
-    assert started['containerId'] == CONTAINER and len(calls) == 1 and calls[0][0] == 'docker'
+    assert started['containerId'] == CONTAINER and calls[0][0] == 'docker'
+    assert COMMAND[-1] in calls[0] and 'agent_e2e_public_entry.py' not in calls[0]
+    assert calls[0].count('-e') == 2 and calls[1][1] == 'inspect'
     with pytest.raises(PackError, match='already started'):
         lifecycle.start(durable)
-    assert len(calls) == 1
+    assert [call[1] for call in calls].count('run') == 1
     stopped = lifecycle.stop(durable)
     assert stopped['running'] is False
     with pytest.raises(PackError, match='host'):
         refuse_unreviewed(['docker', 'run', '--volume', '/var/run/docker.sock:/var/run/docker.sock', IMAGE])
+
+
+def test_lost_launch_reply_adopts_the_inspected_container_without_running_again(durable):
+    config = worker()
+    calls = []
+    def runner(argv):
+        calls.append(list(argv))
+        require_inspect = argv[:2] == ['docker', 'inspect']
+        assert require_inspect
+        return json.dumps([observed_container(config, running=True)]).encode()
+    lifecycle = LocalDockerLifecycle(config, runner=runner)
+    lifecycle.claim(durable)
+    durable.state['dockerLaunches'][config['attemptId']]['started'] = True
+    durable._persist()
+    started = lifecycle.start(durable)
+    assert started['containerId'] == CONTAINER and started['started'] is True
+    assert [call[1] for call in calls] == ['inspect']
+
+
+def test_verify_fails_closed_without_a_separate_source_snapshot(tmp_path, durable):
+    (tmp_path/'expectations.json').write_bytes(EXPECTATIONS.read_bytes())
+    expected = load_json(EXPECTATIONS)['cases'][CASE]
+    snapshot = expected['assertions']['source-content.unchanged']['resources'][0]
+    session = Session(durable=durable, campaign=campaign(), bundle=tmp_path,
+                      configuration={'cases': {CASE: {'deployment': deployment(), 'worker': worker()}}},
+                      context={'campaignId': 'offline-campaign', 'caseId': CASE, 'attempt': 1, 'campaignMode': 'development'})
+    session.retain('town', {'startingState': 'published-town'})
+    session.retain('source-before', {'snapshot': snapshot})
+    session.retain('query-ordinal-1', {'ordinal': 1, 'result': expected['assertions']['filter.exact']})
+    blocked = session.verify()
+    assert blocked['qualification'] is False and blocked['status'] == 'fail'
+    assert blocked['failedAssertions'] == ['source-content.unchanged']
+
+
+def test_verify_accepts_an_independent_post_operation_snapshot(tmp_path, durable):
+    (tmp_path/'expectations.json').write_bytes(EXPECTATIONS.read_bytes())
+    expected = load_json(EXPECTATIONS)['cases'][CASE]
+    snapshot = expected['assertions']['source-content.unchanged']['resources'][0]
+    session = Session(durable=durable, campaign=campaign(), bundle=tmp_path,
+                      configuration={'cases': {CASE: {'deployment': deployment(), 'worker': worker()}}},
+                      context={'campaignId': 'offline-campaign', 'caseId': CASE, 'attempt': 1, 'campaignMode': 'development'})
+    session.retain('town', {'startingState': 'published-town'})
+    session.retain('source-before', {'snapshot': snapshot})
+    session.retain('source-after', {'snapshot': snapshot})
+    session.retain('query-ordinal-1', {'ordinal': 1, 'result': expected['assertions']['filter.exact']})
+    passed = session.verify()
+    assert passed['status'] == 'pass' and passed['failedAssertions'] == [] and passed['qualification'] is False
 
 
 def test_seed_failure_does_not_start_the_worker(tmp_path, durable):

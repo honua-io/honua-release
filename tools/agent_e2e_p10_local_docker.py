@@ -86,13 +86,20 @@ class Session:
                    if record.get('producer') == 'p10-local-docker' and record.get('identity') == case_identity(self.context) and
                    str(record.get('phase', '')).startswith('query-ordinal-')]
         latest = max(queries, key=lambda item: item['ordinal']) if queries else None
-        after = self.value('source-after') or before
-        observations = {'filter.exact': None if latest is None else latest.get('result'),
-                        'source-content.unchanged': {'profile': 'honua.protected-content/v1',
-                                                     'before': [before['snapshot']], 'after': [after['snapshot']]}}
-        expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]['assertions']
+        after = self.value('source-after')
         failed = []
+        if not isinstance(after, dict) or 'snapshot' not in after:
+            failed.append('source-content.unchanged')
+            preserved = None
+        else:
+            preserved = {'profile': 'honua.protected-content/v1', 'before': [before['snapshot']],
+                         'after': [after['snapshot']]}
+        observations = {'filter.exact': None if latest is None else latest.get('result'),
+                        'source-content.unchanged': preserved}
+        expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]['assertions']
         for assertion, observation in observations.items():
+            if assertion in failed:
+                continue
             try:
                 gate.oracle_predicates.verify(assertion, observation, expected[assertion])
             except (ValueError, TypeError):
