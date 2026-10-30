@@ -1796,6 +1796,84 @@ def test_guided_stage_prompt_is_byte_identical_and_unguided_drops_the_tool_order
         canary.stage_user_message(stage=stage, candidate_release="2026.1", observed=observed, guidance="scripted")
 
 
+def test_unguided_later_turns_omit_the_tool_order_the_receipt_keeps(monkeypatch):
+    """A second model call must not be handed stageStatus.command. The receipt keeps the raw driver response."""
+    stage = canary.load_journey(JOURNEY)["stages"][0]
+    command = stage["command"]
+    execution = {
+        "status": "pass",
+        "stageStatus": {
+            "number": stage["number"],
+            "id": stage["id"],
+            "command": command,
+            "status": "ready",
+            "checks": [{"status": "pass", "invocation": command, "detail": f"ran {command}"}],
+        },
+        "requiredSequence": command,
+        "result": {"accepted": True, "command": "model action"},
+    }
+    shown = canary.model_facing_payload(execution, "none")
+    assert canary.model_facing_payload(execution, "full") is execution
+    assert command not in json.dumps(shown) and "requiredSequence" not in shown
+    assert shown["stageStatus"]["id"] == stage["id"] and shown["result"]["command"] == "model action"
+    calls = []
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "w", "toolView": {"v": 1},
+                        "credentialReferences": [{"envVar": "K"}]}
+            if operation == "observe":
+                return {"status": "ready", "stageStatus": "ready",
+                        "observation": {"resources": {}},
+                        "toolView": {"tools": [{"name": "honua_list_capabilities"}]},
+                        "stageTools": ["honua_list_capabilities"]}
+            if operation == "execute":
+                return execution
+            return {"status": "pass"}
+
+    class Model:
+        def __init__(self, *_):
+            pass
+
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
+        def complete(self, messages, _certification):
+            calls.append([dict(message) for message in messages])
+            return (json.dumps({"kind": "tool_call", "tool": "honua_list_capabilities",
+                                "arguments": {}, "intent": "advance"}), {}, 0, {})
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api")
+
+    def run(guidance):
+        calls.clear()
+        builder = canary.build_receipt_builder(
+            manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+            endpoint=endpoint, driver_command=None, lock_digest=LOCK, guidance=guidance)
+        canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                            max_actions_per_stage=2)
+        return builder
+
+    guided = run("full")
+    assert len(calls) >= 2 and command in json.dumps(calls[1])
+    unguided = run("none")
+    spoken = json.dumps(calls)
+    assert len(calls) >= 2 and command not in spoken and "requiredSequence" not in spoken
+    assert "model action" in spoken
+    raw = json.dumps(unguided.redactor.value(execution), sort_keys=True, separators=(",", ":"),
+                     ensure_ascii=False, allow_nan=False).encode()
+    digest = hashlib.sha256(raw).hexdigest()
+    assert any(entry["role"] == "driver" and entry["content"]["sha256"] == digest
+               for entry in unguided.receipt["transcript"]["entries"])
+    assert guided.receipt["guidance"] == "full" and unguided.receipt["guidance"] == "none"
+
+
 def test_receipt_records_guidance_and_the_schema_rejects_any_other_mode():
     endpoint = canary.EndpointConfig(None, None, None, "TERMINAL_MODEL_API_KEY", None, None)
     full = canary.build_receipt_builder(
