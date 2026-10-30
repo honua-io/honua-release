@@ -1,0 +1,34 @@
+{
+  "O01": {
+    "A": "Update {town}'s Honua to the newer release in the deployment notes. Keep our data and maps working.",
+    "B": "I'm not sure how updates work. Please move {town} onto the newer Honua release named in the notes, and make sure our data and maps still open."
+  },
+  "O02": {
+    "A": "Yesterday's change to the shelters service broke our {town} map. Put it back how it was.",
+    "B": "The shelters on our {town} map look wrong after yesterday. Can you put that service back the way it was?"
+  },
+  "O03": {
+    "A": "Our {town} shelters layer stopped loading for users. Find out why and fix it if you can. Tell me if you need anything from me.",
+    "B": "People can't load the {town} shelters layer. Can you find out why and fix it? If you need me to do something, say exactly what."
+  },
+  "O04": {
+    "A": "Is {town}'s deployment healthy? Anything I should worry about?",
+    "B": "Can you look at {town}'s Honua and tell me if anything needs attention?"
+  },
+  "O05": {
+    "A": "Roll {town} back to the previous release, the new one has a problem.",
+    "B": "The new {town} release is causing trouble. Can you take us back to the previous one?"
+  },
+  "O06": {
+    "A": "How busy was the {town} parcels service in the last hour, and were any requests slow?",
+    "B": "I want to know how much the {town} parcels service was used in the last hour, and whether any requests were slow."
+  },
+  "O07": {
+    "A": "Rotate {town}'s database password without taking the site down.",
+    "B": "Please change the {town} database password. The site has to stay up the whole time."
+  },
+  "O08": {
+    "A": "Update {town} to the new release. If anything goes wrong, get us back to working.",
+    "B": "Please update {town} to the new Honua release. If the update fails, put us back on a working release."
+  }
+}
