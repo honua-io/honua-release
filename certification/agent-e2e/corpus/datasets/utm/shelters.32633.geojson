@@ -1,0 +1,62 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:32633"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          653537.495,
+          7731761.944
+        ],
+        "type": "Point"
+      },
+      "id": "s-utm-1",
+      "properties": {
+        "capacity": 55,
+        "is_open": true,
+        "name": "Troms UTM parcels shelter 1",
+        "source_id": "s-utm-1"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          653767.495,
+          7731811.944
+        ],
+        "type": "Point"
+      },
+      "id": "s-utm-2",
+      "properties": {
+        "capacity": 70,
+        "is_open": false,
+        "name": "Troms UTM parcels shelter 2",
+        "source_id": "s-utm-2"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          653587.495,
+          7732031.944
+        ],
+        "type": "Point"
+      },
+      "id": "s-utm-3",
+      "properties": {
+        "capacity": 85,
+        "is_open": true,
+        "name": "Troms UTM parcels shelter 3",
+        "source_id": "s-utm-3"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

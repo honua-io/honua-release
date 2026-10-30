@@ -1,0 +1,12 @@
+{
+  "customerTable": null,
+  "customerTableEncoding": null,
+  "dataset": "Troms UTM parcels",
+  "geographicCrs": "EPSG:4326",
+  "layers": [
+    "parcels",
+    "shelters",
+    "roads"
+  ],
+  "projectedCrs": "EPSG:32633"
+}

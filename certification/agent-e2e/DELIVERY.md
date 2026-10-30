@@ -65,6 +65,8 @@ qualifying evidence exist; split PR #607 as needed to land foundations first.
 - Preserve 36 scenarios, 108 prompts and 252 live cases: Docker 72, ECS Redis-on
   72, EKS 72, Lambda 18, Batch 18. Fifteen independent semantic checks per target
   are additional requirements, never substitutes for these cases.
+- `pack.ga.json` is an additional non-qualifying generalization pack for local
+  Docker. It leaves the 252 live-case counts unchanged.
 - Development uses A/B only. C is held out for frozen qualification. Bind exact
   candidate/model/prices/images/IaC/docs/interfaces/fixtures/recipes/expectations.
 - All development, failures, retries, infrastructure, model, telemetry and cleanup
