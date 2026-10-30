@@ -506,13 +506,18 @@ def test_driver_setup_failure_message_reaches_the_canary_notice(tmp_path):
                                      "deployment receipt does not verify this cell (mismatched: status)")
 
 
-def test_driver_run_import_survives_the_canary_receipt_validator():
+def test_driver_run_import_survives_the_canary_receipt_validator(monkeypatch):
     # Driver setup validates a single-tenant receipt through tools/terminal_model_canary.py and then
-    # imports this directory's run.py; e2e/run.py must not shadow it (run 40968671034).
+    # imports this directory's run.py; e2e/run.py must not shadow it (run 40968671034). The driver
+    # process starts with this directory first on sys.path (live_driver inserts it at import); other
+    # test modules in the same pytest process may have put e2e/ ahead of it, so restore that order.
     import importlib
     import sys
-    sys.modules.pop("run", None)
-    sys.modules.pop("ga_single_tenant", None)
+    here = str(Path(__file__).resolve().parent)
+    e2e = str(Path(__file__).resolve().parents[2] / "e2e")
+    monkeypatch.setattr(sys, "path", [here] + [p for p in sys.path if p not in (here, e2e)])
+    monkeypatch.delitem(sys.modules, "run", raising=False)
+    monkeypatch.delitem(sys.modules, "ga_single_tenant", raising=False)
     from tools import terminal_model_canary
     terminal_model_canary._ga_single_tenant()
     driver = importlib.import_module("run")
