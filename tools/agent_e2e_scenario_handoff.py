@@ -197,7 +197,7 @@ def observe_handoff(http):
             'handoff observation requires the candidate HTTP client')
     endpoint = http.client.endpoint
     resources, probes, names, ids, seen_urls = [], [], [], [], set()
-    feature_counts, layer_count, served_any = [], 0, False
+    feature_counts, layer_count, service_count, served_any = [], 0, 0, False
     access_modes = []
     refusal = []
     anonymous = _anonymous(http)
@@ -228,6 +228,7 @@ def observe_handoff(http):
         resources.append({'url': canonical, 'httpStatus': status, 'resourceId': entry['name'], 'served': served,
                           'name': entry['name'], 'accessMode': mode})
         probes.append({'method': 'GET', 'url': canonical, 'worked': served, 'httpStatus': status})
+        service_count += 1
         _add(names, entry['name'])
         _add(ids, entry['name'])
         if not served or entry['type'] not in _LAYER_TYPES:
@@ -247,6 +248,14 @@ def observe_handoff(http):
                     'layer document does not match the published layer')
             _add(names, layer['name'])
             _add(ids, str(layer_id))
+            # The customer can cite the layer URL. The scorer matches it exactly,
+            # so a validated layer that is absent here becomes a false success.
+            layer_canonical, _layer_path = _absolute(endpoint, layer_path)
+            if layer_canonical not in seen_urls:
+                seen_urls.add(layer_canonical)
+                resources.append({'url': layer_canonical, 'httpStatus': layer_status, 'resourceId': str(layer_id),
+                                  'served': True, 'name': layer['name'], 'accessMode': mode})
+                probes.append({'method': 'GET', 'url': layer_canonical, 'worked': True, 'httpStatus': layer_status})
             count_status, count_body = _get(http, f'handoff-count-{index}-{layer_id}',
                                              layer_path+'/query?'+urlencode({'where': '1=1', 'returnCountOnly': 'true', 'f': 'json'}))
             count = count_body.get('count') if isinstance(count_body, dict) else None
@@ -282,8 +291,8 @@ def observe_handoff(http):
     if served_any:
         _add(statuses, 'serving')
     counts = {}
-    if resources:
-        counts['services'] = len(resources)
+    if service_count:
+        counts['services'] = service_count
     if layer_count:
         counts['layers'] = layer_count
     if feature_counts and all(type(count) is int for count in feature_counts):

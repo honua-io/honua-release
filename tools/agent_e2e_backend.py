@@ -329,5 +329,15 @@ class InProcessBackend:
         from agent_e2e_scenario_handoff import observe_handoff
         context = {key: payload[key] for key in ('campaignId', 'caseId', 'attempt', 'componentBindingDigest')}
         http = ScenarioHttp(durable=self.durable, context=context, endpoint=endpoint,
-            credential_env=credential_env, attempt_id='verify-'+str(payload.get('attempt')), credential_kind=kind)
+            credential_env=credential_env, attempt_id=self._handoff_attempt_id(payload), credential_kind=kind)
         return {**result, 'handoffObservations': observe_handoff(http)}
+
+    def _handoff_attempt_id(self, payload):
+        """One retention identity per case. Step keys do not include caseId.
+
+        Case ids contain characters an attempt id cannot, so the id is a digest
+        of the campaign, case, and attempt rather than the raw case id.
+        """
+        from agent_e2e_pack import canonical_digest
+        identity = {key: payload[key] for key in ('campaignId', 'caseId', 'attempt')}
+        return 'v-' + canonical_digest(identity).split(':', 1)[1]

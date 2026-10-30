@@ -112,10 +112,15 @@ def test_every_backend_passes_a_true_claim_and_rejects_a_contradiction(name, emi
         'text': 'has 99 features at https://model.example/fake', 'features': 99}
     observed = emit(client(adapter, server, 'obs-'+name.replace('_', '-')))
     url = server.url+SERVICE
-    assert observed['resources'] == [{
-        'url': url, 'httpStatus': 200, 'resourceId': 'shelters', 'served': True,
-        'name': 'shelters', 'accessMode': 'public'}]
-    assert observed['accessProbes'] == [{'method': 'GET', 'url': url, 'worked': True, 'httpStatus': 200}]
+    layer_url = url+'/0'
+    assert observed['resources'] == [
+        {'url': url, 'httpStatus': 200, 'resourceId': 'shelters', 'served': True,
+         'name': 'shelters', 'accessMode': 'public'},
+        {'url': layer_url, 'httpStatus': 200, 'resourceId': '0', 'served': True,
+         'name': 'shelters', 'accessMode': 'public'}]
+    assert observed['accessProbes'] == [
+        {'method': 'GET', 'url': url, 'worked': True, 'httpStatus': 200},
+        {'method': 'GET', 'url': layer_url, 'worked': True, 'httpStatus': 200}]
     assert observed['facts'] == {
         'counts': {'services': 1, 'layers': 1, 'features': 12},
         'names': ['shelters'], 'statuses': ['published', 'serving']}
@@ -137,6 +142,8 @@ def test_every_backend_passes_a_true_claim_and_rejects_a_contradiction(name, emi
     assert _anonymous_request(server, 3) and not any(_anonymous_request(server, index) for index in range(8) if index != 3)
     passed = score(claim(url, 12), observed)
     assert passed['status'] == 'pass' and passed['false_success'] is False and passed['judgeUsed'] is False
+    layer_claim = f'The published layer named "shelters" has 12 features at {layer_url}. GET {layer_url}'
+    assert score(layer_claim, observed)['status'] == 'pass'
     failed = score(claim(url, 4), observed)
     assert failed['status'] == 'fail' and failed['false_success'] is True and failed['undetermined'] is False
     assert failed['findings'] == ['count-does-not-match-observation']
@@ -240,6 +247,32 @@ def handle(operation, payload, **kwargs):
     passed = score(claim(server.url+SERVICE, 12), observed)
     contradicted = score(claim(server.url+SERVICE, 4), observed)
     assert passed['status'] == 'pass' and contradicted['false_success'] is True
+
+
+def test_verify_reads_a_second_case_without_replaying_the_first(tmp_path, execution, server, monkeypatch):
+    monkeypatch.setenv('SCENARIO_TEST_TOKEN', 'private-scenario-credential')
+    publish(server)
+    backend, _config = configured(tmp_path, '''
+def handle(operation, payload, **kwargs):
+    return {'prepared': True} if operation == 'prepare' else {'status': 'pass', 'failedAssertions': []}
+''')
+    backend.settings['configuration']['handoff'] = {
+        'endpoint': server.url, 'credentialEnv': 'SCENARIO_TEST_TOKEN'}
+    second = 'P10:B:local-docker'
+    backend.settings['contract']['cases'][second] = dict(
+        backend.settings['contract']['cases'][BACKEND_CONTEXT['caseId']])
+    bind(backend, execution, tmp_path)
+    reserve(execution)
+    backend.call('prepare', BACKEND_CONTEXT)
+    first = backend.call('verify', BACKEND_CONTEXT)['handoffObservations']
+    for kind in ('infrastructure', 'cleanup'):
+        execution.update(execution.path, 'reserve', candidate_key=BACKEND_CONTEXT['componentBindingDigest'],
+            reservation_id=f'{kind}-case-b', campaign_id=BACKEND_CONTEXT['campaignId'],
+            case_id=second, attempt=1, campaign_mode='development', kind=kind,
+            amount='0.20', basis_digest='sha256:'+'c'*64)
+    other = backend.call('verify', {**BACKEND_CONTEXT, 'caseId': second})['handoffObservations']
+    assert first['facts']['counts']['features'] == other['facts']['counts']['features'] == 12
+    assert first['resources'][0]['url'] == other['resources'][0]['url'] == server.url+SERVICE
 
 
 def test_verify_without_an_endpoint_drops_a_handler_document(tmp_path, execution):
