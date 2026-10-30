@@ -102,8 +102,13 @@ permissions:
   actions: write                  # dispatch the honua-iac cloud harness (iac-live wrapper)
   id-token: write                 # OIDC -> AWS (no static creds)
 
+# One lane per target: a target never overlaps itself (its cells provision in order inside one run),
+# but ECS, Lambda+Batch and EKS dispatches run side by side. Cell names, DNS and state carry the run id,
+# the account has headroom for three cells (VPC 3/10, EIP 3/30, RDS 1/40 on 2026-10-30), and the
+# release-cell reaper only removes resources older than its grace (>= 4 h, default 48 h). The nightly
+# (target all) keeps its own lane.
 concurrency:
-  group: e2e-cloud-aws            # one ephemeral env at a time
+  group: e2e-cloud-aws-${{ inputs.target || 'all' }}
   cancel-in-progress: false
 
 jobs:

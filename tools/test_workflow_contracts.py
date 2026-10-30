@@ -1550,12 +1550,31 @@ def test_release_cells_carry_the_owner_the_reaper_sweeps():
 
 def test_release_cell_reaper_holds_the_cell_lock_for_the_whole_sweep():
     # Review of #973: a one-time "is a recovery active?" check cannot stop a cloud-cell-retirement
-    # recovery (or a new cell) from starting mid-sweep and racing native deletion against a
-    # Terraform-state retirement. The reaper must share the cell workflows' concurrency group.
+    # recovery from starting mid-sweep and racing native deletion against a Terraform-state
+    # retirement. The reaper and retirement share one concurrency group.
     groups = {name: _workflow(name).get("concurrency", {}).get("group")
-              for name in ("release-cell-reaper.yml", "cloud-cell-retirement.yml", "e2e-cloud-aws.yml")}
-    assert len(set(groups.values())) == 1 and None not in groups.values(), groups
+              for name in ("release-cell-reaper.yml", "cloud-cell-retirement.yml")}
+    assert set(groups.values()) == {"e2e-cloud-aws"}, groups
     assert _workflow("release-cell-reaper.yml")["concurrency"]["cancel-in-progress"] is False
+
+
+def test_cloud_cell_lanes_keep_retirement_and_prefix_exclusion():
+    # #1084: e2e-cloud-aws runs one lane per target. Retirement, the reaper and same-prefix runs are
+    # excluded explicitly instead of by the shared group.
+    assert _workflow("e2e-cloud-aws.yml")["concurrency"] == {
+        "group": "e2e-cloud-aws-${{ inputs.target || 'all' }}", "cancel-in-progress": False}
+    provision = _workflow("e2e-cloud-aws-cell.yml")["jobs"]["provision"]["steps"]
+    guard = next(step for step in provision if step.get("name") ==
+                 "Refuse while a cell retirement or a same-prefix cloud run is active")
+    assert provision.index(guard) < next(i for i, step in enumerate(provision) if step.get("id") == "provision")
+    assert "cloud-cell-retirement.yml" in guard["run"] and "e2e-cloud-aws.yml" in guard["run"]
+    assert "[:6]" in guard["run"]
+    retire = _step_text(next(step for step in _workflow("cloud-cell-retirement.yml")["jobs"]["retire"]["steps"]
+                             if step.get("name") == "Refuse while any cloud e2e run is active"))
+    assert "e2e-cloud-aws.yml" in retire and "exit 1" in retire
+    defer = _step_text(next(step for step in _workflow("release-cell-reaper.yml")["jobs"]["reap"]["steps"]
+                            if step.get("id") == "defer"))
+    assert "e2e-cloud-aws.yml" in defer and "cloud-cell-retirement.yml" in defer
 
 
 def test_cloud_candidate_pins_take_the_coordinate_of_a_digest_pinned_server_image(tmp_path):
