@@ -77,6 +77,10 @@
     {
       "id": "import.objectStore",
       "reason": "New at this candidate: implemented and supported, but available=false / disabled-by-configuration until an import object store is configured (bare local-docker and the cloud cells)."
+    },
+    {
+      "id": "import.background",
+      "reason": "Implemented and supported on every host. A long-lived host runs it in-process even without Redis, so local-docker and the ECS/EKS redis-off cells report available=true. A Lambda host without Redis has no durable runner and reports available=false / runner=unavailable / reasonCode=durable-runner-required, refusing the upload with the typed 503 (aws-serverless/redis-off; run 41038556184). supported=true stays asserted through expectedGa."
     }
   ],
   "excluded": [
