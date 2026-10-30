@@ -24,6 +24,63 @@ from agent_e2e_budget import money, validate as validate_budget
 from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json, portable_path
 
 PROTOCOL = 'honua.agent-e2e.backend/v1'
+PROBE_SCHEMA = 'honua.agent-e2e.infrastructure-probe/v1'
+# Only these probes prove an infrastructure fault. A diagnosis label, an evidence
+# hash, or any other document leaves the cause undetermined, which counts as fail.
+PROBE_FIELDS = {
+    'provider-5xx': {'httpStatus', 'providerRequestId'},
+    'transport-error': {'errorClass'},
+    'harness-crash': {'component', 'exitCode'},
+    'cell-provisioning-failure': {'provisioningStatus', 'errorClass'},
+}
+PROBE_COMMON = {'schemaVersion', 'probeKind', 'observedBeforeModelActed', 'modelStateChanged',
+                'actionsDispatched', 'independentOfModel', 'replay'}
+TRANSPORT_ERRORS = {'dns', 'tls', 'connection-refused', 'connection-reset', 'timeout-before-request'}
+PROBE_REPLAY = {
+    'provider-5xx': {'independentOfModel', 'reproduced', 'httpStatus'},
+    'transport-error': {'independentOfModel', 'reproduced', 'errorClass'},
+    'harness-crash': {'independentOfModel', 'reproduced'},
+    'cell-provisioning-failure': {'independentOfModel', 'reproduced', 'errorClass'},
+}
+
+
+def infrastructure_probe_proves(raw):
+    """True only when the retained bytes are a replayed probe of an exogenous fault.
+
+    The probe must have been observed before the model acted and must not follow a
+    model state change. A timeout or 5xx after the model dispatched work does not qualify.
+    """
+    try:
+        document = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return False
+    if not isinstance(document, dict):
+        return False
+    kind = document.get('probeKind')
+    replay = document.get('replay')
+    if (kind not in PROBE_FIELDS or set(document) != PROBE_COMMON | PROBE_FIELDS[kind]
+            or document.get('schemaVersion') != PROBE_SCHEMA
+            or document.get('observedBeforeModelActed') is not True
+            or document.get('modelStateChanged') is not False
+            or document.get('independentOfModel') is not True
+            or type(document.get('actionsDispatched')) is not int or document['actionsDispatched'] != 0
+            or not isinstance(replay, dict) or set(replay) != PROBE_REPLAY[kind]
+            or replay.get('independentOfModel') is not True or replay.get('reproduced') is not True):
+        return False
+    if kind == 'provider-5xx':
+        status = document['httpStatus']
+        return (type(status) is int and 500 <= status <= 599 and replay.get('httpStatus') == status
+                and isinstance(document['providerRequestId'], str)
+                and re.fullmatch(r'[A-Za-z0-9._:-]{1,128}', document['providerRequestId']) is not None)
+    if kind == 'transport-error':
+        return document['errorClass'] in TRANSPORT_ERRORS and replay.get('errorClass') == document['errorClass']
+    if kind == 'harness-crash':
+        code = document['exitCode']
+        return document['component'] in {'controller', 'backend', 'driver'} and type(code) is int and code != 0
+    status = document['provisioningStatus']
+    error = document['errorClass']
+    return (status == 'failed' and isinstance(error, str) and re.fullmatch(r'[a-z0-9-]{1,64}', error) is not None
+            and replay.get('errorClass') == error)
 
 
 def require(value, reason):
@@ -182,8 +239,14 @@ class InProcessBackend:
                         receipt.get('cleanup', {}).get('status') == 'pass' and isinstance(failure, dict) and
                         any(row.get('evidenceDigest') == failure.get('sha256') for row in diagnoses)):
                     encoded = retained['evidence'].get(failure.get('path'))
-                    authorized = isinstance(encoded, str) and digest_bytes(base64.b64decode(encoded, validate=True)) == failure['sha256']
-                    previous = digest_bytes((json.dumps(receipt, sort_keys=True, allow_nan=False)+'\n').encode())
+                    try:
+                        raw = base64.b64decode(encoded, validate=True) if isinstance(encoded, str) else None
+                    except (ValueError, TypeError):
+                        raw = None
+                    # The hash binds the bytes. The bytes must still be a causal probe;
+                    # a matching hash of an unlabeled blob does not authorize a retry.
+                    authorized = raw is not None and digest_bytes(raw) == failure['sha256'] and infrastructure_probe_proves(raw)
+                    previous = digest_bytes((json.dumps(receipt, sort_keys=True, allow_nan=False)+'\n').encode()) if authorized else None
             return {'protocol': PROTOCOL, 'authorized': authorized, 'previousAttemptDigest': previous,
                     'previousFailureAttribution': 'infrastructure' if authorized else 'undetermined'}
         with deadline(timeout):
