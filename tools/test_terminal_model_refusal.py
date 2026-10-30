@@ -660,7 +660,7 @@ def test_refusal_stage_advertises_exactly_the_tools_execute_admits_and_a_correct
         "action":{"kind":"tool_call","tool":"honua_validate_plan","arguments":arguments,"intent":"attempt"}})["result"]
     assert result["executionOutcome"]=="refused" and state["modelRefusal"]["refusal"]
     system=r.stage_system(observed["stageStatus"],observed["stageTools"])
-    assert "Current stage: durable-refusal" in system and ", ".join(sorted(profile.STAGE_TOOLS[2])) in system
+    assert "Current stage: durable-refusal" in system and json.dumps(sorted(profile.STAGE_TOOLS[2])) in system
 
 
 def test_refusal_stage_omits_a_stage_tool_the_view_does_not_list():
@@ -695,7 +695,7 @@ def test_runner_tells_each_stage_its_admitted_tools_and_task(tmp_path,monkeypatc
     assert "Current stage: durable-refusal" in systems[1]
     for stage,system,messages in zip((1,2,2),systems,state["messages"]):
         allowed=sorted(profile.STAGE_TOOLS[stage])
-        assert "Allowed tool_call names (the server-authored view for this stage): "+", ".join(allowed)+"." in system
+        assert "Allowed tool_call names (JSON identifiers only): "+json.dumps(allowed)+"." in system
         assert "honua_list_jobs" not in system
         assert json.loads(messages[1]["content"])["allowedTools"]==allowed
 
