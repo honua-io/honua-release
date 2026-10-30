@@ -40,6 +40,8 @@ STAGE_ARCS = {
     "separate-principal-approval": ("publish",),
 }
 MODEL_JOURNEYS = {"nightly-model-journey", "genuine-model-journey"}
+# Folded journey reports drop stage lists. The raw receipts retained beside them still have them.
+CANARY_RECEIPTS = {"terminal-model-canary-receipt-v1", "terminal-model-redis-off-receipt-v1"}
 
 
 class CoverageError(ValueError):
@@ -273,28 +275,78 @@ def _from_journey(document):
     return rows
 
 
+def _from_receipt(document, run_id=None):
+    """Stages on a retained canary receipt. The folded report does not keep them."""
+    if document.get("receiptSchema") not in CANARY_RECEIPTS or document.get("mode") != "genuine-model":
+        return []
+    if attempt_index(document) not in (1, None):
+        return []
+    target = target_of(document.get("cell"))
+    if target is None:
+        return []
+    identity = document.get("runId") or run_id
+    if not isinstance(identity, str) or not identity:
+        return []
+    subject = {**document, "liveModel": True, "attempt": 1, "runId": identity,
+               "completedAt": document.get("completedAt") or document.get("generatedAt")}
+    rows = []
+    saw_gp = False
+    stages = document.get("stages") if isinstance(document.get("stages"), list) else []
+    for stage in stages:
+        if not isinstance(stage, dict) or stage.get("status") not in ("pass", "fail"):
+            continue
+        stage_subject = {**subject, "status": stage["status"]}
+        for arc in STAGE_ARCS.get(stage.get("id"), ()):
+            if arc == "gp" and stage["status"] == "pass" and not covers_gp(subject):
+                continue
+            if arc == "gp":
+                saw_gp = True
+            row = _row(arc, target, stage["id"], stage_subject)
+            if row:
+                rows.append(row)
+    if not saw_gp and covers_gp(subject):
+        row = _row("gp", target, "bounded-gp", subject)
+        if row:
+            rows.append(row)
+    return rows
+
+
+def _documents(file):
+    try:
+        document = json.loads(file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise CoverageError(f"malformed coverage evidence: {file.name}") from exc
+    if isinstance(document, list):
+        documents = document
+    elif isinstance(document, dict):
+        documents = [document]
+    else:
+        raise CoverageError(f"coverage evidence must be an object: {file.name}")
+    if not all(isinstance(item, dict) for item in documents):
+        raise CoverageError(f"coverage evidence must be an object: {file.name}")
+    return documents
+
+
 def load_evidence(path):
     """Load live-model attempts. A missing path is no evidence, not a covered cell."""
     path = Path(path)
     if not path.exists():
         return []
     files = [path] if path.is_file() else sorted(item for item in path.rglob("*.json") if item.is_file())
-    rows = []
-    for file in files:
-        try:
-            document = json.loads(file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise CoverageError(f"malformed coverage evidence: {file.name}") from exc
-        if isinstance(document, list):
-            documents = document
-        elif isinstance(document, dict):
-            documents = [document]
-        else:
-            raise CoverageError(f"coverage evidence must be an object: {file.name}")
+    parsed = [(file, _documents(file)) for file in files]
+    # A raw receipt has no run id. The folded report downloaded beside it does.
+    run_ids = {}
+    for file, documents in parsed:
         for item in documents:
-            if not isinstance(item, dict):
-                raise CoverageError(f"coverage evidence must be an object: {file.name}")
-            if item.get("schemaVersion") == ATTEMPT_SCHEMA:
+            run_id = item.get("runId")
+            if isinstance(run_id, str) and run_id and isinstance(item.get("cells"), list):
+                run_ids.setdefault(file.parent, run_id)
+    rows = []
+    for file, documents in parsed:
+        for item in documents:
+            if item.get("receiptSchema") in CANARY_RECEIPTS:
+                rows.extend(_from_receipt(item, run_ids.get(file.parent)))
+            elif item.get("schemaVersion") == ATTEMPT_SCHEMA:
                 rows.extend(_from_attempt(item))
             elif item.get("schemaVersion") == "arc-coverage-evidence.v1" and isinstance(item.get("attempts"), list):
                 for attempt in item["attempts"]:

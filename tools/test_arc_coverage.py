@@ -215,6 +215,97 @@ def test_release_train_publishes_the_table_outside_the_nightly_mint():
     assert "mint_nightly_lock.py" in nightly
 
 
+def test_raw_canary_receipt_keeps_the_stages_the_folded_report_drops(tmp_path):
+    """journey-gate-report artifacts retain model-canary receipts next to the folded row."""
+    _write(tmp_path / "gate-report-journey.json", {
+        "source": "terminal-model-canary",
+        "gate": "genuine-model-journey",
+        "runId": "777",
+        "generatedAt": WHEN,
+        "cells": [{
+            "cell": "aws-ecs/redis-on",
+            "drivers": ["genuine-model"],
+            "status": "pass",
+            "attempts": [{
+                "number": 1, "status": "pass", "driver": "genuine-model",
+                "profile": "full-workflow", "executionOutcome": "completed",
+                "functionalGpExecuted": True, "completedAt": WHEN,
+            }],
+        }],
+    })
+    _write(tmp_path / "model-canary-1.json", {
+        "receiptSchema": "terminal-model-canary-receipt-v1",
+        "mode": "genuine-model",
+        "cell": "aws-ecs/redis-on",
+        "attempt": 1,
+        "status": "pass",
+        "profile": "full-workflow",
+        "executionOutcome": "completed",
+        "functionalGpExecuted": True,
+        "completedAt": WHEN,
+        "stages": [
+            {"id": "installed-client-handoff", "status": "pass"},
+            {"id": "credential-preflight", "status": "pass"},
+            {"id": "publish-service", "status": "pass"},
+            {"id": "style-render", "status": "pass"},
+            {"id": "bounded-gp", "status": "pass"},
+            {"id": "durable-compositions", "status": "pass"},
+            {"id": "separate-principal-approval", "status": "pass"},
+        ],
+    })
+    _write(tmp_path / "model-canary-2.json", {
+        "receiptSchema": "terminal-model-canary-receipt-v1",
+        "mode": "genuine-model",
+        "cell": "aws-ecs/redis-on",
+        "attempt": 2,
+        "status": "pass",
+        "profile": "full-workflow",
+        "executionOutcome": "completed",
+        "functionalGpExecuted": True,
+        "completedAt": LATER,
+        "stages": [{"id": "installed-client-handoff", "status": "pass"}],
+    })
+    refusal = tmp_path / "redis-off"
+    _write(refusal / "gate-report-journey.json", {
+        "source": "terminal-model-canary", "gate": "nightly-model-journey", "runId": "778",
+        "cells": [{
+            "cell": "aws-ecs/redis-off", "drivers": ["genuine-model"], "status": "pass",
+            "attempts": [{"number": 1, "status": "pass", "profile": "redis-off-serving-refusal",
+                          "executionOutcome": "refused", "functionalGpExecuted": False, "completedAt": WHEN}],
+        }],
+    })
+    _write(refusal / "model-canary-1.json", {
+        "receiptSchema": "terminal-model-redis-off-receipt-v1",
+        "mode": "genuine-model",
+        "cell": "aws-ecs/redis-off",
+        "attempt": 1,
+        "status": "pass",
+        "profile": "redis-off-serving-refusal",
+        "executionOutcome": "refused",
+        "functionalGpExecuted": False,
+        "completedAt": WHEN,
+        "stages": [
+            {"id": "publish-service", "status": "pass"},
+            {"id": "bounded-gp", "status": "pass"},
+        ],
+    })
+    table = arc_coverage.build_table([tmp_path])
+    assert _cell(table, "bootstrap", "aws-ecs")["coverage"]["scenarioIds"] == [
+        "credential-preflight", "installed-client-handoff"]
+    assert _cell(table, "bootstrap", "aws-ecs")["coverage"]["lastRun"] == {"runId": "777", "completedAt": WHEN}
+    assert _cell(table, "data", "aws-ecs")["coverage"]["scenarioIds"] == ["publish-service"]
+    assert _cell(table, "publish", "aws-ecs")["coverage"]["scenarioIds"] == [
+        "publish-service", "separate-principal-approval"]
+    assert _cell(table, "style-render", "aws-ecs")["coverage"]["scenarioIds"] == ["style-render"]
+    assert _cell(table, "gp", "aws-ecs")["coverage"]["scenarioIds"] == ["bounded-gp"]
+    assert _cell(table, "gp", "aws-ecs")["coverage"]["firstAttemptOutcome"] == "pass"
+    assert _cell(table, "operate", "aws-ecs")["coverage"] == "unqualified"
+    assert _cell(table, "data", "aws-ecs")["coverage"]["scenarioIds"] == ["publish-service"]
+    # The redis-off receipt passed publish. Its GP stage is serving plus refusal, so GP stays empty there.
+    assert "publish-service" in _cell(table, "publish", "aws-ecs")["coverage"]["scenarioIds"]
+    assert _cell(table, "gp", "aws-ecs")["coverage"]["scenarioIds"] == ["bounded-gp"]
+
+
 def test_refusal_and_a_false_flag_are_not_gp_or_operate_credit():
     refusal = {"cell": "aws-ecs/redis-off", "functionalGpExecuted": False,
                "profile": "redis-off-serving-refusal", "executionOutcome": "refused", "status": "pass",
