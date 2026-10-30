@@ -2162,3 +2162,227 @@ def test_single_tenant_helper_never_puts_e2e_on_sys_path(monkeypatch):
     assert e2e not in sys.path
     assert module.STAGE and module.PROFILE and module.RULING
     assert canary._ga_single_tenant() is module
+
+
+# ---- ga-cells-single-tenant-2026-10-27: stage 8 of the genuine-model journey, no wider than admits() ----
+RULED_STAGE8_CHECKS = ("8.tools-present", "8.separation", "8.final-map", "8.canonical-join",
+                       "8.current-authority", "8.rbac-denial", "8.canonical-evidence")
+
+
+def _ruled_stage8_checks() -> list[dict]:
+    checks = [{"id": check_id, "status": "pass"} for check_id in RULED_STAGE8_CHECKS]
+    checks.insert(5, {"id": "8.tenant-isolation", "status": "blocked", "blockedBy": [TENANT_BLOCKER]})
+    return checks
+
+
+def _single_tenant_live_run(monkeypatch, tmp_path: Path, *, cell: str = GA_CELL, admitted: bool = True,
+                            stage8_checks: list[dict] | None = None, verify_assertions: dict | None = None,
+                            stage8_model_status: str = "pass"):
+    """State-machine unit test of run 41013398407's stage 8; it makes no candidate or model claim."""
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+        endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, cell=cell, lock_digest=LOCK)
+    config = tmp_path / "target.json"
+    config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "http://127.0.0.1:8000"}))
+    deterministic = tmp_path / "deterministic.json"
+    deterministic.write_text(json.dumps({"target": {"id": cell,
+        "configSha256": hashlib.sha256(config.read_bytes()).hexdigest()}}))
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {
+        "path": str(deterministic), "sha256": "e" * 64, "generatedAt": "2026-10-30T07:07:57.085143Z",
+        "status": "pass", "candidateVerified": True, "freshnessVerified": True,
+        **({"prerequisiteProfile": "ga-single-tenant", "sourceStatus": "blocked",
+            "ruling": "ga-cells-single-tenant-2026-10-27"} if admitted else {})}
+    stages = builder.journey["stages"]
+    final = stages[-1]
+    injection_stage = builder.receipt["errorInjection"]["stageId"]
+    error_id = builder.receipt["errorInjection"]["id"]
+    acted = {stage["id"]: 0 for stage in stages}
+    approved = []
+    checks = _ruled_stage8_checks() if stage8_checks is None else stage8_checks
+    assertions = verify_assertions or {**dict.fromkeys(canary.ASSERTION_NAMES, "pass"), "tenantIsolation": "blocked"}
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            stage_id = payload.get("stage")
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "unit-only", "toolView": {"bounded": True},
+                        "credentialReferences": [{"envVar": "TEST_KEY"}]}
+            if operation == "inject_error":
+                return {"status": "armed", "errorId": error_id, "recoverable": True}
+            if operation == "observe":
+                stage = next(s for s in stages if s["id"] == stage_id)
+                header = {"id": stage_id, "number": stage["number"], "command": stage["command"]}
+                if stage_id == final["id"]:
+                    if not approved:
+                        return {"status": "ready", "stageStatus": "awaiting_approval", "proposalId": "proposal-1"}
+                    blockers = list(dict.fromkeys(b for c in checks if c["status"] != "pass"
+                                                  for b in c.get("blockedBy", [])))
+                    status = ("fail" if any(c["status"] == "fail" for c in checks) else
+                              "blocked" if any(c["status"] != "pass" for c in checks) else "pass")
+                    if status == "pass" and not acted[stage_id]:
+                        return {"status": "ready", "stageStatus": {**header, "status": "ready", "blockedBy": [],
+                                                                  "checks": checks}}
+                    return {"status": status, "blockedBy": blockers,
+                            "stageStatus": {**header, "status": status, "blockedBy": blockers, "checks": checks}}
+                required = 2 if stage_id == injection_stage else 1
+                if acted[stage_id] < required:
+                    return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
+                return {"status": "pass", "stageStatus": {**header, "status": "pass", "blockedBy": [],
+                                                          "checks": [{"status": "pass"}]}}
+            if operation == "execute":
+                acted[stage_id] += 1
+                if stage_id == injection_stage:
+                    if acted[stage_id] == 1:
+                        return {"status": "fail", "result": {"injectedError": {"id": error_id, "recoverable": True}}}
+                    return {"status": "pass", "result": {"recoveredError": {"id": error_id, "recovered": True}}}
+                return {"status": stage8_model_status if stage_id == final["id"] else "pass"}
+            if operation == "approve":
+                approved.append(payload["proposalId"])
+                return {"status": "approved", "proposalId": payload["proposalId"], "resolvedBy": "approver",
+                        "auditId": "audit", "proposerSelfApproval": "denied"}
+            if operation == "verify":
+                verdict = ("pass" if set(assertions.values()) == {"pass"}
+                           else "fail" if "fail" in assertions.values() else "blocked")
+                return {"status": verdict, "assertions": assertions, "finalUrlProof": "unit-only",
+                        "pixelProof": "unit-only", "canonicalIds": {"test": "unit-only"}}
+            assert operation == "teardown"
+            return {"status": "pass"}
+
+    class Model:
+        def __init__(self, *_):
+            pass
+
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
+        def complete(self, messages, certification):
+            return json.dumps({"kind": "tool_call", "tool": "test_read", "arguments": {}}), {}, 0, {}
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
+                                  max_actions_per_stage=3, target_path=config)
+    return builder, receipt, approved
+
+
+def test_admitted_cell_stage8_blocked_only_on_tenant_isolation_takes_the_ruled_pass(monkeypatch, tmp_path):
+    builder, receipt, approved = _single_tenant_live_run(monkeypatch, tmp_path)
+    assert receipt["status"] == "pass", receipt["notices"]
+    assert approved == ["proposal-1"]
+    stage8 = receipt["stages"][-1]
+    # Recorded as the deterministic receipt records it: blocked on #377, never a pass.
+    assert stage8["status"] == "blocked" and stage8["blockedBy"] == [TENANT_BLOCKER]
+    assert stage8["modelActionSequences"] and stage8["harnessActionSequences"]
+    assert all(stage["status"] == "pass" for stage in receipt["stages"][:-1])
+    assert receipt["assertions"]["tenantIsolation"] == "blocked"
+    assert {v for k, v in receipt["assertions"].items() if k != "tenantIsolation"} == {"pass"}
+    assert receipt["declaredNotApplicable"] == {"profile": "ga-single-tenant",
+        "ruling": "ga-cells-single-tenant-2026-10-27", "cell": GA_CELL, "notApplicable": ["8.tenant-isolation"]}
+    assert receipt["executionOutcome"] == "completed" and receipt["failureAttribution"] is None
+    _valid(builder)
+
+
+def _valid(builder) -> None:
+    """Invariants plus schema; the unit model's provenance stand-ins are not under test here."""
+    builder.validate_invariants()
+    receipt = {**builder.receipt, "provenance": {**builder.receipt["provenance"], "verifiedCalls": []},
+               "completedAt": builder.receipt["completedAt"] or "2026-10-30T07:20:17Z"}
+    assert not list(Draft202012Validator(_schema()).iter_errors(receipt))
+
+
+def _without(check_id):
+    return [c for c in _ruled_stage8_checks() if c["id"] != check_id]
+
+
+def _changed(check_id, **change):
+    return [{**c, **change} if c["id"] == check_id else c for c in _ruled_stage8_checks()]
+
+
+@pytest.mark.parametrize("checks", [
+    _changed("8.rbac-denial", status="blocked", blockedBy=[TENANT_BLOCKER]),
+    _changed("8.canonical-join", status="fail"),
+    _changed("8.separation", status="blocked", blockedBy=["https://github.com/honua-io/honua-release/issues/123"]),
+    _changed("8.tenant-isolation", blockedBy=["https://github.com/honua-io/honua-release/issues/123"]),
+    _changed("8.tenant-isolation", status="fail"),
+    _without("8.final-map"),
+    _without("8.current-authority"),
+    _ruled_stage8_checks() + [{"id": "8.fake-success", "status": "blocked", "blockedBy": [TENANT_BLOCKER]}],
+], ids=["rbac-blocked", "join-failed", "separation-blocked", "isolation-other-blocker", "isolation-failed",
+        "final-map-missing", "authority-missing", "second-blocked-check"])
+def test_any_other_non_passing_stage8_check_still_fails(monkeypatch, tmp_path, checks):
+    builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path, stage8_checks=checks)
+    assert receipt["status"] == "fail" and "declaredNotApplicable" not in receipt
+    assert receipt["stages"][-1]["status"] != "pass"
+    _valid(builder)
+
+
+@pytest.mark.parametrize("name", [n for n in canary.ASSERTION_NAMES if n != "tenantIsolation"])
+def test_a_second_non_passing_final_assertion_still_fails(monkeypatch, tmp_path, name):
+    assertions = {**dict.fromkeys(canary.ASSERTION_NAMES, "pass"), "tenantIsolation": "blocked", name: "blocked"}
+    builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path, verify_assertions=assertions)
+    assert receipt["status"] == "fail" and "declaredNotApplicable" not in receipt
+
+
+def test_stage8_without_a_passing_model_action_still_fails(monkeypatch, tmp_path):
+    builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path, stage8_model_status="fail")
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
+    assert "bounded limit" in receipt["notices"][-1]
+
+
+@pytest.mark.parametrize("cell, admitted", [("aws-serverless/redis-on", True), (GA_CELL, False)],
+                         ids=["unruled-cell", "deterministic-not-admitted"])
+def test_non_single_tenant_cell_keeps_stage8_tenant_block_a_failure(monkeypatch, tmp_path, cell, admitted):
+    builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path, cell=cell, admitted=admitted)
+    assert receipt["status"] == "fail" and "declaredNotApplicable" not in receipt
+    assert "returned 'blocked'" in receipt["notices"][-1] and receipt["stages"][-1]["status"] == "fail"
+
+
+def test_a_single_tenant_declaration_cannot_ride_on_an_unadmitted_receipt(monkeypatch, tmp_path):
+    builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path)
+    builder.receipt["linkedEvidence"]["deterministicReceipt"].pop("prerequisiteProfile")
+    with pytest.raises(canary.CanaryError, match="single-tenant declaration"):
+        builder.validate_invariants()
+
+
+def test_owned_verify_counts_the_ruled_stage8_as_fresh_only_on_an_admitted_cell(monkeypatch):
+    verify = _owned_verification_fixture(monkeypatch)
+    import live_driver
+    state, target = live_driver._rehydrate({})[:2]
+    engine = live_driver._executor(None, None, None)
+    engine.transport.credentials.pop("other-tenant")
+    target["unavailablePrincipals"] = {"other-tenant": {"reason": "no second-tenant principal on a cloud cell",
+                                                        "blockedBy": [TENANT_BLOCKER]}}
+    response = verify({"workspaceId": "unit-only"})
+    assert response["assertions"]["tenantIsolation"] == "blocked"
+    assert response["assertions"]["evidenceFresh"] == "blocked", "no ruling without the admitted profile"
+    state["prerequisiteProfile"] = "ga-single-tenant"
+    response = verify({"workspaceId": "unit-only"})
+    assert response["status"] == "blocked" and canary.single_tenant_ruled_assertions(response["assertions"])
+    # Any other stage-8 gap keeps evidence stale even on the admitted cell.
+    engine.transport.credentials.pop("viewer")
+    target["unavailablePrincipals"]["viewer"] = {"reason": "unit", "blockedBy": [TENANT_BLOCKER]}
+    response = verify({"workspaceId": "unit-only"})
+    assert response["assertions"]["evidenceFresh"] == "blocked"
+    assert not canary.single_tenant_ruled_assertions(response["assertions"])
+
+
+def test_model_journey_report_names_the_single_tenant_declaration_of_a_ruled_pass(tmp_path: Path):
+    import model_journey_report as report_tool
+    declared = canary._ga_single_tenant().declaration(GA_CELL)
+    path = tmp_path / "model-canary-1.json"
+
+    def build(declaration):
+        path.write_text(json.dumps({"mode": "genuine-model", "cell": GA_CELL, "attempt": 1, "lockDigest": LOCK,
+            "status": "pass", "failureAttribution": None, "profile": "full-workflow", "executionOutcome": "completed",
+            "functionalGpExecuted": True, "completedAt": "2026-10-30T07:20:17Z",
+            **({"declaredNotApplicable": declaration} if declaration else {})}), encoding="utf-8")
+        return report_tool.build([path], cell=GA_CELL, lock_digest=LOCK, candidate_digest="e" * 64,
+                                 run_id="41013398407", run_attempt="1")
+
+    report = build(declared)
+    assert report["status"] == "pass" and "8.tenant-isolation declared not applicable" in report["why"]
+    assert "ga-cells-single-tenant-2026-10-27" in report["why"]
+    assert "declared not applicable" not in build(None)["why"]
+    assert build({**declared, "cell": "aws-ecs/redis-off"})["status"] == "fail"

@@ -322,6 +322,18 @@
       }
     },
     "notices": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "declaredNotApplicable": {
+      "description": "ga-cells-single-tenant-2026-10-27: the one journey check the founder ruling declares not applicable on a GA cell; stage 8 and tenantIsolation keep their raw blocked verdicts.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "ruling", "cell", "notApplicable"],
+      "properties": {
+        "profile": {"const": "ga-single-tenant"},
+        "ruling": {"const": "ga-cells-single-tenant-2026-10-27"},
+        "cell": {"enum": ["aws-ecs/redis-off", "aws-ecs/redis-on"]},
+        "notApplicable": {"const": ["8.tenant-isolation"]}
+      }
+    },
     "linkedEvidence": {
       "type": "object",
       "additionalProperties": false,
