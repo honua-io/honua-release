@@ -232,7 +232,7 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
     b.receipt["linkedEvidence"]["deterministicReceipt"]["path"]=str(receipt)
     (tmp_path/"extended").mkdir()
     (tmp_path/"extended/seed-manifest.json").write_text(json.dumps(_seed_manifest()))
-    state={"serving":False,"refused":False,"ack":False,"calls":0,"teardown":False,"bindings":[]}
+    state={"serving":False,"refused":False,"ack":False,"calls":0,"teardown":False,"bindings":[],"admission":False}
     serving={"featureCount":2,"featureIds":["1","2"],"featuresSha256":"a"*64,"independentReadMatches":True,
              "fixtureBinding":{k:v for k,v in _fixture().items() if k!="expectedFeatures"}}
     refused={"topology":"redis-off","ruling":"redis-off","rulingStatus":"ruled","tool":"honua_validate_plan",
@@ -265,7 +265,13 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
             return {"status":"fail" if mutation=="teardown" else "complete"}
     class Model:
         def __init__(self,*_):pass
+        def ensure_admission(self):
+            assert state["calls"]==0;state["admission"]=True
+            if mutation=="admission":raise c.CanaryError("candidate AI admission admin.ai.admission.initialize failed")
+            return [{"operation":"admin.ai.admission.initialize","status":"Completed"},
+                    {"operation":"admin.ai.admission.resume","status":"Completed"}]
         def complete(self,messages,bindings):
+            assert state["admission"],"a chat was sent before the AI admission ledger was opened"
             state["calls"]+=1;state["bindings"].append(bindings)
             if mutation=="unsigned" and state["calls"]==2:raise c.CanaryError("signed provenance verification failed")
             proof={"transcriptDigest":("a"*64 if mutation=="replay" else f"{state['calls']:064x}"),
@@ -284,6 +290,23 @@ def test_separate_runner_counts_three_distinct_signed_actions_and_never_claims_g
     assert len({x["runNonce"] for x in state["bindings"]})==3
     assert result["servingProof"]["modelActionSequence"]<result["refusalProof"]["modelActionSequence"]<result["refusalProof"]["acknowledgementActionSequence"]
     assert b.validated_receipt()["profile"]==r.PROFILE
+
+
+def test_runner_opens_the_ai_admission_ledger_before_the_first_chat(tmp_path,monkeypatch):
+    # Run 40968671034 (aws-ecs/redis-off): without this the first chat was refused 503
+    # "AI invocation admission is unavailable or denied" before any model call.
+    b,result,state=_runner(tmp_path,monkeypatch)
+    assert state["admission"] and result["status"]=="pass"
+    setup=[a for a in result["actions"] if a["kind"]=="setup"]
+    assert [a["stageId"] for a in setup]==["serving-read","serving-read"] and all(a["status"]=="pass" for a in setup)
+    assert setup[1]["sequence"]<min(a["sequence"] for a in result["actions"] if a["attribution"]==c.MODEL_SELECTED)
+
+
+def test_runner_failing_to_open_ai_admission_is_infrastructure_with_no_model_call(tmp_path,monkeypatch):
+    _,result,state=_runner(tmp_path,monkeypatch,mutation="admission")
+    assert result["status"]=="fail" and result["failureAttribution"]==c.INFRASTRUCTURE
+    assert state["calls"]==0 and state["teardown"] and result["totals"]["modelCalls"]==0
+    assert any("AI admission" in n for n in result["notices"])
 
 
 @pytest.mark.parametrize("mutation",["accepted","unsigned","replay","teardown",*r.ASSERTIONS[:-1]])
