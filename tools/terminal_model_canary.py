@@ -185,11 +185,21 @@ def load_manifest(path: Path) -> dict[str, Any]:
 
 
 def _ga_single_tenant():
-    """e2e/ga_single_tenant.py: the founder ruling's single declared not-applicable journey check."""
-    if str(ROOT / "e2e") not in sys.path:
-        sys.path.insert(0, str(ROOT / "e2e"))
-    import ga_single_tenant
-    return ga_single_tenant
+    """e2e/ga_single_tenant.py: the founder ruling's single declared not-applicable journey check.
+
+    Loaded by file path, never by putting e2e/ on sys.path: the journey driver imports this module and
+    then `import run` for its own certification/terminal-journey/run.py, which e2e/run.py would shadow
+    (run 40968671034: "module 'run' has no attribute 'observe'").
+    """
+    loaded = sys.modules.get("ga_single_tenant")
+    if loaded is not None:
+        return loaded
+    import importlib.util  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location("ga_single_tenant", ROOT / "e2e" / "ga_single_tenant.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["ga_single_tenant"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def validate_deterministic_receipt(
