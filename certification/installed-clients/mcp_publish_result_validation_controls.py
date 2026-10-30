@@ -67,13 +67,18 @@ def make_setup(authored):
         "metadata":{"workflow.packageId":authored["packageId"],"workflow.packageVersion":"1","workflow.publicationId":publication["publicationId"],
             "workflow.packageHash":graph_hash,"workflow.publicationTarget":"Schedule"},
         "stepStates":[{"stepId":"sink","planId":plan["planId"],"status":3,"attemptCount":1,"jobId":jobid}]}
-    receipt = {"processId":"sink.external-postgis","schema":"public","table":authored["table"],"batchId":authored["batchId"],"committed":True,"featuresWritten":2,"featuresRejected":0}
+    # ConnectionEndpointFingerprint is SHA-256 of host|port|database from the
+    # verified registry row. The worker receipt carries it; a receipt that omits
+    # the endpoint is not the committed sink.
+    endpoint = hashlib.sha256(b"localhost|5432|honua_test").hexdigest()
+    receipt = {"processId":"sink.external-postgis","schema":"public","table":authored["table"],"batchId":authored["batchId"],
+        "committed":True,"featuresWritten":2,"featuresRejected":0,"endpointFingerprint":endpoint}
     uri = "data:application/json;base64,"+base64.b64encode(json.dumps(receipt).encode()).decode()
     parameters = {"honua.geoprocessing.plan_id":plan["planId"],"honua.geoprocessing.process_definitions":"sink.external-postgis","honua.geoprocessing.output_artifact_kinds":"FeatureLayer"}
     parameters.update({"honua.geoprocessing.step.0."+k:v for k,v in node["parameters"].items()})
     job = {"operationId":jobid,"status":3,"createdAt":STAMP,"spec":{"kind":0,"parameters":parameters},"artifactReferences":[uri],"committedEffectReferences":[uri]}
     artifact = {"artifactId":jobid+":artifact:1","kind":1,"label":"Committed PostGIS sink","uri":uri,"contentType":"application/json",
-        "metadata":{"connectionId":GUID,"schema":"public","table":authored["table"]}}
+        "metadata":{"connectionId":GUID,"schema":"public","table":authored["table"],"connectionEndpointFingerprint":endpoint}}
     result = {"resultPackageId":"controlled-real-result-package","status":5,"errors":[],"artifacts":[artifact]}
     empty = {k:[] for k in ("jobs","results","workflows","definitions","proposals","operations")}
     baseline = copy.deepcopy(empty); baseline["definitions"] = [{"id":definition["workflowId"],"sha256":"sha256:"+"1"*64}]
@@ -182,6 +187,26 @@ class PublicationControls(unittest.TestCase):
             value = controls(); value["setup"]["workflow"]["result"]["artifacts"][0][field] = change; self.assert_refused(value)
         value = controls(); value["setup"]["workflow"]["job"]["committedEffectReferences"] = []; self.assert_refused(value)
         value = controls(); value["setup"]["workflow"]["definition"]["steps"][0]["plan"]["steps"][0]["inputs"]["connectionId"] = "unregistered"; self.assert_refused(value)
+
+    def test_committed_receipt_binds_the_observed_endpoint(self):
+        def rewrite(value, mutate):
+            job = value["setup"]["workflow"]["job"]
+            receipt = json.loads(base64.b64decode(job["artifactReferences"][0].split(",", 1)[1]))
+            mutate(receipt)
+            encoded = "data:application/json;base64," + base64.b64encode(json.dumps(receipt).encode()).decode()
+            job["artifactReferences"] = [encoded]
+            job["committedEffectReferences"] = [encoded]
+            value["setup"]["workflow"]["result"]["artifacts"][0]["uri"] = encoded
+        missing = controls(); rewrite(missing, lambda receipt: receipt.pop("endpointFingerprint")); self.assert_refused(missing)
+        wrong = controls(); rewrite(wrong, lambda receipt: receipt.update(endpointFingerprint="0" * 64)); self.assert_refused(wrong)
+        upper = controls(); rewrite(upper, lambda receipt: receipt.update(endpointFingerprint=receipt["endpointFingerprint"].upper())); self.assert_refused(upper)
+        other_host = controls()
+        rewrite(other_host, lambda receipt: receipt.update(endpointFingerprint=hashlib.sha256(b"127.0.0.1|5432|honua_test").hexdigest()))
+        self.assert_refused(other_host)
+        drifted = controls(); drifted["setup"]["workflow"]["result"]["artifacts"][0]["metadata"]["connectionEndpointFingerprint"] = "0"*64
+        self.assert_refused(drifted)
+        dropped = controls(); del dropped["setup"]["workflow"]["result"]["artifacts"][0]["metadata"]["connectionEndpointFingerprint"]
+        self.assert_refused(dropped)
 
     def test_exact_new_records_and_no_prior_record_mutation(self):
         for family in ("jobs","results","workflows","definitions","proposals","operations"):
