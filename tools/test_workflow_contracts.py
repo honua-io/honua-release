@@ -852,6 +852,19 @@ def test_upgrade_gate_requires_the_ga_compose_upgrade_and_rollback_fragment():
     # x86_64 only, the existing harness and compose stack, the real lifecycle.
     assert 'docker pull --platform linux/amd64 "$IMG"' in commands
     assert "bash e2e/harness/upgrade-chaos.sh" in commands
+    smoke = next(s for s in compose["steps"] if s.get("id") == "smoke")
+    smoke_lines = [line.strip() for line in smoke["run"].splitlines()]
+    classify_guard = [
+        "set +e",
+        "bash e2e/harness/upgrade-chaos.sh 2>&1 | tee /tmp/cu/harness.log",
+        'RC="${PIPESTATUS[0]}"',
+        "set -e",
+    ]
+    guard_at = [smoke_lines.index(line) for line in classify_guard]
+    assert guard_at == sorted(guard_at) and len(set(guard_at)) == len(classify_guard)
+    classify_at = next(i for i, line in enumerate(smoke_lines)
+                       if line.startswith("python tools/compose_upgrade_prior.py classify"))
+    assert guard_at[-1] < classify_at
     assert compose["steps"][next(i for i, s in enumerate(compose["steps"]) if s.get("id") == "smoke")]["env"][
         "CHAOS_SCENARIO"] == "compose-upgrade-rollback"
     assert "HONUA_CANDIDATE_DB_SCHEMA" in str(compose)
