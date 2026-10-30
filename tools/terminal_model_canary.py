@@ -844,6 +844,9 @@ class ReceiptBuilder:
     def mark_failed(self, why: str, attribution: str = INFRASTRUCTURE) -> None:
         self.attribute(attribution)
         self.receipt["status"] = "fail"
+        # The single-tenant declaration belongs only to a passing receipt; a failure that arrives
+        # after verification (e.g. teardown) must still leave a valid failed receipt.
+        self.receipt.pop("declaredNotApplicable", None)
         # A failure can carry the driver's own error text: strip this run's secret values from it.
         self.receipt["notices"].append(self.redactor.text(why))
         for stage in self.receipt["stages"]:

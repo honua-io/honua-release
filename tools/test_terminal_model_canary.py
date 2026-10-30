@@ -2177,7 +2177,7 @@ def _ruled_stage8_checks() -> list[dict]:
 
 def _single_tenant_live_run(monkeypatch, tmp_path: Path, *, cell: str = GA_CELL, admitted: bool = True,
                             stage8_checks: list[dict] | None = None, verify_assertions: dict | None = None,
-                            stage8_model_status: str = "pass"):
+                            stage8_model_status: str = "pass", teardown_status: str = "pass"):
     """State-machine unit test of run 41013398407's stage 8; it makes no candidate or model claim."""
     builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
         endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, cell=cell, lock_digest=LOCK)
@@ -2248,7 +2248,7 @@ def _single_tenant_live_run(monkeypatch, tmp_path: Path, *, cell: str = GA_CELL,
                 return {"status": verdict, "assertions": assertions, "finalUrlProof": "unit-only",
                         "pixelProof": "unit-only", "canonicalIds": {"test": "unit-only"}}
             assert operation == "teardown"
-            return {"status": "pass"}
+            return {"status": teardown_status}
 
     class Model:
         def __init__(self, *_):
@@ -2386,3 +2386,12 @@ def test_model_journey_report_names_the_single_tenant_declaration_of_a_ruled_pas
     assert "ga-cells-single-tenant-2026-10-27" in report["why"]
     assert "declared not applicable" not in build(None)["why"]
     assert build({**declared, "cell": "aws-ecs/redis-off"})["status"] == "fail"
+
+
+def test_ruled_run_whose_teardown_fails_keeps_a_valid_failed_receipt(monkeypatch, tmp_path):
+    # Review of #1088: verification set the declaration, then teardown failed; mark_failed must drop it
+    # so the failed receipt still validates and the attempt artifact is written.
+    builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path, teardown_status="fail")
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert "declaredNotApplicable" not in receipt
+    builder.validate_invariants()
