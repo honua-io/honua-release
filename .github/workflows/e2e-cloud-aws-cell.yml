@@ -93,6 +93,35 @@ jobs:
       admission: ${{ steps.provision.outputs.admission }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # e2e-cloud-aws runs one concurrency lane per target, so its group no longer excludes cell
+      # retirement or another run of the same target. Checked here, in the job that creates resources,
+      # so a partial rerun of this job checks again:
+      # - no cloud-cell-retirement is active (a retirement and a provision must never address one cell);
+      # - no other active e2e-cloud-aws run shares this run id's first six digits, which name_prefix
+      #   uses: a same-target run (e.g. the nightly `all` lane and an aws-ecs lane) would otherwise
+      #   collide on named resources.
+      - name: Refuse while a cell retirement or a same-prefix cloud run is active
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          retiring=0; same_prefix=0
+          for state in queued in_progress waiting requested pending; do
+            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/cloud-cell-retirement.yml/runs?status=${state}&per_page=1" --jq '.total_count')"
+            retiring=$(( retiring + n ))
+            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-cloud-aws.yml/runs?status=${state}&per_page=100" \
+                 --jq --arg id "$RUN_ID" '[.workflow_runs[] | select((.id | tostring) != $id and ((.id | tostring)[:6]) == $id[:6])] | length')"
+            same_prefix=$(( same_prefix + n ))
+          done
+          if [ "$retiring" -gt 0 ]; then
+            echo "::error title=cell retirement active::a cloud-cell-retirement run is active; rerun this cell after it completes"
+            exit 1
+          fi
+          if [ "$same_prefix" -gt 0 ]; then
+            echo "::error title=cell name prefix in use::another active e2e-cloud-aws run shares this run id's name prefix; rerun after it completes"
+            exit 1
+          fi
 
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}

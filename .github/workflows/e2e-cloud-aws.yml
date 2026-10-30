@@ -126,22 +126,6 @@ jobs:
       gp_batch_image: ${{ steps.pins.outputs.gp_batch_image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Targets run in parallel lanes (see concurrency), so the shared lock no longer orders this run
-      # after a cloud-cell-retirement. Refuse to provision while one is active instead.
-      - name: Refuse while a cell retirement is active
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          active=0
-          for state in queued in_progress waiting requested pending; do
-            n="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/cloud-cell-retirement.yml/runs?status=${state}&per_page=100" --jq '[.workflow_runs[] | select(.id != ${{ github.run_id }})] | length')"
-            active=$(( active + n ))
-          done
-          if [ "$active" -gt 0 ]; then
-            echo "::error title=cell retirement active::a cloud-cell-retirement run is active; dispatch this run after it completes"
-            exit 1
-          fi
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
