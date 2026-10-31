@@ -29,8 +29,18 @@
       "spec": {
         "object": {
           "resourceIds": {
-            "body": "p07-catalog",
-            "pointer": "/result/structuredContent/layers/*/serviceName"
+            "distinct": {
+              "concat": [
+                {
+                  "body": "p07-agent-catalog",
+                  "pointer": "/result/structuredContent/layers/*/serviceName"
+                },
+                {
+                  "body": "p07-catalog",
+                  "pointer": "/result/structuredContent/layers/*/serviceName"
+                }
+              ]
+            }
           }
         }
       },
@@ -41,6 +51,15 @@
           "path": "/mcp#tools/call",
           "principal": "controller",
           "phase": "observe",
+          "replayOfModelAction": true
+        },
+        "p07-agent-catalog": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "agent",
+          "phase": "observe",
+          "origin": "session-result",
           "replayOfModelAction": true
         }
       }

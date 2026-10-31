@@ -85,9 +85,11 @@ def test_p07_catalog_rejects_missing_layer(variant):
                         '/mcp#tools/call', 200, raw, 'sha256:' + hashlib.sha256(raw).hexdigest(),
                         replay_of=action_id, request_arguments_raw=json.dumps({'tool': action['tool'],
                         'arguments': action['arguments']}).encode())
+        from dataclasses import replace
+        original = replace(record, step='p07-agent-catalog', principal='agent', origin='session-result')
         observations = [Observation('catalog.exact', None, {'projection': 'extract/v1'})]
         return score_assertions(['catalog.exact', 'tenant.denied'], observations, scenario.expected(variant),
-               records={'p07-catalog': record}, roles=roles, scenario_id='P07',
+               records={'p07-catalog': record, 'p07-agent-catalog': original}, roles=roles, scenario_id='P07',
                model_actions={action_id: action}, frozen=frozen_projections(scenario, variant))
     assert [row['status'] for row in score(list(roles.values()))] == ['pass', 'excluded']
     assert [row['status'] for row in score(list(roles.values())[:-1])] == ['fail', 'excluded']
@@ -137,8 +139,10 @@ def test_p07_rejects_incomplete_catalog_response(tmp_path):
         def __init__(self, incomplete): self.incomplete = incomplete
         def actions(self): return [SimpleNamespace(kind='tool_call', tool='honua_list_layers')]
         def replay(self, step, action):
-            return {'isError': False, 'structuredContent': {'layers': [{'serviceId': 's'}],
+            return {'isError': False, 'structuredContent': {'layers': [{'serviceName': 's'}],
                     'offset': 0, 'hasMore': self.incomplete, 'layerCount': 1, 'totalCount': 1}}
+        def action_result(self, step, action):
+            return SimpleNamespace(status=200, json={'result': self.replay(step, action)})
     scenario = load_scenario('P07')
     def observe(incomplete):
         stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
@@ -193,3 +197,18 @@ def test_p07_full_runner_with_fake_candidate(tmp_path, missing):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_p07_refuses_agent_catalog_that_differs_from_controller(tmp_path):
+    from types import SimpleNamespace
+    def response(names):
+        return {'isError': False, 'structuredContent': {'layers': [{'serviceName': n} for n in names],
+                'offset': 0, 'hasMore': False, 'layerCount': len(names), 'totalCount': len(names)}}
+    class Recorder:
+        def actions(self): return [SimpleNamespace(kind='tool_call', tool='honua_list_layers')]
+        def replay(self, step, action): return response(['one', 'two'])
+        def action_result(self, step, action):
+            return SimpleNamespace(status=200, json={'result': response(['one'])})
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    assert [row.assertion_id for row in load_scenario('P07').observe(stack, None, 'A')] == ['tenant.denied']
