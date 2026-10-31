@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P11",
-  "derivation": "Partial, non-runnable expectations: buffer.metric via oracle.fixture_expectation; shelters snapshot from frozen town GeoJSON. Remaining assertions and other town layers require independent projections.",
+  "derivation": "Buffer facts use oracle.fixture_expectation; town geometry and typed attributes come from A/B corpus GeoJSON. Job and map assertions remain unresolved.",
   "variants": {
     "A": {
       "buffer.metric": {

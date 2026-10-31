@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P13",
-  "derivation": "Partial, non-runnable expectations: target v1 identifiers and content hash are bound to the seeded Studio version; shelters content comes from frozen town fixtures. Shared inventory and other town layers remain unresolved.",
+  "derivation": "Map and version identities bind to controller seed responses. Town geometry and typed attributes come from A/B corpus GeoJSON. The shared map projection covers identity and current pointer, not the complete shared service inventory.",
   "variants": {
     "A": {
       "source-content.unchanged": {
