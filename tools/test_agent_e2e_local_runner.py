@@ -2586,3 +2586,24 @@ def test_core3p_full_publication_path_must_match_exactly():
     for path in ('/published/maps/m1/v2/extra', '/published/maps/m1', '/published/maps/v2/m1', '/other/published/maps/m1/v2'):
         with pytest.raises(ValueError, match='does not address'):
             runner.check_reads('pub', read(path), {**rule, 'path': r'.*'}, {}, roles)
+
+
+def test_reader_prepared_before_case_credentials_and_failure_tears_down(monkeypatch):
+    calls = []
+    class Driver:
+        def invoke(self, operation, request):
+            calls.append(operation)
+            return {'status': 'ready', 'workspaceId': 'test-workspace', 'baseUrl': 'http://127.0.0.1:1'}
+    runtime = runner.LocalRuntime(Driver(), model='m', release_id='r')
+    import yaml
+    manifest = yaml.safe_load((runner.ROOT / 'platform-manifest.yaml').read_text())
+    digest = manifest['components']['honua-server']['digest']
+    def reader(stack):
+        calls.append('reader')
+        raise RuntimeError('reader refused')
+    monkeypatch.setattr(runtime, '_ensure_reader', reader)
+    monkeypatch.setattr(runtime, '_prepare', lambda *args: calls.append('prepare'))
+    monkeypatch.setattr(runtime, 'teardown', lambda stack: calls.append('teardown'))
+    with pytest.raises(RuntimeError, match='reader refused'):
+        runtime.setup('P10:A:local-docker', digest)
+    assert calls == ['setup', 'reader', 'teardown']
