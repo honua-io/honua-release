@@ -23,6 +23,7 @@ class ProbeTraffic:
     customer_key: str
     note_field: str
     geometry: dict
+    write_attributes: dict = field(default_factory=dict)
     interval: float = 0.1
     writer_interval: float = 2.0
     timeout: float = 3.0
@@ -55,7 +56,7 @@ class ProbeTraffic:
 
     def _write(self) -> dict:
         marker = "ops-" + uuid.uuid4().hex
-        feature = {"attributes": {self.note_field: marker}, "geometry": self.geometry}
+        feature = {"attributes": {**self.write_attributes, self.note_field: marker}, "geometry": self.geometry}
         body = self._request("/applyEdits", {
             "f": "json", "adds": json.dumps([feature], separators=(",", ":")),
             "rollbackOnFailure": "true",
