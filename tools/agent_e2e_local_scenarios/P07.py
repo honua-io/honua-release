@@ -69,12 +69,23 @@ class P07(Scenario):
         actions = [a for a in recorder.actions() if a.kind == 'tool_call' and a.tool == 'honua_list_layers']
         observations = [Observation('tenant.denied', None, {'projection': 'extract/v1'})]
         if actions:
+            original = recorder.action_result('p07-agent-catalog', actions[-1])
             result = recorder.replay('p07-catalog', actions[-1])
-            content = result.get('structuredContent') if isinstance(result, dict) else None
-            if (isinstance(content, dict) and result.get('isError', False) is False
-                    and isinstance(content.get('layers'), list)
-                    and content.get('offset') == 0 and content.get('hasMore') is False
-                    and content.get('layerCount') == content.get('totalCount') == len(content['layers'])):
+
+            def catalog(value):
+                content = value.get('structuredContent') if isinstance(value, dict) else None
+                if not (isinstance(content, dict) and value.get('isError', False) is False
+                        and isinstance(content.get('layers'), list) and content.get('offset') == 0
+                        and content.get('hasMore') is False
+                        and content.get('layerCount') == content.get('totalCount') == len(content['layers'])):
+                    return None
+                names = [row.get('serviceName') for row in content['layers'] if isinstance(row, dict)]
+                return sorted(names) if len(names) == len(content['layers']) and all(isinstance(n, str) for n in names) else None
+
+            original_message = original.json if original.status == 200 else None
+            seen = catalog(original_message.get('result')) if isinstance(original_message, dict) else None
+            live = catalog(result)
+            if seen is not None and seen == live:
                 observations.insert(0, Observation('catalog.exact', None, {'projection': 'extract/v1'}))
         return observations
 
