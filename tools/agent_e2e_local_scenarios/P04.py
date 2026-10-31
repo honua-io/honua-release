@@ -1,6 +1,6 @@
 """P04 remains unsupported.
 
-The runner exposes neither a model-visible fixture-file channel nor a polygon feature projection. The runner needs a bound input handoff and a registered polygon projection over controller reads.
+Customer files are declared. Independent scoring still needs an owner-bound imported-resource inventory and a frozen projection for polygon features and protected attachment snapshots.
 """
 from agent_e2e_local_api import Scenario
 
