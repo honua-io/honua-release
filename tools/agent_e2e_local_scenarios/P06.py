@@ -1,7 +1,6 @@
 """P06 read-only service: unsupported until model-created services can be located.
 
-The runner needs unambiguous role binding for multiple created services and
-projections for polygon features and permission probes.
+The runner needs a per-role source selector for multiple services authored by the same tool.
 The survey fixture is seeded alongside the imported town; no publication is
 created for the agent. No model-authored identity is treated as evidence.
 """
