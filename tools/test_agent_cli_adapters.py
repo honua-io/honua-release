@@ -263,7 +263,7 @@ def test_corpus_session_studio_dispatch_reaches_runner_log_and_cli_config(tmp_pa
                               'names': [tool['name'] for tool in item['tool_view']['tools']]}
                        for name, item in servers.items()}
             _commands('claude-cli', 'claude-opus-5-5', '/fake', tmp_path, configs, 10, {}, 'contract', 60,
-                      tmp_path / 'debug.log')
+                      tmp_path / 'debug.log', '2.1.0')
             assert set(json.loads((tmp_path / 'mcp.json').read_text())['mcpServers']) == {'honua', 'studio'}
             result = servers['studio']['execute']('tool_call',
                 {'tool': 'studio_click', 'arguments': {'selector': '#save'}})
