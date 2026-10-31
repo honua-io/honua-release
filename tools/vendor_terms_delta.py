@@ -210,7 +210,7 @@ def validate_scan_bounds(text: str) -> None:
                               for _ in pattern.finditer(value))
                 if matches:
                     regex_work += len(value) ** 2 * matches
-                    if regex_work > 2_000_000:
+                    if regex_work > 8_000_000:
                         raise RuntimeError('Candidate requires too much inspection work')
 
 
