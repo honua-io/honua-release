@@ -193,6 +193,30 @@ def _controller_json(base_url: str, path: str, key: str, *, method: str = 'GET',
                   'body_b64': base64.b64encode(raw).decode('ascii')}
 
 
+def same_reopened_envelope(saved: object, reopened: object) -> bool:
+    """Compare map content while allowing the server's fresh validation time."""
+    if not isinstance(saved, dict) or not isinstance(reopened, dict):
+        return False
+    source_validation, fresh_validation = saved.get('validation'), reopened.get('validation')
+    if not isinstance(source_validation, dict) or not isinstance(fresh_validation, dict):
+        return False
+    from datetime import datetime
+    for validation in (source_validation, fresh_validation):
+        if validation.get('status') != 'valid' or validation.get('diagnostics') != []:
+            return False
+        try:
+            timestamp = datetime.fromisoformat(validation['generatedAt'].replace('Z', '+00:00'))
+        except (KeyError, AttributeError, TypeError, ValueError):
+            return False
+        if timestamp.tzinfo is None:
+            return False
+    def without_time(envelope):
+        result = dict(envelope)
+        result['validation'] = {key: value for key, value in envelope['validation'].items() if key != 'generatedAt'}
+        return result
+    return without_time(saved) == without_time(reopened)
+
+
 def reopen_saved_map(base_url: str, item_id: str, version_id: str, controller_key: str, *, timeout: float = 10) -> dict:
     """Reopen an existing version and corroborate the resulting draft by fresh reads.
 
@@ -221,10 +245,23 @@ def reopen_saved_map(base_url: str, item_id: str, version_id: str, controller_ke
         raise ValueError('reopen draft identity invalid') from exc
     observed, third = _controller_json(base_url, f'/api/v1/studio/package-drafts/{draft_id}', controller_key, timeout=timeout)
     fresh = observed.get('data')
-    if (not isinstance(fresh, dict) or fresh.get('draftId') != draft_id or fresh.get('itemId') != item or
-        fresh.get('baseVersionId') != version or fresh.get('envelope') != source['envelope'] or
-        draft.get('draftId') != draft_id or draft.get('envelope') != source['envelope']):
-        raise ValueError('reopened map differs from saved version')
+    if not isinstance(fresh, dict):
+        raise ValueError('reopened map draft read missing')
+    checks = {'draft identity': fresh.get('draftId') == draft_id and draft.get('draftId') == draft_id,
+              'item identity': fresh.get('itemId') == item,
+              'base version': fresh.get('baseVersionId') == version,
+              'fresh envelope': same_reopened_envelope(source['envelope'], fresh.get('envelope')),
+              'reopen envelope': same_reopened_envelope(source['envelope'], draft.get('envelope'))}
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        observed = fresh.get('envelope')
+        expected = source['envelope']
+        allowed = {'family', 'schemaVersion', 'format', 'bindings', 'dependencies', 'validation',
+                   'publicationIntent', 'provenance', 'body'}
+        differences = (sorted({name if name in allowed else 'other' for name in set(observed) | set(expected)
+                               if observed.get(name) != expected.get(name)}) if isinstance(observed, dict) else [])
+        raise ValueError('reopened map differs from saved version: ' + ', '.join(failed) +
+                         '; envelope fields: ' + ', '.join(differences))
     return {'item_id': item, 'version_id': version, 'draft_id': draft_id,
             'envelope': fresh['envelope'], 'evidence': [first, second, third]}
 

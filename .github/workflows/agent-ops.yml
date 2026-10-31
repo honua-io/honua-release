@@ -103,6 +103,7 @@ jobs:
         env:
           OPS_SMOKE_OUT: ${{ runner.temp }}/ops-real-smoke
           OPS_SMOKE_EXPLICIT_ACL: "1"
+          OPS_SMOKE_MAP: "1"
           OPS_SMOKE_CANDIDATE_IMAGE: ${{ vars.OPS_SMOKE_CANDIDATE_IMAGE }}
           OPS_SMOKE_FAULT_MIGRATION: ${{ vars.OPS_SMOKE_FAULT_MIGRATION }}
         run: bash certification/agent-ops/real_smoke.sh

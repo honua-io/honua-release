@@ -10,7 +10,8 @@ import time
 import uuid
 from pathlib import Path
 
-from live_observer import compare_source_geometry, observe_database, observe_layer, observe_service_settings
+from live_observer import (compare_source_geometry, observe_database, observe_layer,
+                           observe_service_settings, reopen_saved_map, same_reopened_envelope)
 from real_controller import RealController
 from live_probes import ProbeTraffic, assess_traffic, readback_writes
 from real_seed import _verify_runtime, prepare_town
@@ -60,6 +61,19 @@ def main() -> None:
                                  compose_file=Path(os.environ['E2E_COMPOSE_FILE']),
                                  image_ref=os.environ['HONUA_SERVER_IMAGE'], authorize=authorize, retain=retain_credential)
         evidence['operator'] = operator.public_receipt()
+        if os.environ.get('OPS_SMOKE_MAP') == '1':
+            from real_map import prepare_map
+            os.environ['OPS_SMOKE_OPERATOR_KEY'] = operator.secret
+            try:
+                parcel = town['layers']['parcels']
+                evidence['map_fixture'] = prepare_map(
+                    project=os.environ['COMPOSE_PROJECT_NAME'], compose_file=Path(os.environ['E2E_COMPOSE_FILE']),
+                    image_ref=os.environ['HONUA_SERVER_IMAGE'], base_url=base,
+                    work=Path(os.environ['OPS_SMOKE_OUT']) / 'map-setup', service=parcel['service'],
+                    layer_id=parcel['layerId'], controller_env='E2E_API_KEY', operator_env='OPS_SMOKE_OPERATOR_KEY',
+                    operator_id=operator.principal_id)
+            finally:
+                os.environ.pop('OPS_SMOKE_OPERATOR_KEY', None)
         expected = {'parcels': 6, 'flood_zones': 1, 'shelters': 5}
         for name, binding in town['layers'].items():
             path = f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}"
@@ -297,6 +311,16 @@ def main() -> None:
                 if not evidence['fault_assessment']['rpo_zero']:
                     raise RuntimeError('acknowledged writes lost during fault recovery')
         evidence['status'] = 'operations-pass'
+        if 'map_fixture' in evidence:
+            from real_map import observe_public_source
+            fixture = evidence['map_fixture']
+            evidence['reopened_map'] = reopen_saved_map(base, fixture['item_id'], fixture['version_id'], key)
+            if not same_reopened_envelope(fixture['envelope'], evidence['reopened_map']['envelope']):
+                raise RuntimeError('reopened saved map changed')
+            parcel = town['layers']['parcels']
+            evidence['reopened_map_source'] = observe_public_source(base, parcel['service'], parcel['layerId'])
+            if evidence['reopened_map_source']['feature_count'] != fixture['public_source']['feature_count']:
+                raise RuntimeError('reopened map source feature count changed')
         evidence['cleanup'] = 'pending'
         print('real Compose operations completed: town layers, anonymous public traffic, controller readback' +
               (', upgrade and backup restore' if controller else ''))

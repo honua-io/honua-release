@@ -94,7 +94,8 @@ def test_saved_map_requires_actual_reopen_and_fresh_matching_draft(monkeypatch):
     item = '11111111-1111-4111-8111-111111111111'
     version = '22222222-2222-4222-8222-222222222222'
     draft = '33333333-3333-4333-8333-333333333333'
-    envelope = {'family': 'map', 'body': {'layers': ['a']}}
+    envelope = {'family': 'map', 'body': {'layers': ['a']},
+                'validation': {'status': 'valid', 'diagnostics': [], 'generatedAt': '2026-10-31T00:00:00Z'}}
     calls = []
     def read(base, path, key, *, method='GET', timeout=10):
         calls.append((method, path))
@@ -117,6 +118,21 @@ def test_saved_map_requires_actual_reopen_and_fresh_matching_draft(monkeypatch):
     monkeypatch.setattr(live_observer, '_controller_json', corrupt)
     with pytest.raises(ValueError, match='differs'):
         live_observer.reopen_saved_map('http://127.0.0.1:1', item, version, 'controller')
+
+
+def test_reopened_map_only_allows_fresh_validation_timestamp():
+    from copy import deepcopy
+    from live_observer import same_reopened_envelope
+    saved = {'family': 'map', 'body': {'layers': ['a']},
+             'validation': {'status': 'valid', 'diagnostics': [], 'generatedAt': '2026-10-31T00:00:00Z'}}
+    reopened = deepcopy(saved)
+    reopened['validation']['generatedAt'] = '2026-10-31T01:00:00Z'
+    assert same_reopened_envelope(saved, reopened)
+    reopened['body']['layers'] = []
+    assert not same_reopened_envelope(saved, reopened)
+    reopened = deepcopy(saved)
+    reopened['validation']['generatedAt'] = 'not-a-time'
+    assert not same_reopened_envelope(saved, reopened)
 
 
 def test_runtime_requires_every_expected_healthy_replica(tmp_path, monkeypatch):
