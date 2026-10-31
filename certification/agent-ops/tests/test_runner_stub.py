@@ -27,12 +27,13 @@ def _clean_pilot(path: Path, **overrides) -> str:
     return str(path)
 
 
-def test_shipped_temperature_is_the_provider_default_not_the_canary_zero():
+def test_shipped_temperature_is_the_provider_default_for_ops_and_canary():
     import client
     from tools.terminal_model_canary import CandidateProxyClient
 
-    source = (HERE.parents[1] / "tools" / "terminal_model_canary.py").read_text(encoding="utf-8")
-    assert '"temperature": 0' in source
+    from types import SimpleNamespace
+    proxy = CandidateProxyClient(SimpleNamespace(configured=True, api_key=None))
+    assert proxy.temperature is None
     assert "temperature" not in inspect.getsource(client.OperateClient.complete)
     assert "temperature" in inspect.getsource(CandidateProxyClient.complete)
     assert SHIPPED_TEMPERATURE == 1

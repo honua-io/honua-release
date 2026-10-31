@@ -52,6 +52,8 @@
     "mode": {
       "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/mode"
     },
+    "lockVerification": {"$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/lockVerification"},
+    "temperature": {"$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/temperature"},
     "guidance": {
       "$ref": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json#/properties/guidance"
     },

@@ -202,6 +202,7 @@ def action_feedback(execution, guidance, *, corrective=False):
 def execute_live(builder, *, endpoint, driver_command, max_actions_per_stage, target_path):
     r = builder.receipt
     client, driver = c.CandidateProxyClient(endpoint), c.DriverAdapter(driver_command, builder.protocol)
+    client.temperature = r["temperature"]
     workspace, run_nonce = None, c._new_run_nonce()
     last = builder.journey["stages"][-1]["id"]
     r["scope"].update(executionToGreen="attempted", blockedBy=[])
@@ -354,14 +355,18 @@ def main_from_args(args, endpoint):
         builder = RefusalReceiptBuilder(manifest=c.load_manifest(args.manifest), protocol=common.protocol,
             protocol_path=args.driver_protocol, endpoint=endpoint, driver_command=args.driver_command,
             deterministic_receipt=None, redactor=common.redactor, lock_digest=args.lock_digest,
-            cell=args.cell, attempt=args.attempt, guidance=getattr(args, "guidance", "full"))
-        if args.lock is not None and c.lock_digest_of(args.lock) != args.lock_digest:
-            builder.mark_failed("platform lock bytes do not hash to the declared digest")
+            cell=args.cell, attempt=args.attempt, guidance=getattr(args, "guidance", "full"),
+            temperature=getattr(args, "temperature", None))
         if args.deterministic_receipt and builder.receipt["status"] != "fail":
             try:
                 builder.receipt["linkedEvidence"]["deterministicReceipt"] = c.validate_deterministic_receipt(
                     args.deterministic_receipt, manifest=c.load_manifest(args.manifest), journey=common.journey,
                     cell=args.cell, prerequisite_profile=PROFILE)
+            except c.CanaryError as exc:
+                builder.mark_failed(str(exc))
+        if builder.receipt["status"] != "fail" and args.lock_digest:
+            try:
+                c.bind_locked_receipt(builder, args)
             except c.CanaryError as exc:
                 builder.mark_failed(str(exc))
         if builder.receipt["status"] != "fail":
