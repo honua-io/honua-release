@@ -1,37 +1,19 @@
-"""P07 is unsupported for local A/B evaluation.
+"""P07 remains unsupported.
 
-Cross-tenant denial requires a separate tenant and positive control; multi-tenant work is prohibited in this lane.
-No controller evidence is fabricated; calls fail closed until this is resolved.
+The frozen release rules prohibit multi-tenant work; tenant.denied needs a second tenant and an authorized positive control. The runner needs an approved isolated tenant fixture and probes.
 """
-from __future__ import annotations
-
-id = "P07"
-supported_variants = ()
+from agent_e2e_local_api import Scenario
 
 
-def _unsupported():
-    raise NotImplementedError("P07: independent evidence is unavailable; see module docstring")
+class P07(Scenario):
+    id = 'P07'
+    supported_variants = ()
+
+    def seed(self, stack, variant):
+        raise NotImplementedError('P07: see module docstring')
+
+    def observe(self, stack, seeded, variant, run=None):
+        raise NotImplementedError('P07: see module docstring')
 
 
-def seed(stack, variant):
-    _unsupported()
-
-
-def fault_plan(variant):
-    _unsupported()
-
-
-def needs_approver():
-    return False
-
-
-def observe(stack, seeded, variant):
-    _unsupported()
-
-
-def expected(variant):
-    _unsupported()
-
-
-def cleanup(stack, seeded):
-    _unsupported()
+scenario = P07()

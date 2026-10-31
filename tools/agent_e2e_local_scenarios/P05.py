@@ -1,37 +1,19 @@
-"""P05 is unsupported for local A/B evaluation.
+"""P05 remains unsupported.
 
-The invalid-row reporting assertion requires an independent record of what was reported; the interface prohibits reading the model transcript and supplies no independent report artifact.
-No controller evidence is fabricated; calls fail closed until this is resolved.
+The runner exposes no model-visible fixture-file channel or controller-verifiable invalid-row reporting artifact. The runner needs an input handoff and independently recorded report evidence.
 """
-from __future__ import annotations
-
-id = "P05"
-supported_variants = ()
+from agent_e2e_local_api import Scenario
 
 
-def _unsupported():
-    raise NotImplementedError("P05: independent evidence is unavailable; see module docstring")
+class P05(Scenario):
+    id = 'P05'
+    supported_variants = ()
+
+    def seed(self, stack, variant):
+        raise NotImplementedError('P05: see module docstring')
+
+    def observe(self, stack, seeded, variant, run=None):
+        raise NotImplementedError('P05: see module docstring')
 
 
-def seed(stack, variant):
-    _unsupported()
-
-
-def fault_plan(variant):
-    _unsupported()
-
-
-def needs_approver():
-    return False
-
-
-def observe(stack, seeded, variant):
-    _unsupported()
-
-
-def expected(variant):
-    _unsupported()
-
-
-def cleanup(stack, seeded):
-    _unsupported()
+scenario = P05()
