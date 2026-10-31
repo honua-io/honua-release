@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P04",
+  "derivation": "Feature and normalized CRS expectations derive from frozen A/B fixture coordinates; coordinates are snapped to a 0.001 metre grid for digest comparison, below the fixture 0.01 metre tolerance.",
+  "variants": {
+    "A": {
+      "features.exact": {
+        "$fixture": {
+          "assertion": "features.exact",
+          "layer": [
+            "parcels",
+            "flood_zones"
+          ],
+          "srid": 3857
+        }
+      },
+      "geometry.crs": {
+        "sourceSrid": [
+          4326,
+          3857
+        ],
+        "returnedSrid": [
+          3857,
+          3857
+        ],
+        "coordinateDigest": "6247e864b3b05b9ae751b735558681c48ee94b0a293768ae8fc83667c13180c6"
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "town-A/parcels.4326.geojson",
+            "content": {
+              "sha256": "sha256:561ce256cc4f4f45667ac70bafa64d9acfc27a09d6abcd74fef595f07ee5e63c"
+            }
+          },
+          {
+            "resourceId": "town-A/flood_zones.3857.geojson",
+            "content": {
+              "sha256": "sha256:b8ea14ee38b0ef30df4ec16a0b1ed31ef495726f1507c4511cb972676f3d5c54"
+            }
+          }
+        ]
+      }
+    },
+    "B": {
+      "features.exact": {
+        "$fixture": {
+          "assertion": "features.exact",
+          "layer": [
+            "parcels",
+            "flood_zones"
+          ],
+          "srid": 3857
+        }
+      },
+      "geometry.crs": {
+        "sourceSrid": [
+          3857,
+          4326
+        ],
+        "returnedSrid": [
+          3857,
+          3857
+        ],
+        "coordinateDigest": "5c8a943f434916ac72a85ead5760021e567c38d6f025102f2f702335740cd24f"
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "town-B/parcels.3857.geojson",
+            "content": {
+              "sha256": "sha256:78adb08094629329be262eda964c489ba3f8097d6e4f37e7ed26f61702214321"
+            }
+          },
+          {
+            "resourceId": "town-B/flood_zones.4326.geojson",
+            "content": {
+              "sha256": "sha256:f406a070d755a0e7500af9350e6432ac92371900b62829e0ac9391b3fb3bd77d"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "customerFiles": {
+    "A": [
+      "town-A/parcels.4326.geojson",
+      "town-A/flood_zones.3857.geojson"
+    ],
+    "B": [
+      "town-B/parcels.3857.geojson",
+      "town-B/flood_zones.4326.geojson"
+    ]
+  },
+  "variantProjections": {
+    "A": {
+      "source-content.unchanged": {
+        "spec": {
+          "attachmentSnapshots": [
+            "town-A/parcels.4326.geojson",
+            "town-A/flood_zones.3857.geojson"
+          ]
+        },
+        "reads": {}
+      }
+    },
+    "B": {
+      "source-content.unchanged": {
+        "spec": {
+          "attachmentSnapshots": [
+            "town-B/parcels.3857.geojson",
+            "town-B/flood_zones.4326.geojson"
+          ]
+        },
+        "reads": {}
+      }
+    }
+  },
+  "roles": [
+    {
+      "role": "seeded:input:parcels",
+      "step": "p04-fixture-parcels",
+      "pointer": "/0/content"
+    },
+    {
+      "role": "seeded:input:flood-zones",
+      "step": "p04-fixture-flood-zones",
+      "pointer": "/0/content"
+    },
+    {
+      "role": "created:table:parcels",
+      "step": "p04-table-after",
+      "items": "",
+      "id": "/table_name",
+      "before": "p04-table-baseline",
+      "created_by": {
+        "tool": "honua_ingest_dataset",
+        "pointer": "/result/structuredContent/table",
+        "where": {
+          "argument": "/data",
+          "role": "seeded:input:parcels"
+        }
+      }
+    },
+    {
+      "role": "created:table:flood-zones",
+      "step": "p04-table-after",
+      "items": "",
+      "id": "/table_name",
+      "before": "p04-table-baseline",
+      "created_by": {
+        "tool": "honua_ingest_dataset",
+        "pointer": "/result/structuredContent/table",
+        "where": {
+          "argument": "/data",
+          "role": "seeded:input:flood-zones"
+        }
+      }
+    }
+  ],
+  "projections": {
+    "features.exact": {
+      "spec": {
+        "object": {
+          "srid": {
+            "body": "p04-parcels-rows",
+            "pointer": "/0/srid"
+          },
+          "features": {
+            "concat": [
+              {
+                "map": {
+                  "body": "p04-parcels-rows",
+                  "pointer": ""
+                },
+                "to": {
+                  "object": {
+                    "properties": {
+                      "object": {
+                        "source_id": {
+                          "item": "/source_id"
+                        },
+                        "name": {
+                          "item": "/name"
+                        },
+                        "owner": {
+                          "item": "/owner"
+                        },
+                        "value": {
+                          "item": "/value"
+                        }
+                      }
+                    },
+                    "geometry": {
+                      "item": "/geometry"
+                    }
+                  }
+                }
+              },
+              {
+                "map": {
+                  "body": "p04-flood-zones-rows",
+                  "pointer": ""
+                },
+                "to": {
+                  "object": {
+                    "properties": {
+                      "object": {
+                        "source_id": {
+                          "item": "/source_id"
+                        },
+                        "name": {
+                          "item": "/name"
+                        }
+                      }
+                    },
+                    "geometry": {
+                      "item": "/geometry"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "reads": {
+        "p04-parcels-rows": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "SELECT source_id, name, owner, value, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+          "addresses": [
+            {
+              "role": "created:table:parcels",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ]
+        },
+        "p04-flood-zones-rows": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "SELECT source_id, name, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+          "addresses": [
+            {
+              "role": "created:table:flood-zones",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "geometry.crs": {
+      "spec": {
+        "object": {
+          "sourceSrid": {
+            "list": [
+              {
+                "body": "p04-fixture-parcels",
+                "pointer": "/0/srid"
+              },
+              {
+                "body": "p04-fixture-flood-zones",
+                "pointer": "/0/srid"
+              }
+            ]
+          },
+          "returnedSrid": {
+            "list": [
+              {
+                "body": "p04-parcels-rows",
+                "pointer": "/0/srid"
+              },
+              {
+                "body": "p04-flood-zones-rows",
+                "pointer": "/0/srid"
+              }
+            ]
+          },
+          "coordinateDigest": {
+            "canonicalSha256": {
+              "concat": [
+                {
+                  "map": {
+                    "body": "p04-parcels-rows",
+                    "pointer": ""
+                  },
+                  "to": {
+                    "item": "/rounded_geometry/coordinates"
+                  }
+                },
+                {
+                  "map": {
+                    "body": "p04-flood-zones-rows",
+                    "pointer": ""
+                  },
+                  "to": {
+                    "item": "/rounded_geometry/coordinates"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "reads": {
+        "p04-parcels-rows": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "SELECT source_id, name, owner, value, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+          "addresses": [
+            {
+              "role": "created:table:parcels",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ]
+        },
+        "p04-flood-zones-rows": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "SELECT source_id, name, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+          "addresses": [
+            {
+              "role": "created:table:flood-zones",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ]
+        },
+        "p04-fixture-parcels": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "(?s)SELECT '.+' AS content, (?:4326|3857) AS srid"
+        },
+        "p04-fixture-flood-zones": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "(?s)SELECT '.+' AS content, (?:4326|3857) AS srid"
+        }
+      }
+    }
+  }
+}

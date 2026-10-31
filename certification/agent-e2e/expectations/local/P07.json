@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P07",
+  "derivation": "Service identities from four fixture publications; catalog must contain the same complete service set. Tenant denial is preregistered as excluded.",
+  "roles": [
+    {
+      "role": "seeded:service:parcels",
+      "step": "p07-parcels-publish-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:service:flood_zones",
+      "step": "p07-flood-zones-publish-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:service:shelters",
+      "step": "p07-shelters-publish-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:service:countries",
+      "step": "p07-countries-publish-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    }
+  ],
+  "projections": {
+    "catalog.exact": {
+      "spec": {
+        "object": {
+          "resourceIds": {
+            "distinct": {
+              "concat": [
+                {
+                  "body": "p07-agent-catalog",
+                  "pointer": "/result/structuredContent/layers/*/serviceName"
+                },
+                {
+                  "body": "p07-catalog",
+                  "pointer": "/result/structuredContent/layers/*/serviceName"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "reads": {
+        "p07-catalog": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "replayOfModelAction": true
+        },
+        "p07-agent-catalog": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "agent",
+          "phase": "observe",
+          "origin": "session-result",
+          "replayOfModelAction": true
+        }
+      }
+    }
+  },
+  "variants": {
+    "A": {
+      "catalog.exact": {
+        "resourceIds": [
+          {
+            "$role": "seeded:service:parcels"
+          },
+          {
+            "$role": "seeded:service:flood_zones"
+          },
+          {
+            "$role": "seeded:service:shelters"
+          },
+          {
+            "$role": "seeded:service:countries"
+          }
+        ]
+      },
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      }
+    },
+    "B": {
+      "catalog.exact": {
+        "resourceIds": [
+          {
+            "$role": "seeded:service:parcels"
+          },
+          {
+            "$role": "seeded:service:flood_zones"
+          },
+          {
+            "$role": "seeded:service:shelters"
+          },
+          {
+            "$role": "seeded:service:countries"
+          }
+        ]
+      },
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      }
+    }
+  }
+}
