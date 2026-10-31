@@ -89,25 +89,36 @@ def test_runner_contract():
     p22 = importlib.import_module('agent_e2e_local_scenarios.P22').scenario
     for variant in ('A', 'B'):
         assert p21.fault_plan(variant) == {
-            'kind': 'http_503_once', 'id': 'p21-map-create',
-            'after': {'tool': 'honua_create_map'}, 'match': {'tool': 'honua_create_map'}}
+            'kind': 'response_lost_after_commit', 'id': 'p21-map-create',
+            'after': None, 'match': {'tool': 'honua_studio_create_draft'}}
         assert p22.fault_plan(variant) is None
     assert p22.sessions_required() == 2
 
 
-def test_p21_runner_fault_is_before_forwarding():
-    # A prior successful call arms the hook. The failed matching call is not
-    # forwarded: it cannot stand in for the pack's lost post-commit response.
+
+def test_p21_fault_forwards_then_hides_successful_response():
     from agent_e2e_local_faults import FaultInjector, validate_fault_plan
     p21 = importlib.import_module('agent_e2e_local_scenarios.P21').scenario
     calls = []
     injector = FaultInjector(validate_fault_plan(p21.fault_plan('A')))
     def candidate(kind, action):
         calls.append(action)
-        return {'status': 'ok'}
+        return {'status': 'ok', '_rawResponse': (200, b'{"draftId":"d1"}')}
     execute = injector.wrap(candidate)
-    action = {'tool': 'honua_create_map', 'arguments': {}}
-    assert execute('tool_call', action)['status'] == 'ok'
+    action = {'tool': 'honua_studio_create_draft', 'arguments': {}}
     assert execute('tool_call', action)['httpStatus'] == 503
     assert calls == [action]
-    assert len(injector.events) == 1
+    event = injector.events[0]
+    assert event['forwarded'] is True and event['upstreamOutcome'] == 'ok'
+    assert event['upstreamStatus'] == 200 and event['upstreamResponseSha256']
+
+
+def test_p21_failed_upstream_is_not_evidence_of_commit():
+    from agent_e2e_local_faults import FaultInjector
+    p21 = importlib.import_module('agent_e2e_local_scenarios.P21').scenario
+    injector = FaultInjector(p21.fault_plan('A'))
+    action = {'tool': 'honua_studio_create_draft', 'arguments': {}}
+    injector.wrap(lambda *_: {'status': 'fail', '_rawResponse': (400, b'error')})('tool_call', action)
+    # A fired event by itself does not establish a successful upstream commit.
+    assert injector.events[0]['upstreamOutcome'] == 'fail'
+    assert injector.events[0]['upstreamStatus'] == 400
