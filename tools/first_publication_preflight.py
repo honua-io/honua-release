@@ -146,7 +146,7 @@ OCI_PIN_FIELDS = {
     "image": ("digest", ("platformDigests", "amd64")),
     "awsLambdaImage": (None, ("awsLambdaDigest",)),
 }
-OCI_FLOATING_FIELDS = ("observed_digest", "observed_platform_digests")
+OCI_FLOATING_FIELDS = ("observed_digest", "observed_platform_digests", "observed_urls")
 QGIS_REPO_URL = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
 QGIS_PUBLIC_REPO_URL = "https://github.com/honua-io/honua-qgis-plugin"
 # plugins.qgis.org keys a plugin by its ZIP's top-level package folder, not its display name.
@@ -789,6 +789,7 @@ def _oci_published(transport, image: dict) -> dict:
             raise PreflightError(f"{ref} carries {inline} but its manifest digest field pins {pins['index_digest']}")
         pins["index_digest"] = inline
     urls = [token_url, ghcr_manifest_url(repo, reference)]
+    child_urls = []
     platforms = {}
     if media_type in OCI_INDEX_TYPES:
         children = [
@@ -804,7 +805,7 @@ def _oci_published(transport, image: dict) -> dict:
         if child_type not in OCI_IMAGE_TYPES:
             raise PreflightError(f"{ref} linux/amd64 entry {child} is not an image manifest")
         platforms["linux/amd64"] = child_digest
-        urls.append(ghcr_manifest_url(repo, child))
+        child_urls.append(ghcr_manifest_url(repo, child))
     elif "linux_amd64_digest" in pins and "index_digest" not in pins:
         # A single-platform manifest is its own linux/amd64 manifest.
         platforms["linux/amd64"] = digest
@@ -821,17 +822,19 @@ def _oci_published(transport, image: dict) -> dict:
         "manifest_fields": image["fields"],
         "media_type": media_type,
         "pins": pins,
-        "urls": urls,
     }
     if image["floating"]:
+        # Every digest-derived field of a floating tag is observed_*, so an RC push is not drift.
         fields.update(
             floating_channel_tag=True,
             observed_digest=digest,
             observed_platform_digests=platforms,
+            observed_urls=child_urls,
             platforms=sorted(platforms),
+            urls=urls,
         )
     else:
-        fields.update(digest=digest, platform_digests=platforms)
+        fields.update(digest=digest, platform_digests=platforms, urls=urls + child_urls)
     return _channel(f"oci:{ref}", ref, "published", **fields)
 
 

@@ -1106,3 +1106,27 @@ def test_committed_receipt_pulls_every_manifest_image_anonymously():
         assert channel["disposition"] == "published"
         assert channel["evidence_class"] == "anonymous-oci-manifest"
     assert _channel(receipt, "helm:oci://ghcr.io/honua-io/charts/honua")["disposition"] == "blocked-on-candidate"
+
+
+def test_a_floating_channel_tag_advance_is_not_drift_through_receipt_generation():
+    committed = _image_receipt()
+    world = World()
+    original = world._oci
+    next_amd64 = json.dumps({"mediaType": OCI_IMAGE, "schemaVersion": 2, "layers": ["rc.2"]}).encode()
+    next_index = json.dumps({"mediaType": OCI_INDEX, "schemaVersion": 2, "manifests": [
+        {"digest": _oci_digest(next_amd64), "platform": {"architecture": "amd64", "os": "linux"}},
+    ]}).encode()
+
+    def advanced(url, headers):
+        served = {"/manifests/2026.1-rc": next_index, "/manifests/" + _oci_digest(next_amd64): next_amd64}
+        for suffix, body in served.items():
+            if url.endswith(suffix):
+                return preflight.Response(200, body, url, {"Content-Type": json.loads(body)["mediaType"]})
+        return original(url, headers)
+
+    world._oci = advanced
+    live = _image_receipt(world)
+    tag = _channel(live, "oci:ghcr.io/honua-io/honua-server:2026.1-rc")
+    assert tag["observed_digest"] == _oci_digest(next_index)
+    assert tag["observed_urls"] == [preflight.ghcr_manifest_url("honua-io/honua-server", _oci_digest(next_amd64))]
+    preflight.compare(live, committed)
