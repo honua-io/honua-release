@@ -74,3 +74,28 @@ def test_select_case_refuses_held_out_and_other_pack_paths(tmp_path):
         select_case(tmp_path / 'pack.v2.json', 'P10', 'A')
     with pytest.raises(ValueError):
         select_case(path, 'missing', 'A')
+
+
+def test_model_session_records_exact_visible_inputs_and_verified_actions(tmp_path):
+    import hashlib
+    import json
+    from agent_e2e_local_runner import read_logged_action, run_model_session
+    calls = []
+    def complete(messages, certification):
+        calls.append(json.dumps(messages).encode())
+        answer = ({'kind': 'tool_call', 'tool': 'customer_tool', 'arguments': {'x': 1}} if len(calls) == 1
+                  else {'kind': 'final', 'answer': 'Finished.'})
+        return json.dumps(answer), {'total_tokens': 3}, 0, {'verified': True}
+    result = run_model_session(prompt='Customer request', tool_catalog=[{'name': 'customer_tool', 'inputSchema': {}}],
+        complete=complete, invoke=lambda name, args: {'content': [], 'isError': False}, log_dir=tmp_path,
+        max_turns=3, max_actions=2, max_tokens=20, certification={'runNonce': 'one'})
+    assert result['modelVisibleDigests'] == ['sha256:' + hashlib.sha256(raw).hexdigest() for raw in calls]
+    assert json.loads(calls[0])[1]['content'] == 'Customer request'
+    for private in ('requiredSequence', 'terminalSurface', 'currentState', 'taskOutcome'):
+        assert private not in calls[0].decode()
+    entry = result['actions'][0]
+    assert read_logged_action(entry['logPath'], entry['digest'])['arguments'] == {'x': 1}
+    with open(entry['logPath'], 'wb') as out:
+        out.write(b'{}')
+    with pytest.raises(ValueError):
+        read_logged_action(entry['logPath'], entry['digest'])
