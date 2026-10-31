@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "honua.devops.provision-approval/v1",
+  "approvalReceiptId": "approval-fbabebe5c88f47d4b72e15ec3967bcaf",
+  "issuer": "fixture-approver",
+  "keyId": "4a98c55adb2479a1",
+  "provisioningOperationId": "urn:honua:provisioning:edfccd397efd495c8737895892225491",
+  "planSha256": "3a691c59f9c8be1eb1ce3e7642643a7aedfa7a0314c8d01750546ea83efca6fe",
+  "planMetadataDigest": "3eed81e28fff37d63eb41f14a29b2f1c77fdb734abde3c35cc1c1497a8595602",
+  "action": "apply",
+  "stack": "aws-ecs",
+  "environment": "dev",
+  "decision": "approved",
+  "signingMode": "local-hmac-dev",
+  "issuedAtUtc": "2026-10-31T16:30:59.0000000\u002B00:00",
+  "expiresAtUtc": "2026-10-31T16:45:59.0000000\u002B00:00",
+  "signature": "8RvcqVKxH5Fak9rx\u002BtaLQqmeh//Yu8MgDgctOyGCgLs="
+}

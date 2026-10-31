@@ -1,0 +1,21 @@
+{
+  "sourceRev": "2fcd96c8d80c55b69ec5f187b58b6852de1bb5dd",
+  "repo": "honua-io/honua-devops",
+  "issue": "https://github.com/honua-io/honua-devops/issues/244",
+  "gaps": {
+    "eks-live-unqualified": {
+      "blocks": true,
+      "goals": [
+        "county-eks"
+      ],
+      "evidence": "docs/unified-agent-workspace.md: native EKS Terraform outputs remain unqualified and live install qualification is outstanding."
+    },
+    "lambda-first-install-unqualified": {
+      "blocks": true,
+      "goals": [
+        "town-lambda"
+      ],
+      "evidence": "docs/unified-agent-workspace.md: Lambda first-install database initialization is not a qualified unattended setup. The tool description advertises aws-ecs size=small only."
+    }
+  }
+}

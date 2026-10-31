@@ -1,0 +1,18 @@
+{
+  "status": "install-input-required",
+  "summary": "Installation needs customer input.",
+  "findings": [],
+  "actions": [
+    "Ask the user the next question, then call install_honua with this installationId and their answer."
+  ],
+  "validationChecks": [],
+  "risks": [],
+  "serverOperations": [],
+  "auditEventId": "ffc41ca5476e4ac99e3d1b8c48446403",
+  "installation": {
+    "installationId": "7c7780245db34882989bf066b0f76392",
+    "stage": "intake",
+    "nextQuestion": "What will Honua serve, and what are your scale, availability, compliance and budget requirements? Do not include credentials.",
+    "nextStep": "Ask the user the next question, then call install_honua with this installationId and their answer."
+  }
+}

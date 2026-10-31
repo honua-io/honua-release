@@ -265,13 +265,13 @@ def test_unbound_diagnostic_or_stale_or_missing_run_does_not_pass():
 def test_required_gates_pass_when_bound_match_and_unbound_are_manifest_pin_green():
     pin = NOW - dt.timedelta(days=3)
     records = {}
-    for index, gate in enumerate(w.RC_GATES):
+    for index, gate in enumerate(g for g in w.RC_GATES if g != w.ARC_GATE):
         records[gate] = {"runs": [_run(1, report=_report(), run_id=index + 1)]}
     result = _eval(records, advisory=w.RC_ADVISORY, pin_at=pin)
     assert result["admissible"] is True
     assert result["red"] == []
     md = w.render_markdown(result)
-    for gate in w.RC_GATES:
+    for gate in (g for g in w.RC_GATES if g != w.ARC_GATE):
         row = result["gates"][gate]
         assert row["verdict"] == "green"
         if gate in w.CANDIDATE_BOUND_GATES:
@@ -306,7 +306,7 @@ def test_a_red_advisory_gate_does_not_block_when_the_required_gate_qualifies():
 
 def test_gate_partition_covers_every_train_and_ai_gate_once():
     covered = set(w.CANDIDATE_BOUND_GATES) | set(w.UNBOUND_GATE_LIMITATIONS)
-    assert covered == set(w.TRAIN_GATES + w.AI_GATES)
+    assert covered == set(w.TRAIN_GATES + w.AI_GATES + (w.ARC_GATE,))
     assert not (set(w.CANDIDATE_BOUND_GATES) & set(w.UNBOUND_GATE_LIMITATIONS))
     assert all(text.strip() for text in w.UNBOUND_GATE_LIMITATIONS.values())
 
@@ -324,10 +324,10 @@ def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
     assert "gate-build-test.yml" in w.RC_GATES
 
 
-def test_rc_set_requires_eighteen_train_gates_and_reports_both_ai_gates_as_advisory():
-    """Founder re-tier 2026-10-25 (wedge-critical-retier-2026-10-25, honua-release#376
-    comment 6407009748): the AI gates are out of RC admission. They are still read and reported."""
-    assert len(w.RC_GATES) == 18
+def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
+    """The founder requires the arc while retaining advisory status for the older AI gates."""
+    assert len(w.RC_GATES) == 19
+    assert w.ARC_GATE in w.RC_GATES
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
     assert not set(w.AI_GATES) & set(w.RC_GATES)
     assert w.RC_ADVISORY == w.AI_GATES
@@ -444,3 +444,218 @@ def test_artifact_zip_yields_report_objects_and_ignores_other_members():
     assert len(docs) == 1
     assert w.matches_candidate(docs[0], CANDIDATE)
     assert w._json_documents(b"not a zip") == []
+
+
+
+def test_fetches_real_arc_campaign_and_aggregate_artifact_names(monkeypatch):
+    import hashlib
+
+    trial_raw = b'{"schema":"honua.ai-arc-trial/v1","runId":"trial-1"}\n'
+    campaign = io.BytesIO()
+    with zipfile.ZipFile(campaign, "w") as archive:
+        archive.writestr("local-docker/runs/trial-1/trial-receipt.json", trial_raw)
+    aggregate = io.BytesIO()
+    with zipfile.ZipFile(aggregate, "w") as archive:
+        archive.writestr("ai-arc-aggregate-local-docker-A1.json", '{"schema":"honua.ai-arc.aggregate/v1"}')
+    names = [f"ai-arc-campaign-{arm}-{target}" for arm in ("A1", "A2")
+             for target in ("local-docker", "aws-ecs", "aws-eks", "aws-lambda")]
+    assert all(w.artifact_carries_evidence(name) for name in names)
+    assert all(w.artifact_carries_evidence(f"ai-arc-aggregate-{arm}") for arm in ("A1", "A2"))
+    artifacts = [{"id": 1, "name": names[0], "size_in_bytes": len(campaign.getvalue())},
+                 {"id": 2, "name": "ai-arc-aggregate-A1", "size_in_bytes": len(aggregate.getvalue())}]
+    monkeypatch.setattr(w, "_get", lambda url, token: {"artifacts": artifacts})
+    monkeypatch.setattr(w, "_get_bytes", lambda url, token, limit:
+                        campaign.getvalue() if "/1/zip" in url else aggregate.getvalue())
+    docs = w.fetch_run_reports("honua-io/honua-release", "test-token", 123)
+    assert {doc["schema"] for doc in docs} == {"honua.ai-arc-trial/v1", "honua.ai-arc.aggregate/v1"}
+    trial = next(doc for doc in docs if doc["schema"] == "honua.ai-arc-trial/v1")
+    assert trial["_artifact_sha256"] == "sha256:" + hashlib.sha256(trial_raw).hexdigest()
+
+
+def test_arc_admission_contract(tmp_path, monkeypatch):
+    import copy
+    import hashlib
+
+    monkeypatch.setattr(w, "ARC_DIR", tmp_path)
+    monkeypatch.setattr(w, "ARC_HARNESS_DIGESTS", tmp_path / "harness-digests.json")
+    prereg_path = tmp_path / "PREREG-arc-v1.md"
+    prereg_path.write_text("frozen prereg")
+    digest = "sha256:" + hashlib.sha256(prereg_path.read_bytes()).hexdigest()
+    catalog = ["candidate.serving", "upgrade.candidate-serving", "rollback.prior-serving",
+               "restore.migration-142", "diagnosis.recovered", "approval.separate", "data.preserved"]
+    arc_raw = json.dumps({"opsScope": {"catalog": catalog}}).encode()
+    (tmp_path / "arc.v1.json").write_bytes(arc_raw)
+    frozen = {k: "sha256:" + "d" * 64 for k in ("runner", "scorer", "arcSpec", "heldOut")}
+    frozen["arcSpec"] = "sha256:" + hashlib.sha256(arc_raw).hexdigest()
+    (tmp_path / "harness-digests.json").write_text(json.dumps(frozen))
+    scope = {"gating": ["local-docker", "aws-ecs"], "approvedBy": "founder", "approvedAt": "2026-11-01T23:00:00Z",
+             "opsScope": {"local-docker": "executed-subset", "aws-ecs": "full", "aws-eks": "not-gating"},
+             "scoredOps": {"local-docker": ["candidate.serving", "diagnosis.recovered", "approval.separate"]}}
+    scope_raw = json.dumps(scope).encode()
+    (tmp_path / "gating-scope.json").write_bytes(scope_raw)
+    identity = {"sourceSha": SHA, "imageDigest": DIGEST, "platformLockDigest": LOCK}
+
+    def make_arm(arm):
+        docs = []
+        for target, (count, bar) in list(w.ARC_BARS.items())[:2]:
+            scored = scope["scoredOps"].get(target, catalog)
+            ops = {"mode": scope["opsScope"][target], "scored": scored,
+                   "unscored": [x for x in catalog if x not in scored], "approved": True,
+                   "approvedAt": scope["approvedAt"], "scopeSha256": "sha256:" + hashlib.sha256(scope_raw).hexdigest()}
+            entries = []
+            for i in range(count):
+                success = i < bar
+                outcomes = ["pass"] * 4 if success else ["fail", "blocked", "blocked", "blocked"]
+                trial = {"schema": "honua.ai-arc-trial/v1", "runId": str(i), "attempt": 1,
+                         "target": target, "arm": arm, "required": True, "goalSet": {"name": "held-out"},
+                         "candidate": identity.copy(), "phases": {"candidate": identity.copy()},
+                         "harnessDigests": frozen.copy(), "opsScope": copy.deepcopy(ops),
+                         "unsafeAttempts": [], "falseSuccess": False,
+                         "falseSuccessUnresolved": False, "status": "completed" if success else "blocked",
+                         "stages": [{"stage": stage, "outcome": outcome, "unsafe": [],
+                                     "falseSuccess": False, "falseSuccessUnresolved": False}
+                                    for stage, outcome in zip(("setup", "ops", "services", "studio"), outcomes)]}
+                if success:
+                    trial["stages"][1]["opsScope"] = {k: copy.deepcopy(ops[k]) for k in ("mode", "scored", "unscored")}
+                    trial["stages"][1]["assertions"] = ([{"assertion": x, "status": "pass"} for x in scored]
+                        + [{"assertion": x, "status": "unscored"} for x in ops["unscored"]])
+                raw = json.dumps(trial).encode()
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w") as archive:
+                    archive.writestr("trial-receipt.json", raw)
+                docs.extend(w._json_documents(buf.getvalue()))
+                entries.append({"runId": str(i), "receiptDigest": "sha256:" + hashlib.sha256(raw).hexdigest()})
+            stage_counts = {stage: {"n": count, "pass": bar} for stage in ("setup", "ops", "services", "studio")}
+            stage_counts["studio"]["assistant"] = "us.anthropic.claude-sonnet-4-6"
+            docs.append({"schema": "honua.ai-arc.aggregate/v1", "prereg": "ARC-v1", "preregDigest": digest,
+                         "candidate": identity.copy(), "target": target, "arm": arm, "required": True,
+                         "scheduled": count, "completed": bar, "blocked": count - bar, "failed": 0,
+                         "undetermined": 0, "unsafeAttempts": 0, "falseSuccess": 0,
+                         "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
+                         "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries,
+                         "opsScope": copy.deepcopy(ops)})
+        return docs
+
+    a1, a2 = make_arm("A1"), make_arm("A2")
+    def evaluate(d1, d2, extra=()):
+        runs = []
+        for index, docs in enumerate((d1, d2, *extra)):
+            run = _run(2 - index * .2, run_id=index + 1)
+            run["reports"] = docs
+            runs.append(run)
+        return _eval({w.ARC_GATE: {"runs": runs}}, unbound={})
+    assert w.artifact_carries_evidence("ai-arc-trial-0")
+    assert evaluate(a1, a2)["admissible"]
+    assert not evaluate(a1, [])["admissible"]
+    agg_index = next(i for i, d in enumerate(a1) if d.get("schema") == "honua.ai-arc.aggregate/v1")
+    trial_index = 0
+    mutations = [
+        lambda d: d.pop(agg_index),
+        lambda d: d.append(copy.deepcopy(d[agg_index])),
+        lambda d: d.append(dict(d[agg_index], arm="a1")),
+        lambda d: d[agg_index].update(required=False),
+        lambda d: d[agg_index]["candidate"].update(sourceSha="e" * 40),
+        lambda d: d[agg_index]["candidate"].update(imageDigest=LOCK),
+        lambda d: d[agg_index]["candidate"].update(platformLockDigest=DIGEST),
+        lambda d: d[agg_index].update(preregDigest=LOCK),
+        lambda d: d[agg_index]["opsScope"].update(mode="full"),
+        lambda d: d[agg_index]["opsScope"]["scored"].pop(),
+        lambda d: d[agg_index]["opsScope"]["unscored"].pop(),
+        lambda d: d[agg_index]["opsScope"].update(scopeSha256=LOCK),
+        lambda d: d[trial_index]["opsScope"].update(mode="full"),
+        lambda d: d[trial_index]["stages"][1]["opsScope"]["unscored"].pop(),
+        lambda d: d[trial_index]["stages"][1]["assertions"][-1].update(status="pass"),
+        lambda d: d[trial_index]["stages"][1]["assertions"][0].update(status="unscored"),
+        lambda d: d[agg_index].update(scheduled=19),
+        lambda d: d[agg_index]["runs"].pop(),
+        lambda d: d[agg_index]["runs"].__setitem__(0, d[agg_index]["runs"][1]),
+        lambda d: d[agg_index]["runs"][0].update(receiptDigest=d[agg_index]["runs"][1]["receiptDigest"]),
+        lambda d: d[agg_index].update(completed=16),
+        lambda d: d[agg_index].update(blocked=0),
+        lambda d: d[agg_index].update(unsafeAttempts=1),
+        lambda d: d[agg_index].update(falseSuccess=1),
+        lambda d: d[agg_index].update(falseSuccessUnresolved=1),
+        lambda d: d[agg_index].update(voids=[{}] * 3),
+        lambda d: d[agg_index].update(voids=[{"runId": "0", "replacementRunId": "0", "adjudication": "https://example.com/decision"}]),
+        lambda d: d[agg_index].update(voids=[{"runId": "old1", "replacementRunId": "0", "adjudication": "https://example.com/1"},
+                                             {"runId": "old2", "replacementRunId": "0", "adjudication": "https://example.com/2"}]),
+        lambda d: d[agg_index]["harnessDigests"].update(runner=LOCK),
+        lambda d: d[agg_index]["exclusions"].pop(),
+        lambda d: d[agg_index]["stages"]["ops"].update(n=1),
+        lambda d: d[agg_index]["stages"]["ops"].update(**{"pass": 0}),
+        lambda d: d[agg_index]["stages"]["studio"].pop("assistant"),
+        lambda d: d[trial_index].update(_artifact_sha256=LOCK),
+        lambda d: d[trial_index].update(status="failed"),
+        lambda d: d[trial_index].update(goalSet={"name": "other"}),
+        lambda d: d[trial_index].update(unsafeAttempts=[{}]),
+        lambda d: d[trial_index].update(falseSuccess=True),
+        lambda d: d[trial_index]["stages"][0].update(outcome="fail"),
+        lambda d: d.pop(trial_index),
+    ]
+    for mutate in mutations:
+        altered = copy.deepcopy(a1)
+        mutate(altered)
+        assert not evaluate(altered, a2)["admissible"], mutate
+    # Comparison arms do not displace a required arm; a newer diagnostic required run does.
+    comparison = copy.deepcopy(a1)
+    for d in comparison:
+        d.update(arm="C1", required=False)
+    assert evaluate(a1, a2, (comparison,))["admissible"]
+    diagnostic = copy.deepcopy(a1)
+    diagnostic[agg_index]["certifying"] = False
+    assert not evaluate(a1, a2, (diagnostic,))["admissible"]
+    mixed_development = copy.deepcopy(a1)
+    mixed_development[trial_index]["goalSet"] = {"name": "development"}
+    mixed_development[agg_index]["unsafeAttempts"] = 1
+    assert not evaluate(a1, a2, (mixed_development,))["admissible"]
+    malformed_flag = [copy.deepcopy(a1[agg_index])]
+    malformed_flag[0]["required"] = False
+    malformed_schema = [copy.deepcopy(a1[agg_index])]
+    malformed_schema[0]["schema"] = "malformed"
+    for bad_docs in (diagnostic, mixed_development, malformed_flag, malformed_schema):
+        newer = _run(0.5, conclusion="failure", run_id=3)
+        newer["reports"] = bad_docs
+        old_a1 = _run(2, run_id=1)
+        old_a1["reports"] = a1
+        old_a2 = _run(1, run_id=2)
+        old_a2["reports"] = a2
+        result = _eval({w.ARC_GATE: {"runs": [old_a1, old_a2, newer]}}, unbound={})
+        assert not result["admissible"]
+        assert result["gates"][w.ARC_GATE]["arms"]["A1"]["verdict"] == "red"
+    invalid = copy.deepcopy(a1)
+    invalid[agg_index]["completed"] = 0
+    assert not evaluate(a1, a2, (invalid,))["admissible"]
+    # A failed or empty campaign still identifies its arm and lock in GitHub's run title.
+    for conclusion in ("failure", "success"):
+        newer = _run(0.5, conclusion=conclusion, run_id=3)
+        newer["display_title"] = f"AI arc A1 (local-docker, held-out) {LOCK}"
+        old_a1 = _run(2, run_id=1)
+        old_a1["reports"] = a1
+        old_a2 = _run(1, run_id=2)
+        old_a2["reports"] = a2
+        result = _eval({w.ARC_GATE: {"runs": [old_a1, old_a2, newer]}}, unbound={})
+        assert not result["admissible"]
+        assert result["gates"][w.ARC_GATE]["arms"]["A1"]["verdict"] == "red"
+        newer["display_title"] = f"AI arc C1 (local-docker, held-out) {LOCK}"
+        assert _eval({w.ARC_GATE: {"runs": [old_a1, old_a2, newer]}}, unbound={})["admissible"]
+    assert w._slim({"display_title": f"AI arc A1 (local-docker, held-out) {LOCK}"})["display_title"].endswith(LOCK)
+    # The subset cannot score update/rollback/restore, omit diagnosis/approval, or omit its list.
+    for altered_scope in (
+        {**scope, "opsScope": {**scope["opsScope"], "local-docker": "not-gating"}},
+        {**scope, "opsScope": {"aws-ecs": "full"}},
+        {**scope, "scoredOps": {}},
+        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered"]}},
+        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered", "approval.separate", "rollback.prior-serving"]}},
+        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered", "approval.separate", "bogus"]}},
+    ):
+        (tmp_path / "gating-scope.json").write_text(json.dumps(altered_scope))
+        assert not evaluate(a1, a2)["admissible"]
+    (tmp_path / "gating-scope.json").write_bytes(scope_raw)
+    assert evaluate(a1, a2)["admissible"]
+    scope["approvedBy"] = None
+    (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
+    assert not evaluate(a1, a2)["admissible"]
+    scope["approvedBy"] = "founder"
+    (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
+    prereg_path.unlink()
+    assert not evaluate(a1, a2)["admissible"]

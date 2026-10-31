@@ -3,7 +3,7 @@ a4bde4b rc re-pin #4; honua-console was re-captured for the a0c04a68 rc re-pin #
 
 ```sh
 docker buildx imagetools inspect ghcr.io/honua-io/honua-server@sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37 --raw > honua-server/index.json
-docker buildx imagetools inspect ghcr.io/honua-io/honua-console@sha256:6612319d53ed9d3fab1a62848b6402d4340f57c227296003614ac88fe48de4f3 --raw > honua-console/index.json
+docker buildx imagetools inspect ghcr.io/honua-io/honua-console@sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4 --raw > honua-console/index.json
 ```
 
 The SHA-256 of each file equals the pinned index digest. Expected architecture
