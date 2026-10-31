@@ -56,3 +56,18 @@ def test_observe_accepts_old_and_new_scenario_interfaces():
         def observe(self, stack, seeded, variant, run=None): return run
     assert observe_scenario(Old(), None, None, 'A', 'record') == 'A'
     assert observe_scenario(New(), None, None, 'A', 'record') == 'record'
+
+
+def test_select_case_refuses_held_out_and_other_pack_paths(tmp_path):
+    import json
+    from agent_e2e_local_runner import select_case
+    path = tmp_path / 'pack.v2.AB-only.json'
+    path.write_text(json.dumps({'scenarios': [{'id': 'P10', 'prompts': {'A': 'A request', 'B': 'Another request'},
+                                              'assertions': ['filter.exact']}]}))
+    assert select_case(path, 'P10', 'A')['prompts']['A'] == 'A request'
+    with pytest.raises(ValueError):
+        select_case(path, 'P10', 'C')
+    with pytest.raises(ValueError):
+        select_case(tmp_path / 'pack.v2.json', 'P10', 'A')
+    with pytest.raises(ValueError):
+        select_case(path, 'missing', 'A')

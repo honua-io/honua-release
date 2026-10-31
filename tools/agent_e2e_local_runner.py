@@ -121,3 +121,23 @@ def score_final_answer(answer: str, observations: dict | None, assertions: list[
         return {'status': 'fail', 'reason': 'missing assertion scores'}
     status = 'pass' if all(row.get('status') == 'pass' for row in assertions) else 'fail'
     return check(answer, observations, state_status=status)
+
+
+def select_case(pack_path: Path, scenario_id: str, variant: str) -> dict:
+    """Read only the development pack; this release cannot enable qualification."""
+    import json
+    if variant not in ('A', 'B'):
+        raise ValueError('only development variants A and B are enabled')
+    path = Path(pack_path)
+    if path.name != 'pack.v2.AB-only.json':
+        raise ValueError('the local runner accepts only the A/B-only pack')
+    pack = json.loads(path.read_text(encoding='utf-8'))
+    matches = [row for row in pack['scenarios'] if row.get('id') == scenario_id]
+    if len(matches) != 1:
+        raise ValueError('unknown or duplicate scenario')
+    case = matches[0]
+    if not isinstance(case.get('prompts', {}).get(variant), str) or not case['prompts'][variant]:
+        raise ValueError('missing development prompt')
+    if not isinstance(case.get('assertions'), list) or not case['assertions']:
+        raise ValueError('missing assertions')
+    return case
