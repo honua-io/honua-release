@@ -171,14 +171,11 @@
       },
       "client_lanes": [
         "raw-geoservices-*",
-        "arcgis-python-*",
-        "esri-dotnet-*"
+        "python-gis-*",
+        "dotnet-gis-*"
       ],
       "deployment_targets": [
         "windows-licensed"
-      ],
-      "except_client_lanes": [
-        "desktop-pro-ui"
       ]
     }
   ],
@@ -223,14 +220,6 @@
       "owner": "honua-io/honua-sdk-dotnet",
       "issue": "https://github.com/honua-io/honua-release/issues/360",
       "missing_producer": "No producer emits the sdk-coverage entrypoint cells (surface sdk-dotnet:<capability>); sdk-certification.yml emits only sdk-dotnet-certification observations."
-    },
-    {
-      "client_lanes": [
-        "desktop-pro-ui"
-      ],
-      "owner": "honua-io/honua-server",
-      "issue": "https://github.com/honua-io/honua-server/issues/5259",
-      "missing_producer": "No workflow drives the licensed desktop client UI against a candidate image; esri-sdk-certification.yml runs only the scripting and SDK lanes, so the pro-ui driver cells have no receipt producer."
     },
     {
       "client_lanes": [

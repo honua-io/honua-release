@@ -61,14 +61,8 @@ SOURCE_HOST_PROFILE = "source-test-host-http-adapter"
 # R40 (honua-release#376): a desktop ledger cell names the driver that produced it, and the receipt
 # identity binds that same driver. Buckets are the cut obligation, not a second result vocabulary.
 # The licensed scripting driver id is the suffix of the lane prefix already listed below.
-_LICENSED_DESKTOP_LANE_PREFIXES = (
-    "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
-    "desktop-arcgis", "arcgis-stub", "ci-desktop",
-)
-SCRIPTING_DRIVER = next(
-    prefix.split("-", 1)[1] for prefix in _LICENSED_DESKTOP_LANE_PREFIXES if prefix.endswith("py")
-)
-CLIENT_DRIVERS = {SCRIPTING_DRIVER, "pyqgis", "pro-ui", "qgis-ui"}
+_LICENSED_DESKTOP_LANE_PREFIXES: tuple[str, ...] = ()
+CLIENT_DRIVERS = {"pyqgis", "qgis-ui"}
 RELEASE_BUCKETS = {"must-fix-before-cut", "prove-against-candidate"}
 # R38 (honua-release#376): a client_version of the form <major>.<minor>.x names a release line. Any
 # patch release of the line satisfies it; the receipt records the exact version it observed.
@@ -1099,11 +1093,6 @@ def evaluate(
             or not _valid_python_wheel(row["client_package"], row.get("client_version"))
         ):
             fail("requirements.client_package", "governed Python wheel identity is malformed or on another lane")
-    external_entitlement_policies = {
-        row.get("entitlement_policy_revision") for row in owned_rows
-        if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("desktop-arcpy-")
-    }
-
     generated_at = _timestamp(ledger.get("generated_at"))
     if generated_at is None:
         fail("generated_at", "generated_at must be a timezone-aware ISO-8601 timestamp")
@@ -1557,15 +1546,6 @@ def evaluate(
                     fail(prefix, "Honua Pro evidence must execute on the governed licensed-release target")
                 if raw.get("auth_policy_revision") != "api-key-protected-v1":
                     fail(prefix, "Honua Pro evidence must execute the governed protected-auth policy")
-            elif entitlement_policy in external_entitlement_policies:
-                # Target and authentication fields already match the exact owned requirement
-                # signature; public validation retains only this opaque policy identifier (R30).
-                pass
-            elif entitlement_policy == "licensed-desktop-client-v1":
-                if raw.get("deployment_target") != "windows-licensed":
-                    fail(prefix, "Licensed desktop evidence must execute on the governed windows-licensed target")
-                if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
-                    fail(prefix, "Licensed desktop evidence must execute the governed anonymous-and-protected auth policy")
             else:
                 fail(prefix, "licensed evidence must bind a governed entitlement policy")
         elif raw.get("entitlement_policy_revision") is not None:

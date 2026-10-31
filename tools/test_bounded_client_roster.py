@@ -211,10 +211,10 @@ def test_preview_surfaces_yield_no_supported_desktop_driver_requirement():
     ]
     assert not [
         _key(row) for row in driver_rows
-        if row["capability_key"] in preview and row["client_driver"] in {"pro-ui", "qgis-ui"}
+        if row["capability_key"] in preview and row["client_driver"] == "qgis-ui"
     ]
     summary = catalog["desktop_driver_summary"]["drivers"]
-    for driver in ("pro-ui", "qgis-ui"):
+    for driver in ("qgis-ui",):
         assert sum(summary[driver].values()) == sum(row["client_driver"] == driver for row in driver_rows)
 
 

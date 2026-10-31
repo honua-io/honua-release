@@ -78,7 +78,7 @@ Evidence is invalidated by a change to the server image digest, protocol contrac
 
 | Surface | Required canonical proof |
 |---|---|
-| GeoServices REST and SOAP discovery | ArcGIS Pro/arcpy, ArcGIS API for Python, ArcGIS Maps SDK for .NET, raw REST; explicit SOAP catalog, public URL, auth, service-open, and REST-handoff cells |
+| GeoServices REST and SOAP discovery | Raw protocol requests; explicit SOAP catalog, public URL, auth, service-open, and REST-handoff cells |
 | OGC Features/WFS | OGC CITE plus GDAL/OGR and QGIS; first-party SDKs where shipped |
 | OGC Maps/Tiles/Styles and WMS/WMTS | OGC CITE plus QGIS and OpenLayers or MapLibre according to advertised output |
 | OGC Coverages/WCS | OGC CITE plus GDAL and OWSLib |
@@ -111,20 +111,14 @@ The 59 QGIS, GDAL/OGR, GDAL, MapLibre GL JS, OWSLib, and PySTAC-Client cells tha
   - Where the existing lane does not identify one client, honua-server is directed to emit a distinct lane: MapLibre GL JS → `js-maplibre` (today inside the multi-client `js` lane), GDAL/OGR and GDAL → `gdal` (today `cli`, which this denominator assigns to the Honua CLI).
   - Lanes a registered producer already emits are retained: `gdal-cog`, `gdal-flatgeobuf`, and `gdal-geoparquet` from the CNG producer.
 
-### Desktop client release lines and drivers (R38, R40)
+### QGIS desktop release line
 
-`certification/sources/desktop-client-certification.v1.json` holds the desktop client rulings of honua-release#376. The public requirements name each client, its version, and its driver.
-
-- **Release lines.** A `client_version` of the form `<major>.<minor>.x` names a release line. QGIS is `3.44.x`. The licensed desktop client is `3.7.x`, the version installed for certification. The requirement and the ledger cell keep the line. The receipt records the exact version it observed as `client_version_observed`, bound into its identity. The gate fails a passing cell on a line that records no observed version, or one off the line. Every other version still joins exactly.
-- **Drivers (R40).** Each desktop row names `client_driver`. Scripting drivers are `pyqgis` and the licensed desktop scripting driver. UI drivers are `pro-ui` and `qgis-ui`. The ledger cell must carry the same driver, and the receipt identity binds the driver that produced the cell. A receipt from another driver does not satisfy the cell.
-- **Scripting buckets.** Both scripting drivers are `must-fix-before-cut` for every applicable surface and function, GeoServices and OGC alike. `desktop-pyqgis` is the QGIS scripting lane: every server-declared surface crossed with every function PyQGIS can perform (connect/discover, add, render, identify, query/filter, edit, raster read, save/reopen, and the auth modes), from `certification/sources/pyqgis-function-grid.v1.json`. A function PyQGIS has no client for stays in that grid as `not-applicable` with the reason declared on the row. The licensed scripting lane stays the one the matrix already emits. The bounded QGIS roster lane stays `desktop-qgis`; those rows are the QGIS scripting driver. The matrix cases the roster does not already cover stay on `desktop-pyqgis` as well.
-- **UI buckets.** `desktop-pro-ui` and `desktop-qgis-ui` rows are `must-fix-before-cut` only for the core set. The licensed desktop UI core is FeatureServer and MapServer, ImageServer render, the functions connect, add layer, render, identify/legend, query/filter and FeatureServer edit, and the auth modes anonymous, token/API key and portal sign-in. QGIS UI adds WMS, WFS and WCS for connect, add, render, identify and query, plus WFS-T edit. Every other UI row is `prove-against-candidate`.
-- **UI production.** No pinned workflow emits `desktop-pro-ui` receipts yet. The licensed producer selects `windows-licensed` by target with `except_client_lanes: [desktop-pro-ui]`, and that lane has its own unproduced disposition (honua-server#5259). Its cells stay skips until a producer is pinned. The licensed scripting driver's service and layer metadata cases declare the `metadata` facet. These were the only licensed-client metadata rows left after the coarse interop rows were removed.
-- **Preview surfaces.** The preview-surfaces ruling (release#351) applies to every driver. No UI or scripting driver gets an addressable row on a Preview capability (Coverages, EDR, WMTS), so none enters the release denominator. The PyQGIS grid keeps those surfaces only as `not-applicable` rows. The validator rejects an addressable driver row on a Preview capability.
-- **GP Preview and its safety floor.** The ruling `gp-preview-floor-2026-10-26` (release#949) classifies every row on the six GP capability keys in `certification/sources/gp-preview-floor.v1.json`. Preview rows are `maturity: preview` with `required_tier: release`: the gate requires a row only at or above its tier and release scope admits only supported or deprecated rows, so they are reported at every tier and required at none. Floor rows stay `supported` and required: rows whose failure is a security or correctness bug (permission denials, owner isolation, typed refusals, no silent fallback, input validation, resource bounds). The generator and the validator both fail on a GP row that matches no entry or more than one, so a new GP row must be classified before it can ship. Producers stamp every facet with the row result, so a floor row's positive facet stays required with its refusal facet.
-- **Counts.** The generated catalog records the cell count per bucket per driver in `desktop_driver_summary`.
-- **Licensed desktop evidence.** The licensed scripting rows and the licensed desktop UI rows are `licensed` on the `windows-licensed` target with the `anonymous-and-protected-v1` auth policy. The UI uses `licensed-desktop-client-v1`. The scripting rows keep the entitlement the matrix already binds. The gate applies the entitlement check and the 72-hour licensed freshness rule, and binds those receipts to the source revision of the producer that owns that target. QGIS rows, scripting and UI, stay on the unlicensed local target.
-- **Labels.** The source file and the generated requirements carry the third-party trademark notice as `trademarkNotice`, so a product name as a client label is nominative (R37).
+`certification/sources/desktop-client-certification.v1.json` records the QGIS desktop release line.
+The catalog retains QGIS and PyQGIS rows, with exact observed patch versions in receipts.
+QGIS UI rows on the declared core functions are `must-fix-before-cut`; other UI rows are
+`prove-against-candidate`. PyQGIS rows cover the declared function grid and retain
+`not-applicable` reasons for functions the client cannot perform. Preview surfaces remain outside
+the supported denominator. Counts per bucket and driver are in `desktop_driver_summary`.
 
 ## Scenario depth and cloud-native budgets
 

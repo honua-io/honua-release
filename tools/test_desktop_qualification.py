@@ -86,7 +86,7 @@ def test_denominator_changes_fail_closed(inputs, mutation):
     elif mutation == "unknown-outcome":
         row["cells"]["query_filter"]["value"] = "waived"
     elif mutation == "other-driver":
-        row["driver"] = "pro-ui"
+        row["driver"] = "unknown-ui"
     with pytest.raises(ValueError):
         q.report(scope, grids, DIGEST)
 
