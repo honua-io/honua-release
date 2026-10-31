@@ -98,7 +98,7 @@ def test_audited_map_sources_require_customer_publish_and_reject_claims():
       'p24-catalog': record({'result': {'structuredContent': {'layers': rows, 'totalCount': 3, 'offset': 0,
           'layerCount': 3, 'hasMore': False}}}, kind='mcp', path='/mcp#tools/call',
           arguments={'tool': 'honua_list_layers', 'arguments': {'offset': 0, 'limit': 500}}),
-      'p24-audit': record({'items': [{'actor': USER, 'resourceType': 'operation_instance',
+      'p24-audit': record({'items': [{'actor': 'apikey:api-key:' + KEY, 'resourceType': 'operation_instance',
           'resourceId': f'op-{i}', 'action': 'operation.completed', 'outcome': 'Success',
           'details': 'operationId=service.publish;status=Completed', 'timestamp': '2026-10-31T22:05:00+00:00'}
           for i in range(1, 4)], 'nextCursor': None}, path='/api/v1/admin/observability/audit?action=operation.completed&resourceType=operation_instance&pageSize=200')}
@@ -114,7 +114,7 @@ def test_audited_map_sources_require_customer_publish_and_reject_claims():
     records['p24-audit'].json['items'][-1]['actor'] = 'other-customer'
     with pytest.raises(ProjectionError):
         audited_map_sources(records, receipts, CUSTODY, KEY, 'map')
-    records['p24-audit'].json['items'][-1]['actor'] = USER
+    records['p24-audit'].json['items'][-1]['actor'] = 'apikey:api-key:' + KEY
     records['p24-audit'].json['items'][-1]['timestamp'] = '2026-10-31T21:59:59+00:00'
     with pytest.raises(ProjectionError):
         audited_map_sources(records, receipts, CUSTODY, KEY, 'map')

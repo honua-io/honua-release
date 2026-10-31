@@ -960,7 +960,7 @@ def audited_map_sources(records, action_results, custody, agent_principal, map_i
                 and event.get('resourceType') == 'operation_instance'
                 and event.get('resourceId') == result['operationInstanceId']
                 and event.get('action') == 'operation.completed' and event.get('outcome') == 'Success'
-                and event.get('actor') in (user, key, 'api-key:' + key)
+                and event.get('actor') in (user, key, 'api-key:' + key, 'apikey:api-key:' + key)
                 and event.get('details', '').split(';')[:2] == ['operationId=service.publish', 'status=Completed']
                 and start <= instant(event.get('timestamp')) <= end]
             if len(events) == 1:
