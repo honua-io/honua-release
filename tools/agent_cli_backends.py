@@ -38,22 +38,39 @@ class StdioMcpBackend:
         self.binary = str(Path(binary).resolve())
         if not Path(self.binary).is_file() or not os.access(self.binary, os.X_OK):
             raise ValueError('published honua-devops MCP binary is unavailable')
-        if not isinstance(slot_env, dict) or any(not isinstance(k, str) or not isinstance(v, str)
-                or not (k.startswith(('HONUA_DEVOPS_', 'HONUA_IAC_')) or k in (
-                    'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
-                    'AWS_REGION', 'AWS_DEFAULT_REGION')) for k, v in slot_env.items()):
-            raise ValueError('operator environment must contain only explicit slot configuration')
-        aws = ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')
-        if any(slot_env.get(k) for k in aws) and not all(slot_env.get(k) for k in aws):
-            raise ValueError('operator AWS credentials must be a short-lived session triple')
         root = Path(workdir).resolve()
         if not root.is_dir() or any((p / name).exists() for p in (root, *root.parents)
                                     for name in ('.git', 'AGENTS.md', 'CLAUDE.md')):
             raise ValueError('operator must run in a scratch directory outside repositories')
+        if not isinstance(slot_env, dict) or any(not isinstance(k, str) or not isinstance(v, str)
+                or not (k.startswith(('HONUA_DEVOPS_', 'HONUA_IAC_')) or k in (
+                    'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
+                    'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_ROLE_ARN', 'AWS_ROLE_SESSION_NAME',
+                    'AWS_WEB_IDENTITY_TOKEN_FILE')) for k, v in slot_env.items()):
+            raise ValueError('operator environment must contain only explicit slot configuration')
+        aws = ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')
+        if any(slot_env.get(k) for k in aws) and not all(slot_env.get(k) for k in aws):
+            raise ValueError('operator AWS credentials must be a short-lived session triple')
+        role, token_file = slot_env.get('AWS_ROLE_ARN'), slot_env.get('AWS_WEB_IDENTITY_TOKEN_FILE')
+        if bool(role) != bool(token_file) or token_file and any(slot_env.get(k) for k in aws):
+            raise ValueError('OIDC role and token file must be paired and cannot mix with session keys')
+        oidc_token = None
+        if token_file:
+            token_path = Path(token_file)
+            resolved = token_path.resolve()
+            if (not re.fullmatch(r'arn:aws(?:-us-gov|-cn)?:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+', role)
+                    or token_path.is_symlink() or root not in resolved.parents or not resolved.is_file()
+                    or resolved.stat().st_mode & 0o077):
+                raise ValueError('OIDC token must be private to the slot and paired with a role ARN')
+            oidc_token = resolved.read_text().strip()
+            if not 20 <= len(oidc_token) <= 16384 or any(c.isspace() for c in oidc_token):
+                raise ValueError('invalid OIDC session token')
         self.env = {'HOME': str(root), 'PATH': '/usr/local/bin:/usr/bin:/bin',
                     'LANG': 'C.UTF-8', **slot_env}
         self.secrets = [v for k, v in slot_env.items() if any(s in k for s in ('KEY', 'SECRET', 'TOKEN', 'PASSWORD'))
                         and v and not k.endswith(('_KEY_ARNS', '_KEY_ARN'))]
+        if oidc_token: self.secrets.append(oidc_token)
+        self.credential_mode = 'web-identity' if token_file else 'session' if all(slot_env.get(k) for k in aws) else None
         self.timeout = timeout
         self.process = None
         self.audit_path = root / 'honua-devops-stderr.log'

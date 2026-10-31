@@ -40,7 +40,9 @@ separate arc-runner lane.
 The controller starts `StdioMcpBackend(binary, slot_env=..., workdir=...).start()`
 using the published binary documented in honua-devops `docs/QUICKSTART-MCP.md`.
 Supply a fresh scratch workdir and an explicit slot environment. AWS access keys,
-if supplied, require a session token; no inherited AWS profile, Docker settings,
+must include a session token, or use a role ARN and private OIDC token file in
+the scratch directory. AWS setup requires one of these temporary credentials.
+No inherited AWS profile, Docker settings,
 CLI provider credentials, or user environment crosses into this process. The
 operator process gets the slot credentials; the model and CLI do not. The
 backend screens returned data for those credentials. The release runner owns

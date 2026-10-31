@@ -383,3 +383,38 @@ def test_parallel_remote_sessions_have_separate_recording_state(tmp_path):
     assert not errors and len(outputs)==3
     assert all(row['actions'][0]['sequence']==1 for row in outputs)
     assert len({row['actions'][0]['logPath'] for row in outputs})==3
+
+
+def test_operator_oidc_credentials_are_slot_scoped_and_screened(tmp_path):
+    binary = tmp_path / 'operator'
+    binary.write_text('#!/bin/sh\nexit 0\n'); binary.chmod(0o700)
+    token = tmp_path / 'token'; token.write_text('oidc-fixture-token-1234567890'); token.chmod(0o600)
+    role = 'arn:aws:iam::123456789012:role/cert/slot'
+    env = {'AWS_ROLE_ARN': role, 'AWS_WEB_IDENTITY_TOKEN_FILE': str(token)}
+    backend = StdioMcpBackend(binary, slot_env=env, workdir=tmp_path)
+    assert backend.credential_mode == 'web-identity'
+    assert token.read_text() in backend.secrets
+    assert 'AWS_SECRET_ACCESS_KEY' not in backend.env
+    with pytest.raises(ValueError, match='paired'):
+        StdioMcpBackend(binary, slot_env={'AWS_ROLE_ARN': role}, workdir=tmp_path)
+    with pytest.raises(ValueError, match='mix'):
+        StdioMcpBackend(binary, slot_env={**env, 'AWS_ACCESS_KEY_ID': 'a', 'AWS_SECRET_ACCESS_KEY': 'b', 'AWS_SESSION_TOKEN': 'c'}, workdir=tmp_path)
+    token.chmod(0o644)
+    with pytest.raises(ValueError, match='private'):
+        StdioMcpBackend(binary, slot_env=env, workdir=tmp_path)
+    token.chmod(0o600)
+    link = tmp_path / 'link'; link.symlink_to(token)
+    with pytest.raises(ValueError, match='private'):
+        StdioMcpBackend(binary, slot_env={**env, 'AWS_WEB_IDENTITY_TOKEN_FILE': str(link)}, workdir=tmp_path)
+    with pytest.raises(ValueError, match='private'):
+        StdioMcpBackend(binary, slot_env={**env, 'AWS_WEB_IDENTITY_TOKEN_FILE': '/etc/hosts'}, workdir=tmp_path)
+
+
+def test_aws_stage_requires_temporary_operator_credentials(tmp_path):
+    binary = tmp_path / 'operator'
+    binary.write_text('#!/bin/sh\nexit 0\n'); binary.chmod(0o700)
+    backend = StdioMcpBackend(binary, slot_env={}, workdir=tmp_path)
+    def never(*_): raise AssertionError('CLI must not start')
+    with pytest.raises(ValueError, match='temporary operator credentials'):
+        run_stage(agent='claude-cli', model='claude-opus-5-5', stage=1, target_kind='aws-ecs',
+                  prompt='Complete the stage', backends={'honua_devops': backend}, log_dir=tmp_path, cli_factory=never)
