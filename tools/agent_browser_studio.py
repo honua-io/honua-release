@@ -959,7 +959,8 @@ def saved_authored_exports(body, fixtures, *, variant='A'):
     require(isinstance(body, dict) and isinstance(fixtures, dict), 'invalid authored map')
     layers, bindings, spec = body.get('layers'), body.get('sourceBindings'), body.get('mapSpec')
     require(isinstance(layers, list) and isinstance(bindings, list) and isinstance(spec, dict)
-            and spec.get('version') == 8 and isinstance(spec.get('layers'), list), 'authored map is incomplete')
+            and spec.get('version') == 8 and isinstance(spec.get('layers'), list)
+            and isinstance(spec.get('sources'), dict), 'authored map is incomplete')
     view = body.get('view')
     bbox = view.get('bbox') if isinstance(view, dict) else None
     require(isinstance(bbox, list) and len(bbox) == 4 and all(type(v) in (int, float) and math.isfinite(v) for v in bbox)
@@ -983,6 +984,7 @@ def saved_authored_exports(body, fixtures, *, variant='A'):
         rules = [row for row in spec['layers'] if isinstance(row, dict) and row.get('id') == name]
         require(len(rules) == 1 and set(rules[0]) <= {'id', 'type', 'source', 'paint', 'layout', 'metadata', 'filter'}
                 and rules[0].get('source') in (name, source)
+                and rules[0].get('source') in spec['sources']
                 and rules[0].get('type') == layer.get('type'), 'unsupported authored rule')
         rule = rules[0]
         layout, paint = rule.get('layout', {}), rule.get('paint', {})
