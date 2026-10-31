@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P05",
-  "derivation": "Known static facts use the corpus fixture oracle. Null marks an unavailable expectation and cannot pass oracle verification.",
+  "derivation": "Features and CRS digest are derived from A/B fixtures; the 0.001 metre digest grid is finer than the 0.01 metre fixture tolerance. Invalid rows and geometry-invalid/missing reason codes follow the fixture defects and server import validation code definitions.",
   "variants": {
     "A": {
       "features.exact": {
@@ -11,8 +11,30 @@
           "srid": 3857
         }
       },
-      "csv.invalid-reported": null,
-      "geometry.crs": null,
+      "csv.invalid-reported": {
+        "validSourceIds": [
+          "s1",
+          "s2",
+          "s3",
+          "s4",
+          "s5"
+        ],
+        "invalidSourceIds": [
+          "bad1",
+          "bad2",
+          "bad3"
+        ],
+        "reportedReasons": [
+          "import.geometry_invalid",
+          "import.geometry_missing",
+          "import.geometry_invalid"
+        ]
+      },
+      "geometry.crs": {
+        "sourceSrid": 4326,
+        "returnedSrid": 3857,
+        "coordinateDigest": "f4fac0c63f2515067f99292b5c054dcdba3cdbc93d4231996009368f862665e3"
+      },
       "source-content.unchanged": {
         "profile": "honua.protected-content/v1",
         "resources": [
@@ -39,8 +61,30 @@
           "srid": 3857
         }
       },
-      "csv.invalid-reported": null,
-      "geometry.crs": null,
+      "csv.invalid-reported": {
+        "validSourceIds": [
+          "s101",
+          "s102",
+          "s103",
+          "s104",
+          "s105"
+        ],
+        "invalidSourceIds": [
+          "bad1",
+          "bad2",
+          "bad3"
+        ],
+        "reportedReasons": [
+          "import.geometry_invalid",
+          "import.geometry_missing",
+          "import.geometry_invalid"
+        ]
+      },
+      "geometry.crs": {
+        "sourceSrid": 4326,
+        "returnedSrid": 3857,
+        "coordinateDigest": "47fd5dd5efcc26091d23e7cd2e8f1886b835146ee55445c95f0d574af52b3f69"
+      },
       "source-content.unchanged": {
         "profile": "honua.protected-content/v1",
         "resources": [
@@ -80,6 +124,65 @@
           ]
         },
         "reads": {}
+      },
+      "csv.invalid-reported": {
+        "spec": {
+          "object": {
+            "validSourceIds": {
+              "sorted": {
+                "body": "p05-import-rows",
+                "pointer": "/*/source_id"
+              }
+            },
+            "invalidSourceIds": {
+              "customerFileColumn": "town-A/invalid-rows.csv",
+              "rows": {
+                "body": "p05-invalid-report",
+                "pointer": "/result/structuredContent/rowErrors/*/row"
+              },
+              "column": "source_id",
+              "firstDataRow": 1
+            },
+            "reportedReasons": {
+              "body": "p05-invalid-report",
+              "pointer": "/result/structuredContent/rowErrors/*/code"
+            }
+          }
+        },
+        "reads": {
+          "p05-invalid-report": {
+            "kind": "mcp",
+            "method": "POST",
+            "path": "/mcp#tools/call",
+            "principal": "agent",
+            "phase": "observe",
+            "origin": "session-result",
+            "replayOfModelAction": true,
+            "addresses": [
+              {
+                "role": "seeded:input:invalid",
+                "at": {
+                  "argument": "/data"
+                }
+              }
+            ]
+          },
+          "p05-import-rows": {
+            "kind": "sql",
+            "method": "SELECT",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "SELECT source_id, name, capacity, is_open, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+            "addresses": [
+              {
+                "role": "created:table:shelters",
+                "at": {
+                  "sqlFrom": "table"
+                }
+              }
+            ]
+          }
+        }
       }
     },
     "B": {
@@ -91,6 +194,65 @@
           ]
         },
         "reads": {}
+      },
+      "csv.invalid-reported": {
+        "spec": {
+          "object": {
+            "validSourceIds": {
+              "sorted": {
+                "body": "p05-import-rows",
+                "pointer": "/*/source_id"
+              }
+            },
+            "invalidSourceIds": {
+              "customerFileColumn": "town-B/invalid-rows.csv",
+              "rows": {
+                "body": "p05-invalid-report",
+                "pointer": "/result/structuredContent/rowErrors/*/row"
+              },
+              "column": "source_id",
+              "firstDataRow": 1
+            },
+            "reportedReasons": {
+              "body": "p05-invalid-report",
+              "pointer": "/result/structuredContent/rowErrors/*/code"
+            }
+          }
+        },
+        "reads": {
+          "p05-invalid-report": {
+            "kind": "mcp",
+            "method": "POST",
+            "path": "/mcp#tools/call",
+            "principal": "agent",
+            "phase": "observe",
+            "origin": "session-result",
+            "replayOfModelAction": true,
+            "addresses": [
+              {
+                "role": "seeded:input:invalid",
+                "at": {
+                  "argument": "/data"
+                }
+              }
+            ]
+          },
+          "p05-import-rows": {
+            "kind": "sql",
+            "method": "SELECT",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "SELECT source_id, name, capacity, is_open, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+            "addresses": [
+              {
+                "role": "created:table:shelters",
+                "at": {
+                  "sqlFrom": "table"
+                }
+              }
+            ]
+          }
+        }
       }
     }
   },
@@ -98,6 +260,11 @@
     {
       "role": "seeded:input:shelters",
       "step": "p05-fixture-valid",
+      "pointer": "/0/content"
+    },
+    {
+      "role": "seeded:input:invalid",
+      "step": "p05-fixture-invalid",
       "pointer": "/0/content"
     },
     {
@@ -161,7 +328,56 @@
           "method": "SELECT",
           "principal": "controller",
           "phase": "observe",
-          "path": "SELECT source_id, name, capacity, is_open, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+          "path": "SELECT source_id, name, capacity, is_open, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+          "addresses": [
+            {
+              "role": "created:table:shelters",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "geometry.crs": {
+      "spec": {
+        "object": {
+          "sourceSrid": {
+            "body": "p05-fixture-valid",
+            "pointer": "/0/srid"
+          },
+          "returnedSrid": {
+            "body": "p05-import-rows",
+            "pointer": "/0/srid"
+          },
+          "coordinateDigest": {
+            "canonicalSha256": {
+              "map": {
+                "body": "p05-import-rows",
+                "pointer": ""
+              },
+              "to": {
+                "item": "/rounded_geometry/coordinates"
+              }
+            }
+          }
+        }
+      },
+      "reads": {
+        "p05-fixture-valid": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "(?s)SELECT '.+' AS content, 4326 AS srid"
+        },
+        "p05-import-rows": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "SELECT source_id, name, capacity, is_open, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry, ST_AsGeoJSON\\(ST_SnapToGrid\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\), 0\\.001\\)\\)::json AS rounded_geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
           "addresses": [
             {
               "role": "created:table:shelters",

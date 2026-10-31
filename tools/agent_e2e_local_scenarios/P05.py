@@ -1,7 +1,6 @@
-"""P05 CSV import remains unsupported.
+"""P05 CSV point import and invalid-row reporting.
 
-The runner needs a role-bound SQL table identity; sealed reports and a read of
-an exact customer attachment's imported table are retained independently.
+The exact input is joined to agent-created tables; typed attributes require honua-server #6815.
 """
 import hashlib
 import re
@@ -16,7 +15,7 @@ INVENTORY = "SELECT table_schema, table_name FROM information_schema.tables WHER
 
 class P05(Scenario):
     id = 'P05'
-    supported_variants = ()
+    supported_variants = ('A', 'B')
 
     def seed(self, stack, variant):
         if variant not in ('A', 'B'):
@@ -28,17 +27,18 @@ class P05(Scenario):
             return Seeded(previous)
         recorder = stack.extra['recorder']
         recorder.sql('p05-table-baseline', INVENTORY)
-        resource = self.expected(variant)['source-content.unchanged']['resources'][0]
-        raw = (CORPUS / resource['resourceId']).read_bytes()
-        if 'sha256:' + hashlib.sha256(raw).hexdigest() != resource['content']['sha256']:
-            raise ValueError('fixture differs from frozen expectation')
-        text = raw.decode('utf-8')
-        if ';' in text:
-            raise ValueError('fixture cannot be represented by the recorder SQL contract')
-        escaped = text.replace("'", "''")
-        rows = recorder.sql('p05-fixture-valid', "SELECT '" + escaped + "' AS content")
-        if rows != [{'content': text}]:
-            raise ValueError('fixture identity could not be recorded')
+        resources = self.expected(variant)['source-content.unchanged']['resources']
+        for label, resource in zip(('valid', 'invalid'), resources):
+            raw = (CORPUS / resource['resourceId']).read_bytes()
+            if 'sha256:' + hashlib.sha256(raw).hexdigest() != resource['content']['sha256']:
+                raise ValueError('fixture differs from frozen expectation')
+            text = raw.decode('utf-8')
+            if ';' in text:
+                raise ValueError('fixture cannot be represented by the recorder SQL contract')
+            escaped = text.replace("'", "''")
+            rows = recorder.sql('p05-fixture-' + label, "SELECT '" + escaped + "' AS content, 4326 AS srid")
+            if rows != [{'content': text, 'srid': 4326}]:
+                raise ValueError('fixture identity could not be recorded')
         state = {'variant': variant}
         stack.extra['p05Seed'] = state
         return Seeded(state)
@@ -75,10 +75,24 @@ class P05(Scenario):
                    for v in (schema, table, geometry)):
                 recorder.sql('p05-import-rows',
                     'SELECT source_id, name, capacity, is_open, ST_SRID(ST_Transform(' + geometry +
-                    ', 3857)) AS srid, ST_AsGeoJSON(ST_Transform(' + geometry + ', 3857))::json AS geometry FROM ' +
+                    ', 3857)) AS srid, ST_AsGeoJSON(ST_Transform(' + geometry + ', 3857))::json AS geometry, '
+                    'ST_AsGeoJSON(ST_SnapToGrid(ST_Transform(' + geometry + ', 3857), 0.001))::json AS rounded_geometry FROM ' +
                     schema + '.' + table + ' ORDER BY source_id')
         return [Observation(name, None, {'projection': 'extract/v1'})
-                for name in ('features.exact', 'source-content.unchanged')]
+                for name in ('features.exact', 'csv.invalid-reported', 'geometry.crs', 'source-content.unchanged')]
+
+    def handoff(self, stack, seeded, variant, run=None):
+        records = stack.extra['recorder'].records
+        if not all(step in records for step in ('p05-import-rows', 'p05-invalid-report')):
+            return None
+        rows = {'body': 'p05-import-rows', 'pointer': ''}
+        invalid_ids = {'customerFileColumn': f'town-{variant}/invalid-rows.csv',
+                       'rows': {'body': 'p05-invalid-report', 'pointer': '/result/structuredContent/rowErrors/*/row'},
+                       'column': 'source_id', 'firstDataRow': 1}
+        return {'object': {'resources': {'list': []},
+            'limitations': {'map': invalid_ids, 'to': {'object': {'code': {'item': ''}}}},
+            'facts': {'object': {'counts': {'object': {'features': {'count': rows}, 'points': {'count': rows}}},
+                                  'names': {'map': rows, 'to': {'item': '/name'}}}}}}
 
 
 scenario = P05()
