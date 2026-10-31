@@ -106,10 +106,10 @@ def test_repository_manifest_declares_verified_content_digests():
     manifest = yaml.safe_load((root / "platform-manifest.yaml").read_text(encoding="utf-8"))
     declared = verifier.declared_digests(manifest)
     assert declared["geospatialMcp"][0] == (
-        "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5")
+        "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c")
     assert declared["geospatialMcp"][1] == {
         "repository": "https://github.com/honua-io/geospatial-mcp",
-        "revision": "d5a09d13c4ad541c05702e598c3679c0f42db7af",
+        "revision": "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd",
         "path": "spec/schemas/index.json",
     }
 

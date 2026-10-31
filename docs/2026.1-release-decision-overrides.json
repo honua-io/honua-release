@@ -776,20 +776,24 @@
           "reason": "published before attestation workflows existed; cannot be attested retroactively",
           "expires": "first attested release of geospatial-grpc",
           "target": "2026.1.1"
-        },
-        {
-          "component": "geospatial-mcp",
-          "kind": "spec",
-          "coordinate": "https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json",
-          "version": "1.0.0+d5a09d13",
-          "digest": "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5",
-          "owner": "Mike McDougall",
-          "reason": "published before attestation workflows existed; cannot be attested retroactively",
-          "expires": "first attested release of geospatial-mcp",
-          "target": "2026.1.1"
         }
       ],
       "expired": [
+        {
+          "date": "2026-10-31",
+          "note": "Expired at the rc.2 re-pin to 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd, index sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c. Both SLSA provenance and CycloneDX SBOM are source-bound to attest-spec-index.yml run 41105115258 (release#1004). The earlier bytes below no longer ship; the historical ruling remains unchanged.",
+          "entry": {
+            "component": "geospatial-mcp",
+            "kind": "spec",
+            "coordinate": "https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json",
+            "version": "1.0.0+d5a09d13",
+            "digest": "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5",
+            "owner": "Mike McDougall",
+            "reason": "published before attestation workflows existed; cannot be attested retroactively",
+            "expires": "first attested release of geospatial-mcp",
+            "target": "2026.1.1"
+          }
+        },
         {
           "date": "2026-10-28",
           "note": "Expired by its own terms (expires: first attested release of honua-iac). honua-release#1039 re-pins honua-iac to v0.4.0 as the commit archive archive/97cf1830e1de60ed7e14983c22ba88c348e298cd.tar.gz (sha256:40c7a9f059574d691e134f3d830967b28c3a7458966f71ab922594501ae5ae06), which honua-iac attest-source-archive.yml attests with CycloneDX SBOM and SLSA provenance. The v0.3.0 bytes below no longer ship, so their entry left the artifacts list the collector reads; the ruling text above is unchanged.",
