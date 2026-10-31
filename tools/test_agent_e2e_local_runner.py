@@ -621,7 +621,9 @@ def test_binding_projection_from_custody_and_secret_scan():
     records = {'cfg': _record('cfg', body={'connection': 'password=hunter2-secret'})}
     ctx = Context(records, credentials=('hunter2-secret', 'unused-credential'))
     from agent_e2e_local_projections import credential_fingerprint
-    assert evaluate({'leakedCredentials': ['cfg']}, ctx) == [credential_fingerprint('hunter2-secret')]
+    assert evaluate({'leakedCredentials': ['cfg']}, ctx) == [credential_fingerprint('hunter2-secret', ctx.fingerprint_salt)]
+    with pytest.raises(ValueError, match='salt'):
+        credential_fingerprint('hunter2-secret', b'short')
 
 
 def test_protected_content_requires_seed_before_and_observe_after():
@@ -1801,63 +1803,6 @@ def test_core2r4_lost_response_needs_commit_on_the_proxy_path_too():
     assert event['committedResourceId'] == 'm' and event['upstreamStatus'] == 201
 
 
-# ---- core3: services-stage capabilities ---------------------------------------------------------
-
-def test_core3_controller_sql_reads_are_recorded_select_only(candidate, tmp_path):
-    import os
-    from agent_e2e_local_recorder import EvidenceVault
-    os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
-    seen = []
-
-    def executor(query):
-        seen.append(query)
-        return 200, json.dumps([{'source_id': 's1', 'capacity': 80}]).encode()
-    vault = EvidenceVault('c')
-    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST, vault=vault,
-                                  attempt_id='c', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')},
-                                  sql_executor=executor)
-    recorder.set_phase('observe')
-    rows = recorder.sql('imported-rows', 'SELECT source_id, capacity FROM honua_data.p05_points ORDER BY source_id')
-    assert rows == [{'source_id': 's1', 'capacity': 80}]
-    record = vault.records()['imported-rows']
-    assert (record.kind, record.method, record.principal) == ('sql', 'SELECT', 'controller')
-    assert record.path == 'SELECT source_id, capacity FROM honua_data.p05_points ORDER BY source_id'
-    for bad in ('DELETE FROM t', 'SELECT 1; DROP TABLE t', 'UPDATE t SET a = 1'):
-        with pytest.raises(ValueError, match='one SELECT'):
-            recorder.sql('bad-' + str(len(seen)), bad)
-    rule = {'kind': 'sql', 'method': 'SELECT', 'principal': 'controller', 'phase': 'observe',
-            'path': r'SELECT source_id, capacity FROM honua_data\.p05_points ORDER BY source_id'}
-    runner.check_reads('imported-rows', record, rule, {})
-    with pytest.raises(ValueError, match='path'):
-        runner.check_reads('imported-rows', record, {**rule, 'path': r'SELECT \* FROM other'}, {})
-
-
-def test_core3_sql_read_runs_read_only_in_the_case_db_container(monkeypatch, tmp_path):
-    import subprocess
-    calls = []
-
-    def fake_run(argv, **kwargs):
-        calls.append((argv, kwargs.get('input')))
-        if argv[:2] == ['docker', 'ps']:
-            return subprocess.CompletedProcess(argv, 0, 'db-1\n', '')
-        return subprocess.CompletedProcess(argv, 0, b'[{"a":1}]\n', b'')
-    monkeypatch.setattr(subprocess, 'run', fake_run)
-    stack = Stack('http://127.0.0.1:1', ADMIN, None, 'corpus-x', 'f', str(tmp_path), DIGEST, {})
-    status, raw = runner.LocalRuntime(None, model='m', release_id='r').sql_read(stack, 'SELECT 1 AS a FROM honua_data.t')
-    assert status == 200 and raw == b'[{"a":1}]'
-    exec_argv, script = calls[-1]
-    assert exec_argv[:2] == ['docker', 'exec'] and '-i' not in exec_argv and script is None   # SQL never on stdin
-    assert any(a.startswith('PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000') for a in exec_argv)
-    assert exec_argv[exec_argv.index('-U') + 1] == 'corpus_reader'
-    command = exec_argv[exec_argv.index('-c', exec_argv.index('psql')) + 1]
-    assert 'json_agg' in command and 'SELECT 1 AS a FROM honua_data.t' in command
-    assert 'search_path=pg_catalog,public,pg_temp' in ' '.join(exec_argv)
-    reader_setup = [argv for argv, _ in calls if 'psql' in argv and argv[argv.index('-U') + 1] == 'honua']
-    setup_sql = reader_setup[0][reader_setup[0].index('-c', reader_setup[0].index('psql')) + 1]
-    assert 'pg_read_all_data' in setup_sql and "statement_timeout = '15s'" in setup_sql
-    assert ' INHERIT' in setup_sql and 'NOINHERIT' not in setup_sql and 'search_path = pg_catalog, public, pg_temp' in setup_sql
-
-
 def test_core3_database_handoff_is_seeded_attested_attached_and_redacted(candidate, tmp_path, monkeypatch):
     import agent_e2e_local_expectations as expectations
     statements = []
@@ -2110,27 +2055,6 @@ def test_core2r5_lost_response_plans_need_a_confirm_read():
     assert injector.skipped[0]['reason'].startswith('no runner controller read')
 
 
-# ---- Astra review 5722613204 of #1172 -----------------------------------------------------------
-
-@pytest.mark.parametrize('query', [
-    'SELECT pg_sleep(10)', "SELECT nextval('s')", "SELECT set_config('a', 'b', false)", "SELECT * FROM dblink('x', 'y')",
-    "SELECT lo_import('/etc/passwd')", 'SELECT "pg_sleep"(1)', 'SELECT pg_catalog.pg_sleep(1)', '\\! id',
-    'SELECT 1; DROP TABLE t', 'SELECT 1 -- note', 'SELECT 1 /* c */', 'SELECT $$x$$', "SELECT 'a'::regclass",
-    'WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x', 'COPY t TO STDOUT', 'SELECT * INTO t2 FROM t',
-    'SELECT * FROM t FOR UPDATE', 'SELECT my_volatile_fn()', 'VALUES (1)'])
-def test_core3r1_sql_allowlist_refuses_client_syntax_and_side_effects(query):
-    with pytest.raises(ValueError):
-        runner.sql_allowlisted(query)
-
-
-def test_core3r1_sql_allowlist_admits_plain_reads():
-    for query in ('SELECT source_id, capacity FROM honua_data.t ORDER BY source_id',
-                  "SELECT count(*) AS n FROM honua_data.t WHERE name = 'x''y' AND capacity > 50",
-                  'SELECT st_astext(geometry), st_srid(geometry) FROM honua_data.t',
-                  'WITH a AS (SELECT id FROM honua_data.t) SELECT id FROM a'):
-        assert runner.sql_allowlisted(query) == query
-
-
 def _handoff_case(candidate, tmp_path, monkeypatch, scenario_cls, replies=None):
     import agent_e2e_local_expectations as expectations
     monkeypatch.setattr(FakeRuntime, 'psql', lambda self, stack, sql, *, read_only: (
@@ -2191,16 +2115,18 @@ def test_core3r3_handoff_passwords_are_scanned_and_stripped_from_exports(candida
     from agent_e2e_local_projections import Context, evaluate
     visible = tuple(json.dumps(m).encode() for m in model.sent)
     from agent_e2e_local_projections import credential_fingerprint
-    fingerprint = credential_fingerprint(password)
+    salt = b'case-salt-0123456789'
+    fingerprint = credential_fingerprint(password, salt)
     # The attachment itself is the intended place: not a leak.
     assert evaluate({'leakedCredentials': ['$model-visible']},
                     Context({}, model_visible=visible[:1], customer_credentials=(password,))) == []
     # Echoed in the final answer or by the model in its own turn: a leak.
     assert evaluate({'leakedCredentials': ['$final-answers']},
-                    Context({}, final_answers=('Use password ' + password,), customer_credentials=(password,))) == [fingerprint]
+                    Context({}, final_answers=('Use password ' + password,), customer_credentials=(password,),
+                            fingerprint_salt=salt)) == [fingerprint]
     echoed = json.dumps([{'role': 'assistant', 'content': 'the password is ' + password}]).encode()
     assert evaluate({'leakedCredentials': ['$model-visible']},
-                    Context({}, model_visible=(echoed,), customer_credentials=(password,))) == [fingerprint]
+                    Context({}, model_visible=(echoed,), customer_credentials=(password,), fingerprint_salt=salt)) == [fingerprint]
     # Exported evidence and the receipt carry no plaintext (bodies and metadata such as SQL text).
     out = tmp_path / 'export'
     for case_dir in runtime.workdirs:
@@ -2311,40 +2237,6 @@ def test_core3b_owner_format_maps_api_key_owner_to_the_runner_principal():
                                    before='before', owner_format='{id}%')], records, agent_principal='agent-key')
 
 
-def test_core3c_imported_table_role_from_sql_inventory_and_bound_sql_reads(tmp_path):
-    from agent_e2e_local_projections import resolve_roles
-    from agent_e2e_local_recorder import Record
-    query = "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = 'honua_data' ORDER BY table_name"
-
-    def inventory(step, phase, rows):
-        raw = json.dumps(rows).encode()
-        return Record(step, phase, 'sql', 'controller', None, 'SELECT', query, 200, raw,
-                      'sha256:' + hashlib.sha256(raw).hexdigest(), None, query.encode())
-    vault = _sealed_action_results(tmp_path, [('honua_ingest_dataset', 'pass', {'structuredContent': {'table': 'p05_points'}})])
-    records = {'before': inventory('before', 'seed', [{'table_schema': 'honua_data', 'table_name': 'town'}]),
-               'after': inventory('after', 'observe', [{'table_schema': 'honua_data', 'table_name': 'p05_points'},
-                                                       {'table_schema': 'honua_data', 'table_name': 'town'}])}
-    binding = RoleBinding('created:table', 'after', items='', id='/table_name', before='before',
-                          created_by={'tool': 'honua_ingest_dataset', 'pointer': '/result/structuredContent/table'})
-    roles = resolve_roles([binding], records, agent_principal='a', action_results=vault.action_results())
-    assert roles == {'created:table': 'p05_points'}
-    limited = {k: Record(r.step, r.phase, 'sql', 'controller', None, 'SELECT', query + ' LIMIT 1', 200, r.raw, r.sha256,
-                         None, (query + ' LIMIT 1').encode()) for k, r in records.items()}
-    with pytest.raises(ValueError, match='no reviewed enumeration contract'):   # a limited inventory is not complete
-        resolve_roles([binding], limited, agent_principal='a', action_results=vault.action_results())
-    read = Record('rows', 'observe', 'sql', 'controller', None, 'SELECT',
-                  'SELECT source_id FROM honua_data.p05_points ORDER BY source_id', 200, b'[]',
-                  'sha256:' + hashlib.sha256(b'[]').hexdigest())
-    rule = {'kind': 'sql', 'method': 'SELECT', 'principal': 'controller', 'phase': 'observe', 'path': r'SELECT .*',
-            'addresses': [{'role': 'created:table', 'at': {'sqlFrom': 'table'}}]}
-    runner.check_reads('rows', read, rule, {}, roles)
-    other = Record('rows', 'observe', 'sql', 'controller', None, 'SELECT',
-                   "SELECT source_id FROM honua_data.town WHERE name = 'p05_points'", 200, b'[]',
-                   'sha256:' + hashlib.sha256(b'[]').hexdigest())
-    with pytest.raises(ValueError, match='does not address'):
-        runner.check_reads('rows', other, rule, {}, roles)
-
-
 def test_core3d_created_by_selects_among_same_tool_creations_by_argument():
     from agent_e2e_local_projections import resolve_roles
     from agent_e2e_local_recorder import Record
@@ -2442,31 +2334,6 @@ def test_core3j_unsupported_variants_are_recorded_and_not_scheduled(candidate, t
 
 
 
-# ---- Astra review 5722741479 of #1172 and lane asks (k)-(n) -----------------------------------
-
-@pytest.mark.parametrize('query', ['SELECT 1 FROM shelters', 'SELECT 1 FROM public.evil', 'SELECT 1 AS one',
-                                   'SELECT x FROM honua_data.t a JOIN evil b ON a.id = b.id',
-                                   'SELECT 1 FROM "Public".x'])
-def test_core3s1_relations_must_be_in_reviewed_schemas(query):
-    with pytest.raises(ValueError):
-        runner.sql_allowlisted(query)
-
-
-def test_core3s3_sql_from_binds_exactly_one_qualified_relation():
-    from agent_e2e_local_projections import address_value
-    from agent_e2e_local_recorder import Record
-
-    def read(query):
-        return Record('r', 'observe', 'sql', 'controller', None, 'SELECT', query, 200, b'[]',
-                      'sha256:' + hashlib.sha256(b'[]').hexdigest())
-    assert address_value(read('SELECT a FROM honua_data.p05 ORDER BY a'), {'sqlFrom': 'qualified'}) == 'honua_data.p05'
-    for query in ('SELECT a.x FROM honua_data.p05 a JOIN honua_data.town b ON a.id = b.id',
-                  'SELECT x FROM honua_data.p05 WHERE x IN (SELECT y FROM honua_data.town)',
-                  'WITH c AS (SELECT y FROM honua_data.town) SELECT y FROM c'):
-        with pytest.raises(ValueError, match='exactly one'):
-            address_value(read(query), {'sqlFrom': 'table'})
-
-
 def test_core3s4_inventory_rows_must_be_exactly_the_reviewed_items():
     from agent_e2e_local_projections import Context, evaluate, proven_complete
     body = {'data': [{'id': 'c1'}, {'id': 'c2'}]}
@@ -2551,3 +2418,168 @@ def test_core3n_relative_publication_routes_resolve_against_the_candidate():
             evaluate(spec, bad)
     with pytest.raises(ValueError, match='base URL'):
         evaluate(spec, Context(records))
+
+
+
+# ---- structured controller SQL (review 5723866581) ----------------------------------------------
+
+def test_core3sql_requests_are_structured_and_identifiers_strict():
+    ok = runner.structured_sql_request({'op': 'table_rows', 'schema': 'honua_data', 'table': 'p05_points',
+                                        'columns': ['source_id', 'geometry']})
+    assert ok['table'] == 'p05_points'
+    for bad in ({'op': 'sql', 'query': 'SELECT 1'}, {'op': 'table_rows', 'schema': 'public', 'table': 't', 'columns': ['a']},
+                {'op': 'table_rows', 'schema': 'honua_data', 'table': 'T', 'columns': ['a']},
+                {'op': 'table_rows', 'schema': 'honua_data', 'table': 't"; DROP', 'columns': ['a']},
+                {'op': 'table_rows', 'schema': 'honua_data', 'table': 't', 'columns': ['a', 'a']},
+                {'op': 'table_rows', 'schema': 'honua_data', 'table': 't', 'columns': ['pg_sleep(1)']},
+                {'op': 'table_rows', 'schema': 'honua_data', 'table': 't', 'columns': []},
+                {'op': 'inventory', 'schema': 'honua_data', 'extra': 1}):
+        with pytest.raises(ValueError):
+            runner.structured_sql_request(bad)
+
+
+def test_core3sql_generated_reads_refuse_user_code_paths():
+    base = {'relkind': 'r', 'rls': False, 'foreignGeojson': 0, 'columns': [
+        {'name': 'source_id', 'typnamespace': 'pg_catalog', 'typname': 'text', 'typtype': 'b', 'postgis': False},
+        {'name': 'geometry', 'typnamespace': 'public', 'typname': 'geometry', 'typtype': 'b', 'postgis': True},
+        {'name': 'mood', 'typnamespace': 'honua_data', 'typname': 'mood', 'typtype': 'e', 'postgis': False},
+        {'name': 'wrapped', 'typnamespace': 'honua_data', 'typname': 'evil', 'typtype': 'b', 'postgis': False},
+        {'name': 'positive', 'typnamespace': 'honua_data', 'typname': 'positive_int', 'typtype': 'd', 'postgis': False}]}
+    sql = runner.table_rows_sql('honua_data', 'p05_points', ['source_id', 'geometry'], base)
+    assert sql.startswith("SELECT COALESCE(pg_catalog.json_agg(pg_catalog.json_build_object('source_id', t.\"source_id\"")
+    assert 'public.st_asgeojson(t."geometry")::pg_catalog.json' in sql and sql.endswith('FROM "honua_data"."p05_points" AS t')
+    for column in ('mood', 'wrapped', 'positive', 'missing'):
+        with pytest.raises(ValueError):
+            runner.table_rows_sql('honua_data', 'p05_points', [column], base)
+    for facts, message in (({**base, 'relkind': 'v'}, 'base tables'), ({**base, 'relkind': 'f'}, 'base tables'),
+                           ({**base, 'rls': True}, 'row-level security'), ({**base, 'foreignGeojson': 1}, 'unreviewed type')):
+        with pytest.raises(ValueError, match=message):
+            runner.table_rows_sql('honua_data', 'p05_points', ['source_id', 'geometry'], facts)
+    assert 'OPERATOR(pg_catalog.=)' in runner.inventory_sql('honua_data')
+    assert 'OPERATOR(pg_catalog.=)' in runner.table_preflight_sql('honua_data', 'p05_points')
+
+
+def test_core3sql_runtime_runs_preflight_then_the_generated_read(monkeypatch, tmp_path):
+    sent = []
+    facts = {'relkind': 'r', 'rls': False, 'foreignGeojson': 0, 'columns': [
+        {'name': 'source_id', 'typnamespace': 'pg_catalog', 'typname': 'text', 'typtype': 'b', 'postgis': False}]}
+
+    def psql(self, stack, sql, *, read_only):
+        sent.append((sql, read_only))
+        return 0, (json.dumps(facts) if 'relrowsecurity' in sql else '[{"source_id":"s1"}]').encode()
+    monkeypatch.setattr(runner.LocalRuntime, 'psql', psql)
+    stack = Stack('http://127.0.0.1:1', ADMIN, None, 'corpus-x', 'f', str(tmp_path), DIGEST, {})
+    status, raw, sql = runner.LocalRuntime(None, model='m', release_id='r').sql_read(
+        stack, {'op': 'table_rows', 'schema': 'honua_data', 'table': 'p05_points', 'columns': ['source_id']})
+    assert status == 200 and json.loads(raw) == [{'source_id': 's1'}]
+    assert [ro for _, ro in sent] == [True, True] and sent[1][0] == sql and 'p05_points' in sql
+
+
+def test_core3sql_psql_reader_session_is_pinned(monkeypatch, tmp_path):
+    import subprocess
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, 'db-1\n' if argv[:2] == ['docker', 'ps'] else b'[]', b'')
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    stack = Stack('http://127.0.0.1:1', ADMIN, None, 'corpus-x', 'f', str(tmp_path), DIGEST, {})
+    runner.LocalRuntime(None, model='m', release_id='r').psql(stack, 'SELECT 1', read_only=True)
+    reader = [a for a in calls if 'psql' in a and a[a.index('-U') + 1] == 'corpus_reader'][0]
+    setup = [a for a in calls if 'psql' in a and a[a.index('-U') + 1] == 'honua'][0]
+    assert any('search_path=pg_catalog,public,pg_temp' in a for a in reader) and '-i' not in reader
+    setup_sql = setup[setup.index('-c', setup.index('psql')) + 1]
+    assert 'INHERIT' in setup_sql and 'NOINHERIT' not in setup_sql and 'pg_read_all_data' in setup_sql
+
+
+def test_core3sql_recorded_reads_and_table_roles(tmp_path, candidate):
+    import os
+    from agent_e2e_local_projections import address_value, resolve_roles
+    from agent_e2e_local_recorder import EvidenceVault
+    os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
+    tables = {'before': [{'table_schema': 'honua_data', 'table_name': 'town'}],
+              'after': [{'table_schema': 'honua_data', 'table_name': 'p05_points'},
+                        {'table_schema': 'honua_data', 'table_name': 'town'}]}
+    phase = {'now': 'before'}
+
+    def executor(request):
+        if request['op'] == 'inventory':
+            return 200, json.dumps(tables[phase['now']]).encode(), 'generated-inventory'
+        return 200, b'[{"source_id":"s1"}]', 'generated-rows'
+    vault = EvidenceVault('c')
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST, vault=vault,
+                                  attempt_id='c', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')},
+                                  sql_executor=executor)
+    recorder.table_inventory('tables-before', 'honua_data')
+    recorder.set_phase('observe')
+    phase['now'] = 'after'
+    recorder.table_inventory('tables-after', 'honua_data')
+    recorder.table_rows('rows', 'honua_data', 'p05_points', ['source_id'])
+    recorder.table_rows('other-rows', 'honua_data', 'town', ['source_id'])
+    records = vault.records()
+    assert records['rows'].request_arguments == {'op': 'table_rows', 'schema': 'honua_data', 'table': 'p05_points',
+                                                'columns': ['source_id']}
+    sealed = _sealed_action_results(tmp_path / 'acts' if (tmp_path / 'acts').mkdir() is None else None,
+                                    [('honua_ingest_dataset', 'pass', {'structuredContent': {'table': 'p05_points'}})])
+    binding = RoleBinding('created:table', 'tables-after', items='', id='/table_name', before='tables-before',
+                          created_by={'tool': 'honua_ingest_dataset', 'pointer': '/result/structuredContent/table'})
+    roles = resolve_roles([binding], records, agent_principal='a', action_results=sealed.action_results())
+    assert roles == {'created:table': 'p05_points'}
+    rule = {'kind': 'sql', 'method': 'SELECT', 'principal': 'controller', 'phase': 'observe', 'path': r'.*',
+            'addresses': [{'role': 'created:table', 'at': {'sqlFrom': 'qualified'}}]}
+    with pytest.raises(ValueError, match='does not address'):
+        runner.check_reads('other-rows', records['other-rows'], rule, {}, {'created:table': 'honua_data.p05_points'})
+    runner.check_reads('rows', records['rows'], rule, {}, {'created:table': 'honua_data.p05_points'})
+    with pytest.raises(ValueError, match='single-table row read'):
+        address_value(records['tables-after'], {'sqlFrom': 'table'})
+    with pytest.raises(ValueError):
+        recorder.table_rows('bad', 'public', 'x', ['a'])
+
+
+
+def test_core3o_model_replays_are_validated_and_hashed_by_the_scorer():
+    import dataclasses
+    actions, records = {}, {}
+    for n in (1, 2):
+        occurrence = f'occ:{n}:1:sha256:{n}'
+        actions[occurrence] = {'kind': 'tool_call', 'tool': 'honua_query_features', '_session': n, '_sequence': 1,
+                               'arguments': {'serviceId': 'svc', 'layerId': 0}}
+        records[f'replay-{n}'] = dataclasses.replace(
+            _record(f'replay-{n}', kind='mcp', path='/mcp#tools/call',
+                    body={'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {'firstId': f's{n}'}}},
+                    arguments={'tool': 'honua_query_features', 'arguments': {'serviceId': 'svc', 'layerId': 0}}),
+            method='POST', replay_of=occurrence)
+    roles = {'seeded:service:s': 'svc'}
+    spec = {'object': {'resourceIds': {'modelReplays': {'tool': 'honua_query_features', 'addresses': [
+        {'role': 'seeded:service:s', 'at': {'argument': '/serviceId'}}]},
+        'to': {'body': '$step', 'pointer': '/result/structuredContent/firstId'}}}}
+    rule = {'kind': 'mcp', 'method': 'POST', 'path': '/mcp#tools/call', 'principal': 'controller', 'phase': 'observe',
+            'replayOfModelAction': True}
+    expected = {'filter.exact': {'resourceIds': ['s1', 's2']}}
+    obs = Observation('filter.exact', None, {'projection': 'extract/v1'})
+
+    def score(reads):
+        return runner.score_assertions(['filter.exact'], [obs], expected, records=records, roles=roles,
+                                       model_actions=actions, frozen={'filter.exact': {'spec': spec, 'reads': reads}})[0]
+    passed = score({'$modelReplays': rule})
+    assert passed['status'] == 'pass'
+    assert sorted(e['step'] for e in passed['evidence']) == ['replay-1', 'replay-2']      # dynamic records hashed
+    failed = score({'$modelReplays': {**rule, 'session': 2}})                              # session-1 replay refused
+    assert failed['status'] == 'fail' and 'session 2' in failed['reason']
+    missing = score({})
+    assert missing['status'] == 'fail' and '$modelReplays' in missing['reason']
+
+
+def test_core3p_full_publication_path_must_match_exactly():
+    rule = {'kind': 'http', 'method': 'GET', 'path': r'/published/.*', 'principal': 'anonymous', 'phase': 'observe',
+            'addresses': [{'role': 'created:route', 'at': {'fullPath': True}}]}
+    from agent_e2e_local_recorder import Record
+
+    def read(path):
+        return Record('pub', 'observe', 'http', 'anonymous', None, 'GET', path, 200, b'{}',
+                      'sha256:' + hashlib.sha256(b'{}').hexdigest())
+    roles = {'created:route': '/published/maps/m1/v2'}
+    runner.check_reads('pub', read('/published/maps/m1/v2?f=json'), rule, {}, roles)
+    for path in ('/published/maps/m1/v2/extra', '/published/maps/m1', '/published/maps/v2/m1', '/other/published/maps/m1/v2'):
+        with pytest.raises(ValueError, match='does not address'):
+            runner.check_reads('pub', read(path), {**rule, 'path': r'.*'}, {}, roles)

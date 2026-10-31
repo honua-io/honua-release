@@ -1,10 +1,11 @@
-"""Live PostGIS contract for controller SQL confinement; opt in with HONUA_AGENT_POSTGRES_TESTS=1.
+"""Live PostGIS contract for controller SQL; opt in with HONUA_AGENT_POSTGRES_TESTS=1.
 
-Runs the runner's own code path (LocalRuntime.psql / sql_read / sql_allowlisted) against a real
-PostGIS container located exactly as in a case stack (compose project + service labels). Every attack
-in certification/agent-e2e/fixtures/sql-confinement.v1.json must be refused by the parser and, with the
-parser bypassed, by the database as corpus_reader (wrapped as sql_read sends it, and bare); no attack may
-change state. DOCKER_HOST may point at a remote engine (e.g. ssh://honua-eval-3).
+Runs the runner's own code path (ControllerRecorder.table_rows/table_inventory -> LocalRuntime.sql_read ->
+generated SQL -> LocalRuntime.psql as corpus_reader) against a real PostGIS container located exactly as in a
+case stack (compose project + service labels). Scenarios cannot send SQL: every structured refusal in
+certification/agent-e2e/fixtures/sql-confinement.v1.json must be refused before any row read, allowed reads
+must return exactly their rows, and the raw database battery (defense in depth) must be refused with no
+state change. DOCKER_HOST may point at a remote engine (e.g. ssh://honua-eval-3).
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ import pytest
 
 import agent_e2e_local_runner as runner
 from agent_e2e_local_api import Stack
+from agent_e2e_local_recorder import ControllerRecorder, EvidenceVault
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = json.loads((ROOT / 'certification/agent-e2e/fixtures/sql-confinement.v1.json').read_text())
@@ -28,7 +30,7 @@ RESULTS = []
 
 
 @pytest.fixture(scope='module')
-def database():
+def database(tmp_path_factory):
     if os.environ.get('HONUA_AGENT_POSTGRES_TESTS') != '1':
         pytest.skip('opt-in live PostgreSQL confinement checks')
     assert shutil.which('docker'), 'Docker is required for requested live PostgreSQL checks'
@@ -44,7 +46,8 @@ def database():
                     '--env', 'POSTGRES_DB=honua', reference], check=True, stdout=subprocess.DEVNULL)
     try:
         runtime = runner.LocalRuntime(None, model='m', release_id='r')
-        stack = Stack('http://127.0.0.1:1', 'k', None, project, 'none', '/tmp', 'sha256:' + 'a' * 64, {})
+        workdir = tmp_path_factory.mktemp('sqlprobe')
+        stack = Stack('http://127.0.0.1:1', 'k', None, project, 'none', str(workdir), 'sha256:' + 'a' * 64, {})
         for _ in range(150):
             if subprocess.run(['docker', 'exec', name, 'pg_isready', '-U', 'honua', '-d', 'honua', '-h', '127.0.0.1'],
                               capture_output=True).returncode == 0:
@@ -56,7 +59,11 @@ def database():
         for statement in FIXTURE['seed']:
             code, _ = runtime.psql(stack, statement, read_only=False)
             assert code == 0, statement
-        yield runtime, stack
+        recorder = ControllerRecorder(base_url='http://127.0.0.1:1', workdir=workdir, candidate_digest='sha256:' + 'a' * 64,
+                                      attempt_id=project, principals={'controller': (None, None)}, vault=EvidenceVault(project),
+                                      sql_executor=lambda request: runtime.sql_read(stack, request))
+        recorder.set_phase('observe')
+        yield runtime, stack, recorder
     finally:
         subprocess.run(['docker', 'rm', '--force', '--volumes', name], check=False, stdout=subprocess.DEVNULL)
         out = os.environ.get('HONUA_SQL_LIVE_RESULTS')
@@ -64,65 +71,90 @@ def database():
             Path(out).write_text(json.dumps(RESULTS, indent=2))
 
 
+STATE_SQL = ("SELECT json_build_object("
+             "'tables', (SELECT json_agg(c.relname ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+             "WHERE n.nspname = 'honua_data'), "
+             "'shelters', (SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) FROM honua_data.shelters t), "
+             "'guarded', (SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) FROM honua_data.guarded t), "
+             "'typed', (SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) FROM honua_data.typed t), "
+             "'seq', (SELECT last_value FROM honua_data.counter), "
+             "'functions', (SELECT json_agg(p.oid::regprocedure::text ORDER BY p.oid::regprocedure::text) FROM pg_proc p "
+             "JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('honua_data', 'public') "
+             "AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')), "
+             "'roles', (SELECT json_agg(rolname ORDER BY rolname) FROM pg_roles WHERE rolname NOT LIKE 'pg_%'), "
+             "'largeObjects', (SELECT count(*) FROM pg_largeobject_metadata))")
+
+
 def state(runtime, stack):
-    code, out = runtime.psql(stack, "SELECT json_build_object('rows', (SELECT count(*) FROM honua_data.shelters), "
-                                    "'sum', (SELECT coalesce(sum(capacity), 0) FROM honua_data.shelters), "
-                                    "'seq', (SELECT last_value FROM honua_data.counter), "
-                                    "'tables', (SELECT json_agg(table_name ORDER BY table_name) FROM information_schema.tables "
-                                    "WHERE table_schema = 'honua_data'), "
-                                    "'roles', (SELECT json_agg(rolname ORDER BY rolname) FROM pg_roles WHERE rolname NOT LIKE 'pg_%'))",
-                             read_only=False)
+    code, out = runtime.psql(stack, STATE_SQL, read_only=False)
     assert code == 0
     return json.loads(out)
 
 
 def test_reader_role_is_restricted(database):
-    runtime, stack = database
-    runtime.sql_read(stack, 'SELECT count(*) AS n FROM pg_catalog.pg_roles')   # creates corpus_reader via the runner
-    code, out = runtime.psql(stack, "SELECT json_build_object('super', rolsuper, 'createrole', rolcreaterole, "
-                                    "'createdb', rolcreatedb, 'config', rolconfig) FROM pg_roles WHERE rolname = 'corpus_reader'",
-                             read_only=False)
+    runtime, stack, recorder = database
+    recorder.table_inventory('inventory-probe', 'honua_data')   # creates corpus_reader through the runner's path
+    code, out = runtime.psql(stack, "SELECT json_build_object('super', rolsuper, 'createrole', rolcreaterole, 'createdb', "
+                                    "rolcreatedb, 'inherit', rolinherit, 'bypassrls', rolbypassrls, 'config', rolconfig) "
+                                    "FROM pg_roles WHERE rolname = 'corpus_reader'", read_only=False)
     role = json.loads(out)
     assert code == 0 and role['super'] is False and role['createrole'] is False and role['createdb'] is False
-    assert 'default_transaction_read_only=on' in role['config'] and 'statement_timeout=15s' in role['config']
-    assert any(item.startswith('search_path=') for item in role['config'])
-    code, out = runtime.psql(stack, "SELECT rolinherit FROM pg_catalog.pg_roles WHERE rolname = 'corpus_reader'", read_only=False)
-    assert out.strip() == b't'
+    assert role['inherit'] is True and role['bypassrls'] is False
+    assert {'default_transaction_read_only=on', 'statement_timeout=15s'} <= set(role['config'])
+    assert any(item.startswith('search_path=pg_catalog') for item in role['config'])
     RESULTS.append({'check': 'corpus_reader role', 'result': role})
 
 
 @pytest.mark.parametrize('case', FIXTURE['allowed'], ids=lambda c: c['name'])
-def test_allowed_reads_return_rows(database, case):
-    runtime, stack = database
-    status, raw = runtime.sql_read(stack, case['sql'])
-    rows = json.loads(raw)
-    RESULTS.append({'allowed': case['name'], 'status': status, 'rows': len(rows)})
-    assert status == 200 and len(rows) == case['rows']
-
-
-@pytest.mark.parametrize('case', FIXTURE['attacks'], ids=lambda c: c['name'])
-def test_attacks_are_refused_by_parser_and_database(database, case):
-    runtime, stack = database
+def test_allowed_structured_reads_return_exact_rows(database, case):
+    runtime, stack, recorder = database
     before = state(runtime, stack)
+    step = 'allowed-' + re.sub(r'[^a-z0-9]+', '-', case['name'])[:60]
+    request = case['request']
+    rows = (recorder.table_inventory(step, request['schema']) if request['op'] == 'inventory'
+            else recorder.table_rows(step, request['schema'], request['table'], request['columns']))
+    key = 'table_name' if request['op'] == 'inventory' else 'source_id'
+    assert sorted(rows, key=lambda r: r[key]) == sorted(case['rows'], key=lambda r: r[key])
+    assert state(runtime, stack) == before
+    RESULTS.append({'allowed': case['name'], 'rows': len(rows), 'exact': True, 'stateUnchanged': True})
+
+
+@pytest.mark.parametrize('case', FIXTURE['structuredRefusals'], ids=lambda c: c['name'])
+def test_structured_api_refuses_user_code_paths(database, case):
+    runtime, stack, recorder = database
+    before = state(runtime, stack)
+    step = 'refused-' + re.sub(r'[^a-z0-9]+', '-', case['name'])[:60]
+    request = case['request']
     with pytest.raises(ValueError):
-        runner.sql_allowlisted(case['sql'])
+        if request.get('op') == 'table_rows':
+            recorder.table_rows(step, request.get('schema'), request.get('table'), request.get('columns'))
+        else:
+            recorder._structured(step, request)
+    assert state(runtime, stack) == before
+    RESULTS.append({'structuredRefusal': case['name'], 'refused': True, 'stateUnchanged': True})
+
+
+def test_geometry_read_refused_once_a_foreign_overload_exists(database):
+    runtime, stack, recorder = database
+    code, _ = runtime.psql(stack, FIXTURE['geometryOverload']['seed'], read_only=False)
+    assert code == 0
+    before = state(runtime, stack)
+    request = FIXTURE['geometryOverload']['request']
     with pytest.raises(ValueError):
-        runtime.sql_read(stack, case['sql'])
-    outcome = {'attack': case['name'], 'parser': 'refused'}
-    # Bypass the parser: the database alone, as corpus_reader, wrapped the way sql_read sends it.
-    wrapped = f"SELECT coalesce(json_agg(t), '[]'::json) FROM ({case['sql']}) AS t"
-    started = time.monotonic()
-    code, out = runtime.psql(stack, wrapped, read_only=True)
-    outcome['databaseWrapped'] = 'refused' if code != 0 else 'answered'
-    outcome['wrappedSeconds'] = round(time.monotonic() - started, 1)
-    if case.get('bare', True):
-        code_bare, _ = runtime.psql(stack, case['sql'], read_only=True)
-        outcome['databaseBare'] = 'refused' if code_bare != 0 else 'answered'
+        recorder.table_rows('refused-geometry-overload', request['schema'], request['table'], request['columns'])
+    assert state(runtime, stack) == before
+    RESULTS.append({'structuredRefusal': 'foreign st_asgeojson overload', 'refused': True, 'stateUnchanged': True})
+
+
+@pytest.mark.parametrize('case', FIXTURE['databaseBattery'], ids=lambda c: c['name'])
+def test_raw_database_battery_as_reader(database, case):
+    runtime, stack, _recorder = database
+    before = state(runtime, stack)
+    code, _ = runtime.psql(stack, case['sql'], read_only=True)
+    outcome = {'raw': case['name'], 'database': 'refused' if code != 0 else 'answered'}
     after = state(runtime, stack)
     outcome['stateUnchanged'] = before == after
     RESULTS.append(outcome)
-    assert before == after, f'{case["name"]} changed state: {before} -> {after}'
+    assert before == after, f'{case["name"]} changed state'
     if case['name'] not in FIXTURE['databaseMayAnswer']:
-        assert outcome['databaseWrapped'] == 'refused', case['name']
-        if case.get('bare', True):
-            assert outcome['databaseBare'] == 'refused', case['name']
+        assert outcome['database'] == 'refused', case['name']

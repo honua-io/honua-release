@@ -83,9 +83,12 @@ field equal to the agent principal, rendered by a reviewed `owner_format`: `{id}
 `created_by` (`{"tool": ..., "pointer": "/result/...", "where"?: {"argument": "/ptr", "role": NAME}}`: the id
 appears in the server's captured reply to a successful sealed agent call of that tool, optionally only the
 call whose own argument equals another role's id, e.g. the source table of one of several publications).
-The SQL inventory `SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = '<s>'
-ORDER BY table_name` (no LIMIT) is a reviewed complete contract (`items` `""`), and SQL reads can be bound to a
-table role with the address `{"sqlFrom": "table" | "qualified"}`. Inventory preservation
+Controller SQL is structured: `recorder.table_inventory(step, "honua_data")` (a reviewed complete contract,
+`items` `""`) and `recorder.table_rows(step, "honua_data", table, columns)`; scenarios never write SQL. A row read
+binds to a table role with `{"sqlFrom": "table" | "qualified"}` (the table it named), and a frozen read rule for
+it uses `kind` `sql`, `method` `SELECT` and a `path` regex over the generated SQL (or `".*"` with `addresses`).
+A `modelReplays` projection needs a frozen read rule keyed `"$modelReplays"`; every replay it consumes is checked
+against it and hashed into the assertion evidence. `{"fullPath": true}` compares a whole request path. Inventory preservation
 (`"resource": "inventory"`) needs `"items"` and meets the same completeness rule.
 
 Runner roles need no binding: `session:previous`, `session:current`, `session:visible-message-ids` and

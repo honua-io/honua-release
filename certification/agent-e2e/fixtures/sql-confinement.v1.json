@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "purpose": "Live PostGIS contract for the local corpus runner's controller SQL reads (tools/agent_e2e_local_runner.py sql_allowlisted + LocalRuntime.psql/sql_read). Every attack must be refused by the parser AND by the database when the parser is bypassed; allowed reads must return rows; no attack may change state.",
+  "purpose": "Live PostGIS contract for the local corpus runner's controller SQL. Scenarios cannot write SQL: they request structured reads (ControllerRecorder.table_rows / table_inventory), and the runner verifies the catalog and generates the only SQL that runs. 'structuredRefusals' must be refused by that API before any row read; 'allowed' must return exactly the listed rows; 'databaseBattery' is raw SQL sent as corpus_reader (defense in depth below the API) and must be refused with no state change, except entries in databaseMayAnswer (harmless reads).",
   "seed": [
     "CREATE SCHEMA honua_data",
     "CREATE TABLE honua_data.shelters (source_id text PRIMARY KEY, capacity int, geometry geometry(Point, 3857))",
@@ -8,46 +8,258 @@
     "CREATE SEQUENCE honua_data.counter",
     "CREATE FUNCTION honua_data.bump() RETURNS int LANGUAGE sql VOLATILE AS 'INSERT INTO honua_data.shelters VALUES (''s9'', 1, NULL) RETURNING 1'",
     "CREATE EXTENSION IF NOT EXISTS dblink",
-    "CREATE FUNCTION public.length(text) RETURNS int LANGUAGE sql VOLATILE AS 'INSERT INTO honua_data.shelters VALUES (''shadow'', 1, NULL) RETURNING 1'"
+    "CREATE FUNCTION public.length(text) RETURNS int LANGUAGE sql VOLATILE AS 'INSERT INTO honua_data.shelters VALUES (''shadow'', 1, NULL) RETURNING 1'",
+    "CREATE FUNCTION honua_data.owner_write() RETURNS int LANGUAGE sql SECURITY DEFINER VOLATILE AS 'SELECT x FROM dblink(''dbname=honua user=honua'', ''INSERT INTO honua_data.shelters VALUES (''''definer'''', 1, NULL) RETURNING 1'') AS t(x int)'",
+    "CREATE VIEW honua_data.evil_view AS SELECT honua_data.owner_write() AS x",
+    "CREATE TABLE honua_data.guarded (source_id text PRIMARY KEY)",
+    "INSERT INTO honua_data.guarded VALUES ('g1')",
+    "ALTER TABLE honua_data.guarded ENABLE ROW LEVEL SECURITY",
+    "CREATE POLICY see_all ON honua_data.guarded USING (honua_data.bump() IS NOT NULL)",
+    "CREATE TYPE honua_data.mood AS ENUM ('ok', 'bad')",
+    "CREATE DOMAIN honua_data.positive AS int CHECK (VALUE > 0)",
+    "CREATE TABLE honua_data.typed (source_id text PRIMARY KEY, mood honua_data.mood, score honua_data.positive)",
+    "INSERT INTO honua_data.typed VALUES ('t1', 'ok', 3)",
+    "CREATE TABLE \"honua_data\".\"Shelters\" (source_id text)",
+    "INSERT INTO \"honua_data\".\"Shelters\" VALUES ('look-alike')"
   ],
   "allowed": [
     {
-      "name": "plain select",
-      "sql": "SELECT source_id, capacity FROM honua_data.shelters ORDER BY source_id",
-      "rows": 2
+      "name": "shelter rows with geometry",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "shelters",
+        "columns": [
+          "source_id",
+          "capacity",
+          "geometry"
+        ]
+      },
+      "rows": [
+        {
+          "source_id": "s1",
+          "capacity": 80,
+          "geometry": {
+            "type": "Point",
+            "coordinates": [
+              -19100,
+              -4700
+            ]
+          }
+        },
+        {
+          "source_id": "s2",
+          "capacity": 40,
+          "geometry": {
+            "type": "Point",
+            "coordinates": [
+              -18800,
+              -4700
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "filtered count",
-      "sql": "SELECT count(*) AS n FROM honua_data.shelters WHERE capacity > 50",
-      "rows": 1
+      "name": "typed table plain columns",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "typed",
+        "columns": [
+          "source_id"
+        ]
+      },
+      "rows": [
+        {
+          "source_id": "t1"
+        }
+      ]
     },
     {
-      "name": "geometry functions",
-      "sql": "SELECT source_id, st_astext(geometry) AS wkt, st_srid(geometry) AS srid FROM honua_data.shelters ORDER BY source_id",
-      "rows": 2
-    },
-    {
-      "name": "catalog inventory",
-      "sql": "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = 'honua_data' ORDER BY table_name",
-      "rows": 1
-    },
-    {
-      "name": "with clause",
-      "sql": "WITH a AS (SELECT source_id FROM honua_data.shelters) SELECT source_id FROM a ORDER BY source_id",
-      "rows": 2
-    },
-    {
-      "name": "builtin resolves before a public shadow",
-      "sql": "SELECT length(source_id) AS n FROM honua_data.shelters ORDER BY source_id",
-      "rows": 2
-    },
-    {
-      "name": "catalog role read",
-      "sql": "SELECT rolname FROM pg_catalog.pg_roles WHERE rolname = 'corpus_reader'",
-      "rows": 1
+      "name": "complete base-table inventory",
+      "request": {
+        "op": "inventory",
+        "schema": "honua_data"
+      },
+      "rows": [
+        {
+          "table_schema": "honua_data",
+          "table_name": "Shelters"
+        },
+        {
+          "table_schema": "honua_data",
+          "table_name": "guarded"
+        },
+        {
+          "table_schema": "honua_data",
+          "table_name": "shelters"
+        },
+        {
+          "table_schema": "honua_data",
+          "table_name": "typed"
+        }
+      ]
     }
   ],
-  "attacks": [
+  "notes": {
+    "layers": "structured = the API refuses before any row read (catalog preflight: base tables only, no row-level security, columns of reviewed pg_catalog base types or verified PostGIS geometry, no foreign st_asgeojson overload); database = raw SQL as corpus_reader, bare, as defense in depth; state = a content digest of every honua_data table, sequence position, functions, roles and large objects, before and after.",
+    "regclass": "A regclass cast is read-only at the database layer; the parser refuses it as an unreviewed cast, so its database outcome is recorded but not required to fail.",
+    "set_config": "set_config inside a read-only transaction may succeed for a session setting; the parser refuses it, and the database result shows no write follows in the same command.",
+    "line comment": "Bare, psql sends \"SELECT 1 -- ...\" and the comment swallows the rest, so the database answers the harmless SELECT 1; wrapped (as sql_read sends it) the comment also swallows the wrapper and the server refuses it. The state check proves nothing executed after the comment.",
+    "liveRun": "2026-10-31 on honua-eval-3 (postgis/postgis@sha256:b4466ea2...): parser refused all 34 attacks; with the parser bypassed the database refused every write, multi-statement, sleep, sequence, dblink, file, large-object, volatile-function, CTE, FOR UPDATE, INTO, LOCK, SET ROLE and client meta-command attempt; answered only set_config (session setting), comments, dollar quotes, a regclass cast and a reviewed-schema-outside read, with state unchanged in every case.",
+    "definerView": "A view over a SECURITY DEFINER function that writes through dblink runs as its owner, outside the reader's read-only transaction, and EXECUTE on functions is granted to PUBLIC by default, so database privileges alone cannot stop it. The structured API refuses views (relkind v), so the runner never reads it; the raw battery does not execute it."
+  },
+  "databaseMayAnswer": [
+    "set_config",
+    "comment hiding a statement",
+    "dollar-quoted body",
+    "regclass cast",
+    "unreviewed schema",
+    "line comment"
+  ],
+  "structuredRefusals": [
+    {
+      "name": "view running a security-definer write",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "evil_view",
+        "columns": [
+          "x"
+        ]
+      }
+    },
+    {
+      "name": "row-level security policy calling a function",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "guarded",
+        "columns": [
+          "source_id"
+        ]
+      }
+    },
+    {
+      "name": "enum column (user type)",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "typed",
+        "columns": [
+          "mood"
+        ]
+      }
+    },
+    {
+      "name": "domain column (user type)",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "typed",
+        "columns": [
+          "score"
+        ]
+      }
+    },
+    {
+      "name": "case-sensitive look-alike relation",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "Shelters",
+        "columns": [
+          "source_id"
+        ]
+      }
+    },
+    {
+      "name": "unreviewed schema",
+      "request": {
+        "op": "table_rows",
+        "schema": "public",
+        "table": "spatial_ref_sys",
+        "columns": [
+          "srid"
+        ]
+      }
+    },
+    {
+      "name": "catalog schema",
+      "request": {
+        "op": "table_rows",
+        "schema": "pg_catalog",
+        "table": "pg_authid",
+        "columns": [
+          "rolname"
+        ]
+      }
+    },
+    {
+      "name": "injection in identifier",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "shelters\" WHERE honua_data.bump() > 0 --",
+        "columns": [
+          "source_id"
+        ]
+      }
+    },
+    {
+      "name": "expression as column",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "shelters",
+        "columns": [
+          "honua_data.bump()"
+        ]
+      }
+    },
+    {
+      "name": "free-form SQL",
+      "request": {
+        "op": "sql",
+        "query": "SELECT 1"
+      }
+    },
+    {
+      "name": "missing table",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "nope",
+        "columns": [
+          "a"
+        ]
+      }
+    },
+    {
+      "name": "missing column",
+      "request": {
+        "op": "table_rows",
+        "schema": "honua_data",
+        "table": "shelters",
+        "columns": [
+          "nope"
+        ]
+      }
+    }
+  ],
+  "geometryOverload": {
+    "seed": "CREATE FUNCTION public.st_asgeojson(geometry, boolean) RETURNS text LANGUAGE sql VOLATILE AS 'SELECT honua_data.bump()::text'",
+    "request": {
+      "op": "table_rows",
+      "schema": "honua_data",
+      "table": "shelters",
+      "columns": [
+        "geometry"
+      ]
+    }
+  },
+  "databaseBattery": [
     {
       "name": "insert",
       "sql": "INSERT INTO honua_data.shelters VALUES ('x', 1, NULL)"
@@ -137,16 +349,6 @@
       "sql": "SELECT * INTO honua_data.copy FROM honua_data.shelters"
     },
     {
-      "name": "psql shell meta-command",
-      "sql": "\\! id",
-      "bare": false
-    },
-    {
-      "name": "psql copy meta-command",
-      "sql": "\\copy honua_data.shelters TO '/tmp/out'",
-      "bare": false
-    },
-    {
       "name": "comment hiding a statement",
       "sql": "SELECT 1 /* ; DELETE FROM honua_data.shelters */"
     },
@@ -186,20 +388,5 @@
       "name": "unreviewed schema",
       "sql": "SELECT * FROM public.spatial_ref_sys"
     }
-  ],
-  "notes": {
-    "layers": "parser = sql_allowlisted refuses before any database call; database = the same SQL sent through LocalRuntime.psql(read_only=True) as corpus_reader, both inside the runner's json_agg wrapper (what sql_read sends) and bare (not for psql client syntax, which the runner never sends bare); state = row count, sequence position and table list unchanged afterwards.",
-    "regclass": "A regclass cast is read-only at the database layer; the parser refuses it as an unreviewed cast, so its database outcome is recorded but not required to fail.",
-    "set_config": "set_config inside a read-only transaction may succeed for a session setting; the parser refuses it, and the database result shows no write follows in the same command.",
-    "line comment": "Bare, psql sends \"SELECT 1 -- ...\" and the comment swallows the rest, so the database answers the harmless SELECT 1; wrapped (as sql_read sends it) the comment also swallows the wrapper and the server refuses it. The state check proves nothing executed after the comment.",
-    "liveRun": "2026-10-31 on honua-eval-3 (postgis/postgis@sha256:b4466ea2...): parser refused all 34 attacks; with the parser bypassed the database refused every write, multi-statement, sleep, sequence, dblink, file, large-object, volatile-function, CTE, FOR UPDATE, INTO, LOCK, SET ROLE and client meta-command attempt; answered only set_config (session setting), comments, dollar quotes, a regclass cast and a reviewed-schema-outside read, with state unchanged in every case."
-  },
-  "databaseMayAnswer": [
-    "set_config",
-    "comment hiding a statement",
-    "dollar-quoted body",
-    "regclass cast",
-    "unreviewed schema",
-    "line comment"
   ]
 }

@@ -167,7 +167,8 @@ class RoleBinding:
     (e.g. the layer inside a created map). Roles resolve in the frozen order.
     Address fields (read-rule ``addresses``, ``protectedContent`` ``resource``, ``target``) are exact:
     {"role": NAME, "at": {"pathSegment": N} | {"query": NAME} | {"argument": "/pointer"}}.
-    Address kinds also include {"sqlFrom": "table" | "qualified"} (the table a controller SELECT reads).
+    Address kinds also include {"sqlFrom": "table" | "qualified"} (the table a structured table_rows read
+    named) and {"fullPath": true} (the whole HTTP request path, e.g. a resolved publication route).
     Runner roles (no binding needed): ``fault:committed-resource`` (verified commit of a fired lost-response
     fault) and: ``session:previous``, ``session:current``,
     ``session:visible-message-ids``, ``session:handoff-sha256`` (sha256 of the session-1 final answer).

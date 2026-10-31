@@ -78,7 +78,7 @@ def referenced_steps(spec, found=None):
                 if isinstance(row, dict):
                     found.update(row.get(key) for key in ('before', 'after') if isinstance(row.get(key), str))
             return found
-        for op in ('each', 'leakedCredentials', 'matchedCanaries'):
+        for op in ('each', 'leakedCredentials', 'matchedCanaries', 'scannedDigests'):
             if isinstance(spec.get(op), list):
                 found.update(step for step in spec[op] if isinstance(step, str) and step not in PSEUDO_SOURCES)
         for value in spec.values():
@@ -184,17 +184,17 @@ def address_value(record, at):
         values = [v for k, v in parse_qsl(parts.query, keep_blank_values=True) if k == where]
         require(len(values) == 1, 'address query parameter is absent or repeated')
         return values[0]
+    if kind == 'fullPath':
+        # The whole request path (no query), compared as one value: e.g. a resolved publication route.
+        require(where is True and record.kind == 'http', 'fullPath address needs {"fullPath": true} on an HTTP read')
+        return urlsplit(record.path).path
     if kind == 'sqlFrom':
-        # The one relation the SELECT reads, exactly as parsed (schema-qualified). A query reading several
-        # relations (joins, subqueries over other tables, CTEs) cannot be bound to a single table role.
-        from agent_e2e_local_runner import sql_relations
+        # The one base table a structured controller read named (the runner generated the SQL from it).
         require(record.kind == 'sql' and where in ('table', 'qualified'), 'sqlFrom needs a SQL record')
-        relations, ctes = sql_relations(record.path)
-        real = [(schema, name) for schema, name in relations if not (schema is None and name in ctes)]
-        require(len(real) == 1 and len(relations) == 1 and not ctes and real[0][0] is not None,
-                'SQL read does not read exactly one schema-qualified relation')
-        schema, table = real[0]
-        return table if where == 'table' else f'{schema}.{table}'
+        request = record.request_arguments or {}
+        require(request.get('op') == 'table_rows' and isinstance(request.get('schema'), str)
+                and isinstance(request.get('table'), str), 'SQL read is not a single-table row read')
+        return request['table'] if where == 'table' else f"{request['schema']}.{request['table']}"
     if kind == 'argument':
         require(record.kind == 'mcp' and isinstance(record.request_arguments, dict), 'address argument needs an MCP call')
         return pointer_get(record.request_arguments.get('arguments') or {}, where)
@@ -219,7 +219,9 @@ def same_request(left, right):
 class Context:
     def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=(), model_actions=None,
                  canaries=None, model_visible=(), customer_files=None, final_answers=(), action_results=(),
-                 customer_credentials=(), base_url=None, scan_roles=None):
+                 customer_credentials=(), base_url=None, scan_roles=None, fingerprint_salt=None):
+        import os
+        self.fingerprint_salt = fingerprint_salt if fingerprint_salt is not None else os.urandom(16)
         self.base_url = base_url
         self.scan_roles = dict(scan_roles or {})
         # Credentials the customer intentionally handed over (e.g. a database login): they may appear in the
@@ -390,28 +392,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(sources, list) and sources, 'scannedDigests needs sources')
         return sorted(hashlib.sha256(raw).hexdigest() for raw in _scan_bodies(sources, ctx, named))
     if keys == {'modelReplays', 'to'}:
-        select = spec['modelReplays']
-        require(isinstance(select, dict) and set(select) == {'tool', 'addresses'} and select['addresses'],
-                'modelReplays needs {"tool", "addresses"}')
-        calls = []
-        for occurrence, action in ctx.model_actions.items():
-            if action.get('kind') != 'tool_call' or action.get('tool') != select['tool']:
-                continue
-            probe = _ArgumentsView(action)
-            try:
-                for address in select['addresses']:
-                    require_address(probe, address, ctx.roles)
-            except ProjectionError:
-                continue
-            calls.append((action['_session'], action['_sequence'], occurrence))
-        require(calls, 'no sealed model call of that tool addresses those roles')
-        out = []
-        for _session, _sequence, occurrence in sorted(calls):
-            replays = [r for r in ctx.records.values() if r.replay_of == occurrence and r.kind == 'mcp'
-                       and r.origin == 'controller' and r.principal == 'controller' and r.phase == 'observe']
-            require(len(replays) == 1, 'a sealed model call has no single controller replay: ' + occurrence)
-            out.append(sub(spec['to'], step=replays[0].step))
-        return out
+        return [sub(spec['to'], step=step) for step in model_replay_steps(spec['modelReplays'], ctx)]
     if keys == {'absoluteUrl'}:
         from urllib.parse import urlsplit
         route = sub(spec['absoluteUrl'])
@@ -462,7 +443,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
         for raw in bodies:
             for credential in ctx.credentials + ctx.customer_credentials:
                 if credential.encode() in raw:
-                    found.add(credential_fingerprint(credential))
+                    found.add(credential_fingerprint(credential, ctx.fingerprint_salt))
         return sorted(found)
     if keys == {'map', 'to'}:
         values = sub(spec['map'])
@@ -545,10 +526,53 @@ def _without_attachments(raw):
     return json.dumps(out).encode()
 
 
-def credential_fingerprint(credential):
-    """A non-reversible label for a leaked credential (PBKDF2, fixed salt): reports which credential leaked
-    without putting it, or a fast unsalted hash of it, into evidence."""
-    return hashlib.pbkdf2_hmac('sha256', credential.encode(), b'honua-corpus-leak-fingerprint/v1', 100_000).hex()[:16]
+def model_replay_steps(select, ctx):
+    """Steps of the controller replays of EVERY sealed model call of a tool that addresses the given roles,
+    in call order; a call without exactly one such replay fails."""
+    require(isinstance(select, dict) and set(select) == {'tool', 'addresses'} and select['addresses'],
+            'modelReplays needs {"tool", "addresses"}')
+    calls = []
+    for occurrence, action in ctx.model_actions.items():
+        if action.get('kind') != 'tool_call' or action.get('tool') != select['tool']:
+            continue
+        probe = _ArgumentsView(action)
+        try:
+            for address in select['addresses']:
+                require_address(probe, address, ctx.roles)
+        except ProjectionError:
+            continue
+        calls.append((action['_session'], action['_sequence'], occurrence))
+    require(calls, 'no sealed model call of that tool addresses those roles')
+    steps = []
+    for _session, _sequence, occurrence in sorted(calls):
+        replays = [r for r in ctx.records.values() if r.replay_of == occurrence and r.kind == 'mcp'
+                   and r.origin == 'controller' and r.principal == 'controller' and r.phase == 'observe']
+        require(len(replays) == 1, 'a sealed model call has no single controller replay: ' + occurrence)
+        steps.append(replays[0].step)
+    return steps
+
+
+def dynamic_steps(spec, ctx):
+    """Records a spec consumes that are chosen at scoring time (modelReplays): resolved before scoring so each
+    is validated against its frozen read rule and hashed into the assertion evidence."""
+    found = []
+    if isinstance(spec, dict):
+        if 'modelReplays' in spec:
+            found += model_replay_steps(spec['modelReplays'], ctx)
+        for value in spec.values():
+            found += dynamic_steps(value, ctx)
+    elif isinstance(spec, list):
+        for value in spec:
+            found += dynamic_steps(value, ctx)
+    return found
+
+
+def credential_fingerprint(credential, salt):
+    """A non-reversible label for a leaked credential: PBKDF2-HMAC-SHA256, 600k iterations, with the case's
+    random salt (kept in the runner's custody). It tells which credential leaked without putting the credential,
+    or a fast hash of it, into evidence."""
+    require(isinstance(salt, bytes) and len(salt) >= 16, 'fingerprint salt must be at least 16 random bytes')
+    return hashlib.pbkdf2_hmac('sha256', credential.encode(), salt, 600_000).hex()[:16]
 
 
 def _scan_bodies(steps, ctx, named, strip_attachments=False):
@@ -693,12 +717,9 @@ ENUMERATION_CONTRACTS = (
      'paging': {'total': '/data/total'},
      'source': 'ConsoleContentEndpoints.cs:85-129; in-memory store (Program.cs:1034-1036), lost on restart; '
                'default limit 25, store max 200'},
-    {'kind': 'sql', 'method': 'SELECT', 'path': r'SELECT table_schema, table_name FROM information_schema\.tables WHERE '
-     r"table_schema = '[a-z_][a-z0-9_]*'( AND table_type = 'BASE TABLE')? ORDER BY table_name",
-     'items': '', 'paging': 'unpaged',
-     'source': 'PostgreSQL information_schema.tables over the case database (the server imports into honua_data, '
-               'ImportEndpoints upload TargetSchema); the frozen query has no LIMIT/OFFSET, so every visible row returns '
-               '(corpus_reader holds pg_read_all_data)'},
+    {'kind': 'sql', 'op': 'inventory', 'items': '', 'paging': 'unpaged',
+     'source': 'runner-generated pg_catalog.pg_class read of every base table (relkind r/p) in one reviewed schema; '
+               'no LIMIT/OFFSET and no user code (all operators pg_catalog-qualified)'},
     {'kind': 'mcp', 'tool': 'honua_list_jobs', 'items': '/result/structuredContent/jobs',
      'paging': {'cursor': '/result/structuredContent/nextCursor', 'omittedWhenLast': True},
      'source': 'ListJobsTool.cs:24-228, output {jobCount, nextCursor, jobs} serialized WhenWritingNull (:261), so the '
@@ -729,7 +750,7 @@ def _contract_for(record):
             return contract
         if record.kind == 'mcp' and contract.get('tool') == tool:
             return contract
-        if record.kind == 'sql' and re.fullmatch(contract['path'], record.path):
+        if record.kind == 'sql' and (record.request_arguments or {}).get('op') == contract.get('op'):
             return contract
     return None
 

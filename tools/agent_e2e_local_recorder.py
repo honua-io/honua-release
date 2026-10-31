@@ -77,15 +77,16 @@ class Record:
 
     @property
     def request_arguments(self) -> dict | None:
-        """MCP records only: the {"tool", "arguments"} (or {"uri"}) that was sent. HTTP records return None;
-        their request body is kept as raw bytes in ``request_arguments_raw`` and compared byte for byte."""
+        """MCP records: the {"tool", "arguments"} (or {"uri"}) that was sent. SQL records: the structured read
+        request ({"op", "schema", "table", "columns"}). HTTP records return None; their request body is kept as
+        raw bytes in ``request_arguments_raw`` and compared byte for byte."""
         if self.request_arguments_raw is None:
             return None
         try:
             value = json.loads(self.request_arguments_raw)
         except ValueError:
             return None
-        return value if isinstance(value, dict) and self.kind == 'mcp' else None
+        return value if isinstance(value, dict) and self.kind in ('mcp', 'sql') else None
 
     def intact(self) -> bool:
         return 'sha256:' + hashlib.sha256(self.raw).hexdigest() == self.sha256
@@ -446,20 +447,29 @@ class ControllerRecorder:
                              'multipart/form-data; boundary=' + boundary)
 
     # -- SQL ---------------------------------------------------------------
-    def sql(self, step, query):
-        """One read-only controller query against the case database (e.g. an imported, unpublished table).
+    # Controller SQL is NOT free-form. Scenarios name a base table (or a schema inventory); the runtime
+    # verifies the catalog (base table, no row-level security, columns of reviewed built-in or PostGIS types)
+    # and generates the only SQL that runs. No expression, filter, operator, cast or function of the
+    # scenario's choosing ever reaches the database. Records are kind 'sql' with structured arguments.
+    def table_rows(self, step, schema, table, columns):
+        """Every row of one reviewed base table (the listed columns; geometry as GeoJSON). Unordered:
+        sort in a projection. Returns the parsed rows."""
+        return self._structured(step, {'op': 'table_rows', 'schema': schema, 'table': table, 'columns': list(columns)})
 
-        The runtime executes it in a read-only transaction and returns the rows as JSON; the record is
-        kind 'sql', method 'SELECT', path = the exact query text, principal 'controller'.
-        """
+    def table_inventory(self, step, schema):
+        """Every base table of one reviewed schema (pg_catalog only, no user code): [{table_schema, table_name}]."""
+        return self._structured(step, {'op': 'inventory', 'schema': schema})
+
+    def _structured(self, step, request):
+        from agent_e2e_local_runner import structured_sql_request
         self._claim(step)
         require(self._sql is not None, 'this stack has no controller SQL transport')
-        from agent_e2e_local_runner import sql_allowlisted
-        query = sql_allowlisted(query)
-        status, raw = self._sql(query)
-        record = self._store(Record(step, self.phase, 'sql', 'controller', 'case-database-owner', 'SELECT', query,
+        request = structured_sql_request(request)
+        status, raw, sql = self._sql(request)
+        record = self._store(Record(step, self.phase, 'sql', 'controller', 'case-database-reader', 'SELECT', sql,
                                     status, raw, 'sha256:' + hashlib.sha256(raw).hexdigest(),
-                                    request_arguments_raw=query.encode(), content_type='application/json'))
+                                    request_arguments_raw=action_bytes(request), content_type='application/json'))
+        require(status == 200, 'controller SQL read failed')
         return record.json
 
     def confirmation_read(self, step, path):

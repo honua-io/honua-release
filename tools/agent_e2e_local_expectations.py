@@ -134,6 +134,7 @@ def load_projections(scenario_id, variant):
         if referenced_steps(row['spec']) and not row['reads']:
             raise ValueError('frozen projection reads records but declares no read rules: ' + assertion)
         for step, rule in row['reads'].items():
+            # "$modelReplays" is the rule every dynamically selected replay of a modelReplays projection must meet.
             if not isinstance(rule, dict) or set(rule) - READ_FIELDS or \
                     not {'kind', 'method', 'path', 'principal', 'phase'} <= set(rule):
                 raise ValueError(f'frozen read {step} for {assertion} must pin kind, method, path, principal, phase')
