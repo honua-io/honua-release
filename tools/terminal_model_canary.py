@@ -1050,6 +1050,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class CandidateProxyClient:
     """Dependency-free client for the candidate's signed Studio SSE proxy."""
 
+    # Sent on every chat request. None omits the field so the provider default applies, which is
+    # what the shipped Studio AI client sends; the local corpus runner uses that setting.
+    temperature: float | None = 0
+
     def __init__(self, config: EndpointConfig, *, timeout_seconds: int = 120,
                  redactor: "Redactor | None" = None):
         if not config.configured:
@@ -1212,9 +1216,10 @@ class CandidateProxyClient:
                 "provider": "bedrock",
                 "model": self.config.model,
                 "messages": messages,
-                "temperature": 0,
                 "certification": certification,
             }
+        if self.temperature is not None:
+            request_body["temperature"] = self.temperature
         payload = json.dumps(request_body).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
         if self.config.api_key:

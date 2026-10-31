@@ -1,169 +1,74 @@
-import hashlib
 import json
 
 import pytest
 
-from agent_e2e_local_runner import action_bytes
-from agent_e2e_local_scenarios.P10 import replay_query
+from agent_e2e_local_api import Seeded, Stack
+from agent_e2e_local_recorder import LoggedAction
+from agent_e2e_local_runner import oracle, select_case, PACK
+from agent_e2e_local_scenarios.P10 import P10
 
 
-def test_replay_uses_digest_bound_query_and_rejects_tampering(tmp_path):
-    action = {'kind': 'tool_call', 'tool': 'honua_query_features',
-              'arguments': {'serviceId': 'svc', 'layerId': 7, 'where': 'capacity > 50'}}
-    raw = action_bytes(action)
-    digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
-    path = tmp_path / 'action.json'
-    path.write_bytes(raw)
-    class Client:
-        def __init__(self): self.observations = []; self.calls = []
-        def call_tool(self, name, args):
-            self.calls.append((name, args))
-            result = {'structuredContent': {'serviceId': 'svc', 'layerId': 7, 'exceededTransferLimit': False,
-                    'resultOffset': 0, 'returnedCount': 1, 'geojson': {'type': 'FeatureCollection',
-                    'features': [{'properties': {'source_id': 's1'}}]}}}
-            import base64
-            raw = json.dumps({'jsonrpc': '2.0', 'id': 'x', 'result': result}).encode()
-            self.observations.append({'rpcMethod': 'tools/call', 'httpStatus': 200,
-                                      'bodyBase64': base64.b64encode(raw).decode(),
-                                      'bodyDigest': 'sha256:' + hashlib.sha256(raw).hexdigest()})
-            return result
-    client = Client()
-    observed, evidence = replay_query(path, digest, {'service': 'svc', 'layerId': 7}, client)
-    assert observed == {'resourceIds': ['s1']}
-    assert evidence['replayedRequestDigest'] == digest
-    assert client.calls == [('honua_query_features', action['arguments'])]
-    class Contradictory(Client):
-        def call_tool(self, name, args):
-            result = super().call_tool(name, args)
-            result['structuredContent']['returnedCount'] = 0
-            return result
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_frozen_expectations_match_the_fixtures_and_the_pack(variant):
+    expected = P10().expected(variant)
+    assert set(expected) == set(select_case(PACK, 'P10', variant)['assertions'])
+    assert expected['filter.exact'] == oracle.fixture_expectation(variant, 'filter.exact')
+    fixture = oracle.fixture_expectation(variant, 'features.exact', layer='shelters')
+    frozen = expected['source-content.unchanged']['resources'][0]['content']
+    assert frozen['srid'] == fixture['srid']
+    assert frozen['features'] == sorted(fixture['features'], key=lambda f: f['properties']['source_id'])
+
+
+def test_expectations_reject_held_out_variant():
     with pytest.raises(ValueError):
-        replay_query(path, digest, {'service': 'svc', 'layerId': 7}, Contradictory())
-    path.write_text(json.dumps({**action, 'arguments': {}}))
-    with pytest.raises(ValueError):
-        replay_query(path, digest, {'service': 'svc', 'layerId': 7}, client)
-    assert len(client.calls) == 1
+        P10().expected('C')
 
 
-def test_replayed_ids_checked_against_fixture_not_model_claim():
-    from agent_e2e_local_runner import oracle
-    expected = oracle.fixture_expectation('A', 'filter.exact')
-    oracle.verify('filter.exact', {'resourceIds': list(expected['resourceIds'])}, expected)
-    with pytest.raises(ValueError):
-        oracle.verify('filter.exact', {'resourceIds': ['incorrect']}, expected)
-
-
-def test_p10_seed_is_idempotent_per_case(monkeypatch, tmp_path):
-    from agent_e2e_local_api import Stack
-    from agent_e2e_local_scenarios.P10 import P10
+def test_seed_is_idempotent_per_case(monkeypatch, tmp_path):
     import agent_e2e_scenario_backend
-    import agent_e2e_p10_observer
     calls = []
+
     class Town:
         def __init__(self, http, manifest): pass
-        def prepare(self, **kwargs):
-            calls.append(kwargs)
-            return {'layers': {'shelters': {'service': 's', 'layerId': 1}}}
-    class Http:
-        def json(self, *args): return {'observation': {'httpStatus': 200}}
+        def prepare(self, **kw):
+            calls.append(kw)
+            return {'layers': {'shelters': {'service': 'svc', 'layerId': 3}}}
+
+    class Recorder:
+        def __init__(self): self.steps = []
+        def json(self, step, method, path, body=None, **kw): self.steps.append(step)
     monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
-    monkeypatch.setattr(agent_e2e_p10_observer, 'source_content', lambda row: {'resourceId': 'shelters', 'content': {}})
-    stack = Stack('http://127.0.0.1', 'controller', None, 'corpus-test', 'compose', str(tmp_path),
-                  'sha256:' + 'a' * 64, {'controllerHttp': Http(), 'connectionId': 'connection'})
-    scenario = P10()
-    assert scenario.seed(stack, 'A') == scenario.seed(stack, 'A')
-    assert len(calls) == 1
-    with pytest.raises(ValueError): scenario.seed(stack, 'B')
+    recorder = Recorder()
+    stack = Stack('http://127.0.0.1:1', 'k', None, 'corpus-abc', 'f', str(tmp_path), 'sha256:' + 'a' * 64,
+                  {'recorder': recorder, 'ensureConnection': lambda: 'conn-1'})
+    first = P10().seed(stack, 'A')
+    assert P10().seed(stack, 'A') == first
+    assert len(calls) == 1 and recorder.steps == ['p10-source-before']
+    with pytest.raises(ValueError):
+        P10().seed(stack, 'B')
 
 
-def test_p10_query_projection_uses_raw_response_and_fixture_expectation():
-    import base64
-    from agent_e2e_local_api import Observation
-    from agent_e2e_local_runner import oracle, score_assertions
-    wanted = oracle.fixture_expectation('A', 'filter.exact')
-    action = {'kind': 'tool_call', 'tool': 'honua_query_features',
-              'arguments': {'serviceId': 'svc', 'layerId': 7}}
-    action_raw = action_bytes(action)
-    result = {'structuredContent': {'serviceId': 'svc', 'layerId': 7, 'exceededTransferLimit': False,
-        'resultOffset': 0, 'returnedCount': len(wanted['resourceIds']), 'geojson': {'type': 'FeatureCollection',
-        'features': [{'properties': {'source_id': item}} for item in wanted['resourceIds']]}}}
-    body = json.dumps({'jsonrpc': '2.0', 'id': 'test', 'result': result}).encode()
-    evidence = {'projection': 'p10-query/v1', 'binding': {'service': 'svc', 'layerId': 7},
-        'action_b64': base64.b64encode(action_raw).decode(),
-        'replayedRequestDigest': 'sha256:' + hashlib.sha256(action_raw).hexdigest(),
-        'requests': [{'method': 'POST', 'url': '/mcp', 'status': 200,
-                      'body_b64': base64.b64encode(body).decode(), 'sha256': hashlib.sha256(body).hexdigest()}]}
-    def score(observed):
-        return score_assertions(['filter.exact'], [Observation('filter.exact', observed, evidence)],
-                                {'filter.exact': wanted}, trusted_requests={('POST', '/mcp', 200, 'sha256:' + hashlib.sha256(body).hexdigest())})[0]['status']
-    assert score(wanted) == 'pass'
-    assert score({'resourceIds': ['incorrect']}) == 'fail'
+def test_query_selection_uses_only_the_seeded_layer_and_the_last_query():
+    seeded = Seeded({'service': 'svc', 'layerId': 3})
+
+    def action(n, tool, args):
+        return LoggedAction(1, n, f'sha256:{n}', 'tool_call', tool, args, None, 'pass', '/x')
+    actions = [action(1, 'honua_query_features', {'serviceId': 'svc', 'layerId': 3, 'where': 'a'}),
+               action(2, 'honua_query_features', {'serviceId': 'other', 'layerId': 3}),
+               action(3, 'honua_query_features', {'serviceId': 'svc', 'layerId': '3', 'where': 'b'}),
+               action(4, 'honua_get_layer', {'serviceId': 'svc', 'layerId': 3})]
+    assert P10.selected_query(actions, seeded).sequence == 3
+    assert P10.selected_query(actions[1:2], seeded) is None
 
 
-def test_p10_observe_scores_all_fixture_assertions_and_rejects_mutation(tmp_path):
-    import base64
-    from agent_e2e_local_api import RunRecord, Seeded, Stack
-    from agent_e2e_local_runner import oracle, score_assertions
-    from agent_e2e_local_scenarios.P10 import P10
-    from agent_e2e_p10_observer import source_content
-    fixture = oracle.fixture_expectation('A', 'features.exact', layer='shelters')
-    features = fixture['features']
-    fields = list(features[0]['properties'])
-    def source(changed=False):
-        rows = []
-        for index, feature in enumerate(features):
-            props = dict(feature['properties'])
-            if changed and index == 0: props['name'] = 'changed'
-            x, y = feature['geometry']['coordinates']
-            rows.append({'attributes': {'objectid': index + 1, **props}, 'geometry': {'x': x, 'y': y}})
-        doc = {'geometryType': 'esriGeometryPoint', 'exceededTransferLimit': False,
-               'spatialReference': {'wkid': 3857}, 'objectIdFieldName': 'objectid',
-               'fields': [{'name': 'objectid', 'type': 'esriFieldTypeOID'}] +
-                         [{'name': name, 'type': 'string'} for name in fields], 'features': rows}
-        raw = json.dumps(doc).encode()
-        return {'observation': {'httpStatus': 200, 'body': doc, 'rawBodyBase64': base64.b64encode(raw).decode(),
-                                'responseDigest': 'sha256:' + hashlib.sha256(raw).hexdigest()}}
-    before = source()
-    class Http:
-        changed = False
-        def json(self, *args): return source(self.changed)
-    http = Http()
-    wanted = oracle.fixture_expectation('A', 'filter.exact')
-    action = {'kind': 'tool_call', 'tool': 'honua_query_features',
-              'arguments': {'serviceId': 'svc', 'layerId': 7}}
-    action_raw = action_bytes(action)
-    path = tmp_path / 'action.json'
-    path.write_bytes(action_raw)
-    digest = 'sha256:' + hashlib.sha256(action_raw).hexdigest()
-    class Mcp:
-        def __init__(self): self.observations = []
-        def initialize(self): pass
-        def close(self): pass
-        def call_tool(self, name, args):
-            result = {'structuredContent': {'serviceId': 'svc', 'layerId': 7, 'exceededTransferLimit': False,
-                'resultOffset': 0, 'returnedCount': len(wanted['resourceIds']), 'geojson': {'type': 'FeatureCollection',
-                'features': [{'properties': {'source_id': rid}} for rid in wanted['resourceIds']]}}}
-            raw = json.dumps({'jsonrpc': '2.0', 'id': 'call', 'result': result}).encode()
-            self.observations.append({'rpcMethod': 'tools/call', 'httpStatus': 200,
-                'bodyBase64': base64.b64encode(raw).decode(), 'bodyDigest': 'sha256:' + hashlib.sha256(raw).hexdigest()})
-            return result
-    extra = {'controllerHttp': http, 'controllerMcpFactory': Mcp,
-             'actionLogs': [{'logPath': str(path), 'digest': digest}]}
-    stack = Stack('http://127.0.0.1', 'controller', None, 'project', 'compose', str(tmp_path),
-                  'sha256:' + 'a' * 64, extra)
-    seeded = Seeded({'town': {'layers': {'shelters': {'service': 'svc', 'layerId': 7}}},
-                     'sourceBefore': source_content(before), 'sourceBeforeResponse': before['observation']})
-    run = RunRecord('actor', 1, (), (), ('done',))
-    scenario = P10()
-    ids = ['filter.exact', 'source-content.unchanged']
-    observations = scenario.observe(stack, seeded, 'A', run)
-    trusted = {(r['method'], r['url'], r['status'], r['sha256'] if r['sha256'].startswith('sha256:') else 'sha256:' + r['sha256'])
-               for obs in observations for r in obs.evidence['requests']}
-    results = score_assertions(ids, observations, scenario.expected('A'), trusted_requests=trusted)
-    assert [item['status'] for item in results] == ['pass', 'pass']
-    http.changed = True
-    observations = scenario.observe(stack, seeded, 'A', run)
-    trusted = {(r['method'], r['url'], r['status'], r['sha256'] if r['sha256'].startswith('sha256:') else 'sha256:' + r['sha256'])
-               for obs in observations for r in obs.evidence['requests']}
-    results = score_assertions(ids, observations, scenario.expected('A'), trusted_requests=trusted)
-    assert [item['status'] for item in results] == ['pass', 'fail']
+def test_observations_are_projection_specs_not_values(tmp_path):
+    class Recorder:
+        records = {}
+        def json(self, *a, **kw): pass
+        def actions(self): return ()
+    stack = Stack('http://127.0.0.1:1', 'k', None, 'p', 'f', str(tmp_path), 'sha256:' + 'a' * 64,
+                  {'recorder': Recorder()})
+    rows = P10().observe(stack, Seeded({'service': 'svc', 'layerId': 3}), 'A')
+    assert [r.assertion_id for r in rows] == ['filter.exact', 'source-content.unchanged']
+    assert all(r.observed is None and r.evidence['projection'] == 'extract/v1' for r in rows)
+    assert 's3' not in json.dumps([r.evidence for r in rows])

@@ -1,5 +1,11 @@
 name: Local goal-driven corpus
 
+# One job per case (scenario x development variant) on a fresh local Docker Compose stack composed
+# from platform-manifest.yaml's exact server image. The model runs through the shipped canary path
+# (signed Studio AI proxy, temperature omitted). Every case is a first attempt; the aggregate job
+# rejects missing, duplicate or malformed case receipts and reports Clopper-Pearson 95% intervals.
+# Held-out variant C cannot be selected.
+
 on:
   workflow_dispatch:
     inputs:
@@ -100,6 +106,12 @@ jobs:
           path: candidate-lock
           run-id: ${{ inputs.lock_run_id }}
           github-token: ${{ github.token }}
+      - name: Mint the case stack's per-run admin credential
+        run: |
+          set -euo pipefail
+          key="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$key"
+          echo "HONUA_ADMIN_PASSWORD=$key" >> "$GITHUB_ENV"
       - name: Assume Bedrock role
         id: aws
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
@@ -119,6 +131,7 @@ jobs:
           HONUA_CANARY_AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
           HONUA_CANARY_AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
           HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+          HONUA_JOURNEY_SERVER_LOG: ${{ github.workspace }}/artifacts/candidate-server.log
         run: |
           set -euo pipefail
           args=(case --scenario "$SCENARIO" --variant "$VARIANT" --model "$MODEL" --output artifacts/receipt.json)
