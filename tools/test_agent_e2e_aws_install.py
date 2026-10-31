@@ -374,7 +374,7 @@ def test_inventory_reads_aws_tags_under_controller_credentials():
     paginator = Paginator([{'ResourceTagMappingList': [{'ResourceARN': 'arn:resource:slot'}]}])
     role_pages = Paginator([{'Roles': [{'RoleName': 'slot-role', 'Arn': 'arn:role:slot'}]}])
     tag_api = SimpleNamespace(get_paginator=lambda name: paginator)
-    iam = SimpleNamespace(get_paginator=lambda name: role_pages,
+    iam = SimpleNamespace(get_paginator=lambda name: role_pages if name == 'list_roles' else Paginator([{'Policies': []}]),
         list_role_tags=lambda **kw: {'Tags': [{'Key': 'validationRunId', 'Value': 'run-1'}]})
     clients = {'resourcegroupstaggingapi': tag_api, 'iam': iam}
     obj = controller.AwsController.__new__(controller.AwsController)
@@ -518,3 +518,13 @@ def test_run_case_writes_first_attempt_only_and_cleans_up(tmp_path, harness):
         aws.run_case(**args)
     assert harness.aws.destroyed == 1
     assert not (tmp_path / 'slot.json').exists()  # Only prepare creates the reaper handle.
+
+
+def test_signer_can_reuse_workflow_oidc_session_without_self_assume():
+    obj = controller.AwsController.__new__(controller.AwsController)
+    role = aws.PROVISION_ROLE_ARN
+    obj.principal_arn = 'arn:aws:sts::585192672263:assumed-role/honua-release-cell-provision/workflow'
+    frozen = SimpleNamespace(access_key='ASIA' + 'E' * 16, secret_key='temporary', token='temporary-token')
+    obj.session = SimpleNamespace(get_credentials=lambda: SimpleNamespace(get_frozen_credentials=lambda: frozen))
+    creds = obj.assume(role, 'unused')
+    assert creds.access_key_id == frozen.access_key and creds.role_arn == role

@@ -197,6 +197,7 @@ jobs:
           fi
 
       - name: Assume the release-cell provision role
+        id: provision
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.HONUA_AWS_CELL_PROVISION_ROLE_ARN }}
@@ -248,6 +249,15 @@ jobs:
             --lock-digest "$LOCK_DIGEST" --lock-run-id "$LOCK_RUN_ID" \
             --output "agent-e2e-aws-install-${RUN_ID}.json" --run-id "$RUN_ID" \
             --role-arn "$ROLE_ARN" --repository "$GITHUB_REPOSITORY"
+
+      - name: Renew the provision session for the reaper
+        if: always() && steps.provision.outcome == 'success'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_CELL_PROVISION_ROLE_ARN }}
+          aws-region: us-east-1
+          role-duration-seconds: 3600
+          unset-current-credentials: true
 
       - name: Teardown the release-cell slot with the controller session
         if: always()

@@ -144,14 +144,20 @@ class AwsController:
         self.session, self.slot, self.contract, self.sleep = session, slot, contract, sleep
         self.started = datetime.now(timezone.utc)
         identity = session.client('sts').get_caller_identity()
+        self.principal_arn = identity['Arn']
         from agent_e2e_aws_install import ACCOUNT, PROVISION_ROLE_ARN
         if identity['Account'] != ACCOUNT or not matches_role(identity['Arn'], PROVISION_ROLE_ARN):
             raise ControllerError('controller-principal')
 
     def assume(self, role, name):
         from agent_e2e_aws_install import ScopedCredentials
-        response = self.session.client('sts').assume_role(RoleArn=role, RoleSessionName=name,
-            DurationSeconds=3600)['Credentials']
+        if matches_role(getattr(self, 'principal_arn', None), role):
+            frozen = self.session.get_credentials().get_frozen_credentials()
+            response = {'AccessKeyId': frozen.access_key, 'SecretAccessKey': frozen.secret_key,
+                        'SessionToken': frozen.token}
+        else:
+            response = self.session.client('sts').assume_role(RoleArn=role, RoleSessionName=name,
+                DurationSeconds=3600)['Credentials']
         if not response['AccessKeyId'].startswith('ASIA') or not response.get('SessionToken'):
             raise ControllerError('sts-required')
         return ScopedCredentials(response['AccessKeyId'], response['SecretAccessKey'], response['SessionToken'], role)
@@ -197,6 +203,12 @@ class AwsController:
                 if (tags.get('validationRunId') == self.slot['validationRunId']
                         or tags.get('name_prefix') == self.slot['namePrefix']):
                     found.add(role['Arn'])
+        for page in iam.get_paginator('list_policies').paginate(Scope='Local'):
+            for policy in page.get('Policies', []):
+                tags = {t['Key']: t['Value'] for t in iam.list_policy_tags(PolicyArn=policy['Arn'])['Tags']}
+                if (tags.get('validationRunId') == self.slot['validationRunId']
+                        or tags.get('name_prefix') == self.slot['namePrefix']):
+                    found.add(policy['Arn'])
         return sorted(found)
 
     def installed_image(self):
