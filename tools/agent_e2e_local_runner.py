@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import importlib.util
+import json
 import math
 from pathlib import Path
 
@@ -39,6 +40,7 @@ def score_assertions(assertions: list[str], observations: list[Observation], exp
             if not isinstance(requests, list) or not requests:
                 raise ValueError('missing raw controller evidence')
             hashes = []
+            raw_bodies = []
             for request in requests:
                 raw = base64.b64decode(request['body_b64'], validate=True)
                 digest = hashlib.sha256(raw).hexdigest()
@@ -47,7 +49,15 @@ def score_assertions(assertions: list[str], observations: list[Observation], exp
                 if not isinstance(request['method'], str) or not isinstance(request['url'], str) or type(request['status']) is not int:
                     raise ValueError('invalid controller response metadata')
                 hashes.append('sha256:' + digest)
-            oracle.verify(assertion, obs.observed, expected[assertion])
+                raw_bodies.append(raw)
+            # Until a controller-owned projection is registered for an assertion,
+            # evidence hashes alone cannot establish that the projection is true.
+            if assertion != 'filter.exact' or len(raw_bodies) != 1:
+                raise ValueError('no validated evidence projection for assertion')
+            projected = json.loads(raw_bodies[0])
+            if projected != obs.observed:
+                raise ValueError('observation differs from evidence projection')
+            oracle.verify(assertion, projected, expected[assertion])
         except (ValueError, KeyError, TypeError) as exc:
             results.append({'assertion': assertion, 'status': 'fail', 'reason': str(exc)})
         else:

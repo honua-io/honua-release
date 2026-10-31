@@ -18,6 +18,9 @@ def test_score_requires_matching_raw_controller_evidence():
     assert score(['one']) == 'pass'
     assert score(['wrong']) == 'fail'
     assert score(['one'], {'requests': [{**evidence['requests'][0], 'body_b64': 'e30='}]}) == 'fail'
+    wrong = b'{"resourceIds":["wrong"]}'
+    contradictory = {'requests': [{**evidence['requests'][0], 'body_b64': base64.b64encode(wrong).decode(), 'sha256': hashlib.sha256(wrong).hexdigest()}]}
+    assert score(['one'], contradictory) == 'fail'
     assert score_assertions(['filter.exact'], [], {'filter.exact': {'resourceIds': ['one']}})[0]['status'] == 'fail'
 
 
