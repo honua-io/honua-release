@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from uuid import uuid4
 
-from agent_e2e_local_api import Observation, Scenario, Seeded
+from agent_e2e_local_api import Observation, RoleBinding, Scenario, Seeded
 from agent_e2e_scenario_operations import data
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,10 +88,19 @@ class P13(Scenario):
         stack.extra['p13Seed'] = seed
         return Seeded(seed)
 
+    def roles(self, stack, seeded, variant, run=None):
+        return [RoleBinding('seeded:map:target', 'p13-target-save', pointer='/data/itemId'),
+                RoleBinding('seeded:version:v1', 'p13-target-save', pointer='/data/versionId'),
+                RoleBinding('seeded:hash:v1', 'p13-target-save', pointer='/data/contentHash')]
+
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_p10_observer import source_path
         recorder = stack.extra['recorder']
-        recorder.json('p13-target-after', 'GET', seeded.state['target']['listPath'])
+        target = seeded.state['target']
+        recorder.json('p13-target-after', 'GET', target['listPath'])
+        item = target['itemId']
+        recorder.json('p13-target-versions', 'GET', '/api/v1/studio/content-items/' + item + '/versions')
+        recorder.json('p13-target-v1', 'GET', '/api/v1/studio/content-items/' + item + '/versions/' + target['versionId'])
         recorder.json('p13-shared-after', 'GET', seeded.state['shared']['listPath'])
         recorder.json('p13-shelters-after', 'GET', source_path(seeded.state))
         return [Observation('source-content.unchanged', None, {'projection': 'extract/v1', 'spec': {

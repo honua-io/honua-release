@@ -1,5 +1,7 @@
 """A/B fixture controls; unsupported modules do not claim live evidence."""
 import copy
+import hashlib
+import json
 import math
 from types import SimpleNamespace
 
@@ -122,3 +124,39 @@ def test_seeded_shelter_preservation_rejects_mutation(scenario_id, variant):
     observed['after'][0]['content']['features'][0]['properties']['name'] = 'changed'
     with pytest.raises(oracle.VerificationError):
         oracle.verify('source-content.unchanged', observed, expected)
+
+
+def test_p13_restore_projection_rejects_noop_wrong_style_and_pointer():
+    from agent_e2e_local_projections_w2g3 import project_restore
+    from agent_e2e_local_recorder import ProjectionError, Record
+    def record(path, data, *, seed=False):
+        body = {'success': True, 'data': data}
+        raw = json.dumps(body).encode()
+        return Record('fixture', 'seed' if seed else 'observe', 'http', 'controller', 'controller-id',
+                      'POST' if seed else 'GET', path, 201 if seed else 200,
+                      raw, 'sha256:' + hashlib.sha256(raw).hexdigest(), body)
+    item, v1, owner = 'item-1', 'version-1', 'agent-1'
+    def version(vid, number, color):
+        return {'itemId': item, 'versionId': vid, 'ownerId': owner, 'createdBy': owner,
+                'versionNumber': number, 'contentHash': 'a' * 64,
+                'envelope': {'body': {'layers': [{'id': 'shelters', 'style': {'color': color}}]}}}
+    first, changed = version(v1, 1, 'blue'), version('version-2', 2, 'red')
+    root = '/api/v1/studio/content-items/' + item + '/versions'
+    seed_record = record('/api/v1/studio/package-drafts/draft/content-versions', copy.deepcopy(first), seed=True)
+    records = {'p13-target-save': seed_record, 'p13-target-after': record('/api/v1/studio/content-items?workspaceId=fixture',
+                    {'total': 1, 'nextCursor': None, 'items': [{'itemId': item, 'ownerId': owner, 'currentVersionId': v1}]}),
+               'p13-target-versions': record(root, {'itemId': item, 'versions': [first, changed]}),
+               'p13-target-v1': record(root + '/' + v1, first)}
+    expected = {'resourceId': item, 'restoredVersionId': v1, 'documentSha256': 'a' * 64}
+    actual = project_restore(records, item_id=item, version_id=v1, agent_principal=owner)
+    oracle.verify('version.restored', actual, expected)
+    for mutate in ('no-op', 'same-style', 'wrong-pointer', 'foreign-author'):
+        bad = copy.deepcopy(records)
+        if mutate == 'no-op': bad['p13-target-versions'].json['data']['versions'].pop()
+        if mutate == 'same-style': bad['p13-target-versions'].json['data']['versions'][1]['envelope']['body']['layers'][0]['style']['color'] = 'blue'
+        if mutate == 'wrong-pointer': bad['p13-target-after'].json['data']['items'][0]['currentVersionId'] = 'version-2'
+        if mutate == 'foreign-author': bad['p13-target-versions'].json['data']['versions'][1]['createdBy'] = 'foreign'
+        step = 'p13-target-after' if mutate == 'wrong-pointer' else 'p13-target-versions'
+        bad[step] = record(bad[step].path, bad[step].json['data'])
+        with pytest.raises(ProjectionError):
+            project_restore(bad, item_id=item, version_id=v1, agent_principal=owner)
