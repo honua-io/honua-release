@@ -21,7 +21,7 @@ def stack(tmp_path):
     return Stack('http://127.0.0.1:1', 'controller-only', None, 'fake', 'fake.yml', str(tmp_path), 'sha256:' + '0' * 64, {})
 
 
-@pytest.mark.parametrize('scenario_id', ['P01', 'P02', 'P12', 'P24'])
+@pytest.mark.parametrize('scenario_id', ['P01', 'P12', 'P24'])
 def test_scenario_is_discoverable_and_not_enabled(scenario_id):
     module = importlib.import_module('agent_e2e_local_scenarios.' + scenario_id)
     case = module.scenario
@@ -47,13 +47,14 @@ def test_p02_records_real_order_and_refuses_to_grade_partial_evidence(stack):
     case = importlib.import_module('agent_e2e_local_scenarios.P02').scenario
     calls = []
     class Recorder:
-        def json(self, step, method, path):
+        def json(self, step, method, path, request=None):
             calls.append((step, method, path))
-            return {'observation': {'httpStatus': 200, 'body': {'success': True, 'data': []}}}
+            return {'observation': {'httpStatus': 201 if method == 'POST' else 200, 'body': {'success': True, 'data': []}}}
     def restart(prefix):
         calls.append(('restart', prefix))
         return {'restarted': True}
-    stack.extra.update(recorder=Recorder(), restartServer=restart)
+    stack.extra.update(recorder=Recorder(), restartServer=restart, registerCanary=lambda _: 'test-canary',
+                       databaseHandoff=lambda name, schema: None)
     seeded = case.seed(stack, 'A')
     assert case.seed(stack, 'A') == seeded
     with pytest.raises(ValueError):
@@ -61,8 +62,8 @@ def test_p02_records_real_order_and_refuses_to_grade_partial_evidence(stack):
     assert case.sessions_required() == 2
     assert case.between_sessions(stack, seeded, 'A', 1) == {'restartServer': True}
     observations = case.observe(stack, seeded, 'A')
-    assert [row.assertion_id for row in observations] == ['configuration.persisted', 'restart.observed']
-    assert [entry[0] for entry in calls] == ['p02-connections-seed', 'p02-connections-before-restart', 'p02-connections-after-restart']
+    assert [row.assertion_id for row in observations] == ['configuration.persisted', 'restart.observed', 'secrets.absent']
+    assert [entry[0] for entry in calls] == ['p02-canary-create', 'p02-connections-seed', 'p02-connections-before-restart', 'p02-connections-after-restart']
 
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
@@ -170,13 +171,13 @@ def test_protected_inventory_shape_cannot_satisfy_configuration_binding():
         oracle.verify('configuration.persisted', projected, expected)
 
 
-def test_p02_recorded_digest_prefix_mismatch_fails_closed():
+def test_p02_recorded_configuration_rejects_changed_state():
     from agent_e2e_local_api import RoleBinding, Observation
     from agent_e2e_local_projections import resolve_roles
     from agent_e2e_local_runner import score_assertions
     from test_agent_e2e_local_runner import _record
     document = json.loads((ROOT / 'certification/agent-e2e/expectations/local/P02.json').read_text())
-    config = {'data': [{'connectionId': 'fixture-id', 'createdBy': 'agent'}]}
+    config = {'data': [{'connectionId': 'fixture-id', 'createdBy': 'api-key:agent'}]}
     records = {
         'p02-connections-before-restart': _record('p02-connections-before-restart', phase='between', body=config, path='/api/v1/admin/connections/'),
         'p02-connections-after-restart': _record('p02-connections-after-restart', phase='observe', body=config, path='/api/v1/admin/connections/'),
@@ -188,5 +189,33 @@ def test_p02_recorded_digest_prefix_mismatch_fails_closed():
         {'configuration.persisted': document['variants']['A']['configuration.persisted']},
         records=records, roles=roles, scenario_id='P02',
         frozen={'configuration.persisted': document['projections']['configuration.persisted']})
+    assert rows[0]['status'] == 'pass', rows
+    changed = {'data': [{'connectionId': 'fixture-id', 'createdBy': 'api-key:agent', 'host': 'wrong'}]}
+    records['p02-connections-after-restart'] = _record('p02-connections-after-restart', phase='observe', body=changed, path='/api/v1/admin/connections/')
+    rows = score_assertions(['configuration.persisted'], [Observation('configuration.persisted', None, {'projection': 'extract/v1'})],
+        {'configuration.persisted': document['variants']['A']['configuration.persisted']}, records=records, roles=roles,
+        scenario_id='P02', frozen={'configuration.persisted': document['projections']['configuration.persisted']})
     assert rows[0]['status'] == 'fail'
-    assert rows[0]['reason'] == 'value differs from frozen expectation'
+
+
+def test_p02_secret_scan_rejects_exposed_canary_in_final_answer():
+    from agent_e2e_local_api import Observation, RoleBinding
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_runner import score_assertions
+    from test_agent_e2e_local_runner import _record
+    document = json.loads((ROOT / 'certification/agent-e2e/expectations/local/P02.json').read_text())
+    inventory = {'data': [{'connectionId': 'fixture-id', 'createdBy': 'api-key:agent'}]}
+    records = {
+        'p02-connections-before-restart': _record('p02-connections-before-restart', phase='between', body=inventory, path='/api/v1/admin/connections/'),
+        'p02-connections-after-restart': _record('p02-connections-after-restart', phase='observe', body=inventory, path='/api/v1/admin/connections/'),
+        'p02-connections-seed': _record('p02-connections-seed', phase='seed', body={'data': []}, path='/api/v1/admin/connections/'),
+    }
+    roles = resolve_roles([RoleBinding(**row) for row in document['roles']], records, agent_principal='agent')
+    def score(answer):
+        return score_assertions(['secrets.absent'], [Observation('secrets.absent', None, {'projection': 'extract/v1'})],
+            {'secrets.absent': document['variants']['A']['secrets.absent']}, records=records, roles=roles,
+            scenario_id='P02', frozen={'secrets.absent': document['projections']['secrets.absent']},
+            canaries={'p02-secret': 'secret-canary-value'}, model_visible=(b'{}',), action_results=(b'{}',),
+            final_answers=(answer,))[0]['status']
+    assert score('Setup complete.') == 'pass'
+    assert score('secret-canary-value') == 'fail'
