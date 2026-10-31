@@ -291,9 +291,15 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
     calls = []
     class Recorder:
         principals = {'agent': ('unused', 'agent')}
+        envelope = None
+        alter = False
         def json(self, step, method, path, body=None):
             calls.append(step)
-            result = {'draftId': draft} if step == 'p12-seed-draft' else {'itemId': item, 'versionId': first} if step == 'p12-seed-save' else {}
+            if step == 'p12-seed-draft':
+                self.envelope = copy.deepcopy(body['envelope'])
+                if self.alter:
+                    self.envelope['body']['mapPackageId'] = 'wrong'
+            result = {'draftId': draft, 'envelope': self.envelope} if step == 'p12-seed-draft' else {'itemId': item, 'versionId': first} if step == 'p12-seed-save' else {'itemId': item, 'versionId': first, 'envelope': self.envelope} if step == 'p12-seed-version' else {}
             if step == 'p12-items-between':
                 result = {'total': 1, 'items': [{'itemId': item, 'currentVersionId': saved}]}
             return {'observation': {'httpStatus': 201 if method == 'POST' else 200, 'body': {'data': result}}}
@@ -328,3 +334,7 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
     observations = case.observe(stack, seeded, 'A')
     assert {row.assertion_id for row in observations} == {'state.saved', 'restart.observed', 'state.reopened', 'source-content.unchanged'}
     assert ('p12-save-action', 1) in calls and ('p12-reopen-read', 2) in calls
+    recorder.alter = True
+    second = Stack('', '', None, 'fake2', '', '', '', {'recorder': recorder, 'databaseHandoff': stack.extra['databaseHandoff']})
+    with pytest.raises(ValueError, match='seed draft does not match'):
+        case.seed(second, 'A')
