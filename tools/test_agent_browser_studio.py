@@ -16,6 +16,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -682,7 +683,8 @@ def test_headless_chromium_blocks_other_origins_and_reads_the_canvas(tmp_path):
         img{position:absolute;left:0;top:0;width:1px;height:1px}
         </style><div id="flood"></div>
         <div id="honua-render" data-loaded-layers="parcels,flood_zones,shelters" data-label-sources="" data-browser-errors=""></div>
-        <img src="https://example.com/pixel.png" alt=""><img src="http://127.0.0.1:9/pixel.png" alt="">"""
+        <img src="https://example.com/pixel.png" alt=""><img src="http://127.0.0.1:9/pixel.png" alt="">
+        <a id="escape" href="about:blank">Leave Studio</a>"""
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -716,8 +718,8 @@ def test_headless_chromium_blocks_other_origins_and_reads_the_canvas(tmp_path):
                                visible_label_source_ids=[], browser_errors=[])
         assert measured['decodedWidth'] == 512 and measured['decodedHeight'] == 512
         assert measured['regions']['flood']['matchingPixels'] >= 4000
-        assert any('example.com' in url for url in page.aborted)
-        assert any(url.startswith('http://127.0.0.1:9/') for url in page.aborted)
+        assert any(urlsplit(url).hostname == 'example.com' for url in page.aborted)
+        assert any(urlsplit(url).hostname == '127.0.0.1' and urlsplit(url).port == 9 for url in page.aborted)
         log = ActionLog(tmp_path / 'log', 1, set(), 5)
         # The agent browser must be constructed on its owning worker, independently of this
         # controller page. Exercise actual HTTP MCP requests, not a same-thread perform call.
@@ -737,6 +739,12 @@ def test_headless_chromium_blocks_other_origins_and_reads_the_canvas(tmp_path):
         assert vault.action_results()[0]['json']['result']['structuredContent']['screenshotSha256'] == digest
         server.decoy[:] = ['corrupt']
         assert vault.action_results()[0]['json']['result']['structuredContent']['screenshotSha256'] == digest
+        escaped = json.loads(_rpc_call(server, 'studio_click', {'selector': '#escape'}))['result']
+        assert escaped['isError'] is True
+        assert escaped['structuredContent']['screenshotSha256'] is None
+        assert log.rows[-1]['status'] == 'fail'
+        # The independent controller browser still holds the original page.
+        assert page.current_url() == origin + '/canvas'
     finally:
         if server is not None:
             server.stop()
