@@ -65,7 +65,7 @@ def test_p11_seed_idempotent_and_declares_recorded_source_projection(monkeypatch
     assert sum(call[0] == 'prepare' for call in recorder.calls) == 1
     with pytest.raises(ValueError):
         P11.scenario.seed(stack, 'B' if variant == 'A' else 'A')
-    observation = P11.scenario.observe(stack, first, variant)[1]
+    observation = P11.scenario.observe(stack, first, variant)[-1]
     assert observation.assertion_id == 'source-content.unchanged'
     assert observation.observed is None
     assert observation.evidence == {'projection': 'extract/v1'}
@@ -309,8 +309,9 @@ def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
     expected={'shared.preserved':load_expected('P13',variant)['shared.preserved']}
     obs=Observation('shared.preserved',None,{'projection':'extract/v1'})
     def score():
-        return score_assertions(list(expected),[obs],expected,records=records,roles=roles,scenario_id='P13',
-                                frozen=load_projections('P13',variant))[0]['status']
+        result=score_assertions(list(expected),[obs],expected,records=records,roles=roles,scenario_id='P13',
+                                frozen=load_projections('P13',variant))[0]
+        return result['status']
     assert score() == 'pass'
     records['p13-shared-after']=record('p13-shared-after','observe','foreign-v2')
     assert score() == 'fail'
@@ -370,3 +371,96 @@ def test_p13_contract_freezes_every_pack_assertion_and_role(variant):
     assert set(scenario.expected(variant)) == set(load_projections('P13',variant)) == assertions
     assert scenario.roles(None,None,variant) == load_roles('P13')
     assert scenario.customer_files(variant) == []
+
+
+def test_p11_created_map_child_requires_authorship_and_parent_address():
+    from agent_e2e_local_expectations import load_roles
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record, ProjectionError
+    def record(step,phase,path,body):
+        raw=json.dumps(body).encode()
+        return Record(step,phase,'http','controller','controller','GET',path,200,raw,
+                      'sha256:'+hashlib.sha256(raw).hexdigest())
+    path='/api/v1/studio/content-items?family=map&limit=200'
+    item='11111111-1111-4111-8111-111111111111'
+    before=record('p11-maps-before','seed',path,{'data':{'items':[],'total':0,'nextCursor':None}})
+    after=record('p11-maps-after','observe',path,{'data':{'items':[{'itemId':item}],'total':1,'nextCursor':None}})
+    child=record('p11-map-version','observe','/api/v1/studio/content-items/'+item+'/versions/v1',
+                 {'data':{'envelope':{'body':{'layers':[{'id':'buffer-layer'}]}}}})
+    records={'p11-maps-before':before,'p11-maps-after':after,'p11-map-version':child}
+    results=[{'tool':'honua_studio_create_draft','status':'pass',
+              'json':{'result':{'structuredContent':{'itemId':item}}}}]
+    bindings=[x for x in load_roles('P11') if x.role in ('created:map:result','child:layer:result')]
+    result=resolve_roles(bindings,records,agent_principal='agent',action_results=results)
+    assert result['child:layer:result']=='buffer-layer'
+    with pytest.raises(ProjectionError):
+        resolve_roles(bindings,records,agent_principal='agent',action_results=[])
+    records['p11-map-version']=record('p11-map-version','observe','/api/v1/studio/content-items/foreign/versions/v1',child.json)
+    with pytest.raises(ProjectionError):
+        resolve_roles(bindings,records,agent_principal='agent',action_results=results)
+
+
+@pytest.mark.parametrize('variant', ['A','B'])
+def test_p11_frozen_geometry_and_map_reject_wrong_state(variant):
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_projections
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import score_assertions
+    facts=load_expected('P11',variant)['buffer.metric']; cx,cy=facts['center3857']; radius=facts['radiusMetres']
+    ring=[[cx+radius*math.cos(2*math.pi*i/128),cy+radius*math.sin(2*math.pi*i/128)] for i in range(128)]
+    ring.append(ring[0][:]); item='11111111-1111-4111-8111-111111111111'; version='22222222-2222-4222-8222-222222222222'
+    job,service,layer,child='job-1','buffer-service',7,'buffer-layer'
+    roles={'created:job:buffer':job,'created:service:buffer':service,'child:layer:published':layer,
+           'created:map:result':item,'child:layer:result':child}
+    def record(step,kind,path,data,principal='controller',origin='controller',args=None):
+        raw=json.dumps(data).encode(); argraw=json.dumps(args).encode() if args else None
+        return Record(step,'observe',kind,principal,principal,'POST' if kind=='mcp' else 'GET',path,200,raw,
+                      'sha256:'+hashlib.sha256(raw).hexdigest(),request_arguments_raw=argraw,origin=origin)
+    esri={'spatialReference':{'wkid':3857}}
+    result={'jsonrpc':'2.0','id':1,'result':{'isError':False,'structuredContent':{'returnedCount':1,'resultOffset':0,
+        'exceededTransferLimit':False,'geojson':{'type':'FeatureCollection','features':[{'properties':{'source_id':facts['sourceId']},
+        'geometry':{'type':'Polygon','coordinates':[ring]}}]}}}}
+    rect=[cx-radius,cy-radius,cx+radius,cy+radius]
+    saved={'data':{'versionId':version,'envelope':{'body':{'view':{'bbox':rect},'layers':[{'id':child,'sourceId':service,'visible':True}]}}}}
+    current={'data':{'total':1,'items':[{'itemId':item,'currentVersionId':version}]}}
+    published={'jsonrpc':'2.0','id':2,'result':{'structuredContent':{'sourceJobId':job,'status':'Completed'}}}
+    records={'p11-result-esri':record('p11-result-esri','http',f'/rest/services/{service}/FeatureServer/{layer}/query?f=json',esri),
+             'p11-result-geojson':record('p11-result-geojson','mcp','/mcp#tools/call',result,args={'tool':'honua_query_features','arguments':{'serviceId':service,'layerId':layer}}),
+             'p11-map-version':record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',saved),
+             'p11-map-current':record('p11-map-current','http','/api/v1/studio/content-items?family=map',current),
+             'p11-result-publish':record('p11-result-publish','mcp','/mcp#tools/call',published,'agent','session-result',{'tool':'honua_publish_result','arguments':{'sourceId':job}})}
+    wanted=load_expected('P11',variant); frozen=load_projections('P11',variant)
+    def score(which):
+        return score_assertions([which],[Observation(which,None,{'projection':'extract/v1'})],{which:wanted[which]},
+            records=records,roles=roles,scenario_id='P11',frozen=frozen)[0]['status']
+    assert score('buffer.metric')=='pass'
+    assert score('map.composition')=='pass'
+    bad=copy.deepcopy(saved); bad['data']['envelope']['body']['layers'][0]['sourceId']='wrong-service'
+    records['p11-map-version']=record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',bad)
+    assert score('map.composition')=='fail'
+    bad=copy.deepcopy(result); bad['result']['structuredContent']['geojson']['features'][0]['geometry']['coordinates'][0][1][0]+=100
+    records['p11-result-geojson']=record('p11-result-geojson','mcp','/mcp#tools/call',bad,args={'tool':'honua_query_features','arguments':{'serviceId':service,'layerId':layer}})
+    assert score('buffer.metric')=='fail'
+
+
+def test_p11_published_layer_role_requires_new_authored_service():
+    from agent_e2e_local_expectations import load_roles
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record, ProjectionError
+    def record(step,phase,path,body):
+        raw=json.dumps(body).encode()
+        return Record(step,phase,'http','controller','controller','GET',path,200,raw,
+                      'sha256:'+hashlib.sha256(raw).hexdigest())
+    path='/api/v1/admin/services/'
+    before=record('p11-services-before','seed',path,{'data':[{'serviceName':'old'}]})
+    after=record('p11-services-after','observe',path,{'data':[{'serviceName':'old'},{'serviceName':'buffer-service'}]})
+    meta=record('p11-service-meta','observe','/rest/services/buffer-service/FeatureServer?f=json',{'layers':[{'id':7}]})
+    records={'p11-services-before':before,'p11-services-after':after,'p11-service-meta':meta}
+    actions=[{'tool':'honua_publish_result','status':'pass','json':{'result':{'structuredContent':{'serviceId':'buffer-service'}}}}]
+    bindings=[x for x in load_roles('P11') if x.role in ('created:service:buffer','child:layer:published')]
+    assert resolve_roles(bindings,records,agent_principal='agent',action_results=actions)['child:layer:published']==7
+    with pytest.raises(ProjectionError):
+        resolve_roles(bindings,records,agent_principal='agent',action_results=[])
+    records['p11-service-meta']=record('p11-service-meta','observe','/rest/services/foreign/FeatureServer?f=json',{'layers':[{'id':7}]})
+    with pytest.raises(ProjectionError):
+        resolve_roles(bindings,records,agent_principal='agent',action_results=actions)

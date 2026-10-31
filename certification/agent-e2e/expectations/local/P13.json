@@ -1616,7 +1616,8 @@
                   "pointer": "/data/nextCursor"
                 }
               }
-            }
+            },
+            "items": "/data/items"
           },
           {
             "label": "services-inventory",
@@ -1637,7 +1638,8 @@
                   }
                 }
               }
-            }
+            },
+            "items": "/data"
           }
         ]
       },
