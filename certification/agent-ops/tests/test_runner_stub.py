@@ -11,6 +11,12 @@ from runner import main
 HERE = Path(__file__).resolve().parents[1]
 
 
+def _ecs_cell_is_gated(workflow: str) -> None:
+    assert workflow.count("e2e-cloud-aws-cell.yml") == 1
+    assert "ecs_stage.py --check" in workflow
+    assert "e2e-cloud-aws" not in workflow.split("  ecs-cell:", 1)[0]
+
+
 def _clean_pilot(path: Path, **overrides) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {
@@ -168,7 +174,7 @@ def test_aws_target_is_unwired_and_does_not_pass(tmp_path: Path):
     assert summary["unconditional"]["n"] == 0
     assert "unwired" in summary["stop"]["reasons"]
     workflow = (HERE.parents[1] / ".github" / "workflows" / "agent-ops.yml").read_text(encoding="utf-8")
-    assert "e2e-cloud-aws" not in workflow
+    _ecs_cell_is_gated(workflow)
     target_source = (HERE / "targets.py").read_text(encoding="utf-8")
     assert "e2e" not in target_source
 
@@ -641,7 +647,7 @@ def test_live_refuses_before_a_trial_when_the_endpoint_is_unset(monkeypatch, tmp
 def test_workflow_runs_the_pilot_before_a_priced_call():
     workflow = (HERE.parents[1] / ".github" / "workflows" / "agent-ops.yml").read_text(encoding="utf-8")
     readme = (HERE / "README.md").read_text(encoding="utf-8")
-    assert "e2e-cloud-aws" not in workflow
+    _ecs_cell_is_gated(workflow)
     assert "scope:" in workflow
     assert "pilot" in workflow and "full" in workflow
     assert "--pilot" in workflow

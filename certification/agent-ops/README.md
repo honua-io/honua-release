@@ -31,7 +31,7 @@ The repository has no `TERMINAL_MODEL_BASE_URL` variable. The live job sets that
 
 ## Images, ledger, and scope
 
-`aws-ecs` is unwired. The release session connects that target to the cloud cell later. Phrasing C, O11, O12 and the unseen faults stay in `held-out/` and are not opened unless `--qualification` is set.
+`aws-ecs` is unwired. A dispatch with that target runs `ecs_stage.py --check` and stops while the product executors in `PRODUCT-PATH.md` are missing. Phrasing C, O11, O12 and the unseen faults stay in `held-out/` and are not opened unless `--qualification` is set.
 
 Migration 142 is the reader-incompatible schema version named by the preregistration. It is not a numbered SQL file in honua-server. The oracle reads the controller's committed deployment record. The controller's prior and target digests stay the synthetic values in `constants.py`. `server_readback` stays false. Corpus layers are not published through the server admin API.
 
