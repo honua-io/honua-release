@@ -897,3 +897,41 @@ def test_headless_chromium_blocks_other_origins_and_reads_the_canvas(tmp_path):
             page.close()
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_saved_default_fill_export_binds_real_source_and_rejects_unknown_style():
+    from agent_browser_studio import saved_default_fill_export
+    body = {'layers': [{'id': 'explore-layer', 'sourceId': 'svc/4', 'type': 'fill', 'visible': True}],
+            'sourceBindings': [{'sourceId': 'svc/4', 'protocol': 'geoservices_feature_service',
+                                'locator': {'url': '/rest/services/g41proof-flat/FeatureServer/4', 'layerId': 4}}],
+            'view': {'bbox': [-0.18, -0.05, -0.16, -0.04]}}
+    path, rgba = saved_default_fill_export(body, service='g41proof-flat', layer_id=4)
+    assert path.startswith('/rest/services/g41proof-flat/MapServer/export?')
+    assert rgba == (31, 122, 140, 115)
+    bad = dict(body, mapSpec={'version': 8, 'layers': []})
+    with pytest.raises(ProjectionError):
+        saved_default_fill_export(bad, service='g41proof-flat', layer_id=4)
+    with pytest.raises(ProjectionError):
+        saved_default_fill_export(body, service='other', layer_id=4)
+
+
+def test_saved_default_fill_render_rejects_wrong_frozen_color():
+    import base64
+    from types import SimpleNamespace
+    from agent_browser_studio import verify_saved_default_fill
+    body = {'layers': [{'id': 'explore-layer', 'sourceId': 'svc/4', 'type': 'fill', 'visible': True}],
+            'sourceBindings': [{'sourceId': 'svc/4', 'protocol': 'geoservices_feature_service',
+                                'locator': {'url': '/rest/services/g41proof-flat/FeatureServer/4', 'layerId': 4}}],
+            'view': {'bbox': [-0.18, -0.05, -0.16, -0.04]}}
+    rgba = (31, 122, 140, 115)
+    class Recorder:
+        records = {'version': SimpleNamespace(json={'data': {'envelope': {'body': body}}})}
+        def json(self, step, method, path):
+            assert step == 'render' and method == 'GET' and '/MapServer/export?' in path
+            return {'observation': {'httpStatus': 200, 'rawBodyBase64': base64.b64encode(_png(_paint(rgba))).decode()}}
+    result = verify_saved_default_fill(Recorder(), 'version', 'render', service='g41proof-flat',
+                                       layer_id=4, expected_rgba=rgba, minimum_pixels=4000)
+    assert result['matchedPixels'] == 4800
+    with pytest.raises(ProjectionError, match='frozen fill expectation'):
+        verify_saved_default_fill(Recorder(), 'version', 'render', service='g41proof-flat',
+                                  layer_id=4, expected_rgba=(255, 0, 0, 115), minimum_pixels=4000)

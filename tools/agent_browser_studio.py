@@ -872,6 +872,85 @@ def style_from_body(body):
     return project(spec, STYLE_CONFIG)
 
 
+def saved_default_fill_export(body, *, service, layer_id):
+    """Translate one unstyled saved fill into a bounded server export request.
+
+    Studio's default fill palette and opacity are defined by its composition
+    palette and style-presets modules. This deliberately refuses authored
+    styles and multiple layers until their semantics are independently mapped.
+    The source identity must come from the runner's published fixture binding.
+    """
+    from urllib.parse import urlencode
+    import math
+    require(isinstance(body, dict) and 'mapSpec' not in body, 'unsupported saved map style')
+    require(isinstance(service, str) and re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', service)
+            and type(layer_id) is int and 0 <= layer_id <= 2147483647, 'invalid published layer')
+    layers, bindings = body.get('layers'), body.get('sourceBindings')
+    require(isinstance(layers, list) and len(layers) == 1 and isinstance(layers[0], dict)
+            and isinstance(bindings, list) and len(bindings) == 1 and isinstance(bindings[0], dict),
+            'default export requires one bound layer')
+    layer, binding = layers[0], bindings[0]
+    layer_name = layer.get('id')
+    require(isinstance(layer_name, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', layer_name)
+            and layer.get('type') == 'fill' and layer.get('visible') is True
+            and 'styleRef' not in layer and binding.get('sourceId') == layer.get('sourceId')
+            and binding.get('protocol') == 'geoservices_feature_service', 'unsupported saved layer')
+    locator = binding.get('locator')
+    require(isinstance(locator, dict) and locator.get('layerId') == layer_id
+            and locator.get('url') == f'/rest/services/{service}/FeatureServer/{layer_id}',
+            'saved map source differs from fixture')
+    view = body.get('view')
+    bbox = view.get('bbox') if isinstance(view, dict) else None
+    require(isinstance(bbox, list) and len(bbox) == 4 and all(type(v) in (int, float) and math.isfinite(v) for v in bbox)
+            and -180 <= bbox[0] < bbox[2] <= 180 and -85 <= bbox[1] < bbox[3] <= 85,
+            'saved map lacks a bounded longitude/latitude extent')
+    # FNV-1a and palette from honua-studio/src/composition/palette.ts.
+    palette = ('#0b6b4d', '#b4531b', '#3a5fa8', '#8a2f6b', '#1f7a8c', '#94741a', '#5c3b8f', '#a03a3a')
+    hashed = 0x811c9dc5
+    for char in layer_name:
+        hashed = ((hashed ^ ord(char)) * 0x01000193) & 0xffffffff
+    color = palette[hashed % len(palette)]
+    rgb = [int(color[index:index + 2], 16) for index in (1, 3, 5)]
+    rgba = (*rgb, 115)  # Studio's default fill opacity is 0.45.
+    dynamic = [{'id': layer_id, 'source': {'type': 'mapLayer', 'mapLayerId': layer_id},
+                'drawingInfo': {'renderer': {'type': 'simple', 'symbol': {
+                    'type': 'esriSFS', 'style': 'esriSFSSolid', 'color': list(rgba),
+                    'outline': {'type': 'esriSLS', 'style': 'esriSLSSolid', 'color': rgb + [255], 'width': 1}}}}}]
+    query = urlencode({'f': 'image', 'bbox': ','.join(str(value) for value in bbox), 'bboxSR': 4326,
+                       'imageSR': 3857, 'size': '512,512', 'format': 'png32', 'transparent': 'true',
+                       'dynamicLayers': json.dumps(dynamic, separators=(',', ':'))})
+    return f'/rest/services/{service}/MapServer/export?{query}', rgba
+
+
+def verify_saved_default_fill(recorder, version_step, export_step, *, service, layer_id, expected_rgba, minimum_pixels):
+    """Check a recorded saved version against controller-fetched server pixels.
+
+    This narrow proof is not the P08/P09/P24 render projection: it accepts only
+    a single default fill, and does not claim to observe labels or authored styles.
+    """
+    import base64
+    require(isinstance(expected_rgba, (tuple, list)) and len(expected_rgba) == 4
+            and all(type(v) is int and 0 <= v <= 255 for v in expected_rgba)
+            and type(minimum_pixels) is int and minimum_pixels > 0, 'invalid frozen render expectation')
+    require(version_step in recorder.records, 'saved map version was not recorded')
+    body = package_body(recorder.records[version_step].json)
+    path, color = saved_default_fill_export(body, service=service, layer_id=layer_id)
+    answer = recorder.json(export_step, 'GET', path)
+    observation = answer['observation']
+    require(observation['httpStatus'] == 200, 'server export failed')
+    try:
+        raw = base64.b64decode(observation['rawBodyBase64'], validate=True)
+        width, height, pixel = _decode_png(raw)
+    except (ValueError, TypeError) as exc:
+        raise ProjectionError('server export is not a decodable PNG') from exc
+    require(width >= 256 and height >= 256, 'server export is too small')
+    matched = sum(_close(pixel(x, y), expected_rgba, 2) for y in range(height) for x in range(width))
+    require(tuple(color) == tuple(expected_rgba) and matched >= minimum_pixels,
+            'saved map render does not match the frozen fill expectation')
+    return {'matchedPixels': matched, 'width': width, 'height': height,
+            'versionStep': version_step, 'exportStep': export_step}
+
+
 def saved_digest(body):
     from agent_e2e_pack import canonical_digest
     return canonical_digest(body)[7:]
