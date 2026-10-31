@@ -450,7 +450,8 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             t = matching[0]
             rows = t.get("stages")
             if (t.get("_artifact_sha256") != digest or t.get("attempt") != 1
-                    or t.get("required") is not True or t.get("goalSet") != "held-out"
+                    or t.get("required") is not True or not isinstance(t.get("goalSet"), dict)
+                    or t["goalSet"].get("name") != "held-out"
                     or not matches_candidate(t.get("candidate"), candidate)
                     or not isinstance(t.get("phases"), dict)
                     or not matches_candidate(t["phases"].get("candidate"), candidate)
@@ -472,7 +473,8 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             observed = {}
             for assertion in assertions:
                 ident = assertion.get("assertion")
-                if not isinstance(ident, str) or ident in observed:
+                if (not isinstance(ident, str)
+                        or ident in observed and observed[ident] != assertion.get("status")):
                     return False
                 observed[ident] = assertion.get("status")
             if (any(ident in observed and observed[ident] != "unscored" for ident in ops_scope["unscored"])
@@ -492,7 +494,7 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             first = next((outcome for outcome in outcomes if outcome != "pass"), None)
             status = ("completed" if first is None else "undetermined" if first in ("undetermined", "stage-unavailable")
                       else "blocked" if "blocked" in outcomes else "failed")
-            if t.get("status") != status or t.get("arcOutcome") != ("pass" if status == "completed" else "fail"):
+            if t.get("status") != status:
                 return False
             actual_counts[status] += 1
             for row in rows:
@@ -527,7 +529,9 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
     docs = _documents(run)
     if gate == ARC_GATE:
         if any(is_diagnostic(d) or (d.get("schema") in ("honua.ai-arc-trial/v1", "honua.ai-arc.report/v1")
-                                   and d.get("goalSet") == "development") for d in docs):
+                                   and (d.get("goalSet") == "development"
+                                        or isinstance(d.get("goalSet"), dict)
+                                        and d["goalSet"].get("name") == "development")) for d in docs):
             return "unrelated"
         matching = any(d.get("schema") in ("honua.ai-arc.aggregate/v1", "honua.ai-arc-trial/v1")
                        and d.get("arm") == arm and d.get("required") is True

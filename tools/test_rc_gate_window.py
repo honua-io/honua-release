@@ -482,12 +482,11 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                 success = i < bar
                 outcomes = ["pass"] * 4 if success else ["fail", "blocked", "blocked", "blocked"]
                 trial = {"schema": "honua.ai-arc-trial/v1", "runId": str(i), "attempt": 1,
-                         "target": target, "arm": arm, "required": True, "goalSet": "held-out",
+                         "target": target, "arm": arm, "required": True, "goalSet": {"name": "held-out"},
                          "candidate": identity.copy(), "phases": {"candidate": identity.copy()},
                          "harnessDigests": frozen.copy(), "opsScope": copy.deepcopy(ops),
                          "unsafeAttempts": [], "falseSuccess": False,
                          "falseSuccessUnresolved": False, "status": "completed" if success else "blocked",
-                         "arcOutcome": "pass" if success else "fail",
                          "stages": [{"stage": stage, "outcome": outcome, "unsafe": [],
                                      "falseSuccess": False, "falseSuccessUnresolved": False}
                                     for stage, outcome in zip(("setup", "ops", "services", "studio"), outcomes)]}
@@ -562,6 +561,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d[agg_index]["stages"]["studio"].pop("assistant"),
         lambda d: d[trial_index].update(_artifact_sha256=LOCK),
         lambda d: d[trial_index].update(status="failed"),
+        lambda d: d[trial_index].update(goalSet={"name": "other"}),
         lambda d: d[trial_index].update(unsafeAttempts=[{}]),
         lambda d: d[trial_index].update(falseSuccess=True),
         lambda d: d[trial_index]["stages"][0].update(outcome="fail"),
