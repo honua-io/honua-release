@@ -139,7 +139,8 @@ def pulled_image_proof(manifest: dict[str, Any], inspection: Any) -> dict[str, A
         raise CanaryError("pulled image digest did not match the selected candidate")
     return {"reference": name + "@" + digest, "verified": True, "source": "docker-pull"}
 
-def verify_lock_binding(path: Path, digest: str, manifest: dict[str, Any], observed: dict[str, Any]) -> dict[str, Any]:
+def verify_lock_binding(path: Path, digest: str, manifest: dict[str, Any], observed: dict[str, Any],
+                        manifest_path: Path | None = None) -> dict[str, Any]:
     """Check exact lock bytes, its unique server image, and independently observed image evidence."""
     if lock_digest_of(path) != digest:
         raise CanaryError("platform lock bytes do not hash to the declared digest")
@@ -155,11 +156,22 @@ def verify_lock_binding(path: Path, digest: str, manifest: dict[str, Any], obser
         coordinate = str(server["image"]).split("@", 1)[0].rsplit(":", 1)[0]
         if not LOCK_DIGEST.fullmatch(locked) or locked != server["digest"] or image["coordinate"] != coordinate:
             raise ValueError("lock image does not match the selected candidate manifest")
-        if observed.get("reference") != f"{str(server['image']).split('@', 1)[0]}@{locked}":
+        source = observed.get("source")
+        if source == "lambda-function-readback":
+            if manifest_path is None or lock["sourceInputs"]["platformManifest"]["sha256"] != "sha256:" + hashlib.sha256(manifest_path.read_bytes()).hexdigest():
+                raise ValueError("lock does not bind the exact Lambda candidate manifest")
+            expected_digest = server["awsLambdaDigest"]
+            expected_ref = f"{str(server['awsLambdaImage']).split('@', 1)[0]}@{expected_digest}"
+            if observed.get("observedDigests") != [server["awsLambdaEcrDigest"]]:
+                raise ValueError("Lambda function does not run the locked manifest's ECR mirror")
+        else:
+            expected_digest = locked
+            expected_ref = f"{str(server['image']).split('@', 1)[0]}@{locked}"
+        if not LOCK_DIGEST.fullmatch(expected_digest) or observed.get("reference") != expected_ref:
             raise ValueError("observed image reference differs from the lock")
         if observed.get("verified") is not True:
             raise ValueError("image observation was not verified")
-        if observed.get("source") not in {"docker-pull", "ecs-task-readback"}:
+        if observed.get("source") not in {"docker-pull", "ecs-task-readback", "lambda-function-readback"}:
             raise ValueError("image observation source is not admitted")
         if observed["source"] == "ecs-task-readback":
             locked_children = image.get("platformDigests")
@@ -171,7 +183,7 @@ def verify_lock_binding(path: Path, digest: str, manifest: dict[str, Any], obser
                 raise ValueError("an ECS task runs an image outside the locked digest set")
     except (AttributeError, KeyError, TypeError, ValueError, OSError) as exc:
         raise CanaryError(f"candidate lock/image binding failed: {exc}") from exc
-    return {"lockDigest": digest, "serverDigest": locked, "observedReference": observed["reference"],
+    return {"lockDigest": digest, "serverDigest": expected_digest, "observedReference": observed["reference"],
             "observationSource": observed["source"],
             "observedDigests": observed.get("observedDigests", [locked])}
 
@@ -949,7 +961,7 @@ class ReceiptBuilder:
             return (proof.get("lockDigest") == self.receipt["lockDigest"]
                     and proof.get("serverDigest") == image.get("digest")
                     and proof.get("observedReference") == image.get("reference")
-                    and proof.get("observationSource") in {"docker-pull", "ecs-task-readback"})
+                    and proof.get("observationSource") in {"docker-pull", "ecs-task-readback", "lambda-function-readback"})
         image = self.receipt.get("serverImage") or {}
         deterministic = self.receipt["linkedEvidence"]["deterministicReceipt"] or {}
         return bool(LOCK_DIGEST.fullmatch(str(image.get("digest") or ""))
@@ -1781,15 +1793,16 @@ def bind_locked_receipt(builder: ReceiptBuilder, args: argparse.Namespace) -> No
             observed = _load_json(proof_path)
         except (OSError, ValueError, CanaryError) as exc:
             raise CanaryError("a lock-bound local run requires a same-job pulled image observation") from exc
-    elif args.cell.startswith("aws-ecs/"):
+    elif args.cell.startswith(("aws-ecs/", "aws-serverless/")):
         linked = builder.receipt["linkedEvidence"]["deterministicReceipt"] or {}
         if linked.get("candidateVerified") is not True or not args.deterministic_receipt:
             raise CanaryError("a lock-bound cloud run requires the verified same-job deployment receipt")
         receipt = _load_json(args.deterministic_receipt)
         first = next((stage for stage in receipt.get("stages", []) if stage.get("number") == 1), {})
         check = next((c for c in first.get("checks", []) if c.get("id") == "1.1-candidate-image"), {})
-        if check.get("status") != "pass" or first.get("evidence", {}).get("source") != "live-aws-ecs":
-            raise CanaryError("the ECS task image was not independently observed")
+        expected_source = "live-" + args.cell.split("/", 1)[0]
+        if check.get("status") != "pass" or first.get("evidence", {}).get("source") != expected_source:
+            raise CanaryError("the cloud image was not independently observed")
         if not args.target:
             raise CanaryError("a lock-bound cloud run requires a same-job target")
         observed = _load_json(args.target.parent / "terminal-canary-image-proof.json")
@@ -1797,7 +1810,7 @@ def bind_locked_receipt(builder: ReceiptBuilder, args: argparse.Namespace) -> No
             raise CanaryError("ECS image readback differs from the deterministic receipt")
     else:
         raise CanaryError("lock binding is not supported without an independent image observation")
-    builder.receipt["lockVerification"] = verify_lock_binding(args.lock, args.lock_digest, manifest, observed)
+    builder.receipt["lockVerification"] = verify_lock_binding(args.lock, args.lock_digest, manifest, observed, args.manifest)
 
 def unavailable_receipt(
     builder: ReceiptBuilder,

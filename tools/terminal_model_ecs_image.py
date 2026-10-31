@@ -33,13 +33,29 @@ def observe(target, manifest, *, run=subprocess.run):
     return {'reference': image, 'verified': True, 'source': 'ecs-task-readback', 'observedDigests': digests}
 
 
+
+def observe_lambda(target, manifest, *, run=subprocess.run):
+    """Retain the ECR digest actually reported by Lambda GetFunction."""
+    observations = []
+    def capture(command, **kwargs):
+        result = run(command, **kwargs)
+        if command[:3] == ['aws', 'lambda', 'get-function']:
+            observations.append(json.loads(result.stdout))
+        return result
+    image = cloud_journey.observed_lambda_image(target, manifest, run=capture)
+    if not image or len(observations) != 1:
+        raise ValueError('Lambda function image verification failed')
+    digest = observations[0]['Code']['ResolvedImageUri'].rsplit('@', 1)[1]
+    return {'reference': image, 'verified': True, 'source': 'lambda-function-readback', 'observedDigests': [digest]}
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--target', choices=('aws-ecs', 'aws-serverless'), default='aws-ecs')
     args = parser.parse_args()
-    target = run_cloud._target('aws-ecs')
+    target = run_cloud._target(args.target)
     target._workdir = target._iac_root()
-    result = observe(target, cloud_journey.manifest())
+    result = (observe if args.target == "aws-ecs" else observe_lambda)(target, cloud_journey.manifest())
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, sort_keys=True) + '\n')
 

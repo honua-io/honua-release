@@ -147,3 +147,85 @@ def test_pulled_image_observation_requires_repo_digest():
     for inspection in ([], [{'RepoDigests': []}], [{'RepoDigests': ['registry.example/honua@sha256:' + 'b' * 64]}]):
         with pytest.raises(canary.CanaryError):
             canary.pulled_image_proof(manifest, inspection)
+
+
+def test_cloud_costs_fail_when_missing_duplicate_or_over_run_ceiling(tmp_path):
+    from decimal import Decimal
+    def cost(name, amount, *, attempt='1'):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / 'gate-report-cloud.json').write_text(json.dumps({'finalCost': {'scope': 'run', 'runId': '42',
+            'runAttempt': attempt, 'currency': 'USD', 'status': 'pass', 'amountUsd': amount}}))
+    cost('cloud-gate-report-trial-1', '12')
+    with pytest.raises(ValueError, match='missing'):
+        trials.aggregate_costs(tmp_path, 2, '42')
+    cost('cloud-gate-report-trial-2', '8')
+    assert trials.aggregate_costs(tmp_path, 2, '42')['estimateUsd'] == '20'
+    with pytest.raises(ValueError, match='exceeds'):
+        trials.aggregate_costs(tmp_path, 2, '42', Decimal('19'))
+    cost('cloud-gate-report-trial-02', '0')
+    with pytest.raises(ValueError, match='duplicate'):
+        trials.aggregate_costs(tmp_path, 2, '42')
+
+
+def test_lambda_lock_binding_requires_manifest_bytes_and_observed_mirror(tmp_path):
+    import hashlib
+    import terminal_model_canary as canary
+    index, source, mirror = ('sha256:' + c * 64 for c in 'abc')
+    server = {'image': 'registry.example/honua:tag', 'digest': index,
+              'awsLambdaImage': 'registry.example/lambda:tag', 'awsLambdaDigest': source,
+              'awsLambdaEcrDigest': mirror}
+    manifest = {'components': {'honua-server': server}}
+    manifest_path = tmp_path / 'manifest.json'
+    manifest_path.write_text(json.dumps(manifest))
+    manifest_hash = 'sha256:' + hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    lock = {'sourceInputs': {'platformManifest': {'sha256': manifest_hash}}, 'components': {'honua-server': {
+        'artifacts': [{'kind': 'image', 'coordinate': 'registry.example/honua', 'digest': index}]}}}
+    lock_path = tmp_path / 'lock.json'
+    lock_path.write_text(json.dumps(lock))
+    digest = 'sha256:' + hashlib.sha256(lock_path.read_bytes()).hexdigest()
+    proof = {'reference': server['awsLambdaImage'] + '@' + source, 'verified': True,
+             'source': 'lambda-function-readback', 'observedDigests': [mirror]}
+    assert canary.verify_lock_binding(lock_path, digest, manifest, proof, manifest_path)['serverDigest'] == source
+    with pytest.raises(canary.CanaryError):
+        canary.verify_lock_binding(lock_path, digest, manifest, {**proof, 'observedDigests': [index]}, manifest_path)
+    manifest_path.write_text('{}')
+    with pytest.raises(canary.CanaryError):
+        canary.verify_lock_binding(lock_path, digest, manifest, proof, manifest_path)
+
+
+def test_lambda_readback_rejects_an_unexpected_ecr_digest():
+    import types
+    import terminal_model_ecs_image as cloud
+    source, mirror = ('sha256:' + c * 64 for c in 'ab')
+    manifest = {'components': {'honua-server': {'awsLambdaImage': 'registry.example/lambda:tag',
+        'awsLambdaDigest': source, 'awsLambdaEcrDigest': mirror}}}
+    class Target:
+        _workdir = 'fixture'
+        def _tf(self, root, *args):
+            return types.SimpleNamespace(stdout='function')
+    def response(digest):
+        def run(cmd, **kwargs):
+            body = {'Code': {'RepositoryType': 'ECR', 'ResolvedImageUri': 'ecr.example/server@' + digest},
+                    'Configuration': {'PackageType': 'Image'}}
+            return types.SimpleNamespace(stdout=json.dumps(body))
+        return run
+    assert cloud.observe_lambda(Target(), manifest, run=response(mirror))['observedDigests'] == [mirror]
+    with pytest.raises(ValueError, match='verification failed'):
+        cloud.observe_lambda(Target(), manifest, run=response(source))
+
+
+def test_cloud_lock_transfer_uses_isolated_read_only_job_and_budget_splits():
+    import yaml
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    cell = yaml.safe_load((root / '.github/workflows/e2e-cloud-aws-cell.yml').read_text())
+    job = cell['jobs']['candidate-lock']
+    assert job['permissions'] == {'actions': 'read'}
+    assert all('RELEASE_GH_TOKEN' not in json.dumps(step) for step in job['steps'])
+    assert 'candidate-lock' in cell['jobs']['journey']['needs']
+    assert all('RELEASE_GH_TOKEN' not in json.dumps(step) for step in cell['jobs']['journey']['steps'])
+    wf = yaml.safe_load((root / '.github/workflows/terminal-model-canary.yml').read_text())
+    assert 'per_trial_ceiling' in wf['jobs']['aws-ecs']['with']['cost_ceiling_usd']
+    aggregate = wf['jobs']['aggregate']
+    assert any('aggregate' in str(step.get('run', '')) or '--cost-directory' in str(step.get('run', '')) for step in aggregate['steps'])

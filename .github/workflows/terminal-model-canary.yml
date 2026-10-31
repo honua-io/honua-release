@@ -145,6 +145,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       count: ${{ steps.matrix.outputs.count }}
+      per_trial_ceiling: ${{ steps.matrix.outputs.per_trial_ceiling }}
     steps:
       - id: matrix
         env:
@@ -152,11 +153,13 @@ jobs:
         run: |
           python - <<'PYCODE'
           import json, os
+          from decimal import Decimal, ROUND_DOWN
           value = os.environ['TRIALS']
           if not value.isascii() or not value.isdigit() or not 1 <= int(value) <= 10:
               raise SystemExit('trials must be an integer from 1 to 10')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               print('count=' + value, file=out)
+              print('per_trial_ceiling=' + str((Decimal('20') / int(value)).quantize(Decimal('.0001'), rounding=ROUND_DOWN)), file=out)
               print('matrix=' + json.dumps(list(range(1, int(value) + 1))), file=out)
           PYCODE
   harness:
@@ -245,7 +248,7 @@ jobs:
       HONUA_CANARY_TRANSCRIPT_KEY_ID: terminal-model-canary
       HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE: env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED
       HONUA_CANARY_TRANSCRIPT_SIGNING_SEED: ${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}
-      GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -300,7 +303,7 @@ jobs:
       - name: Retrieve and verify the candidate lock and pulled image
         if: ${{ inputs.lock_digest != '' }}
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           LOCK_RUN_ID: ${{ inputs.lock_run_id || github.run_id }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
         run: |
@@ -465,6 +468,7 @@ jobs:
     with:
       candidate_ref: ${{ inputs.candidate_ref || '' }}
       require_real: true
+      cost_ceiling_usd: ${{ needs.trials.outputs.per_trial_ceiling }}
       target: aws-ecs
       redis_mode: ${{ inputs.target == 'aws-ecs/redis-on' && 'on' || 'off' }}
       run_iac_live: false
@@ -486,6 +490,12 @@ jobs:
         with:
           pattern: terminal-model-canary-trial-*-attempt-1
           path: trial-artifacts
+      - name: Download the cloud trial cost reports
+        if: ${{ startsWith(inputs.target, 'aws-ecs/redis-') }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cloud-gate-report-trial-*
+          path: cloud-trial-costs
       - name: Report the first-attempt trial distribution
         env:
           TRIALS: ${{ needs.trials.outputs.count }}
@@ -496,6 +506,11 @@ jobs:
         run: |
           python tools/terminal_model_trials.py --directory trial-artifacts --trials "$TRIALS" --cell "$CELL" --guidance "$GUIDANCE" --model "$MODEL" --lock-digest "$LOCK_DIGEST" | tee trial-summary.json
           cat trial-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Enforce the total cloud trial cost ceiling
+        if: ${{ startsWith(inputs.target, 'aws-ecs/redis-') }}
+        env:
+          TRIALS: ${{ needs.trials.outputs.count }}
+        run: python tools/terminal_model_trials.py --cost-directory cloud-trial-costs --trials "$TRIALS" --run-id "$GITHUB_RUN_ID"
       - name: Upload trial summary
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

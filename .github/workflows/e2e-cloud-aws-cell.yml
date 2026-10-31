@@ -82,6 +82,7 @@ env:
 
 jobs:
   provision:
+    needs: candidate-lock
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
     permissions:
@@ -272,11 +273,11 @@ jobs:
             python e2e/run_cloud.py --phase provision --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
           fi
 
-      - name: Record the running ECS task image digests
-        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' && inputs.target == 'aws-ecs' }}
+      - name: Record the running cloud image digest
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' && (inputs.target == 'aws-ecs' || inputs.target == 'aws-serverless') }}
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
-        run: python tools/terminal_model_ecs_image.py --output "$CELL_DIR/terminal-canary-image-proof.json"
+        run: python tools/terminal_model_ecs_image.py --target "${{ inputs.target }}" --output "$CELL_DIR/terminal-canary-image-proof.json"
 
       # Runs after a failed or cancelled provision too: anything apply created must reach teardown.
       - name: Seal the Terraform state for teardown
@@ -323,9 +324,36 @@ jobs:
           if-no-files-found: warn
           retention-days: 14   # cloud-cell-retirement.yml recovers a failed teardown from these
 
+  candidate-lock:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Retrieve the candidate lock on an isolated runner
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOCK_RUN_ID: ${{ inputs.lock_run_id || github.run_id }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$LOCK_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'invalid lock_run_id'; exit 1; }
+          gh run download "$LOCK_RUN_ID" --repo "$GITHUB_REPOSITORY" --name candidate-manifest --dir "$RUNNER_TEMP/candidate-lock" </dev/null
+          lock="$RUNNER_TEMP/candidate-lock/frozen-lock/platform-lock.json"
+          test -f "$lock"
+          actual="sha256:$(sha256sum "$lock" | cut -d' ' -f1)"
+          [ "$actual" = "$LOCK_DIGEST" ] || { echo "::error::candidate lock digest mismatch"; exit 1; }
+      - name: Transfer the lock to the journey runner
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: terminal-model-lock-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/candidate-lock/frozen-lock/platform-lock.json
+          if-no-files-found: error
+
   # ── journey: NO id-token, NO AWS credentials. The pinned clients and seam drivers run here. ─────────
   journey:
-    needs: provision
+    needs: [provision, candidate-lock]
     if: ${{ needs.provision.outputs.endpoint != '' }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
@@ -525,17 +553,15 @@ jobs:
           python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
             --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem"
 
-      - name: Retrieve the candidate lock for the canary
+      - name: Download the candidate lock
         if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
-          LOCK_RUN_ID: ${{ inputs.lock_run_id || github.run_id }}
-        run: |
-          set -euo pipefail
-          [[ "$LOCK_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'invalid lock_run_id'; exit 1; }
-          gh run download "$LOCK_RUN_ID" --repo "$GITHUB_REPOSITORY" --name candidate-manifest --dir "$RUNNER_TEMP/candidate-lock" </dev/null
-          mkdir -p artifacts
-          cp "$RUNNER_TEMP/candidate-lock/frozen-lock/platform-lock.json" artifacts/terminal-canary-lock.json
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: terminal-model-lock-${{ env.CELL_ARTIFACT }}
+          path: artifacts
+      - name: Select the lock bytes for the canary
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
+        run: mv artifacts/platform-lock.json artifacts/terminal-canary-lock.json
 
       # Genuine-model canary (fix unit J3): after the cell journey, against the same endpoint, chained to
       # this job's passing deterministic receipt and bound to the lock digest. Bedrock is reached by

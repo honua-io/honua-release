@@ -64,7 +64,7 @@
       "description": "sha256 of the exact platform-lock.json bytes; a passing lock-bound run also requires verified lock and observed image evidence.",
       "anyOf": [{"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, {"type": "null"}]
     },
-    "lockVerification": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["lockDigest", "serverDigest", "observedReference", "observationSource"], "properties": {"lockDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "serverDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "observedReference": {"type": "string"}, "observationSource": {"enum": ["docker-pull", "ecs-task-readback"]}, "observedDigests": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}}]},
+    "lockVerification": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["lockDigest", "serverDigest", "observedReference", "observationSource"], "properties": {"lockDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "serverDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "observedReference": {"type": "string"}, "observationSource": {"enum": ["docker-pull", "ecs-task-readback", "lambda-function-readback"]}, "observedDigests": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}}]},
     "serverImage": {
       "description": "The honua-server image@digest the cell composed and the green deterministic receipt verified; binds a pass without a lock (operator ruling 2026-10-22).",
       "anyOf": [
