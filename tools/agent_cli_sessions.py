@@ -432,7 +432,7 @@ def codex_forbidden_diagnostics(raw, names, version=None):
         if 'event.name="codex.tool_call_received"' not in line: continue
         namespace = re.search(r'\btool_namespace="([^"\r\n]*)"', line)
         tool = re.search(r'\btool_name="([^"\r\n]*)"', line)
-        if tool and namespace and not namespace.group(1) and tool.group(1) in INTERNAL_TOOLS.get('codex-cli', {}).get(version, ()):
+        if tool and namespace and namespace.group(1) == 'functions' and tool.group(1) in INTERNAL_TOOLS.get('codex-cli', {}).get(version, ()):
             continue
         if not namespace or not tool or not namespace.group(1).startswith('mcp__'):
             return True
@@ -457,7 +457,7 @@ def internal_events(agent, version, stdout, stderr):
             if 'event.name="codex.tool_call_received"' not in text: continue
             namespace = re.search(r'\btool_namespace="([^"\r\n]*)"', text)
             tool = re.search(r'\btool_name="([^"\r\n]*)"', text)
-            if (namespace and not namespace.group(1) and tool and
+            if (namespace and namespace.group(1) == 'functions' and tool and
                     tool.group(1) in INTERNAL_TOOLS.get(agent, {}).get(version, ())):
                 events.append({'kind': tool.group(1), 'eventSha256': digest(line)})
     return events

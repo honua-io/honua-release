@@ -24,9 +24,11 @@ def test_codex_debug_detects_calls_missing_from_json_events():
     rejected = b'event.name="codex.tool_call_received" tool_name="tool_search_tool" tool_namespace="tool_search"'
     assert not codex_forbidden_diagnostics(allowed, names)
     assert codex_forbidden_diagnostics(rejected, names)
-    plan = b'event.name="codex.tool_call_received" tool_name="update_plan" tool_namespace=""'
+    plan = b'event.name="codex.tool_call_received" tool_name="update_plan" tool_namespace="functions" tool_source="direct"'
     assert not codex_forbidden_diagnostics(plan, names, 'codex-cli 0.165.0')
     assert codex_forbidden_diagnostics(plan, names, 'codex-cli 0.165.1')
+    assert codex_forbidden_diagnostics(plan.replace(b'update_plan', b'exec'), names, 'codex-cli 0.165.0')
+    assert codex_forbidden_diagnostics(plan.replace(b'functions', b''), names, 'codex-cli 0.165.0')
     assert internal_events('codex-cli', 'codex-cli 0.165.0', b'', plan)[0]['kind'] == 'update_plan'
     assert internal_events('codex-cli', 'codex-cli 0.165.1', b'', plan) == []
     plan_event = json.dumps({'type': 'item.updated', 'item': {'type': 'todo_list', 'id': 'item_0',
@@ -82,7 +84,7 @@ else:
     assert json.loads(overrides['mcp_servers.honua.startup_timeout_sec']) >= 2700
     assert os.environ['RUST_LOG'] == 'codex=debug'
     assert json.loads(overrides['tools.update_plan.enabled']) == (MODE == 'plan')
-    if MODE == 'plan': print('event.name="codex.tool_call_received" tool_name="update_plan" tool_namespace=""', file=sys.stderr)
+    if MODE == 'plan': print('event.name="codex.tool_call_received" tool_name="update_plan" tool_namespace="functions" tool_source="direct"', file=sys.stderr)
 def rpc(method, params):
     raw = json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode()
     return json.load(urllib.request.urlopen(urllib.request.Request(url,data=raw,headers={'Content-Type':'application/json'})))
