@@ -234,8 +234,17 @@ class ControllerRecorder:
     """
 
     def __init__(self, *, base_url, workdir, candidate_digest, attempt_id, principals,
-                 http_factory=None, mcp_factory=None, vault=None):
+                 http_factory=None, mcp_factory=None, vault=None, admitted_remote_origin=None):
         self.base_url = base_url.rstrip('/')
+        self._admitted_remote_origin = admitted_remote_origin
+        if admitted_remote_origin is not None:
+            from urllib.parse import urlsplit
+            remote = urlsplit(admitted_remote_origin)
+            require(remote.scheme == 'https' and not remote.username and not remote.password
+                    and remote.port in (None, 443) and remote.path == '' and not remote.query and not remote.fragment
+                    and re.fullmatch(r'[a-z0-9-]+\.cert\.demo\.honua\.io', remote.hostname or '')
+                    and self.base_url == admitted_remote_origin,
+                    'remote recorder requires the exact admitted HTTPS ECS cell origin')
         self.root = Path(workdir) / 'controller-records'
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.identity = {'candidateKey': candidate_digest, 'attemptId': attempt_id}
@@ -307,7 +316,7 @@ class ControllerRecorder:
 
     # -- HTTP --------------------------------------------------------------
     def _request(self, step, principal, method, path, body, content_type):
-        """One loopback request; every response (any status, any bytes) is retained."""
+        """One request to the local stack or explicitly admitted cell; retain every response."""
         import urllib.error
         import urllib.parse
         import urllib.request
@@ -316,8 +325,9 @@ class ControllerRecorder:
         require(method in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE') and isinstance(path, str)
                 and path.startswith('/') and not path.startswith('//') and all(33 <= ord(c) <= 126 for c in path),
                 'invalid recorder request')
-        require(urllib.parse.urlsplit(self.base_url).hostname in ('127.0.0.1', 'localhost', '::1'),
-                'recorder reads only the case-local stack')
+        require(urllib.parse.urlsplit(self.base_url).hostname in ('127.0.0.1', 'localhost', '::1')
+                or self._admitted_remote_origin is not None and self.base_url == self._admitted_remote_origin,
+                'recorder reads only the case-local stack or explicitly admitted cell')
         headers = {'Accept': 'application/json'}
         if body is not None:
             headers['Content-Type'] = content_type

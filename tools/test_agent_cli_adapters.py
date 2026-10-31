@@ -128,3 +128,42 @@ def test_sequential_runner_stops_on_docker_unhealthiness(monkeypatch):
     import subprocess
     monkeypatch.setattr(arms.subprocess,'run',lambda *a,**k: subprocess.CompletedProcess(a,0,b'Up (unhealthy)',b''))
     with pytest.raises(RuntimeError,match='Docker is unhealthy'): arms.docker_healthy()
+
+
+def test_scored_failure_with_failed_cleanup_stops_before_second_trial(tmp_path,monkeypatch):
+    import agent_cli_arms as arms
+    import subprocess
+    calls=[]
+    def run(command,**kwargs):
+        calls.append(command)
+        output=Path(command[command.index('--output')+1]); output.parent.mkdir(parents=True)
+        output.write_text(json.dumps({'status':'fail','infrastructure':[{'phase':'stack-teardown'}]}))
+        return subprocess.CompletedProcess(command,1)
+    monkeypatch.setattr(arms,'docker_healthy',lambda:None)
+    monkeypatch.setattr(arms.subprocess,'run',run)
+    with pytest.raises(RuntimeError,match='cleanup failed'):
+        arms.main(['--surface','corpus','--agent','claude-cli','--model','claude-sonnet-5-5',
+                   '--cases','P10:A,P10:B','--output',str(tmp_path/'run')])
+    assert len(calls)==1
+    receipt=json.loads((tmp_path/'run/trial-001/P10-A/receipt.json').read_bytes())
+    assert receipt['status']=='fail' and receipt['infrastructure']
+
+
+def test_remote_recorder_only_admits_verified_exact_origin(tmp_path,monkeypatch):
+    from agent_e2e_local_recorder import ControllerRecorder,ProjectionError
+    remote='https://ecs-123.cert.demo.honua.io'
+    def recorder(subdir,admitted=None):
+        return ControllerRecorder(base_url=remote,workdir=tmp_path/subdir,candidate_digest=DIGEST,
+            attempt_id='remote-case',principals={'controller':('TEST_CELL_KEY','operator')},
+            admitted_remote_origin=admitted,http_factory=lambda *args:(201,b'{"id":"minted-key"}'))
+    monkeypatch.setenv('TEST_CELL_KEY','customer-key')
+    default=recorder('default')
+    with pytest.raises(ProjectionError,match='case-local'): default.json('mint','POST','/api/v1/admin/api-keys/',{})
+    admitted=recorder('admitted',remote)
+    answer=admitted.json('mint','POST','/api/v1/admin/api-keys/',{})
+    assert answer['observation']['httpStatus']==201
+    assert admitted.records['mint'].raw==b'{"id":"minted-key"}'
+    admitted.base_url='https://another.cert.demo.honua.io'
+    with pytest.raises(ProjectionError,match='admitted'): admitted.json('escape','GET','/api/v1/admin/version')
+    for wrong in ('http://ecs-123.cert.demo.honua.io',remote+'/path','https://external.example'):
+        with pytest.raises(ProjectionError): recorder('wrong-'+str(len(wrong)),wrong)

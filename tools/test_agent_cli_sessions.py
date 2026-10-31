@@ -60,6 +60,7 @@ assert rpc('tools/list', {})['result']['tools'][0]['name'] == 'honua_query_featu
 if MODE == 'timeout': time.sleep(20)
 if MODE == 'unknown': rpc('tools/call', {'name':'Bash','arguments':{'command':'touch bad'}})
 else: rpc('tools/call', {'name':'honua_query_features','arguments':{'actual':True}})
+if MODE == 'malformed': print('[]')
 if AGENT == 'claude-cli':
     name = 'Bash' if MODE == 'forbidden' else 'mcp__honua__honua_query_features'
     print(json.dumps({'type':'assistant','message':{'content':[{'type':'tool_use','name':name,'input':{'forged':True}}]}}))
@@ -125,6 +126,17 @@ def test_action_bound_logs_only_actual_callbacks(tmp_path):
         with pytest.raises(ValueError): proxy.rpc('tools/call', {'name':'honua_query_features','arguments':{}})
         assert len(calls) == len(proxy.actions) == 1
         assert proxy.failure
+
+
+def test_parser_crash_after_dispatch_keeps_proxy_actions(tmp_path):
+    cli=CliModelSession('claude-cli','claude-sonnet-5-5',
+                        binary=fake_cli(tmp_path,'claude-cli','malformed'),auth_root=tmp_path)
+    with pytest.raises(CliFailure) as exc:
+        cli.run(prompt='Customer goal only',tool_view=TOOLS,
+                execute=lambda *args:{'status':'ok','result':{'content':[]}},log_dir=tmp_path/'log')
+    assert exc.value.category=='post-action-undetermined'
+    assert len(exc.value.progress['actions'])==1
+    assert exc.value.progress['provenance'][0]['agent']=='claude-cli'
 
 
 def test_unknown_outcome_retains_dispatch(tmp_path):

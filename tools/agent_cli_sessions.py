@@ -291,7 +291,20 @@ class CliModelSession:
         if not Path(self.binary).is_file(): raise ValueError('CLI executable missing')
         self.auth_root = auth_root
 
-    def run(self, *, prompt, tool_view, execute, log_dir, session=1, max_actions=80, max_turns=40, timeout=600):
+    def run(self, **kwargs):
+        self._progress = None
+        try:
+            return self._run(**kwargs)
+        except CliFailure:
+            raise
+        except Exception as exc:
+            progress = self._progress or {'actions': [], 'modelVisibleDigests': [], 'nudges': 0,
+                'usage': [], 'provenance': [], 'tokens': 0, 'clarifications': [], 'messageIds': [],
+                'finalAnswer': None, 'systemContractSha256': None, 'toolViewSha256': None}
+            raise CliFailure('CLI session error (' + type(exc).__name__ + ')', progress,
+                             'post-action-undetermined' if progress['actions'] else 'infrastructure') from exc
+
+    def _run(self, *, prompt, tool_view, execute, log_dir, session=1, max_actions=80, max_turns=40, timeout=600):
         if not prompt or min(max_actions, max_turns, timeout) <= 0:
             raise ValueError('prompt and positive CLI bounds required')
         log_dir = Path(log_dir)
@@ -300,6 +313,7 @@ class CliModelSession:
                'usage': [], 'provenance': [], 'tokens': 0, 'clarifications': [],
                'messageIds': [f'S{session}-customer'], 'finalAnswer': None,
                'toolViewSha256': digest(encoded(tool_view)), 'systemContractSha256': digest(NATIVE_CONTRACT.encode())}
+        self._progress = out
         with tempfile.TemporaryDirectory(prefix='honua-cli-', dir='/tmp') as scratch:
             home = Path(scratch)
             # No repository or ancestor instructions may be reachable through cwd discovery.
@@ -310,6 +324,7 @@ class CliModelSession:
             version = subprocess.run([self.binary, '--version'], env=env, cwd=home,
                                      capture_output=True, check=True, timeout=20).stdout.decode().strip()
             with RecordingProxy(tool_view, execute, log_dir, session, max_actions) as proxy:
+                out['actions'] = proxy.actions  # preserve dispatches even if a later CLI/parser operation crashes
                 args, inputs = _commands(self.agent, self.model, self.binary, home, proxy.url,
                                          sorted(proxy.names), max_turns, env)
                 metadata = {'agent': self.agent, 'cliVersion': version, 'model': self.model,
@@ -318,6 +333,7 @@ class CliModelSession:
                             'servedToolListSha256': out['toolViewSha256'], 'cliFlagsSha256': digest(encoded(args)),
                             'configSha256': inputs, 'maxTurns': max_turns, 'timeoutSeconds': timeout,
                             'inputHashScope': 'runner-controlled bytes; provider and CLI prepends are not claimed'}
+                out['provenance'] = [metadata]
                 write_private(log_dir / 'cli-inputs.json', encoded({'flags': args, 'prompt': prompt, 'tools': tool_view}))
                 # Files avoid pipe deadlocks and bound retained output. The process group includes children.
                 with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:

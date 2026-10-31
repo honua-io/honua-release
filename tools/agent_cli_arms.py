@@ -21,6 +21,11 @@ def docker_healthy():
             raise RuntimeError('Docker is unhealthy; stopping the sequential campaign')
 
 
+def campaign_must_stop(receipt):
+    return (receipt.get('status') == 'infrastructure' or bool(receipt.get('infrastructure'))
+            or receipt.get('teardown') not in (None, 'pass', 'complete'))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--surface', choices=('corpus', 'canary', 'ops'), required=True)
@@ -90,7 +95,7 @@ def main(argv=None):
                 output.write_text(json.dumps(receipt,indent=2)+'\n')
                 rows.append({'case':case,'trial':trial,'status':receipt['status'],'receipt':str(output)})
                 (args.output/'index.json').write_text(json.dumps({'campaign':campaign,'trials':rows},indent=2)+'\n')
-                if receipt.get('status') == 'infrastructure':
+                if campaign_must_stop(receipt):
                     raise RuntimeError('case infrastructure or cleanup failed; stop without retry')
                 if result.returncode not in (0,1): raise RuntimeError('runner crashed; campaign stopped')
         return 0 if all(row['status']=='pass' for row in rows) else 1

@@ -64,6 +64,7 @@ class CliRuntime(corpus.LocalRuntime):
             raise ValueError('cell driver did not verify fresh candidate deployment')
         stack = Stack(self.target, admin, None, 'cli-' + Path(case_dir).name, '', case_dir,
                       candidate_digest, {'workspaceId': workspace})
+        self.verified_remote_origin = self.target  # set only after the deployment receipt passed driver setup
         self._secrets.append(admin)
         try:
             self._prepare(stack, list(agent_permissions))
@@ -76,16 +77,22 @@ class CliRuntime(corpus.LocalRuntime):
         return stack
 
     def teardown(self, stack):
+        failed = False
         if self.target != 'local' and 'recorder' in stack.extra:
             recorder = stack.extra['recorder']
             recorder.set_phase('observe')
             for index, (name, (_env, identity)) in enumerate(list(recorder.principals.items())):
                 if name in ('controller', 'anonymous') or not identity: continue
-                answer = recorder.json(f'cli-cleanup-key-{index}', 'POST',
-                                       f'/api/v1/admin/api-keys/{identity}/revoke')
-                if answer['observation']['httpStatus'] not in (200, 204, 404):
-                    raise ValueError('remote case credential cleanup failed')
-        super().teardown(stack)
+                try:
+                    answer = recorder.json(f'cli-cleanup-key-{index}', 'POST',
+                                           f'/api/v1/admin/api-keys/{identity}/revoke')
+                    failed |= answer['observation']['httpStatus'] not in (200, 204, 404)
+                except Exception:
+                    failed = True
+        try:
+            super().teardown(stack)  # always clean up the driver's separately minted principals as well
+        finally:
+            if failed: raise ValueError('remote case credential cleanup failed')
 
 
 def main(argv=None):

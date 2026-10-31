@@ -1091,7 +1091,8 @@ class LocalRuntime:
         vault = self._vaults.setdefault(stack.compose_project, EvidenceVault(stack.compose_project))
         return ControllerRecorder(base_url=stack.base_url, workdir=stack.workdir,
                                   candidate_digest=stack.candidate_digest, attempt_id=stack.compose_project,
-                                  principals=principals, vault=vault)
+                                  principals=principals, vault=vault,
+                                  admitted_remote_origin=getattr(self, 'verified_remote_origin', None))
 
     def vault(self, stack):
         """The runtime-held evidence authority for this case (never handed to a scenario)."""
