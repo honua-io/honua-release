@@ -21,7 +21,7 @@ def stack(tmp_path):
     return Stack('http://127.0.0.1:1', 'controller-only', None, 'fake', 'fake.yml', str(tmp_path), 'sha256:' + '0' * 64, {})
 
 
-@pytest.mark.parametrize('scenario_id', ['P01', 'P12', 'P24'])
+@pytest.mark.parametrize('scenario_id', ['P01', 'P24'])
 def test_scenario_is_discoverable_and_not_enabled(scenario_id):
     module = importlib.import_module('agent_e2e_local_scenarios.' + scenario_id)
     case = module.scenario
@@ -111,10 +111,18 @@ def test_p01_rejects_a_failed_authenticated_read():
 
 def test_p12_requests_restart_between_fresh_sessions():
     case = importlib.import_module('agent_e2e_local_scenarios.P12').scenario
+    class Recorder:
+        def json(self, step, method, path):
+            if step == 'p12-items-between':
+                return {'observation': {'httpStatus': 200, 'body': {'data': {'total': 1, 'items': [{'itemId': '11111111-1111-1111-1111-111111111111', 'currentVersionId': '33333333-3333-3333-3333-333333333333'}]}}}}
+            return {'observation': {'httpStatus': 200, 'body': {'data': {}}}}
+    stack = Stack('', '', None, '', '', '', '', {'recorder': Recorder()})
+    seed = Seeded({'variant': 'A', 'itemId': '11111111-1111-1111-1111-111111111111', 'initialVersionId': '22222222-2222-2222-2222-222222222222'})
     assert case.sessions_required() == 2
-    assert case.between_sessions(None, Seeded({}), 'A', 1) == {'restartServer': True}
+    assert case.between_sessions(stack, seed, 'A', 1) == {'restartServer': True}
+    assert seed.state['savedVersionId'] == '33333333-3333-3333-3333-333333333333'
     with pytest.raises(ValueError):
-        case.between_sessions(None, Seeded({}), 'A', 2)
+        case.between_sessions(stack, seed, 'A', 2)
 
 
 def test_restart_fact_is_not_a_lifecycle_observation():
@@ -219,3 +227,104 @@ def test_p02_secret_scan_rejects_exposed_canary_in_final_answer():
             final_answers=(answer,))[0]['status']
     assert score('Setup complete.') == 'pass'
     assert score('secret-canary-value') == 'fail'
+
+
+def test_p12_saved_and_reopened_bind_real_recorded_version_and_session():
+    from agent_e2e_local_api import Observation, RoleBinding
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_runner import score_assertions
+    from agent_e2e_local_recorder import Record
+    from test_agent_e2e_local_runner import _record
+    document = json.loads((ROOT / 'certification/agent-e2e/expectations/local/P12.json').read_text())
+    item = '11111111-1111-1111-1111-111111111111'
+    draft = '22222222-2222-2222-2222-222222222222'
+    version = '33333333-3333-3333-3333-333333333333'
+    envelope = {'body': {'layers': ['shelters'], 'view': [1, 2, 3]}}
+    version_body = {'data': {'itemId': item, 'versionId': version, 'envelope': envelope}}
+    path = '/api/v1/studio/content-items/' + item + '/versions/' + version
+    records = {
+        'p12-seed-save': _record('p12-seed-save', phase='seed', body={'data': {'itemId': item}}),
+        'p12-seed-draft': _record('p12-seed-draft', phase='seed', body={'data': {'draftId': draft}}),
+        'p12-seed-version': _record('p12-seed-version', phase='seed', body=version_body),
+        'publish-shelters-submit': _record('publish-shelters-submit', phase='seed', body={'data': {'resourceIds': {'serviceName': 'svc', 'layerId': '0'}}}),
+        'p12-items-before': _record('p12-items-before', phase='seed', body={'data': {'items': [], 'total': 0}}, path='/api/v1/studio/content-items?limit=200'),
+        'p12-version-between': _record('p12-version-between', phase='between', body=version_body, path=path),
+        'p12-version-after': _record('p12-version-after', phase='observe', body=version_body, path=path),
+    }
+    save_args = {'tool': 'honua_studio_save_version', 'arguments': {'draftId': draft}}
+    read_args = {'tool': 'honua_studio_get_version', 'arguments': {'itemId': item, 'versionId': version}}
+    save_id, read_id = 'occ:1:1:save', 'occ:2:1:read'
+    def mcp(step, principal, origin, replay, arguments, payload):
+        raw = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': payload}}).encode()
+        return Record(step, 'observe', 'mcp', principal, 'agent', 'POST', '/mcp#tools/call', 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest(), replay, json.dumps(arguments).encode(), origin)
+    records['p12-save-action'] = mcp('p12-save-action', 'agent', 'session-result', save_id, save_args,
+                                      {'version': {'itemId': item, 'versionId': version}})
+    records['p12-reopen-read'] = mcp('p12-reopen-read', 'controller', 'controller', read_id, read_args,
+                                      {'versionId': version})
+    roles = resolve_roles([RoleBinding(**row) for row in document['roles']], records, agent_principal='agent')
+    roles['session:current'] = 'fresh-session'
+    actions = {save_id: {'kind': 'tool_call', **save_args, '_session': 1},
+               read_id: {'kind': 'tool_call', **read_args, '_session': 2}}
+    ids = ['state.saved', 'state.reopened']
+    def score():
+        return score_assertions(ids, [Observation(a, None, {'projection': 'extract/v1'}) for a in ids],
+            {a: document['variants']['A'][a] for a in ids}, records=records, roles=roles, scenario_id='P12',
+            model_actions=actions, frozen={a: document['projections'][a] for a in ids})
+    assert [row['status'] for row in score()] == ['pass', 'pass']
+    records['p12-version-after'] = _record('p12-version-after', phase='observe', path=path,
+        body={'data': {'itemId': item, 'versionId': version, 'envelope': {'body': {'layers': []}}}})
+    assert [row['status'] for row in score()] == ['pass', 'fail']
+    records['p12-version-after'] = _record('p12-version-after', phase='observe', path=path, body=version_body)
+    actions[read_id]['_session'] = 1
+    assert score()[1]['status'] == 'fail'
+
+
+def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack, monkeypatch):
+    from agent_e2e_local_recorder import LoggedAction
+    module = importlib.import_module('agent_e2e_local_scenarios.P12')
+    case = module.scenario
+    item = '11111111-1111-1111-1111-111111111111'
+    draft = '22222222-2222-2222-2222-222222222222'
+    first = '33333333-3333-3333-3333-333333333333'
+    saved = '44444444-4444-4444-4444-444444444444'
+    calls = []
+    class Recorder:
+        principals = {'agent': ('unused', 'agent')}
+        def json(self, step, method, path, body=None):
+            calls.append(step)
+            result = {'draftId': draft} if step == 'p12-seed-draft' else {'itemId': item, 'versionId': first} if step == 'p12-seed-save' else {}
+            if step == 'p12-items-between':
+                result = {'total': 1, 'items': [{'itemId': item, 'currentVersionId': saved}]}
+            return {'observation': {'httpStatus': 201 if method == 'POST' else 200, 'body': {'data': result}}}
+        def actions(self):
+            def action(session, tool, args):
+                return LoggedAction(session, 1, 'digest', 'tool_call', tool, args, None, 'pass', '/private')
+            return (action(1, 'honua_studio_save_version', {'draftId': draft}),
+                    action(1, 'honua_studio_get_version', {'itemId': item, 'versionId': saved}),
+                    action(2, 'honua_studio_get_version', {'itemId': item, 'versionId': saved}))
+        def action_result(self, step, action): calls.append((step, action.session))
+        def replay(self, step, action): calls.append((step, action.session))
+    class Town:
+        def __init__(self, *args): pass
+        def prepare(self, **kwargs): return {'layers': {'shelters': {'schema': 'honua_data', 'table': 'shelters'}}}
+    monkeypatch.setattr(module, 'TownSetup', Town)
+    monkeypatch.setattr(module, 'publication_request', lambda **kwargs: {})
+    monkeypatch.setattr(module, 'submit_publication', lambda *args, **kwargs: {'status': 'completed', 'layerId': 0})
+    recorder = Recorder()
+    original_json = recorder.json
+    def respond(step, method, path, body=None):
+        if step == 'p12-connection-create':
+            calls.append(step)
+            return {'observation': {'httpStatus': 201, 'body': {'data': {'connectionId': 'connection'}}}}
+        return original_json(step, method, path, body)
+    recorder.json = respond
+    stack.extra.update(recorder=recorder, databaseHandoff=lambda *args: {'host': 'db', 'port': 5432,
+                       'database': 'honua', 'username': 'reader', 'password': 'fixture-password'})
+    seeded = case.seed(stack, 'A')
+    assert case.seed(stack, 'A') == seeded
+    assert calls.count('p12-seed-draft') == 1
+    assert case.between_sessions(stack, seeded, 'A', 1) == {'restartServer': True}
+    observations = case.observe(stack, seeded, 'A')
+    assert {row.assertion_id for row in observations} == {'state.saved', 'restart.observed', 'state.reopened', 'source-content.unchanged'}
+    assert ('p12-save-action', 1) in calls and ('p12-reopen-read', 2) in calls
