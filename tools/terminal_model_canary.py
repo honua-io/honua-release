@@ -1216,9 +1216,12 @@ class CandidateProxyClient:
                 "provider": "bedrock",
                 "model": self.config.model,
                 "messages": messages,
+                "temperature": 0,
                 "certification": certification,
             }
-        if self.temperature is not None:
+        if self.temperature is None:
+            del request_body["temperature"]
+        else:
             request_body["temperature"] = self.temperature
         payload = json.dumps(request_body).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}

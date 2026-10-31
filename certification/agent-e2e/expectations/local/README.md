@@ -31,7 +31,8 @@ scenario. An expected value is one of:
     scenario's `roles()` (`RoleBinding(role, step, pointer=...)`);
   - `created:<kind>[:<name>]`: the single live resource enumerated after the session
     (`RoleBinding(role, step, items=..., id=..., owner=..., before=...)`) that is owned by
-    `RunRecord.agent_principal` and/or absent from a seed-phase enumeration of the same rows.
+    `RunRecord.agent_principal` **and** absent from a complete seed-phase enumeration of the same
+    path by the same principal. Both constraints are mandatory.
 
   At scoring time the runner resolves each role from its own recorded responses and
   substitutes the live id into the expectation before `oracle.verify`. An unresolved role,

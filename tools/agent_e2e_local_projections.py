@@ -73,6 +73,21 @@ def referenced_steps(spec, found=None):
     return found
 
 
+def baseline_steps(spec, found=None):
+    """Seed-phase reads a spec may score: protectedContent "before" snapshots only."""
+    found = set() if found is None else found
+    if isinstance(spec, dict):
+        rows = spec.get('protectedContent')
+        if isinstance(rows, list):
+            found.update(row['before'] for row in rows if isinstance(row, dict) and isinstance(row.get('before'), str))
+        for value in spec.values():
+            baseline_steps(value, found)
+    elif isinstance(spec, list):
+        for value in spec:
+            baseline_steps(value, found)
+    return found
+
+
 def pointer_get(value, pointer):
     require(isinstance(pointer, str) and (pointer == '' or pointer.startswith('/')), 'invalid JSON pointer')
     if pointer == '':
@@ -334,23 +349,26 @@ def resolve_roles(bindings, records, *, agent_principal):
             continue
         require(record.phase == 'observe' and binding.items is not None and binding.id is not None,
                 'created role must enumerate observe-phase state: ' + name)
-        require(binding.owner is not None or binding.before is not None,
-                'created role needs an owner or seed-phase baseline filter: ' + name)
+        # Both constraints are mandatory: owned by the agent principal AND created after seed.
+        require(binding.owner is not None and binding.before is not None,
+                'created role needs both the agent-owner filter and a seed-phase baseline: ' + name)
         rows = pointer_get(record.json, binding.items)
         require(isinstance(rows, list), 'created role enumeration is not a list: ' + name)
-        excluded = set()
-        if binding.before is not None:
-            require(binding.before in records and records[binding.before].phase == 'seed',
-                    'created role baseline is not a seed-phase enumeration: ' + name)
-            baseline = pointer_get(records[binding.before].json, binding.items)
-            require(isinstance(baseline, list), 'created role baseline is not a list: ' + name)
-            excluded = {str(pointer_get(row, binding.id)) for row in baseline}
+        require(binding.before in records, 'created role baseline is not recorded: ' + name)
+        baseline_record = records[binding.before]
+        require(baseline_record.phase == 'seed' and baseline_record.status == 200
+                and baseline_record.kind == record.kind and baseline_record.path == record.path
+                and baseline_record.principal == record.principal,
+                'created role baseline is not a seed-phase read of the same enumeration: ' + name)
+        baseline = pointer_get(baseline_record.json, binding.items)
+        require(isinstance(baseline, list), 'created role baseline is not a list: ' + name)
+        excluded = {str(pointer_get(row, binding.id)) for row in baseline}
         matches = []
         for row in rows:
             identity = pointer_get(row, binding.id)
             if str(identity) in excluded:
                 continue
-            if binding.owner is not None and str(pointer_get(row, binding.owner)) != str(agent_principal):
+            if str(pointer_get(row, binding.owner)) != str(agent_principal):
                 continue
             matches.append(identity)
         require(len(matches) == 1, f'created role {name} matched {len(matches)} live resources')

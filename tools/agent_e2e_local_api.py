@@ -31,8 +31,8 @@ fails closed.
 
 Roles: expectations may contain ``{"$role": "<name>"}``. ``seeded:*`` roles bind to a
 value in a seed-phase response; ``created:*`` roles bind to the single live item
-enumerated after the session that is owned by ``RunRecord.agent_principal`` and/or
-absent from a seed-phase enumeration. Unresolved, ambiguous or colliding roles fail.
+enumerated after the session that is owned by ``RunRecord.agent_principal`` and absent
+from a complete seed-phase enumeration of the same rows (both are mandatory). Unresolved, ambiguous or colliding roles fail.
 
 Runner helpers in ``stack.extra`` (controller side, never visible to the model):
   ensureConnection() -> connection id      the journey's typed SDK datasource connection
@@ -48,12 +48,15 @@ Without it the finalAnswerCheck fails closed.
 
 Custody facts (``RunRecord.custody``) are recorded by the runner, which controls the
 credentials; e.g. ``agentPrincipalId``, ``agentCredentialIds``, ``bootstrapPrincipalId``,
-``bootstrapRevokedCredentialIds``, ``postRevocationProbeStatus``. Projections read them with
-``{"custody": name}``.
+``bootstrapRevokedCredentialIds``, ``postRevocationProbeStatus``, ``restart:<prefix>``. Projections read
+them with ``{"custody": name}``. Worker identity, replacement and termination are NOT observed on local
+Docker (there is no separate bootstrap worker), so no worker facts exist and custody.worker-replaced fails
+closed on this target. Scored projections may read only observe-phase records (seed-phase reads only as
+protectedContent "before" baselines); records are scored from bytes matching the runtime-held ledger.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Protocol
 
 API_VERSION = '1.1'
 
@@ -114,9 +117,9 @@ class RoleBinding:
     seeded:<kind>:<name>: ``step`` is a seed-phase record and ``pointer`` must select
     exactly one scalar.
     created:<kind>[:<name>]: ``step`` is an observe-phase enumeration, ``items`` selects its
-    rows and ``id`` the identity inside a row. At least one of ``owner`` (row pointer whose
-    value must equal RunRecord.agent_principal) or ``before`` (a seed-phase enumeration of
-    the same rows; ids present there are excluded) is required. Exactly one row must remain.
+    rows and ``id`` the identity inside a row. BOTH ``owner`` (row pointer whose value must equal
+    RunRecord.agent_principal) and ``before`` (a complete seed-phase enumeration of the same path by
+    the same principal; ids present there are excluded) are required. Exactly one row must remain.
     """
     role: str
     step: str
@@ -125,6 +128,74 @@ class RoleBinding:
     id: str | None = None
     owner: str | None = None
     before: str | None = None
+
+
+@dataclass(frozen=True)
+class SessionLimits:
+    max_model_calls: int
+    max_actions: int
+    max_tokens: int
+
+
+@dataclass(frozen=True)
+class McpEndpoint:
+    """A runner-controlled recording MCP proxy in front of the case stack's /mcp.
+
+    The session presents ``token`` in ``header`` (e.g. "Authorization: Bearer <token>"); the proxy
+    swaps in the agent credential upstream, so the session never holds a Honua credential. Every
+    tools/call and resources/read that passes through it is written to the runner's action log.
+    """
+    url: str
+    header: str
+    token: str
+
+
+@dataclass(frozen=True)
+class SessionContext:
+    """Everything a model session gets from the runner. It never receives a credential."""
+    prompt: str                      # the pack prompt (or, for session 2, the session-1 handoff)
+    session: int                     # 1-based; a fresh model context each time
+    candidate_release: str
+    limits: SessionLimits
+    tool_view: dict                  # the agent credential's unfiltered MCP tools/list
+    execute: Callable[[str, dict], dict]   # runner gateway: logs, then runs one action on the customer MCP surface
+    mcp_proxy: Callable[[], McpEndpoint]   # starts the runner's recording MCP proxy (for CLI agents)
+    workdir: str                     # private per-session scratch directory (controller side)
+    clarifications: tuple = ()       # scripted customer replies, sent in pack order
+    token_budget_used: int = 0
+
+
+@dataclass(frozen=True)
+class SessionResult:
+    """What a session reports. The runner never takes actions or observations from it: actions come
+    from its own action log (gateway or recording proxy), state from controller reads."""
+    agent_type: str
+    model_id: str
+    final_answer: str | None
+    temperature: float | None = None
+    temperature_policy: str = ''
+    nudges: int = 0
+    tokens: int = 0
+    usage: tuple = ()
+    cost_usd: str | None = None
+    model_visible_digests: tuple = ()          # sha256 of each exact model-visible request, where observable
+    provenance: tuple = ()
+    clarifications: tuple = ()
+    message_ids: tuple = ()
+    failure: dict | None = None                # {'category': 'model'|'infrastructure'|'post-action-undetermined', 'reason'}
+    extra: dict = field(default_factory=dict)
+
+
+class ModelSession(Protocol):
+    """A pluggable agent. Select with ``agent_e2e_local_runner.py case --agent <name>``.
+
+    Built-in: ``bedrock-proxy`` (default; the shipped canary path through the candidate's signed
+    Studio AI proxy). Others register with ``agent_e2e_local_runner.register_session(name, factory)``
+    where ``factory(runtime, stack) -> ModelSession``; the runner imports
+    ``tools/agent_e2e_cli_sessions.py`` when it exists so CLI agents can register there.
+    """
+    agent_type: str
+    def run(self, context: SessionContext) -> SessionResult: ...
 
 
 class Scenario:

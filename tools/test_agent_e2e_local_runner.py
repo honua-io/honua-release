@@ -435,7 +435,7 @@ def test_roles_resolve_only_from_recorded_phases(candidate, tmp_path):
     with pytest.raises(ValueError):  # a seeded role cannot come from an observe-phase read
         resolve_roles([RoleBinding('seeded:service:x', 'after-publish', pointer='/data/resourceIds/serviceName')],
                       recorder.records, agent_principal='agent')
-    with pytest.raises(ValueError):  # a created role needs an owner or a seed-phase baseline
+    with pytest.raises(ValueError):  # a created role needs an owner and a seed-phase baseline
         resolve_roles([RoleBinding('created:svc', 'after-publish', items='/data', id='/x')],
                       recorder.records, agent_principal='agent')
 
@@ -447,7 +447,7 @@ def test_created_role_requires_exactly_one_new_owned_resource():
     def record(step, phase, items):
         raw = json.dumps({'items': items}).encode()
         return Record(step, phase, 'http', 'controller', None, 'GET', '/maps', 200, raw,
-                      'sha256:' + hashlib.sha256(raw).hexdigest(), json.loads(raw))
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
     before = [{'id': 'm1', 'owner': 'other'}]
     records = {'before': record('before', 'seed', before),
                'after': record('after', 'observe', before + [{'id': 'm2', 'owner': 'agent'}, {'id': 'm3', 'owner': 'x'}])}
@@ -482,7 +482,8 @@ def _record(step, phase='observe', status=200, body=None, path='/x', principal_i
     from agent_e2e_local_recorder import Record
     raw = json.dumps(body).encode()
     return Record(step, phase, kind, 'controller', principal_id, 'GET', path, status, raw,
-                  'sha256:' + hashlib.sha256(raw).hexdigest(), body, None, arguments)
+                  'sha256:' + hashlib.sha256(raw).hexdigest(), None,
+                  None if arguments is None else json.dumps(arguments).encode())
 
 
 def test_permission_matrix_projection_binds_targets_principals_and_disclosure():
@@ -550,3 +551,221 @@ def test_protected_content_requires_seed_before_and_observe_after():
     swapped = {'protectedContent': [{'label': 'map', 'before': 'a', 'after': 'b', 'pointer': '/data'}]}
     with pytest.raises(ValueError, match='wrong phase'):
         evaluate(swapped, Context(records))
+
+
+# ---- Astra review 5721829419: one negative control per blocking finding ------------------------
+
+class TamperingP10(FakeP10):
+    """A scenario that tries to change what gets scored after the controller read it."""
+
+    def __init__(self, how):
+        self.how = how
+
+    def observe(self, stack, seeded, variant, run=None):
+        rows = super().observe(stack, seeded, variant, run)
+        recorder = stack.extra['recorder']
+        record = recorder.records['p10-replay-query']
+        if self.how == 'mutate-parsed':
+            # Mutating a parsed view cannot reach scoring: every view is re-derived from raw bytes.
+            features = record.json['result']['structuredContent']['geojson']['features']
+            del features[:]
+        elif self.how == 'forge-record':
+            import dataclasses
+            message = record.json
+            content = message['result']['structuredContent']
+            keep = {'s3', 's4'}
+            content['geojson']['features'] = [f for f in content['geojson']['features']
+                                              if f['properties']['source_id'] in keep]
+            content['returnedCount'] = 2
+            raw = json.dumps(message).encode()
+            forged = dataclasses.replace(record, raw=raw, sha256='sha256:' + hashlib.sha256(raw).hexdigest())
+            recorder._records['p10-replay-query'] = forged
+            recorder._ledger['p10-replay-query'] = forged.sha256
+        elif self.how == 'score-seed-read':
+            rows[0] = Observation('filter.exact', None, {'projection': 'extract/v1', 'spec': {'object': {
+                'resourceIds': {'sorted': {'map': {'body': 'p10-source-before', 'pointer': '/features'},
+                                           'to': {'item': '/attributes/source_id'}}}}}})
+        return rows
+
+
+def test_finding1_scored_values_are_bound_to_runner_ledger_bytes(candidate, tmp_path):
+    # A wrong query: a forged record that "fixes" the result must not pass.
+    (tmp_path / 'a').mkdir()
+    receipt, _, _ = run_case(candidate, tmp_path / 'a', [tool('is_open = true'), FINAL], scenario=TamperingP10('forge-record'))
+    assert receipt['assertions'][0]['status'] == 'fail' and 'unrecorded step' in receipt['assertions'][0]['reason']
+    # A correct query: mutating the parsed view does not change the score.
+    (tmp_path / 'b').mkdir()
+    receipt, _, _ = run_case(candidate, tmp_path / 'b', [tool(CORRECT_WHERE), FINAL], scenario=TamperingP10('mutate-parsed'))
+    assert receipt['assertions'][0]['status'] == 'pass'
+    # A seed-phase read is never scored as post-session state.
+    (tmp_path / 'c').mkdir()
+    receipt, _, _ = run_case(candidate, tmp_path / 'c', [tool(CORRECT_WHERE), FINAL], scenario=TamperingP10('score-seed-read'))
+    assert receipt['assertions'][0]['status'] == 'fail' and 'pre-session read' in receipt['assertions'][0]['reason']
+
+
+def test_finding1_bytes_altered_after_recording_fail():
+    import dataclasses
+    record = _record('r', body={'resourceIds': ['s3', 's4']})
+    tampered = dataclasses.replace(record, raw=b'{"resourceIds":["s3","s4","s9"]}')
+    obs = Observation('filter.exact', None, {'projection': 'extract/v1',
+                                             'spec': {'object': {'resourceIds': {'body': 'r', 'pointer': '/resourceIds'}}}})
+    expected = {'filter.exact': {'resourceIds': ['s3', 's4']}}
+    assert runner.score_assertions(['filter.exact'], [obs], expected, records={'r': record})[0]['status'] == 'pass'
+    result = runner.score_assertions(['filter.exact'], [obs], expected, records={'r': tampered})[0]
+    assert result['status'] == 'fail' and 'differ' in result['reason']
+
+
+def test_finding2_worker_custody_is_not_synthesized_from_key_revocation(candidate, tmp_path):
+    receipt, _, _ = run_case(candidate, tmp_path, [tool(CORRECT_WHERE), FINAL])
+    custody = receipt['custody']
+    for field in ('bootstrapWorkerId', 'taskWorkerId', 'bootstrapWorkerTerminalState', 'taskProvisioningCredentialIds'):
+        assert field not in custody
+    spec = {'object': {name: {'custody': name} for name in ('bootstrapWorkerId', 'taskWorkerId',
+            'bootstrapWorkerTerminalState', 'taskPrincipalId', 'taskProvisioningCredentialIds')}}
+    obs = Observation('custody.worker-replaced', None, {'projection': 'extract/v1', 'spec': spec})
+    expected = {'custody.worker-replaced': {'bootstrapWorkerId': 'a', 'taskWorkerId': 'b', 'taskPrincipalId': 'b',
+                'bootstrapWorkerTerminalState': 'terminated', 'taskProvisioningCredentialIds': []}}
+    result = runner.score_assertions(['custody.worker-replaced'], [obs], expected, records={}, custody=custody)[0]
+    assert result['status'] == 'fail' and 'custody fact not recorded' in result['reason']
+
+
+def test_finding3_created_roles_require_owner_and_post_seed_creation():
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+
+    def record(step, phase, items, path='/maps'):
+        raw = json.dumps({'items': items}).encode()
+        return Record(step, phase, 'http', 'controller', None, 'GET', path, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    pre_seed_owned = {'id': 'm0', 'owner': 'agent'}
+    foreign_new = {'id': 'm9', 'owner': 'someone-else'}
+    records = {'before': record('before', 'seed', [pre_seed_owned]),
+               'after': record('after', 'observe', [pre_seed_owned, foreign_new])}
+    # Owner-only would have accepted the pre-seed resource; baseline-only the foreign one.
+    for binding in (RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner'),
+                    RoleBinding('created:map', 'after', items='/items', id='/id', before='before')):
+        with pytest.raises(ValueError, match='both'):
+            resolve_roles([binding], records, agent_principal='agent')
+    both = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before')
+    with pytest.raises(ValueError, match='matched 0'):
+        resolve_roles([both], records, agent_principal='agent')
+    # The baseline must be the same enumeration, read before the session.
+    records['other'] = record('other', 'seed', [], path='/other')
+    with pytest.raises(ValueError, match='same enumeration'):
+        resolve_roles([RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='other')],
+                      records, agent_principal='agent')
+
+
+def test_finding4_replay_requires_membership_in_this_cases_action_log(candidate, tmp_path):
+    import os
+    from agent_e2e_local_recorder import LoggedAction, action_bytes
+    os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST,
+                                  attempt_id='corpus-test', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')})
+    action = {'kind': 'tool_call', 'tool': 'honua_query_features',
+              'arguments': {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE}}
+    path = tmp_path / 'action-0001.json'
+    path.write_bytes(action_bytes(action))
+    digest = 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest()
+    logged = LoggedAction(1, 1, digest, 'tool_call', action['tool'], action['arguments'], None, 'pass', str(path))
+    recorder.set_phase('observe')
+    with pytest.raises(ValueError, match='not in this case'):   # empty harness log: a nonmember
+        recorder.replay('replay-empty', logged)
+    recorder.append_actions(1, [{'session': 1, 'sequence': 1, 'digest': digest, 'logPath': str(path), 'status': 'pass'}])
+    foreign = LoggedAction(2, 1, digest, 'tool_call', action['tool'], action['arguments'], None, 'pass', str(path))
+    with pytest.raises(ValueError, match='not in this case'):   # a session this case never ran
+        recorder.replay('replay-foreign', foreign)
+    recorder.replay('replay-member', recorder.actions()[0])
+    assert recorder.records['replay-member'].replay_of == digest
+    path.write_bytes(action_bytes({**action, 'arguments': {**action['arguments'], 'where': '1=1'}}))
+    with pytest.raises(ValueError, match='digest'):              # altered entry bytes
+        recorder.replay('replay-altered', logged)
+    recorder._actions[0] = recorder._actions[0][:2] + ('sha256:' + 'f' * 64,) + recorder._actions[0][3:]
+    with pytest.raises(ValueError, match='chain'):                # altered log entry
+        recorder.actions()
+    with pytest.raises(ValueError):                               # sessions are sealed once
+        recorder.append_actions(1, [])
+
+
+def test_finding5_model_visible_bytes_offer_only_admitted_actions(candidate, tmp_path):
+    receipt, model, _ = run_case(candidate, tmp_path, ['not json', tool(CORRECT_WHERE), FINAL])
+    for sent in model.sent:
+        rendered = json.dumps(sent)
+        for text in ('terminal', 'command', 'requiredSequence', 'terminalSurface', 'approval'):
+            assert text not in rendered.replace('honua_update_features', ''), text
+    # The corrective turn names only admitted kinds.
+    assert 'tool_call, resource_read or final' in model.sent[1][-1]['content']
+    # A terminal action is malformed (corrected once), never executed.
+    receipt, model, _ = run_case(candidate, tmp_path / 'x' if (tmp_path / 'x').mkdir() is None else None, [
+        json.dumps({'kind': 'terminal_command', 'command': 'honua help'}), FINAL])
+    assert receipt['nudges'] == 1 and receipt['sessions'][0]['actions'] == []
+
+
+def test_finding6_export_failure_never_reattributes_a_scored_failure():
+    failed = {'status': 'fail', 'failure': {'phase': 'model-session', 'category': 'post-action-undetermined'}}
+    runner.record_export_failure(failed, 'disk full')
+    assert failed['status'] == 'fail' and failed['evidenceExport'][0]['status'] == 'fail'
+    assert 'infrastructure' not in failed
+    passed = {'status': 'pass', 'infrastructure': []}
+    runner.record_export_failure(passed, 'disk full')
+    assert passed['status'] == 'infrastructure'
+
+
+# ---- pluggable model sessions -----------------------------------------------------------------
+
+class McpSpeakingSession:
+    """Stands in for a CLI agent: it talks MCP to the runner's recording proxy, never to the stack."""
+    agent_type = 'test-cli'
+
+    def __init__(self, runtime, stack):
+        self.stack = stack
+
+    def run(self, context):
+        import os
+        from agent_e2e_local_api import SessionResult
+        from agent_e2e_mcp import Client, McpError
+        endpoint = context.mcp_proxy()
+        assert endpoint.url.startswith('http://127.0.0.1:') and ADMIN not in endpoint.token
+        os.environ['TEST_PROXY_TOKEN'] = endpoint.token.removeprefix('Bearer ')
+        client = Client(endpoint.url, credential_env='TEST_PROXY_TOKEN', credential_kind='bearer', timeout=60)
+        client.initialize()
+        assert [t['name'] for t in client.list_tools()['tools']] == ['honua_query_features', 'honua_update_features']
+        client.call_tool('honua_query_features', {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE})
+        with pytest.raises(McpError):
+            client.read_resource('honua://catalog/secrets')
+        client.close()
+        return SessionResult(agent_type=self.agent_type, model_id='test-model', final_answer='Two shelters match.',
+                             temperature=None, temperature_policy='cli default',
+                             extra={'claimedActions': [{'tool': 'honua_update_features'}]})
+
+
+def test_pluggable_session_actions_are_recorded_by_the_runner_proxy(candidate, tmp_path):
+    runner.SESSIONS['test-cli'] = McpSpeakingSession
+    try:
+        model = FakeModel([])
+        runtime = FakeRuntime(candidate.base_url, model, tmp_path)
+        runtime.agent = 'test-cli'
+        receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=FakeP10(), variant='A', case=case('A'),
+                                      candidate_digest=DIGEST, runtime=runtime)
+    finally:
+        del runner.SESSIONS['test-cli']
+    assert receipt['agentType'] == 'test-cli' and receipt['arm'] == 'agent:test-cli/corpus-v1'
+    assert receipt['model'] == 'test-model' and model.sent == []
+    actions = receipt['sessions'][0]['actions']
+    assert [(a['kind'], a.get('tool'), a['status']) for a in actions] == [
+        ('tool_call', 'honua_query_features', 'pass'), ('resource_read', None, 'fail')]
+    # The proxy forwarded with the agent credential; the session never held it.
+    assert [c[0] for c in candidate.mcp_calls] == ['key-2', 'admin']
+    assert [a['status'] for a in receipt['assertions']] == ['pass', 'pass']
+    runner.validate_receipt(receipt)
+    with pytest.raises(ValueError, match='mix agent arms'):
+        default = {**receipt, 'caseId': 'P10:B:local-docker', 'agentType': 'bedrock-proxy', 'arm': runner.ARM,
+                   'sessions': [{**receipt['sessions'][0], 'modelVisibleDigests': ['sha256:' + 'c' * 64]}]}
+        runner.aggregate(runner.build_inventory(runner.PACK, ['P10'], ['A', 'B']), [receipt, default])
+
+
+def test_unknown_agent_is_refused_before_any_stack(tmp_path):
+    out = tmp_path / 'receipt.json'
+    assert runner.main(['case', '--scenario', 'P10', '--variant', 'A', '--model', 'm', '--agent', 'nope',
+                        '--image-ref', 'x', '--output', str(out)]) == 1
+    assert json.loads(out.read_text())['status'] == 'infrastructure'
