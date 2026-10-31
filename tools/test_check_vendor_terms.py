@@ -463,11 +463,11 @@ def test_every_vocabulary_identifier_cites_its_source_section():
     assert "arcgis" not in {entry["identifier"].lower() for entry in document["identifiers"]}
 
 
-def test_policy_carries_the_attribution_the_classifier_and_these_tests_use():
+def test_policy_requires_neutral_compatibility_wording():
     policy = (vt.ROOT / "docs" / "THIRD-PARTY-TRADEMARKS.md").read_text()
-    quoted = " ".join(line.lstrip("> ").strip() for line in policy.splitlines() if line.startswith(">"))
-    assert quoted == ATTRIBUTION
-    assert vt.is_attributed(policy)
+    assert "Compatibility statements use protocol names, neutral client categories and tested versions." in policy
+    assert "Do not add third-party product names or boilerplate attribution that repeats them." in policy
+    assert not vt.is_attributed(policy)
 
 
 def test_committed_allowlist_loads():

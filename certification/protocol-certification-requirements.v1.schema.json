@@ -379,6 +379,13 @@
           "licensed": {
             "type": "boolean"
           },
+          "entitlement_policy_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z0-9.-]+-v[0-9]+$"
+          },
           "addressable_by_client": {
             "type": "boolean"
           },
