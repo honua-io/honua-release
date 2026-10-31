@@ -212,7 +212,10 @@ def run_model_session(*, prompt, tool_catalog, complete, invoke, log_dir, max_tu
         visible = json.dumps(messages).encode('utf-8')
         hashes.append('sha256:' + hashlib.sha256(visible).hexdigest())
         try:
-            content, usage, _elapsed, proof = complete(messages, {**certification, 'actionId': str(turn + 1)})
+            call_binding = {**certification, 'actionId': str(turn + 1)}
+            if 'runNonce' in call_binding:
+                call_binding['runNonce'] = f"{call_binding['runNonce']}:{turn + 1}"
+            content, usage, _elapsed, proof = complete(messages, call_binding)
         except Exception:
             stop('infrastructure')
         usages.append(usage)
@@ -363,3 +366,55 @@ def aggregate_files(expected_cases: list[str], paths: list[Path]) -> dict:
             raise ValueError('malformed receipt artifact')
         receipts.append(value)
     return aggregate(expected_cases, receipts)
+
+
+class LocalStackDriver:
+    """Fresh per-case Compose setup through the existing journey DriverAdapter.
+
+    Candidate binding is limited to the repository manifest's immutable server
+    image until lock resolution is implemented. This adapter alone does not run
+    a model or produce a corpus receipt.
+    """
+    def __init__(self, driver, *, root=ROOT):
+        self.driver, self.root = driver, Path(root)
+
+    def setup(self, case_id, candidate_digest, needs_approver=False):
+        import os
+        import re
+        import secrets
+        import tempfile
+        import uuid
+        import yaml
+        from agent_e2e_local_api import Stack
+        if not re.fullmatch(r'P\d\d:[AB]:local-docker', case_id):
+            raise ValueError('invalid case identity')
+        if needs_approver:
+            raise ValueError('separate approver handoff is not yet implemented')
+        manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
+        server = manifest['components']['honua-server']
+        if candidate_digest != server['digest'] or not re.fullmatch(r'sha256:[0-9a-f]{64}', candidate_digest):
+            raise ValueError('candidate digest differs from the composed manifest image')
+        token = uuid.uuid4().hex[:16]
+        case_dir = Path(tempfile.mkdtemp(prefix='honua-corpus-' + token + '-'))
+        target = json.loads((self.root / 'certification/terminal-journey/targets/local-docker.json').read_text())
+        target['compose']['project'] = 'corpus-' + token
+        target_path = case_dir / 'target.json'
+        target_path.write_text(json.dumps(target), encoding='utf-8')
+        os.chmod(case_dir, 0o700)
+        admin = secrets.token_hex(32)
+        os.environ['HONUA_ADMIN_PASSWORD'] = admin
+        response = self.driver.invoke('setup', {'target': str(target_path)})
+        workspace = response.get('workspaceId')
+        if response.get('status') != 'ready' or not isinstance(workspace, str):
+            if isinstance(workspace, str):
+                self.driver.invoke('teardown', {'workspaceId': workspace})
+            raise RuntimeError('driver did not establish a ready fresh stack')
+        return Stack(base_url=response['baseUrl'], admin_key=admin, approver_key=None,
+                     compose_project=target['compose']['project'], compose_file=target['compose']['file'],
+                     workdir=str(case_dir), candidate_digest=candidate_digest,
+                     extra={'workspaceId': workspace, 'needsApprover': needs_approver})
+
+    def teardown(self, stack):
+        result = self.driver.invoke('teardown', {'workspaceId': stack.extra['workspaceId']})
+        if result.get('status') != 'pass':
+            raise RuntimeError('driver failed to remove isolated stack')

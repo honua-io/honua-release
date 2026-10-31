@@ -157,3 +157,32 @@ def test_inventory_and_file_aggregation_reject_missing_duplicates(tmp_path):
         with pytest.raises(ValueError): aggregate_files(cases, files)
     for variants in (['A', 'A'], ['C']):
         with pytest.raises(ValueError): build_inventory(pack, ['P10'], variants)
+
+
+def test_fresh_stack_driver_uses_new_project_and_checks_candidate(tmp_path, monkeypatch):
+    import json
+    import yaml
+    from agent_e2e_local_runner import LocalStackDriver
+    digest = 'sha256:' + 'a' * 64
+    (tmp_path / 'platform-manifest.yaml').write_text(yaml.safe_dump({'components': {'honua-server': {'digest': digest}}}))
+    target = tmp_path / 'certification/terminal-journey/targets/local-docker.json'
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({'compose': {'project': 'original', 'file': 'compose.yml'}}))
+    class Driver:
+        def __init__(self): self.projects = []; self.calls = []
+        def invoke(self, operation, request):
+            self.calls.append(operation)
+            if operation == 'setup':
+                self.projects.append(json.loads(open(request['target']).read())['compose']['project'])
+                return {'status': 'ready', 'workspaceId': 'workspace', 'baseUrl': 'http://127.0.0.1:8137'}
+            return {'status': 'pass'}
+    driver = Driver()
+    runtime = LocalStackDriver(driver, root=tmp_path)
+    with pytest.raises(ValueError): runtime.setup('P10:A:local-docker', 'sha256:' + 'b' * 64)
+    first = runtime.setup('P10:A:local-docker', digest)
+    runtime.teardown(first)
+    second = runtime.setup('P10:B:local-docker', digest)
+    runtime.teardown(second)
+    assert driver.projects[0] != driver.projects[1]
+    assert first.admin_key != second.admin_key
+    assert driver.calls == ['setup', 'teardown', 'setup', 'teardown']
