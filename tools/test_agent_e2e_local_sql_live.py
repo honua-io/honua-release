@@ -60,6 +60,7 @@ def database(tmp_path_factory):
         # fixture statements are all transactional and ON_ERROR_STOP is set.
         code, _ = runtime.psql(stack, ';\n'.join(FIXTURE['seed']), read_only=False)
         assert code == 0, 'could not create the confinement fixture'
+        runtime._ensure_reader(stack)
         recorder = ControllerRecorder(base_url='http://127.0.0.1:1', workdir=workdir, candidate_digest='sha256:' + 'a' * 64,
                                       attempt_id=project, principals={'controller': (None, None)}, vault=EvidenceVault(project),
                                       sql_executor=lambda request: runtime.sql_read(stack, request))

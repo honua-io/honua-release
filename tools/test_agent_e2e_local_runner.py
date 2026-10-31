@@ -2474,6 +2474,8 @@ def test_core3sql_runtime_runs_preflight_then_the_generated_read(monkeypatch, tm
         stack, {'op': 'table_rows', 'schema': 'honua_data', 'table': 'p05_points', 'columns': ['source_id']})
     assert status == 200 and json.loads(raw) == [{'source_id': 's1'}]
     assert [ro for _, ro in sent] == [True, True] and sent[1][0] == sql and 'p05_points' in sql
+    assert 'LOCK TABLE ONLY "honua_data"."p05_points" IN ACCESS SHARE MODE' in sql
+    assert 'IS DISTINCT FROM' in sql and 'FROM ONLY "honua_data"."p05_points" AS t' in sql
 
 
 def test_core3sql_psql_reader_session_is_pinned(monkeypatch, tmp_path):
