@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P24",
-  "derivation": "Style, render and source content use the same fixture derivation as the studio scenarios. features.exact, filter.exact and buffer.metric are fixture references. Candidate identity, deployment, approval, publication, reopen session and worker custody are not observed on local docker, so those expectations are empty and their projections fail closed. A fresh deployment has no seed-phase source bytes unless the controller already published the layers.",
+  "derivation": "Style, render and source expectations derive from the A/B fixtures. Feature tolerance is supplied by the frozen expectation, never the observed snapshot. Candidate identity, deployment, approval, publication and reopen remain fail-closed without runner evidence. Worker replacement is the preregistered local-Docker exclusion. A fresh deployment needs seed-phase publication records and source baselines before protected-content scoring can bind.",
   "variants": {
     "A": {
       "candidate.identity": {
@@ -91,11 +91,7 @@
         "postRevocationProbeStatus": 0
       },
       "custody.worker-replaced": {
-        "bootstrapWorkerId": "",
-        "taskWorkerId": "",
-        "bootstrapWorkerTerminalState": "",
-        "taskPrincipalId": "",
-        "taskProvisioningCredentialIds": []
+        "$excluded": "custody.worker-replaced@local-docker"
       },
       "source-content.unchanged": {
         "profile": "honua.protected-content/v1",
@@ -440,7 +436,7 @@
                   "properties": {
                     "capacity": 80,
                     "is_open": true,
-                    "name": "Hālau, \"North\" refuge",
+                    "name": "H\u0101lau, \"North\" refuge",
                     "source_id": "s3"
                   },
                   "geometry": {
@@ -457,7 +453,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d’accueil",
+                    "name": "Centre d\u2019accueil",
                     "source_id": "s4"
                   },
                   "geometry": {
@@ -474,7 +470,7 @@
                   "properties": {
                     "capacity": 50,
                     "is_open": true,
-                    "name": "Mālama refuge",
+                    "name": "M\u0101lama refuge",
                     "source_id": "s5"
                   },
                   "geometry": {
@@ -579,11 +575,7 @@
         "postRevocationProbeStatus": 0
       },
       "custody.worker-replaced": {
-        "bootstrapWorkerId": "",
-        "taskWorkerId": "",
-        "bootstrapWorkerTerminalState": "",
-        "taskPrincipalId": "",
-        "taskProvisioningCredentialIds": []
+        "$excluded": "custody.worker-replaced@local-docker"
       },
       "source-content.unchanged": {
         "profile": "honua.protected-content/v1",
@@ -928,7 +920,7 @@
                   "properties": {
                     "capacity": 120,
                     "is_open": false,
-                    "name": "Hālau, \"North\" refuge",
+                    "name": "H\u0101lau, \"North\" refuge",
                     "source_id": "s103"
                   },
                   "geometry": {
@@ -945,7 +937,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d’accueil",
+                    "name": "Centre d\u2019accueil",
                     "source_id": "s104"
                   },
                   "geometry": {
@@ -962,7 +954,7 @@
                   "properties": {
                     "capacity": null,
                     "is_open": true,
-                    "name": "Mālama refuge",
+                    "name": "M\u0101lama refuge",
                     "source_id": "s105"
                   },
                   "geometry": {
@@ -977,6 +969,647 @@
             }
           }
         ]
+      }
+    }
+  },
+  "roles": [
+    {
+      "role": "seeded:service:parcels",
+      "step": "publish-parcels-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:parcels",
+      "step": "publish-parcels-submit",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "seeded:service:flood_zones",
+      "step": "publish-flood-zones-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:flood_zones",
+      "step": "publish-flood-zones-submit",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "seeded:service:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "created:map",
+      "step": "p24-maps",
+      "items": "/data/items",
+      "id": "/itemId",
+      "owner": "/ownerId",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "created:version",
+      "step": "p24-maps",
+      "items": "/data/items",
+      "id": "/currentVersionId",
+      "owner": "/ownerId",
+      "before": "p24-maps-before"
+    }
+  ],
+  "projections": {
+    "candidate.identity": {
+      "spec": {
+        "object": {
+          "componentBindingDigest": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/componentBindingDigest"
+          },
+          "serverSourceRevision": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/serverSourceRevision"
+          },
+          "serverOciDigest": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/serverOciDigest"
+          },
+          "clientArtifactDigests": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/clientArtifactDigests"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-candidate": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-candidate"
+        }
+      }
+    },
+    "deployment.ready": {
+      "spec": {
+        "object": {
+          "deploymentId": {
+            "body": "p24-unobserved-deployment",
+            "pointer": "/deploymentId"
+          },
+          "healthStatus": {
+            "body": "p24-unobserved-deployment",
+            "pointer": "/healthStatus"
+          },
+          "authenticatedReadStatus": {
+            "body": "p24-unobserved-deployment",
+            "pointer": "/authenticatedReadStatus"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-deployment": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-deployment"
+        }
+      }
+    },
+    "features.exact": {
+      "spec": {
+        "featureServerFeatures": "p24-src-shelters-after-raw"
+      },
+      "reads": {
+        "p24-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        }
+      }
+    },
+    "filter.exact": {
+      "spec": {
+        "object": {
+          "resourceIds": {
+            "body": "p24-unobserved-filter",
+            "pointer": "/resourceIds"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-filter": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-filter"
+        }
+      }
+    },
+    "buffer.metric": {
+      "spec": {
+        "object": {
+          "sourceId": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/sourceId"
+          },
+          "center3857": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/center3857"
+          },
+          "radiusMetres": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/radiusMetres"
+          },
+          "expectedArea": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/expectedArea"
+          },
+          "radialToleranceMetres": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/radialToleranceMetres"
+          },
+          "areaRelativeTolerance": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/areaRelativeTolerance"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-buffer": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-buffer"
+        }
+      }
+    },
+    "map.style": {
+      "spec": {
+        "object": {
+          "mapId": {
+            "target": "p24-version",
+            "role": "created:map",
+            "at": {
+              "pathSegment": 4
+            }
+          },
+          "styleDocumentSha256": {
+            "body": "p24-style",
+            "pointer": "/styleDocumentSha256"
+          },
+          "labelField": {
+            "body": "p24-style",
+            "pointer": "/labelField"
+          },
+          "floodColor": {
+            "body": "p24-style",
+            "pointer": "/floodColor"
+          },
+          "floodOpacity": {
+            "body": "p24-style",
+            "pointer": "/floodOpacity"
+          }
+        }
+      },
+      "reads": {
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+          "addresses": [
+            {
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-style": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p24\\-style"
+        }
+      }
+    },
+    "state.reopened": {
+      "spec": {
+        "object": {
+          "resourceId": {
+            "target": "p24-version",
+            "role": "created:map",
+            "at": {
+              "pathSegment": 4
+            }
+          },
+          "versionId": {
+            "target": "p24-version",
+            "role": "created:version",
+            "at": {
+              "pathSegment": 6
+            }
+          },
+          "documentSha256": {
+            "body": "p24-saved",
+            "pointer": "/documentSha256"
+          },
+          "freshSessionId": {
+            "body": "p24-unobserved-session",
+            "pointer": "/freshSessionId"
+          }
+        }
+      },
+      "reads": {
+        "p24-saved": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p24\\-saved"
+        },
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+          "addresses": [
+            {
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-unobserved-session": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-session"
+        }
+      }
+    },
+    "approval.separate": {
+      "spec": {
+        "object": {
+          "proposalId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/proposalId"
+          },
+          "requesterPrincipalId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/requesterPrincipalId"
+          },
+          "approverPrincipalId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/approverPrincipalId"
+          },
+          "approvedVersionId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/approvedVersionId"
+          },
+          "auditId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/auditId"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-approval": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-approval"
+        }
+      }
+    },
+    "publication.public": {
+      "spec": {
+        "object": {
+          "publishedUrl": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/publishedUrl"
+          },
+          "anonymousHttpStatus": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/anonymousHttpStatus"
+          },
+          "resourceId": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/resourceId"
+          },
+          "publishedVersionId": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/publishedVersionId"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-publication": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-publication"
+        }
+      }
+    },
+    "render.actual": {
+      "spec": {
+        "body": "p24-render",
+        "pointer": ""
+      },
+      "reads": {
+        "p24-render": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p24\\-render"
+        }
+      }
+    },
+    "custody.bootstrap-revoked": {
+      "spec": {
+        "object": {
+          "bootstrapPrincipalId": {
+            "custody": "bootstrapPrincipalId"
+          },
+          "revokedCredentialIds": {
+            "custody": "revokedCredentialIds"
+          },
+          "postRevocationProbeStatus": {
+            "custody": "postRevocationProbeStatus"
+          }
+        }
+      },
+      "reads": {
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}"
+        }
+      }
+    },
+    "custody.worker-replaced": {
+      "spec": {
+        "object": {
+          "bootstrapWorkerId": {
+            "custody": "bootstrapWorkerId"
+          },
+          "taskWorkerId": {
+            "custody": "taskWorkerId"
+          },
+          "bootstrapWorkerTerminalState": {
+            "custody": "bootstrapWorkerTerminalState"
+          },
+          "taskPrincipalId": {
+            "custody": "taskPrincipalId"
+          },
+          "taskProvisioningCredentialIds": {
+            "custody": "taskProvisioningCredentialIds"
+          }
+        }
+      },
+      "reads": {
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}"
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "parcels",
+            "before": "p24-src-parcels-before-raw",
+            "after": "p24-src-parcels-after-raw",
+            "resource": [
+              {
+                "role": "seeded:service:parcels",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:parcels",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          },
+          {
+            "label": "flood_zones",
+            "before": "p24-src-flood-zones-before-raw",
+            "after": "p24-src-flood-zones-after-raw",
+            "resource": [
+              {
+                "role": "seeded:service:flood_zones",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:flood_zones",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          },
+          {
+            "label": "shelters",
+            "before": "p24-src-shelters-before-raw",
+            "after": "p24-src-shelters-after-raw",
+            "resource": [
+              {
+                "role": "seeded:service:shelters",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:shelters",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          }
+        ]
+      },
+      "reads": {
+        "p24-src-flood-zones-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-flood-zones-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-parcels-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-parcels-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        }
       }
     }
   }

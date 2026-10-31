@@ -1657,7 +1657,6 @@ class LocalRuntime:
                 execute=lambda kind, action: action_log.dispatch(kind, action, raw), mcp_proxy=mcp_proxy,
                 workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
                 attachments=tuple(stack.extra.get('customerFiles', ())), studio_browser=studio_browser)
-            agent = self.agent_session(stack)
             result = agent.run(context)
         except SessionInterrupted as exc:
             exc.progress['actions'] = list(action_log.rows)

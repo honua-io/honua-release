@@ -383,7 +383,7 @@
                   "properties": {
                     "capacity": 80,
                     "is_open": true,
-                    "name": "Hālau, \"North\" refuge",
+                    "name": "H\u0101lau, \"North\" refuge",
                     "source_id": "s3"
                   },
                   "geometry": {
@@ -400,7 +400,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d’accueil",
+                    "name": "Centre d\u2019accueil",
                     "source_id": "s4"
                   },
                   "geometry": {
@@ -417,7 +417,7 @@
                   "properties": {
                     "capacity": 50,
                     "is_open": true,
-                    "name": "Mālama refuge",
+                    "name": "M\u0101lama refuge",
                     "source_id": "s5"
                   },
                   "geometry": {
@@ -814,7 +814,7 @@
                   "properties": {
                     "capacity": 120,
                     "is_open": false,
-                    "name": "Hālau, \"North\" refuge",
+                    "name": "H\u0101lau, \"North\" refuge",
                     "source_id": "s103"
                   },
                   "geometry": {
@@ -831,7 +831,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d’accueil",
+                    "name": "Centre d\u2019accueil",
                     "source_id": "s104"
                   },
                   "geometry": {
@@ -848,7 +848,7 @@
                   "properties": {
                     "capacity": null,
                     "is_open": true,
-                    "name": "Mālama refuge",
+                    "name": "M\u0101lama refuge",
                     "source_id": "s105"
                   },
                   "geometry": {
@@ -863,6 +863,312 @@
             }
           }
         ]
+      }
+    }
+  },
+  "roles": [
+    {
+      "role": "seeded:service:parcels",
+      "step": "publish-parcels-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:parcels",
+      "step": "publish-parcels-submit",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "seeded:service:flood_zones",
+      "step": "publish-flood-zones-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:flood_zones",
+      "step": "publish-flood-zones-submit",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "seeded:service:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "created:map",
+      "step": "p08-maps",
+      "items": "/data/items",
+      "id": "/itemId",
+      "owner": "/ownerId",
+      "before": "p08-maps-before"
+    }
+  ],
+  "projections": {
+    "map.composition": {
+      "spec": {
+        "object": {
+          "mapId": {
+            "target": "p08-version",
+            "role": "created:map",
+            "at": {
+              "pathSegment": 4
+            }
+          },
+          "orderedLayerIds": {
+            "body": "p08-composition",
+            "pointer": "/orderedLayerIds"
+          },
+          "visibility": {
+            "body": "p08-composition",
+            "pointer": "/visibility"
+          },
+          "extent": {
+            "body": "p08-composition",
+            "pointer": "/extent"
+          }
+        }
+      },
+      "reads": {
+        "p08-composition": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p08\\-composition"
+        },
+        "p08-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+          "addresses": [
+            {
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        }
+      }
+    },
+    "render.actual": {
+      "spec": {
+        "body": "p08-render",
+        "pointer": ""
+      },
+      "reads": {
+        "p08-render": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p08\\-render"
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "parcels",
+            "before": "p08-src-parcels-before-raw",
+            "after": "p08-src-parcels-after-raw",
+            "resource": [
+              {
+                "role": "seeded:service:parcels",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:parcels",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          },
+          {
+            "label": "flood_zones",
+            "before": "p08-src-flood-zones-before-raw",
+            "after": "p08-src-flood-zones-after-raw",
+            "resource": [
+              {
+                "role": "seeded:service:flood_zones",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:flood_zones",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          },
+          {
+            "label": "shelters",
+            "before": "p08-src-shelters-before-raw",
+            "after": "p08-src-shelters-after-raw",
+            "resource": [
+              {
+                "role": "seeded:service:shelters",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:shelters",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          }
+        ]
+      },
+      "reads": {
+        "p08-src-shelters-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-parcels-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-flood-zones-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-parcels-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-flood-zones-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "seeded:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "seeded:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        }
       }
     }
   }
