@@ -2,7 +2,7 @@
 
 It needs a single 503 after a committed map create, independently bound to the
 commit and recorded as fired, plus a distinct publication approver. The current
-runtime implements neither the map-create injection nor an approver handoff.
+runtime has no way to replace the response of a committed map-create request.
 """
 from agent_e2e_local_api import Scenario
 
@@ -17,9 +17,11 @@ class P21(Scenario):
     def fault_plan(self, variant):
         if variant not in ('A', 'B'):
             raise ValueError('unsupported variant')
-        return {'kind': 'http-transient', 'status': 503, 'count': 1,
-                'operationClass': 'map-create', 'trigger': 'after-commit-before-response',
-                'injectionActor': 'controller', 'requireCommittedResourceObservation': True}
+        # This plan documents the available hook, but cannot implement the pack's
+        # after-commit-before-response fault: the runner intercepts before forwarding.
+        return {'kind': 'http_503_once', 'id': 'p21-map-create',
+                'after': {'tool': 'honua_create_map'},
+                'match': {'tool': 'honua_create_map'}}
 
     def needs_approver(self):
         return True
