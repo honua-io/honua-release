@@ -1,9 +1,8 @@
-"""P22 is unsupported: fresh session identities cannot be frozen for the oracle.
+"""P22 is unsupported pending independently observed saved-map reuse.
 
-The runner creates session IDs at run time, but the oracle requires both IDs
-in the frozen expectation and logical roles can bind only recorded resource
-reads, not session facts. A seeded saved map and publication readback are also
-needed; session count alone cannot prove state reuse.
+The runner now supplies fresh-session roles; this case still needs a seeded
+saved map, frozen expectations and projections for reuse, duplicate absence,
+public publication, unchanged source and final-answer facts.
 """
 from agent_e2e_local_api import Scenario
 
