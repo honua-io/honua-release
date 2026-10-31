@@ -159,8 +159,11 @@ class RoleBinding:
     the server's captured reply to a successful sealed agent call of that tool). Exactly one row must remain.
     recorded:<name>: the canonical sha256 of the value at ``pointer`` in a seed- or between-phase record
     (for "persisted unchanged" comparisons such as configuration or saved-document digests).
-    child:<kind>: one scalar at ``pointer`` in an observe-phase read that addresses the ``parent`` role's
-    resolved id (e.g. the layer inside a created map). Roles resolve in the frozen order.
+    child:<kind>: one scalar at ``pointer`` in an observe-phase read whose request field ``parent_link.at``
+    equals the ``parent`` role's resolved id and whose response names it at ``parent_link.pointer``
+    (e.g. the layer inside a created map). Roles resolve in the frozen order.
+    Address fields (read-rule ``addresses``, ``protectedContent`` ``resource``, ``target``) are exact:
+    {"role": NAME, "at": {"pathSegment": N} | {"query": NAME} | {"argument": "/pointer"}}.
     Runner roles (no binding needed): ``session:previous``, ``session:current``,
     ``session:visible-message-ids``, ``session:handoff-sha256`` (sha256 of the session-1 final answer).
     """
@@ -177,6 +180,7 @@ class RoleBinding:
     created_by: dict | None = None  # created: {"tool": name, "pointer": "/result/..."}: the id is named by the
                                     # server's captured reply to a successful sealed agent call of that tool
     parent: str | None = None       # child:<kind>: the role whose resource this observe-phase read addresses
+    parent_link: dict | None = None # child: {"at": <request field addressing the parent>, "pointer": <response field naming it>}
 
 
 @dataclass(frozen=True)

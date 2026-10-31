@@ -443,9 +443,8 @@ class ControllerRecorder:
         """
         self._claim(step)
         require(self._sql is not None, 'this stack has no controller SQL transport')
-        require(isinstance(query, str) and query.strip().lower().startswith(('select', 'with'))
-                and ';' not in query.strip().rstrip(';') and len(query) <= 8192, 'controller SQL must be one SELECT')
-        query = query.strip().rstrip(';')
+        from agent_e2e_local_runner import sql_allowlisted
+        query = sql_allowlisted(query)
         status, raw = self._sql(query)
         record = self._store(Record(step, self.phase, 'sql', 'controller', 'case-database-owner', 'SELECT', query,
                                     status, raw, 'sha256:' + hashlib.sha256(raw).hexdigest(),
