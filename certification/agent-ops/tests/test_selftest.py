@@ -106,3 +106,13 @@ def test_unresolved_false_success_cannot_pass_or_prove_zero():
         assert summary["false_success"]["unresolved"] == 1
         assert summary["false_success"]["zero_observed_proven"] is False
         assert "unresolved" in stop_reasons(summary, pilot=True, preflight_ok=True, ledger_status=None, trials=[trial])
+
+
+def test_held_out_unresolved_blocks_zero_false_success_claim():
+    summary = summarize([
+        {"scenario": "O01", "phrasing": "A", "outcome": "success", "false_success": False},
+        {"scenario": "O01", "phrasing": "C", "outcome": "undetermined", "false_success": None},
+    ])
+    assert summary["false_success"]["n"] == 2
+    assert summary["false_success"]["count"] is None
+    assert summary["false_success"]["zero_observed_proven"] is False

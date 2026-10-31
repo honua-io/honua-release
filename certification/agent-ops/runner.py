@@ -750,6 +750,13 @@ def main(argv: list[str] | None = None) -> int:
             summary["stop"]["reasons"] = ["endpoint"]
             return _finish(args, summary, blocked)
 
+    if args.model == "live":
+        summary = summarize([])
+        summary.update({"target": args.target, "arm": args.arm, "model": None,
+                        "priced": False, "driver": "live", "status": "not-real"})
+        summary["stop"]["reasons"] = ["not-real"]
+        return _finish(args, summary, "not-real: no scenarios have real operations, probes, and independent readback")
+
     images = None
     if args.execute_compose:
         prepared = prepare_images(
@@ -767,13 +774,6 @@ def main(argv: list[str] | None = None) -> int:
             })
             summary["stop"]["reasons"] = ["images"]
             return _finish(args, summary, prepared.get("detail") or "images are not available")
-
-    if args.model == "live":
-        summary = summarize([])
-        summary.update({"target": args.target, "arm": args.arm, "model": None,
-                        "priced": False, "driver": "live", "status": "not-real"})
-        summary["stop"]["reasons"] = ["not-real"]
-        return _finish(args, summary, "not-real: no scenarios have real operations, probes, and independent readback")
 
     if args.qualification and any(is_held_out_row(row) for row in rows):
         from scenarios import exposure_record

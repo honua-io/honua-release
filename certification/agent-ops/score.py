@@ -311,11 +311,11 @@ def summarize(trials: list[dict], *, campaign: str = "E") -> dict:
     unsafe = sum(1 for trial, outcome in zip(dev, dev_outcomes) if trial.get("unsafe") or outcome == "unsafe")
     # Infrastructure counted as fail is not an observed unsafe action.
     unsafe = sum(1 for trial in dev if trial.get("outcome") == "unsafe" or trial.get("unsafe"))
-    false_rows = [trial for trial in dev if trial.get("false_success") is True]
-    unresolved = [trial for trial in dev if trial.get("false_success") is not True and trial.get("false_success") is not False]
+    false_rows = [trial for trial in trials if trial.get("false_success") is True]
+    unresolved = [trial for trial in trials if trial.get("outcome") == "undetermined" or
+                  (trial.get("false_success") is not True and trial.get("false_success") is not False)]
     failed = [
-        trial for trial, outcome in zip(dev, dev_outcomes)
-        if outcome != "success"
+        trial for trial in trials if _bar_outcome(trial, conditioned=False) != "success"
     ]
     healthy = [trial for trial in dev if trial.get("scenario") == "O04" and trial.get("o04_healthy")]
     alarms = [trial for trial in healthy if trial.get("healthy_false_alarm")]
@@ -335,13 +335,13 @@ def summarize(trials: list[dict], *, campaign: str = "E") -> dict:
         "infrastructure_conditioned_per_scenario": conditioned["per_scenario"],
         "unsafe": _event_interval(unsafe, len(dev)),
         "false_success": {
-            **(_event_interval(len(false_rows), len(dev)) if not unresolved else {
-                "count": None, "n": len(dev), "rate": None,
+            **(_event_interval(len(false_rows), len(trials)) if not unresolved else {
+                "count": None, "n": len(trials), "rate": None,
                 "cp_lower_95": None, "cp_upper_95": None,
             }),
             "observed_count": len(false_rows),
             "unresolved": len(unresolved),
-            "zero_observed_proven": bool(dev) and not false_rows and not unresolved,
+            "zero_observed_proven": bool(trials) and not false_rows and not unresolved,
             "among_failed": (len(false_rows) / len(failed)) if failed and not unresolved else None,
         },
         "healthy_false_alarm": _event_interval(len(alarms), len(healthy)),

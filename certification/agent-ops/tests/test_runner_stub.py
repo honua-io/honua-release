@@ -332,7 +332,7 @@ def test_missing_images_stop_before_a_model_call(monkeypatch, tmp_path: Path):
     ]) == 2
     assert called["n"] == 0
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
-    assert summary["stop"]["reasons"] == ["images"]
+    assert summary["stop"]["reasons"] == ["not-real"]
     assert not (out / "trials.jsonl").exists()
 
 
