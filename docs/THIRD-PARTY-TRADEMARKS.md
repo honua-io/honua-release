@@ -254,6 +254,40 @@ with a workflow's repository token does not trigger another workflow. Periodic
 API reconciliation is needed to detect those changes; this workflow does not
 provide that reconciliation.
 
+For a read-only REST sweep of currently visible GitHub content, run:
+
+```bash
+python3 tools/vendor_terms_github_audit.py --org honua-io --max-requests 1000
+```
+
+Use `--repo owner/name` to scope a run to one repository. The audit enumerates
+issues, pull requests, conversation comments, inline review comments, commit
+comments, and each pull request's review bodies. Its JSON lines contain item
+URLs and per-surface coverage, never submitted text. Exit 1 means findings;
+exit 2 means a request, payload, permission, or request-budget failure left the
+sweep incomplete. Failed requests are not retried automatically. Results cover
+only repositories and content visible to the authenticated `gh` account; compare
+the repository inventory with an organization-owner inventory. Pagination is not
+an atomic snapshot, so repeat or reconcile a sweep after concurrent changes.
+Discussions and replies, release notes, git history, wikis, attachments, deleted
+content, and hidden repositories are outside this REST sweep.
+`audit-vendor-github.yml` schedules this sweep for its repository and can
+be called by a pinned workflow in another repository. It is not an
+organization-wide schedule: each repository needs its own scheduled caller and
+read access to its issues, pull requests, and contents. To fit large repositories
+within token limits, daily runs inspect one of 16 deterministic pull-request
+review shards; other listed REST surfaces are inspected each run. A single
+sharded run is not a complete review-body audit: all 16 successful shards are
+needed, and missed days must be rerun. The command accepts `--review-shards`
+and `--review-shard` to rerun a specific shard; without them it scans all reviews.
+The scheduled workflow also accepts an optional `review_shard` input for a
+manual or reusable-workflow rerun. A run that reports findings but no incomplete
+endpoints scanned its selected shard; a failed job alone does not distinguish
+findings from incomplete coverage, so inspect its summary record.
+The 1,000-request budget,
+GitHub rate limits, disabled Actions, and token permissions can leave a run
+incomplete; its failure must not be interpreted as a clean audit.
+
 `guard-vendor-delta.yml` is a reusable pull request and merge queue check. It compares the
 candidate against the PR merge base (or merge queue base) without a committed baseline, classifies changed text in
 its full file context, and rejects new avoidable, confidential and nominative uses. The
