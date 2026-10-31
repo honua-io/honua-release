@@ -767,7 +767,7 @@ def test_a_non_transient_proxy_failure_is_never_retried(monkeypatch, failure):
     calls = []
     receipt = _attribution_run(monkeypatch, replies=[failure], calls=calls)
     assert len(calls) == 1
-    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "undetermined"
     assert receipt["totals"]["modelCalls"] == 0
     assert not any(n.startswith("provider transient") for n in receipt["notices"])
 
@@ -1469,6 +1469,11 @@ def test_receipt_carries_lock_mode_cell_attempt_and_attribution_and_schema_requi
     assert not list(validator.iter_errors({**passing, "lockDigest": None}))
     assert list(validator.iter_errors({**passing, "serverImage": {**receipt["serverImage"], "digest": "sha256:x"}}))
     assert list(validator.iter_errors({**passing, "failureAttribution": "model"}))
+    assert not list(validator.iter_errors({**receipt, "failureAttribution": "undetermined"}))
+    assert list(validator.iter_errors({**receipt, "failureAttribution": "weather"}))
+    builder.receipt["status"] = "fail"
+    builder.receipt["failureAttribution"] = "undetermined"
+    builder.validate_invariants()
 
 
 @pytest.mark.parametrize("kwargs", [{"lock_digest": "sha256:" + "D" * 64}, {"cell": "aws-eks/redis-off"},
@@ -1986,18 +1991,64 @@ def test_a_refused_model_action_is_returned_to_the_model_not_raised_as_a_driver_
     # A typed client-side candidate refusal of a well-formed call is model feedback too.
     candidate = driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-refusal"})
     assert candidate["refusal"] == "candidate-refusal"
-    # A valid action that failed in the candidate is infrastructure, never model feedback.
-    with pytest.raises(canary.CanaryError, match="execute failed with exit code 1: tool is outside"):
+    # A valid action that failed in the candidate is a structured result, never model feedback.
+    with pytest.raises(canary.CanaryError, match="execute failed with exit code 1: tool is outside") as structured:
         driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-execution"})
-    # Any other operation exiting non-zero is still an infrastructure failure.
-    with pytest.raises(canary.CanaryError, match="observe failed with exit code 1"):
+    assert not isinstance(structured.value, canary.InfrastructureFailure)
+    assert canary.failure_cause(structured.value) == "undetermined"
+    # A bare failing observation is a protocol result. A crash is infrastructure.
+    with pytest.raises(canary.CanaryError, match="observe failed with exit code 1") as observed:
         script.write_text("import sys\nsys.stdout.write('{\"status\":\"fail\"}')\nsys.exit(1)\n")
         driver.invoke("observe", {"workspaceId": "w", "stage": "s"})
+    assert not isinstance(observed.value, canary.InfrastructureFailure)
+    assert observed.value.driver_response == {"status": "fail"}
 
 
-def test_driver_setup_failure_is_an_infrastructure_failure(monkeypatch):
+def _failing_execute(tmp_path: Path, reason: str) -> canary.DriverAdapter:
+    script = tmp_path / "driver.py"
+    body = {"status": "fail", "refusal": "candidate-execution",
+            "result": {"accepted": False, "reason": reason, "injectedError": None, "recoveredError": None}}
+    script.write_text("import json,sys\njson.dump(" + repr(body) + ",sys.stdout)\nsys.exit(1)\n")
+    return canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()), timeout_seconds=30)
+
+
+@pytest.mark.parametrize("reason", [
+    'candidate request failed (exception=TimeoutError; elapsedMs=35012; timeoutS=35; message="timed out")',
+    "candidate request failed (exception=ConnectionRefusedError; elapsedMs=3; timeoutS=35)",
+    'candidate request failed (exception=URLError; elapsedMs=4; timeoutS=0.3; message="[redacted] ...(truncated)")',
+    "candidate request failed (exception=gaierror; elapsedMs=8; timeoutS=35)",
+    "HTTP 502 (elapsedMs=1)",
+    "HTTP 503 (elapsedMs=30001)",
+    "HTTP 504 (elapsedMs=0)",
+])
+def test_driver_reported_transport_failure_is_infrastructure(tmp_path, reason):
+    driver = _failing_execute(tmp_path, reason)
+    with pytest.raises(canary.InfrastructureFailure, match="execute failed with exit code 1") as failed:
+        driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}})
+    assert canary.failure_cause(failed.value) == "infrastructure"
+    assert failed.value.driver_response["result"]["reason"] == reason
+
+
+@pytest.mark.parametrize("reason", [
+    "candidate request failed (exception=FileNotFoundError; elapsedMs=1; timeoutS=35)",
+    "candidate request failed (exception=TimeoutError; elapsedMs=1; timeoutS=35) extra",
+    "note: candidate request failed (exception=TimeoutError; elapsedMs=1; timeoutS=35)",
+    "HTTP 500 (elapsedMs=10)",
+    "HTTP 404 (elapsedMs=10)",
+    "HTTP 503",
+    'candidate returned an MCP tool error (message="connection timeout")',
+])
+def test_unclear_candidate_execution_stays_undetermined(tmp_path, reason):
+    driver = _failing_execute(tmp_path, reason)
+    with pytest.raises(canary.CanaryError, match="execute failed with exit code 1") as failed:
+        driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}})
+    assert not isinstance(failed.value, canary.InfrastructureFailure)
+    assert canary.failure_cause(failed.value) == "undetermined"
+
+
+def test_driver_setup_failure_is_undetermined(monkeypatch):
     receipt = _attribution_run(monkeypatch, setup={"status": "blocked", "workspaceId": "w"})
-    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "undetermined"
 
 
 @pytest.mark.parametrize("detail,code", [
@@ -2071,7 +2122,161 @@ def test_real_driver_handled_exceptions_preserve_category_and_error_text(tmp_pat
         driver.invoke("observe", {"workspaceId": "w", "stage": "style-render"})
     message = "private-sentinel" if category == "DriverError" else "private-command: private-sentinel"
     assert str(failed.value) == f"#123 driver observe failed with exit code 1; driverError={category}: {message}"
+    assert isinstance(failed.value, canary.InfrastructureFailure) is (category == "DriverError")
     assert canary.driver_failure_diagnostic({"status": "fail", "errorCategory": "private-sentinel"}) == "; structuredFailure=true"
+
+
+def test_failure_cause_requires_transport_5xx_or_a_driver_crash():
+    import io
+    import subprocess
+    import urllib.error
+
+    assert canary.failure_cause(canary.ModelFailure("model")) == "model"
+    assert canary.failure_cause(canary.InfrastructureFailure("crash")) == "infrastructure"
+    assert canary.failure_cause(canary.ProviderTransientFailure("down", code="http-503", elapsed_ms=1)) == "infrastructure"
+    assert canary.failure_cause(subprocess.TimeoutExpired("driver", 1)) == "infrastructure"
+    assert canary.failure_cause(urllib.error.URLError("timed out")) == "infrastructure"
+    assert canary.failure_cause(TimeoutError("timed out")) == "infrastructure"
+    assert canary.failure_cause(ConnectionError("reset")) == "infrastructure"
+    server = urllib.error.HTTPError("http://proxy", 503, "unavailable", {}, io.BytesIO(b""))
+    assert canary.failure_cause(server) == "infrastructure"
+    client = urllib.error.HTTPError("http://proxy", 400, "bad", {}, io.BytesIO(b""))
+    assert canary.failure_cause(client) == "undetermined"
+    assert canary.failure_cause(FileNotFoundError("missing")) == "undetermined"
+    assert canary.failure_cause(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")) == "undetermined"
+    assert canary.failure_cause(canary.CanaryError("config mismatch")) == "undetermined"
+
+    try:
+        raise canary.CanaryError("candidate Studio proxy request failed") from client
+    except canary.CanaryError as wrapped:
+        assert canary.failure_cause(wrapped) == "undetermined"
+    try:
+        raise canary.CanaryError("candidate Studio proxy request failed") from urllib.error.URLError("timed out")
+    except canary.CanaryError as wrapped:
+        assert canary.failure_cause(wrapped) == "infrastructure"
+
+
+@pytest.mark.parametrize("when,how,attribution", [
+    ("before", "raise", "undetermined"),
+    ("after", "raise", "model"),
+    ("after", "return", "model"),
+    ("after", "bare", "undetermined"),
+])
+def test_a_failed_stage_oracle_is_a_model_failure_only_on_model_produced_state(monkeypatch, when, how, attribution):
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api")
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=None, lock_digest=LOCK)
+    error_id = builder.receipt["errorInjection"]["id"]
+    acted = {"n": 0}
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "w", "toolView": {"v": 1},
+                        "credentialReferences": [{"envVar": "K"}]}
+            if operation == "inject_error":
+                return {"status": "armed", "errorId": error_id, "recoverable": True}
+            if operation == "teardown":
+                return {"status": "complete"}
+            if operation == "observe":
+                if when == "after" and acted["n"] == 0:
+                    return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
+                response = {"status": "fail"} if how == "bare" else {"status": "fail", "stageStatus": "fail"}
+                if how == "return":
+                    return response
+                error = canary.CanaryError("#123 driver observe failed with exit code 1")
+                error.driver_response = response
+                raise error
+            if operation == "execute":
+                acted["n"] += 1
+                return {"status": "pass"}
+            return {"status": "pass"}
+
+    class Model:
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
+        def __init__(self, *_):
+            pass
+
+        def complete(self, *_):
+            return json.dumps({"kind": "tool_call", "tool": "honua_read", "arguments": {}}), {}, 0, {}
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    receipt = canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                                  max_actions_per_stage=2)
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == attribution
+
+
+def test_nonpassing_final_verification_of_model_produced_state_is_a_model_failure(monkeypatch):
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api")
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=None, lock_digest=LOCK)
+    stages = {stage["id"]: stage for stage in builder.journey["stages"]}
+    approval = {stage["id"] for stage in builder.journey["stages"][-2:]}
+    injection = builder.receipt["errorInjection"]["stageId"]
+    error_id = builder.receipt["errorInjection"]["id"]
+    attempts: dict[str, int] = {}
+    approved: set[str] = set()
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            stage_id = payload.get("stage")
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "w", "toolView": {"v": 1},
+                        "credentialReferences": [{"envVar": "K"}]}
+            if operation == "inject_error":
+                return {"status": "armed", "errorId": error_id, "recoverable": True}
+            if operation == "observe":
+                count = attempts.get(stage_id, 0)
+                if count < (2 if stage_id == injection else 1):
+                    return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
+                if stage_id in approval and stage_id not in approved:
+                    return {"status": "ready", "stageStatus": "awaiting_approval", "proposalId": stage_id}
+                stage = stages[stage_id]
+                return {"status": "pass", "stageStatus": {
+                    "id": stage_id, "number": stage["number"], "command": stage["command"],
+                    "status": "pass", "blockedBy": [], "checks": [{"status": "pass"}]}}
+            if operation == "execute":
+                attempts[stage_id] = attempts.get(stage_id, 0) + 1
+                if stage_id == injection and attempts[stage_id] == 1:
+                    return {"status": "fail", "result": {"injectedError": {"id": error_id, "recoverable": True}}}
+                if stage_id == injection:
+                    return {"status": "pass", "result": {"recoveredError": {"id": error_id, "recovered": True}}}
+                return {"status": "pass"}
+            if operation == "approve":
+                approved.add(stage_id)
+                return {"status": "approved", "proposalId": stage_id, "resolvedBy": "approver",
+                        "auditId": "audit", "proposerSelfApproval": "denied"}
+            if operation == "verify":
+                error = canary.CanaryError("#123 driver verify failed with exit code 1")
+                error.driver_response = {"status": "fail", "assertions": {"toolProfilePresent": "fail"}}
+                raise error
+            return {"status": "complete"}
+
+    class Model:
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
+        def __init__(self, *_):
+            pass
+
+        def complete(self, *_):
+            return json.dumps({"kind": "tool_call", "tool": "honua_read", "arguments": {}}), {}, 0, {}
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    receipt = canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                                  max_actions_per_stage=4)
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
+    assert any("final #123 verification did not pass" in notice for notice in receipt["notices"])
 
 
 def test_driver_on_another_endpoint_than_the_model_proxy_cannot_certify_the_cell(monkeypatch):
@@ -2079,7 +2284,7 @@ def test_driver_on_another_endpoint_than_the_model_proxy_cannot_certify_the_cell
     receipt = _attribution_run(monkeypatch, setup={
         "status": "ready", "workspaceId": "w", "toolView": {"v": 1}, "credentialReferences": [{"envVar": "K"}],
         "baseUrl": "http://127.0.0.1:9999"})
-    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "undetermined"
     assert "different candidate endpoints" in receipt["notices"][-1]
 
 
@@ -2098,10 +2303,25 @@ def test_model_journey_report_counts_only_attempts_bound_to_the_lock(tmp_path: P
         return path
 
     args = dict(cell="aws-ecs/redis-off", lock_digest=LOCK, candidate_digest="e" * 64, run_id="7", run_attempt="1")
-    good = report_tool.build([write(1, "fail", "model"), write(2, "pass", None)], **args)
-    assert good["status"] == "pass"
-    assert [a["lockDigest"] for a in good["cells"][0]["attempts"]] == [LOCK, LOCK]
-    assert {a["driver"] for a in good["cells"][0]["attempts"]} == {"genuine-model"}
+    passed = report_tool.build([write(1, "pass", None)], **args)
+    assert passed["status"] == "pass"
+    assert "first attempt" in passed["why"] and "exact lock" in passed["why"]
+    # A model failure followed by a pass used to qualify. The first attempt is the result.
+    retried = report_tool.build([write(1, "fail", "model"), write(2, "pass", None)], **args)
+    assert retried["status"] == retried["cells"][0]["status"] == "fail"
+    assert [a["number"] for a in retried["cells"][0]["attempts"]] == [1, 2]
+    assert [a["lockDigest"] for a in retried["cells"][0]["attempts"]] == [LOCK, LOCK]
+    assert "later attempt is recorded only after an infrastructure failure" in retried["why"]
+    separate = report_tool.build([write(1, "fail", "infrastructure"), write(2, "pass", None)], **args)
+    assert separate["status"] == "fail"
+    assert [(a["number"], a["status"], a["failureAttribution"]) for a in separate["cells"][0]["attempts"]] == [
+        (1, "fail", "infrastructure"), (2, "pass", None)]
+    assert "did not pass within the recorded attempts" in separate["why"]
+    assert "reported separately" in separate["why"] and "does not qualify" in separate["why"]
+    undetermined = report_tool.build([write(1, "fail", "undetermined")], **args)
+    assert undetermined["status"] == "fail"
+    assert "undetermined" in undetermined["why"] and "counts as a failure" in undetermined["why"]
+    assert "unattributed" not in undetermined["why"]
     for receipts, reason in (
         ([write(1, "pass", None, lock="sha256:" + "f" * 64)], "another lock"),
         ([write(1, "fail", None)], "unattributed"),
@@ -2302,7 +2522,7 @@ def test_cloud_model_refuses_unbound_target_before_driver_setup(tmp_path, monkey
     monkeypatch.setattr(canary, "DriverAdapter", Driver)
     receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
         max_actions_per_stage=1, target_path=None if mutation == "missing" else config)
-    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "undetermined"
     assert receipt["totals"]["modelCalls"] == 0
 
 
@@ -2767,6 +2987,6 @@ def test_ruled_run_whose_teardown_fails_keeps_a_valid_failed_receipt(monkeypatch
     # Review of #1088: verification set the declaration, then teardown failed; mark_failed must drop it
     # so the failed receipt still validates and the attempt artifact is written.
     builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path, teardown_status="fail")
-    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "undetermined"
     assert "declaredNotApplicable" not in receipt
     builder.validate_invariants()

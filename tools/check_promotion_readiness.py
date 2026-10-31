@@ -120,6 +120,10 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
                 or not isinstance(attempts, list) or len(attempts) not in (1, 2)
                 or cell["attemptCount"] != len(attempts)):
             return False
+        # Genuine-model qualification is attempt 1. A recorded retry, including an
+        # infrastructure retry, stays in the ledger and does not make the cell pass.
+        if mode == "genuine-model" and len(attempts) != 1:
+            return False
         times = []
         for index, attempt in enumerate(attempts, 1):
             if not isinstance(attempt, dict):
@@ -134,8 +138,10 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
                     if cell["cell"].endswith("/redis-off") else ("full-workflow", "completed", True))
                 if attempt.get("profile") != expected_profile:
                     return False
-                if index == len(attempts) and (attempt.get("executionOutcome") != expected_outcome
-                        or attempt.get("functionalGpExecuted") is not expected_execution):
+                if (attempt.get("executionOutcome") != expected_outcome
+                        or attempt.get("functionalGpExecuted") is not expected_execution
+                        or attempt.get("status") != "pass"
+                        or attempt.get("failureAttribution") is not None):
                     return False
             if mode == "deterministic" and cell["cell"].endswith("/redis-off"):
                 if (attempt.get("profile") != "redis-off-serving-refusal"

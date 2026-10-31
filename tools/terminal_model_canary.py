@@ -63,6 +63,7 @@ LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 API_KEY_HEADERS = {"bearer": "bearer-env", "x-api-key": "x-api-key-env"}
 MODEL = "model"
 INFRASTRUCTURE = "infrastructure"
+UNDETERMINED = "undetermined"
 ASSERTION_NAMES = (
     "toolProfilePresent",
     "evidenceFresh",
@@ -81,15 +82,28 @@ ASSERTION_NAMES = (
 class CanaryError(RuntimeError):
     """Raised when the harness cannot produce trustworthy canary evidence.
 
-    Unless raised as ModelFailure, the failure is attributed to infrastructure: the driver,
-    the candidate proxy or provider, the configuration, or the evidence chain.
+    ModelFailure means the model failed. InfrastructureFailure means the cause is evidenced
+    infrastructure: a transport error, a provider 5xx, or a driver crash. Any other CanaryError
+    is undetermined and counts as a qualification failure.
     """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.driver_response: dict[str, Any] | None = None
 
 
 class ModelFailure(CanaryError):
     """The model itself failed the journey: unparseable or invalid action selection, no progress
-    within the bounded action budget, no recovery from the injected error, or a final state whose
-    assertions fail after every infrastructure step succeeded."""
+    within the bounded action budget, no recovery from the injected error, or a failed oracle
+    on state the model produced (a stage observation or the final verification)."""
+
+
+class InfrastructureFailure(CanaryError):
+    """The attempt failed for an evidenced infrastructure cause.
+
+    The evidence is a transport error, a provider HTTP 5xx, or a driver crash. A structured
+    oracle result and an unclear harness error are not infrastructure.
+    """
 
 
 def server_image_binding(manifest: dict[str, Any], cell: str) -> dict[str, Any] | None:
@@ -829,7 +843,7 @@ class ReceiptBuilder:
     def attribute(self, attribution: str) -> None:
         """Record where the attempt failed. The first attribution wins: a teardown error after
         the model failed does not turn a model failure into an infrastructure one."""
-        if attribution not in (MODEL, INFRASTRUCTURE):
+        if attribution not in (MODEL, INFRASTRUCTURE, UNDETERMINED):
             raise CanaryError(f"unknown failure attribution {attribution!r}")
         if self.receipt["failureAttribution"] is None:
             self.receipt["failureAttribution"] = attribution
@@ -897,8 +911,9 @@ class ReceiptBuilder:
                 raise CanaryError("harness action carries false model-selection evidence")
 
         if (self.receipt["status"] != "pass"
-                and self.receipt["failureAttribution"] not in (MODEL, INFRASTRUCTURE)):
-            raise CanaryError("a receipt that did not pass must attribute its failure to model or infrastructure")
+                and self.receipt["failureAttribution"] not in (MODEL, INFRASTRUCTURE, UNDETERMINED)):
+            raise CanaryError("a receipt that did not pass must attribute its failure to "
+                              "model, infrastructure, or undetermined")
         declared = self.receipt.get("declaredNotApplicable")
         ruled = declared is not None
         if ruled and (self.receipt["status"] != "pass" or not single_tenant_admitted(self.receipt)
@@ -957,6 +972,35 @@ class ProviderTransientFailure(CanaryError):
         super().__init__(message)
         self.code = code
         self.elapsed_ms = elapsed_ms
+
+
+def failure_cause(exc: BaseException) -> str:
+    """Attribute a failure. Infrastructure requires transport, provider 5xx, or a driver crash.
+
+    Walk ``__cause__`` only. A 4xx, a config or lock mismatch, contradictory driver evidence,
+    and any other unclear error are undetermined. Undetermined counts as a qualification failure.
+    """
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ModelFailure):
+            return MODEL
+        if isinstance(current, (InfrastructureFailure, ProviderTransientFailure, subprocess.TimeoutExpired)):
+            return INFRASTRUCTURE
+        if isinstance(current, urllib.error.HTTPError):
+            code = current.code
+            if isinstance(code, int) and 500 <= code <= 599:
+                return INFRASTRUCTURE
+            return UNDETERMINED
+        if isinstance(current, urllib.error.URLError):
+            return INFRASTRUCTURE
+        if isinstance(current, (TimeoutError, ConnectionError, BrokenPipeError)):
+            return INFRASTRUCTURE
+        if isinstance(current, (UnicodeDecodeError, ValueError, TypeError, KeyError, OSError)):
+            return UNDETERMINED
+        current = current.__cause__
+    return UNDETERMINED
 
 
 # Bounded re-issue of a model call that failed transiently at the provider: two more attempts.
@@ -1199,7 +1243,9 @@ class CandidateProxyClient:
             except (ValueError, OSError):
                 detail = ""
             message = f"candidate Studio proxy request failed: {exc}" + (f" ({detail})" if detail else "")
-            # A 5xx is the provider/proxy failing, not a refusal of the request; any 4xx is final.
+            # A 5xx is the provider or proxy failing. ProviderTransientFailure records it as
+            # infrastructure and may re-issue the call. Any other HTTP status aborts the attempt;
+            # failure_cause records it as undetermined.
             if exc.code in _TRANSIENT_HTTP_STATUSES and not _NON_TRANSIENT_CODE.search(detail):
                 raise ProviderTransientFailure(
                     message, code=f"http-{exc.code}",
@@ -1395,6 +1441,103 @@ def driver_failure_diagnostic(response: Any) -> str:
 
 DRIVER_ERROR_MESSAGE_LIMIT = 240
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]+")
+# Uncaught driver exceptions. ExecutionError is the driver's structured result, so it is absent.
+_DRIVER_CRASH_CATEGORIES = frozenset({
+    "DriverError", "OSError", "RuntimeError", "AttributeError", "NameError",
+    "JSONDecodeError", "MemoryError", "SystemError", "RecursionError",
+    "TypeError", "KeyError", "ValueError",
+})
+
+
+def _response_error_category(response: Any) -> str:
+    if not isinstance(response, dict):
+        return ""
+    category = response.get("errorCategory")
+    if isinstance(category, str) and category:
+        return category
+    error = response.get("error")
+    if isinstance(error, str) and ":" in error:
+        return error.split(":", 1)[0]
+    return ""
+
+
+def _driver_crashed(response: Any, returncode: int) -> bool:
+    """Signal death, non-protocol output, or an uncaught driver exception.
+
+    A protocol object on a non-zero exit is how a failed oracle is reported. The caller
+    decides whether that oracle is a model failure.
+    """
+    if returncode < 0 or not isinstance(response, dict):
+        return True
+    return _response_error_category(response) in _DRIVER_CRASH_CATEGORIES
+
+
+# transport.request_failure records the exception class, elapsed time, and client timeout.
+# A gateway that answers before the client socket gives up is HTTP 502, 503, or 504.
+# Other candidate-execution text is not transport evidence.
+_TRANSPORT_EXCEPTIONS = frozenset({
+    "BrokenPipeError",
+    "ConnectionAbortedError",
+    "ConnectionError",
+    "ConnectionRefusedError",
+    "ConnectionResetError",
+    "RemoteDisconnected",
+    "TimeoutError",
+    "URLError",
+    "gaierror",
+})
+_CANDIDATE_TRANSPORT_REASON = re.compile(
+    r"candidate request failed \(exception=(?P<exception>[A-Za-z_][A-Za-z0-9_]*)"
+    r"; elapsedMs=[0-9]+; timeoutS=[0-9]+(?:\.[0-9]+)?"
+    r"(?:; message=.*)?\)\Z"
+)
+_CANDIDATE_GATEWAY_TIMEOUT = re.compile(r"HTTP (?:502|503|504) \(elapsedMs=[0-9]+\)\Z")
+
+
+def _driver_reported_transport_failure(response: Any) -> bool:
+    """The driver proved a candidate connection failure or gateway timeout.
+
+    The evidence is the driver's own reason string, not a phrase inside an arbitrary
+    candidate message. A permission failure, a 4xx, or an HTTP 500 stays undetermined.
+    """
+    if not isinstance(response, dict) or response.get("refusal") != "candidate-execution":
+        return False
+    result = response.get("result")
+    reason = result.get("reason") if isinstance(result, dict) else None
+    if not isinstance(reason, str):
+        return False
+    match = _CANDIDATE_TRANSPORT_REASON.fullmatch(reason)
+    if match is not None:
+        return match.group("exception") in _TRANSPORT_EXCEPTIONS
+    return _CANDIDATE_GATEWAY_TIMEOUT.fullmatch(reason) is not None
+
+
+def _stage_oracle_rejection(response: Any) -> bool:
+    """A stage oracle named a failed or blocked check. A bare status is not enough."""
+    if not isinstance(response, dict):
+        return False
+    evidence = response.get("stageStatus")
+    if isinstance(evidence, str):
+        return evidence in {"fail", "blocked"}
+    if isinstance(evidence, dict):
+        if evidence.get("status") in {"fail", "blocked"}:
+            return True
+        checks = evidence.get("checks")
+        if isinstance(checks, list) and any(
+                isinstance(check, dict) and check.get("status") in {"fail", "blocked"} for check in checks):
+            return True
+    assertions = response.get("assertions")
+    return isinstance(assertions, dict) and any(value != "pass" for value in assertions.values())
+
+
+def _verify_oracle_failed(response: Any) -> bool:
+    """Final verification named a non-passing result. Its status is the oracle."""
+    if not isinstance(response, dict):
+        return False
+    if response.get("status") in {"fail", "blocked"}:
+        return True
+    assertions = response.get("assertions")
+    return isinstance(assertions, dict) and any(value != "pass" for value in assertions.values())
 
 
 def driver_error_message(error: Any, category: str) -> str:
@@ -1446,19 +1589,24 @@ class DriverAdapter:
         except json.JSONDecodeError:
             response = None
         if completed.returncode != 0:
-            # live_driver.py exits 1 whenever its protocol response says status "fail". For execute,
-            # that is the candidate/executor refusing the model's selected action: a domain result the
-            # model must see and may recover from, not a driver crash. Every other non-zero exit, and
-            # any exit without a protocol response, stays an infrastructure failure.
-            # Only an explicit, validated invalid-action refusal is model feedback. A valid action that
-            # failed in the candidate (request, JSON-RPC error, evidence or proof) is infrastructure.
+            # live_driver.py exits 1 when its protocol response says status "fail". For execute, an
+            # invalid-action or candidate refusal is model feedback: the model must see it and may
+            # recover. A driver crash is infrastructure. So is a candidate-execution whose reason is
+            # the driver's transport diagnostic. Any other structured protocol failure keeps the
+            # response so the caller can separate a model oracle from an undetermined cause.
             if not (operation == "execute" and isinstance(response, dict) and response.get("status") == "fail"
                     and response.get("refusal") in MODEL_FEEDBACK_REFUSALS):
                 result = response.get("result") if isinstance(response, dict) else None
                 reason = result.get("reason") if isinstance(result, dict) else None
                 detail = (f": {str(reason)[:240]}" if operation == "execute" and reason
                           else driver_failure_diagnostic(response))
-                raise CanaryError(f"#123 driver {operation} failed with exit code {completed.returncode}{detail}")
+                message = f"#123 driver {operation} failed with exit code {completed.returncode}{detail}"
+                evidenced = (_driver_crashed(response, completed.returncode)
+                             or (operation == "execute" and _driver_reported_transport_failure(response)))
+                error = InfrastructureFailure(message) if evidenced else CanaryError(message)
+                if isinstance(response, dict):
+                    error.driver_response = response
+                raise error
         if response is None:
             raise CanaryError(f"#123 driver {operation} returned non-JSON output")
         if not isinstance(response, dict):
@@ -1905,9 +2053,17 @@ def execute_live(
             # One final observation may verify the last permitted action. It
             # cannot select another model action or increase the action budget.
             for action_slot in range(max_actions_per_stage + 1):
-                observed = builder.redactor.value(
-                    driver.invoke("observe", {"workspaceId": workspace_id, "stage": stage_id})
-                )
+                try:
+                    observed = builder.redactor.value(
+                        driver.invoke("observe", {"workspaceId": workspace_id, "stage": stage_id})
+                    )
+                except CanaryError as exc:
+                    # Exit 1 with a protocol object is a failed oracle, not a driver crash.
+                    acted = bool(builder._stage_record(stage_id)["modelActionSequences"])
+                    if (not isinstance(exc, InfrastructureFailure) and acted
+                            and _stage_oracle_rejection(exc.driver_response)):
+                        raise ModelFailure(str(exc)) from exc
+                    raise
                 builder.capture_transcript("driver", observed, stage_id=stage_id)
                 stage_status = observed_stage_status(observed, stage)
                 if (stage_status == "blocked" and single_tenant and approved_proposals
@@ -1970,9 +2126,13 @@ def execute_live(
                     checks = evidence.get("checks", []) if isinstance(evidence, dict) else []
                     problem = next((check for check in checks if check.get("status") in {"fail", "blocked"}), {})
                     blockers = observed.get("blockedBy") or (evidence.get("blockedBy", []) if isinstance(evidence, dict) else [])
-                    raise CanaryError(f"stage {stage_id} ({stage['command']}) returned {stage_status!r}; "
-                                      f"{problem.get('invocation', stage['command'])}: "
-                                      f"{problem.get('detail', 'driver cannot advance')}; blockedBy={blockers}")
+                    message = (f"stage {stage_id} ({stage['command']}) returned {stage_status!r}; "
+                               f"{problem.get('invocation', stage['command'])}: "
+                               f"{problem.get('detail', 'driver cannot advance')}; blockedBy={blockers}")
+                    acted = bool(builder._stage_record(stage_id)["modelActionSequences"])
+                    if acted and stage_status in {"fail", "blocked"} and _stage_oracle_rejection(observed):
+                        raise ModelFailure(message)
+                    raise CanaryError(message)
 
                 if action_slot == max_actions_per_stage:
                     raise ModelFailure(
@@ -2103,12 +2263,19 @@ def execute_live(
         if receipt["errorInjection"]["status"] != "recovered":
             raise ModelFailure("model did not observe and recover from the injected error")
         verification_request = {"workspaceId": workspace_id, "candidate": receipt["candidate"]}
-        verification = builder.redactor.value(driver.invoke("verify", verification_request))
+        try:
+            verification = builder.redactor.value(driver.invoke("verify", verification_request))
+        except CanaryError as exc:
+            if not isinstance(exc, InfrastructureFailure) and _verify_oracle_failed(exc.driver_response):
+                raise ModelFailure("final #123 verification did not pass") from exc
+            raise
         assertions = verification.get("assertions")
         # ga-cells-single-tenant: verification then reads blocked on tenant isolation alone.
         ruled_verification = (ruled_stage and verification.get("status") == "blocked"
                               and single_tenant_ruled_assertions(assertions))
         if not (verification.get("status") == "pass" or ruled_verification) or not isinstance(assertions, dict):
+            if verification.get("status") in {"fail", "blocked"} and not ruled_verification:
+                raise ModelFailure("final #123 verification did not pass")
             raise CanaryError("final #123 verification did not pass")
         if (
             not verification.get("finalUrlProof")
@@ -2143,7 +2310,7 @@ def execute_live(
                   else f"candidate/driver evidence validation failed ({type(exc).__name__})")
         if active_stage:
             detail = f"stage {active_stage['id']} ({active_stage['command']}): {detail}"
-        builder.mark_failed(detail, MODEL if isinstance(exc, ModelFailure) else INFRASTRUCTURE)
+        builder.mark_failed(detail, failure_cause(exc))
     finally:
         if workspace_id:
             try:
@@ -2158,9 +2325,10 @@ def execute_live(
                     result=teardown,
                 )
                 if teardown.get("status") not in {"complete", "pass"}:
-                    builder.mark_failed("isolated workspace teardown did not complete")
+                    # Incomplete teardown is not a crash. The first attribution still wins.
+                    builder.mark_failed("isolated workspace teardown did not complete", UNDETERMINED)
             except (CanaryError, subprocess.TimeoutExpired) as exc:
-                builder.mark_failed(f"isolated workspace teardown failed: {exc}")
+                builder.mark_failed(f"isolated workspace teardown failed: {exc}", failure_cause(exc))
     return receipt
 
 

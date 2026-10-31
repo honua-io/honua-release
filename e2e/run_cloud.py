@@ -1749,10 +1749,12 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
     """Credential-free: run the genuine-model canary on the cell after its deterministic journey.
 
     Every attempt is bound to the lock digest under certification and chained to this job's passing
-    deterministic receipt. Without a lock digest (a manual dispatch: no nightly lock to bind to) the
+    deterministic receipt. Qualification reads the first attempt. A second attempt runs only when
+    that failure is attributed to infrastructure, and the report keeps it separate from the
+    qualification result. Without a lock digest (a manual dispatch: no nightly lock to bind to) the
     harness runs once, bound to the manifest-pinned server image the deterministic receipt verified
-    (honua-release#1047), and the row passes or fails with that binding and a null lockDigest, so it
-    counts for no lock; a harness that cannot bind writes `blocked`. An unbound run is never retried.
+    (honua-release#1047), and the row passes or fails on that first attempt with a null lockDigest,
+    so it counts for no lock; a harness that cannot bind writes `blocked`. An unbound run is never retried.
     The cell's application key reaches the harness only through the environment of its own process.
     The result is the journey row the nightly mint retains as promotion-receipts/nightly-model-journey
     (tools/model_journey_report.py).
@@ -1842,7 +1844,15 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
                 why = f"canary harness refused the cell before writing attempt {number} (exit {completed.returncode})"
                 break
             receipts.append(output)
-            if completed.returncode == 0:
+            if completed.returncode == 0 or number >= attempts:
+                break
+            # A later attempt is recorded only after an evidenced infrastructure failure.
+            # Qualification still reads attempt 1; the retry does not replace it.
+            try:
+                written = json.loads(output.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                break
+            if not isinstance(written, dict) or written.get("failureAttribution") != "infrastructure":
                 break
     report = model_journey_report.build(receipts, cell=cell, lock_digest=lock_digest,
                                         candidate_digest=cloud_journey.candidate_digest(),

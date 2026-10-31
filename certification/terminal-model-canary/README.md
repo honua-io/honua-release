@@ -89,7 +89,7 @@ rc.3 plan). The schema requires:
 
 - `mode` — always `genuine-model`.
 - `cell` — `local-docker` or one of `{aws-ecs, aws-serverless}/redis-{off,on}` (`--cell`); EKS remains Preview.
-- `attempt` — `1` or `2` (`--attempt`); promotion allows one retry after an attributed failure.
+- `attempt` — `1` or `2` (`--attempt`). Qualification reads attempt 1. Attempt 2 is recorded only after an infrastructure failure on attempt 1, and it does not qualify the cell.
 - `lockDigest` — `sha256:<hex>` of the exact `platform-lock.json` under certification
   (`--lock-digest`). With `--lock <path>` the harness hashes those bytes and fails the receipt if they
   differ.
@@ -99,13 +99,15 @@ rc.3 plan). The schema requires:
   instead. It binds a pass only once the green deterministic receipt verified that candidate. A live
   run bound to neither is refused (`blocked`), and a pass bound to neither is rejected by both the
   harness and the schema. An image-bound receipt counts for no lock in promotion readiness.
-- `failureAttribution` — `null` exactly when the attempt passed; otherwise `model` or
-  `infrastructure`. `model` means the model failed: no parseable or valid action, no stage progress
-  within the bounded action budget, no recovery from the injected error, never reaching the approval
-  boundary, or final assertions that fail after verification itself answered. Everything else
-  (configuration, the deterministic prerequisite, the lock, the driver, the candidate proxy or
-  provider, provenance, teardown) is `infrastructure`. The first attribution wins, so a teardown error
-  after a model failure stays a model failure.
+- `failureAttribution` — `null` exactly when the attempt passed; otherwise `model`,
+  `infrastructure`, or `undetermined`. `model` means the model failed: no parseable or valid action,
+  no stage progress within the bounded action budget, no recovery from the injected error, never
+  reaching the approval boundary, or a failed oracle on state the model produced (a stage observation
+  or the final verification). `infrastructure` requires evidence: a transport error, a provider 5xx,
+  or a driver crash. `undetermined` is every other cause, including a 4xx, a config or lock mismatch,
+  setup that is not ready, contradictory driver evidence, and malformed verification. Undetermined
+  counts as a qualification failure. The first attribution wins, so a teardown error after a model
+  failure stays a model failure.
 - `completedAt` — when the attempt finished.
 
 Plain HTTP is accepted for loopback, and for exactly one other host: the cloud cell's own
