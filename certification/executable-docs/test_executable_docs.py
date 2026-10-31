@@ -366,6 +366,31 @@ def test_default_branch_revision_is_the_commit_that_changed_the_document():
         Resolver({}, fetch=fetch_empty).revision(doc)
 
 
+def test_js_sdk_readme_is_the_github_copy():
+    sources = json.loads((HERE / "sources.json").read_text())
+    documents = sources["documents"]
+    readme = next(d for d in documents if d["repo"] == "honua-io/honua-sdk-js" and d["path"] == "README.md")
+    assert readme["revision"] == {"defaultBranch": True}
+    assert readme["sourceBuild"] is True
+    pinned = {
+        "INSTALL.md": "honua-sdk-js",
+        "docs/quickstart.md": "honua-sdk-js",
+        "mcp/README.md": "honua-mcp-server",
+    }
+    for path, artifact in pinned.items():
+        doc = next(d for d in documents if d["repo"] == "honua-io/honua-sdk-js" and d["path"] == path)
+        assert doc["revision"] == {"clientArtifact": artifact}
+    recorded = next(d for d in json.loads((HERE / "inventory.json").read_text())["documents"]
+                    if d["id"] == "honua-sdk-js-readme")
+    assert recorded["revisionRule"] == {"defaultBranch": True}
+    assert recorded["revision"] != "965c013637722cb70d1a781c3d2d4f6537e6bf44"
+    doctor = next(b for b in recorded["blocks"] if b["index"] == 10)
+    # The published 0.2.10 fence. The GitHub README's fence installs the CLI and the devkit first.
+    assert doctor["sha256"] != "b588b8fa84ab980f00d00fc55afcb4c3ff355e6d63ec77e3d849d5a92d936b6c"
+    assert doctor["sha256"] == "fbd392bc9de2d66231104a6852fc706ec68c6321b015694206c11cb6ed83e07c"
+    assert doctor["intent"] == "run"
+
+
 def test_npm_published_revision_follows_provenance_when_git_head_is_absent():
     import base64
     from inventory import InventoryError

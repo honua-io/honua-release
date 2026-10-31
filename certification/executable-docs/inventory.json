@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "965c013637722cb70d1a781c3d2d4f6537e6bf44",
+      "revision": "c05215aa20329ceff88be0db7b1a41f56dc153ee",
       "revisionRule": {
-        "clientArtifact": "honua-sdk-js"
+        "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/965c013637722cb70d1a781c3d2d4f6537e6bf44/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/c05215aa20329ceff88be0db7b1a41f56dc153ee/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -111,16 +111,16 @@
         },
         {
           "index": 10,
-          "line": 467,
+          "line": 472,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "b588b8fa84ab980f00d00fc55afcb4c3ff355e6d63ec77e3d849d5a92d936b6c"
+          "sha256": "fbd392bc9de2d66231104a6852fc706ec68c6321b015694206c11cb6ed83e07c"
         },
         {
           "index": 11,
-          "line": 484,
+          "line": 533,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -129,7 +129,7 @@
         },
         {
           "index": 12,
-          "line": 502,
+          "line": 551,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
