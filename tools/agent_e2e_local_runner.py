@@ -331,7 +331,7 @@ def aggregate(expected_cases: list[str], receipts: list[dict], *, candidate_dige
     return {'apiVersion': API_VERSION, 'arm': arm, 'packSha256': PACK_SHA256, 'candidateDigest': digests.pop(),
             'denominator': ('every inventoried case; infrastructure and excluded cases count as not passed '
                             '(exclusions are reported, never removed from n)'),
-            'exclusions': {'source': 'certification/ai-arc/PREREG-arc-v1.md',
+            'exclusions': {'source': 'certification/ai-arc/PREREG-arc-v1.md (honua-io/honua-release#1163, bb655ee1)',
                            'list': ['tenant.denied', 'P18', 'custody.worker-replaced@local-docker']},
             'overall': summary(list(rows.values())),
             'scenarios': {name: summary(items) for name, items in sorted(groups.items())},

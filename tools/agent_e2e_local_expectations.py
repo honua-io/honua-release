@@ -13,9 +13,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# The frozen exclusion list of the AI arc preregistration (certification/ai-arc/PREREG-arc-v1.md,
-# "Exclusions (listed in every receipt, never counted as pass)"). Nothing else can exclude.
+# The frozen exclusion list of the AI arc preregistration, section "Exclusions (listed in every receipt,
+# never counted as pass)". Nothing else can exclude. The document lands with honua-io/honua-release#1163
+# (introduced in commit bb655ee1); until then PREREG_REFERENCE is the durable pointer, and
+# test_prereg_exclusions_match_the_preregistration checks this list against the document once it is present.
 PREREG_SOURCE = 'certification/ai-arc/PREREG-arc-v1.md'
+PREREG_REFERENCE = ('honua-io/honua-release#1163, commit bb655ee1, certification/ai-arc/PREREG-arc-v1.md '
+                    '"Exclusions": tenant.denied (P03, P07) and scenario P18 (founder ruling: multi-tenancy is not '
+                    'a 2026.1 customer feature); custody.worker-replaced on local Docker (not observable there)')
 PREREG_EXCLUSIONS = ('tenant.denied', 'P18', 'custody.worker-replaced@local-docker')
 TARGET = 'local-docker'
 

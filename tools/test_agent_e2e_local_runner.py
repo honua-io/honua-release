@@ -1368,3 +1368,30 @@ def test_third_review3_truncated_proxy_response_is_an_unknown_outcome(candidate,
     assert receipt['status'] == 'fail' and receipt['failure']['category'] == 'post-action-undetermined'
     action = receipt['sessions'][0]['actions'][0]
     assert action['status'] == 'unknown' and action['resultRawSha256'].startswith('sha256:')
+
+
+def test_prereg_exclusions_match_the_preregistration():
+    import re
+    import agent_e2e_local_expectations as expectations
+    assert expectations.PREREG_EXCLUSIONS == ('tenant.denied', 'P18', 'custody.worker-replaced@local-docker')
+    assert '#1163' in expectations.PREREG_REFERENCE
+    document = ROOT / expectations.PREREG_SOURCE
+    if not document.is_file():
+        pytest.skip('the preregistration lands with honua-io/honua-release#1163')
+    text = document.read_text(encoding='utf-8')
+    section = text.split('## Exclusions', 1)[1].split('\n## ', 1)[0]
+    assert '`tenant.denied`' in section and 'P18' in section and '`custody.worker-replaced`' in section
+    listed = re.search(r'"exclusions":\[([^\]]*)\]', text)
+    assert listed and [x.strip().strip('"') for x in listed.group(1).split(',')] == list(expectations.PREREG_EXCLUSIONS)
+
+
+def test_request_arguments_accessor_is_mcp_only():
+    import json as _json
+    from agent_e2e_local_recorder import Record
+    body = _json.dumps({'scope': 'mine'}).encode()
+    http = Record('h', 'observe', 'http', 'controller', None, 'POST', '/x', 200, b'{}',
+                  'sha256:' + hashlib.sha256(b'{}').hexdigest(), None, body)
+    mcp = Record('m', 'observe', 'mcp', 'controller', None, 'POST', '/mcp#tools/call', 200, b'{}',
+                 'sha256:' + hashlib.sha256(b'{}').hexdigest(), None, _json.dumps({'tool': 't', 'arguments': {}}).encode())
+    assert http.request_arguments is None and http.request_arguments_raw == body
+    assert mcp.request_arguments == {'tool': 't', 'arguments': {}}

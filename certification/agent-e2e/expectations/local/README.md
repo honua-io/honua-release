@@ -75,7 +75,7 @@ address every one of them and be the identical request.
 
 ## Exclusions
 
-Exclusions come only from the frozen preregistration list in `certification/ai-arc/PREREG-arc-v1.md`:
+Exclusions come only from the frozen preregistration list in `certification/ai-arc/PREREG-arc-v1.md` (it lands with honua-io/honua-release#1163, introduced in commit bb655ee1; `PREREG_REFERENCE` in `tools/agent_e2e_local_expectations.py` records the pointer, and a test checks the list against the document once it is present):
 `tenant.denied` (any scenario), `P18` (the whole scenario) and `custody.worker-replaced@local-docker`. The
 runner applies them itself (`prereg_exclusion`). An optional `{"$excluded": "<id>"}` marker must name the
 covering entry, and no other marker is accepted. Excluded assertions are listed in every receipt with their
