@@ -108,10 +108,10 @@ class P12(Scenario):
         rec, state = stack.extra['recorder'], seeded.state
         rec.json('p12-source-after', 'GET', source_path(state['shelters']))
         rec.json('p12-version-after', 'GET', '/api/v1/studio/content-items/' + state['itemId'] + '/versions/' + state['savedVersionId'])
-        saves = [a for a in rec.actions() if a.session == 1 and a.kind == 'tool_call'
+        saves = [a for a in rec.actions() if a.session == 1 and a.status == 'pass' and a.kind == 'tool_call'
                  and a.tool == 'honua_studio_save_version' and isinstance(a.arguments, dict)
                  and a.arguments.get('draftId') == state['draftId']]
-        reads = [a for a in rec.actions() if a.session == 2 and a.kind == 'tool_call'
+        reads = [a for a in rec.actions() if a.session == 2 and a.status == 'pass' and a.kind == 'tool_call'
                  and a.tool == 'honua_studio_get_version' and isinstance(a.arguments, dict)
                  and a.arguments.get('itemId') == state['itemId'] and a.arguments.get('versionId') == state['savedVersionId']]
         if saves:
