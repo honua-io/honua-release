@@ -8,6 +8,6 @@
     "mcp": "node mcp-call.mjs https://demo.honua.io honua_list_sources '{}'"
   },
   "dependencies": {
-    "@anthropic-ai/bedrock-sdk": "^0.36.0"
+    "@anthropic-ai/bedrock-sdk": "^1.1.0"
   }
 }
