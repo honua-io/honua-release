@@ -61,8 +61,15 @@ noncommitted replies pass through unchanged, are listed in receipt.faultSkipped,
 Custody facts live in the runtime vault (bound to their evidence records); stack.extra['custody'] is a copy.
 Replays and captured results carry the action OCCURRENCE (occ:<session>:<sequence>:<digest>), and every
 record carries afterSession, both bound in the vault digest.
+Projection ops added for lanes: {"runFact": NAME, "pointer": "/0/field"} (e.g. faultEvents) and
+{"extentContainsFixtureBuffer": SPEC, "variant": "A"|"B"} (a saved view extent, 3857/102100/4326, contains
+the fixture-derived expected buffer).
 Canaries: stack.extra['registerCanary'](name) during seed returns a runner-minted secret to plant; projections
-find it with {"matchedCanaries": [steps..., "$model-visible"]}.
+find it with {"matchedCanaries": [steps..., "$model-visible", "$final-answers", "$action-results"]}.
+Database handoff: stack.extra['databaseHandoff'](name, schema) during seed creates a SELECT-only customer login
+and returns {host, port, database, schema, username, password}; list "database:<name>" in the frozen
+customerHandoffs to attach it to the customer turn. Other principals (e.g. a same-tenant foreign owner):
+stack.extra['addPrincipal'](name, grants) during seed, then recorder calls with principal=name.
 Exclusions come only from the frozen prereg list (agent_e2e_local_expectations.PREREG_EXCLUSIONS:
 tenant.denied, P18, custody.worker-replaced@local-docker); they are listed in receipts, never a pass,
 and never removed from n. Roles, projections and customer files are frozen in the expectation file.
@@ -153,7 +160,17 @@ class RoleBinding:
     completeness. The binding's own total/next_page/page_limit fields are refused. Authorship is
     either ``owner`` (a row field equal to RunRecord.agent_principal) or ``created_by`` (the id appears in
     the server's captured reply to a successful sealed agent call of that tool). Exactly one row must remain.
-    Runner roles (no binding needed): ``session:previous``, ``session:current``,
+    recorded:<name>: the canonical sha256 of the value at ``pointer`` in a seed- or between-phase record
+    (for "persisted unchanged" comparisons such as configuration or saved-document digests).
+    child:<kind>: one scalar at ``pointer`` in an observe-phase read whose request field ``parent_link.at``
+    equals the ``parent`` role's resolved id and whose response names it at ``parent_link.pointer``
+    (e.g. the layer inside a created map). Roles resolve in the frozen order.
+    Address fields (read-rule ``addresses``, ``protectedContent`` ``resource``, ``target``) are exact:
+    {"role": NAME, "at": {"pathSegment": N} | {"query": NAME} | {"argument": "/pointer"}}.
+    Address kinds also include {"sqlFrom": "table" | "qualified"} (the table a structured table_rows read
+    named) and {"fullPath": true} (the whole HTTP request path, e.g. a resolved publication route).
+    Runner roles (no binding needed): ``fault:committed-resource`` (verified commit of a fired lost-response
+    fault) and: ``session:previous``, ``session:current``,
     ``session:visible-message-ids``, ``session:handoff-sha256`` (sha256 of the session-1 final answer).
     """
     role: str
@@ -168,6 +185,11 @@ class RoleBinding:
     page_limit: dict | None = None  # created: {"param": "limit", "value": N}: the query asked for N rows, fewer came back
     created_by: dict | None = None  # created: {"tool": name, "pointer": "/result/..."}: the id is named by the
                                     # server's captured reply to a successful sealed agent call of that tool
+    parent: str | None = None       # child:<kind>: the role whose resource this observe-phase read addresses
+    parent_link: dict | None = None # child: {"at": <request field addressing the parent>, "pointer": <response field naming it>}
+    sources: tuple | None = None    # scan:<name>: the exact raw sources whose sha256 digests the role lists
+    owner_format: str | None = None # created: how the server renders the agent principal in ``owner``:
+                                    # "{id}" (default) or "api-key:{id}" (reviewed formats only)
 
 
 @dataclass(frozen=True)
