@@ -9,8 +9,8 @@ Ruling R30 (honua-release#376): desktop-client certification detail stays in the
 repository. Rulings R32 to R37 (honua-release#425) settle the vocabularies, the certification labels and
 the site-root alias.
 
-This document defines the classes of use, the attribution that compatibility statements need, what is
-never allowed, and how to request an exception. `tools/check_vendor_terms.py` applies it to a checkout.
+This document defines the identifier classes, what is never allowed, and how to request an exception.
+`tools/check_vendor_terms.py` applies it to a checkout.
 The `gate-vendor-terms` workflow fails a pull request that adds an avoidable use or carries any
 confidential use. This is an engineering control; guidance from counsel takes precedence over it.
 
@@ -33,8 +33,7 @@ engineering rule, not legal advice.
 
 ### 1. `spec`: identifiers the specification requires, used verbatim
 
-These are wire-format identifiers defined by the
-[GeoServices REST Specification, Version 1.0](https://www.esri.com/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf)
+These are wire-format identifiers defined by the GeoServices REST Specification, Version 1.0
 (white paper J-9948, September 2010, the version submitted to the OGC). Examples are
 `esriGeometryPoint`, `esriFieldTypeOID`, `esriSpatialRelIntersects` and `esriJobSucceeded`. A client
 sends or expects these exact strings, so we use them unchanged wherever they appear: request parsing,

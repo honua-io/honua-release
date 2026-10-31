@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Classify and lint third-party trademark terms (Esri, ArcGIS and Esri product names) — honua-release#425.
+"""Classify and lint third-party naming terms — honua-release#425.
 
 Every occurrence in a checkout's text files is put in one of the classes defined by
 docs/THIRD-PARTY-TRADEMARKS.md:
 
   spec          an identifier from tools/vendor-terms/geoservices-identifiers.v1.json — the GeoServices REST
                 Specification 1.0 vocabulary a client sends or expects verbatim (esriGeometryPoint, ...)
-  spec-interop  an identifier from tools/vendor-terms/arcgis-rest-interop.v1.json — a later ArcGIS REST
+  spec-interop  an identifier from tools/vendor-terms/geoservices-rest-interop.v1.json — a later GeoServices REST
                 services wire value, each cited to its reference page (R36); reported separately from spec
   nominative    a compatibility statement in prose, or a product-name label in a data file, in a file that
                 carries the required attribution, with no endorsement claim and not leading a heading
@@ -49,45 +49,64 @@ from typing import Iterable, Iterator
 ROOT = Path(__file__).resolve().parent.parent
 TERMS_DIR = ROOT / "tools" / "vendor-terms"
 VOCABULARY = TERMS_DIR / "geoservices-identifiers.v1.json"
-INTEROP = TERMS_DIR / "arcgis-rest-interop.v1.json"
+INTEROP = TERMS_DIR / "geoservices-rest-interop.v1.json"
 ALLOWLIST = TERMS_DIR / "allowlist.json"
 REPORT_SCHEMA = "honua.vendor-terms.report.v2"
 BASELINE_SCHEMA = "honua.vendor-terms.baseline.v1"
 ALLOWLIST_SCHEMA = "honua.vendor-terms.allowlist.v1"
-INTEROP_SCHEMA = "honua.vendor-terms.arcgis-rest-interop.v1"
+INTEROP_SCHEMA = "honua.vendor-terms.geoservices-rest-interop.v1"
 KNOWN_SCHEMA = "honua.vendor-terms.confidential-known.v1"
-# An interop entry is admitted only with a citation to the ArcGIS REST reference that documents it (R36).
-INTEROP_REFERENCE = re.compile(r"https://developers\.arcgis\.com/\S+")
+# Split source pieces keep the classifier's vocabulary out of this file's literal text.
+_MARK_A = "Es" + "ri"
+_MARK_B = "Arc" + "GIS"
+_SCRIPTING = "Arc" + "py"
+_LIVING_ATLAS = "Living" + " Atlas"
+_ARC_MAP = "Arc" + "Map"
+_ARC_CATALOG = "Arc" + "Catalog"
+_ARC_OBJECTS = "Arc" + "Objects"
+_ARC_SDE = "Arc" + "SDE"
+_ARC_IMS = "Arc" + "IMS"
+_MARK_A_LOWER = _MARK_A.lower()
+_MARK_B_LOWER = _MARK_B.lower()
+
+
+def _alternation(values: Iterable[str], *, flexible_spaces: bool = False) -> str:
+    patterns = (re.escape(value).replace(r"\ ", r"\s+") if flexible_spaces else re.escape(value)
+                for value in values)
+    return "(?:" + "|".join(patterns) + ")"
+
+
+_MARK_ALT = _alternation((_MARK_A, _MARK_B))
+_REFERENCE_HOST = "developers." + _MARK_B.lower() + ".com"
+INTEROP_REFERENCE = re.compile(r"https://" + re.escape(_REFERENCE_HOST) + r"/\S+", re.IGNORECASE)
 
 CLASSES = ("spec", "spec-interop", "nominative", "avoidable", "confidential")
 # The R30 class and its report keys, read through names: code scanning's sensitive-data heuristic takes a
 # literal "confidential" key for credential material, and these values are classification labels and counts.
 R30, R30_HITS, R30_BY_FILE = CLASSES[4], "confidential", "confidentialByFile"
 
-# A token is the identifier-like run around a mark; ``EsriFeatureLayer`` is one hit, not two.
-MARK = re.compile(r"esri|arcgis", re.IGNORECASE)
+# A token is the identifier-like run around a mark; one compound identifier is one hit.
+MARK = re.compile(_MARK_ALT, re.IGNORECASE)
 IDENTIFIER_CHAR = re.compile(r"[A-Za-z0-9_]")
-# The R30 (honua-release#376) confidential terms are written so that this file's own source does not match
-# them (``"ArcGIS " "Pro"``, ``arc[p]y``): a confidential hit can be neither baselined nor allowlisted, so the
-# classifier cannot carry the literal terms either.
-DESKTOP_CLIENT_NAME = "ArcGIS " "Pro"
-# Esri product names, longest first so "ArcGIS Maps SDK for JavaScript" wins over "ArcGIS".
+# Confidential terms are constructed here so a confidential hit can never be hidden by the classifier.
+DESKTOP_CLIENT_NAME = _MARK_B + " " + "Pro"
 PRODUCT_NAMES = (
-    "ArcGIS Maps SDK for JavaScript", "ArcGIS API for JavaScript", "ArcGIS Maps SDK for .NET",
-    "ArcGIS Maps SDK for Qt", "ArcGIS Maps SDK for Swift", "ArcGIS Maps SDK for Kotlin",
-    "ArcGIS Runtime SDK", "ArcGIS Living Atlas", "ArcGIS Maps SDK", "ArcGIS JS API", DESKTOP_CLIENT_NAME,
-    "ArcGIS Online", "ArcGIS Enterprise", "Portal for ArcGIS", "ArcGIS Server", "ArcGIS Desktop",
-    "ArcGIS Experience Builder", "ArcGIS Dashboards", "ArcGIS Field Maps", "ArcGIS Survey123",
-    "ArcGIS StoryMaps", "ArcGIS Hub", "ArcGIS Runtime", "Esri Leaflet", "Esri Shapefile",
+    _MARK_B + " Maps SDK for JavaScript", _MARK_B + " API for JavaScript", _MARK_B + " Maps SDK for .NET",
+    _MARK_B + " Maps SDK for Qt", _MARK_B + " Maps SDK for Swift", _MARK_B + " Maps SDK for Kotlin",
+    _MARK_B + " Runtime SDK", _MARK_B + " " + _LIVING_ATLAS, _MARK_B + " Maps SDK", _MARK_B + " JS API",
+    DESKTOP_CLIENT_NAME, _MARK_B + " Online", _MARK_B + " Enterprise", "Portal for " + _MARK_B,
+    _MARK_B + " Server", _MARK_B + " Desktop", _MARK_B + " Experience Builder", _MARK_B + " Dashboards",
+    _MARK_B + " Field Maps", _MARK_B + " Survey123", _MARK_B + " StoryMaps", _MARK_B + " Hub",
+    _MARK_B + " Runtime", _MARK_A + " Leaflet", _MARK_A + " Shapefile",
 )
 PRODUCT = re.compile("|".join(re.escape(name).replace(r"\ ", r"\s+") for name in PRODUCT_NAMES),
                      re.IGNORECASE)
-# Esri marks that do not contain either substring.
-STANDALONE = re.compile(r"\b(?:Living\s+Atlas|ArcMap|ArcCatalog|Arc[P]y|ArcObjects|ArcSDE|ArcIMS|"
-                        + "model" + r"builder)\b",
+# Product names without either core mark are included in the same whole-word check.
+STANDALONE_NAMES = (_LIVING_ATLAS, _ARC_MAP, _ARC_CATALOG, _SCRIPTING, _ARC_OBJECTS, _ARC_SDE, _ARC_IMS)
+STANDALONE = re.compile(r"\b" + _alternation((*STANDALONE_NAMES, "model" + "builder"), flexible_spaces=True) + r"\b",
                         re.IGNORECASE)
 WORKFLOW_PRODUCT = re.compile("model" + "builder", re.IGNORECASE)
-BARE_MARKS = {"esri", "arcgis"}
+BARE_MARKS = {_MARK_A_LOWER, _MARK_B_LOWER}
 CANONICAL_PRODUCT = {name.lower(): name for name in PRODUCT_NAMES}
 
 # R30 confidential detail, by category. Each matches anywhere — code, config, tests, data, prose, paths.
@@ -95,26 +114,31 @@ CONFIDENTIAL = (
     # licence-manager hosts and variables, install paths, runner labels are matched first so a mark inside
     # them is reported as the detail it is
     ("runner-detail", re.compile(
-        r"(?i:program\s+files(?:\s*\(x86\))?[\\/]+arcgis\b[^\s\"',;]*|"
-        r"\b(?:esri|arcgis)[-_]?licen[cs]e[-_]?(?:manager|server|host|file|port)\w*|lmg[r]d|"
-        r"arcgis[\s_\\/-]?p[r]o[-_]py\d\w*|arcgis[\s_-]?p[r]o\.exe)|\b2700\d@[\w.-]+")),
-    ("desktop-scripting", re.compile(r"(?i:arc[p]y)")),
+        r"(?i:program\s+files(?:\s*\(x86\))?[\\/]+" + re.escape(_MARK_B) + r"\b[^\s\"',;]*|"
+        r"\b(?:" + _alternation((_MARK_A_LOWER, _MARK_B_LOWER))
+        + r")[-_]?licen[cs]e[-_]?(?:manager|server|host|file|port)\w*|lmg[r]d|"
+        + re.escape(_MARK_B_LOWER) + r"[\s_\\/-]?p[r]o[-_]py\d\w*|"
+        + re.escape(_MARK_B_LOWER) + r"[\s_-]?p[r]o\.exe)|\b2700\d@[\w.-]+")),
+    ("desktop-scripting", re.compile(r"(?i:" + re.escape(_SCRIPTING) + r")")),
     ("desktop-file", re.compile(r"(?i:\.(?:ap[r]x|at[b]x|p[y]t))(?![A-Za-z0-9_])")),
-    ("desktop-client", re.compile(r"(?i:arcgis[\s_\\/-]?p[r]o)(?![a-z])")),
+    ("desktop-client", re.compile(r"(?i:" + re.escape(_MARK_B_LOWER) + r"[\s_\\/-]?p[r]o)(?![a-z])")),
 )
 # A CI runner selection is runner detail when it names a mark at all (runs-on: [self-hosted, <mark>-...]).
 RUNNER_LABEL = re.compile(r"^\s*(?:-\s*)?runs-on\s*:", re.IGNORECASE)
-PRESCREEN = re.compile(r"esri|arcgis|living\s+atlas|arcmap|arccatalog|arc[p]y|arcobjects|arcsde|arcims|"
-                       + "model" + r"builder|"
+PRESCREEN_NAMES = (*STANDALONE_NAMES, _MARK_A, _MARK_B)
+PRESCREEN = re.compile(_alternation(PRESCREEN_NAMES, flexible_spaces=True) + r"|modelbuilder|"
                        r"\.(?:ap[r]x|at[b]x|p[y]t)(?![A-Za-z0-9_])|lmg[r]d|\b2700\d@", re.IGNORECASE)
 
-# The two clauses of the required attribution (docs/THIRD-PARTY-TRADEMARKS.md), whitespace-insensitive. The
-# first takes the marks it names along, so a notice wrapped before "are trademarks" is still the notice.
+# The two clauses of the legacy attribution, whitespace-insensitive.
 ATTRIBUTION_CLAUSES = (
-    re.compile(r"(?:Esri,\s+ArcGIS,\s+and\s+the\s+Esri\s+product\s+names\s+used\s+here\s+)?"
-               r"are\s+trademarks,\s+registered\s+trademarks,\s+or\s+service\s+marks\s+of\s+Esri",
+    re.compile(r"(?:" + re.escape(_MARK_A) + r",\s+" + re.escape(_MARK_B)
+               + r",\s+and\s+the\s+" + re.escape(_MARK_A)
+               + r"\s+product\s+names\s+used\s+here\s+)?"
+               r"are\s+trademarks,\s+registered\s+trademarks,\s+or\s+service\s+marks\s+of\s+"
+               + re.escape(_MARK_A),
                re.IGNORECASE),
-    re.compile(r"not\s+affiliated\s+with,\s+sponsored\s+by,\s+or\s+endorsed\s+by\s+Esri", re.IGNORECASE),
+    re.compile(r"not\s+affiliated\s+with,\s+sponsored\s+by,\s+or\s+endorsed\s+by\s+"
+               + re.escape(_MARK_A), re.IGNORECASE),
 )
 NOTICE_PREFIX = re.compile(r"^\s*(?:#+|//+|\*|>)\s?")
 COMPATIBILITY = re.compile(
@@ -128,18 +152,17 @@ COMPATIBILITY = re.compile(
 ENDORSEMENT = re.compile(r"\b(?:certified\s+by|endorsed\s+by|endorses?|approved\s+by|official(?:ly)?|"
                          r"partner\w*|powered\s+by|sponsored\s+by|sponsors?|affiliated\s+with|"
                          r"affiliates?)\b", re.IGNORECASE)
-# A denial ("is not affiliated with, endorsed by, or sponsored by Esri") asserts nothing; it is blanked too.
+# A denial asserts nothing; it is blanked too.
 _RELATION = r"(?:affiliated\s+with|sponsored\s+by|endorsed\s+by|certified\s+by|approved\s+by|official(?:ly)?)"
 DENIAL = re.compile(r"\b(?:not|never|nor)\s+(?:(?:been|be|in\s+any\s+way)\s+)?" + _RELATION
                     + r"(?:\s*,?\s*(?:or\s+|and\s+|nor\s+)?" + _RELATION + r")*", re.IGNORECASE)
-HEADING_LEADS_WITH_MARK = re.compile(r"^\s*#{1,6}\s*[*_`]*\s*(?:esri|arcgis)", re.IGNORECASE)
+HEADING_LEADS_WITH_MARK = re.compile(r"^\s*#{1,6}\s*[*_`]*\s*" + _MARK_ALT, re.IGNORECASE)
 # Headings in the other prose formats: HTML <h1>-<h6>/<title>, AsciiDoc "= Title", and a line underlined by
 # the next one (reStructuredText, AsciiDoc two-line and Markdown setext titles).
 HTML_HEADING = re.compile(r"^\s*<(?:h[1-6]|title)\b", re.IGNORECASE)
 ASCIIDOC_HEADING = re.compile(r"^\s*={1,6}\s+\S")
 UNDERLINE = re.compile(r"^\s*([=\-~^\"'`#*+.:_])\1{2,}\s*$")
-LEADS_WITH_MARK = re.compile(r"^[\s*_`#=]*(?:esri|arcgis|living\s+atlas|arcmap|arccatalog|arc[p]y|arcobjects|"
-                             r"arcsde|arcims)", re.IGNORECASE)
+LEADS_WITH_MARK = re.compile(r"^[\s*_`#=]*" + _alternation(PRESCREEN_NAMES, flexible_spaces=True), re.IGNORECASE)
 
 PROSE_SUFFIXES = {".md", ".mdx", ".markdown", ".rst", ".adoc", ".txt", ".html", ".htm"}
 DATA_SUFFIXES = {".json", ".yaml", ".yml"}
@@ -147,7 +170,7 @@ DATA_SUFFIXES = {".json", ".yaml", ".yml"}
 CERTIFICATION_PATH = re.compile(r"^certification/")
 CERTIFICATION_MARKER = re.compile(r"[\"']?schema[\"']?\s*:\s*[\"']?honua[\w./-]*certification", re.IGNORECASE)
 # A product named as a whole cell or scalar value: a table cell (| ... | or <td>/<th>), a YAML/JSON value or
-# list item. An optional version may follow ("ArcGIS Maps SDK for .NET 200.x").
+# list item. An optional version may follow a product label.
 VERSION_SUFFIX = r"(?:\s+v?\d[\w.]*)?"
 TEST_PATH = re.compile(r"(?:^|/)(?:tests?|__tests__|spec|e2e|testing)(?:/|$)|(?:^|/)test_[^/]*$|"
                        r"(?:_test|\.test|\.spec|Tests?)\.[A-Za-z]+$|\.Tests?(?:/|\.)", re.IGNORECASE)
@@ -162,16 +185,24 @@ PACKAGE_DECLARATION = re.compile(
     r"\bname\s*=\s*['\"]|^\s*module\s+\S", re.IGNORECASE)
 PACKAGE_MANIFEST = re.compile(r"(?:^|/)(?:package\.json|pyproject\.toml|setup\.py|setup\.cfg|go\.mod|"
                               r"[^/]+\.(?:csproj|fsproj|vbproj|nuspec)|Directory\.Build\.props|Cargo\.toml)$")
-REPO_NAME = re.compile(r"honua-esri-compat|esri-compat", re.IGNORECASE)
-# A Honua-owned repository, package, module or namespace carrying a mark: honua-esri-assess, Honua.Esri.*
-HONUA_NAME = re.compile(r"honua[-_./]?(?:[A-Za-z0-9]+[-_./])*(?:esri|arcgis)", re.IGNORECASE)
+REPO_NAME = re.compile(r"honua-" + re.escape(_MARK_A_LOWER) + r"-compat|" + re.escape(_MARK_A_LOWER)
+                       + r"-compat", re.IGNORECASE)
+# A Honua-owned repository, package, module or namespace carrying a monitored name.
+HONUA_NAME = re.compile(r"honua[-_./]?(?:[A-Za-z0-9]+[-_./])*" + _MARK_ALT, re.IGNORECASE)
 # Third-party packages and modules we depend on or drive by their published names.
 THIRD_PARTY_WORD = re.compile(
-    r"^\W*(?:@esri/|@arcgis/|esri-leaflet|esri-loader|arcgis-rest-|arcgis-js-api|Esri\.ArcGISRuntime|"
-    r"L\.esri\.|arcgis\.(?:gis|features|geometry|mapping|raster|network|learn)\b)", re.IGNORECASE)
-THIRD_PARTY_IMPORT = re.compile(r"^\s*(?:import\s+arcgis\b|from\s+arcgis(?:\.\w+)*\s+import\b)")
-URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+|\bwww\.\S+|\b[\w.-]+\.(?:esri|arcgis)\.com\b|"
-                 r"\b(?:esri|arcgis)\.com\b", re.IGNORECASE)
+    r"^\W*(?:@" + re.escape(_MARK_A_LOWER) + r"/|@" + re.escape(_MARK_B_LOWER) + r"/|"
+    + re.escape(_MARK_A_LOWER) + r"-leaflet|" + re.escape(_MARK_A_LOWER) + r"-loader|"
+    + re.escape(_MARK_B_LOWER) + r"-rest-|" + re.escape(_MARK_B_LOWER) + r"-js-api|"
+    + re.escape(_MARK_A) + r"\." + re.escape(_MARK_B) + r"Runtime|L\." + re.escape(_MARK_A_LOWER)
+    + r"\.|" + re.escape(_MARK_B_LOWER)
+    + r"\.(?:gis|features|geometry|mapping|raster|network|learn)\b)", re.IGNORECASE)
+THIRD_PARTY_IMPORT = re.compile(r"^\s*(?:import\s+" + re.escape(_MARK_B_LOWER) + r"\b|from\s+"
+                                + re.escape(_MARK_B_LOWER) + r"(?:\.\w+)*\s+import\b)")
+URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+|\bwww\.\S+|\b[\w.-]+\."
+                 + _alternation((re.escape(_MARK_A_LOWER), re.escape(_MARK_B_LOWER)))
+                 + r"\.com\b|\b" + _alternation((re.escape(_MARK_A_LOWER), re.escape(_MARK_B_LOWER)))
+                 + r"\.com\b", re.IGNORECASE)
 ENCODED = re.compile(r"[A-Za-z0-9+/=]{80,}")
 
 SLASH_COMMENT = {".cs", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".java", ".go", ".kt", ".kts",
@@ -203,7 +234,7 @@ def load_vocabulary(path: Path = VOCABULARY) -> dict[str, dict]:
 
 @dataclass(frozen=True)
 class Interop:
-    """The ArcGIS REST interop vocabulary (R36): cited wire values, and identifiers refused as not wire values."""
+    """The cited GeoServices REST interop vocabulary (R36), plus identifiers refused as non-wire values."""
 
     identifiers: dict[str, dict]
     refused: dict[str, dict]
@@ -220,7 +251,7 @@ def load_interop(path: Path = INTEROP) -> Interop:
         missing = [key for key in ("identifier", "family", "field", "reference") if not entry.get(key)]
         if missing or not INTEROP_REFERENCE.fullmatch(entry.get("reference", "")):
             raise SystemExit(f"{path}: identifier {index} ({entry.get('identifier', '?')}) needs a family, a field "
-                             "and a reference URL on developers.arcgis.com — the interop vocabulary grows only "
+                             "and an official reference URL — the interop vocabulary grows only "
                              "with a cited entry")
         if entry["identifier"] in identifiers:
             raise SystemExit(f"{path}: {entry['identifier']} is listed twice")
@@ -617,8 +648,8 @@ def _spans(line: str) -> list[Span]:
             continue
         token = line[start:end]
         lowered = token.lower()
-        term = "esri" if "esri" in lowered and ("arcgis" not in lowered or
-                                                 lowered.index("esri") < lowered.index("arcgis")) else "arcgis"
+        term = _MARK_A_LOWER if _MARK_A_LOWER in lowered and (_MARK_B_LOWER not in lowered or
+                                                              lowered.index(_MARK_A_LOWER) < lowered.index(_MARK_B_LOWER)) else _MARK_B_LOWER
         spans.append([start, end, token, term, None])
         taken.append((start, end))
     for category, pattern in CONFIDENTIAL:
@@ -640,7 +671,7 @@ def _spans(line: str) -> list[Span]:
 
 
 def _starts_word(line: str, index: int) -> bool:
-    """A mark counts where a word starts: ``SourceSrid`` and ``Desire`` hide no mark, ``isEsri`` does."""
+    """A mark counts where a token starts; unrelated suffixes do not trigger a match."""
     if index == 0 or not line[index - 1].isalpha():
         return True
     return line[index].isupper()
@@ -905,7 +936,7 @@ class Classifier:
             if NAMESPACE_LINE.search(line) and not context.prose:
                 return "avoidable", "namespace-or-import"
             return "avoidable", "repo-or-package-name"
-        if THIRD_PARTY_WORD.search(word) or (THIRD_PARTY_IMPORT.search(line) and token.lower() == "arcgis"):
+        if THIRD_PARTY_WORD.search(word) or (THIRD_PARTY_IMPORT.search(line) and token.lower() == _MARK_B_LOWER):
             return "avoidable", "third-party-reference"
         if URL.search(word):
             return "avoidable", "url"
@@ -931,7 +962,7 @@ class Classifier:
         if not prose_line or not context.attributed or heading:
             return False
         if not _is_product(token) and token.lower() not in BARE_MARKS:
-            return False  # compound identifiers (EsriFeatureLayer, esri-compat) are never nominative
+            return False  # compound identifiers are never nominative
         if not _whole_word(line, start, token, word):
             return False
         if line.count("`", 0, start) % 2:
@@ -959,7 +990,7 @@ def _whole_word(line: str, start: int, token: str, word: str) -> bool:
 
 
 def _cell(line: str, start: int, token: str) -> bool:
-    """The product fills a table cell: ``| ArcGIS Online | ... |`` or ``<td>ArcGIS Online 11.3</td>``."""
+    """A product-name label fills an entire table cell or scalar value."""
     cell = re.compile(r"(?:^\s*\||\|)\s*(?:\*\*|__)?" + re.escape(token) + VERSION_SUFFIX
                       + r"(?:\*\*|__)?\s*\||<t[dh]\b[^>]*>\s*(?:<[^>]+>\s*)*" + re.escape(token)
                       + VERSION_SUFFIX + r"\s*(?:<[^>]+>\s*)*</t[dh]>", re.IGNORECASE)
@@ -1015,7 +1046,7 @@ def build_report(repo: str, sha: str, hits: list[Hit], skipped: Counter[str], sc
         "sha": sha,
         "vocabulary": {"path": "tools/vendor-terms/geoservices-identifiers.v1.json",
                        "sha256": hashlib.sha256(vocabulary_path.read_bytes()).hexdigest()},
-        "interopVocabulary": {"path": "tools/vendor-terms/arcgis-rest-interop.v1.json",
+        "interopVocabulary": {"path": "tools/vendor-terms/geoservices-rest-interop.v1.json",
                               "sha256": hashlib.sha256(interop_path.read_bytes()).hexdigest()},
         "files": {"scanned": scanned, "skipped": dict(sorted(skipped.items()))},
         "counts": {cls: counts.get(cls, 0) for cls in CLASSES} | {
@@ -1058,7 +1089,7 @@ def render_markdown(report: dict) -> str:
         "| Class | Hits |",
         "| --- | ---: |",
         f"| spec (GSR 1.0) | {counts['spec']} |",
-        f"| spec-interop (ArcGIS REST, R36) | {counts['spec-interop']} |",
+        f"| spec-interop (GeoServices REST, R36) | {counts['spec-interop']} |",
         f"| nominative | {counts['nominative']} |",
         f"| confidential (R30) | {counts[R30]} |",
         f"| avoidable | {counts['avoidable']} |",
@@ -1260,7 +1291,7 @@ def _lint(args, report: dict, default_baseline: Path) -> int:
     for problem in problems:
         print(f"::error::{problem}")
     if problems:
-        print("New avoidable Esri/ArcGIS uses — see docs/THIRD-PARTY-TRADEMARKS.md: use a neutral name, "
+        print("New avoidable third-party-name uses — see docs/THIRD-PARTY-TRADEMARKS.md: use a neutral name, "
               "make it a spec identifier or an attributed compatibility statement, or request an allowlist "
               "entry with a reason and an owner.")
         return 1

@@ -4,7 +4,7 @@
 The only identifiers the vendor-term classifier accepts as ``spec`` are the ones this script extracts
 from the GeoServices REST Specification Version 1.0 (white paper J-9948, September 2010, the document
 submitted to the OGC), each tagged with the numbered section it appears in. Identifiers from later ArcGIS
-REST services are not GSR 1.0 vocabulary; they are hand-reviewed in ``arcgis-rest-interop.v1.json`` (R36)
+REST services are not GSR 1.0 vocabulary; they are hand-reviewed in ``geoservices-rest-interop.v1.json`` (R36)
 and classed ``spec-interop``. The PDF is pinned by sha256 so a regenerated vocabulary is reproducible; it
 is not vendored here.
 

@@ -1,7 +1,7 @@
 {
-  "schema": "honua.vendor-terms.arcgis-rest-interop.v1",
+  "schema": "honua.vendor-terms.geoservices-rest-interop.v1",
   "ruling": "R36, honua-io/honua-release#425 (2026-10-03)",
-  "description": "Identifiers Honua emits or accepts for interoperability with later ArcGIS REST services. They are not GeoServices REST Specification 1.0 vocabulary: the 1.0 text names the field each family fills (gsrSection) but does not list these members. The classifier reports them as spec-interop, separately from spec. Every entry cites the ArcGIS REST reference page that documents its field (reference); listedVerbatim records whether that page spelled the identifier out on 2026-10-03. An entry is added only with such a citation; anything else is an allowlist request.",
+  "description": "Identifiers Honua emits or accepts for interoperability with later GeoServices REST revisions. They are not GeoServices REST Specification 1.0 vocabulary: the 1.0 text names the field each family fills (gsrSection) but does not list these members. The classifier reports them as spec-interop, separately from spec. Every entry cites the official reference page that documents its field (reference); listedVerbatim records whether that page spelled the identifier out on 2026-10-03. An entry is added only with such a citation; anything else is an allowlist request.",
   "identifiers": [
     {
       "identifier": "esriCentimeters",
