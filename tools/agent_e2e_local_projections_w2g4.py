@@ -12,21 +12,23 @@ from agent_e2e_local_expectations import load_expected
 
 ITEM = 'seeded:map:item'
 VERSION = 'seeded:map:version'
+FOREIGN = 'seeded:map:foreign'
+FOREIGN_VERSION = 'seeded:map:foreign-version'
 OPERATOR = 'seeded:principal:operator'
 OWNER = 'seeded:principal:owner'
 AGENT = 'seeded:principal:agent'
 
 
-def permission_matrix(steps, identity_steps=()):
+def permission_matrix(steps, identity_steps=(), item_role=ITEM, version_role=VERSION):
     """Bind each response to the actual requested map and its recorder principal."""
     result = {'object': {'requests': {'each': list(steps), 'to': {'object': {
         'principalId': {'principal': '$step'},
         'method': {'method': '$step'},
-        'resourceId': {'target': '$step', 'role': ITEM},
-        'versionId': {'target': '$step', 'role': VERSION},
+        'resourceId': {'target': '$step', 'role': item_role},
+        'versionId': {'target': '$step', 'role': version_role},
         'status': {'status': '$step'},
         'responseSha256': {'sha256': '$step'},
-        'disclosedResourceIds': {'disclosed': '$step', 'roles': [ITEM]},
+        'disclosedResourceIds': {'disclosed': '$step', 'roles': [item_role]},
     }}}}}
     if identity_steps:
         result['object']['nativeIdentities'] = {'list': [
@@ -54,6 +56,9 @@ def role_bindings(scenario_id, seeded):
            RoleBinding(VERSION, f'{scenario_id.lower()}-map-saved', pointer='/data/versionId')]
     if scenario_id in ('P15', 'P20'):
         out.append(RoleBinding(OPERATOR, 'runner-principal-operator', pointer='/data/apiKey/id'))
+    if scenario_id == 'P15':
+        out.extend([RoleBinding(FOREIGN, 'p15-foreign-saved', pointer='/data/itemId'),
+                    RoleBinding(FOREIGN_VERSION, 'p15-foreign-saved', pointer='/data/versionId')])
     if scenario_id in ('P15', 'P18'):
         out.extend([RoleBinding(OWNER, 'runner-principal-owner', pointer='/data/apiKey/id'),
                     RoleBinding(AGENT, 'runner-custody-mint-agent', pointer='/data/apiKey/id')])
@@ -76,6 +81,17 @@ def observe_partial(scenario_id, stack, seeded, variant):
                     require_exact_positive(answer, item, version)
             selected['publication.private'] = permission_matrix((f'{prefix}-operator', f'{prefix}-anonymous'))
         if scenario_id in ('P15', 'P18'):
+            if scenario_id == 'P15':
+                foreign_item = guid(seeded.state['foreignItemId'])
+                foreign_version = guid(seeded.state['foreignVersionId'])
+                if (foreign_item, foreign_version) == (item, version) or foreign_item == item:
+                    raise ValueError('tenant control must protect a distinct foreign map')
+                tenant_item, tenant_version = foreign_item, foreign_version
+                tenant_path = f'/api/v1/studio/content-items/{foreign_item}/versions/{foreign_version}'
+                item_role, version_role = FOREIGN, FOREIGN_VERSION
+            else:
+                tenant_item, tenant_version, tenant_path = item, version, path
+                item_role, version_role = ITEM, VERSION
             # A generic 404 cannot establish distinct native tenants.
             identities = []
             for principal in ('owner', 'agent'):
@@ -98,11 +114,11 @@ def observe_partial(scenario_id, stack, seeded, variant):
                     owner[1].get('authenticationKind') not in ('operator-bearer', 'interactive')):
                 raise ValueError('distinct native tenant and human-owner custody unavailable')
             for suffix, principal in (('owner', 'owner'), ('agent', 'agent')):
-                answer = recorder.json(f'{prefix}-{suffix}', 'GET', path, principal=principal)
+                answer = recorder.json(f'{prefix}-{suffix}', 'GET', tenant_path, principal=principal)
                 if principal == 'owner':
-                    require_exact_positive(answer, item, version)
+                    require_exact_positive(answer, tenant_item, tenant_version)
             selected['tenant.denied'] = permission_matrix((f'{prefix}-owner', f'{prefix}-agent'),
-                (f'{prefix}-owner-identity', f'{prefix}-agent-identity'))
+                (f'{prefix}-owner-identity', f'{prefix}-agent-identity'), item_role, version_role)
         if scenario_id == 'P15':
             from agent_e2e_p10_observer import source_path
             recorder.json('p15-source-after', 'GET', source_path(seeded.state['shelters']))

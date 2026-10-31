@@ -19,6 +19,8 @@ PACK = {row['id']: row['assertions'] for row in json.loads(
     (ROOT / 'certification/agent-e2e/pack.v2.AB-only.json').read_text())['scenarios'] if row['id'] in IDS}
 ITEM = '11111111-1111-1111-1111-111111111111'
 VERSION = '22222222-2222-2222-2222-222222222222'
+FOREIGN_ITEM = '33333333-3333-3333-3333-333333333333'
+FOREIGN_VERSION = '44444444-4444-4444-4444-444444444444'
 
 
 def feature_response(variant):
@@ -68,6 +70,8 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
             return 201, json.dumps(value).encode()
         if path == '/fixture-map':
             return 201, json.dumps({'data': {'itemId': ITEM, 'versionId': VERSION}}).encode()
+        if path == '/fixture-foreign-map':
+            return 201, json.dumps({'data': {'itemId': FOREIGN_ITEM, 'versionId': FOREIGN_VERSION}}).encode()
         if path == '/api/v1/agent/target':
             identity = {'actorId': principal + '-id', 'tenantId': 'tenant-b' if principal == 'owner' else 'tenant-a',
                         'isHumanSession': principal == 'owner',
@@ -82,21 +86,25 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
             if state['wrong'] == 'source-change' and recorder.phase == 'observe':
                 value['features'][0]['attributes']['capacity'] = 999
             return 200, json.dumps(value).encode()
-        if path == f'/api/v1/studio/content-items/{ITEM}/versions/{VERSION}':
+        if path in (f'/api/v1/studio/content-items/{ITEM}/versions/{VERSION}',
+                    f'/api/v1/studio/content-items/{FOREIGN_ITEM}/versions/{FOREIGN_VERSION}'):
+            item, version = (FOREIGN_ITEM, FOREIGN_VERSION) if FOREIGN_ITEM in path else (ITEM, VERSION)
             code = {'operator': 200, 'owner': 200, 'agent': 404, 'anonymous': 401}[principal]
             if state['wrong'] == 'anonymous-public' and principal == 'anonymous':
                 code = 200
             if state['wrong'] == 'tenant-open' and principal == 'agent':
                 code = 200
-            value = {'data': {'itemId': ITEM, 'versionId': VERSION}} if code == 200 else {'error': 'denied'}
+            value = {'data': {'itemId': item, 'versionId': version}} if code == 200 else {'error': 'denied'}
             if state['wrong'] == 'wrong-map' and principal in ('operator', 'owner'):
-                value['data']['versionId'] = '33333333-3333-3333-3333-333333333333'
+                value['data']['versionId'] = '55555555-5555-5555-5555-555555555555'
             return code, json.dumps(value).encode()
         raise AssertionError((principal, method, path))
 
     recorder = ControllerRecorder(base_url='http://127.0.0.1:8147', workdir=tmp_path,
         candidate_digest='sha256:' + '1' * 64, attempt_id='case', principals=principals, http_factory=http)
     recorder.json(sid.lower() + '-map-saved', 'POST', '/fixture-map')
+    if sid == 'P15':
+        recorder.json('p15-foreign-saved', 'POST', '/fixture-foreign-map')
     if sid in ('P15', 'P20'):
         recorder.json('runner-principal-operator', 'POST', '/keys/operator')
     if sid in ('P15', 'P18'):
@@ -108,7 +116,11 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
     recorder.set_phase('observe')
     stack = Stack('http://127.0.0.1:8147', 'controller', None, 'case', 'compose', str(tmp_path),
                   'sha256:' + '1' * 64, {'recorder': recorder})
-    seeded = Seeded({'itemId': ITEM, 'versionId': VERSION, 'shelters': {'service': 'town', 'layerId': 3}})
+    seeded = Seeded({'itemId': ITEM, 'versionId': VERSION, 'foreignItemId': FOREIGN_ITEM,
+                     'foreignVersionId': FOREIGN_VERSION, 'shelters': {'service': 'town', 'layerId': 3}})
+    if wrong == 'same-map':
+        seeded.state['foreignItemId'] = ITEM
+        seeded.state['foreignVersionId'] = VERSION
     scenario = runner.load_scenario(sid)
     observed = scenario.observe(stack, seeded, variant)
     roles = resolve_roles(scenario.roles(stack, seeded, variant), recorder.records, agent_principal='agent-id')
@@ -145,6 +157,11 @@ def test_tenant_denial_refuses_unverified_native_custody(tmp_path, monkeypatch, 
 def test_positive_control_must_read_the_expected_map_version(tmp_path, monkeypatch, sid):
     with pytest.raises(ValueError, match='exact saved map version'):
         recorded_case(tmp_path, monkeypatch, sid, 'A', 'wrong-map')
+
+
+def test_private_sharing_does_not_use_the_shared_map_as_the_foreign_control(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match='distinct foreign map'):
+        recorded_case(tmp_path, monkeypatch, 'P15', 'A', 'same-map')
 
 
 def test_mutated_foreign_map_fails_preservation_oracle():

@@ -34,7 +34,7 @@
             },
             "method": "GET",
             "resourceId": {
-              "$role": "seeded:map:item"
+              "$role": "seeded:map:foreign"
             },
             "status": 200
           },
@@ -44,7 +44,7 @@
             },
             "method": "GET",
             "resourceId": {
-              "$role": "seeded:map:item"
+              "$role": "seeded:map:foreign"
             },
             "status": 404
           }
@@ -182,7 +182,7 @@
             },
             "method": "GET",
             "resourceId": {
-              "$role": "seeded:map:item"
+              "$role": "seeded:map:foreign"
             },
             "status": 200
           },
@@ -192,7 +192,7 @@
             },
             "method": "GET",
             "resourceId": {
-              "$role": "seeded:map:item"
+              "$role": "seeded:map:foreign"
             },
             "status": 404
           }
