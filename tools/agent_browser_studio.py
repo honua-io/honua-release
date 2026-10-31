@@ -508,9 +508,9 @@ def _sorted_features(features):
 
 
 def normalize_source(body):
-    """GeoJSON FeatureCollection, or an Esri feature set, to {srid, features} sorted by source_id.
+    """GeoJSON FeatureCollection, or a feature-service query, to {srid, features} sorted by source_id.
 
-    Polygon and polyline Esri responses drop only the object-id attribute. A live query whose
+    Polygon and polyline query responses drop only the object-id attribute. A live query whose
     attributes differ from the fixture still fails the protected-content comparison.
     """
     require(isinstance(body, dict), 'source response is not an object')
