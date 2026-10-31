@@ -440,13 +440,30 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
         validate_scan_bounds(text)
         html_visible = visible_html_text(text)
         markdown_visible = visible_markdown_text(html_visible)
-        for candidate in dict.fromkeys((text, html_visible, markdown_visible)):
+        # Each view can expose the same physical occurrence (for example, an
+        # HTML entity appears raw in ``text`` and decoded in ``html_visible``).
+        # Classify each view independently, then retain the greatest occurrence
+        # count for each finding shape instead of adding duplicate views together.
+        per_view: list[list[policy.Hit]] = []
+        for candidate in dict.fromkeys((text, decode_rendered_text(text), html_visible, markdown_visible)):
             validate_scan_bounds(candidate)
-            findings.extend(hit for hit in classifier.classify_text(path, candidate)
-                            if hit.cls not in ('spec', 'spec-interop'))
-            findings.extend(classify_fence_labels(classifier, path, candidate))
-            findings.extend(classify_embedded_names(classifier, path, candidate))
-            findings.extend(classify_decoded_text(classifier, path, candidate))
+            view_hits = [hit for hit in classifier.classify_text(path, candidate)
+                         if hit.cls not in ('spec', 'spec-interop')]
+            view_hits.extend(classify_fence_labels(classifier, path, candidate))
+            view_hits.extend(classify_embedded_names(classifier, path, candidate))
+            per_view.append(view_hits)
+        counts: dict[tuple, tuple[policy.Hit, int]] = {}
+        for view_hits in per_view:
+            view_counts: dict[tuple, tuple[policy.Hit, int]] = {}
+            for hit in view_hits:
+                key = (hit.path, hit.line, hit.token, hit.term, hit.cls, hit.category, hit.exception)
+                representative, count = view_counts.get(key, (hit, 0))
+                view_counts[key] = (representative, count + 1)
+            for key, (hit, count) in view_counts.items():
+                representative, previous = counts.get(key, (hit, 0))
+                if count > previous:
+                    counts[key] = (representative, count)
+        findings.extend(hit for hit, count in counts.values() for _ in range(count))
     return findings
 
 
