@@ -9,6 +9,9 @@ from __future__ import annotations
 from agent_cli_sessions import CliModelSession
 from agent_cli_backends import HttpMcpBackend
 
+AWS_SETUP_TOOLS = frozenset(('describe_environment','analyze_customer_requirements',
+    'recommend_deployment_topology','provision_infrastructure','install_handoff','verify_install_handoff'))
+
 
 def run_stage(*, agent, model, stage, target_kind, prompt, backends, log_dir,
               max_actions=80, max_turns=40, timeout=600, cli_factory=CliModelSession):
@@ -29,6 +32,10 @@ def run_stage(*, agent, model, stage, target_kind, prompt, backends, log_dir,
         raise ValueError('remote VM Docker health did not pass')
     servers = {name: {'tool_view': backend.tool_view(), 'execute': backend.execute}
                for name, backend in backends.items()}
+    if required == 'honua_devops':
+        names = {tool.get('name') for tool in servers[required]['tool_view'].get('tools', [])}
+        if not AWS_SETUP_TOOLS <= names:
+            raise ValueError('honua-devops MCP lacks required real AWS setup and handoff tools')
     result = cli_factory(agent, model).run(prompt=prompt, servers=servers, stage=stage,
         target_kind=target_kind, log_dir=log_dir, session=stage,
         max_actions=max_actions, max_turns=max_turns, timeout=timeout)

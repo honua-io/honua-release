@@ -49,6 +49,11 @@ forwarding approved product calls. This library neither provisions cloud
 resources nor approves a plan. After the operator closes, the runner retains
 its private stderr audit file and `audit_sha256`; output containing a configured
 credential or exceeding the audit bound fails closed and is not exported.
+The published `v2026.1.0` Linux binary was checksum-verified on this machine;
+its live stdio catalog exposed 35 tools but omitted `provision_infrastructure`,
+`install_handoff`, and `verify_install_handoff`. AWS setup refuses before any
+model call unless all six required setup/handoff tools are advertised. The g43
+lane must supply a binary containing those product tools.
 
 For a local-Docker target, the release runner supplies a fresh remote VM and
 constructs `RemoteQuickstartShell` with its host, user, SSH identity, pinned

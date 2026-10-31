@@ -8,7 +8,7 @@ import threading
 import pytest
 
 from agent_cli_sessions import CliFailure, CliModelSession
-from agent_cli_arc import run_stage
+from agent_cli_arc import run_stage, AWS_SETUP_TOOLS
 from agent_cli_backends import (RemoteQuickstartShell, StdioMcpBackend, SshTunnel,
                                 HttpMcpBackend, parse_quickstart)
 from agent_e2e_local_recorder import read_logged_action
@@ -81,7 +81,11 @@ def test_three_named_servers_proxy_and_record_actual_actions(tmp_path,monkeypatc
 
 class Backend:
     def __init__(self,name): self.name=name; self.calls=[]
-    def tool_view(self): return view(self.name)
+    def tool_view(self):
+        if self.name == 'describe_environment':
+            return {'tools':[{'name':name,'inputSchema':{'type':'object','properties':{}}}
+                             for name in ['describe_environment',*sorted(AWS_SETUP_TOOLS-{'describe_environment'})]]}
+        return view(self.name)
     def check_health(self): return {'status':'pass'}
     def execute(self,kind,action):
         self.calls.append(action)
@@ -264,6 +268,16 @@ def test_http_backend_refuses_unrelated_remote_origin():
     with pytest.raises(ValueError): HttpMcpBackend('https://attacker.example/mcp')
 
 
+@pytest.mark.parametrize('unsafe',['AdministratorAccess','iam:*','iam:CreateUser','iam:CreateAccessKey'])
+def test_operator_refuses_unsafe_identity_request_before_product_call(tmp_path,unsafe):
+    binary=tmp_path/'operator'; binary.write_text('#!/bin/sh\nexit 0\n'); binary.chmod(0o700)
+    backend=StdioMcpBackend(binary,slot_env={},workdir=tmp_path)
+    def never(*_args,**_kwargs): raise AssertionError('unsafe request reached the operator')
+    backend.rpc=never
+    result=backend.execute('tool_call',{'tool':'provision_infrastructure','arguments':{'variablesJson':unsafe}})
+    assert result['status']=='fail' and result['refusal']=='unsafe-iam-request'
+
+
 @pytest.mark.parametrize('value',[
     {'secretAccessKey':'newly-issued-secret'}, {'session_token':'newly-issued-token'},
     {'content':[{'type':'text','text':'postgresql://user:password@localhost/db'}]},
@@ -317,6 +331,15 @@ def test_unhealthy_vm_blocks_before_cli_session(tmp_path):
     with pytest.raises(ValueError,match='health'):
         run_stage(agent='claude-cli',model='claude-opus-5-5',stage=1,target_kind='remote-vm',
                   prompt='Complete the stage',backends={'quickstart_shell':backend},log_dir=tmp_path,cli_factory=never)
+
+
+def test_incomplete_operator_catalog_blocks_before_cli_session(tmp_path):
+    backend=Backend('describe_environment')
+    backend.tool_view=lambda:view('describe_environment')
+    def never(*_): raise AssertionError('CLI must not start')
+    with pytest.raises(ValueError,match='lacks required'):
+        run_stage(agent='claude-cli',model='claude-opus-5-5',stage=1,target_kind='aws-ecs',
+                  prompt='Complete the stage',backends={'honua_devops':backend},log_dir=tmp_path,cli_factory=never)
 
 
 def test_runner_owned_ssh_tunnel_forwards_loopback_only(tmp_path):

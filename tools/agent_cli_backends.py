@@ -24,6 +24,8 @@ from agent_e2e_local_recorder import write_private
 
 MAX_RESPONSE = 4 * 1024 * 1024
 _SAFE_ID = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\Z')
+_UNSAFE_IAM = re.compile(r'AdministratorAccess|iam:\*|CreateAccessKey|CreateUser\b|'
+                         r'aws_access_key_id|aws_secret_access_key|\bAKIA[A-Z0-9]{16}\b', re.I)
 
 
 def _screen(value, secrets):
@@ -115,6 +117,10 @@ class StdioMcpBackend:
 
     def execute(self, kind, action):
         if kind != 'tool_call': raise ValueError('operator admits tool calls only')
+        if _UNSAFE_IAM.search(json.dumps(action.get('arguments',{}),ensure_ascii=False)):
+            return {'status':'fail','refusal':'unsafe-iam-request',
+                    'result':{'content':[{'type':'text','text':'Request refused by the slot policy.'}],
+                              'isError':True}}
         result = self.rpc('tools/call', {'name':action['tool'],'arguments':action['arguments']})
         return {'status':'fail' if result.get('isError') else 'ok', 'result':result}
 
