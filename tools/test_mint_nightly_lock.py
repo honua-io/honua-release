@@ -1550,9 +1550,9 @@ def test_recorded_ruling_names_exactly_the_current_pins():
               for name, entry in lock['components'].items() for artifact in entry['artifacts']}
     ruled_keys = set(attestation_exceptions.load())
     assert ruled_keys and ruled_keys <= pinned
-    # honua-iac left the set on 2026-10-28: its v0.4.0 commit archive is publisher-attested.
+    # honua-iac and geospatial-mcp left the set once their pins carried publisher attestations.
     assert {key[0] for key in ruled_keys} == {'honua-sdk-js', 'honua-sdk-python', 'honua-sdk-dotnet',
-                                              'geospatial-grpc', 'geospatial-mcp'}
+                                              'geospatial-grpc'}
 
 
 @pytest.mark.parametrize('listed, minted', [(True, True), (False, False)])
