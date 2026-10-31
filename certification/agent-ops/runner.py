@@ -176,6 +176,15 @@ def _measure(prompt: str, transcript: list[dict]) -> dict:
     }
 
 
+def _attempt_counts(transcript: list[dict]) -> dict:
+    return {
+        "actions": sum(1 for item in transcript if item.get("tool")),
+        "nudges": sum(1 for item in transcript if item.get("kind") == "nudge"),
+        "failed_actions": sum(1 for item in transcript if item.get("tool") and
+                              isinstance(item.get("result"), dict) and item["result"].get("ok") is False),
+    }
+
+
 def _drive_stub(scenario: str, state: dict, limit: int) -> tuple[list[dict], bool]:
     transcript: list[dict] = []
     for _ in range(limit):
@@ -191,6 +200,8 @@ def _drive_stub(scenario: str, state: dict, limit: int) -> tuple[list[dict], boo
 def _tool_action(kind: str, action: dict) -> dict:
     if kind == "tool_call":
         return {"tool": action["tool"], "arguments": dict(action.get("arguments") or {})}
+    if kind == "resource_read":
+        return {"tool": "resource_read", "arguments": {"uri": action.get("uri", "")}}
     return {"tool": "terminal_command", "arguments": {"command": action.get("command", "")}}
 
 
@@ -226,7 +237,19 @@ def live_actions(
     on_usage,
     wait_for_server: bool = False,
 ) -> tuple[bool, bool, dict | None]:
-    """Call the canary client. Returns (priced, completed, evidence)."""
+    """Refuse until live trial setup, customer actions and grading are complete."""
+    raise RuntimeError("not-real: live operations and independent readback are not implemented")
+
+
+def _live_session(state: dict, transcript: list[dict], row: dict, arm: str, limit: int, *,
+                  allow_call, on_usage, execute_action, wait_for_server: bool = False
+                  ) -> tuple[bool, bool, dict | None]:
+    """Drive one session with an explicitly supplied action executor.
+
+    This helper does not authorize priced runs; the public entry remains guarded.
+    """
+    if not callable(execute_action):
+        raise ValueError("an explicit action executor is required")
     from client import (
         CanaryError,
         ModelFailure,
@@ -270,7 +293,12 @@ def live_actions(
     priced = False
     retries = 0
     totals = state.setdefault("_bedrock", {"input": 0, "output": 0, "calls": 0, "missing": False})
-    for _ in range(limit):
+    # One invalid reply may cause one retry prompt; that prompt is not an
+    # operator action and must not silently consume the action allowance.
+    for _ in range(limit + 1):
+        if _attempt_counts(transcript)['actions'] >= limit:
+            return priced, False, {"kind": "action_cap", "model_acted": priced,
+                                   "state_changed": any(item.get("tool") for item in transcript)}
         if not allow_call():
             return priced, False, None
         certification = {
@@ -309,6 +337,7 @@ def live_actions(
                 transcript.append({"kind": "report", "text": content, "report": {"summary": content}})
                 return priced, True, None
             retries += 1
+            transcript.append({"kind": "nudge", "reason": "invalid-model-action"})
             messages.append({"role": "user", "content": retry_prompt()})
             continue
         parsed = _tool_action(kind, action)
@@ -316,12 +345,22 @@ def live_actions(
             transcript.append({"kind": "report", "text": json.dumps(parsed["arguments"]), "report": parsed["arguments"]})
             return priced, True, None
         try:
-            result = apply_action(state, {"tool": parsed["tool"], **parsed["arguments"]})
+            result = execute_action(parsed["tool"], parsed["arguments"])
+            if not isinstance(result, dict) or type(result.get("ok")) is not bool:
+                raise ValueError("action response lacks an explicit result")
         except (KeyError, TypeError, ValueError):
             result = {"ok": False, "error": "the arguments do not match this operation"}
+        except Exception as exc:
+            # Preserve the failed attempt even when the executor cannot return
+            # a structured result. The caller must still classify the crash.
+            transcript.append({"tool": parsed["tool"], "arguments": parsed["arguments"],
+                               "result": {"ok": False, "error": "executor-failed",
+                                          "error_type": type(exc).__name__}})
+            raise
         transcript.append({"tool": parsed["tool"], "arguments": parsed["arguments"], "result": result})
         messages.append({"role": "user", "content": json.dumps({"result": result}, default=str)})
-    return priced, True, None
+    return priced, False, {"kind": "action_cap", "model_acted": priced,
+                           "state_changed": any(item.get("tool") for item in transcript)}
 
 
 def _blind(row: dict, root: Path | None = None) -> None:
@@ -350,6 +389,8 @@ def run_row(
     allow_call=None,
     on_usage=None,
 ) -> dict:
+    if model != "stub" or priced_ok:
+        raise RuntimeError("not-real: only unpriced stub self-tests are supported")
     if allow_call is None:
         allow_call = lambda: True
     if on_usage is None:
@@ -397,6 +438,8 @@ def run_row(
                     }
                 if not completed:
                     evidence = live_evidence
+                    if isinstance(live_evidence, dict) and live_evidence.get('kind') == 'action_cap':
+                        cap_exhausted = True
         elif evidence is None and model == "stub":
             transcript, cap_exhausted = _drive_stub(row["scenario"], state, ARMS[arm]["max_actions"])
         measured = _measure(row["prompt"], transcript)
@@ -446,7 +489,7 @@ def run_row(
             "cost_usd": cost,
             "cost_known": cost_known,
             **measured,
-            "actions": sum(1 for item in transcript if item.get("tool")),
+            **_attempt_counts(transcript),
         }
         if evidence is not None and infrastructure_evidence(evidence):
             record["infrastructure"] = True
@@ -468,8 +511,7 @@ def run_row(
             graded["cap_hit"] = True
             if graded["outcome"] == "success":
                 graded["outcome"] = "fail"
-        if model == "live" and priced_ok:
-            graded = _resolve_ambiguous(graded, row["id"], work.parent, live=True)
+        graded = _resolve_ambiguous(graded, row["id"], work.parent, live=(model == "live" and priced_ok))
         record["outcome"] = graded["outcome"]
         record["false_success"] = graded["false_success"]
         record["unsafe"] = graded["unsafe"]
@@ -493,8 +535,7 @@ def _resolve_ambiguous(graded: dict, row_id: str, out: Path, *, live: bool) -> d
         _write_review(out, row_id, packet, "no-rubric" if live else HUMAN_REVIEW)
         return graded
     if not live or JUDGE["mode"] == HUMAN_REVIEW:
-        if JUDGE["mode"] == HUMAN_REVIEW:
-            _write_review(out, row_id, packet, HUMAN_REVIEW)
+        _write_review(out, row_id, packet, HUMAN_REVIEW)
         return graded
     from judge import apply_fallback, classify_decision, invoke_fallback
 
@@ -613,6 +654,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--priced-ok", action="store_true")
     parser.add_argument("--write-rows", nargs="?", const=str(DEFAULT_ROWS), default=None)
     args = parser.parse_args(argv)
+
+    if args.model == "stub" and args.priced_ok:
+        sys.stderr.write("not-real: stub mode cannot be used with --priced-ok\n")
+        return 2
 
     if args.write_rows:
         from rows import write_development
@@ -739,6 +784,13 @@ def main(argv: list[str] | None = None) -> int:
             })
             summary["stop"]["reasons"] = ["endpoint"]
             return _finish(args, summary, blocked)
+
+    if args.model == "live":
+        summary = summarize([])
+        summary.update({"target": args.target, "arm": args.arm, "model": None,
+                        "priced": False, "driver": "live", "status": "not-real"})
+        summary["stop"]["reasons"] = ["not-real"]
+        return _finish(args, summary, "not-real: no scenarios have real operations, probes, and independent readback")
 
     images = None
     if args.execute_compose:

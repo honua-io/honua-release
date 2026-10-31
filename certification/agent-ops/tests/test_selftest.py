@@ -66,7 +66,7 @@ def test_infrastructure_is_fail_unconditionally_and_omitted_when_conditioned():
             "phrasing": "A",
             "outcome": "infrastructure",
             "infrastructure": True,
-            "replacement": {"outcome": "success", "infrastructure": False},
+            "replacement": {"outcome": "success", "infrastructure": False, "false_success": False},
         },
     ]
     summary = summarize(trials)
@@ -91,4 +91,28 @@ def test_infrastructure_rate_and_pilot_stop():
     summary = summarize(infra)
     assert "pilot_infrastructure" in stop_reasons(summary, pilot=True, preflight_ok=True, ledger_status=None, trials=infra)
     assert "infrastructure" in stop_reasons(summary, pilot=False, preflight_ok=True, ledger_status=None, trials=infra)
-    assert stop_reasons(summary, pilot=False, preflight_ok=True, ledger_status="budget_exhausted") == ["budget_exhausted", "infrastructure"]
+    assert stop_reasons(summary, pilot=False, preflight_ok=True, ledger_status="budget_exhausted") == ["budget_exhausted", "unresolved", "infrastructure"]
+
+
+def test_unresolved_false_success_cannot_pass_or_prove_zero():
+    for value in (None, "missing"):
+        trial = {"scenario": "O01", "phrasing": "A", "outcome": "success"}
+        if value is None:
+            trial["false_success"] = None
+        summary = summarize([trial])
+        assert summary["unconditional"]["successes"] == 0
+        assert summary["undetermined"] == 1
+        assert summary["false_success"]["count"] is None
+        assert summary["false_success"]["unresolved"] == 1
+        assert summary["false_success"]["zero_observed_proven"] is False
+        assert "unresolved" in stop_reasons(summary, pilot=True, preflight_ok=True, ledger_status=None, trials=[trial])
+
+
+def test_held_out_unresolved_blocks_zero_false_success_claim():
+    summary = summarize([
+        {"scenario": "O01", "phrasing": "A", "outcome": "success", "false_success": False},
+        {"scenario": "O01", "phrasing": "C", "outcome": "undetermined", "false_success": None},
+    ])
+    assert summary["false_success"]["n"] == 2
+    assert summary["false_success"]["count"] is None
+    assert summary["false_success"]["zero_observed_proven"] is False
