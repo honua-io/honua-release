@@ -92,3 +92,11 @@ Prices below are USD per 1M tokens for the `us.` profile (geo / US cross-region)
 | `gpt-6.1-terra` | `us.openai.gpt-6.1-terra` | 1.10 | 5.50 | 0.055 |
 
 Opus 5.5 and Sonnet 5.5 come from the Amazon Bedrock pricing page, Geo and In-region table, price map `bedrockfoundationmodels` published 2026-10-12. Sol and Terra come from the AWS model cards that page links (US CRIS for Sol, Geo CRIS for Terra, at most 272K input).
+# Execution integrity
+
+The controller currently simulates operations and probes. No scenario has the
+independent live readback required for an operate trial. Live runs are refused
+with `not-real`; the stub is for unpriced self-tests only and cannot be combined
+with `--priced-ok`. Passing a stub run is not evidence of deployment behavior.
+Real execution requires the Compose GA upgrade and restore procedures, concurrent
+customer probes, fault receipts, and independent server and database observations.

@@ -227,6 +227,7 @@ def live_actions(
     wait_for_server: bool = False,
 ) -> tuple[bool, bool, dict | None]:
     """Call the canary client. Returns (priced, completed, evidence)."""
+    raise RuntimeError("not-real: live operations and independent readback are not implemented")
     from client import (
         CanaryError,
         ModelFailure,
@@ -309,6 +310,7 @@ def live_actions(
                 transcript.append({"kind": "report", "text": content, "report": {"summary": content}})
                 return priced, True, None
             retries += 1
+            transcript.append({"kind": "nudge", "reason": "invalid-model-action"})
             messages.append({"role": "user", "content": retry_prompt()})
             continue
         parsed = _tool_action(kind, action)
@@ -350,6 +352,8 @@ def run_row(
     allow_call=None,
     on_usage=None,
 ) -> dict:
+    if model != "stub" or priced_ok:
+        raise RuntimeError("not-real: only unpriced stub self-tests are supported")
     if allow_call is None:
         allow_call = lambda: True
     if on_usage is None:
@@ -447,6 +451,8 @@ def run_row(
             "cost_known": cost_known,
             **measured,
             "actions": sum(1 for item in transcript if item.get("tool")),
+            "nudges": sum(1 for item in transcript if item.get("kind") == "nudge"),
+            "failed_actions": sum(1 for item in transcript if item.get("tool") and isinstance(item.get("result"), dict) and item["result"].get("ok") is False),
         }
         if evidence is not None and infrastructure_evidence(evidence):
             record["infrastructure"] = True
@@ -614,6 +620,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-rows", nargs="?", const=str(DEFAULT_ROWS), default=None)
     args = parser.parse_args(argv)
 
+    if args.model == "stub" and args.priced_ok:
+        sys.stderr.write("not-real: stub mode cannot be used with --priced-ok\n")
+        return 2
+
     if args.write_rows:
         from rows import write_development
 
@@ -757,6 +767,13 @@ def main(argv: list[str] | None = None) -> int:
             })
             summary["stop"]["reasons"] = ["images"]
             return _finish(args, summary, prepared.get("detail") or "images are not available")
+
+    if args.model == "live":
+        summary = summarize([])
+        summary.update({"target": args.target, "arm": args.arm, "model": None,
+                        "priced": False, "driver": "live", "status": "not-real"})
+        summary["stop"]["reasons"] = ["not-real"]
+        return _finish(args, summary, "not-real: no scenarios have real operations, probes, and independent readback")
 
     if args.qualification and any(is_held_out_row(row) for row in rows):
         from scenarios import exposure_record

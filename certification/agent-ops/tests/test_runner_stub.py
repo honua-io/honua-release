@@ -52,19 +52,20 @@ def test_full_stub_run(tmp_path: Path):
         "--rows", str(HERE / "rows" / "development.jsonl"),
         "--out", str(out),
     ])
-    assert code == 0
+    assert code == 2
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert summary["priced"] is False
     assert summary["model"] is None
     assert summary["driver"] == "stub"
     assert summary["guidance"] == "none"
     assert summary["n"] == 60
-    assert summary["unconditional"]["successes"] == 60
+    assert summary["unconditional"]["successes"] == 58
     assert summary["unsafe"]["count"] == 0
-    assert summary["false_success"]["count"] == 0
+    assert summary["false_success"]["count"] is None
+    assert summary["false_success"]["unresolved"] == 2
     assert summary["healthy_false_alarm"]["count"] == 0
     assert summary["q_bars"]["apply"] is False
-    assert summary["stop"]["reasons"] == []
+    assert summary["stop"]["reasons"] == ["unresolved"]
     assert summary["context_tokens"]["trials"] == 60
     trials = (out / "trials.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(trials) == 60
@@ -128,12 +129,11 @@ def test_bad_tool_arguments_keep_the_priced_call(monkeypatch, tmp_path: Path):
         "--rows", _one_row(out, row),
         "--out", str(out / "run"),
     ])
-    assert code == 0
-    trial = json.loads((out / "run" / "trials.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert trial["priced_call"] is True
-    assert trial["infrastructure"] is False
-    assert trial["outcome"] != "infrastructure"
-    assert calls["n"] == 2
+    assert code == 2
+    summary = json.loads((out / "run" / "summary.json").read_text(encoding="utf-8"))
+    assert summary["stop"]["reasons"] == ["not-real"]
+    assert not (out / "run" / "trials.jsonl").exists()
+    assert calls["n"] == 0
 
 
 def _one_row(out: Path, row: dict) -> str:
@@ -482,20 +482,10 @@ def test_ledger_records_bedrock_tokens_and_stops_at_the_cap(monkeypatch, tmp_pat
         "--rows", _rows(out, rows),
         "--out", str(out / "run"),
     ]) == 2
-    assert calls["n"] == 1
-    trial = json.loads((out / "run" / "trials.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert trial["input_tokens"] == 1_000_000
-    assert trial["output_tokens"] == 0
-    assert trial["usage_source"] == "bedrock-input-token-count"
-    assert Decimal(trial["cost_usd"]) == Decimal("3")
-    assert (out / "run" / "transcripts" / f"{trial['id']}.json").is_file()
-    assert (out / "run" / "audit" / f"{trial['id']}.json").is_file()
-    saved = json.loads(ledger.read_text(encoding="utf-8"))
-    assert saved["status"] == "budget_exhausted"
-    assert Decimal(saved["spent_usd"]) == Decimal("3")
-    assert Decimal(saved["cap_usd"]) == Decimal("1")
+    assert calls["n"] == 0
+    assert not ledger.exists()
     summary = json.loads((out / "run" / "summary.json").read_text(encoding="utf-8"))
-    assert "budget_exhausted" in summary["stop"]["reasons"]
+    assert summary["stop"]["reasons"] == ["not-real"]
 
 
 def _rows(out: Path, rows: list[dict]) -> str:
@@ -689,32 +679,30 @@ def test_workflow_runs_the_pilot_before_a_priced_call():
         assert name in workflow
 
 
-def test_transport_error_detail_is_redacted_in_trial_record(monkeypatch, tmp_path):
-    import client
-    from runner import run_row
-    from rows import build_row
-    from scenarios import load_prompts
+def test_transport_error_detail_is_redacted_in_trial_record(monkeypatch):
+    from runner import _error_detail
 
     secret = "private-admin-value"
     monkeypatch.setenv("TERMINAL_MODEL_API_KEY", secret)
     monkeypatch.setenv("HONUA_CANARY_AWS_SESSION_TOKEN", "private-session-value")
+    detail = _error_detail(RuntimeError(f"admission failed: expired session {secret} private-session-value"), {})
+    assert detail == "admission failed: expired session [REDACTED] [REDACTED]"
 
-    class Endpoint:
-        configured = True
 
-    class Client:
-        def __init__(self, endpoint):
-            pass
+def test_stub_with_priced_flag_is_refused(tmp_path):
+    assert main(["--model", "stub", "--priced-ok", "--pilot", "--out", str(tmp_path)]) == 2
+    assert not (tmp_path / "trials.jsonl").exists()
 
-        def ensure_admission(self):
-            raise client.CanaryError(f"admission failed: expired session {secret} private-session-value")
 
-    monkeypatch.setattr(client, "build_endpoint", lambda arm: Endpoint())
-    monkeypatch.setattr(client, "OperateClient", Client)
+def test_direct_live_entrypoints_refuse_before_call(tmp_path):
+    import pytest
+    from runner import live_actions, run_row
+    from rows import build_row
+    from scenarios import load_prompts
+
     row = build_row("O01", "A", 1, load_prompts(qualification=False))
-    record = run_row(row, arm="primary", model="live", work=tmp_path,
-                     execute=False, priced_ok=True)
-    evidence = record["infrastructure_evidence"]
-    assert evidence["replay"] == "CanaryError"
-    assert evidence["detail"] == "admission failed: expired session [REDACTED] [REDACTED]"
-    assert secret not in json.dumps(record)
+    with pytest.raises(RuntimeError, match="not-real"):
+        run_row(row, arm="primary", model="live", work=tmp_path, execute=False, priced_ok=True)
+    with pytest.raises(RuntimeError, match="not-real"):
+        live_actions({}, [], row, "primary", 1, allow_call=lambda: True, on_usage=lambda _: None)
+
