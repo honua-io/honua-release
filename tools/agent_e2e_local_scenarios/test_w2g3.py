@@ -386,7 +386,7 @@ def test_p11_created_map_child_requires_authorship_and_parent_address():
     before=record('p11-maps-before','seed',path,{'data':{'items':[],'total':0,'nextCursor':None}})
     after=record('p11-maps-after','observe',path,{'data':{'items':[{'itemId':item}],'total':1,'nextCursor':None}})
     child=record('p11-map-version','observe','/api/v1/studio/content-items/'+item+'/versions/v1',
-                 {'data':{'envelope':{'body':{'layers':[{'id':'buffer-layer'}]}}}})
+                 {'data':{'itemId':item,'envelope':{'body':{'layers':[{'id':'buffer-layer'}]}}}})
     records={'p11-maps-before':before,'p11-maps-after':after,'p11-map-version':child}
     results=[{'tool':'honua_studio_create_draft','status':'pass',
               'json':{'result':{'structuredContent':{'itemId':item}}}}]
@@ -420,8 +420,8 @@ def test_p11_frozen_geometry_and_map_reject_wrong_state(variant):
     result={'jsonrpc':'2.0','id':1,'result':{'isError':False,'structuredContent':{'returnedCount':1,'resultOffset':0,
         'exceededTransferLimit':False,'geojson':{'type':'FeatureCollection','features':[{'properties':{'source_id':facts['sourceId']},
         'geometry':{'type':'Polygon','coordinates':[ring]}}]}}}}
-    rect=[cx-radius,cy-radius,cx+radius,cy+radius]
-    saved={'data':{'versionId':version,'envelope':{'body':{'view':{'bbox':rect},'layers':[{'id':child,'sourceId':service,'visible':True}]}}}}
+    rect=[cx-radius-100,cy-radius-100,cx+radius+100,cy+radius+100]
+    saved={'data':{'versionId':version,'envelope':{'body':{'view':{'bbox':rect,'crs':'EPSG:3857'},'layers':[{'id':child,'sourceId':service,'visible':True}]}}}}
     current={'data':{'total':1,'items':[{'itemId':item,'currentVersionId':version}]}}
     published={'jsonrpc':'2.0','id':2,'result':{'structuredContent':{'sourceJobId':job,'status':'Completed'}}}
     records={'p11-result-esri':record('p11-result-esri','http',f'/rest/services/{service}/FeatureServer/{layer}/query?f=json',esri),
@@ -435,6 +435,9 @@ def test_p11_frozen_geometry_and_map_reject_wrong_state(variant):
             records=records,roles=roles,scenario_id='P11',frozen=frozen)[0]['status']
     assert score('buffer.metric')=='pass'
     assert score('map.composition')=='pass'
+    narrow=copy.deepcopy(saved); narrow['data']['envelope']['body']['view']['bbox'][0]=cx
+    records['p11-map-version']=record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',narrow)
+    assert score('map.composition')=='fail'
     bad=copy.deepcopy(saved); bad['data']['envelope']['body']['layers'][0]['sourceId']='wrong-service'
     records['p11-map-version']=record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',bad)
     assert score('map.composition')=='fail'
@@ -454,13 +457,13 @@ def test_p11_published_layer_role_requires_new_authored_service():
     path='/api/v1/admin/services/'
     before=record('p11-services-before','seed',path,{'data':[{'serviceName':'old'}]})
     after=record('p11-services-after','observe',path,{'data':[{'serviceName':'old'},{'serviceName':'buffer-service'}]})
-    meta=record('p11-service-meta','observe','/rest/services/buffer-service/FeatureServer?f=json',{'layers':[{'id':7}]})
+    meta=record('p11-service-meta','observe','/rest/services/buffer-service/FeatureServer?f=json',{'serviceName':'buffer-service','layers':[{'id':7}]})
     records={'p11-services-before':before,'p11-services-after':after,'p11-service-meta':meta}
     actions=[{'tool':'honua_publish_result','status':'pass','json':{'result':{'structuredContent':{'serviceId':'buffer-service'}}}}]
     bindings=[x for x in load_roles('P11') if x.role in ('created:service:buffer','child:layer:published')]
     assert resolve_roles(bindings,records,agent_principal='agent',action_results=actions)['child:layer:published']==7
     with pytest.raises(ProjectionError):
         resolve_roles(bindings,records,agent_principal='agent',action_results=[])
-    records['p11-service-meta']=record('p11-service-meta','observe','/rest/services/foreign/FeatureServer?f=json',{'layers':[{'id':7}]})
+    records['p11-service-meta']=record('p11-service-meta','observe','/rest/services/foreign/FeatureServer?f=json',{'serviceName':'buffer-service','layers':[{'id':7}]})
     with pytest.raises(ProjectionError):
         resolve_roles(bindings,records,agent_principal='agent',action_results=actions)
