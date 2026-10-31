@@ -338,7 +338,7 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
     if len(matches) != 1: raise ValueError('requested model absent from bundled CLI catalog')
     selected = copy.deepcopy(matches[0])
     selected.update(shell_type='disabled', apply_patch_tool_type=None, experimental_supported_tools=[],
-                    tool_mode=None)
+                    tool_mode=None, supports_search_tool=False)
     catalog['models'] = [selected]
     path = home / 'models.json'
     write_private(path, encoded(catalog))

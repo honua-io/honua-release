@@ -23,7 +23,8 @@ if args == ['--version']:
     print('fake-cli 1.0'); sys.exit(0)
 if args[:3] == ['debug', 'models', '--bundled']:
     print(json.dumps({'models':[{'slug':'gpt-6.1-sol', 'apply_patch_tool_type':'freeform',
-                                'shell_type':'unified_exec', 'tool_mode':'code_mode_only', 'experimental_supported_tools':['clock']}]}))
+                                'shell_type':'unified_exec', 'tool_mode':'code_mode_only', 'supports_search_tool':True,
+                                'experimental_supported_tools':['clock']}]}))
     sys.exit(0)
 assert all(not any(s in k.upper() for s in ('AWS', 'DATABASE', 'POSTGRES', 'DOCKER', 'HONUA', 'SECRET')) for k in os.environ)
 assert pathlib.Path.home() == pathlib.Path.cwd()
@@ -51,6 +52,7 @@ else:
     assert catalog['models'][0]['apply_patch_tool_type'] is None
     assert catalog['models'][0]['shell_type'] == 'disabled'
     assert catalog['models'][0]['tool_mode'] is None
+    assert catalog['models'][0]['supports_search_tool'] is False
     assert catalog['models'][0]['experimental_supported_tools'] == []
     url = json.loads(overrides['mcp_servers.honua.url'])
     assert json.loads(overrides['mcp_servers.honua.tool_timeout_sec']) >= 2700
