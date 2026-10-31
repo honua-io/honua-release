@@ -28,6 +28,7 @@ def require(condition, reason):
 
 STEP = re.compile(r'[a-z0-9-]{1,80}')
 PHASES = ('seed', 'session', 'observe')
+# 'between' is a temporary phase the runner opens between two model sessions (restart, approval).
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ class Record:
     sha256: str                    # 'sha256:<hex>' of raw
     replay_of: str | None = None   # action-log digest for a replayed model request
     request_arguments_raw: bytes | None = None
+    origin: str = 'controller'     # 'controller' read, or 'session-result': the server's own response to
+                                   # a sealed model action, captured by the runner gateway or proxy
 
     @property
     def json(self) -> Any:
@@ -72,6 +75,8 @@ class Record:
             row['principalId'] = self.principal_id
         if self.replay_of:
             row['replayOf'] = self.replay_of
+        if self.origin != 'controller':
+            row['origin'] = self.origin
         return row
 
 
@@ -172,8 +177,24 @@ class ControllerRecorder:
         return out
 
     # -- lifecycle ---------------------------------------------------------
+    def between(self):
+        """Runner only: open controller reads between two model sessions (records carry phase 'between')."""
+        import contextlib
+        recorder = self
+
+        @contextlib.contextmanager
+        def window():
+            require(recorder.phase == 'session', 'between-session window outside the session phase')
+            recorder.phase = 'between'
+            try:
+                yield recorder
+            finally:
+                recorder.phase = 'session'
+        return window()
+
     def set_phase(self, phase):
-        require(phase in PHASES and PHASES.index(phase) >= PHASES.index(self.phase), 'recorder phase cannot go back')
+        require(self.phase in PHASES and phase in PHASES and PHASES.index(phase) >= PHASES.index(self.phase),
+                'recorder phase cannot go back')
         self.phase = phase
 
     def index(self):
@@ -332,22 +353,23 @@ class ControllerRecorder:
         for expected, row in enumerate(rows, start=1):
             require(row['session'] == session and row['sequence'] == expected, 'action log is out of order')
             read_logged_action(row['logPath'], row['digest'])
-            entry = (session, expected, row['digest'], str(row['logPath']), row['status'])
+            entry = (session, expected, row['digest'], str(row['logPath']), row['status'],
+                     row.get('resultRawSha256'), row.get('resultRawPath'), row.get('resultHttpStatus'))
             self._chain = self._link(self._chain, entry)
             self._actions.append(entry + (self._chain,))
 
     def _verified_entries(self):
         chain = 'sha256:' + hashlib.sha256(b'honua-corpus-action-log/v1').hexdigest()
         for entry in self._actions:
-            chain = self._link(chain, entry[:5])
-            require(chain == entry[5], 'harness action log chain is broken')
+            chain = self._link(chain, entry[:8])
+            require(chain == entry[8], 'harness action log chain is broken')
         require(chain == self._chain, 'harness action log head differs')
-        return [entry[:5] for entry in self._actions]
+        return [entry[:8] for entry in self._actions]
 
     def actions(self):
         """Digest-verified model actions of this case, in execution order (the harness's own log)."""
         out = []
-        for session, sequence, digest, path, status in self._verified_entries():
+        for session, sequence, digest, path, status, *_ in self._verified_entries():
             action = read_logged_action(path, digest)
             out.append(LoggedAction(session, sequence, digest, action.get('kind'), action.get('tool'),
                                     action.get('arguments'), action.get('uri'), status, path))
@@ -358,10 +380,37 @@ class ControllerRecorder:
         require(self.phase == 'observe', 'replay happens after the session')
         require(principal == 'controller', 'replay runs with controller credentials')
         member = (action.session, action.sequence, action.digest, str(action.path), action.status)
-        require(member in self._verified_entries(), 'replay target is not in this case\'s harness action log')
+        require(member in [entry[:5] for entry in self._verified_entries()],
+                'replay target is not in this case\'s harness action log')
         logged = read_logged_action(action.path, action.digest)
         require(logged.get('kind') == 'tool_call' and isinstance(logged.get('arguments'), dict)
                 and isinstance(logged.get('tool'), str), 'only a logged tool call can be replayed')
         tool, arguments = logged['tool'], json.loads(json.dumps(logged['arguments']))
         return self._mcp(step, principal, lambda c: c.call_tool(tool, arguments), replay_of=action.digest,
                          arguments={'tool': tool, 'arguments': arguments}, label='tools/call')
+
+    def action_result(self, step, action: LoggedAction):
+        """Register the server's own response to one sealed model action as observe-phase evidence.
+
+        The bytes were captured by the runner (gateway or recording proxy) when the action ran and
+        sealed into the action chain with their digest; the model never supplies them. Use this for
+        product reports that exist only as the response to the model's call (e.g. an import's
+        per-row errors), and read persisted state with controller reads as well.
+        """
+        require(self.phase == 'observe', 'action results are registered after the session')
+        self._claim(step)
+        entries = [entry for entry in self._verified_entries()
+                   if entry[:5] == (action.session, action.sequence, action.digest, str(action.path), action.status)]
+        require(len(entries) == 1, 'action is not in this case\'s harness action log')
+        _session, _sequence, digest, path, _status, raw_sha, raw_path, http_status = entries[0]
+        require(isinstance(raw_sha, str) and isinstance(raw_path, str), 'no server response was captured for the action')
+        raw = Path(raw_path).read_bytes()
+        require('sha256:' + hashlib.sha256(raw).hexdigest() == raw_sha, 'captured action response digest mismatch')
+        logged = read_logged_action(path, digest)
+        label = 'tools/call' if logged.get('kind') == 'tool_call' else 'resources/read'
+        arguments = ({'tool': logged.get('tool'), 'arguments': logged.get('arguments')} if label == 'tools/call'
+                     else {'uri': logged.get('uri')})
+        _env, identity = self.principals.get('agent', (None, None))
+        return self._store(Record(step, 'observe', 'mcp', 'agent', identity, 'POST', '/mcp#' + label,
+                                  int(http_status or 0), raw, raw_sha, digest, action_bytes(arguments),
+                                  'session-result'))

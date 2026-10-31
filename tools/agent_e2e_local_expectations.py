@@ -12,6 +12,36 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Release-session scope rulings that take an assertion out of the measured arc. An excluded
+# assertion is listed in every receipt as excluded (never dropped, never a pass). Only a
+# registered ruling can exclude, and only the assertions or scenarios it names.
+EXCLUSION_RULINGS = {
+    'founder-ruling-no-multi-tenant-2026.1': {
+        'summary': 'Multi-tenancy is not a 2026.1 customer feature (founder ruling); tenant isolation is out of the arc.',
+        'assertions': frozenset({'tenant.denied'}),
+        'scenarios': frozenset({'P18'}),
+    },
+}
+
+
+def exclusion(value):
+    """The ruling id when an expectation value is an exclusion marker, else None."""
+    if isinstance(value, dict) and '$excluded' in value:
+        if set(value) != {'$excluded'} or not isinstance(value['$excluded'], str):
+            raise ValueError('malformed exclusion marker')
+        return value['$excluded']
+    return None
+
+
+def check_exclusion(scenario_id, assertion, value):
+    ruling = exclusion(value)
+    if ruling is None:
+        return None
+    rule = EXCLUSION_RULINGS.get(ruling)
+    if rule is None or (assertion not in rule['assertions'] and scenario_id not in rule['scenarios']):
+        raise ValueError(f'{assertion} in {scenario_id} is not covered by exclusion ruling {ruling}')
+    return ruling
 DIRECTORY = ROOT / 'certification/agent-e2e/expectations/local'
 
 
@@ -22,6 +52,8 @@ def _oracle():
 
 def _resolve(value, variant):
     if isinstance(value, dict):
+        if '$excluded' in value:
+            return dict(value)
         if '$fixture' in value:
             if set(value) != {'$fixture'} or not isinstance(value['$fixture'], dict):
                 raise ValueError('malformed fixture reference')
@@ -57,4 +89,6 @@ def load_expected(scenario_id, variant):
     assertions = document['variants'].get(variant)
     if not isinstance(assertions, dict) or not assertions:
         raise ValueError('no frozen expectation for this variant')
+    for assertion, value in assertions.items():
+        check_exclusion(scenario_id, assertion, value)
     return _resolve(assertions, variant)

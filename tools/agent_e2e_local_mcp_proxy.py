@@ -23,8 +23,8 @@ MAX_BODY = 512 * 1024
 
 
 class RecordingMcpProxy:
-    def __init__(self, upstream, credential_env, action_log, tool_names):
-        self.upstream, self.credential_env = upstream, credential_env
+    def __init__(self, upstream, credential_env, action_log, tool_names, injector=None):
+        self.upstream, self.credential_env, self.injector = upstream, credential_env, injector
         self.action_log, self.names = action_log, set(tool_names)
         self.token = secrets.token_hex(24)
         self.server = None
@@ -132,6 +132,10 @@ class RecordingMcpProxy:
                 reply['raw'] = self.rpc_error(message, -32602, 'tool is not in the server-authored tool list')
                 return {'status': 'fail', 'refusal': 'invalid-action'}
             from agent_e2e_local_runner import ActionOutcomeUnknown
+            if self.injector is not None and self.injector.intercept(kind, action) is not None:
+                from agent_e2e_local_faults import UNAVAILABLE
+                reply.update(status=503, raw=UNAVAILABLE, ctype='application/json', session=None)
+                return {'status': 'fail', 'httpStatus': 503}
             try:
                 status, raw, ctype, session = self.forward(json.dumps(message).encode(), headers)
             except OSError as exc:
@@ -143,7 +147,11 @@ class RecordingMcpProxy:
                 return {'status': 'fail', 'httpStatus': status}
             result = rpc.get('result')
             failed = status != 200 or 'error' in rpc or (isinstance(result, dict) and result.get('isError') is True)
-            return {'status': 'fail' if failed else 'ok', 'result': result if result is not None else rpc.get('error')}
+            execution = {'status': 'fail' if failed else 'ok', 'result': result if result is not None else rpc.get('error')}
+            if self.injector is not None:
+                self.injector.observe(kind, action, execution)
+            execution['_rawResponse'] = (status, raw)
+            return execution
         from agent_e2e_local_runner import ActionBoundExceeded, ActionOutcomeUnknown
         try:
             self.action_log.dispatch(kind, selected, execute)

@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agent_e2e_local_api import API_VERSION, Observation, RunRecord, Stack  # noqa: E402
+from agent_e2e_local_faults import validate_fault_plan  # noqa: E402
 from agent_e2e_local_recorder import (ControllerRecorder, ProjectionError, action_bytes,  # noqa: E402,F401
                                       read_logged_action, write_private)
 import agent_e2e_local_projections as projections  # noqa: E402
@@ -77,8 +78,13 @@ def _canary():
 # --------------------------------------------------------------------------- scoring
 
 def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None,
-                     credentials=()):
-    """Score each pack assertion from the runner's own recorded responses, failing closed."""
+                     credentials=(), scenario_id=None):
+    """Score each pack assertion from the runner's own recorded responses, failing closed.
+
+    An assertion whose frozen expectation is a registered exclusion marker is reported as
+    ``excluded`` with its ruling; it is never observed, never a pass and never dropped.
+    """
+    from agent_e2e_local_expectations import check_exclusion
     if len(set(assertions)) != len(assertions) or set(expected) != set(assertions):
         raise ValueError('pack assertions and frozen expectations differ')
     by_id = {}
@@ -90,6 +96,10 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
     ctx = projections.Context(records, roles, custody, run_facts, credentials)
     results = []
     for assertion in assertions:
+        ruling = check_exclusion(scenario_id, assertion, expected[assertion])
+        if ruling is not None:
+            results.append({'assertion': assertion, 'status': 'excluded', 'ruling': ruling})
+            continue
         obs = by_id.get(assertion)
         if obs is None:
             results.append({'assertion': assertion, 'status': 'fail', 'reason': 'missing observation'})
@@ -157,8 +167,13 @@ RECEIPT_REQUIRED = ('caseId', 'status', 'candidateDigest', 'attempt', 'arm', 'ap
 def validate_receipt(receipt):
     if not isinstance(receipt, dict) or any(key not in receipt for key in RECEIPT_REQUIRED):
         raise ValueError('malformed case receipt')
-    if receipt['attempt'] != 1 or receipt['status'] not in ('pass', 'fail', 'infrastructure'):
+    if receipt['attempt'] != 1 or receipt['status'] not in ('pass', 'fail', 'infrastructure', 'excluded'):
         raise ValueError('receipt is not a scored first attempt')
+    statuses = [row.get('status') for row in receipt['assertions'] if isinstance(row, dict)]
+    if receipt['status'] == 'excluded':
+        if not statuses or any(status != 'excluded' for status in statuses) or receipt['sessions']:
+            raise ValueError('an excluded case must exclude every assertion and run no session')
+        return
     if receipt['packSha256'] != PACK_SHA256 or receipt['arm'] != arm_for(receipt.get('agentType', 'bedrock-proxy')):
         raise ValueError('receipt was produced from another pack or protocol')
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', str(receipt['candidateDigest'])):
@@ -173,7 +188,8 @@ def validate_receipt(receipt):
             raise ValueError('scored receipt lacks model-visible digests')
         if not isinstance(receipt['assertions'], list) or not receipt['assertions']:
             raise ValueError('scored receipt lacks assertion results')
-        if receipt['status'] == 'pass' and (any(r.get('status') != 'pass' for r in receipt['assertions'])
+        if receipt['status'] == 'pass' and (any(s not in ('pass', 'excluded') for s in statuses)
+                                            or 'pass' not in statuses
                                             or (receipt['finalAnswerCheck'] or {}).get('status') != 'pass'):
             raise ValueError('passing receipt contradicts its own assertions')
 
@@ -198,18 +214,22 @@ def aggregate(expected_cases: list[str], receipts: list[dict], *, candidate_dige
         raise ValueError('case receipts bind different candidates')
 
     def summary(items):
-        n = len(items)
-        passed = sum(row['status'] == 'pass' for row in items)
-        return {'passed': passed, 'failed': sum(row['status'] == 'fail' for row in items),
-                'infrastructure': sum(row['status'] == 'infrastructure' for row in items),
-                'total': n, 'interval95': clopper_pearson(passed, n)}
+        measured = [row for row in items if row['status'] != 'excluded']
+        n = len(measured)
+        passed = sum(row['status'] == 'pass' for row in measured)
+        return {'passed': passed, 'failed': sum(row['status'] == 'fail' for row in measured),
+                'infrastructure': sum(row['status'] == 'infrastructure' for row in measured),
+                'total': n, 'interval95': clopper_pearson(passed, n) if n else None,
+                'excludedCases': [row['caseId'] for row in items if row['status'] == 'excluded'],
+                'excludedAssertions': sum(a.get('status') == 'excluded' for row in items for a in row['assertions'])}
 
     groups = {}
     for case, row in rows.items():
         groups.setdefault(case.split(':', 1)[0], []).append(row)
     arm = next(iter(rows.values()))['arm']
     return {'apiVersion': API_VERSION, 'arm': arm, 'packSha256': PACK_SHA256, 'candidateDigest': digests.pop(),
-            'denominator': 'every inventoried case; infrastructure outcomes count as not passed',
+            'denominator': ('every inventoried case except cases whose every assertion is excluded by a registered '
+                            'scope ruling (listed under excludedCases); infrastructure outcomes count as not passed'),
             'overall': summary(list(rows.values())),
             'scenarios': {name: summary(items) for name, items in sorted(groups.items())},
             'cases': [{key: rows[case].get(key) for key in ('caseId', 'status', 'model', 'temperature', 'nudges',
@@ -241,7 +261,8 @@ def score_final_answer(answer, observations, assertions):
         return {'status': 'fail', 'reason': 'missing final answer or independent handoff observations'}
     if not assertions:
         return {'status': 'fail', 'reason': 'missing assertion scores'}
-    status = 'pass' if all(row.get('status') == 'pass' for row in assertions) else 'fail'
+    scored = [row for row in assertions if row.get('status') != 'excluded']
+    status = 'pass' if scored and all(row.get('status') == 'pass' for row in scored) else 'fail'
     return check(answer, observations, state_status=status)
 
 
@@ -307,8 +328,9 @@ def corpus_system_contract(tool_names):
         + FINAL_CLAUSE)
 
 
-def corpus_user_message(prompt, candidate_release, tool_view):
-    """The canary's unguided stage turn for a one-stage journey carrying only the pack prompt."""
+def corpus_user_message(prompt, candidate_release, tool_view, attachments=()):
+    """The canary's unguided stage turn for a one-stage journey carrying only the pack prompt
+    (and, when the scenario declares them, the customer's attached files)."""
     canary = _canary()
     stage = {'number': 1, 'id': 'customer-request', 'customerRequest': prompt}
     raw = canary.stage_user_message(stage=stage, candidate_release=candidate_release,
@@ -316,6 +338,10 @@ def corpus_user_message(prompt, candidate_release, tool_view):
     payload = json.loads(raw)
     for key in STRIPPED_USER_FIELDS:
         payload.pop(key, None)
+    if attachments:
+        payload['customerAttachments'] = [
+            {'name': item['name'], 'mediaType': item['mediaType'], 'sha256': item['sha256'],
+             'content': Path(item['path']).read_bytes().decode('utf-8')} for item in attachments]
     return json.dumps(payload, separators=(',', ':'))
 
 
@@ -398,6 +424,15 @@ class ActionLog:
                 row['tool'] = selected['tool']
             self.rows.append(row)
         execution = execute(kind, selected)
+        captured = execution.pop('_rawResponse', None) if isinstance(execution, dict) else None
+        if captured is not None:
+            # The server's exact response bytes to this model action, kept privately and sealed
+            # by digest; recorder.action_result() can later register them as evidence.
+            status, raw = captured
+            result_path = self.dir / f'action-{row["sequence"]:04d}.response'
+            write_private(result_path, raw)
+            row.update(resultRawSha256='sha256:' + hashlib.sha256(raw).hexdigest(), resultRawPath=str(result_path),
+                       resultHttpStatus=status)
         row['status'] = 'pass' if execution.get('status') in ('ok', 'pass') else 'fail'
         row['resultDigest'] = 'sha256:' + hashlib.sha256(action_bytes(execution)).hexdigest()
         return execution
@@ -409,7 +444,7 @@ class ActionBoundExceeded(Exception):
 
 def run_model_session(*, prompt, tool_view, client, execute, log_dir, session, max_model_calls, max_actions,
                       max_tokens, certification, candidate_release, clarifications=(), visible_dir=None,
-                      token_budget_used=0, action_log=None):
+                      token_budget_used=0, action_log=None, attachments=()):
     """Drive one fresh model context on the shipped canary path.
 
     ``client`` is a CandidateProxyClient (or a test double with the same ``complete``).
@@ -428,7 +463,7 @@ def run_model_session(*, prompt, tool_view, client, execute, log_dir, session, m
     system = corpus_system_contract(names)
     messages = [{'role': 'system', 'content': system}]
     message_ids = [f'S{session}-M1']
-    canary._append_user(messages, corpus_user_message(prompt, candidate_release, tool_view))
+    canary._append_user(messages, corpus_user_message(prompt, candidate_release, tool_view, attachments))
     message_ids.append(f'S{session}-M2')
     if action_log is None:
         action_log = ActionLog(log_dir, session, names, max_actions)
@@ -554,14 +589,23 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                           'maxTokens': runtime.max_tokens}}
     stack = seeded = None
     acted = False
+    rulings = {}
 
     def all_actions():
         return [a for s in receipt['sessions'] for a in s['actions']]
     try:
         if variant not in DEVELOPMENT_VARIANTS or variant not in scenario.supported_variants:
             raise ValueError('unsupported development variant')
-        if scenario.fault_plan(variant) is not None:
-            raise ValueError('fault injection is not implemented by this runtime')
+        from agent_e2e_local_expectations import check_exclusion
+        expected = scenario.expected(variant)
+        rulings = {a: check_exclusion(scenario.id, a, expected.get(a)) for a in case['assertions']}
+        if case['assertions'] and all(rulings.values()):
+            # Out of the measured arc by a registered ruling: listed, never run, never a pass.
+            receipt['status'] = 'excluded'
+            receipt['assertions'] = [{'assertion': a, 'status': 'excluded', 'ruling': r} for a, r in rulings.items()]
+            receipt['finalAnswerCheck'] = {'status': 'excluded'}
+            return receipt
+        fault_plan = validate_fault_plan(scenario.fault_plan(variant))
         session_count = scenario.sessions_required() if hasattr(scenario, 'sessions_required') else 1
         if type(session_count) is not int or session_count not in (1, 2):
             raise ValueError('unsupported session count')
@@ -569,6 +613,15 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                        else ['admin:write'])
         stack = runtime.setup(case_id, candidate_digest, scenario.needs_approver(), permissions)
         recorder = stack.extra['recorder']
+        if fault_plan is not None:
+            from agent_e2e_local_faults import FaultInjector
+            stack.extra['faultInjector'] = FaultInjector(fault_plan)
+            receipt['faultPlan'] = fault_plan
+        files = scenario.customer_files(variant) if hasattr(scenario, 'customer_files') else []
+        if files:
+            stack.extra['customerFiles'] = runtime.stage_customer_files(stack, files)
+            receipt['customerFiles'] = [{k: f[k] for k in ('corpusPath', 'mediaType', 'sha256')}
+                                        for f in stack.extra['customerFiles']]
         seeded = scenario.seed(stack, variant)
         recorder.set_phase('session')
         sessions, session_ids = [], []
@@ -595,12 +648,23 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['sessions'].append(_session_receipt(row, session_id))
             receipt['nudges'] += row['nudges']
             receipt['tokens'] += row['tokens']
+            if number < session_count and hasattr(scenario, 'between_sessions'):
+                with recorder.between():
+                    directive = scenario.between_sessions(stack, seeded, variant, number)
+                    if directive not in (None, {}, {'restartServer': True}, {'restartServer': False}):
+                        raise ValueError('unsupported between-sessions directive')
+                    if directive and directive.get('restartServer'):
+                        fact = runtime.restart_server(stack, f'between-{number}')
+                        receipt.setdefault('betweenSessions', []).append({'afterSession': number, 'restart': fact})
         acted = bool(all_actions())
         recorder.set_phase('observe')
         custody = runtime.custody(stack)
         clar = tuple(c for s in sessions for c in s.get('clarifications', []))
+        injector = stack.extra.get('faultInjector')
+        fault_events = tuple(dict(e) for e in injector.events) if injector is not None else ()
+        receipt['faultEvents'] = list(fault_events)
         run = RunRecord(agent_principal=runtime.agent_principal(stack), sessions=len(sessions),
-                        fault_events=(), resource_hints=tuple(runtime.resource_hints(stack)),
+                        fault_events=fault_events, resource_hints=tuple(runtime.resource_hints(stack)),
                         final_answers=tuple(s['finalAnswer'] for s in sessions), custody=custody,
                         session_ids=tuple(session_ids), clarifications=clar, action_count=len(all_actions()))
         run_facts = {'agentPrincipal': run.agent_principal, 'sessions': run.sessions,
@@ -609,8 +673,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                      'visibleConversationMessageIds': list(sessions[-1]['messageIds']),
                      'clarificationTopics': [c['topic'] for c in clar],
                      'clarificationMessageIds': [c['messageId'] for c in clar],
-                     'actionCount': run.action_count}
-        expected = scenario.expected(variant)
+                     'actionCount': run.action_count, 'faultEvents': list(fault_events),
+                     'faultFired': bool(fault_events),
+                     'customerFiles': [f['sha256'] for f in stack.extra.get('customerFiles', ())]}
         try:
             observations = observe_scenario(scenario, stack, seeded, variant, run)
             bindings = (scenario.roles(stack, seeded, variant, run) if hasattr(scenario, 'roles') else [])
@@ -619,7 +684,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             custody = runtime.custody(stack)  # includes runner facts recorded during observe (e.g. restarts)
         except Exception as exc:
             # After the session, an observation that cannot be made is a failed case, never a rerun.
-            receipt['assertions'] = [{'assertion': a, 'status': 'fail',
+            receipt['assertions'] = [{'assertion': a, 'status': 'excluded', 'ruling': rulings[a]} if rulings.get(a) else
+                                     {'assertion': a, 'status': 'fail',
                                       'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}
                                      for a in case['assertions']]
             observations, roles = None, {}
@@ -627,7 +693,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['assertions'] = score_assertions(case['assertions'], observations, expected,
                                                      records=sealed, roles=roles, custody=custody,
                                                      run_facts=run_facts,
-                                                     credentials=tuple(getattr(runtime, '_secrets', ())))
+                                                     credentials=tuple(getattr(runtime, '_secrets', ())),
+                                                     scenario_id=scenario.id)
         receipt['roles'] = {name: value for name, value in sorted(roles.items())}
         handoff = None
         if observations is not None and hasattr(scenario, 'handoff'):
@@ -640,14 +707,16 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                 receipt['handoffError'] = str(exc)[:200]
         receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1], handoff, receipt['assertions'])
         receipt['custody'] = custody
-        receipt['status'] = ('pass' if receipt['assertions'] and all(r['status'] == 'pass' for r in receipt['assertions'])
+        scored = [r for r in receipt['assertions'] if r['status'] != 'excluded']
+        receipt['status'] = ('pass' if scored and all(r['status'] == 'pass' for r in scored)
                              and receipt['finalAnswerCheck'].get('status') == 'pass' else 'fail')
     except SessionInterrupted as exc:
         acted = bool(all_actions())
         if exc.category == 'model' or acted:
             receipt['status'] = 'fail'
             receipt['failure'] = {'phase': 'model-session', 'category': exc.category, 'reason': exc.reason}
-            receipt['assertions'] = [{'assertion': a, 'status': 'fail', 'reason': 'session did not finish'}
+            receipt['assertions'] = [{'assertion': a, 'status': 'excluded', 'ruling': rulings[a]} if rulings.get(a) else
+                                     {'assertion': a, 'status': 'fail', 'reason': 'session did not finish'}
                                      for a in case['assertions']]
             receipt['finalAnswerCheck'] = {'status': 'fail', 'reason': 'no final answer'}
         else:
@@ -748,7 +817,7 @@ class BedrockProxySession:
                            'endpointIdentity': endpoint.validated_base_url(), 'runNonce': uuid.uuid4().hex},
             candidate_release=context.candidate_release, clarifications=context.clarifications,
             visible_dir=Path(self.stack.workdir) / 'model-visible', token_budget_used=context.token_budget_used,
-            action_log=_GatewayLog(context.execute))
+            action_log=_GatewayLog(context.execute), attachments=context.attachments)
         return SessionResult(
             agent_type=self.agent_type, model_id=self.runtime.model, final_answer=output['finalAnswer'],
             temperature=None, temperature_policy='omitted: provider default, as the shipped Studio AI client sends',
@@ -814,8 +883,6 @@ class LocalRuntime:
         import yaml
         if not re.fullmatch(r'P\d\d:[AB]:local-docker', case_id):
             raise ValueError('invalid case identity')
-        if needs_approver:
-            raise ValueError('separate approver handoff is not yet implemented')
         if (not isinstance(agent_permissions, (list, tuple)) or not agent_permissions
                 or any(not isinstance(p, str) or not re.fullmatch(r'[a-z]+:[a-z*]+', p) for p in agent_permissions)):
             raise ValueError('invalid agent permission set')
@@ -847,10 +914,40 @@ class LocalRuntime:
                       extra={'workspaceId': workspace, 'needsApprover': needs_approver})
         try:
             self._prepare(stack, list(agent_permissions))
+            if needs_approver:
+                stack = self._mint_approver(stack)
         except Exception:
             self.teardown(stack)
             raise
         return stack
+
+    def _mint_approver(self, stack):
+        """A distinct approver credential: a recorder principal, never visible to the model."""
+        import dataclasses
+        approver_id = self.add_principal(stack, 'approver', ['admin:approve'])
+        key = os.environ['HONUA_CORPUS_PRINCIPAL_APPROVER']
+        stack.extra['custody']['approverPrincipalId'] = approver_id
+        stack.extra['custody']['evidenceSteps'].append('runner-principal-approver')
+        stack = dataclasses.replace(stack, approver_key=key)
+        stack.extra['approve'] = lambda proposal_id, step=None: self.approve(stack, proposal_id, step)
+        return stack
+
+    def approve(self, stack, proposal_id, step=None):
+        """Approve one proposal as the separate approver principal; the response is recorded."""
+        from urllib.parse import quote
+        recorder = stack.extra['recorder']
+        if 'approver' not in recorder.principals:
+            raise ValueError('this case has no approver principal (needs_approver() is False)')
+        if not isinstance(proposal_id, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', proposal_id):
+            raise ValueError('invalid proposal id')
+        count = len(stack.extra.setdefault('approvals', []))
+        step = step or f'runner-approve-{count + 1}'
+        answer = recorder.json(step, 'POST', '/api/v1/admin/proposals/' + quote(proposal_id, safe='') + '/approve',
+                               principal='approver')
+        stack.extra['approvals'].append({'proposalId': proposal_id, 'step': step,
+                                         'httpStatus': answer['observation']['httpStatus']})
+        stack.extra['custody']['approvals'] = list(stack.extra['approvals'])
+        return answer
 
     def _recorder(self, stack, principals):
         ledger = self._ledgers.setdefault(stack.compose_project, {})
@@ -946,42 +1043,54 @@ class LocalRuntime:
         return created['apiKey']['id']
 
     def restart_server(self, stack, prefix):
-        """Runner-performed server restart, observed: container start times and readiness reads."""
+        """Runner-performed `docker compose restart server`, observed: container start times and readiness reads.
+
+        Allowed in seed, between sessions and observe; never while the model session runs.
+        """
         import subprocess
         recorder = stack.extra['recorder']
         if recorder.phase == 'session' or not re.fullmatch(r'[a-z0-9-]{1,40}', prefix):
             raise ValueError('restart is a controller step outside the model session')
         labels = ['--filter', f'label=com.docker.compose.project={stack.compose_project}',
                   '--filter', 'label=com.docker.compose.service=server']
-        ids = subprocess.run(['docker', 'ps', '-q', *labels], capture_output=True, text=True, check=True,
-                             timeout=60).stdout.split()
-        if not ids:
-            raise RuntimeError('no running server container for the case stack')
 
         def started():
-            out = subprocess.run(['docker', 'inspect', '--format', '{{.Id}} {{.State.StartedAt}}', *ids],
-                                 capture_output=True, text=True, check=True, timeout=60).stdout
-            return sorted(out.split('\n')[:-1])
+            ids = subprocess.run(['docker', 'ps', '-aq', *labels], capture_output=True, text=True, check=True,
+                                 timeout=60).stdout.split()
+            if not ids:
+                raise RuntimeError('no server container for the case stack')
+            out = subprocess.run(['docker', 'inspect', '--format', '{{.Id}} {{.State.StartedAt}} {{.State.Status}}',
+                                  *ids], capture_output=True, text=True, check=True, timeout=60).stdout
+            return sorted(line for line in out.splitlines() if line)
         before = started()
-        subprocess.run(['docker', 'restart', '--time', '30', *ids], capture_output=True, check=True, timeout=300)
+        restart = self.compose_restart(stack)
         after = started()
-        steps, deadline = [], time.time() + 300
-        while time.time() < deadline:
+        steps, deadline, ready = [], time.time() + 300, False
+        while time.time() < deadline and not ready:
             step = f'{prefix}-ready-{len(steps) + 1}'
+            steps.append(step)
             try:
-                answer = recorder.json(step, 'GET', '/api/v1/admin/version')
-                steps.append(step)
-                if answer['observation']['httpStatus'] == 200:
-                    break
+                ready = recorder.json(step, 'GET', '/api/v1/admin/version')['observation']['httpStatus'] == 200
             except Exception:
-                steps.append(step)
-            time.sleep(3)
-        fact = {'containersBefore': before, 'containersAfter': after, 'readinessSteps': steps,
-                'restarted': before != after and bool(steps) and step in recorder.records
-                and recorder.records[step].status == 200}
+                ready = False
+            if not ready:
+                time.sleep(3)
+        restarted = (restart == 0 and len(before) == len(after)
+                     and all(a.split()[0] == b.split()[0] and a.split()[1] != b.split()[1]
+                             for a, b in zip(after, before)))
+        fact = {'command': 'docker compose restart server', 'exitCode': restart,
+                'containersBefore': before, 'containersAfter': after, 'readinessSteps': steps,
+                'ready': ready, 'restarted': restarted and ready}
         stack.extra['custody'].setdefault('restarts', []).append({'prefix': prefix, **fact})
         stack.extra['custody'][f'restart:{prefix}'] = fact
         return fact
+
+    def compose_restart(self, stack):
+        """`docker compose -f <file> -p <project> restart server` with the driver's own compose env."""
+        driver = _live_driver_module()
+        state, target, manifest, _observation, _workspace = driver._rehydrate({'workspaceId': stack.extra['workspaceId']})
+        compose, _base, _image = driver._compose_for(target, manifest, Path(state['workdir']))
+        return compose._run('restart', 'server', timeout=600).returncode
 
     def custody(self, stack):
         return dict(stack.extra['custody'])
@@ -1058,18 +1167,22 @@ class LocalRuntime:
         names = set(canary._tool_names(tool_view))
         action_log = ActionLog(Path(stack.workdir) / f'session-{number}', number, names, self.max_actions)
         raw = self.raw_execute(stack, names)
+        injector = stack.extra.get('faultInjector')
+        if injector is not None:
+            raw = injector.wrap(raw)
         proxies = []
 
         def mcp_proxy():
             from agent_e2e_local_mcp_proxy import RecordingMcpProxy
-            proxy = RecordingMcpProxy(stack.base_url + '/mcp', self.AGENT_ENV, action_log, names)
+            proxy = RecordingMcpProxy(stack.base_url + '/mcp', self.AGENT_ENV, action_log, names, injector=injector)
             proxies.append(proxy)
             return proxy.start()
         context = SessionContext(
             prompt=prompt, session=number, candidate_release=self.release_id,
             limits=SessionLimits(self.max_model_calls, self.max_actions, self.max_tokens), tool_view=tool_view,
             execute=lambda kind, action: action_log.dispatch(kind, action, raw), mcp_proxy=mcp_proxy,
-            workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used)
+            workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
+            attachments=tuple(stack.extra.get('customerFiles', ())))
         agent = self.agent_session(stack)
         try:
             result = agent.run(context)
@@ -1094,6 +1207,10 @@ class LocalRuntime:
             failure = result.failure or {'category': 'model', 'reason': 'session returned no final answer'}
             raise SessionInterrupted(failure.get('category', 'model'), output, failure.get('reason', ''))
         return output
+
+    def stage_customer_files(self, stack, paths):
+        """Copy the scenario's declared corpus files into the case's customer-files folder, digest-checked."""
+        return stage_customer_files(Path(stack.workdir) / 'customer-files', paths)
 
     def agent_session(self, stack):
         factory = SESSIONS.get(self.agent)
@@ -1126,15 +1243,32 @@ def execute_customer_action(client, names, kind, action, collect=lambda value: N
         call = lambda: client.call_tool(action['tool'], action['arguments'])  # noqa: E731
     else:
         return {'status': 'fail', 'refusal': 'invalid-action', 'result': {'accepted': False, 'reason': 'unknown action'}}
+    import base64
+    before = len(getattr(client, 'observations', []))
+
+    def captured():
+        rows = [row for row in getattr(client, 'observations', [])[before:]
+                if row.get('rpcMethod') in ('tools/call', 'resources/read')]
+        if len(rows) != 1:
+            return None
+        return rows[0]['httpStatus'], base64.b64decode(rows[0]['bodyBase64'])
     try:
         result = call()
     except McpError as exc:
         if exc.category == 'rpc-error':
-            return {'status': 'fail', 'refusal': 'candidate-refusal', 'result': {'error': exc.public_error}}
+            out = {'status': 'fail', 'refusal': 'candidate-refusal', 'result': {'error': exc.public_error}}
+            raw = captured()
+            if raw is not None:
+                out['_rawResponse'] = raw
+            return out
         raise ActionOutcomeUnknown(exc.category) from exc
     collect(result.get('structuredContent') if isinstance(result, dict) else None)
     error = isinstance(result, dict) and result.get('isError') is True
-    return {'status': 'fail' if error else 'ok', 'result': result}
+    out = {'status': 'fail' if error else 'ok', 'result': result}
+    raw = captured()
+    if raw is not None:
+        out['_rawResponse'] = raw
+    return out
 
 
 def record_export_failure(receipt, reason):
@@ -1187,8 +1321,38 @@ def export_case_evidence(case_dir, out_dir, secret_values):
             (target / path.name).write_bytes(exported)
 
 
-def create_local_connection(stack):
-    """Use the journey's typed SDK path to create the case fixture connection."""
+MEDIA_TYPES = {'.geojson': 'application/geo+json', '.json': 'application/json', '.csv': 'text/csv'}
+
+
+def stage_customer_files(folder, paths):
+    """Only manifest-listed corpus files, byte-checked, become customer attachments."""
+    import shutil
+    corpus = ROOT / 'certification/agent-e2e/corpus'
+    manifest = json.loads((corpus / 'manifest.v1.json').read_text())
+    listed = {row['path']: row['sha256'] for row in manifest['files']}
+    if not isinstance(paths, (list, tuple)) or len(set(paths)) != len(paths):
+        raise ValueError('customer files must be a list of distinct corpus paths')
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    staged, total = [], 0
+    for relative in paths:
+        if relative not in listed or Path(relative).suffix not in MEDIA_TYPES:
+            raise ValueError('customer file is not a manifest-listed corpus file: ' + str(relative))
+        raw = (corpus / relative).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != listed[relative].removeprefix('sha256:'):
+            raise ValueError('customer file differs from the corpus manifest: ' + relative)
+        raw.decode('utf-8')
+        total += len(raw)
+        if total > 4 * 1024 * 1024:
+            raise ValueError('customer files exceed the 4 MB inline bound')
+        name = relative.replace('/', '__')
+        shutil.copyfile(corpus / relative, folder / name)
+        staged.append({'name': Path(relative).name, 'corpusPath': relative, 'mediaType': MEDIA_TYPES[Path(relative).suffix],
+                       'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest(), 'path': str(folder / name)})
+    return tuple(staged)
+
+
+def _live_driver_module():
     driver_path = ROOT / 'certification/terminal-journey/live_driver.py'
     name = 'corpus_live_driver'
     if name not in sys.modules:
@@ -1197,7 +1361,12 @@ def create_local_connection(stack):
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
-    driver = sys.modules[name]
+    return sys.modules[name]
+
+
+def create_local_connection(stack):
+    """Use the journey's typed SDK path to create the case fixture connection."""
+    driver = _live_driver_module()
     state, target, _manifest, observation, _workspace = driver._rehydrate({'workspaceId': stack.extra['workspaceId']})
     engine = driver._executor(state, target, observation)
     created = engine.sdk_call('CreateConnectionAsync', [engine.datasource_arguments()])

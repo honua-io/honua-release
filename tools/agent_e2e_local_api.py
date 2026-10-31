@@ -163,6 +163,7 @@ class SessionContext:
     workdir: str                     # private per-session scratch directory (controller side)
     clarifications: tuple = ()       # scripted customer replies, sent in pack order
     token_budget_used: int = 0
+    attachments: tuple = ()          # customer files the scenario declared: {name, mediaType, sha256, path}
 
 
 @dataclass(frozen=True)
@@ -208,6 +209,15 @@ class Scenario:
     def agent_permissions(self, variant: str) -> list[str]: return ['admin:write']
     def roles(self, stack: Stack, seeded: Seeded, variant: str, run: RunRecord | None = None) -> list[RoleBinding]: return []
     def handoff(self, stack: Stack, seeded: Seeded, variant: str, run: RunRecord | None = None) -> dict | None: return None
+    def between_sessions(self, stack: Stack, seeded: Seeded, variant: str, after_session: int) -> dict | None:
+        """Called after each model session except the last, with controller reads open (phase 'between').
+        May call stack.extra['approve'](...). Return {'restartServer': True} to have the runner perform a
+        recorded `docker compose restart server` before the next session."""
+        return None
+    def customer_files(self, variant: str) -> list[str]:
+        """Corpus files (paths relative to certification/agent-e2e/corpus) the customer attaches. The runner
+        verifies each against the corpus manifest, records its digest and shows its content to the model."""
+        return []
     def observe(self, stack: Stack, seeded: Seeded, variant: str, run: RunRecord | None = None) -> list[Observation]: ...
     def expected(self, variant: str) -> dict[str, Any]:   # assertion_id -> expected value for oracle.verify
         from agent_e2e_local_expectations import load_expected
