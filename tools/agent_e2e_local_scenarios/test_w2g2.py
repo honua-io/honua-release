@@ -46,6 +46,9 @@ def test_p06_seed_includes_survey_and_is_idempotent(monkeypatch, tmp_path):
     calls = []
 
     class Recorder:
+        def json(self, step, method, path):
+            calls.append(('read', step))
+            return {'observation': {'httpStatus': 200, 'body': {'data': []}}}
         def upload(self, step, raw, **kwargs):
             calls.append(('upload', step, kwargs['table'], len(raw)))
             return {'fixture': True}
@@ -76,7 +79,7 @@ def test_p07_catalog_rejects_missing_layer(variant):
     scenario = load_scenario('P07')
     roles = {f'seeded:service:{name}': name for name in ('parcels', 'flood_zones', 'shelters', 'countries')}
     action = {'kind': 'tool_call', 'tool': 'honua_list_layers', 'arguments': {}}
-    action_id = 'sha256:' + 'a' * 64
+    action_id = 'occ:1:1:sha256:' + 'a' * 64
     def score(names):
         response = {'jsonrpc': '2.0', 'id': 1, 'result': {'isError': False, 'structuredContent':
                     {'layers': [{'serviceName': name} for name in names]}}}
@@ -214,34 +217,49 @@ def test_p07_refuses_agent_catalog_that_differs_from_controller(tmp_path):
     assert [row.assertion_id for row in load_scenario('P07').observe(stack, None, 'A')] == ['tenant.denied']
 
 
-def test_p03_records_the_same_unpaged_inventory_before_and_after(tmp_path):
+def test_p03_records_the_same_unpaged_inventory_before_and_after(tmp_path, monkeypatch):
+    from agent_e2e_local_api import Seeded
+    from agent_e2e_local_scenarios.P06 import P06
+    layers = {name: {'table': name, 'schema': 'honua_data'}
+              for name in ('flood_zones', 'parcels', 'shelters', 'survey_points')}
+    monkeypatch.setattr(P06, 'seed', lambda self, stack, variant: Seeded({'layers': layers}))
     calls = []
     class Recorder:
-        def json(self, *args): calls.append(args)
+        def json(self, *args):
+            calls.append(args)
+            return {'observation': {'httpStatus': 200, 'body': {'data': []}}}
+        def sql(self, step, query):
+            name = step.removeprefix('p03-').removesuffix('-table').replace('-', '_')
+            return [{'table_name': name}]
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
-                  {'recorder': Recorder()})
+                  {'recorder': Recorder(), 'databaseHandoff': lambda name, schema: calls.append(('handoff', name, schema))})
     case = load_scenario('P03')
     seeded = case.seed(stack, 'A')
     assert case.seed(stack, 'A') == seeded
-    assert case.observe(stack, seeded, 'A') == []
-    assert calls == [('p03-connections-before', 'GET', '/api/v1/admin/connections'),
+    assert [row.assertion_id for row in case.observe(stack, seeded, 'A')] == ['tenant.denied']
+    assert calls == [('handoff', 'town', 'honua_data'),
+                     ('p03-connections-before', 'GET', '/api/v1/admin/connections'),
                      ('p03-connections-after', 'GET', '/api/v1/admin/connections')]
 
 
-def test_p05_retains_only_the_last_agent_import_report(tmp_path):
+def test_p05_retains_only_the_last_matching_import_report(tmp_path):
     from types import SimpleNamespace
+    root = __import__('pathlib').Path(__file__).resolve().parents[2]
+    source = (root / 'certification/agent-e2e/corpus/town-A/invalid-rows.csv').read_text()
     calls = []
     class Recorder:
         def actions(self):
-            return [SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', sequence=1),
-                    SimpleNamespace(kind='tool_call', tool='another_tool', sequence=2),
-                    SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', sequence=3)]
-        def action_result(self, step, action): calls.append((step, action.sequence))
+            return [SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', sequence=1, arguments={'data': source}),
+                    SimpleNamespace(kind='tool_call', tool='another_tool', sequence=2, arguments={}),
+                    SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', sequence=3, arguments={'data': source})]
+        def action_result(self, step, action):
+            calls.append((step, action.sequence))
+            return SimpleNamespace(status=200, json={'result': {'structuredContent': {'success': False}}})
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     case = load_scenario('P05')
-    assert case.observe(stack, case.seed(stack, 'A'), 'A') == []
-    assert calls == [('p05-import-report', 3)]
+    assert [item.assertion_id for item in case.observe(stack, case.seed(stack, 'A'), 'A')] == ['source-content.unchanged']
+    assert calls == [('p05-invalid-report', 3)]
 
 
 def test_core_role_binding_rejects_two_services_from_same_tool():
@@ -253,12 +271,12 @@ def test_core_role_binding_rejects_two_services_from_same_tool():
 
     def record(step, phase, rows):
         raw = json.dumps({'data': rows, 'next': None}).encode()
-        return Record(step, phase, 'http', 'controller', 'admin', 'GET', '/services', 200,
+        return Record(step, phase, 'http', 'controller', 'admin', 'GET', '/api/v1/admin/services', 200,
                       raw, 'sha256:' + hashlib.sha256(raw).hexdigest())
     records = {'before': record('before', 'seed', []),
                'after': record('after', 'observe', [{'name': 'parcels'}, {'name': 'shelters'}])}
     binding = RoleBinding('created:service:parcels', 'after', items='/data', id='/name',
-                          before='before', next_page='/next',
+                          before='before',
                           created_by={'tool': 'honua_publish_service', 'pointer': '/result/structuredContent/serviceName'})
     actions = [{'tool': 'honua_publish_service', 'status': 'pass',
                 'json': {'result': {'structuredContent': {'serviceName': name}}}}
@@ -287,3 +305,140 @@ def test_core_connection_binding_uses_unpaged_inventory_and_owner():
     records['after'] = record('after', 'observe', [{'connectionId': 'foreign', 'createdBy': 'other'}])
     with pytest.raises(ValueError, match='matched 0'):
         resolve_roles([binding], records, agent_principal='agent')
+
+
+@pytest.mark.parametrize('scenario_id', ['P04', 'P05'])
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_attachment_snapshot_rejects_changed_content(scenario_id, variant):
+    import copy
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    scenario = load_scenario(scenario_id)
+    expected = scenario.expected(variant)
+    rows = expected['source-content.unchanged']['resources']
+    initial = {row['resourceId']: row['content']['sha256'] for row in rows}
+    custody = {'customerFiles:before': initial, 'customerFiles:after': dict(initial)}
+    observations = [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
+    def score(facts):
+        return score_assertions(list(expected), observations, expected, records={}, custody=facts,
+                                scenario_id=scenario_id, frozen=frozen_projections(scenario, variant))
+    assert next(row for row in score(custody) if row['assertion'] == 'source-content.unchanged')['status'] == 'pass'
+    wrong = copy.deepcopy(custody)
+    wrong['customerFiles:after'][rows[0]['resourceId']] = 'sha256:' + '0' * 64
+    assert next(row for row in score(wrong) if row['assertion'] == 'source-content.unchanged')['status'] == 'fail'
+
+
+def test_p03_catalog_missing_dataset_fails_oracle():
+    expected = {'resourceIds': ['flood_zones', 'parcels', 'shelters', 'survey_points']}
+    oracle.verify('catalog.exact', {'resourceIds': list(expected['resourceIds'])}, expected)
+    with pytest.raises(oracle.VerificationError):
+        oracle.verify('catalog.exact', {'resourceIds': expected['resourceIds'][:-1]}, expected)
+
+
+def test_p03_frozen_projection_rejects_missing_live_dataset():
+    import hashlib
+    import json
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    scenario = load_scenario('P03')
+    connection = '11111111-1111-1111-1111-111111111111'
+    names = ['flood_zones', 'parcels', 'shelters', 'survey_points']
+    roles = {'created:connection': connection, **{'seeded:table:' + name: name for name in names}}
+    def record(step, method, path, body):
+        raw = json.dumps(body).encode()
+        return Record(step, 'observe', 'http', 'controller', 'admin', method, path, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    path = '/api/v1/admin/connections/' + connection
+    probe = record('p03-connection-probe', 'POST', path + '/test', {'data': {'isHealthy': True}})
+    def score(found):
+        catalog = record('p03-catalog', 'GET', path + '/tables', {'tables': [{'table': name} for name in found]})
+        observed = [Observation(name, None, {'projection': 'extract/v1'})
+                    for name in ('connection.verified', 'catalog.exact', 'tenant.denied')]
+        return score_assertions(list(scenario.expected('A')), observed, scenario.expected('A'),
+            records={'p03-connection-probe': probe, 'p03-catalog': catalog}, roles=roles,
+            scenario_id='P03', frozen=frozen_projections(scenario, 'A'))
+    assert [row['status'] for row in score(names)] == ['pass', 'pass', 'excluded']
+    assert [row['status'] for row in score(names[:-1])] == ['fail', 'fail', 'excluded']
+
+
+def test_p05_reads_only_a_safe_table_named_by_the_sealed_report(tmp_path):
+    from types import SimpleNamespace
+    calls = []
+    root = __import__('pathlib').Path(__file__).resolve().parents[2]
+    source = (root / 'certification/agent-e2e/corpus/town-A/shelters.csv').read_text()
+    class Recorder:
+        def __init__(self, table): self.table = table
+        def actions(self): return [SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', arguments={'data': source})]
+        def action_result(self, step, action):
+            return SimpleNamespace(status=200, json={'result': {'isError': False, 'structuredContent': {
+                'success': True, 'schema': 'honua_data', 'table': self.table, 'geometryColumn': 'geom'}}})
+        def sql(self, step, query): calls.append((step, query))
+    def observe(table):
+        stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                      {'recorder': Recorder(table)})
+        case = load_scenario('P05')
+        case.observe(stack, case.seed(stack, 'A'), 'A')
+    observe('imported_shelters')
+    assert len(calls) == 1 and 'FROM honua_data.imported_shelters' in calls[0][1]
+    observe('unsafe;drop')
+    assert len(calls) == 1
+
+
+def test_p04_only_reads_a_table_from_the_matching_sealed_input(tmp_path):
+    from types import SimpleNamespace
+    root = __import__('pathlib').Path(__file__).resolve().parents[2]
+    source = (root / 'certification/agent-e2e/corpus/town-A/parcels.4326.geojson').read_text()
+    calls = []
+    class Recorder:
+        def actions(self):
+            return [SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', arguments={'data': source})]
+        def action_result(self, step, action):
+            return SimpleNamespace(status=200, json={'result': {'isError': False, 'structuredContent': {
+                'success': True, 'schema': 'honua_data', 'table': 'imported_parcels', 'geometryColumn': 'geom'}}})
+        def sql(self, step, query): calls.append((step, query))
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    scenario = load_scenario('P04')
+    assert [item.assertion_id for item in scenario.observe(stack, scenario.seed(stack, 'A'), 'A')] == ['source-content.unchanged']
+    assert len(calls) == 1 and calls[0][0] == 'p04-parcels-rows'
+    assert 'FROM honua_data.imported_parcels' in calls[0][1]
+
+
+def test_p03_checks_server_api_key_owner_before_probes(tmp_path):
+    from types import SimpleNamespace
+    from agent_e2e_local_api import Seeded
+    key = '11111111-1111-1111-1111-111111111111'
+    calls = []
+    class Recorder:
+        def json(self, step, method, path):
+            calls.append(step)
+            if step == 'p03-connections-after':
+                body = {'data': [{'connectionId': key, 'createdBy': 'api-key:agent'}]}
+            elif step == 'p03-connection-probe':
+                body = {'data': {'isHealthy': True}}
+            else:
+                body = {'tables': []}
+            return {'observation': {'httpStatus': 200, 'body': body}}
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    rows = load_scenario('P03').observe(stack, Seeded({'baseline': []}), 'A', SimpleNamespace(agent_principal='agent'))
+    assert {row.assertion_id for row in rows} == {'tenant.denied', 'connection.verified', 'catalog.exact'}
+    assert calls == ['p03-connections-after', 'p03-connection-probe', 'p03-catalog']
+
+
+def test_p06_records_agent_publications_for_later_role_binding(tmp_path):
+    from types import SimpleNamespace
+    from agent_e2e_local_api import Seeded
+    calls = []
+    class Recorder:
+        def json(self, *args): calls.append(args[0])
+        def actions(self):
+            return [SimpleNamespace(kind='tool_call', tool='honua_publish_service', sequence=1),
+                    SimpleNamespace(kind='tool_call', tool='honua_query_features', sequence=2),
+                    SimpleNamespace(kind='tool_call', tool='honua_publish_service', sequence=3)]
+        def action_result(self, step, action): calls.append((step, action.sequence))
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    assert load_scenario('P06').observe(stack, Seeded({}), 'A') == []
+    assert calls == ['p06-services-after', ('p06-publish-001', 1), ('p06-publish-002', 3)]

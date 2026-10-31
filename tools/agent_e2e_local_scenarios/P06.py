@@ -50,12 +50,22 @@ class P06(Scenario):
             layers[name] = completed_import(recorder, accepted, table=table,
                 feature_count=len(json.loads(raw)['features']), step='p06-' + step + '-complete',
                 before_tables=before, connection=connection)
+        before = recorder.json('p06-services-before', 'GET', '/api/v1/admin/services')
+        body = before['observation']['body']
+        if before['observation']['httpStatus'] != 200 or not isinstance(body, dict) or not isinstance(body.get('data'), list):
+            raise ValueError('service baseline unavailable')
         state = {'variant': variant, 'layers': layers}
         stack.extra['p06Seed'] = state
         return Seeded(state)
 
     def observe(self, stack, seeded, variant, run=None):
-        raise NotImplementedError('P06: multiple-service role binding and assertion projections are unavailable')
+        recorder = stack.extra['recorder']
+        recorder.json('p06-services-after', 'GET', '/api/v1/admin/services')
+        actions = [action for action in recorder.actions()
+                   if action.kind == 'tool_call' and action.tool == 'honua_publish_service']
+        for ordinal, action in enumerate(actions, 1):
+            recorder.action_result(f'p06-publish-{ordinal:03}', action)
+        return []
 
 
 scenario = P06()
