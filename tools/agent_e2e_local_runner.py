@@ -20,7 +20,7 @@ oracle = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(oracle)
 
 
-def score_assertions(assertions: list[str], observations: list[Observation], expected: dict) -> list[dict]:
+def score_assertions(assertions: list[str], observations: list[Observation], expected: dict, *, trusted_requests=None) -> list[dict]:
     """Require exactly one independently evidenced observation per pack assertion."""
     if len(set(assertions)) != len(assertions) or set(expected) != set(assertions):
         raise ValueError('pack assertions and frozen expectations differ')
@@ -48,6 +48,9 @@ def score_assertions(assertions: list[str], observations: list[Observation], exp
                     raise ValueError('controller evidence digest mismatch')
                 if not isinstance(request['method'], str) or not isinstance(request['url'], str) or type(request['status']) is not int:
                     raise ValueError('invalid controller response metadata')
+                identity = (request['method'], request['url'], request['status'], 'sha256:' + digest)
+                if trusted_requests is None or identity not in trusted_requests:
+                    raise ValueError('controller response absent from runner-owned recorder')
                 hashes.append('sha256:' + digest)
                 raw_bodies.append(raw)
             # Until a controller-owned projection is registered for an assertion,
@@ -260,7 +263,7 @@ def run_model_session(*, prompt, tool_catalog, complete, invoke, log_dir, max_tu
         try:
             result = invoke(selected['tool'], selected['arguments'])
         except Exception:
-            stop('infrastructure')
+            stop('post-action-undetermined')
         action_record['status'] = 'fail' if result.get('isError') is True else 'pass'
         action_record['resultDigest'] = 'sha256:' + hashlib.sha256(action_bytes(result)).hexdigest()
         messages.append({'role': 'assistant', 'content': content})
@@ -279,7 +282,8 @@ def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtim
     """
     from agent_e2e_local_api import RunRecord
     receipt = {'caseId': case_id, 'candidateDigest': candidate_digest, 'attempt': 1,
-               'status': 'infrastructure', 'actions': [], 'modelVisibleDigests': [],
+               'status': 'infrastructure', 'arm': 'exploratory-custom-protocol',
+               'actions': [], 'modelVisibleDigests': [],
                'assertions': [], 'infrastructure': []}
     stack = seeded = None
     try:
@@ -309,7 +313,8 @@ def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtim
                         fault_events=(), resource_hints=tuple(runtime.resource_hints(stack)),
                         final_answers=tuple(s['finalAnswer'] for s in sessions))
         observations = observe_scenario(scenario, stack, seeded, variant, run)
-        receipt['assertions'] = score_assertions(runtime.assertions, observations, scenario.expected(variant))
+        receipt['assertions'] = score_assertions(runtime.assertions, observations, scenario.expected(variant),
+                                                 trusted_requests=runtime.trusted_requests(stack))
         receipt['finalAnswerSha256'] = 'sha256:' + hashlib.sha256(run.final_answers[-1].encode('utf-8')).hexdigest()
         receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1],
             runtime.handoff_observations(stack, observations), receipt['assertions'])
@@ -332,13 +337,19 @@ def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtim
         receipt['model'] = runtime.model
         receipt['temperature'] = 0
         receipt['cost'] = model_cost(progress['usage'], runtime.model) if progress['usage'] else None
-        if exc.category == 'model':
+        if exc.category == 'model' or progress['actions']:
             receipt['status'] = 'fail'
-            receipt['failure'] = {'phase': 'model-session', 'reason': 'invalid response or bound exceeded'}
+            receipt['failure'] = {'phase': 'model-session', 'reason': ('invalid response or bound exceeded'
+                                  if exc.category == 'model' else 'action outcome undetermined')}
+
         else:
             receipt['infrastructure'].append({'phase': 'model-session', 'errorType': 'SessionInterrupted'})
     except Exception as exc:
-        receipt['infrastructure'].append({'phase': 'execution', 'errorType': type(exc).__name__})
+        if receipt['actions']:
+            receipt['status'] = 'fail'
+            receipt['failure'] = {'phase': 'execution', 'reason': 'outcome undetermined after action'}
+        else:
+            receipt['infrastructure'].append({'phase': 'execution', 'errorType': type(exc).__name__})
     finally:
         if stack is not None:
             if seeded is not None:
@@ -469,7 +480,17 @@ class LocalRuntime(LocalStackDriver):
             stack.extra['controllerHttp'] = LocalControllerHttp(stack)
             stack.extra['ensureConnection'] = lambda: create_local_connection(stack)
             from agent_e2e_mcp import Client
-            stack.extra['controllerMcpFactory'] = lambda: Client(
+            stack.extra['controllerMcpRequests'] = set()
+            class RecordingClient(Client):
+                def close(client):
+                    try:
+                        return super(RecordingClient, client).close()
+                    finally:
+                        for row in client.observations:
+                            if row.get('rpcMethod') == 'tools/call':
+                                stack.extra['controllerMcpRequests'].add(
+                                    (row['method'], '/mcp', row['httpStatus'], row['bodyDigest']))
+            stack.extra['controllerMcpFactory'] = lambda: RecordingClient(
                 stack.base_url + '/mcp', credential_env='HONUA_ADMIN_PASSWORD',
                 credential_kind='api-key', timeout=120)
         except Exception:
@@ -529,6 +550,9 @@ class LocalRuntime(LocalStackDriver):
         finally:
             client.close()
 
+    def trusted_requests(self, stack):
+        return stack.extra['controllerHttp'].requests | stack.extra['controllerMcpRequests']
+
     def handoff_observations(self, stack, observations):
         ids = next((o.observed.get('resourceIds') for o in observations
                     if o.assertion_id == 'filter.exact' and isinstance(o.observed, dict)), None)
@@ -565,6 +589,8 @@ class LocalControllerHttp:
         self.stack = stack
         self.root = Path(stack.workdir) / 'controller-http'
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._intents = {}
+        self.requests = set()
 
     def _retain(self, kind, step, record):
         import os
@@ -576,6 +602,12 @@ class LocalControllerHttp:
             stream.write(raw)
             stream.flush()
             os.fsync(stream.fileno())
+        if kind == 'intent':
+            self._intents[step] = (record['method'], record['path'])
+        elif kind == 'response':
+            method, url = self._intents[step]
+            response = record['response']
+            self.requests.add((method, url, response['httpStatus'], response['responseDigest']))
         return {'key': path.name, 'sha256': canonical_digest(record)}
 
     def _client(self):

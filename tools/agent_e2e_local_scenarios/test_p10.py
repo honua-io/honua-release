@@ -95,7 +95,7 @@ def test_p10_query_projection_uses_raw_response_and_fixture_expectation():
                       'body_b64': base64.b64encode(body).decode(), 'sha256': hashlib.sha256(body).hexdigest()}]}
     def score(observed):
         return score_assertions(['filter.exact'], [Observation('filter.exact', observed, evidence)],
-                                {'filter.exact': wanted})[0]['status']
+                                {'filter.exact': wanted}, trusted_requests={('POST', '/mcp', 200, 'sha256:' + hashlib.sha256(body).hexdigest())})[0]['status']
     assert score(wanted) == 'pass'
     assert score({'resourceIds': ['incorrect']}) == 'fail'
 
@@ -156,8 +156,14 @@ def test_p10_observe_scores_all_fixture_assertions_and_rejects_mutation(tmp_path
     run = RunRecord('actor', 1, (), (), ('done',))
     scenario = P10()
     ids = ['filter.exact', 'source-content.unchanged']
-    results = score_assertions(ids, scenario.observe(stack, seeded, 'A', run), scenario.expected('A'))
+    observations = scenario.observe(stack, seeded, 'A', run)
+    trusted = {(r['method'], r['url'], r['status'], r['sha256'] if r['sha256'].startswith('sha256:') else 'sha256:' + r['sha256'])
+               for obs in observations for r in obs.evidence['requests']}
+    results = score_assertions(ids, observations, scenario.expected('A'), trusted_requests=trusted)
     assert [item['status'] for item in results] == ['pass', 'pass']
     http.changed = True
-    results = score_assertions(ids, scenario.observe(stack, seeded, 'A', run), scenario.expected('A'))
+    observations = scenario.observe(stack, seeded, 'A', run)
+    trusted = {(r['method'], r['url'], r['status'], r['sha256'] if r['sha256'].startswith('sha256:') else 'sha256:' + r['sha256'])
+               for obs in observations for r in obs.evidence['requests']}
+    results = score_assertions(ids, observations, scenario.expected('A'), trusted_requests=trusted)
     assert [item['status'] for item in results] == ['pass', 'fail']

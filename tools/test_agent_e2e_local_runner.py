@@ -14,14 +14,14 @@ def test_score_requires_matching_raw_controller_evidence():
                               'sha256': hashlib.sha256(body).hexdigest()}]}
     def score(ids, ev=evidence):
         return score_assertions(['filter.exact'], [Observation('filter.exact', {'resourceIds': ids}, ev)],
-                                {'filter.exact': {'resourceIds': ['one']}})[0]['status']
+                                {'filter.exact': {'resourceIds': ['one']}}, trusted_requests={('GET', '/query', 200, 'sha256:' + hashlib.sha256(body).hexdigest())})[0]['status']
     assert score(['one']) == 'pass'
     assert score(['wrong']) == 'fail'
     assert score(['one'], {'requests': [{**evidence['requests'][0], 'body_b64': 'e30='}]}) == 'fail'
     wrong = b'{"resourceIds":["wrong"]}'
     contradictory = {'requests': [{**evidence['requests'][0], 'body_b64': base64.b64encode(wrong).decode(), 'sha256': hashlib.sha256(wrong).hexdigest()}]}
     assert score(['one'], contradictory) == 'fail'
-    assert score_assertions(['filter.exact'], [], {'filter.exact': {'resourceIds': ['one']}})[0]['status'] == 'fail'
+    assert score_assertions(['filter.exact'], [], {'filter.exact': {'resourceIds': ['one']}}, trusted_requests={('GET', '/query', 200, 'sha256:' + hashlib.sha256(body).hexdigest())})[0]['status'] == 'fail'
 
 
 def test_aggregate_rejects_incomplete_duplicate_and_unexpected_cases():
@@ -134,7 +134,7 @@ def test_uncertain_tool_execution_retains_attempt_without_retry(tmp_path):
     with pytest.raises(SessionInterrupted) as error:
         run_model_session(prompt='Request', tool_catalog=[{'name': 'x'}], complete=complete, invoke=invoke,
             log_dir=tmp_path, max_turns=3, max_actions=3, max_tokens=20, certification={})
-    assert error.value.category == 'infrastructure'
+    assert error.value.category == 'post-action-undetermined'
     assert count == ['x']
     assert error.value.progress['actions'][0]['status'] == 'unknown'
     assert len(error.value.progress['modelVisibleDigests']) == 1
@@ -238,6 +238,7 @@ def test_case_scores_state_and_final_answer_without_publishing_action_args():
                     'usage': [{'prompt_tokens': 2, 'completion_tokens': 1, 'total_tokens': 3}], 'provenance': []}
         def agent_principal(self, stack): return 'actor'
         def resource_hints(self, stack): return []
+        def trusted_requests(self, stack): return {('GET', '/query', 200, 'sha256:' + hashlib.sha256(raw).hexdigest())}
         def handoff_observations(self, stack, observations): return {}
         def retain_observations(self, stack, observations): return {'sha256': 'sha256:evidence'}
         def teardown(self, stack): pass
@@ -247,3 +248,38 @@ def test_case_scores_state_and_final_answer_without_publishing_action_args():
     assert receipt['assertions'][0]['status'] == receipt['finalAnswerCheck']['status'] == 'pass'
     assert '/private/action' not in str(receipt)
     assert receipt['actions'] == [{'digest': 'sha256:action'}]
+
+
+def test_case_counts_uncertain_dispatched_action_as_failure():
+    from agent_e2e_local_runner import execute_case, SessionInterrupted
+    class Scenario:
+        supported_variants = ('A',)
+        def fault_plan(self, variant): return None
+        def needs_approver(self): return False
+        def seed(self, stack, variant): return 'seed'
+        def cleanup(self, stack, seeded): pass
+    class Runtime:
+        model = 'us.anthropic.claude-sonnet-4-6'
+        def setup(self, *args): return 'stack'
+        def session(self, *args):
+            raise SessionInterrupted('post-action-undetermined', {'actions': [{'digest': 'sha256:action', 'status': 'unknown',
+                'logPath': '/private/action'}], 'modelVisibleDigests': ['sha256:prompt'], 'usage': [],
+                'provenance': [], 'nudges': 0})
+        def teardown(self, stack): pass
+    receipt = execute_case(case_id='P10:A:local-docker', scenario=Scenario(), variant='A', prompt='request',
+                           candidate_digest='sha256:case', runtime=Runtime())
+    assert receipt['status'] == 'fail'
+    assert receipt['failure']['reason'] == 'action outcome undetermined'
+    assert receipt['actions'] == [{'digest': 'sha256:action', 'status': 'unknown'}]
+    assert not receipt['infrastructure']
+
+
+def test_scorer_rejects_response_absent_from_runner_recorder():
+    from agent_e2e_local_runner import score_assertions
+    raw = b'{"resourceIds":["one"]}'
+    evidence = {'requests': [{'method': 'GET', 'url': '/query', 'status': 200,
+        'body_b64': base64.b64encode(raw).decode(), 'sha256': hashlib.sha256(raw).hexdigest()}]}
+    result = score_assertions(['filter.exact'], [Observation('filter.exact', {'resourceIds': ['one']}, evidence)],
+        {'filter.exact': {'resourceIds': ['one']}}, trusted_requests=set())
+    assert result[0]['status'] == 'fail'
+    assert 'runner-owned recorder' in result[0]['reason']
