@@ -60,7 +60,11 @@ Custody facts live in the runtime vault (bound to their evidence records); stack
 Replays and captured results carry the action OCCURRENCE (occ:<session>:<sequence>:<digest>), and every
 record carries afterSession, both bound in the vault digest.
 Canaries: stack.extra['registerCanary'](name) during seed returns a runner-minted secret to plant; projections
-find it with {"matchedCanaries": [steps..., "$model-visible"]}.
+find it with {"matchedCanaries": [steps..., "$model-visible", "$final-answers", "$action-results"]}.
+Database handoff: stack.extra['databaseHandoff'](name, schema) during seed creates a SELECT-only customer login
+and returns {host, port, database, schema, username, password}; list "database:<name>" in the frozen
+customerHandoffs to attach it to the customer turn. Other principals (e.g. a same-tenant foreign owner):
+stack.extra['addPrincipal'](name, grants) during seed, then recorder calls with principal=name.
 Exclusions come only from the frozen prereg list (agent_e2e_local_expectations.PREREG_EXCLUSIONS:
 tenant.denied, P18, custody.worker-replaced@local-docker); they are listed in receipts, never a pass,
 and never removed from n. Roles, projections and customer files are frozen in the expectation file.

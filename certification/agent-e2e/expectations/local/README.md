@@ -67,7 +67,15 @@ baseline made with the identical request (method, path, principal, request body 
 exactly one completeness proof, `total` or `next_page`. The pointer must exist in both enumerations.
 
 Created-role completeness comes only from a reviewed enumeration contract (`ENUMERATION_CONTRACTS` in
-`tools/agent_e2e_local_projections.py`, currently `GET /api/v1/admin/connections`, unpaged). A binding may not
+`tools/agent_e2e_local_projections.py`, reviewed against honua-server a4bde4b8 with file:line citations).
+The reviewed contracts are:
+- unpaged: `GET /api/v1/admin/connections` (active connections only) and `GET /api/v1/admin/services` (one row per service name);
+- cursor (`/nextCursor`): `GET /api/v1/admin/jobs`, and the MCP tool `honua_list_jobs` (`/result/structuredContent/nextCursor`);
+- total (`/data/total`): `GET /api/v1/studio/package-drafts`, `GET /api/v1/studio/content-items` and `GET /api/v1/console/content`;
+- total (`totalCount`): the MCP tool `honua_list_layers`.
+
+These are deliberately not contracts: `GET /api/v1/admin/api-keys` hides some keys without a count, and the
+import job lists return active jobs only. Request a page large enough to finish in one read. A binding may not
 set its own `total`/`next_page`/`page_limit`. Both reads must start at the beginning (no offset, skip or
 cursor), and neither may carry continuation, truncation or count evidence that contradicts completeness.
 To add an endpoint, ask core: entries are reviewed against honua-server. Authorship may be `owner` (a row
@@ -82,6 +90,13 @@ Frozen read rules may also pin `"session": N` (with `replayOfModelAction`: the r
 from session N) and `"exactPath"`. A rule's `phase` may be `seed`, `between` or `observe`, and the runner
 scores the record only in that phase. A `protectedContent` row may set `"beforePhase": "between"`, or
 `"resource": "inventory"` for an inventory snapshot; an inventory row's reads must pin `exactPath`.
+
+Other roles: `recorded:<name>` is the canonical sha256 of a value at `pointer` in a seed- or between-phase
+read (use it for "persisted unchanged" checks). `child:<kind>` is a scalar in an observe-phase read that
+addresses its `parent` role.
+
+`"customerHandoffs": {"A": ["database:<name>"]}` attaches a database login the scenario seeded during seed with
+`stack.extra['databaseHandoff'](name, schema)`; its password is redacted from exported evidence.
 
 `"customerFiles": {"A": [...], "B": [...]}` is the case's attachment inventory. Only manifest files with
 visibility `selected-case-input` in the variant's `town-<variant>/` folder can be attached, and only those

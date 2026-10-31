@@ -497,11 +497,36 @@ def substitute_roles(expected, roles):
 #   paging "unpaged":            the endpoint always returns every row
 #   paging {"cursor": PTR}:      the cursor at PTR must exist and be empty (no further page)
 #   paging {"total": PTR}:       the count at PTR must equal the rows returned
+# Reviewed against honua-server a4bde4b8 (the 2026.1 candidate). Each entry is complete only within the scope
+# noted in its source; a single page is complete only when its end signal says so (request a page large enough).
+# Deliberately NOT listed: GET /api/v1/admin/api-keys (the handler hides keys holding an approved-operation grant,
+# AdminApiKeyEndpoints.cs:64, with no count), GET /api/v1/admin/import(s)/jobs (active jobs only,
+# DurableImportJobService.cs:233-254).
 ENUMERATION_CONTRACTS = (
     {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/connections/?', 'paging': 'unpaged',
-     'source': 'honua-server SecureConnectionEndpoints.HandleGetConnections: GetActiveConnectionsAsync, no paging'},
+     'source': 'SecureConnectionEndpoints.cs:300-332, no paging or cap; PostgresSecureConnectionRegistry.cs:244 '
+               'returns active connections only'},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/services/?', 'paging': 'unpaged',
+     'source': 'ServiceSettingsEndpoints.cs:73-112, no paging or cap; one row per service name (:89)'},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/jobs/?', 'paging': {'cursor': '/nextCursor'},
+     'source': 'ConsoleJobEndpoints.cs:79-109; keyset cursor, nextCursor set only when more rows exist '
+               '(RedisExecutionJobStore.cs:350-361); default limit 50, max 200; caller-readable jobs only'},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/studio/package-drafts/?', 'paging': {'total': '/data/total'},
+     'source': 'StudioPackageEndpoints.cs:585-631; total from a count query (PostgresStudioPackageStore.cs:611); '
+               'default limit 25, store max 200; tenant-scoped, owner-forced for non-admin callers'},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/studio/content-items/?', 'paging': {'total': '/data/total'},
+     'source': 'StudioPackageEndpoints.cs:1130-1193; total from a count query (PostgresStudioPackageStore.cs:663); '
+               'default limit 25, store max 200; tenant-scoped, owner-forced for non-admin callers'},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/console/content/?', 'paging': {'total': '/data/total'},
+     'source': 'ConsoleContentEndpoints.cs:85-129; in-memory store (Program.cs:1034-1036), lost on restart; '
+               'default limit 25, store max 200'},
+    {'kind': 'mcp', 'tool': 'honua_list_jobs', 'paging': {'cursor': '/result/structuredContent/nextCursor'},
+     'source': 'ListJobsTool.cs:24-228; limit default 50 max 200; calling user\'s jobs only (:134)'},
+    {'kind': 'mcp', 'tool': 'honua_list_layers', 'paging': {'total': '/result/structuredContent/totalCount'},
+     'source': 'ListLayersTool.cs:66-175; offset/limit (default 50, max 500); totalCount after access filtering '
+               '(:113, :127); hasMore/nextOffset end signal'},
 )
-CONTINUATION_KEYS = ('next', 'nextCursor', 'nextPageToken', 'continuationToken', 'nextLink', 'cursor')
+CONTINUATION_KEYS = ('next', 'nextCursor', 'nextPageToken', 'continuationToken', 'nextLink', 'cursor', 'nextOffset')
 TRUNCATION_KEYS = ('hasMore', 'exceededTransferLimit', 'truncated', 'partial')
 COUNT_KEYS = ('total', 'totalCount', 'count', 'totalItems', 'totalResults')
 START_PARAMS = {'offset': '0', 'skip': '0', 'resultOffset': '0', 'start': '0', 'page': '1', 'cursor': '',

@@ -1955,3 +1955,36 @@ def test_core3_canary_scans_cover_final_answers_and_task_output():
     observed = __import__('agent_e2e_local_projections').evaluate(spec, __import__('agent_e2e_local_projections').Context(
         {}, canaries=canaries, final_answers=('Your password is ' + canaries['db-password'],)))
     assert observed['matchedPrivateCanaries'] == ['db-password']
+
+
+@pytest.mark.parametrize('path,complete,incomplete', [
+    ('/api/v1/admin/services', {'data': [{'serviceName': 's'}]}, None),
+    ('/api/v1/admin/jobs?limit=200', {'items': [{'jobId': 'j'}], 'nextCursor': None},
+     {'items': [{'jobId': 'j'}], 'nextCursor': 'c2'}),
+    ('/api/v1/studio/content-items?limit=200', {'data': {'items': [{'id': 'i'}], 'total': 1, 'nextCursor': None}},
+     {'data': {'items': [{'id': 'i'}], 'total': 7, 'nextCursor': 'c2'}}),
+    ('/api/v1/studio/package-drafts?limit=200', {'data': {'items': [], 'total': 0}}, {'data': {'items': [], 'total': 1}}),
+])
+def test_core3_reviewed_enumeration_contracts(path, complete, incomplete):
+    from agent_e2e_local_projections import proven_complete, pointer_get
+    items = '/data/items' if path.startswith('/api/v1/studio') else ('/data' if 'services' in path else '/items')
+    record = _record('l', body=complete, path=path)
+    proven_complete(record, pointer_get(complete, items), 'l')
+    if incomplete is not None:
+        with pytest.raises(ValueError):
+            proven_complete(_record('l', body=incomplete, path=path), pointer_get(incomplete, items), 'l')
+    with pytest.raises(ValueError, match='beginning'):
+        proven_complete(_record('l', body=complete, path=path + ('&' if '?' in path else '?') + 'cursor=abc'),
+                        pointer_get(complete, items), 'l')
+
+
+def test_core3_unreviewed_or_scope_dropping_listings_are_not_contracts():
+    from agent_e2e_local_projections import proven_complete
+    for path in ('/api/v1/admin/api-keys', '/api/v1/admin/import/jobs', '/api/v1/admin/imports/jobs'):
+        with pytest.raises(ValueError, match='no reviewed enumeration contract'):
+            proven_complete(_record('l', body={'data': []}, path=path), [], 'l')
+    layers = _record('l', kind='mcp', body={'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {
+        'layers': [{'id': 1}], 'totalCount': 3, 'hasMore': True, 'nextOffset': 1}}},
+        arguments={'tool': 'honua_list_layers', 'arguments': {'limit': 1, 'offset': 0}})
+    with pytest.raises(ValueError):
+        proven_complete(layers, [{'id': 1}], 'l')
