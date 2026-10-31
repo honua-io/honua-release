@@ -419,9 +419,10 @@ def visible_markdown_text(text: str) -> str:
     # Underscores are often literal wire-identifier characters. Strip only paired
     # emphasis delimiters that cannot be part of an identifier.
     text = re.sub(r"(?<!\w)(_{1,2})(?=\S)(.+?)(?<=\S)\1(?!\w)", r"\2", text)
+    text = text.translate(str.maketrans("", "", "[]`"))
     for index, code in enumerate(code_spans):
         text = text.replace(f"\x00CODE{index}\x00", code)
-    return text.translate(str.maketrans("", "", "[]`"))
+    return text
 
 
 def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
