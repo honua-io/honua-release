@@ -18,15 +18,24 @@ def observe_partial(scenario_id, stack, seeded, variant):
 
 
 def seed_town(stack, variant, namespace):
-    """Import synchronous fixtures without relying on an unreviewed table inventory.
+    """Import fixtures using only a reviewed, complete SQL table inventory.
 
-    The product's synchronous response names the physical table. A 202 is not
-    silently adopted: TownSetup refuses it when no independently reviewed table
-    discovery was retained. The fresh case stack owns every fixture mutation.
+    Synchronous imports provide their physical table directly. A queued import
+    is polled by its returned job ID, and its physical table is the single new
+    row in the reviewed information_schema inventory. No import is retried.
     """
+    import json
+    import re
+    import time
+    from datetime import datetime
     from pathlib import Path
+    from agent_e2e_local_projections import proven_complete
+    from agent_e2e_pack import digest_bytes
     from agent_e2e_scenario_backend import TownSetup
-    from agent_e2e_scenario_operations import connection_id, data, publication_request, submit_publication
+    from agent_e2e_scenario_operations import (body, completed_import, connection_id, data, identifier,
+                                                publication_request, submit_publication, token)
+    if variant not in ('A', 'B') or not re.fullmatch(r'[a-z][a-z0-9_]{0,35}', namespace):
+        raise ValueError('invalid case-owned fixture namespace')
     recorder = stack.extra['recorder']
     connection = stack.extra.get('connectionId')
     if connection is None:
@@ -37,18 +46,89 @@ def seed_town(stack, variant, namespace):
     if observed.get('connectionId', observed.get('id')) != connection:
         raise ValueError('observed connection differs from the fixture target')
     root = Path(__file__).resolve().parents[1]
-    town = TownSetup(recorder, root / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
-        variant=variant, namespace=namespace, starting_state='imported-town')
+    setup = TownSetup(recorder, root / 'certification/agent-e2e/corpus/manifest.v1.json')
+    query = ("SELECT table_schema, table_name FROM information_schema.tables WHERE "
+             "table_schema = 'honua_data' AND table_type = 'BASE TABLE' ORDER BY table_name")
+
+    def inventory(step):
+        rows = recorder.sql(step, query)
+        record = recorder.records[step]
+        if record.status != 200 or not isinstance(rows, list):
+            raise ValueError('fixture table inventory unavailable')
+        proven_complete(record, rows, step)
+        if any(not isinstance(row, dict) or row.get('table_schema') != 'honua_data'
+               or not isinstance(row.get('table_name'), str) for row in rows):
+            raise ValueError('fixture table inventory has an unexpected shape')
+        values = [(row['table_schema'], row['table_name']) for row in rows]
+        if len(values) != len(set(values)):
+            raise ValueError('fixture table inventory has duplicate identities')
+        return set(values)
+
+    layers = {}
     for name, geometry in TownSetup.SOURCES.items():
-        binding = town['layers'][name]
-        service = namespace + '-' + name.replace('_', '-')
+        relative = f'town-{variant}/{name}.3857.geojson'
+        row = setup.files[relative]
+        raw = (setup.manifest_path.parent / relative).read_bytes()
+        if digest_bytes(raw) != 'sha256:' + row['sha256']:
+            raise ValueError('town fixture changed before upload')
+        count = len(json.loads(raw)['features'])
+        logical_table = namespace + '_' + name
+        step = name.replace('_', '-')
+        before = inventory('g4-tables-before-' + step)
+        uploaded = recorder.upload('import-' + step, raw, table=logical_table, schema='honua_data', srid=3857)
+        value = body(uploaded, (200, 202))
+        if uploaded['observation']['httpStatus'] == 200:
+            imported = completed_import(recorder, uploaded, table=logical_table, feature_count=count, step='complete-' + step)
+            schema, physical = imported['schema'], imported['table']
+        else:
+            job = token(value.get('jobId'), 'fixture import job')
+            path = '/api/v1/admin/import/jobs/' + job
+            if value.get('statusUrl') != path:
+                raise ValueError('fixture import job URL differs from the accepted ID')
+            deadline = time.monotonic() + 240
+            complete = False
+            for ordinal in range(120):
+                if time.monotonic() >= deadline:
+                    break
+                progress = body(recorder.json(f'g4-import-{step}-poll-{ordinal:03}', 'GET', path))
+                if progress.get('jobId') != job or progress.get('tableName') != logical_table:
+                    raise ValueError('fixture import progress belongs to another job or table')
+                status = progress.get('status')
+                if type(status) is not int or status not in (0, 1, 2, 3, 4):
+                    raise ValueError('fixture import has an unknown status')
+                if status in (3, 4):
+                    raise ValueError('fixture import failed or was cancelled')
+                if status == 2:
+                    if (type(progress.get('featuresProcessed')) is not int or progress['featuresProcessed'] != count
+                            or type(progress.get('failedFeatures')) is not int or progress['failedFeatures'] != 0):
+                        raise ValueError('fixture import did not process the exact expected features')
+                    try:
+                        instant = datetime.fromisoformat(progress['completedAt'].replace('Z', '+00:00'))
+                    except (ValueError, TypeError, KeyError, AttributeError):
+                        raise ValueError('fixture import lacks a valid completion time') from None
+                    if instant.tzinfo is None:
+                        raise ValueError('fixture import completion time lacks a timezone')
+                    complete = True
+                    break
+                if ordinal < 119:
+                    time.sleep(min(2, max(0, deadline - time.monotonic())))
+            if not complete:
+                raise ValueError('fixture import remains incomplete; preserve the original job')
+            after = inventory('g4-tables-after-' + step)
+            added = after - before
+            if not before <= after or len(added) != 1:
+                raise ValueError('fixture import does not bind exactly one new physical table')
+            schema, physical = added.pop()
+            identifier(schema, 'fixture schema')
+            identifier(physical, 'fixture physical table')
+        service = namespace + '-' + step
         result = submit_publication(recorder, publication_request(connection=connection,
-            schema=binding['schema'], table=binding['table'], service=service, geometry_type=geometry, srid=3857),
-            step='publish-' + name.replace('_', '-'))
+            schema=schema, table=physical, service=service, geometry_type=geometry, srid=3857),
+            step='publish-' + step)
         if result['status'] != 'completed':
             raise ValueError('fixture publication needs a separately resolved approval')
-        binding.update(service=service, layerId=result['layerId'])
-    return town
+        layers[name] = {'schema': schema, 'table': physical, 'service': service, 'layerId': result['layerId']}
+    return {'namespace': namespace, 'variant': variant, 'startingState': 'published-town', 'layers': layers}
 
 
 def seed_saved_map(stack, variant, *, package=None, namespace_prefix='g4'):
