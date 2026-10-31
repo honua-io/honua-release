@@ -21,10 +21,10 @@ ASSERTIONS = {
 @pytest.mark.parametrize('variant', ['A', 'B'])
 def test_runner_inventory_and_expectation_shape(scenario_id, variant):
     scenario = load_scenario(scenario_id)
-    assert scenario.supported_variants == (('A', 'B') if scenario_id == 'P07' else ())
+    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P03', 'P07') else ())
     assert scenario.fault_plan(variant) is None
     assert set(scenario.expected(variant)) == ASSERTIONS[scenario_id]
-    if scenario_id != 'P07':
+    if scenario_id not in ('P03', 'P07'):
         assert 'unsupported' in importlib.import_module('agent_e2e_local_scenarios.' + scenario_id).__doc__.lower()
 
 

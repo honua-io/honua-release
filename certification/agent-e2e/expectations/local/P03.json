@@ -121,7 +121,8 @@
       "items": "/data",
       "id": "/connectionId",
       "owner": "/createdBy",
-      "before": "p03-connections-before"
+      "before": "p03-connections-before",
+      "owner_format": "api-key:{id}"
     }
   ],
   "projections": {
@@ -130,7 +131,10 @@
         "object": {
           "connectionId": {
             "target": "p03-connection-probe",
-            "role": "created:connection"
+            "role": "created:connection",
+            "at": {
+              "pathSegment": 4
+            }
           },
           "probeStatus": {
             "status": "p03-connection-probe"
@@ -151,7 +155,12 @@
           "principal": "controller",
           "phase": "observe",
           "addresses": [
-            "created:connection"
+            {
+              "role": "created:connection",
+              "at": {
+                "pathSegment": 4
+              }
+            }
           ]
         },
         "p03-catalog": {
@@ -161,7 +170,12 @@
           "principal": "controller",
           "phase": "observe",
           "addresses": [
-            "created:connection"
+            {
+              "role": "created:connection",
+              "at": {
+                "pathSegment": 4
+              }
+            }
           ]
         }
       }
@@ -185,7 +199,12 @@
           "principal": "controller",
           "phase": "observe",
           "addresses": [
-            "created:connection"
+            {
+              "role": "created:connection",
+              "at": {
+                "pathSegment": 4
+              }
+            }
           ]
         }
       }
