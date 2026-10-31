@@ -531,8 +531,13 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
         # A malformed required-arm receipt must not hide by dropping its schema or required flag.
         matching = any(d.get("arm") == arm and matches_candidate(d.get("candidate"), candidate)
                        for d in docs)
+        # The workflow title identifies the arm and lock even when a failed campaign uploaded
+        # no readable receipt. It can invalidate older evidence, never certify a candidate.
+        title = run.get("display_title")
+        title_matches = (isinstance(title, str) and title.startswith(f"AI arc {arm} (")
+                         and title.endswith(" " + candidate.platform_lock))
         if not matching:
-            return "unrelated"
+            return "superseding" if title_matches else "unrelated"
         diagnostic = any(is_diagnostic(d) or (d.get("schema") in
             ("honua.ai-arc-trial/v1", "honua.ai-arc.report/v1") and
             (d.get("goalSet") == "development" or isinstance(d.get("goalSet"), dict)
@@ -680,6 +685,7 @@ def _slim(run: dict) -> dict:
         "conclusion": run.get("conclusion"),
         "status": run.get("status"),
         "event": run.get("event"),
+        "display_title": run.get("display_title"),
         "head_sha": head if isinstance(head, str) else "",
         "report": None,
     }

@@ -625,6 +625,20 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     invalid = copy.deepcopy(a1)
     invalid[agg_index]["completed"] = 0
     assert not evaluate(a1, a2, (invalid,))["admissible"]
+    # A failed or empty campaign still identifies its arm and lock in GitHub's run title.
+    for conclusion in ("failure", "success"):
+        newer = _run(0.5, conclusion=conclusion, run_id=3)
+        newer["display_title"] = f"AI arc A1 (local-docker, held-out) {LOCK}"
+        old_a1 = _run(2, run_id=1)
+        old_a1["reports"] = a1
+        old_a2 = _run(1, run_id=2)
+        old_a2["reports"] = a2
+        result = _eval({w.ARC_GATE: {"runs": [old_a1, old_a2, newer]}}, unbound={})
+        assert not result["admissible"]
+        assert result["gates"][w.ARC_GATE]["arms"]["A1"]["verdict"] == "red"
+        newer["display_title"] = f"AI arc C1 (local-docker, held-out) {LOCK}"
+        assert _eval({w.ARC_GATE: {"runs": [old_a1, old_a2, newer]}}, unbound={})["admissible"]
+    assert w._slim({"display_title": f"AI arc A1 (local-docker, held-out) {LOCK}"})["display_title"].endswith(LOCK)
     # The subset cannot score update/rollback/restore, omit diagnosis/approval, or omit its list.
     for altered_scope in (
         {**scope, "opsScope": {**scope["opsScope"], "local-docker": "not-gating"}},
