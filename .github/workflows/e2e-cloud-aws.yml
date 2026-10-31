@@ -82,6 +82,7 @@ on:
       genuine_model_bedrock:
         type: boolean
         default: false
+      bedrock_model: { required: false, type: string, default: "" }
       # Fix unit J3: the genuine-model canary runs on the Bedrock cell after its journey, bound to this lock.
       lock_digest:
         type: string

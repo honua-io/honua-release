@@ -13,6 +13,7 @@
     "status",
     "mode",
     "guidance",
+    "temperature",
     "profile",
     "executionOutcome",
     "functionalGpExecuted",
@@ -51,6 +52,7 @@
       "description": "full repeats the reviewed stage sequence. none sends the customer goal without requiredSequence, tool order, or the refusal acknowledgement object.",
       "enum": ["full", "none"]
     },
+    "temperature": {"description": "Explicit sampling temperature, or null when omitted and the provider default applies.", "anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]},
     "profile": {"const": "full-workflow"},
     "executionOutcome": {"enum": ["not-completed", "completed"]},
     "functionalGpExecuted": {"enum": [true, null]},

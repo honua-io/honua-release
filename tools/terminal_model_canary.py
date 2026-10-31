@@ -589,6 +589,7 @@ class ReceiptBuilder:
         cell: str = "local-docker",
         attempt: int = 1,
         guidance: str = "full",
+        temperature: float | None = None,
     ):
         if lock_digest is not None and not LOCK_DIGEST.fullmatch(lock_digest):
             raise CanaryError("lock digest must be sha256:<64 lowercase hex>")
@@ -615,6 +616,7 @@ class ReceiptBuilder:
             # full repeats the reviewed sequence; none is the customer goal only.
             # Both record the mode so a receipt cannot be read as the other.
             "guidance": guidance,
+            "temperature": temperature,
             "profile": "full-workflow",
             "executionOutcome": "not-completed",
             "functionalGpExecuted": None,
@@ -1055,6 +1057,7 @@ class CandidateProxyClient:
         if not config.configured:
             raise CanaryError("model endpoint configuration is incomplete")
         self.config = config
+        self.temperature = None
         # Candidate-supplied text (e.g. a proxy error message) crosses into receipts only through this.
         self.redactor = redactor or Redactor([config.api_key] if config.api_key else [])
         self.timeout_seconds = timeout_seconds
@@ -1212,9 +1215,10 @@ class CandidateProxyClient:
                 "provider": "bedrock",
                 "model": self.config.model,
                 "messages": messages,
-                "temperature": 0,
                 "certification": certification,
             }
+        if self.temperature is not None:
+            request_body["temperature"] = self.temperature
         payload = json.dumps(request_body).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
         if self.config.api_key:
@@ -1677,6 +1681,7 @@ def build_receipt_builder(
     cell: str = "local-docker",
     attempt: int = 1,
     guidance: str = "full",
+    temperature: float | None = None,
 ) -> ReceiptBuilder:
     manifest = load_manifest(manifest_path)
     journey = load_journey(journey_path)
@@ -1704,6 +1709,7 @@ def build_receipt_builder(
         cell=cell,
         attempt=attempt,
         guidance=guidance,
+        temperature=temperature,
     )
 
 
@@ -1987,6 +1993,7 @@ def execute_live(
 ) -> dict[str, Any]:
     """Execute when #123 eventually supplies its live adapter; otherwise callers never enter here."""
     client = CandidateProxyClient(endpoint)
+    client.temperature = builder.receipt["temperature"]
     client.redactor = builder.redactor  # the receipt's own redaction boundary, including run secrets
     run_nonce = _new_run_nonce()
     driver = DriverAdapter(driver_command, builder.protocol)
@@ -2409,12 +2416,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", choices=("full-workflow", "redis-off-serving-refusal"), default="full-workflow")
     parser.add_argument("--guidance", choices=GUIDANCE_MODES, default="full",
                         help="full keeps the reviewed sequence hints; none sends the customer goal only")
+    parser.add_argument("--temperature", type=float, help="sampling temperature (default: omit, use provider default)")
     parser.add_argument("--target", type=Path, help="the reviewed target config chained to this cell's deterministic receipt")
     parser.add_argument("--attempt", type=int, choices=(1, 2), default=1)
     parser.add_argument("--allow-http-cell", metavar="HOSTNAME",
                         help="the provisioned cloud cell's ALB hostname; plain HTTP is admitted for exactly "
                              "this host (owner ruling canary-http-cell-2026-10-08)")
     args = parser.parse_args(argv)
+    if args.temperature is not None and not 0 <= args.temperature <= 1:
+        parser.error("--temperature must be between 0 and 1")
     if args.max_actions_per_stage <= 0:
         parser.error("--max-actions-per-stage must be positive")
     if args.lock_digest is not None and not LOCK_DIGEST.fullmatch(args.lock_digest):
@@ -2450,6 +2460,7 @@ def main(argv: list[str] | None = None) -> int:
             cell=args.cell,
             attempt=args.attempt,
             guidance=args.guidance,
+            temperature=args.temperature,
         )
         if args.lock is not None and lock_digest_of(args.lock) != args.lock_digest:
             builder.mark_failed("the platform lock's bytes do not hash to --lock-digest; "

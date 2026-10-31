@@ -31,6 +31,7 @@ on:
         options:
           - local-docker
           - aws-ecs/redis-off
+          - aws-ecs/redis-on
           - endpoint
       lock_digest:
         description: sha256:<hex> of the platform lock under certification; empty binds the manifest-pinned server image the job runs
@@ -340,7 +341,7 @@ jobs:
   # ── aws-ecs/redis-off: the ECS Redis-off cell with Bedrock, canary after the cell journey ──────────
   # A cloud cell certifies the candidate it deploys, so it binds only a lock named by its caller.
   cloud-lock-required:
-    if: github.event_name != 'schedule' && inputs.target == 'aws-ecs/redis-off' && inputs.lock_digest == ''
+    if: github.event_name != 'schedule' && startsWith(inputs.target, 'aws-ecs/redis-') && inputs.lock_digest == ''
     runs-on: ubuntu-latest
     steps:
       - run: |
@@ -351,7 +352,7 @@ jobs:
   # dispatch cannot claim an unguided cloud receipt that was actually full, and so this
   # workflow does not start a cell for a mode it cannot record.
   unguided-cloud-refused:
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'aws-ecs/redis-off' && inputs.guidance == 'none'
+    if: github.event_name == 'workflow_dispatch' && startsWith(inputs.target, 'aws-ecs/redis-') && inputs.guidance == 'none'
     runs-on: ubuntu-latest
     steps:
       - name: Refuse an unguided cloud dispatch
@@ -360,7 +361,7 @@ jobs:
           exit 1
 
   aws-ecs:
-    if: github.event_name != 'schedule' && inputs.target == 'aws-ecs/redis-off' && inputs.lock_digest != '' && inputs.guidance != 'none'
+    if: github.event_name != 'schedule' && startsWith(inputs.target, 'aws-ecs/redis-') && inputs.lock_digest != '' && inputs.guidance != 'none'
     permissions:
       contents: read
       actions: write                  # e2e-cloud-aws's top-level scope (iac-live dispatch)
@@ -370,8 +371,9 @@ jobs:
       candidate_ref: ${{ inputs.candidate_ref || '' }}
       require_real: true
       target: aws-ecs
-      redis_mode: "off"
+      redis_mode: ${{ inputs.target == 'aws-ecs/redis-on' && 'on' || 'off' }}
       run_iac_live: false
       genuine_model_bedrock: true
+      bedrock_model: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-6' }}
       lock_digest: ${{ inputs.lock_digest }}
     secrets: inherit
