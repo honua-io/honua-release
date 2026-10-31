@@ -88,3 +88,28 @@ def test_metrics_are_live_read_and_not_invented(tmp_path, monkeypatch):
     result = c._metrics()
     assert result['metrics'] == 'honua_requests_total 7\n'
     assert len(result['metrics_sha256']) == 64
+
+
+def test_unrecognized_action_arguments_do_not_enter_audit(tmp_path):
+    c = RealController('ops-' + '1' * 32, tmp_path / 'compose', tmp_path,
+                       'prior', 'candidate', 'http://127.0.0.1:1')
+    secret = 'private-password-should-not-be-retained'
+    assert c.apply('unknown', {'password': secret})['error'] == 'not-real'
+    assert secret not in str(c.audit)
+    assert len(c.audit[-1]['arguments_sha256']) == 64
+
+
+def test_unknown_tool_and_secret_like_logs_are_not_retained(tmp_path, monkeypatch):
+    import subprocess
+    compose = tmp_path / 'compose.yml'
+    compose.write_text('services: {}')
+    secret = 'hidden-value-not-in-environment'
+    c = RealController('ops-' + '1' * 32, compose, tmp_path, 'prior', 'candidate', 'http://127.0.0.1:1')
+    c.apply(secret, {})
+    assert secret not in str(c.audit)
+    assert c.audit[-1]['tool'] == 'unknown-tool'
+    monkeypatch.setattr(subprocess, 'run', lambda argv, **kwargs:
+                        subprocess.CompletedProcess(argv, 0, 'password=' + secret, ''))
+    result = c._diagnose(logs=True)
+    assert result == {'ok': False, 'error': 'logs-sensitive'}
+    assert secret not in str(result)

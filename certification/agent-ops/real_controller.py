@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -18,6 +19,11 @@ from typing import Callable
 
 from ga_actions import _PROJECT, invoke
 from local_http import open_local, require_loopback
+
+
+def _contains_secret_like_text(text: str) -> bool:
+    return bool(re.search(r'(?i)(?:password|token|secret|authorization|api[-_]?key)\s*[:=]\s*\S+', text) or
+                re.search(r'(?i)https?://[^\s/@:]+:[^\s/@]+@', text))
 
 
 @dataclass
@@ -56,7 +62,10 @@ class RealController:
                 'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
             )]
             text = Redactor(sensitive_values=secrets).text(result.stdout)[-16000:]
-            return {'ok': True, 'log': text, 'log_sha256': hashlib.sha256(text.encode()).hexdigest()}
+            if _contains_secret_like_text(text):
+                return {'ok': False, 'error': 'logs-sensitive'}
+            return {'ok': True, 'log': text, 'empty': not bool(text),
+                    'log_sha256': hashlib.sha256(text.encode()).hexdigest()}
         prefix = ['docker', 'compose', '-p', self.project, '-f', str(self.compose_file.resolve())]
         ps = subprocess.run(prefix + ['ps', '-q', '--status', 'running', 'server'],
                             capture_output=True, text=True, timeout=15, check=False)
@@ -69,7 +78,8 @@ class RealController:
                                    capture_output=True, text=True, timeout=10, check=False)
             if check.returncode:
                 return {'ok': False, 'ready': False}
-        return {'ok': True, 'ready': True, 'replicas_checked': len(containers)}
+        return {'ok': True, 'ready': True, 'replicas_checked': len(containers),
+                'scope': 'currently-running-replicas'}
 
     def _metrics(self) -> dict:
         from client import Redactor
@@ -96,13 +106,21 @@ class RealController:
             'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
         )]
         text = Redactor(sensitive_values=secrets).text(raw.decode('utf-8', 'replace'))
+        if _contains_secret_like_text(text):
+            return {'ok': False, 'error': 'metrics-sensitive'}
         return {'ok': True, 'metrics': text, 'metrics_sha256': hashlib.sha256(text.encode()).hexdigest()}
 
     def apply(self, tool: str, arguments: dict) -> dict:
         started = time.time()
-        event = {"tool": tool, "arguments": dict(arguments) if isinstance(arguments, dict) else None, "started_at": started,
+        known = {'honua_platform_release_status', 'honua_deploy_operations'}
+        tool_name = tool if isinstance(tool, str) and tool in known else 'unknown-tool'
+        tool_digest = hashlib.sha256(str(tool).encode()).hexdigest()
+        event = {"tool": tool_name, "tool_sha256": tool_digest, "arguments": None,
+                 "arguments_sha256": None, "started_at": started,
                  "effect": "read", "ok": False}
         try:
+            encoded = json.dumps(arguments, sort_keys=True, separators=(',', ':'), default=str).encode()
+            event['arguments_sha256'] = hashlib.sha256(encoded).hexdigest()
             if not isinstance(arguments, dict):
                 raise ValueError("tool arguments must be an object")
             if tool == "honua_platform_release_status" and not arguments:
