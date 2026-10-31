@@ -8,14 +8,18 @@
       "deployment.ready": null,
       "authentication.required": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
     },
     "B": {
       "candidate.identity": null,
       "deployment.ready": null,
       "authentication.required": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
     }
   }
 }

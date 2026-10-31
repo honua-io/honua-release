@@ -117,3 +117,38 @@ def test_p01_rejects_a_failed_authenticated_read():
     wrong = {**fixture, 'authenticatedReadStatus': 401}
     with pytest.raises(oracle.VerificationError):
         oracle.verify('deployment.ready', wrong, fixture)
+
+
+def test_p12_requests_restart_between_fresh_sessions():
+    case = importlib.import_module('agent_e2e_local_scenarios.P12').scenario
+    assert case.sessions_required() == 2
+    assert case.between_sessions(None, Seeded({}), 'A', 1) == {'restartServer': True}
+    with pytest.raises(ValueError):
+        case.between_sessions(None, Seeded({}), 'A', 2)
+
+
+def test_restart_fact_is_not_a_lifecycle_observation():
+    # Shape recorded by LocalRuntime.restart_server, not a made-up stopped state.
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_runner import score_assertions
+    fact = {'command': 'docker compose restart server', 'exitCode': 0,
+            'containersBefore': ['fixture-id 2026-01-01T00:00:00Z running'],
+            'containersAfter': ['fixture-id 2026-01-01T00:01:00Z running'],
+            'readinessSteps': ['between-1-ready-1'], 'ready': True, 'restarted': True}
+    rows = score_assertions(['restart.observed'],
+        [Observation('restart.observed', None, {'projection': 'extract/v1'})],
+        {'restart.observed': {'resourceId': 'fixture-id', 'terminalState': 'running', 'requiredStates': ['stopped']}},
+        records={}, custody={'restart:between-1': fact}, scenario_id='P12',
+        frozen={'restart.observed': {'spec': {'custody': 'restart:between-1'}, 'reads': {}}})
+    assert rows[0]['status'] == 'fail'
+
+
+@pytest.mark.parametrize('scenario_id', ['P01', 'P24'])
+def test_worker_exclusion_is_explicit_and_never_a_pass(scenario_id):
+    from agent_e2e_local_runner import score_assertions
+    document = json.loads((ROOT / 'certification/agent-e2e/expectations/local' / (scenario_id + '.json')).read_text())
+    marker = document['variants']['A']['custody.worker-replaced']
+    rows = score_assertions(['custody.worker-replaced'], [], {'custody.worker-replaced': marker},
+                            records={}, scenario_id=scenario_id, frozen={})
+    assert rows[0]['status'] == 'excluded'
+    assert rows[0]['ruling'] == 'custody.worker-replaced@local-docker'
