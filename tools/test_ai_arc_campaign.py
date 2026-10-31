@@ -55,8 +55,11 @@ def test_undetermined_run_pauses_until_adjudication_and_consumes_a_reserve(tmp_p
     statuses = {'local-docker:A1:001': 'undetermined'}
     reserve = [{'runId': 'local-docker:A1:r01', 'variant': 'H', 'caseId': 'r01'}]
 
+    written = []
+
     def adjudicate():
         time.sleep(0.3)
+        written.append(time.monotonic())
         (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(
             {'finding': 'harness-fault', 'adjudication': 'https://example.invalid/a/1', 'reviewerFamily': 'openai',
              'adjudicatedAt': '2026-11-02T10:00:00Z'}))
@@ -67,7 +70,7 @@ def test_undetermined_run_pauses_until_adjudication_and_consumes_a_reserve(tmp_p
                              wait_poll=0.01)
     order = [r for r, _, _ in log]
     assert order[0] == 'local-docker:A1:001' and order[1] == 'local-docker:A1:r01', 'reserve runs next, after adjudication'
-    assert log[1][2] - started >= 0.3, 'no run started before the adjudication existed'
+    assert written and log[1][2] >= written[0], 'no run started before the adjudication existed'
     voids = json.loads((tmp_path / 'voids.json').read_text())
     assert voids[0]['replacementRunId'] == 'local-docker:A1:r01' and len(results) == 4
 
