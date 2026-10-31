@@ -76,6 +76,21 @@ def event_texts(event_name: str, payload: dict) -> tuple[str, str]:
     return title, body
 
 
+def find_event_hits(repo: str, title: str, body: str) -> list:
+    findings = guard.find_pr_metadata_hits(repo, {"pull_request": {"title": title, "body": body}})
+    visible_title, visible_body = visible_html_text(title), visible_html_text(body)
+    if (visible_title, visible_body) != (title, body):
+        findings.extend(guard.find_pr_metadata_hits(
+            repo, {"pull_request": {"title": visible_title, "body": visible_body}},
+        ))
+    markdown_title, markdown_body = visible_markdown_text(visible_title), visible_markdown_text(visible_body)
+    if (markdown_title, markdown_body) != (visible_title, visible_body):
+        findings.extend(guard.find_pr_metadata_hits(
+            repo, {"pull_request": {"title": markdown_title, "body": markdown_body}},
+        ))
+    return findings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True)
@@ -87,17 +102,7 @@ def main() -> int:
             raise ValueError("Event too large")
         payload = json.loads(args.event.read_text(encoding="utf-8"))
         title, body = event_texts(args.event_name, payload)
-        findings = guard.find_pr_metadata_hits(args.repo, {"pull_request": {"title": title, "body": body}})
-        visible_title, visible_body = visible_html_text(title), visible_html_text(body)
-        if (visible_title, visible_body) != (title, body):
-            findings.extend(guard.find_pr_metadata_hits(
-                args.repo, {"pull_request": {"title": visible_title, "body": visible_body}},
-            ))
-        markdown_title, markdown_body = visible_markdown_text(visible_title), visible_markdown_text(visible_body)
-        if (markdown_title, markdown_body) != (visible_title, visible_body):
-            findings.extend(guard.find_pr_metadata_hits(
-                args.repo, {"pull_request": {"title": markdown_title, "body": markdown_body}},
-            ))
+        findings = find_event_hits(args.repo, title, body)
     except (OSError, ValueError, RuntimeError, AssertionError):
         print("vendor event guard could not inspect the event", file=sys.stderr)
         return 2

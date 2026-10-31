@@ -1,0 +1,53 @@
+name: vendor-terms-github-audit
+
+# This audits the repository where the event occurs, not the whole organization.
+# Other repositories need their own scheduled caller pinned to this workflow.
+on:
+  schedule:
+    - cron: "27 7 * * *"
+  workflow_dispatch:
+    inputs:
+      review_shard:
+        description: "Optional review shard to rerun (0-15)"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      review_shard:
+        description: "Optional review shard to rerun (0-15)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out trusted guard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          path: guard
+          persist-credentials: false
+      - name: Audit visible GitHub content
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REVIEW_SHARD: ${{ inputs.review_shard }}
+        run: |
+          shard=$(( $(date -u +%s) / 86400 % 16 ))
+          if [ -n "$REVIEW_SHARD" ]; then
+            if ! [[ "$REVIEW_SHARD" =~ ^([0-9]|1[0-5])$ ]]; then
+              echo "Invalid review shard" >&2
+              exit 2
+            fi
+            shard="$REVIEW_SHARD"
+          fi
+          python3 guard/tools/vendor_terms_github_audit.py --repo "$REPOSITORY" --max-requests 1000 \
+            --review-shards 16 --review-shard "$shard"
