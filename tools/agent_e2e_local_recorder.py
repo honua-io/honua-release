@@ -393,7 +393,11 @@ class ControllerRecorder:
         if env is not None:
             token = os.environ.get(env)
             require(isinstance(token, str) and token, 'recorder credential is not available')
-            headers['X-API-Key'] = token
+            if principal == 'agent-user':
+                require(token.startswith('Bearer '), 'agent user needs a bearer credential')
+                headers['Authorization'] = token
+            else:
+                headers['X-API-Key'] = token
         content_type = None
         if self._http_factory is not None:
             status, raw = self._http_factory(self, principal, method, path, body, headers)
