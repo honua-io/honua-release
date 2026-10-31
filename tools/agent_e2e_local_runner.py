@@ -52,9 +52,13 @@ def score_assertions(assertions: list[str], observations: list[Observation], exp
                 raw_bodies.append(raw)
             # Until a controller-owned projection is registered for an assertion,
             # evidence hashes alone cannot establish that the projection is true.
-            if assertion != 'filter.exact' or len(raw_bodies) != 1:
+            if obs.evidence.get('projection') in ('p10-query/v1', 'p10-source/v1'):
+                from agent_e2e_local_scenarios.P10 import project_evidence
+                projected = project_evidence(assertion, obs.evidence, raw_bodies)
+            elif assertion == 'filter.exact' and len(raw_bodies) == 1:
+                projected = json.loads(raw_bodies[0])
+            else:
                 raise ValueError('no validated evidence projection for assertion')
-            projected = json.loads(raw_bodies[0])
             if projected != obs.observed:
                 raise ValueError('observation differs from evidence projection')
             oracle.verify(assertion, projected, expected[assertion])
@@ -418,3 +422,97 @@ class LocalStackDriver:
         result = self.driver.invoke('teardown', {'workspaceId': stack.extra['workspaceId']})
         if result.get('status') != 'pass':
             raise RuntimeError('driver failed to remove isolated stack')
+
+
+class LocalRuntime(LocalStackDriver):
+    """Live model and MCP transport on the stack owned by LocalStackDriver.
+
+    Scenario fixture setup, candidate-lock resolution and CLI orchestration are
+    separate responsibilities; no campaign receipt is claimed by this class.
+    """
+    def __init__(self, driver, *, assertions, model, release_id, root=ROOT, max_turns=40,
+                 max_actions=80, max_tokens=100000):
+        super().__init__(driver, root=root)
+        self.assertions, self.model, self.release_id = assertions, model, release_id
+        self.max_turns, self.max_actions, self.max_tokens = max_turns, max_actions, max_tokens
+        self._agents = {}
+        self._hints = []
+        self._admitted = set()
+
+    def setup(self, case_id, candidate_digest, needs_approver=False):
+        import os
+        stack = super().setup(case_id, candidate_digest, needs_approver)
+        try:
+            workspace = stack.extra['workspaceId']
+            state = json.loads((Path.cwd() / '.terminal-journey/sessions' / (workspace + '.json')).read_text())
+            private = json.loads((Path(state['workdir']) / 'private-principals.json').read_text())
+            key, principal = private['keys']['proposer'], private['keyIds']['proposer']
+            if not isinstance(key, str) or not key or not isinstance(principal, str) or not principal:
+                raise ValueError('driver omitted the case-owned agent credential')
+            os.environ['HONUA_CORPUS_AGENT_KEY'] = key
+            self._agents[workspace] = principal
+        except Exception:
+            super().teardown(stack)
+            raise
+        return stack
+
+    def agent_principal(self, stack):
+        return self._agents[stack.extra['workspaceId']]
+
+    def resource_hints(self, stack):
+        return list(self._hints)
+
+    def session(self, stack, prompt, number):
+        import os
+        import uuid
+        from agent_e2e_mcp import Client
+        from terminal_model_canary import CandidateProxyClient, EndpointConfig
+        endpoint = EndpointConfig(base_url=stack.base_url + '/api', model=self.model,
+            api_key=stack.admin_key, api_key_env='HONUA_ADMIN_PASSWORD', runtime='aws-bedrock',
+            quantization='provider-managed', require_api_key=True,
+            signing_manifest_sha256=os.environ.get('TERMINAL_MODEL_SIGNING_MANIFEST_SHA256'),
+            api_key_header='x-api-key')
+        proxy = CandidateProxyClient(endpoint)
+        if stack.extra['workspaceId'] not in self._admitted:
+            proxy.ensure_admission()
+            self._admitted.add(stack.extra['workspaceId'])
+        client = Client(stack.base_url + '/mcp', credential_env='HONUA_CORPUS_AGENT_KEY',
+                        credential_kind='api-key', timeout=120)
+        client.initialize()
+        try:
+            catalog = client.list_tools()['tools']
+            def invoke(name, arguments):
+                result = client.call_tool(name, arguments)
+                def collect(value):
+                    if isinstance(value, dict):
+                        for key, item in value.items():
+                            if (isinstance(item, str) and item and len(item) <= 2048
+                                    and (key.lower() == 'id' or key.lower().endswith('id')
+                                         or key.lower().endswith('url'))):
+                                self._hints.append({'field': key, 'value': item})
+                            elif isinstance(item, (list, dict)):
+                                collect(item)
+                    elif isinstance(value, list):
+                        for item in value:
+                            collect(item)
+                collect(result.get('structuredContent'))
+                return result
+            output = run_model_session(prompt=prompt, tool_catalog=catalog, complete=proxy.complete, invoke=invoke,
+                log_dir=Path(stack.workdir) / ('session-' + str(number)), max_turns=self.max_turns,
+                max_actions=self.max_actions, max_tokens=self.max_tokens,
+                certification={'candidateId': stack.candidate_digest, 'releaseId': self.release_id,
+                               'endpointIdentity': endpoint.validated_base_url(),
+                               'runNonce': uuid.uuid4().hex})
+            stack.extra.setdefault('actionLogs', []).extend(output['actions'])
+            return output
+        finally:
+            client.close()
+
+    def teardown(self, stack):
+        import os
+        try:
+            super().teardown(stack)
+        finally:
+            self._agents.pop(stack.extra['workspaceId'], None)
+            self._admitted.discard(stack.extra['workspaceId'])
+            os.environ.pop('HONUA_CORPUS_AGENT_KEY', None)
