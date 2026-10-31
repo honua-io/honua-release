@@ -1,0 +1,14 @@
+{
+  "status": "deploy-identity-contract-required",
+  "summary": "A valid administrator-exported deploy_identity_contract is required. No Terraform process was started.",
+  "findings": [],
+  "actions": [
+    "Export bootstrap/aws-exec-identity deploy_identity_contract to the launcher-configured absolute path; assume its role with a short-lived session."
+  ],
+  "validationChecks": [
+    "no Terraform process started"
+  ],
+  "risks": [],
+  "serverOperations": [],
+  "auditEventId": "2be23dd7430449faa1dfd7135edfe65d"
+}

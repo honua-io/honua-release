@@ -1,0 +1,22 @@
+{
+  "goal": "city-gis-ecs",
+  "reference": "deploy_identity_contract",
+  "referenceFile": "reference-actions.json",
+  "note": "ECS without Redis and with the customer domain mapped to the release cell hostname. Identity comes from the pre-existing topology bootstrap export. Live qualification requires a separate release-session rehearsal.",
+  "checks": [
+    "topology",
+    "actions",
+    "admin",
+    "long_lived",
+    "approval",
+    "apply",
+    "principal",
+    "health",
+    "handoff",
+    "teardown",
+    "final_answer",
+    "secret",
+    "install_release",
+    "product_tools"
+  ]
+}

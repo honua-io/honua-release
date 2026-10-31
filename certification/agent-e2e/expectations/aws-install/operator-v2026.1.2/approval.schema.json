@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/honua-devops-provision-approval.v1.json",
+  "title": "honua-devops provision approval receipt v1",
+  "description": "The durable approval that authorizes exactly one Terraform mutation. honua-devops refuses to start an apply or destroy without a valid, unexpired, single-use receipt of this shape from a configured trusted issuer. A caller boolean, an echoed challenge token, or a self-issued receipt is not authorization. This schema describes the document an issuer produces; it is an INPUT contract, and satisfying it is necessary but not sufficient - the signature must also verify under the configured issuer key.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "approvalReceiptId",
+    "issuer",
+    "keyId",
+    "provisioningOperationId",
+    "planSha256",
+    "planMetadataDigest",
+    "action",
+    "stack",
+    "environment",
+    "decision",
+    "signingMode",
+    "issuedAtUtc",
+    "expiresAtUtc",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "honua.devops.provision-approval/v1" },
+    "approvalReceiptId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "issuer": {
+      "description": "Issuer identity. Must be present in the operator-configured trusted-issuer allowlist; an unknown issuer is refused.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "keyId": {
+      "description": "Names which key must verify the receipt, without disclosing it. Derivation depends on signingMode, because a KMS HMAC key has no exportable material to hash: under `local-hmac-dev` it is the first 16 hex characters of the SHA-256 of the raw symmetric key; under `kms-mac` it is the first 16 hex characters of the SHA-256 of the UTF-8 KMS key ARN, which both the GenerateMac and the VerifyMac principal can compute from the ARN alone.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "provisioningOperationId": { "type": "string", "pattern": "^urn:honua:provisioning:[0-9a-f]{32}$" },
+    "planSha256": {
+      "description": "SHA-256 of the saved binary plan this approval authorizes.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "planMetadataDigest": {
+      "description": "The honua-iac exact-plan metadata digest. This is the value terraform-exact-apply.sh checks against --approved-digest, and it transitively binds the backend, target account and role, inputs, source revision and prior state - not just the plan bytes.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "recoveryContextSha256": {
+      "description": "Optional only for a retained destroy recovery. The normal issuer reads it from the protected plan response and appends newline plus recovery-context-sha256:<lowercase digest> to the ordinary canonical payload. It binds the immutable original-root/parent/next-plan relationship; no old approval is reused.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "action": { "enum": ["apply", "destroy"] },
+    "stack": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "environment": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "decision": { "enum": ["approved", "rejected"] },
+    "signingMode": {
+      "description": "How the signature was produced, and therefore whether the receipt is evidence. `kms-mac` computes the MAC in AWS KMS with the capability split across principals: the issuer holds kms:GenerateMac only, the verifier kms:VerifyMac only, and no principal can export the key. `local-hmac-dev` keeps a symmetric key in the verifier's own process, so the verifier can forge anything it accepts - it is a development mode, honua-devops marks its receipts NON-EVIDENTIARY wherever they are reported, and certification (honua-release#129) requires `kms-mac`. This field is covered by the signature, so it cannot be downgraded without invalidating the receipt. A receipt that omits it is refused; the verifier will not guess how a signature was made.",
+      "enum": ["local-hmac-dev", "kms-mac"]
+    },
+    "issuedAtUtc": { "type": "string", "format": "date-time" },
+    "expiresAtUtc": {
+      "description": "Validity ceiling. honua-devops additionally refuses a receipt whose lifetime exceeds one hour.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "signature": {
+      "description": "Base64 HMAC-SHA-256 over the canonical payload: the fields schemaVersion, approvalReceiptId, issuer, keyId, provisioningOperationId, planSha256 (lowercased), planMetadataDigest (lowercased), action, stack, environment, decision, issuedAtUtc (round-trip \"O\" format, UTC), expiresAtUtc (same), signingMode - joined in exactly that order with a single \\n between them and encoded UTF-8. Where the key lives, and therefore who can compute this value, is set by signingMode. Native asymmetric issuance (KMS Sign/Verify or Ed25519) remains a post-2026.1 follow-up; see honua-devops#175.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}
