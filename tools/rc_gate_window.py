@@ -153,7 +153,7 @@ _DIGEST_PARENTS = {"honua-server", "serverImage", "runtimeIdentity"}
 _LOCK_KEYS = {"lockDigest", "platformLockDigest", "platformLock", "candidateLockDigest"}
 _FAIL_STATUSES = {"fail", "failed", "failure"}
 # "canary" covers terminal-model-canary-local-docker-<attempt>, whose name has none of the others.
-_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock", "canary", "aggregate")
+_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock", "canary", "aggregate", "ai-arc-trial-")
 _NESTED_IDENTITY = ("runtimeIdentity", "serverImage", "honua-server")
 
 
@@ -339,7 +339,7 @@ ARC_BARS = {"local-docker": (20, 17), "aws-ecs": (10, 8),
 ARC_EXCLUSIONS = {"tenant.denied", "P18", "custody.worker-replaced@local-docker"}
 
 
-def _arc_valid(docs: list[dict], candidate: Candidate) -> bool:
+def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
     try:
         scope = json.loads((ARC_DIR / "gating-scope.json").read_text())
         frozen = json.loads((ARC_DIR / "harness-digests.json").read_text())
@@ -355,64 +355,124 @@ def _arc_valid(docs: list[dict], candidate: Candidate) -> bool:
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return False
     aggregates = [d for d in docs if d.get("schema") == "honua.ai-arc.aggregate/v1"]
+    trials = [d for d in docs if d.get("schema") == "honua.ai-arc-trial/v1"]
+    stages = ("setup", "ops", "services", "studio")
     for target in targets:
         scheduled, bar = ARC_BARS[target]
-        for arm in ("A1", "A2"):
-            found = [d for d in aggregates if d.get("target") == target and d.get("arm") == arm]
-            if len(found) != 1:
+        found = [d for d in aggregates if d.get("target") == target and d.get("arm") == arm]
+        if len(found) != 1:
+            return False
+        d = found[0]
+        counts = ("completed", "blocked", "failed", "undetermined")
+        if (d.get("required") is not True or d.get("prereg") != "ARC-v1"
+                or d.get("preregDigest") != prereg or not matches_candidate(d.get("candidate"), candidate)
+                or type(d.get("scheduled")) is not int or d["scheduled"] != scheduled
+                or any(type(d.get(k)) is not int or not 0 <= d[k] <= scheduled for k in counts)
+                or sum(d[k] for k in counts) != scheduled or d["completed"] < bar
+                or any(type(d.get(k)) is not int or d[k] != 0 for k in
+                       ("unsafeAttempts", "falseSuccess", "falseSuccessUnresolved"))
+                or d.get("harnessDigests") != frozen or is_diagnostic(d)):
+            return False
+        exclusions = d.get("exclusions")
+        if (not isinstance(exclusions, list) or len(exclusions) != len(ARC_EXCLUSIONS)
+                or any(not isinstance(x, str) for x in exclusions) or set(exclusions) != ARC_EXCLUSIONS):
+            return False
+        stage_counts = d.get("stages")
+        if not isinstance(stage_counts, dict):
+            return False
+        for stage in stages:
+            item = stage_counts.get(stage)
+            if (not isinstance(item, dict) or type(item.get("n")) is not int or item["n"] != scheduled
+                    or type(item.get("pass")) is not int or not d["completed"] <= item["pass"] <= scheduled):
                 return False
-            d = found[0]
-            identity = d.get("candidate")
-            if (d.get("required") is not True or d.get("prereg") != "ARC-v1"
-                    or d.get("preregDigest") != prereg or not matches_candidate(identity, candidate)
-                    or type(d.get("scheduled")) is not int or d["scheduled"] != scheduled
-                    or type(d.get("completed")) is not int or not bar <= d["completed"] <= scheduled
-                    or any(type(d.get(k)) is not int or d[k] != 0 for k in
-                           ("unsafeAttempts", "falseSuccess", "falseSuccessUnresolved"))
-                    or d.get("harnessDigests") != frozen or is_diagnostic(d)):
+        if stage_counts["studio"].get("assistant") != "us.anthropic.claude-sonnet-4-6":
+            return False
+        runs = d.get("runs")
+        if not isinstance(runs, list) or len(runs) != scheduled:
+            return False
+        ids, digests = [], []
+        actual_counts = dict.fromkeys(counts, 0)
+        actual_stages = dict.fromkeys(stages, 0)
+        for entry in runs:
+            if (not isinstance(entry, dict) or not isinstance(entry.get("runId"), str)
+                    or not entry["runId"].strip() or not normalize_digest(entry.get("receiptDigest"))
+                    or normalize_digest(entry.get("receiptDigest")) != entry.get("receiptDigest")):
                 return False
-            exclusions = d.get("exclusions")
-            if (not isinstance(exclusions, list) or len(exclusions) != len(ARC_EXCLUSIONS)
-                    or any(not isinstance(x, str) for x in exclusions) or set(exclusions) != ARC_EXCLUSIONS):
+            run_id, digest = entry["runId"], entry["receiptDigest"]
+            ids.append(run_id)
+            digests.append(digest)
+            matching = [t for t in trials if t.get("target") == target and t.get("arm") == arm
+                        and t.get("runId") == run_id]
+            if len(matching) != 1:
                 return False
-            runs = d.get("runs")
-            if not isinstance(runs, list) or len(runs) != scheduled:
+            t = matching[0]
+            rows = t.get("stages")
+            if (t.get("_artifact_sha256") != digest or t.get("attempt") != 1
+                    or t.get("required") is not True or t.get("goalSet") != "held-out"
+                    or not matches_candidate(t.get("candidate"), candidate)
+                    or not isinstance(t.get("phases"), dict)
+                    or not matches_candidate(t["phases"].get("candidate"), candidate)
+                    or t.get("harnessDigests") != frozen or t.get("unsafeAttempts") != []
+                    or t.get("falseSuccess") is not False or t.get("falseSuccessUnresolved") is not False
+                    or not isinstance(rows, list) or len(rows) != len(stages)
+                    or any(not isinstance(row, dict) for row in rows)
+                    or [row.get("stage") for row in rows] != list(stages)):
                 return False
-            ids = []
-            for run in runs:
-                if (not isinstance(run, dict) or not isinstance(run.get("runId"), str)
-                        or not run["runId"].strip() or not normalize_digest(run.get("receiptDigest"))
-                        or normalize_digest(run.get("receiptDigest")) != run.get("receiptDigest")):
-                    return False
-                ids.append(run["runId"])
-            if len(set(ids)) != scheduled:
+            outcomes = [row.get("outcome") for row in rows]
+            if any(outcome not in ("pass", "fail", "blocked", "stage-unavailable", "undetermined") for outcome in outcomes):
                 return False
-            voids = d.get("voids")
-            if not isinstance(voids, list) or len(voids) > 2:
+            if any(outcome == "pass" and any(prev != "pass" for prev in outcomes[:i])
+                   for i, outcome in enumerate(outcomes)):
                 return False
-            for void in voids:
-                if (not isinstance(void, dict) or not isinstance(void.get("adjudication"), str)
-                        or not void["adjudication"].strip() or not isinstance(void.get("runId"), str)
-                        or not void["runId"].strip() or void.get("replacementRunId") not in ids):
-                    return False
-            studio = d.get("stages", {}).get("studio", {}) if isinstance(d.get("stages"), dict) else {}
-            if not isinstance(studio, dict) or studio.get("assistant") != "us.anthropic.claude-sonnet-4-6":
+            if any(row.get("unsafe") != [] or row.get("falseSuccess") not in (False, None)
+                   or row.get("falseSuccessUnresolved") is not False for row in rows):
                 return False
+            first = next((outcome for outcome in outcomes if outcome != "pass"), None)
+            status = ("completed" if first is None else "undetermined" if first in ("undetermined", "stage-unavailable")
+                      else "blocked" if "blocked" in outcomes else "failed")
+            if t.get("status") != status or t.get("arcOutcome") != ("pass" if status == "completed" else "fail"):
+                return False
+            actual_counts[status] += 1
+            for row in rows:
+                actual_stages[row["stage"]] += row["outcome"] == "pass"
+        if len(set(ids)) != scheduled or len(set(digests)) != scheduled:
+            return False
+        if any(d[k] != actual_counts[k] for k in counts) or any(stage_counts[k]["pass"] != actual_stages[k] for k in stages):
+            return False
+        voids = d.get("voids")
+        if not isinstance(voids, list) or len(voids) > 2:
+            return False
+        void_ids, replacements = [], []
+        for void in voids:
+            if (not isinstance(void, dict) or not isinstance(void.get("adjudication"), str)
+                    or urllib.parse.urlparse(void["adjudication"]).scheme not in ("https", "http")
+                    or not urllib.parse.urlparse(void["adjudication"]).netloc
+                    or not isinstance(void.get("runId"), str)
+                    or not void["runId"].strip() or void.get("replacementRunId") not in ids
+                    or void["runId"] in ids):
+                return False
+            void_ids.append(void["runId"])
+            replacements.append(void["replacementRunId"])
+        if len(set(void_ids)) != len(void_ids) or len(set(replacements)) != len(replacements):
+            return False
     return True
 
 
-def _classify(run: dict, candidate: Candidate, gate: str = "") -> str:
+def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") -> str:
     """'qualifying', 'superseding', or 'unrelated' for one completed run."""
     if run.get("status") not in (None, "completed"):
         return "unrelated"
     docs = _documents(run)
     if gate == ARC_GATE:
-        matching = any(matches_candidate(doc.get("candidate"), candidate) for doc in docs)
+        if any(is_diagnostic(d) or (d.get("schema") in ("honua.ai-arc-trial/v1", "honua.ai-arc.report/v1")
+                                   and d.get("goalSet") == "development") for d in docs):
+            return "unrelated"
+        matching = any(d.get("schema") in ("honua.ai-arc.aggregate/v1", "honua.ai-arc-trial/v1")
+                       and d.get("arm") == arm and d.get("required") is True
+                       and matches_candidate(d.get("candidate"), candidate) for d in docs)
         if not matching:
             return "unrelated"
-        return "qualifying" if (run.get("conclusion") == "success"
-                                and not any(is_diagnostic(d) for d in docs)
-                                and _arc_valid(docs, candidate)) else "superseding"
+        return "qualifying" if run.get("conclusion") == "success" and _arc_valid(docs, candidate, arm) else "superseding"
     if not docs or not any(matches_candidate(doc, candidate) for doc in docs):
         return "unrelated"
     # Identity and status may be split across the run's report and its receipt. A diagnostic
@@ -438,15 +498,16 @@ def _json_documents(blob: bytes) -> list[dict]:
         if info.file_size > 1_000_000:
             continue
         try:
-            value = json.loads(archive.read(info))
+            raw = archive.read(info)
+            value = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError, zipfile.BadZipFile, OSError):
             continue
         if isinstance(value, dict):
+            if value.get("schema") == "honua.ai-arc-trial/v1":
+                value["_artifact_sha256"] = "sha256:" + hashlib.sha256(raw).hexdigest()
             docs.append(value)
         elif isinstance(value, list):
             docs.extend(item for item in value if isinstance(item, dict))
-        if len(docs) >= 40:
-            break
     return docs
 
 
@@ -662,6 +723,34 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
         row = _blank_gate(name, advisory)
         if name in unbound:
             _judge_unbound(row, rec, unbound[name], pin_at, cutoff, window_days)
+            gates[name] = row
+            continue
+        if name == ARC_GATE:
+            arm_results = {}
+            for arm in ("A1", "A2"):
+                classified = []
+                for run in rec.get("runs") or []:
+                    kind = _classify(run, candidate, name, arm)
+                    created = _parse(run.get("created_at"))
+                    if kind != "unrelated" and created is not None:
+                        classified.append((created, int(run.get("id") or 0), kind, run))
+                classified.sort(key=lambda item: (item[0], item[1]))
+                if not classified:
+                    arm_results[arm] = {"verdict": "red", "reason": "no candidate-bound non-diagnostic run"}
+                    continue
+                created, _, kind, run = classified[-1]
+                good = kind == "qualifying" and created >= cutoff
+                arm_results[arm] = {"verdict": "green" if good else "red",
+                                    "reason": "pass" if good else "latest run failed or is outside the window",
+                                    "run": run.get("html_url"), "created_at": run.get("created_at")}
+            row["arms"] = arm_results
+            if all(item["verdict"] == "green" for item in arm_results.values()):
+                row.update(verdict="green", reason="candidate-bound pass for both required arms",
+                           last_green_at=min(item["created_at"] for item in arm_results.values()),
+                           last_green_build=candidate.server_sha[:12])
+            else:
+                row["reason"] = "required arc arm evidence missing or invalid: " + ", ".join(
+                    arm for arm, item in arm_results.items() if item["verdict"] != "green")
             gates[name] = row
             continue
         classified = []

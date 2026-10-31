@@ -606,7 +606,7 @@
     },
     "ai-arc-required-2026-10-31": {
       "date": "2026-10-31",
-      "authority": "Founder decision 2026-10-31",
+      "authority": "Founder decision in the rc.2 release session, 2026-10-31: Required for rc.2",
       "owner": "Mike McDougall (founder)",
       "ruling": "The AI arc is required for 2026.1-rc.2 admission for each founder-approved gating target and both required arms.",
       "effect": "Supersedes wedge-critical-retier-2026-10-25 for the arc gate only. The genuine-model canary and gate-agent-e2e remain advisory.",

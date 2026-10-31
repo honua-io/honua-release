@@ -446,60 +446,116 @@ def test_artifact_zip_yields_report_objects_and_ignores_other_members():
     assert w._json_documents(b"not a zip") == []
 
 
+
 def test_arc_admission_contract(tmp_path, monkeypatch):
     import copy
     import hashlib
 
     monkeypatch.setattr(w, "ARC_DIR", tmp_path)
-    (tmp_path / "PREREG-arc-v1.md").write_text("frozen prereg")
-    digest = "sha256:" + hashlib.sha256(b"frozen prereg").hexdigest()
+    prereg_path = tmp_path / "PREREG-arc-v1.md"
+    prereg_path.write_text("frozen prereg")
+    digest = "sha256:" + hashlib.sha256(prereg_path.read_bytes()).hexdigest()
     frozen = {k: "sha256:" + "d" * 64 for k in ("runner", "scorer", "arcSpec", "heldOut")}
     (tmp_path / "harness-digests.json").write_text(json.dumps(frozen))
     scope = {"gating": ["local-docker", "aws-ecs"], "approvedBy": "founder", "approvedAt": "2026-11-01T23:00:00Z"}
     (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
-    docs = []
-    for target, (count, bar) in list(w.ARC_BARS.items())[:2]:
-        for arm in ("A1", "A2"):
+    identity = {"sourceSha": SHA, "imageDigest": DIGEST, "platformLockDigest": LOCK}
+
+    def make_arm(arm):
+        docs = []
+        for target, (count, bar) in list(w.ARC_BARS.items())[:2]:
+            entries = []
+            for i in range(count):
+                success = i < bar
+                outcomes = ["pass"] * 4 if success else ["fail", "blocked", "blocked", "blocked"]
+                trial = {"schema": "honua.ai-arc-trial/v1", "runId": str(i), "attempt": 1,
+                         "target": target, "arm": arm, "required": True, "goalSet": "held-out",
+                         "candidate": identity.copy(), "phases": {"candidate": identity.copy()},
+                         "harnessDigests": frozen.copy(), "unsafeAttempts": [], "falseSuccess": False,
+                         "falseSuccessUnresolved": False, "status": "completed" if success else "blocked",
+                         "arcOutcome": "pass" if success else "fail",
+                         "stages": [{"stage": stage, "outcome": outcome, "unsafe": [],
+                                     "falseSuccess": False, "falseSuccessUnresolved": False}
+                                    for stage, outcome in zip(("setup", "ops", "services", "studio"), outcomes)]}
+                raw = json.dumps(trial).encode()
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w") as archive:
+                    archive.writestr("trial-receipt.json", raw)
+                docs.extend(w._json_documents(buf.getvalue()))
+                entries.append({"runId": str(i), "receiptDigest": "sha256:" + hashlib.sha256(raw).hexdigest()})
+            stage_counts = {stage: {"n": count, "pass": bar} for stage in ("setup", "ops", "services", "studio")}
+            stage_counts["studio"]["assistant"] = "us.anthropic.claude-sonnet-4-6"
             docs.append({"schema": "honua.ai-arc.aggregate/v1", "prereg": "ARC-v1", "preregDigest": digest,
-                         "candidate": {"sourceSha": SHA, "imageDigest": DIGEST, "platformLockDigest": LOCK},
-                         "target": target, "arm": arm, "required": True, "scheduled": count,
-                         "completed": bar, "unsafeAttempts": 0, "falseSuccess": 0,
+                         "candidate": identity.copy(), "target": target, "arm": arm, "required": True,
+                         "scheduled": count, "completed": bar, "blocked": count - bar, "failed": 0,
+                         "undetermined": 0, "unsafeAttempts": 0, "falseSuccess": 0,
                          "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
-                         "exclusions": list(w.ARC_EXCLUSIONS),
-                         "stages": {"studio": {"assistant": "us.anthropic.claude-sonnet-4-6"}},
-                         "runs": [{"runId": str(i), "receiptDigest": DIGEST} for i in range(count)]})
-    def admits(items):
-        run = _run(1)
-        run["reports"] = items
-        return _eval({w.ARC_GATE: {"runs": [run]}}, unbound={})["admissible"]
-    assert admits(docs)
+                         "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries})
+        return docs
+
+    a1, a2 = make_arm("A1"), make_arm("A2")
+    def evaluate(d1, d2, extra=()):
+        runs = []
+        for index, docs in enumerate((d1, d2, *extra)):
+            run = _run(2 - index * .2, run_id=index + 1)
+            run["reports"] = docs
+            runs.append(run)
+        return _eval({w.ARC_GATE: {"runs": runs}}, unbound={})
+    assert w.artifact_carries_evidence("ai-arc-trial-0")
+    assert evaluate(a1, a2)["admissible"]
+    assert not evaluate(a1, [])["admissible"]
+    agg_index = next(i for i, d in enumerate(a1) if d.get("schema") == "honua.ai-arc.aggregate/v1")
+    trial_index = 0
     mutations = [
-        lambda d: d.pop(),
-        lambda d: d.append(copy.deepcopy(d[0])),
-        lambda d: d[0].update(required=False),
-        lambda d: d[0]["candidate"].update(sourceSha="e" * 40),
-        lambda d: d[0]["candidate"].update(imageDigest=LOCK),
-        lambda d: d[0]["candidate"].update(platformLockDigest=DIGEST),
-        lambda d: d[0].update(preregDigest=LOCK),
-        lambda d: d[0].update(scheduled=19),
-        lambda d: d[0]["runs"].pop(),
-        lambda d: d[0]["runs"].__setitem__(0, d[0]["runs"][1]),
-        lambda d: d[0].update(completed=16),
-        lambda d: d[0].update(unsafeAttempts=1),
-        lambda d: d[0].update(falseSuccess=1),
-        lambda d: d[0].update(falseSuccessUnresolved=1),
-        lambda d: d[0].update(voids=[{}] * 3),
-        lambda d: d[0].update(voids=[{"runId": "void", "replacementRunId": "0", "adjudication": ""}]),
-        lambda d: d[0]["harnessDigests"].update(runner=LOCK),
-        lambda d: d[0]["exclusions"].pop(),
-        lambda d: d[0].update(certifying=False),
-        lambda d: d[0].update(requestedScope={"target": "local-docker"}),
-        lambda d: d[0]["stages"]["studio"].clear(),
+        lambda d: d.pop(agg_index),
+        lambda d: d.append(copy.deepcopy(d[agg_index])),
+        lambda d: d[agg_index].update(required=False),
+        lambda d: d[agg_index]["candidate"].update(sourceSha="e" * 40),
+        lambda d: d[agg_index]["candidate"].update(imageDigest=LOCK),
+        lambda d: d[agg_index]["candidate"].update(platformLockDigest=DIGEST),
+        lambda d: d[agg_index].update(preregDigest=LOCK),
+        lambda d: d[agg_index].update(scheduled=19),
+        lambda d: d[agg_index]["runs"].pop(),
+        lambda d: d[agg_index]["runs"].__setitem__(0, d[agg_index]["runs"][1]),
+        lambda d: d[agg_index]["runs"][0].update(receiptDigest=d[agg_index]["runs"][1]["receiptDigest"]),
+        lambda d: d[agg_index].update(completed=16),
+        lambda d: d[agg_index].update(blocked=0),
+        lambda d: d[agg_index].update(unsafeAttempts=1),
+        lambda d: d[agg_index].update(falseSuccess=1),
+        lambda d: d[agg_index].update(falseSuccessUnresolved=1),
+        lambda d: d[agg_index].update(voids=[{}] * 3),
+        lambda d: d[agg_index].update(voids=[{"runId": "0", "replacementRunId": "0", "adjudication": "https://example.com/decision"}]),
+        lambda d: d[agg_index]["harnessDigests"].update(runner=LOCK),
+        lambda d: d[agg_index]["exclusions"].pop(),
+        lambda d: d[agg_index]["stages"]["ops"].update(n=1),
+        lambda d: d[agg_index]["stages"]["ops"].update(**{"pass": 0}),
+        lambda d: d[agg_index]["stages"]["studio"].pop("assistant"),
+        lambda d: d[trial_index].update(_artifact_sha256=LOCK),
+        lambda d: d[trial_index].update(status="failed"),
+        lambda d: d[trial_index].update(unsafeAttempts=[{}]),
+        lambda d: d[trial_index].update(falseSuccess=True),
+        lambda d: d[trial_index]["stages"][0].update(outcome="fail"),
+        lambda d: d.pop(trial_index),
     ]
     for mutate in mutations:
-        altered = copy.deepcopy(docs)
+        altered = copy.deepcopy(a1)
         mutate(altered)
-        assert not admits(altered), mutate
+        assert not evaluate(altered, a2)["admissible"], mutate
+    # A newer comparison arm or focused run never displaces required evidence.
+    comparison = copy.deepcopy(a1)
+    for d in comparison:
+        d.update(arm="C1", required=False)
+    assert evaluate(a1, a2, (comparison,))["admissible"]
+    diagnostic = copy.deepcopy(a1)
+    diagnostic[agg_index]["certifying"] = False
+    assert evaluate(a1, a2, (diagnostic,))["admissible"]
+    invalid = copy.deepcopy(a1)
+    invalid[agg_index]["completed"] = 0
+    assert not evaluate(a1, a2, (invalid,))["admissible"]
     scope["approvedBy"] = None
     (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
-    assert not admits(docs)
+    assert not evaluate(a1, a2)["admissible"]
+    scope["approvedBy"] = "founder"
+    (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
+    prereg_path.unlink()
+    assert not evaluate(a1, a2)["admissible"]
