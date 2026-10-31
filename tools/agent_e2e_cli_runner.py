@@ -38,7 +38,10 @@ class CliRuntime(corpus.LocalRuntime):
 
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         if self.target == 'local':
-            raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
+            from agent_browser_studio import remote_docker_host
+            if remote_docker_host() is None:
+                raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
+            return super().setup(case_id, candidate_digest, needs_approver, agent_permissions)
         if not self.target_config or not self.deployment_receipt:
             raise ValueError('AWS target requires retained target config and deterministic deployment receipt')
         config = json.loads(Path(self.target_config).read_bytes())

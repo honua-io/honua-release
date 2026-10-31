@@ -5,9 +5,8 @@ locked to the case stack's Studio origin. Every tool call is written to the runn
 action log, including the sha256 of the controller screenshot, before the call
 returns. Agent screenshots are not oracle evidence.
 
-The runner observes saved maps through its own recorder: API documents, a derived
-style and composition measurement, and a second headless browser that loads the
-saved map and decodes the canvas. Those measurements are stored with store_derived.
+The runner observes saved maps through its own recorder. Render assertions stay
+unobserved until an independently verified server render can supply the evidence.
 """
 from __future__ import annotations
 
@@ -17,10 +16,15 @@ import os
 import re
 import secrets
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import queue
+import socket
+import subprocess
+import time
+import urllib.request
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from agent_e2e_local_recorder import ProjectionError
 
@@ -36,6 +40,8 @@ FLOOD_OPACITY = 0.35
 RENDER_MINIMUM_NON_BACKGROUND = 1000
 RENDER_MINIMUM_MATCHING = 4000
 MAX_BODY = 512 * 1024
+OWNER_TIMEOUT = 35
+CLOSE_TIMEOUT = 3
 KEY = re.compile(r'^(Enter|Tab|Escape|Backspace|Arrow(Up|Down|Left|Right)|[A-Za-z0-9 ])$')
 IDENT = re.compile(r'[A-Za-z0-9-]{1,80}')
 TOOLS = (
@@ -53,6 +59,139 @@ TOOL_ARGS = {
 
 class OriginLocked(ValueError):
     pass
+
+
+class BrowserUnavailable(RuntimeError):
+    pass
+
+
+def remote_docker_host():
+    """Only the explicitly provisioned eval hosts may run corpus containers."""
+    value = os.environ.get('DOCKER_HOST', '')
+    match = re.fullmatch(r'ssh://(honua-eval-[1-4])', value)
+    return match.group(1) if match else None
+
+
+class CaseConsole:
+    """A digest-pinned quickstart Console attached to one remote case network."""
+    def __init__(self, stack, image):
+        self.host = remote_docker_host()
+        if self.host is None:
+            raise ValueError('Console requires an approved remote eval Docker host')
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,62}', stack.compose_project):
+            raise ValueError('invalid case Compose project')
+        if not re.fullmatch(r'ghcr\.io/honua-io/honua-console@sha256:[0-9a-f]{64}', image):
+            raise ValueError('Console image is not the pinned digest')
+        self.name = stack.compose_project + '-console-' + secrets.token_hex(16)
+        self._project = stack.compose_project
+        self._attempted = False
+        self._created = False
+        self._tunnel = None
+        self.url = None
+        env = dict(os.environ, HONUA_ADMIN_API_KEY=stack.admin_key)
+        command = ['docker', 'run', '--detach', '--name', self.name,
+                   '--label', 'honua.corpus.case=' + stack.compose_project,
+                   '--network', stack.compose_project + '_default', '--publish', '127.0.0.1::8080',
+                   '--env', 'ASPNETCORE_ENVIRONMENT=Development', '--env', 'ASPNETCORE_URLS=http://+:8080',
+                   '--env', 'HONUA_SERVER_BASE_URL=http://server:8080', '--env', 'HONUA_ADMIN_API_KEY',
+                   '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
+                   '--tmpfs', '/tmp:noexec,nosuid,size=100m', image]
+        try:
+            self._attempted = True
+            result = subprocess.run(command, env=env, capture_output=True, timeout=180, check=False)
+            if result.returncode:
+                raise RuntimeError('could not start the case Console')
+            self._created = True
+            port = subprocess.run(['docker', 'port', self.name, '8080/tcp'], env=env,
+                                  capture_output=True, text=True, timeout=20, check=True).stdout.strip()
+            match = re.fullmatch(r'127\.0\.0\.1:([0-9]{1,5})', port)
+            if not match or not 0 < int(match.group(1)) < 65536:
+                raise RuntimeError('Console did not bind a private loopback port')
+            with socket.socket() as listener:
+                listener.bind(('127.0.0.1', 0))
+                local_port = listener.getsockname()[1]
+            self._tunnel = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes',
+                '-N', '-L', f'127.0.0.1:{local_port}:127.0.0.1:{match.group(1)}', self.host],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.url = f'http://127.0.0.1:{local_port}'
+            deadline = time.monotonic() + 45
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            while time.monotonic() < deadline:
+                if self._tunnel.poll() is not None:
+                    raise RuntimeError('Console SSH tunnel exited')
+                try:
+                    with opener.open(self.url + '/version.json', timeout=2) as response:
+                        if response.status == 200:
+                            break
+                except OSError:
+                    pass
+                time.sleep(0.25)
+            else:
+                raise RuntimeError('case Console did not become ready')
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        if self._tunnel is not None:
+            self._tunnel.terminate()
+            try:
+                self._tunnel.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._tunnel.kill()
+                self._tunnel.wait(timeout=5)
+            self._tunnel = None
+        if self._attempted and not self._created:
+            probe = subprocess.run(['docker', 'inspect', '--format',
+                                    '{{index .Config.Labels "honua.corpus.case"}}', self.name],
+                                   capture_output=True, text=True, timeout=20, check=False)
+            self._created = probe.returncode == 0 and probe.stdout.strip() == self._project
+        if self._created:
+            result = subprocess.run(['docker', 'rm', '-f', self.name], capture_output=True, timeout=30, check=False)
+            if result.returncode:
+                raise RuntimeError('could not remove the case Console')
+            self._created = False
+        self._attempted = False
+
+
+class _DaemonOwner:
+    """One thread owns Playwright; a wedged driver cannot hold the runner process open."""
+    def __init__(self):
+        self.jobs = queue.Queue()
+        self.idle = None
+        self.thread = threading.Thread(target=self._run, name='studio-browser', daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        while True:
+            try:
+                job = self.jobs.get(timeout=0.05)
+            except queue.Empty:
+                if self.idle is not None:
+                    try:
+                        self.idle()
+                    except Exception:
+                        self.idle = None
+                continue
+            if job is None:
+                return
+            future, callback, args = job
+            if not future.set_running_or_notify_cancel():
+                continue
+            try:
+                future.set_result(callback(*args))
+            except BaseException as exc:
+                future.set_exception(exc)
+
+    def submit(self, callback, *args):
+        future = Future()
+        self.jobs.put((future, callback, args))
+        return future
+
+    def shutdown(self, wait=True):
+        self.jobs.put(None)
+        if wait:
+            self.thread.join(CLOSE_TIMEOUT)
 
 
 def require(condition, reason):
@@ -111,7 +250,9 @@ class OriginLock:
 
 def launch_options():
     """Headless, with devtools left off. Playwright 1.64 has no devtools launch switch."""
-    return {'headless': True, 'args': ['--disable-dev-shm-usage']}
+    # Responses are fulfilled by the guarded route, which otherwise gives local
+    # documents an unknown address space and Chromium rejects even their own WS.
+    return {'headless': True, 'args': ['--disable-dev-shm-usage', '--disable-features=LocalNetworkAccessChecks']}
 
 
 def context_options():
@@ -212,8 +353,9 @@ class PlaywrightPage:
         self._browser = self._pw.chromium.launch(**launch_options())
         self._context = self._browser.new_context(**context_options())
         self._context.route('**/*', self._gate)
-        # HTTP routing does not cover WebSockets. The eval admits no socket surface.
-        self._context.route_web_socket('**/*', lambda socket: socket.close())
+        # Do not use sync Playwright's WebSocket route: closing a socket from its
+        # callback can deadlock the owning greenlet. The document's enforced CSP
+        # below restricts WebSocket connections as well as fetch to its own origin.
         self._context.on('download', self._cancel_download)
         self._page = self._context.new_page()
         self._page.on('framenavigated', self._navigation)
@@ -245,7 +387,25 @@ class PlaywrightPage:
             self.aborted.append(url)
             route.abort('blockedbyclient')
             return
-        route.continue_()
+        # Playwright's default continuation follows redirects internally without
+        # invoking this handler for every hop. Fetch exactly one hop, inspect its
+        # Location, then let the browser request an admitted redirect separately.
+        try:
+            response = route.fetch(max_redirects=0, timeout=10000)
+            headers = dict(response.headers)
+            location = headers.get('location')
+            if 300 <= response.status < 400 and location and not self.origin.allows(urljoin(url, location)):
+                self.aborted.append(urljoin(url, location))
+                route.abort('blockedbyclient')
+                return
+            if route.request.resource_type == 'document':
+                ws_origin = ('wss://' if self.origin.scheme == 'https' else 'ws://') + self.origin.origin.split('://', 1)[1]
+                policy = f"connect-src 'self' {ws_origin}; frame-src 'self'; object-src 'none'; base-uri 'self'"
+                previous = headers.get('content-security-policy')
+                headers['content-security-policy'] = previous + ', ' + policy if previous else policy
+            route.fulfill(response=response, headers=headers)
+        except Exception:
+            route.abort('blockedbyclient')
 
     @staticmethod
     def _cancel_download(download):
@@ -264,6 +424,11 @@ class PlaywrightPage:
     def current_url(self):
         return self._page.url
 
+    def pump_events(self):
+        # Sync Playwright dispatches popup and navigation events only while its
+        # event loop is running, including between model-selected tool calls.
+        self._page.wait_for_timeout(50)
+
     def click(self, selector):
         self._interact(lambda: self._page.click(selector, timeout=5000))
 
@@ -279,10 +444,10 @@ class PlaywrightPage:
     def screenshot(self):
         self._check_origin()
         canvas = self._page.locator('#map')
-        if canvas.count():
-            png = canvas.screenshot(type='png')
+        if canvas.count() and canvas.is_visible():
+            png = canvas.screenshot(type='png', timeout=3000)
         else:
-            png = self._page.screenshot(type='png')
+            png = self._page.screenshot(type='png', timeout=3000)
         self._check_origin()
         return png
 
@@ -290,18 +455,11 @@ class PlaywrightPage:
         self._check_origin()
         body = self._page.locator('body')
         try:
-            text = body.aria_snapshot()
+            text = body.aria_snapshot(timeout=5000)
         except Exception:
             text = body.inner_text(timeout=5000)
         self._check_origin()
         return (text or '')[:8000]
-
-    def attribute(self, name):
-        self._check_origin()
-        node = self._page.locator('#honua-render')
-        if not node.count():
-            return ''
-        return node.get_attribute(name) or ''
 
     def close(self):
         try:
@@ -313,12 +471,13 @@ class PlaywrightPage:
 class StudioBrowserServer:
     """Loopback MCP server. Tools are the allowlist above; evaluate and devtools are absent."""
 
-    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None):
+    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=()):
         self.studio_url = studio_url
         self.action_log = action_log
         self.fixture_dir = fixture_dir
         self.page_factory = page_factory
         self.token = secrets.token_hex(24)
+        self._sensitive = tuple(value for value in sensitive if isinstance(value, str) and len(value) >= 8)
         self.page = None
         self.endpoint = None
         self.server = None
@@ -326,18 +485,22 @@ class StudioBrowserServer:
         self.lock = None
         self._owner = None
         self._http_thread = None
+        self._poisoned = False
+        self.owner_timeout = OWNER_TIMEOUT
 
     def start(self):
         from agent_e2e_local_api import McpEndpoint
         self.lock = OriginLock(self.studio_url)
-        self._owner = ThreadPoolExecutor(max_workers=1, thread_name_prefix='studio-browser')
+        self._owner = _DaemonOwner()
         try:
-            self.page = self._owner.submit(self.page_factory or PlaywrightPage, self.lock).result()
+            self.page = self._owner.submit(self.page_factory or PlaywrightPage, self.lock).result(timeout=self.owner_timeout)
+            if isinstance(self.page, PlaywrightPage):
+                self._owner.idle = self.page.pump_events
             self._serve()
         except Exception:
             if self.page is not None:
-                self._owner.submit(self.page.close).result()
-            self._owner.shutdown()
+                self._owner.submit(self.page.close).result(timeout=CLOSE_TIMEOUT)
+            self._owner.shutdown(wait=False)
             self._owner = None
             self.page = None
             raise
@@ -400,6 +563,8 @@ class StudioBrowserServer:
                                                               rpc_id=message.get('id'))
                     except ActionBoundExceeded:
                         return self.send(200, json.dumps(_rpc_error(message, -32000, 'action bound exceeded')).encode())
+                    except BrowserUnavailable:
+                        return self.send(200, json.dumps(_rpc_error(message, -32001, 'browser unavailable')).encode())
                     result = _tool_result(status, text, digest)
                 else:
                     return self.send(200, json.dumps(_rpc_error(message, -32601, 'method not available')).encode())
@@ -419,18 +584,31 @@ class StudioBrowserServer:
         try:
             if self.page is not None:
                 if self._owner is not None:
-                    self._owner.submit(self.page.close).result()
+                    self._owner.idle = None
+                    close = self._owner.submit(self.page.close)
+                    try:
+                        close.result(timeout=CLOSE_TIMEOUT)
+                    except FutureTimeout:
+                        self._poisoned = True
                 else:
                     self.page.close()
         finally:
             self.page = None
             if self._owner is not None:
-                self._owner.shutdown()
+                self._owner.shutdown(wait=False)
                 self._owner = None
 
     def perform(self, name, arguments, *, rpc_id=None):
+        if self._poisoned:
+            raise BrowserUnavailable('browser unavailable')
         if self._owner is not None:
-            return self._owner.submit(self._perform, name, arguments, rpc_id).result()
+            future = self._owner.submit(self._perform, name, arguments, rpc_id)
+            try:
+                return future.result(timeout=self.owner_timeout)
+            except FutureTimeout as exc:
+                self._poisoned = True
+                future.cancel()
+                raise BrowserUnavailable('browser action timed out') from exc
         return self._perform(name, arguments, rpc_id)
 
     def _perform(self, name, arguments, rpc_id):
@@ -497,7 +675,20 @@ class StudioBrowserServer:
         return 'pressed'
 
     def _studio_snapshot(self, _arguments):
-        return self.page.snapshot_text()
+        text = self.page.snapshot_text()
+        values = self._sensitive + (self.token,)
+        context = getattr(self.page, '_context', None)
+        if context is not None:
+            values += tuple(value for cookie in context.cookies()
+                            if isinstance((value := cookie.get('value')), str) and len(value) >= 8)
+        if any(value and value in text for value in values):
+            raise OriginLocked('refused sensitive page content')
+        from agent_cli_sessions import screen_model_input
+        try:
+            screen_model_input(text)
+        except ValueError:
+            raise OriginLocked('refused sensitive page content') from None
+        return text
 
     def _studio_upload(self, arguments):
         path = resolve_fixture(self.fixture_dir, arguments['name'])
@@ -539,10 +730,14 @@ def _tool_result(status, text, digest):
 
 def open_studio_browser(stack, action_log):
     """Start the studio MCP server for one session. The runner stops it."""
-    origin = stack.extra.get('studioUrl') or stack.base_url
+    origin = stack.extra.get('consoleUrl') or stack.extra.get('studioUrl')
+    require(isinstance(origin, str) and origin, 'case has no provisioned Console origin')
     fixture = stack.extra.get('studioFixtureDir') or str(Path(stack.workdir) / 'studio-fixtures')
     Path(fixture).mkdir(parents=True, exist_ok=True)
-    server = StudioBrowserServer(origin, action_log, fixture, page_factory=stack.extra.get('studioPageFactory'))
+    sensitive = (stack.admin_key, stack.approver_key, os.environ.get('HONUA_CORPUS_AGENT_KEY'),
+                 os.environ.get('HONUA_CORPUS_BOOTSTRAP_KEY'))
+    server = StudioBrowserServer(origin, action_log, fixture, page_factory=stack.extra.get('studioPageFactory'),
+                                 sensitive=sensitive)
     server.start()
     return server
 
@@ -658,25 +853,6 @@ def record_map_measurements(recorder, version_step, prefix):
     recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(body)})
 
 
-def record_render(recorder, step, studio_url, map_path, contract, page=None):
-    lock = OriginLock(studio_url)
-    url = lock.resolve(map_path)
-    own = None
-    try:
-        target = page if page is not None else PlaywrightPage(lock)
-        own = None if page is not None else target
-        status = target.goto(url)
-        measured = measure_png(target.screenshot(), contract, http_status=status if type(status) is int else 0,
-                               loaded_layer_ids=split_ids(target.attribute('data-loaded-layers')),
-                               visible_label_source_ids=split_ids(target.attribute('data-label-sources')),
-                               browser_errors=split_ids(target.attribute('data-browser-errors')))
-        recorder.store_derived(step, measured)
-        return measured
-    finally:
-        if own is not None:
-            own.close()
-
-
 def snapshot_sources(recorder, prefix, layers, when):
     from agent_e2e_p10_observer import source_path
     for name, slug in SOURCE_LAYERS:
@@ -722,8 +898,28 @@ def seed_case(scenario_id, stack, variant, *, create_map):
     if variant not in ('A', 'B'):
         raise ValueError('unsupported variant')
     stack.extra['needsStudioBrowser'] = True
-    stack.extra.setdefault('studioUrl', stack.base_url)
-    stack.extra['studioFixtureDir'] = str(CORPUS / f'town-{variant}')
+    origin = stack.extra.get('consoleUrl') or stack.extra.get('studioUrl')
+    if not origin and callable(stack.extra.get('startConsole')):
+        origin = stack.extra['startConsole']()
+    require(isinstance(origin, str) and origin, 'case has no provisioned Console origin')
+    agent = stack.extra.get('agentPrincipal')
+    require(isinstance(agent, str) and agent and stack.extra.get('verifiedConsoleIdentity') == agent,
+            'Console has no verified session for the agent principal')
+    stack.extra['studioUrl'] = origin
+    # Expose only files the runner has already admitted from the frozen customer
+    # inventory. The corpus directory also contains controller-only SQL.
+    fixture_dir = Path(stack.workdir) / 'studio-fixtures'
+    fixture_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for attachment in stack.extra.get('customerFiles', ()):
+        name = attachment.get('name')
+        require(isinstance(name, str) and Path(name).name == name and name not in ('', '.', '..'),
+                'invalid staged customer fixture name')
+        raw = Path(attachment['path']).read_bytes()
+        require('sha256:' + hashlib.sha256(raw).hexdigest() == attachment['sha256'],
+                'staged customer fixture changed')
+        from agent_e2e_local_recorder import write_private
+        write_private(fixture_dir / name, raw)
+    stack.extra['studioFixtureDir'] = str(fixture_dir)
     recorder = stack.extra['recorder']
     prefix = scenario_id.lower()
     if scenario_id == 'P24':
@@ -771,9 +967,8 @@ def observe_map(stack, seeded, prefix, *, created):
         row = matches[0]
     recorder.json(prefix + '-version', 'GET', version_path(row.get('itemId'), row.get('currentVersionId')))
     record_map_measurements(recorder, prefix + '-version', prefix)
-    origin = stack.extra.get('studioUrl') or stack.base_url
-    record_render(recorder, prefix + '-render', origin, '/maps/' + row['itemId'], render_contract(),
-                  page=stack.extra.get('renderPage'))
+    # There is no reviewed server observation that binds a rendered image and
+    # visible labels to this saved document. Do not synthesize that evidence.
 
 
 def composition_spec(prefix, role):

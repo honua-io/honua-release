@@ -1276,7 +1276,8 @@ class LocalRuntime:
 
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         import yaml
-        if self.agent in ('claude-cli', 'codex-cli'):
+        from agent_browser_studio import remote_docker_host
+        if self.agent in ('claude-cli', 'codex-cli') and remote_docker_host() is None:
             raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
         if not re.fullmatch(r'P\d\d:[AB]:local-docker', case_id):
             raise ValueError('invalid case identity')
@@ -1562,6 +1563,22 @@ class LocalRuntime:
         stack.extra['restartServer'] = lambda prefix: self.restart_server(stack, prefix)
         stack.extra['registerCanary'] = lambda name: self.register_canary(stack, name)
         stack.extra['databaseHandoff'] = lambda name, schema: self.database_handoff(stack, name, schema)
+        if stack.compose_file:
+            stack.extra['startConsole'] = lambda: self.start_console(stack)
+
+    def start_console(self, stack):
+        """Start the case's pinned Console on its remote Compose network."""
+        if '_caseConsole' in stack.extra:
+            return stack.extra['_caseConsole'].url
+        import yaml
+        from agent_browser_studio import CaseConsole
+        manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
+        component = manifest['components']['honua-console']
+        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0]
+        console = CaseConsole(stack, repository + '@' + component['digest'])
+        stack.extra['_caseConsole'] = console
+        stack.extra['consoleUrl'] = console.url
+        return console.url
 
     def register_canary(self, stack, name):
         """A runner-minted private canary value for a scenario to plant (e.g. in a secret field) during seed.
@@ -1777,6 +1794,9 @@ class LocalRuntime:
                 workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
                 attachments=tuple(stack.extra.get('customerFiles', ())), studio_browser=studio_browser)
             result = agent.run(context)
+            if any(server._poisoned for server in studio_servers):
+                raise SessionInterrupted('post-action-undetermined', empty_progress(),
+                                         'Studio browser timed out during a recorded action')
         except SessionInterrupted as exc:
             exc.progress['actions'] = list(action_log.rows)
             vault.append_actions(number, action_log.rows)
@@ -1824,10 +1844,19 @@ class LocalRuntime:
         return factory(self, stack)
 
     def teardown(self, stack):
+        console_error = None
         try:
+            console = stack.extra.pop('_caseConsole', None)
+            if console is not None:
+                try:
+                    console.close()
+                except Exception as exc:
+                    console_error = exc
             result = self.driver.invoke('teardown', {'workspaceId': stack.extra['workspaceId']})
             if result.get('status') not in ('pass', 'complete'):
                 raise RuntimeError('driver failed to remove isolated stack')
+            if console_error is not None:
+                raise RuntimeError('case Console cleanup failed') from console_error
         finally:
             for name in (self.AGENT_ENV, self.BOOTSTRAP_ENV):
                 os.environ.pop(name, None)

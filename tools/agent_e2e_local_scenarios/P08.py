@@ -1,7 +1,7 @@
 """P08 compose a map.
 
-The runner reads the saved map through the controller API and renders it in its own
-browser. Pack prompts stay in the pack. This module names the reads.
+The runner reads the saved map through the controller API. Render scoring remains
+fail-closed until the runner has a verified independent server render.
 """
 from __future__ import annotations
 

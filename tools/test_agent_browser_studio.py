@@ -7,6 +7,7 @@ without that browser.
 from __future__ import annotations
 
 import hashlib
+import base64
 import dataclasses
 import json
 import os
@@ -136,35 +137,12 @@ class FakePage:
     def snapshot_text(self):
         return 'studio'
 
-    def attribute(self, name):
-        return ''
-
     def evaluate(self, *args, **kwargs):
         self.calls.append('evaluate')
         raise AssertionError('evaluate is not a studio tool')
 
     def close(self):
         self.closed = True
-
-
-class RenderPage:
-    def __init__(self, png, attributes):
-        self.png = png
-        self.attributes = attributes
-        self.url = None
-
-    def goto(self, url):
-        self.url = url
-        return 200
-
-    def screenshot(self):
-        return self.png
-
-    def attribute(self, name):
-        return self.attributes.get(name, '')
-
-    def close(self):
-        pass
 
 
 def _dumps(value):
@@ -252,15 +230,10 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
         monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
     state = {'scenario': scenario_id, 'variant': variant, 'flood': flood}
     recorder = _recorder(tmp_path, state)
-    labels = ','.join(label_ids(scenario_id, variant))
-    page = RenderPage(png, {
-        'data-loaded-layers': 'parcels,flood_zones,shelters',
-        'data-label-sources': labels,
-        'data-browser-errors': '',
-    })
     extra = {
         'recorder': recorder, 'ensureConnection': lambda: 'conn-1', 'agentPrincipal': AGENT,
-        'renderPage': page, 'studioUrl': 'http://127.0.0.1:8137',
+        'verifiedConsoleIdentity': AGENT,
+        'studioUrl': 'http://127.0.0.1:8137',
     }
     if published:
         _seed_publications(recorder)
@@ -422,6 +395,47 @@ def test_studio_endpoint_keeps_the_token_out_of_the_url(tmp_path):
         client_mcp_config(McpEndpoint('http://127.0.0.1:1/mcp?secret', 'Authorization', 'secret'))
 
 
+def test_studio_case_requires_explicit_console_origin(tmp_path):
+    stack = Stack('http://127.0.0.1:8137', 'k', None, 'g41', 'f', str(tmp_path), DIGEST, {})
+    with pytest.raises(ProjectionError, match='no provisioned Console origin'):
+        open_studio_browser(stack, ActionLog(tmp_path / 'log', 1, set(), 5))
+    with pytest.raises(ProjectionError, match='no provisioned Console origin'):
+        P08().seed(stack, 'A')
+    stack.extra.update(consoleUrl='http://127.0.0.1:25174', agentPrincipal=AGENT,
+                       verifiedConsoleIdentity='dev-operator')
+    with pytest.raises(ProjectionError, match='no verified session for the agent principal'):
+        P08().seed(stack, 'A')
+
+
+def test_console_attachment_requires_approved_host_and_pinned_image(tmp_path, monkeypatch):
+    from agent_browser_studio import CaseConsole
+    stack = Stack('http://127.0.0.1:8137', 'k', None, 'g41', 'f', str(tmp_path), DIGEST, {})
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://other-host')
+    with pytest.raises(ValueError, match='approved remote'):
+        CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64)
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://honua-eval-4')
+    with pytest.raises(ValueError, match='pinned digest'):
+        CaseConsole(stack, 'ghcr.io/honua-io/honua-console:latest')
+
+
+def test_p24_uploads_only_runner_admitted_customer_files(tmp_path):
+    source = tmp_path / 'admitted.geojson'
+    source.write_bytes(b'{"type":"FeatureCollection","features":[]}')
+    state = {'scenario': 'P24', 'variant': 'A', 'flood': None}
+    recorder = _recorder(tmp_path, state)
+    stack = Stack('http://127.0.0.1:8137', 'k', None, 'g41', 'f', str(tmp_path), DIGEST, {
+        'recorder': recorder, 'agentPrincipal': AGENT, 'verifiedConsoleIdentity': AGENT,
+        'consoleUrl': 'http://127.0.0.1:25174',
+        'customerFiles': ({'name': 'parcels.3857.geojson', 'path': str(source),
+                           'sha256': 'sha256:' + hashlib.sha256(source.read_bytes()).hexdigest()},),
+    })
+    P24().seed(stack, 'A')
+    root = Path(stack.extra['studioFixtureDir'])
+    assert resolve_fixture(root, 'parcels.3857.geojson').read_bytes() == source.read_bytes()
+    with pytest.raises(OriginLocked):
+        resolve_fixture(root, 'postgis.sql')
+
+
 def test_session_context_offers_the_studio_browser_only_when_set():
     assert SessionContext.__dataclass_fields__['studio_browser'].default is None
 
@@ -514,6 +528,115 @@ def test_browser_exception_is_recorded_and_the_server_keeps_serving(tmp_path):
         server.stop()
 
 
+def test_browser_timeout_fails_closed_and_stop_is_bounded(tmp_path):
+    release = threading.Event()
+    class SlowPage(FakePage):
+        def click(self, selector):
+            release.wait(5)
+    log = ActionLog(tmp_path / 'log', 1, set(), 4)
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, tmp_path, page_factory=lambda lock: SlowPage())
+    server.owner_timeout = 0.1
+    server.start()
+    try:
+        first = json.loads(_rpc_call(server, 'studio_click', {'selector': '#save'}))
+        assert first['error']['message'] == 'browser unavailable'
+        assert len(log.rows) == 1 and log.rows[0]['status'] == 'unknown'
+        second = json.loads(_rpc_call(server, 'studio_click', {'selector': '#save'}))
+        assert second['error']['message'] == 'browser unavailable'
+        assert len(log.rows) == 1
+    finally:
+        release.set()
+        server.stop()
+
+
+def test_snapshot_refuses_runner_credential_in_page_text(tmp_path):
+    class SecretPage(FakePage):
+        def snapshot_text(self):
+            return 'Visible content: secret-for-test-123'
+    log = ActionLog(tmp_path / 'log', 1, set(), 4)
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, tmp_path,
+                                 page_factory=lambda lock: SecretPage(), sensitive=('secret-for-test-123',))
+    server.start()
+    try:
+        raw = _rpc_call(server, 'studio_snapshot', {})
+        assert b'secret-for-test-123' not in raw
+        assert json.loads(raw)['result']['isError'] is True
+        assert log.rows[0]['status'] == 'fail'
+    finally:
+        server.stop()
+
+
+def test_chromium_blocks_redirect_hops_and_cross_origin_sockets(tmp_path):
+    pytest.importorskip('playwright')
+    if not (ROOT / '.playwright-browsers').is_dir():
+        pytest.skip('worktree chromium is not installed')
+    requests = []
+    class Other(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            requests.append(('other', self.path))
+            self.send_response(200); self.end_headers()
+    other = ThreadingHTTPServer(('127.0.0.1', 0), Other)
+    other_thread = threading.Thread(target=other.serve_forever, daemon=True)
+    other_thread.start()
+    class Site(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            if self.path == '/popup':
+                requests.append(('popup', self.path))
+            if self.path == '/socket':
+                requests.append(('same-socket', self.path))
+                key = self.headers['Sec-WebSocket-Key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+                accept = base64.b64encode(hashlib.sha1(key.encode(), usedforsecurity=False).digest()).decode()
+                self.send_response(101)
+                self.send_header('Upgrade', 'websocket')
+                self.send_header('Connection', 'Upgrade')
+                self.send_header('Sec-WebSocket-Accept', accept)
+                self.end_headers()
+                return
+            if self.path == '/redirect':
+                self.send_response(302)
+                self.send_header('Location', f'http://127.0.0.1:{other.server_port}/redirect-target')
+                self.end_headers()
+                return
+            raw = (f'<div id="map" hidden></div><p>ready</p><script>'
+                   f'new WebSocket("ws://127.0.0.1:{self.server.server_port}/socket");'
+                   f'new WebSocket("ws://127.0.0.1:{other.server_port}/foreign-socket");'
+                   'setTimeout(() => window.open("/popup"), 200);'
+                   '</script>').encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+    site = ThreadingHTTPServer(('127.0.0.1', 0), Site)
+    site_thread = threading.Thread(target=site.serve_forever, daemon=True)
+    site_thread.start()
+    log = ActionLog(tmp_path / 'log', 1, set(), 5)
+    server = StudioBrowserServer(f'http://127.0.0.1:{site.server_port}', log, tmp_path)
+    server.start()
+    try:
+        import time
+        popup_seen = threading.Event()
+        server._owner.submit(lambda: server.page._context.on('page', lambda _: popup_seen.set())).result(timeout=2)
+        started = time.monotonic()
+        result = json.loads(_rpc_call(server, 'studio_navigate', {'url': '/'}))['result']
+        assert result['isError'] is False
+        assert time.monotonic() - started < 10
+        assert json.loads(_rpc_call(server, 'studio_snapshot', {}))['result']['isError'] is False
+        assert ('same-socket', '/socket') in requests
+        assert not any(kind == 'other' for kind, _ in requests)
+        assert popup_seen.wait(3)
+        assert server._owner.submit(lambda: len(server.page._context.pages)).result(timeout=2) == 1
+        redirected = json.loads(_rpc_call(server, 'studio_navigate', {'url': '/redirect'}))['result']
+        assert redirected['isError'] is True
+        assert not any(kind == 'other' for kind, _ in requests)
+    finally:
+        server.stop()
+        site.shutdown(); site.server_close(); site_thread.join()
+        other.shutdown(); other.server_close(); other_thread.join()
+
+
 def test_unstyled_seed_is_not_already_the_finished_style():
     measured = project(map_spec(False), STYLE_CONFIG, require_label=False)
     assert measured['floodColor'] != FLOOD_COLOR or measured['floodOpacity'] != FLOOD_OPACITY
@@ -591,6 +714,8 @@ def test_seed_is_idempotent(monkeypatch, tmp_path):
         attempt_id='attempt-1', principals={'controller': (None, 'controller')}, http_factory=factory)
     stack = Stack('http://127.0.0.1:8137', 'k', None, 'g41studio', 'f', str(tmp_path), DIGEST, {
         'recorder': recorder, 'ensureConnection': lambda: 'conn-1', 'agentPrincipal': AGENT,
+        'verifiedConsoleIdentity': AGENT,
+        'consoleUrl': 'http://127.0.0.1:25174',
     })
     first = P08().seed(stack, 'A')
     assert P08().seed(stack, 'A') == first
@@ -601,10 +726,11 @@ def test_seed_is_idempotent(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('scenario_id', ['P08', 'P09'])
-def test_fixture_style_render_and_source_content_pass(monkeypatch, tmp_path, scenario_id):
+def test_fixture_style_and_source_content_pass_without_inventing_render(monkeypatch, tmp_path, scenario_id):
     outcome = _run(tmp_path, monkeypatch, scenario_id, 'A', png=BLUE_PNG)
     failed = {name: row for name, row in outcome.results.items() if row['status'] != 'pass'}
-    assert failed == {}
+    assert set(failed) == {'render.actual'}
+    assert 'unrecorded step' in failed['render.actual']['reason']
     assert all(row.observed is None for row in outcome.observations)
     blob = json.dumps([row.evidence for row in outcome.observations])
     assert 'Kestrel' not in blob and 'Willow' not in blob
@@ -626,7 +752,7 @@ def test_wrong_style_fails_the_oracle(monkeypatch, tmp_path):
     assert _status(outcome, 'source-content.unchanged') == 'pass'
 
 
-def test_red_canvas_fails_the_render_while_the_style_passes(monkeypatch, tmp_path):
+def test_red_canvas_decoder_and_missing_render_fail_closed(monkeypatch, tmp_path):
     direct = measure_png(RED_PNG, render_contract(), http_status=200, loaded_layer_ids=['flood_zones', 'parcels', 'shelters'],
                          visible_label_source_ids=['s1'], browser_errors=[])
     assert direct['regions']['flood']['matchingPixels'] == 0
@@ -637,7 +763,7 @@ def test_red_canvas_fails_the_render_while_the_style_passes(monkeypatch, tmp_pat
     outcome = _run(tmp_path, monkeypatch, 'P09', 'A', png=RED_PNG)
     assert _status(outcome, 'map.style') == 'pass'
     assert _status(outcome, 'render.actual') == 'fail'
-    assert 'region absent' in outcome.results['render.actual']['reason']
+    assert 'unrecorded step' in outcome.results['render.actual']['reason']
 
 
 def test_source_read_of_another_service_fails_the_frozen_address(monkeypatch, tmp_path):
@@ -654,7 +780,7 @@ def test_source_read_of_another_service_fails_the_frozen_address(monkeypatch, tm
     assert 'does not address seeded:service:shelters' in results[0]['reason']
 
 
-def test_p24_scores_style_render_and_source_and_fails_the_rest_closed(monkeypatch, tmp_path):
+def test_p24_scores_style_and_source_and_fails_the_rest_closed(monkeypatch, tmp_path):
     outcome = _run(tmp_path, monkeypatch, 'P24', 'A', png=BLUE_PNG, published=True)
     assert P24().needs_approver() is True
     assert P08().needs_approver() is False
@@ -664,8 +790,9 @@ def test_p24_scores_style_render_and_source_and_fails_the_rest_closed(monkeypatc
     assert all(row.observed is None for row in outcome.observations)
     blob = json.dumps([row.evidence for row in outcome.observations])
     assert 'Kestrel' not in blob and 'Willow' not in blob
-    for name in ('features.exact', 'map.style', 'render.actual', 'source-content.unchanged'):
+    for name in ('features.exact', 'map.style', 'source-content.unchanged'):
         assert _status(outcome, name) == 'pass', outcome.results[name]
+    assert _status(outcome, 'render.actual') == 'fail'
     assert _status(outcome, 'custody.worker-replaced') == 'excluded'
     assert _status(outcome, 'candidate.identity') == 'fail'
     assert 'unrecorded step' in outcome.results['candidate.identity']['reason']
@@ -682,7 +809,6 @@ def test_headless_chromium_blocks_other_origins_and_reads_the_canvas(tmp_path):
         #flood{position:absolute;left:40px;top:40px;width:80px;height:60px;background:rgb(166,213,255)}
         img{position:absolute;left:0;top:0;width:1px;height:1px}
         </style><div id="flood"></div>
-        <div id="honua-render" data-loaded-layers="parcels,flood_zones,shelters" data-label-sources="" data-browser-errors=""></div>
         <img src="https://example.com/pixel.png" alt=""><img src="http://127.0.0.1:9/pixel.png" alt="">
         <a id="escape" href="about:blank">Leave Studio</a>"""
 

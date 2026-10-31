@@ -1,7 +1,7 @@
 """P09 style and labels.
 
-The runner seeds one unstyled saved map, then reads the saved document and renders it
-in its own browser. Pack prompts stay in the pack.
+The runner seeds one unstyled saved map, then reads the saved document. Render
+scoring remains fail-closed until independent server rendering is implemented.
 """
 from __future__ import annotations
 

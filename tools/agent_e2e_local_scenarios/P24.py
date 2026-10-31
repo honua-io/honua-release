@@ -1,6 +1,6 @@
 """P24 zero to a published map.
 
-Style, render and source content are real controller reads. Everything else in the
+Style and source content use controller reads; render remains fail-closed. Everything else in the
 pack stays fail-closed on local docker: there is no separate approver handoff, no
 worker-identity fact, and a fresh deployment has no seed-phase fixture bytes unless
 the controller already published the layers. Pack prompts stay in the pack.

@@ -1612,5 +1612,17 @@
         }
       }
     }
+  },
+  "customerFiles": {
+    "A": [
+      "town-A/parcels.3857.geojson",
+      "town-A/flood_zones.3857.geojson",
+      "town-A/shelters.3857.geojson"
+    ],
+    "B": [
+      "town-B/parcels.3857.geojson",
+      "town-B/flood_zones.3857.geojson",
+      "town-B/shelters.3857.geojson"
+    ]
   }
 }

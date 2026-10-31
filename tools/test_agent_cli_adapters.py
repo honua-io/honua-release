@@ -216,6 +216,73 @@ def test_corpus_session_delivers_verified_customer_attachment_without_local_path
     assert len(captured)==1
 
 
+def test_corpus_session_registers_studio_only_when_offered(tmp_path):
+    from types import SimpleNamespace
+    from agent_e2e_local_api import McpEndpoint, SessionContext, SessionLimits
+    captured = []
+    class FakeCli:
+        def run(self, **kwargs):
+            captured.append(kwargs)
+            return {'tokens': 0, 'usage': [], 'provenance': [], 'modelVisibleDigests': [],
+                    'messageIds': [], 'finalAnswer': 'done', 'systemContractSha256': 's', 'toolViewSha256': 't'}
+    runtime = SimpleNamespace(agent='claude-cli', model='claude-opus-5-5', cli=FakeCli())
+    common = dict(prompt='Create a map', session=1, candidate_release='rc', limits=SessionLimits(10, 10, 100),
+                  tool_view={'tools': [{'name': 'honua_list_layers'}]}, execute=lambda *_: None,
+                  mcp_proxy=lambda: None, workdir=str(tmp_path))
+    session = agent_e2e_cli_sessions.CorpusCliSession(runtime, None)
+    session.run(SessionContext(**common))
+    assert captured[-1]['servers'] is None
+    session.run(SessionContext(**common, studio_browser=lambda: McpEndpoint(
+        'http://127.0.0.1:1/mcp', 'Authorization', 'Bearer private-token')))
+    servers = captured[-1]['servers']
+    assert set(servers) == {'honua', 'studio'}
+    assert 'studio_click' in {tool['name'] for tool in servers['studio']['tool_view']['tools']}
+    assert 'private-token' not in json.dumps(servers['studio']['tool_view'])
+
+
+def test_corpus_session_studio_dispatch_reaches_runner_log_and_cli_config(tmp_path):
+    from types import SimpleNamespace
+    from agent_browser_studio import StudioBrowserServer
+    from agent_cli_sessions import _commands
+    from agent_e2e_local_api import SessionContext, SessionLimits
+    from agent_e2e_local_runner import ActionLog
+
+    class Page:
+        def __init__(self, lock): self.clicks = []
+        def click(self, selector): self.clicks.append(selector)
+        def screenshot(self): return b'controller-screenshot'
+        def close(self): pass
+
+    log = ActionLog(tmp_path / 'browser-actions', 1, set(), 2)
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, tmp_path, page_factory=Page)
+    server.start()
+    class FakeCli:
+        def run(self, **kwargs):
+            servers = kwargs['servers']
+            configs = {name: {'url': 'http://127.0.0.1:1234/' + name,
+                              'names': [tool['name'] for tool in item['tool_view']['tools']]}
+                       for name, item in servers.items()}
+            _commands('claude-cli', 'claude-opus-5-5', '/fake', tmp_path, configs, 10, {}, 'contract', 60,
+                      tmp_path / 'debug.log')
+            assert set(json.loads((tmp_path / 'mcp.json').read_text())['mcpServers']) == {'honua', 'studio'}
+            result = servers['studio']['execute']('tool_call',
+                {'tool': 'studio_click', 'arguments': {'selector': '#save'}})
+            assert result['status'] == 'ok'
+            return {'tokens': 0, 'usage': [], 'provenance': [], 'modelVisibleDigests': [],
+                    'messageIds': [], 'finalAnswer': 'done', 'systemContractSha256': 's', 'toolViewSha256': 't'}
+    try:
+        runtime = SimpleNamespace(agent='claude-cli', model='claude-opus-5-5', cli=FakeCli())
+        context = SessionContext(prompt='Save this map', session=1, candidate_release='rc',
+            limits=SessionLimits(10, 10, 100), tool_view={'tools': [{'name': 'honua_list_layers'}]},
+            execute=lambda *_: None, mcp_proxy=lambda: None, workdir=str(tmp_path),
+            studio_browser=lambda: server.endpoint)
+        assert agent_e2e_cli_sessions.CorpusCliSession(runtime, None).run(context).final_answer == 'done'
+        assert len(log.rows) == 1 and log.rows[0]['status'] == 'pass'
+        assert server.endpoint.token not in (tmp_path / 'mcp.json').read_text()
+    finally:
+        server.stop()
+
+
 def test_remote_corpus_uses_distinct_approver_and_refuses_local_docker(tmp_path,monkeypatch):
     import agent_e2e_cli_runner as cli
     target='https://slot1.cert.demo.honua.io'
@@ -237,6 +304,23 @@ def test_remote_corpus_uses_distinct_approver_and_refuses_local_docker(tmp_path,
     with pytest.raises(ValueError,match='host Docker is disabled'):
         runtime.restart_server(stack,'between-1')
     runtime.teardown(stack)
+
+
+def test_cli_local_stack_requires_an_approved_remote_docker_host(tmp_path, monkeypatch):
+    import agent_e2e_cli_runner as cli
+    calls = []
+    monkeypatch.setattr(cli.corpus.LocalRuntime, 'setup', lambda self, *args: calls.append(args) or 'stack')
+    runtime = cli.CliRuntime(None, agent='claude-cli', model='claude-opus-5-5', release_id='rc',
+                             target='local', session_factory=lambda *_: None)
+    monkeypatch.delenv('DOCKER_HOST', raising=False)
+    with pytest.raises(ValueError, match='host Docker is disabled'):
+        runtime.setup('P08:A:local-docker', DIGEST)
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://honua-eval-4')
+    assert runtime.setup('P08:A:local-docker', DIGEST) == 'stack'
+    assert calls[0][0] == 'P08:A:local-docker'
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://unapproved-host')
+    with pytest.raises(ValueError, match='host Docker is disabled'):
+        runtime.setup('P08:A:local-docker', DIGEST)
 
 
 def test_cli_corpus_refuses_host_docker_before_driver_setup():
