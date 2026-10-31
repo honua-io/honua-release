@@ -48,7 +48,7 @@ def feature_response(variant):
 class RecordedCandidate:
     """Native response contracts, varied independently from frozen expectations.
 
-    Import replies implement the synchronous contract, so TownSetup runs unchanged.
+    Import replies cover both synchronous and queued completion contracts.
     No fabricated pagination/ownership fields are added to native proposal replies.
     """
     def __init__(self, variant):
