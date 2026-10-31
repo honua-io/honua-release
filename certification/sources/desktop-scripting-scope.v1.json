@@ -1,23 +1,12 @@
 {
   "schema": "honua.desktop-scripting-scope/v1",
-  "revision": "2026-10-11.1",
+  "revision": "2026-10-31.1",
   "release": "2026.1",
   "purpose": "Versioned execution scope; does not override the protocol certification gate",
   "policy_issue": "https://github.com/honua-io/honua-release/issues/376",
   "preview_decision": "Retain SensorThings as preview, targeted for 2026.2; preserve every raw outcome",
   "client_limitations": [],
   "sources": {
-    "licensed-scripting": {
-      "baseline_commit": "235ec425f767d14481b6d51f41d805f2e34cd2b6",
-      "baseline_path": "coverage/2026.1/coverage-grid.json",
-      "baseline_sha256": "8a184cefb7436a33ab79f0f95c4d625aaa87ce6c45b75aeb622569dee2fed0ca",
-      "total_count": 1121,
-      "total_identity_sha256": "febcf889edd6285323abc5766dcdb9a3fe5fd38d02cd35cfc62d394e9ebe4325",
-      "applicable_count": 477,
-      "applicable_identity_sha256": "a0eaf23edc36c229f3c4a333cde329dd4f046c77e14169b9669dda9de1221af4",
-      "required_count": 477,
-      "deferred_preview_cells": []
-    },
     "qgis-scripting": {
       "baseline_commit": "e53d4ba369b594d622681693a2f4f16f767d2f95",
       "baseline_path": "coverage/2026.1/coverage-grid.json",

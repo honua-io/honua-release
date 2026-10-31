@@ -280,7 +280,7 @@
       "methods": "",
       "status": "partial",
       "endpoint": "GET /rest/services/{id}/ImageServer/conf.json; GET /rest/services/{serviceId}/ImageServer/conf.json",
-      "notes": "Interop route, not Esri's tile-cache configuration document: it returns the ImageServer service descriptor. Honua's ImageServer is dynamic, so no fused cache is advertised by default (singleFusedMapCache/tileInfo are emitted only when the opt-in ImageServerTileMetadataOptions flag is set). It exists because the ArcGIS Maps SDK for .NET native runtime probes conf.json while loading an ImageServiceRaster and treats a 404 as fatal (#1456, #1648)."
+      "notes": "Interop route, not a tile-cache configuration document: it returns the ImageServer service descriptor. Honua's ImageServer is dynamic, so no fused cache is advertised by default (singleFusedMapCache/tileInfo are emitted only when the opt-in ImageServerTileMetadataOptions flag is set). Some native map clients probe conf.json while loading an image raster and treat a 404 as fatal (#1456, #1648)."
     },
     {
       "id": "IS-OP-ESTIMATE-EXPORT-TILES-SIZE",

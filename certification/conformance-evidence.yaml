@@ -61,13 +61,12 @@ releaseScope:
     requirement: advisory
     releases: ["2026.1"]
     decidedOn: "2026-10-22"
-    reason: "operator ruling 2026-10-22: GeoServices desktop and QGIS client certification deferred past rc"
+    reason: "operator ruling 2026-10-22: GeoServices REST protocol certification is advisory for 2026.1"
     reportAs: "not certified for 2026.1"
 
 esri:
-  # honua-esri-compat's license-free lanes (ArcGIS API for Python, ArcGIS Maps SDK for .NET, and the
-  # SDK-driven GeoServices/OGC/auth/geoprocessing lanes) emit per-service `.cert.json` evidence.
-  # Desktop results are referenced only by their private producer evidence identifiers.
+  # The candidate-bound producer emits GeoServices REST protocol evidence. This is protocol-level
+  # conformance only; it does not certify a desktop application or third-party SDK.
   #
   # `expectedImage` is NOT configured here: it is derived from the candidate manifest's pinned
   # honua-server image at evaluation time, so the bundle is bound to the exact build being released.

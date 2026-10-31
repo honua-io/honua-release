@@ -121,7 +121,8 @@
       "acceptance": "Call the actual supported append API or classify its client applicability honestly; independently query added/updated/deleted state.",
       "verification_receipt": null,
       "dimension": "assertions",
-      "delivery_pr": "https://github.com/honua-io/honua-esri-compat/pull/340"
+      "delivery_pr": "https://github.com/honua-io/honua-esri-compat/pull/340",
+      "catalog_gap_reason": "The release catalog no longer contains a third-party Python SDK certification lane; this historical implementation finding is retained outside the active certification denominator."
     },
     {
       "id": "NC-04",
@@ -948,7 +949,7 @@
       },
       "review_limits": [
         "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
-        "Existing NC01–12 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
+        "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
         "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
         "No fresh candidate or AWS qualification; no current CITE rate inferred from source. The 2026-10-18 supplement extends the bounded review to WCS/WPS/STAC/gRPC; source review remains partial."
       ],
