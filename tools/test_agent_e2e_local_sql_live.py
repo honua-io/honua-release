@@ -158,3 +158,52 @@ def test_raw_database_battery_as_reader(database, case):
     assert before == after, f'{case["name"]} changed state'
     if case['name'] not in FIXTURE['databaseMayAnswer']:
         assert outcome['database'] == 'refused', case['name']
+
+
+@pytest.mark.parametrize('partitioned', [False, True], ids=['inherited-foreign-child', 'foreign-default-partition'])
+def test_foreign_descendants_refused_without_executing_remote_side_effect(database, partitioned):
+    runtime, stack, recorder = database
+    # The remote endpoint is the same disposable server, through postgres_fdw.
+    # Grants intentionally reproduce the permissive conditions in the review.
+    setup = """
+    CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+    CREATE TABLE IF NOT EXISTS honua_data.review_marker (x integer NOT NULL);
+    TRUNCATE honua_data.review_marker;
+    INSERT INTO honua_data.review_marker VALUES (0);
+    CREATE OR REPLACE FUNCTION public.review_side_effect() RETURNS integer
+    LANGUAGE plpgsql VOLATILE SECURITY DEFINER AS $$
+    BEGIN UPDATE honua_data.review_marker SET x = x + 1; RETURN 1; END $$;
+    CREATE OR REPLACE VIEW public.review_remote AS SELECT public.review_side_effect() AS x;
+    CREATE SERVER IF NOT EXISTS review_loopback FOREIGN DATA WRAPPER postgres_fdw
+      OPTIONS (host '127.0.0.1', port '5432', dbname 'honua');
+    CREATE USER MAPPING IF NOT EXISTS FOR corpus_reader SERVER review_loopback
+      OPTIONS (user 'honua', password 'local-contract-only');
+    GRANT USAGE ON FOREIGN SERVER review_loopback TO corpus_reader;
+    """
+    runtime._ensure_reader(stack)
+    code, _ = runtime.psql(stack, setup, read_only=False)
+    assert code == 0
+    if partitioned:
+        ddl = ("CREATE TABLE honua_data.review_partitioned (x integer) PARTITION BY RANGE (x); "
+               "CREATE FOREIGN TABLE honua_data.review_partition_foreign (x integer) "
+               "SERVER review_loopback OPTIONS (schema_name 'public', table_name 'review_remote'); "
+               "ALTER TABLE honua_data.review_partitioned ATTACH PARTITION honua_data.review_partition_foreign DEFAULT")
+        parent = 'review_partitioned'
+    else:
+        ddl = ("CREATE TABLE honua_data.review_parent (x integer); "
+               "CREATE FOREIGN TABLE honua_data.review_inherited_foreign (x integer) "
+               "INHERITS (honua_data.review_parent) SERVER review_loopback "
+               "OPTIONS (schema_name 'public', table_name 'review_remote')")
+        parent = 'review_parent'
+    code, _ = runtime.psql(stack, ddl, read_only=False)
+    assert code == 0
+    def marker():
+        code, out = runtime.psql(stack, 'SELECT pg_catalog.json_agg(x) FROM honua_data.review_marker', read_only=False)
+        assert code == 0
+        return json.loads(out)
+    before = marker()
+    assert before == [0]
+    with pytest.raises(ValueError):
+        recorder.table_rows('foreign-descendant-' + ('partition' if partitioned else 'inheritance'),
+                            'honua_data', parent, ['x'])
+    assert marker() == before

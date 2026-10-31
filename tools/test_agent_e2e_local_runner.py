@@ -2359,8 +2359,8 @@ def test_core3k_scanned_digests_bind_exact_raw_bytes():
     ctx = Context({'cfg': _record('cfg', body={'connection': 'ok'})}, final_answers=('Done.',))
     roles = scan_roles([RoleBinding('scan:artifacts', '', sources=('cfg', '$final-answers'))], ctx)
     digests = evaluate({'scannedDigests': ['cfg', '$final-answers']}, ctx)
-    assert roles['scan:artifacts'] == digests == sorted([hashlib.sha256(ctx.record('cfg').raw).hexdigest(),
-                                                         hashlib.sha256(b'Done.').hexdigest()])
+    assert roles['scan:artifacts'] == digests == sorted([hashlib.pbkdf2_hmac('sha256', ctx.record('cfg').raw, ctx.fingerprint_salt, 600000).hex(),
+                                                         hashlib.pbkdf2_hmac('sha256', b'Done.', ctx.fingerprint_salt, 600000).hex()])
     # A canonicalized value of the same content is not the scanned bytes.
     canonical_digest = evaluate({'canonicalSha256': {'body': 'cfg', 'pointer': ''}}, ctx)
     assert ctx.record('cfg').raw != projections_canonical(ctx) and canonical_digest not in digests
@@ -2439,7 +2439,7 @@ def test_core3sql_requests_are_structured_and_identifiers_strict():
 
 
 def test_core3sql_generated_reads_refuse_user_code_paths():
-    base = {'relkind': 'r', 'rls': False, 'foreignGeojson': 0, 'columns': [
+    base = {'relkind': 'r', 'rls': False, 'descendants': 0, 'rules': 0, 'foreignGeojson': 0, 'columns': [
         {'name': 'source_id', 'typnamespace': 'pg_catalog', 'typname': 'text', 'typtype': 'b', 'postgis': False},
         {'name': 'geometry', 'typnamespace': 'public', 'typname': 'geometry', 'typtype': 'b', 'postgis': True},
         {'name': 'mood', 'typnamespace': 'honua_data', 'typname': 'mood', 'typtype': 'e', 'postgis': False},
@@ -2447,12 +2447,13 @@ def test_core3sql_generated_reads_refuse_user_code_paths():
         {'name': 'positive', 'typnamespace': 'honua_data', 'typname': 'positive_int', 'typtype': 'd', 'postgis': False}]}
     sql = runner.table_rows_sql('honua_data', 'p05_points', ['source_id', 'geometry'], base)
     assert sql.startswith("SELECT COALESCE(pg_catalog.json_agg(pg_catalog.json_build_object('source_id', t.\"source_id\"")
-    assert 'public.st_asgeojson(t."geometry")::pg_catalog.json' in sql and sql.endswith('FROM "honua_data"."p05_points" AS t')
+    assert 'public.st_asgeojson(t."geometry")::pg_catalog.json' in sql and sql.endswith('FROM ONLY "honua_data"."p05_points" AS t')
     for column in ('mood', 'wrapped', 'positive', 'missing'):
         with pytest.raises(ValueError):
             runner.table_rows_sql('honua_data', 'p05_points', [column], base)
     for facts, message in (({**base, 'relkind': 'v'}, 'base tables'), ({**base, 'relkind': 'f'}, 'base tables'),
-                           ({**base, 'rls': True}, 'row-level security'), ({**base, 'foreignGeojson': 1}, 'unreviewed type')):
+                           ({**base, 'relkind': 'p'}, 'base tables'), ({**base, 'descendants': 1}, 'inherited tables'),
+                           ({**base, 'rules': 1}, 'rewrite rules'), ({**base, 'rls': True}, 'row-level security'), ({**base, 'foreignGeojson': 1}, 'unreviewed type')):
         with pytest.raises(ValueError, match=message):
             runner.table_rows_sql('honua_data', 'p05_points', ['source_id', 'geometry'], facts)
     assert 'OPERATOR(pg_catalog.=)' in runner.inventory_sql('honua_data')
@@ -2461,12 +2462,12 @@ def test_core3sql_generated_reads_refuse_user_code_paths():
 
 def test_core3sql_runtime_runs_preflight_then_the_generated_read(monkeypatch, tmp_path):
     sent = []
-    facts = {'relkind': 'r', 'rls': False, 'foreignGeojson': 0, 'columns': [
+    facts = {'relkind': 'r', 'rls': False, 'descendants': 0, 'rules': 0, 'foreignGeojson': 0, 'columns': [
         {'name': 'source_id', 'typnamespace': 'pg_catalog', 'typname': 'text', 'typtype': 'b', 'postgis': False}]}
 
     def psql(self, stack, sql, *, read_only):
         sent.append((sql, read_only))
-        return 0, (json.dumps(facts) if 'relrowsecurity' in sql else '[{"source_id":"s1"}]').encode()
+        return 0, (json.dumps(facts) if sql.startswith('SELECT pg_catalog.json_build_object') else '[{"source_id":"s1"}]').encode()
     monkeypatch.setattr(runner.LocalRuntime, 'psql', psql)
     stack = Stack('http://127.0.0.1:1', ADMIN, None, 'corpus-x', 'f', str(tmp_path), DIGEST, {})
     status, raw, sql = runner.LocalRuntime(None, model='m', release_id='r').sql_read(

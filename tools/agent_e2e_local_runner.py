@@ -179,6 +179,8 @@ def table_preflight_sql(schema, table):
     """Catalog facts the runner checks before generating a row read (pg_catalog only, no user code)."""
     return (f"SELECT pg_catalog.json_build_object('relkind', c.relkind, "
             f"'rls', (c.relrowsecurity OR c.relforcerowsecurity), "
+            f"'descendants', (SELECT pg_catalog.count(*) FROM pg_catalog.pg_inherits i WHERE i.inhparent {EQ} c.oid), "
+            f"'rules', (SELECT pg_catalog.count(*) FROM pg_catalog.pg_rewrite r WHERE r.ev_class {EQ} c.oid), "
             f"'foreignGeojson', (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace pn "
             f"ON pn.oid {EQ} p.pronamespace WHERE pn.nspname {EQ} 'public' AND p.proname {EQ} 'st_asgeojson' "
             f"AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_extension e ON e.oid {EQ} d.refobjid "
@@ -195,8 +197,10 @@ def table_preflight_sql(schema, table):
 
 def table_rows_sql(schema, table, columns, facts):
     """The only row read the runner sends, generated after the catalog preflight passed."""
-    if not isinstance(facts, dict) or facts.get('relkind') not in ('r', 'p'):
+    if not isinstance(facts, dict) or facts.get('relkind') != 'r':
         raise ValueError('controller SQL reads only base tables (no views, foreign tables or functions)')
+    if facts.get('descendants') != 0 or facts.get('rules') != 0:
+        raise ValueError('controller SQL refuses inherited tables and rewrite rules')
     if facts.get('rls') is not False:
         raise ValueError('controller SQL refuses tables with row-level security (policies run user code)')
     kinds = {c['name']: c for c in facts.get('columns') or []}
@@ -212,7 +216,7 @@ def table_rows_sql(schema, table, columns, facts):
         else:
             raise ValueError(f'column {column} has an unreviewed type ({info["typnamespace"]}.{info["typname"]})')
     return (f"SELECT COALESCE(pg_catalog.json_agg(pg_catalog.json_build_object({', '.join(parts)})), "
-            f"'[]'::pg_catalog.json) FROM \"{schema}\".\"{table}\" AS t")
+            f"'[]'::pg_catalog.json) FROM ONLY \"{schema}\".\"{table}\" AS t")
 
 
 def frozen_customer_handoffs(scenario, variant):
@@ -1410,7 +1414,17 @@ class LocalRuntime:
             code, out = self.psql(stack, table_preflight_sql(request['schema'], request['table']), read_only=True)
             if code != 0 or not out.strip():
                 return 404, b'{"error":"table not found"}', table_preflight_sql(request['schema'], request['table'])
-            sql = table_rows_sql(request['schema'], request['table'], request['columns'], json.loads(out))
+            facts = json.loads(out)
+            row_sql = table_rows_sql(request['schema'], request['table'], request['columns'], facts)
+            # Keep the relation stable between the final preflight and SELECT. The
+            # SQL literals are runner-generated and the catalog query contains only
+            # validated identifiers. ONLY also excludes children added concurrently.
+            preflight = table_preflight_sql(request['schema'], request['table'])
+            expected = json.dumps(facts, sort_keys=True, separators=(',', ':')).replace("'", "''")
+            sql = (f'BEGIN; LOCK TABLE ONLY "{request["schema"]}"."{request["table"]}" IN ACCESS SHARE MODE; '
+                   f"DO $guard$ BEGIN IF ({preflight})::pg_catalog.jsonb IS DISTINCT FROM '{expected}'::pg_catalog.jsonb "
+                   f"THEN RAISE EXCEPTION 'controller SQL catalog changed'; END IF; END $guard$; "
+                   f'{row_sql}; COMMIT')
         code, out = self.psql(stack, sql, read_only=True)
         return (200, out.strip(), sql) if code == 0 else (500, b'{"error":"query failed"}', sql)
 

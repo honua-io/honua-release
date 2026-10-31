@@ -390,7 +390,12 @@ def evaluate(spec, ctx, *, item=None, step=None):
     if keys == {'scannedDigests'}:
         sources = spec['scannedDigests']
         require(isinstance(sources, list) and sources, 'scannedDigests needs sources')
-        return sorted(hashlib.sha256(raw).hexdigest() for raw in _scan_bodies(sources, ctx, named))
+        # Scanned bodies can contain low-entropy credentials. A plain digest
+        # would enable offline guessing when the receipt is published.
+        require(isinstance(ctx.fingerprint_salt, bytes) and len(ctx.fingerprint_salt) >= 16,
+                'scan fingerprint salt must be at least 16 bytes')
+        return sorted(hashlib.pbkdf2_hmac('sha256', raw, ctx.fingerprint_salt, 600000).hex()
+                      for raw in _scan_bodies(sources, ctx, named))
     if keys == {'modelReplays', 'to'}:
         return [sub(spec['to'], step=step) for step in model_replay_steps(spec['modelReplays'], ctx)]
     if keys == {'absoluteUrl'}:
