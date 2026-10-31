@@ -1,0 +1,41 @@
+name: vendor-terms-delta
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  merge_group:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  vendor-terms-delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the candidate repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the trusted guard at the workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          path: guard
+          persist-credentials: false
+
+      - name: Reject new vendor terminology
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          python3 guard/tools/vendor_terms_delta.py --root candidate --repo "$REPO_NAME" \
+            --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"

@@ -636,11 +636,12 @@ def _mark_tokens(line: str) -> list[tuple[int, int]]:
 
 class Classifier:
     def __init__(self, repo: str, vocabulary: dict[str, dict], allowlist: list[Exception_],
-                 interop: Interop | None = None):
+                 interop: Interop | None = None, *, skip_encoded: bool = True):
         self.repo = repo
         self.vocabulary = vocabulary
         self.interop = interop if interop is not None else _committed_interop()
         self.allowlist = allowlist
+        self.skip_encoded = skip_encoded
         self.skipped: Counter[str] = Counter()
 
     def _exception(self, path: str, token: str, identifier: str | None = None, category: str = "") -> int | None:
@@ -695,7 +696,7 @@ class Classifier:
             comment_at = _comment_start(line, kind)
             runner = RUNNER_LABEL.search(line) is not None
             for start, end, token, term, detail in spans:
-                if ENCODED.fullmatch(_word_around(line, start, end)):
+                if self.skip_encoded and ENCODED.fullmatch(_word_around(line, start, end)):
                     self.skipped["encoded-token"] += 1
                     continue
                 if runner and token not in self.vocabulary:
