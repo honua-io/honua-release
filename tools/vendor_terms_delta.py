@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import html
+import io
 import json
 import re
 import subprocess
@@ -14,6 +15,8 @@ from pathlib import Path
 import check_vendor_terms as policy
 
 MAX_BLOB_BYTES = 64 * 1024 * 1024
+MAX_CHANGED_LINES = 1_000_000
+MAX_UNICODE_INPUT_CHARS = 100_000
 
 # Only recognized opaque assets are excluded. A filename suffix alone is not
 # proof of binary content: executable source can be disguised as an image.
@@ -79,12 +82,14 @@ def changed_lines(root: Path, base: str, head: str, path: str) -> tuple[set[int]
                base, head, '--', f':(literal){path}').stdout
     lines: set[int] = set()
     has_hunk = False
-    for line in diff.splitlines():
+    for line in io.BytesIO(diff):
         match = re.match(rb'^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,([0-9]+))? @@', line)
         if match:
             has_hunk = True
             start = int(match.group(1))
             count = int(match.group(2)) if match.group(2) is not None else 1
+            if count > MAX_CHANGED_LINES or len(lines) + count > MAX_CHANGED_LINES:
+                raise RuntimeError('Changed line count exceeds the inspection limit')
             lines.update(range(start, start + count))
     return lines, has_hunk
 
@@ -99,12 +104,12 @@ def logical_to_git_lines(text: str) -> list[int]:
     return mapping
 
 
-# Distinctive product names remain recognizable inside lowercase compound names.
-# The short vendor prefix is intentionally excluded: it appears in ordinary SRID names.
+# Inspect embedded names, including lowercase compounds. The identifier check
+# below handles the overlapping end of common spatial-reference identifiers.
 DISTINCTIVE = re.compile('|'.join(('arc' + 'gis', 'arc' + 'py', 'arc' + 'map',
                                    'arc' + 'catalog', 'arc' + 'objects', 'arc' + 'sde',
                                    'arc' + 'ims', r'living[ _-]*atlas',
-                                   'es' + 'ri' + r'(?:client|adapter|layer|service|feature|compat|server|migration|portal|sdk|geometry|field)')), re.IGNORECASE)
+                                   'es' + 'ri')), re.IGNORECASE)
 
 ESCAPED_CHAR = re.compile(r'(?<!\\)(?P<slashes>\\+)(?:u\{(?P<braced>[0-9a-fA-F]{1,6})\}|u(?P<u4>[0-9a-fA-F]{4})|U(?P<u8>[0-9a-fA-F]{8})|x(?P<x2>[0-9a-fA-F]{2})|N\{(?P<name>[A-Za-z0-9 -]{1,100})\}|(?P<octal>[0-7]{1,3}))')
 
@@ -126,21 +131,43 @@ def decode_source_escapes(text: str) -> str:
                                or match.group('u8') or match.group('x2'), 16))
         except (KeyError, ValueError, OverflowError):
             return match.group()
-        if len(char) != 1 or ord(char) > 127:
+        if len(char) != 1 or 0xD800 <= ord(char) <= 0xDFFF:
             return match.group()
         return slashes[:-1] + char
     return ESCAPED_CHAR.sub(replace, text)
 
 
 def decode_rendered_text(text: str) -> str:
-    """Decode nested HTML and source escapes with a bounded number of passes."""
+    """Normalize Unicode and decode nested escapes with a bounded number of passes."""
     for _ in range(8):
         decoded = html.unescape(text) if '&' in text else text
         decoded = decode_source_escapes(decoded) if '\\' in decoded else decoded
+        if not decoded.isascii():
+            if len(decoded) > MAX_UNICODE_INPUT_CHARS:
+                raise RuntimeError('Unicode input exceeds the inspection limit')
+            decoded = unicodedata.normalize('NFKC', decoded)
+            decoded = ''.join(char for char in decoded
+                              if unicodedata.category(char) != 'Cf'
+                              and ord(char) != 0x034F
+                              and not 0xFE00 <= ord(char) <= 0xFE0F
+                              and not 0xE0100 <= ord(char) <= 0xE01EF)
         if decoded == text:
             return text
         text = decoded
     raise RuntimeError('Candidate has too many nested encodings to inspect safely')
+
+
+def decode_changed_text(text: str) -> str:
+    """Normalize physical lines with bounded cumulative output."""
+    output = io.StringIO()
+    total = 0
+    for line in io.StringIO(text):
+        decoded = decode_rendered_text(line)
+        total += len(decoded)
+        if total > 16 * 1024 * 1024:
+            raise RuntimeError('Normalized text exceeds the inspection limit')
+        output.write(decoded)
+    return output.getvalue()
 
 
 def validate_scan_bounds(text: str) -> None:
@@ -206,8 +233,15 @@ def classify_embedded_names(classifier: policy.Classifier, path: str, text: str)
             bounds = (left, right)
             if bounds in visited:
                 continue
-            visited.add(bounds)
             identifier = line[left:right]
+            # In names such as sourceSridValue, the final e of the prefix
+            # overlaps with SRID. The match must start inside the identifier.
+            if (match.start() > left
+                    and line[match.start() + 1] == 'S'
+                    and line[match.start() + 1:match.end() + 1].casefold() == 'srid'
+                    and match.group().casefold() == 'es' + 'ri'):
+                continue
+            visited.add(bounds)
             if identifier in classifier.vocabulary or identifier in classifier.interop.identifiers:
                 continue
             exception = classifier._exception(path, identifier, identifier, 'identifier')
@@ -221,7 +255,7 @@ def classify_decoded_text(classifier: policy.Classifier, path: str, text: str) -
     findings: list[policy.Hit] = []
     # Split only on LF to retain the line numbers reported by Git's diff hunks.
     for physical_line, line in enumerate(text.split('\n'), start=1):
-        if '&' not in line and '\\' not in line:
+        if '&' not in line and '\\' not in line and line.isascii():
             continue
         decoded = decode_rendered_text(line)
         if decoded == line:
@@ -281,6 +315,16 @@ def find_new_hits(root: Path, repo: str, base: str, head: str) -> list[policy.Hi
                     hit.line = 0
                     findings.append(hit)
                     seen_paths.add(prefix)
+                normalized = decode_rendered_text(part)
+                if normalized != part:
+                    normalized_hits = classifier.classify_path(normalized)
+                    normalized_hits += classify_embedded_names(classifier, prefix, normalized)
+                    for hit in normalized_hits:
+                        if hit.exception is None:
+                            hit.path = prefix
+                            hit.line = 0
+                            findings.append(hit)
+                            seen_paths.add(prefix)
         for hit in classifier.classify_path(path):
             if hit.path not in old_prefixes and hit.path not in seen_paths and hit.exception is None:
                 findings.append(hit)
@@ -301,7 +345,7 @@ def find_new_hits(root: Path, repo: str, base: str, head: str) -> list[policy.Hi
             continue  # Compressed and visual content is outside the text classifier.
         new_text = new.decode('utf-8', errors='replace')
         if (not policy.PRESCREEN.search(new_text) and not DISTINCTIVE.search(new_text)
-                and '&' not in new_text and '\\' not in new_text):
+                and '&' not in new_text and '\\' not in new_text and new_text.isascii()):
             continue
         lines, has_hunk = changed_lines(root, base, head, path)
         if not has_hunk and blob(root, base, path) != new:
@@ -310,7 +354,7 @@ def find_new_hits(root: Path, repo: str, base: str, head: str) -> list[policy.Hi
                                  if number in lines)
         if len(changed_text) > 16 * 1024 * 1024:
             raise RuntimeError('Changed text exceeds the inspection limit')
-        decoded_changed = decode_rendered_text(changed_text)
+        decoded_changed = decode_changed_text(changed_text)
         if not any(pattern.search(value) for pattern in (policy.PRESCREEN, DISTINCTIVE)
                    for value in (changed_text, decoded_changed)):
             continue
@@ -368,7 +412,12 @@ def main() -> int:
     parser.add_argument('--event', type=Path)
     args = parser.parse_args()
     try:
-        findings = find_new_hits(args.root, args.repo, args.base, args.head)
+        comparison_base = args.base
+        if args.event_name in ('pull_request', 'pull_request_target'):
+            comparison_base = git(args.root, 'merge-base', args.base, args.head).stdout.decode('ascii').strip()
+            if not comparison_base:
+                raise RuntimeError('Pull request merge base is missing')
+        findings = find_new_hits(args.root, args.repo, comparison_base, args.head)
         if args.event_name in ('pull_request', 'pull_request_target'):
             if args.event is None:
                 raise RuntimeError('Pull request event payload is required')

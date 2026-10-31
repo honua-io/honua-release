@@ -7,6 +7,7 @@ import tempfile
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import vendor_terms_delta as guard
 
@@ -51,10 +52,24 @@ class DeltaTests(unittest.TestCase):
         head = commit(root, 'int value = 1;\n// ' + 'Es' + 'ri adapter\n')
         assert any(h.cls == 'avoidable' for h in guard.find_new_hits(root, 'fixture', base, head))
 
+    def test_compound_vendor_identifier_is_rejected_in_code_and_pr_text(self):
+        root = repo(self.tmp_path)
+        base = commit(root, 'value = 1\n')
+        identifiers = ['my' + 'es' + 'ri' + suffix for suffix in ('vendor', 'custom')]
+        identifiers.append('my' + 'es' + 'ri' + 'd')
+        identifiers.append('sourceSrid' + 'Es' + 'ri')
+        head = commit(root, ''.join(f'{identifier} = 1\n' for identifier in identifiers))
+        self.assertEqual(len(guard.find_new_hits(root, 'fixture', base, head)), 4)
+        for identifier in identifiers:
+            payload = {'pull_request': {'title': identifier, 'body': ''}}
+            self.assertTrue(guard.find_pr_metadata_hits('fixture', payload))
+
     def test_protocol_identifier_and_srid_name_are_allowed(self):
         root = repo(self.tmp_path)
         base = commit(root, 'int value = 1;\n')
-        head = commit(root, 'int value = 1;\nstring value = "' + 'es' + 'ri' + 'GeometryPoint";\nint sourceSrid = 1;\n')
+        head = commit(root, 'int value = 1;\nstring value = "' + 'es' + 'ri' + 'GeometryPoint";\n'
+                      'int sourceSrid = 1;\nint sourceSridValue = 2;\nint nativeSrids = 3;\n'
+                      'int ResolveSridAsync = 4;\n')
         assert guard.find_new_hits(root, 'fixture', base, head) == []
 
     def test_mark_in_new_filename_is_rejected(self):
@@ -115,6 +130,44 @@ class DeltaTests(unittest.TestCase):
         payload = {'pull_request': {'title': 'Handle ' + 'es' + 'ri' + 'GeometryPoint', 'body': None}}
         self.assertEqual(guard.find_pr_metadata_hits('fixture', payload), [])
 
+    def test_pull_request_formatted_text_is_classified(self):
+        mark = 'Es' + 'ri'
+        for body in (f'```\n{mark}\n```', f'<!-- {mark} -->', f'`{mark}`', f'<span>{mark}</span>'):
+            with self.subTest(body=body):
+                payload = {'pull_request': {'title': 'Change', 'body': body}}
+                self.assertTrue(guard.find_pr_metadata_hits('fixture', payload))
+
+    def test_unicode_forms_are_checked_in_code_and_pr_text(self):
+        root = repo(self.tmp_path)
+        base = commit(root, 'value = 1\n')
+        values = ['A\u200brc' + 'GIS', '\uff21rc' + 'GIS', 'Es&#8203;' + 'ri',
+                  'Es\ufe0f' + 'ri', 'Es\u034f' + 'ri', 'Es&#xFE0F;' + 'ri',
+                  'Es\\u200b' + 'ri', 'Es\\uFE0F' + 'ri', 'A\\uFF52c' + 'GIS']
+        head = commit(root, ''.join(f'# {value}\n' for value in values))
+        self.assertEqual({hit.line for hit in guard.find_new_hits(root, 'fixture', base, head)}, set(range(1, 10)))
+        for value in values:
+            with self.subTest(value=value):
+                payload = {'pull_request': {'title': value, 'body': ''}}
+                self.assertTrue(guard.find_pr_metadata_hits('fixture', payload))
+
+    def test_unicode_names_are_checked(self):
+        root = repo(self.tmp_path)
+        base = commit(root, 'value = 1\n')
+        name = 'Es\u200b' + 'ri.py'
+        head = commit(root, 'value = 2\n', name)
+        self.assertTrue(any(hit.path == name and hit.line == 0
+                            for hit in guard.find_new_hits(root, 'fixture', base, head)))
+
+    def test_large_unicode_input_fails_before_normalization(self):
+        with self.assertRaisesRegex(RuntimeError, 'Unicode input'):
+            guard.decode_rendered_text('\ufdfa' * (guard.MAX_UNICODE_INPUT_CHARS + 1))
+
+    def test_long_multiline_text_with_unicode_is_inspectable(self):
+        root = repo(self.tmp_path)
+        base = commit(root, 'initial\n')
+        head = commit(root, 'A clean sentence.\n' * 6251 + 'Caf\u00e9\n')
+        self.assertEqual(guard.find_new_hits(root, 'fixture', base, head), [])
+
     def test_invalid_pull_request_payload_fails_closed(self):
         with self.assertRaises(RuntimeError):
             guard.find_pr_metadata_hits('fixture', {})
@@ -144,6 +197,45 @@ class DeltaTests(unittest.TestCase):
                                  '--base', head, '--head', head, '--event-name', 'pull_request'],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
+
+    def test_cli_accepts_clean_pull_request_and_merge_queue_events(self):
+        root = repo(self.tmp_path)
+        base = commit(root, 'int value = 1;\n')
+        head = commit(root, 'int value = 2;\n')
+        event = root / 'event.json'
+        event.write_text(json.dumps({'pull_request': {'title': 'Update value', 'body': 'A small change.'}}))
+        for event_name in ('pull_request', 'merge_group'):
+            with self.subTest(event_name=event_name):
+                result = subprocess.run(
+                    [sys.executable, guard.__file__, '--root', str(root), '--repo', 'fixture',
+                     '--base', base, '--head', head, '--event-name', event_name, '--event', str(event)],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('0 new finding(s)', result.stdout)
+
+    def test_stale_pr_compares_against_merge_base(self):
+        root = repo(self.tmp_path)
+        old = commit(root, '// ' + 'Es' + 'ri old description\n')
+        git(root, 'checkout', '-qb', 'feature')
+        head = commit(root, 'int value = 1;\n', 'other.cs')
+        git(root, 'checkout', '-q', 'HEAD', '--', 'source.cs')
+        git(root, 'checkout', '-qb', 'target', old)
+        base = commit(root, '// neutral description\n')
+        event = root / 'event.json'
+        event.write_text(json.dumps({'pull_request': {'title': 'Update value', 'body': ''}}))
+        result = subprocess.run(
+            [sys.executable, guard.__file__, '--root', str(root), '--repo', 'fixture',
+             '--base', base, '--head', head, '--event-name', 'pull_request', '--event', str(event)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_large_diff_hunk_fails_before_expanding_line_numbers(self):
+        diff = b'@@ -0,0 +1,1000001 @@\n'
+        with patch.object(guard, 'git', return_value=subprocess.CompletedProcess([], 0, stdout=diff)):
+            with self.assertRaisesRegex(RuntimeError, 'Changed line count'):
+                guard.changed_lines(self.tmp_path, 'base', 'head', 'source.cs')
 
     def test_utf16_powershell_cannot_bypass_the_guard(self):
         root = repo(self.tmp_path)
