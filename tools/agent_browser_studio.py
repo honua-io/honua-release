@@ -31,7 +31,18 @@ from agent_e2e_local_recorder import ProjectionError
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / 'certification/agent-e2e/corpus'
 CONTRACT_PATH = ROOT / 'certification/agent-e2e/expectations/local/studio-render-contract.json'
+COMPOSITE_CONTRACT_PATH = ROOT / 'certification/agent-e2e/expectations/local/studio-composite-contract.json'
 CONSOLE_PIN_PATH = ROOT / 'certification/agent-e2e/expectations/local/studio-console-image.json'
+GLYPH_DIR = ROOT / 'certification/agent-e2e/expectations/local/studio-glyphs'
+RENDER_ASSETS = {
+    'maplibre.js': ('maplibre-gl-D8l5aSvm.js', '22f45992fbbac596986073bf39f15834c5e37df78e338b10fde48d3bdf316caa'),
+    'worker.js': ('assets/maplibre-gl-worker-BRmM5V8w.js', '5420da18c04dbefda660133d62583f6abe709233ca45a01139db121fe172f107'),
+}
+GLYPH_HASHES = {
+    '0-255.pbf': '0c8bdb284f2ad6f69bbb434a0208393f3a517bc8bf7ed1eccc4ac4791ebbcbfe',
+    '256-511.pbf': '9962ad38d064edbeb226a6c7dcf1d58e7678508a805f980d2fe81bb3178ba68a',
+    '8192-8447.pbf': 'a57611157f0597b267ef36eb07ce5a41dddcc3b2f3b5b85779108b7bb48b1cde',
+}
 LIST_PATH = '/api/v1/studio/content-items?family=map&limit=200'
 LAYER_NAMES = ('parcels', 'flood_zones', 'shelters')
 SOURCE_LAYERS = (('parcels', 'parcels'), ('flood_zones', 'flood-zones'), ('shelters', 'shelters'))
@@ -825,7 +836,7 @@ def fixture_extent(variant):
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
-def map_spec(styled):
+def map_spec(styled, *, filtered=False):
     """MapLibre document with no geometries, so the style hash does not depend on the town variant."""
     layers = [
         {'id': 'parcels', 'type': 'fill', 'source': 'parcels',
@@ -839,7 +850,14 @@ def map_spec(styled):
     if styled:
         layers.append({'id': 'shelter-names', 'type': 'symbol', 'source': 'shelters',
                        'metadata': {'honua:compositionLayerId': 'shelters'},
-                       'layout': {'text-field': ['to-string', ['get', 'name']]}})
+                       'layout': {'text-field': ['to-string', ['get', 'name']],
+                                  'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
+                                  'text-radial-offset': 1.5}})
+    if filtered:
+        require(styled, 'filtered fixture needs its authored style')
+        for layer in layers:
+            if layer.get('source') == 'shelters':
+                layer['filter'] = ['all', ['==', ['get', 'is_open'], True], ['>', ['get', 'capacity'], 50]]
     return {'version': 8, 'sources': {name: {'type': 'geojson'} for name in LAYER_NAMES}, 'layers': layers}
 
 
@@ -847,6 +865,50 @@ def map_body(variant, extent, styled):
     return {'mapPackageId': 'synthetic-town-' + variant.lower(), 'format': 'honua_map_package.v1',
             'layers': [{'id': name, 'visible': True} for name in LAYER_NAMES],
             'view': {'bbox': list(extent)}, 'mapSpec': map_spec(styled)}
+
+
+def fixture_map_body(variant, layers, source_ids, *, styled):
+    """Build a real Studio package from controller-observed fixture bindings."""
+    import math
+    require(set(layers) == set(LAYER_NAMES) == set(source_ids), 'fixture map bindings are incomplete')
+    extent = fixture_extent(variant)
+    def longitude(value):
+        return math.degrees(value / 6378137)
+    def latitude(value):
+        return math.degrees(2 * math.atan(math.exp(value / 6378137)) - math.pi / 2)
+    body = map_body(variant, extent, styled)
+    body['view']['bbox'] = [longitude(extent[0]), latitude(extent[1]), longitude(extent[2]), latitude(extent[3])]
+    body['sourceBindings'] = []
+    for row in body['layers']:
+        name = row['id']
+        binding, source_id = layers[name], source_ids[name]
+        require(isinstance(source_id, str) and source_id and isinstance(binding, dict)
+                and isinstance(binding.get('service'), str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', binding['service'])
+                and type(binding.get('layerId')) is int and 0 <= binding['layerId'] <= 2147483647,
+                'invalid fixture source binding')
+        row.update(type='circle' if name == 'shelters' else 'fill', sourceId=source_id)
+        body['sourceBindings'].append({'sourceId': source_id, 'protocol': 'geoservices_feature_service',
+            'locator': {'url': f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}",
+                        'layerId': binding['layerId']}})
+    return body
+
+
+def observed_fixture_source_ids(recorder, layers):
+    """Resolve Studio catalog identities from an authenticated controller MCP read."""
+    result = recorder.mcp_call('p09-source-catalog', 'honua_list_layers', {'offset': 0, 'limit': 500})
+    data = result.get('structuredContent') if isinstance(result, dict) else None
+    require(isinstance(data, dict) and data.get('offset') == 0 and data.get('hasMore') is False
+            and isinstance(data.get('layers'), list) and data.get('layerCount') == len(data['layers']),
+            'fixture catalog is incomplete')
+    resolved = {}
+    for name in LAYER_NAMES:
+        binding = layers[name]
+        matches = [row for row in data['layers'] if isinstance(row, dict)
+                   and row.get('serviceName') == binding['service'] and row.get('layerId') == binding['layerId']]
+        require(len(matches) == 1 and isinstance(matches[0].get('serviceId'), str)
+                and matches[0]['serviceId'], 'fixture catalog identity is ambiguous')
+        resolved[name] = matches[0]['serviceId'] + '/' + str(binding['layerId'])
+    return resolved
 
 
 def package_body(document):
@@ -959,7 +1021,29 @@ def _fixture_filter_sql(expression, fields, depth=0):
     return lookup[1] + ' ' + {'==': '=', '!=': '<>'}.get(op, op) + ' ' + literal
 
 
-def saved_authored_exports(body, fixtures, *, variant='A'):
+def default_map_spec(body):
+    """Studio's deterministic default paint for unstyled fixture composition layers."""
+    layers = body.get('layers') if isinstance(body, dict) else None
+    require(isinstance(layers, list) and [row.get('id') for row in layers if isinstance(row, dict)] == list(LAYER_NAMES),
+            'default map composition differs from fixture')
+    palette = ('#0b6b4d', '#b4531b', '#3a5fa8', '#8a2f6b', '#1f7a8c', '#94741a', '#5c3b8f', '#a03a3a')
+    rules = []
+    for row in layers:
+        require(set(row) <= {'id', 'type', 'title', 'visible', 'sourceId', 'metadata'} and row.get('visible') is True,
+                'unsupported default composition layer')
+        name, kind = row['id'], row.get('type')
+        require(kind == ('circle' if name == 'shelters' else 'fill'), 'unsupported default layer type')
+        hashed = 0x811c9dc5
+        for char in name:
+            hashed = ((hashed ^ ord(char)) * 0x01000193) & 0xffffffff
+        color = palette[hashed % len(palette)]
+        paint = ({'fill-color': color, 'fill-opacity': 0.45, 'fill-outline-color': color} if kind == 'fill' else
+                 {'circle-color': color, 'circle-radius': 4, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1})
+        rules.append({'id': name, 'type': kind, 'source': name, 'paint': paint})
+    return {'version': 8, 'sources': {name: {'type': 'geojson'} for name in LAYER_NAMES}, 'layers': rules}
+
+
+def saved_authored_exports(body, fixtures, *, variant='A', allow_default=False):
     """Translate supported literal saved layer paint to fixture-bound server exports.
 
     Unsupported expressions and external source bindings fail closed. The
@@ -970,6 +1054,8 @@ def saved_authored_exports(body, fixtures, *, variant='A'):
     from urllib.parse import urlencode
     require(isinstance(body, dict) and isinstance(fixtures, dict), 'invalid authored map')
     layers, bindings, spec = body.get('layers'), body.get('sourceBindings'), body.get('mapSpec')
+    if spec is None and allow_default:
+        spec = default_map_spec(body)
     require(isinstance(layers, list) and isinstance(bindings, list) and isinstance(spec, dict)
             and spec.get('version') == 8 and isinstance(spec.get('layers'), list)
             and isinstance(spec.get('sources'), dict), 'authored map is incomplete')
@@ -1004,7 +1090,8 @@ def saved_authored_exports(body, fixtures, *, variant='A'):
                 and isinstance(paint, dict), 'invalid authored paint')
         kind = rule['type']
         require(kind in ('fill', 'circle'), 'unsupported authored symbol')
-        allowed = {'fill-color', 'fill-opacity'} if kind == 'fill' else {'circle-color', 'circle-opacity', 'circle-radius'}
+        allowed = ({'fill-color', 'fill-opacity', 'fill-outline-color'} if kind == 'fill' else
+                   {'circle-color', 'circle-opacity', 'circle-radius', 'circle-stroke-color', 'circle-stroke-width'})
         require(set(paint) <= allowed, 'unsupported authored paint property')
         color, opacity = paint.get(kind + '-color'), paint.get(kind + '-opacity', 1)
         require(isinstance(color, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', color)
@@ -1018,20 +1105,30 @@ def saved_authored_exports(body, fixtures, *, variant='A'):
             require(type(radius) in (int, float) and math.isfinite(radius) and 0 < radius <= 100,
                     'unsupported authored radius')
             symbol['size'] = radius * 2
+        outline_color = paint.get('fill-outline-color') if kind == 'fill' else paint.get('circle-stroke-color')
+        if outline_color is not None:
+            width = 1 if kind == 'fill' else paint.get('circle-stroke-width', 0)
+            require(isinstance(outline_color, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', outline_color)
+                    and type(width) in (int, float) and math.isfinite(width) and 0 <= width <= 10,
+                    'unsupported authored outline')
+            symbol['outline'] = {'type': 'esriSLS', 'style': 'esriSLSSolid',
+                                 'color': [int(outline_color[i:i + 2], 16) for i in (1, 3, 5)] + [255],
+                                 'width': width}
         dynamic = [{'id': layer_id, 'source': {'type': 'mapLayer', 'mapLayerId': layer_id},
                     'drawingInfo': {'renderer': {'type': 'simple', 'symbol': symbol}}}]
         if 'filter' in rule:
             document = json.loads(fixture_path(variant, name).read_text(encoding='utf-8'))
             fields = {field for feature in document['features'] for field in feature['properties']}
             dynamic[0]['definitionExpression'] = _fixture_filter_sql(rule['filter'], fields)
-        query = urlencode({'f': 'image', 'bbox': ','.join(str(v) for v in bbox), 'bboxSR': 4326,
+        query = urlencode({'f': 'image', 'layers': layer_id, 'bbox': ','.join(str(v) for v in bbox), 'bboxSR': 4326,
                            'imageSR': 3857, 'size': '512,512', 'format': 'png32', 'transparent': 'true',
                            'dynamicLayers': json.dumps(dynamic, separators=(',', ':'))})
         result.append({'name': name, 'path': f'/rest/services/{service}/MapServer/export?{query}', 'rgba': rgba})
     return result
 
 
-def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, expected_rgba, regions, minimum_pixels):
+def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, expected_rgba, regions, minimum_pixels,
+                                 variant='A', allow_default=False):
     """Verify each saved, fixture-bound literal rule against controller-fetched pixels.
 
     This checks the individual server exports only. It does not assert that text
@@ -1044,7 +1141,8 @@ def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, ex
             and isinstance(limits, dict) and set(limits) == set(fixtures)
             and all(type(value) is int and value > 0 for value in limits.values()),
             'invalid frozen authored expectations')
-    exports = saved_authored_exports(package_body(recorder.records[version_step].json), fixtures)
+    exports = saved_authored_exports(package_body(recorder.records[version_step].json), fixtures,
+                                     variant=variant, allow_default=allow_default)
     matches = {}
     for row in exports:
         wanted = expected_rgba[row['name']]
@@ -1070,6 +1168,295 @@ def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, ex
         require(count >= limits[row['name']], 'server layer pixels differ from frozen expectation')
         matches[row['name']] = count
     return {'matchedPixels': matches}
+
+
+def fixture_geojson_source(record, variant, name):
+    """Validate controller GeoJSON against the frozen fixture before rendering it."""
+    import math
+    document = record.json
+    require(record.status == 200 and isinstance(document, dict) and document.get('type') == 'FeatureCollection'
+            and isinstance(document.get('features'), list), 'invalid controller GeoJSON')
+    fixture = json.loads(fixture_path(variant, name).read_text(encoding='utf-8'))
+    expected = {f['properties']['source_id']: f for f in fixture['features']}
+    observed = {}
+    for feature in document['features']:
+        props = feature.get('properties') if isinstance(feature, dict) else None
+        require(isinstance(props, dict) and isinstance(props.get('source_id'), str)
+                and props['source_id'] not in observed, 'invalid controller GeoJSON identity')
+        observed[props['source_id']] = feature
+    require(set(observed) == set(expected), 'controller GeoJSON fixture inventory differs')
+
+    def coordinate_match(actual, wanted, depth=0):
+        require(depth <= 8 and isinstance(actual, list) and isinstance(wanted, list)
+                and len(actual) == len(wanted), 'controller GeoJSON geometry differs')
+        if len(wanted) == 2 and all(type(v) in (int, float) for v in wanted):
+            require(all(type(v) in (int, float) and math.isfinite(v) for v in actual), 'invalid GeoJSON coordinate')
+            x, y = wanted
+            target = [math.degrees(x / 6378137), math.degrees(2 * math.atan(math.exp(y / 6378137)) - math.pi / 2)]
+            require(all(abs(a - b) <= 1e-7 for a, b in zip(actual, target)), 'controller GeoJSON geometry differs')
+            return
+        for a, b in zip(actual, wanted):
+            coordinate_match(a, b, depth + 1)
+
+    clean = []
+    for source_id in sorted(expected):
+        actual, wanted = observed[source_id], expected[source_id]
+        props, expected_props = actual['properties'], wanted['properties']
+        require(all(key in props and type(props[key]) is type(value) and props[key] == value
+                    for key, value in expected_props.items()), 'controller GeoJSON fixture attributes differ')
+        actual_geometry, wanted_geometry = actual.get('geometry'), wanted['geometry']
+        require(isinstance(actual_geometry, dict) and actual_geometry.get('type') == wanted_geometry['type'],
+                'controller GeoJSON geometry differs')
+        coordinate_match(actual_geometry.get('coordinates'), wanted_geometry['coordinates'])
+        clean.append({'type': 'Feature', 'id': source_id, 'properties': {key: props[key] for key in expected_props},
+                      'geometry': actual_geometry})
+    return {'srid': 4326, 'features': clean}
+
+
+def independent_maplibre_render(body, sources, console_origin, *, sample_mercator=None, allow_default=False):
+    """Render controller-read features and a saved style in an isolated runner browser.
+
+    The page is runner-owned static code, not a Console route or an agent screenshot.
+    It reports MapLibre's rendered symbol features and network errors; all network
+    requests are confined to its loopback server. Unsupported styles fail closed.
+    """
+    import copy
+    import math
+    from urllib.error import HTTPError
+    from playwright.sync_api import sync_playwright
+
+    require(isinstance(body, dict) and isinstance(sources, dict) and set(sources) == set(LAYER_NAMES),
+            'independent render needs the three fixture sources')
+    spec = copy.deepcopy(body.get('mapSpec'))
+    if spec is None and allow_default:
+        spec = default_map_spec(body)
+    require(isinstance(spec, dict) and spec.get('version') == 8 and isinstance(spec.get('sources'), dict)
+            and set(spec['sources']) == set(sources) and isinstance(spec.get('layers'), list)
+            and len(spec['layers']) <= 32 and set(spec) <= {'version', 'sources', 'layers', 'name', 'metadata'},
+            'unsupported independent render style')
+    require(len(json.dumps(spec)) <= 65536, 'independent render style is too large')
+    layers = spec['layers']
+    require(all(isinstance(row, dict) and row.get('type') in ('fill', 'circle', 'symbol')
+                and row.get('source') in sources and isinstance(row.get('id'), str) for row in layers),
+            'unsupported independent render layer')
+    symbols = [row for row in layers if row['type'] == 'symbol']
+    require(len(symbols) <= 1 and all(row.get('source') == 'shelters' for row in symbols),
+            'unsupported independent label layer')
+    composition = body.get('layers')
+    require(isinstance(composition, list) and all(isinstance(row, dict) for row in composition)
+            and [row.get('id') for row in composition] == [row['id'] for row in layers if row['type'] != 'symbol'],
+            'independent render layers differ from the saved composition')
+    if symbols:
+        style_from_body(body)  # validates the actual field, ownership and visible text paint
+        label = symbols[0]
+        layout, paint = label.get('layout', {}), label.get('paint', {})
+        require(layers[-1] is label and isinstance(layout, dict)
+                and set(layout) <= {'text-field', 'text-variable-anchor', 'text-radial-offset', 'text-font',
+                                    'text-size', 'visibility', 'text-anchor', 'text-offset'}
+                and isinstance(paint, dict) and set(paint) <= {'text-color', 'text-opacity'}
+                and paint.get('text-color', '#000000') in ('#000000', '#000', 'black')
+                and paint.get('text-opacity', 1) == 1
+                and type(layout.get('text-size', 16)) in (int, float) and 8 <= layout.get('text-size', 16) <= 40,
+                'unsupported independent label paint')
+    names = [row['id'] for row in layers]
+    require(len(set(names)) == len(names), 'duplicate independent render layer')
+    view = body.get('view')
+    require(isinstance(view, dict) and set(view) <= {'bbox', 'crs'}
+            and view.get('crs', 'EPSG:4326') in ('EPSG:4326', 'CRS84'), 'unsupported independent map view')
+    bounds = view.get('bbox')
+    require(isinstance(bounds, list) and len(bounds) == 4 and all(type(v) in (int, float) and math.isfinite(v) for v in bounds)
+            and -180 <= bounds[0] < bounds[2] <= 180 and -85 <= bounds[1] < bounds[3] <= 85,
+            'independent render needs a bounded geographic view')
+    if sample_mercator is not None:
+        require(isinstance(sample_mercator, list) and len(sample_mercator) == 4
+                and all(type(v) in (int, float) and math.isfinite(v) for v in sample_mercator)
+                and sample_mercator[0] < sample_mercator[2] and sample_mercator[1] < sample_mercator[3],
+                'invalid frozen sample region')
+
+    def convert(node, *, geographic=False, depth=0):
+        require(depth <= 8, 'invalid fixture coordinates')
+        if isinstance(node, list) and len(node) == 2 and all(type(v) in (int, float) and math.isfinite(v) for v in node):
+            x, y = node
+            if geographic:
+                require(-180 <= x <= 180 and -85 <= y <= 85, 'fixture coordinate is outside geographic bounds')
+                return [x, y]
+            require(abs(x) <= 20037508.35 and abs(y) <= 20037508.35, 'fixture coordinate is outside Web Mercator')
+            return [math.degrees(x / 6378137), math.degrees(2 * math.atan(math.exp(y / 6378137)) - math.pi / 2)]
+        require(isinstance(node, list) and len(node) <= 10000, 'invalid fixture coordinates')
+        return [convert(part, geographic=geographic, depth=depth + 1) for part in node]
+
+    for name, source in sources.items():
+        require(isinstance(source, dict) and source.get('srid') in (3857, 4326) and isinstance(source.get('features'), list)
+                and 0 < len(source['features']) <= 1000, 'invalid independent render source')
+        features = copy.deepcopy(source['features'])
+        for feature in features:
+            require(isinstance(feature, dict) and isinstance(feature.get('geometry'), dict), 'invalid render feature')
+            feature['geometry']['coordinates'] = convert(feature['geometry']['coordinates'], geographic=source['srid'] == 4326)
+        spec['sources'][name] = {'type': 'geojson', 'data': {'type': 'FeatureCollection', 'features': features}}
+    require(len(json.dumps(spec, ensure_ascii=False)) <= 2 * 1024 * 1024, 'independent render sources are too large')
+    spec['glyphs'] = '/glyphs/{fontstack}/{range}.pbf'
+    sample = None if sample_mercator is None else [convert(sample_mercator[:2]), convert(sample_mercator[2:])]
+
+    parsed = urlsplit(console_origin)
+    require(parsed.scheme == 'http' and parsed.hostname in ('127.0.0.1', 'localhost') and parsed.port
+            and parsed.path in ('', '/') and not parsed.query and not parsed.fragment and not parsed.username,
+            'independent renderer requires the case Console loopback origin')
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    assets = {}
+    for local, (path, digest) in RENDER_ASSETS.items():
+        try:
+            with opener.open(console_origin.rstrip('/') + '/_studio/' + path, timeout=10) as response:
+                require(response.status == 200, 'independent renderer asset is unavailable')
+                data = response.read(2 * 1024 * 1024 + 1)
+        except (OSError, HTTPError) as exc:
+            raise ProjectionError('independent renderer asset is unavailable') from exc
+        require(len(data) <= 2 * 1024 * 1024 and hashlib.sha256(data).hexdigest() == digest,
+                'independent renderer asset digest differs')
+        assets['/' + local] = (data, 'text/javascript')
+    for name, digest in GLYPH_HASHES.items():
+        data = (GLYPH_DIR / name).read_bytes()
+        require(hashlib.sha256(data).hexdigest() == digest, 'independent renderer glyph digest differs')
+        assets['/glyphs/Open%20Sans%20Regular/' + name] = (data, 'application/x-protobuf')
+        assets['/glyphs/Open%20Sans%20Regular,Arial%20Unicode%20MS%20Regular/' + name] = (data, 'application/x-protobuf')
+        assets['/glyphs/Open%20Sans%20Regular%2CArial%20Unicode%20MS%20Regular/' + name] = (data, 'application/x-protobuf')
+
+    html = b'''<!doctype html><meta charset="utf-8"><style>html,body,#map{margin:0;width:512px;height:512px}</style><div id="map"></div><script type="module">
+import {Map,setWorkerUrl} from '/maplibre.js';
+setWorkerUrl('/worker.js');
+const d=await (await fetch('/document.json')).json();
+const errors=[];
+const map=new Map({container:'map',style:d.style,interactive:false,attributionControl:false,fadeDuration:0,preserveDrawingBuffer:true});
+map.on('error',e=>errors.push(String(e.error)));
+map.fitBounds(d.bbox,{duration:0});
+map.once('idle',async()=>{
+  const ids=d.symbols.length ? map.queryRenderedFeatures(undefined,{layers:d.symbols}).map(f=>f.properties.source_id) : [];
+  const loaded=d.sources.filter(name=>map.isSourceLoaded(name));
+  let sampleRect=null;
+  if(d.sample){
+    const a=map.project([d.sample[0][0],d.sample[1][1]]), b=map.project([d.sample[1][0],d.sample[0][1]]);
+    const x=Math.ceil(a.x), y=Math.ceil(a.y), right=Math.floor(b.x), bottom=Math.floor(b.y);
+    sampleRect=[x,y,right-x,bottom-y];
+  }
+  await fetch('/result',{method:'POST',body:JSON.stringify({ids,loaded,errors,sampleRect})});
+});
+</script>'''
+    result = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+        def do_GET(self):
+            if self.path == '/':
+                data, mime = html, 'text/html'
+            elif self.path == '/document.json':
+                data = json.dumps({'style': spec, 'bbox': bounds, 'sample': sample, 'symbols': [row['id'] for row in symbols],
+                                   'sources': list(sources)}, separators=(',', ':')).encode()
+                mime = 'application/json'
+            elif self.path in assets:
+                data, mime = assets[self.path]
+            else:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', mime)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        def do_POST(self):
+            length = int(self.headers.get('Content-Length', '0'))
+            if self.path != '/result' or not 0 < length <= 8192 or result:
+                self.send_error(400)
+                return
+            try:
+                value = json.loads(self.rfile.read(length))
+            except (ValueError, UnicodeDecodeError):
+                self.send_error(400)
+                return
+            result.append(value)
+            self.send_response(204)
+            self.end_headers()
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f'http://127.0.0.1:{server.server_port}'
+    blocked = []
+    try:
+        use_worktree_browsers()
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(**launch_options())
+            try:
+                context = browser.new_context(**context_options())
+                def route(request):
+                    target = urlsplit(request.request.url)
+                    if target.scheme == 'http' and target.hostname == '127.0.0.1' and target.port == server.server_port:
+                        request.continue_()
+                    else:
+                        blocked.append('external request')
+                        request.abort()
+                context.route('**/*', route)
+                page = context.new_page()
+                page.on('pageerror', lambda _error: blocked.append('page error'))
+                page.goto(origin + '/', wait_until='domcontentloaded', timeout=15000)
+                deadline = time.monotonic() + 30
+                while not result and time.monotonic() < deadline:
+                    page.wait_for_timeout(100)
+                require(len(result) == 1 and not blocked, 'independent map renderer did not complete safely')
+                output = result[0]
+                require(isinstance(output, dict) and set(output) == {'ids', 'loaded', 'errors', 'sampleRect'}
+                        and isinstance(output['ids'], list) and all(isinstance(v, str) for v in output['ids'])
+                        and isinstance(output['loaded'], list) and set(output['loaded']) == set(sources)
+                        and output['errors'] == [], 'independent map renderer reported an error')
+                known_ids = {feature.get('properties', {}).get('source_id') for feature in sources['shelters']['features']}
+                require(set(output['ids']) <= known_ids, 'independent renderer returned an unknown label')
+                rect = output['sampleRect']
+                if sample is not None:
+                    require(isinstance(rect, list) and len(rect) == 4 and all(type(v) is int for v in rect)
+                            and 0 <= rect[0] < 512 and 0 <= rect[1] < 512 and rect[2] > 0 and rect[3] > 0
+                            and rect[0] + rect[2] <= 512 and rect[1] + rect[3] <= 512,
+                            'frozen sample is outside the saved map view')
+                else:
+                    require(rect is None, 'unexpected independent render sample')
+                png = page.screenshot(timeout=5000)
+                return {'png': png, 'visibleLabelSourceIds': sorted(set(output['ids'])),
+                        'loadedLayerIds': sorted(output['loaded']), 'sampleRect': rect}
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def record_independent_render(stack, seeded, prefix, version_step):
+    """Score controller exports and a separate runner-owned composite from saved state."""
+    recorder, variant = stack.extra['recorder'], seeded.state['variant']
+    fixtures = seeded.state.get('layers') or {}
+    require(set(fixtures) == set(LAYER_NAMES), 'render fixture bindings are incomplete')
+    contract = json.loads(COMPOSITE_CONTRACT_PATH.read_text(encoding='utf-8'))
+    require(variant in ('A', 'B') and isinstance(contract, dict), 'invalid frozen composite contract')
+    default = prefix == 'p08' and 'mapSpec' not in package_body(recorder.records[version_step].json)
+    colors = contract['defaultRgba'] if default else contract['authoredRgba']
+    verify_saved_authored_layers(recorder, version_step, prefix + '-export', fixtures=fixtures,
+        expected_rgba=colors, regions={name: [0, 0, 512, 512] for name in LAYER_NAMES},
+        minimum_pixels=contract['minimumLayerPixels'], variant=variant, allow_default=default)
+    sources = {name: fixture_geojson_source(recorder.records[f'{prefix}-src-{slug}-after-geo'], variant, name)
+               for name, slug in SOURCE_LAYERS}
+    body = package_body(recorder.records[version_step].json)
+    rendering = independent_maplibre_render(body, sources, stack.extra.get('consoleUrl') or stack.extra.get('studioUrl'),
+        sample_mercator=contract['sampleMercator'][variant], allow_default=default)
+    color = contract['defaultFloodRgba'] if default else contract['floodRgba']
+    measurement = measure_png(rendering['png'], {'background': contract['background'],
+        'backgroundTolerance': contract['backgroundTolerance'], 'regions': [
+            {'id': 'flood', 'rect': rendering['sampleRect'], 'rgba': color, 'tolerance': contract['floodTolerance']}]},
+        http_status=200, loaded_layer_ids=rendering['loadedLayerIds'],
+        visible_label_source_ids=rendering['visibleLabelSourceIds'], browser_errors=[])
+    recorder.store_derived(prefix + '-render', measurement)
 
 
 def verify_saved_default_fill(recorder, version_step, export_step, *, service, layer_id, expected_rgba, minimum_pixels):
@@ -1129,6 +1516,12 @@ def snapshot_sources(recorder, prefix, layers, when, *, variant='A'):
         require(result.get('httpStatus') == 200 and isinstance(body, dict) and 'error' not in body
                 and isinstance(body.get('features'), list),
                 'published fixture source cannot be read with the required fields')
+        geo_path = path.replace('f=json', 'f=geojson').replace('outSR=3857', 'outSR=4326')
+        geo = recorder.json(f'{prefix}-src-{slug}-{when}-geo', 'GET', geo_path)['observation']
+        geo_body = geo.get('body')
+        require(geo.get('httpStatus') == 200 and isinstance(geo_body, dict)
+                and geo_body.get('type') == 'FeatureCollection' and isinstance(geo_body.get('features'), list),
+                'published fixture GeoJSON cannot be read')
 
 
 def items_of(body):
@@ -1145,9 +1538,13 @@ def version_path(item_id, version_id):
     return f'/api/v1/studio/content-items/{item_id}/versions/{version_id}'
 
 
-def seed_unstyled_map(recorder, variant, extent, owner):
+def seed_unstyled_map(recorder, variant, layers, owner):
+    source_ids = observed_fixture_source_ids(recorder, layers)
+    starting = fixture_map_body(variant, layers, source_ids, styled=False)
+    expected = fixture_map_body(variant, layers, source_ids, styled=True)
+    recorder.store_derived('p09-expected-saved', {'body': expected})
     envelope = {'family': 'map', 'schemaVersion': '1', 'format': 'honua_map_package.v1',
-                'body': map_body(variant, extent, False)}
+                'body': starting}
     created = recorder.json('p09-seed-draft', 'POST', '/api/v1/studio/package-drafts', {
         'packageKey': 'synthetic-town-' + variant.lower(), 'ownerId': owner, 'envelope': envelope})
     require(created['observation']['httpStatus'] in (200, 201), 'unstyled map draft was not created')
@@ -1208,7 +1605,7 @@ def seed_case(scenario_id, stack, variant, *, create_map):
     if layers:
         snapshot_sources(recorder, prefix, layers, 'before', variant=variant)
     if create_map:
-        seed_unstyled_map(recorder, variant, fixture_extent(variant), stack.extra.get('agentPrincipal'))
+        seed_unstyled_map(recorder, variant, layers, stack.extra.get('agentPrincipal'))
     rows = items_of(recorder.json(prefix + '-maps-before', 'GET', LIST_PATH)['observation']['body'])
     if create_map:
         require(len(rows) == 1, 'saved map seed did not leave one map')
@@ -1238,8 +1635,13 @@ def observe_map(stack, seeded, prefix, *, created):
         row = matches[0]
     recorder.json(prefix + '-version', 'GET', version_path(row.get('itemId'), row.get('currentVersionId')))
     record_map_measurements(recorder, prefix + '-version', prefix)
-    # There is no reviewed server observation that binds a rendered image and
-    # visible labels to this saved document. Do not synthesize that evidence.
+    if set(layers) == set(LAYER_NAMES):
+        from playwright.sync_api import Error as PlaywrightError
+        try:
+            record_independent_render(stack, seeded, prefix, prefix + '-version')
+        except (ProjectionError, OSError, ValueError, PlaywrightError) as exc:
+            # Keep other assertions observable. The missing render step fails closed.
+            stack.extra[prefix + 'RenderFailure'] = str(exc)[:200]
 
 
 def composition_spec(prefix, role):
@@ -1260,7 +1662,14 @@ def style_spec(prefix, role):
 
 
 def render_spec(prefix):
-    return {'body': prefix + '-render', 'pointer': ''}
+    fields = ('httpStatus', 'decodedWidth', 'decodedHeight', 'loadedLayerIds', 'nonBackgroundPixels',
+              'browserErrors', 'regions', 'visibleLabelSourceIds')
+    steps = [prefix + '-version']
+    for _name, slug in SOURCE_LAYERS:
+        steps.extend((f'{prefix}-src-{slug}-after-raw', f'{prefix}-src-{slug}-after-geo',
+                      f'{prefix}-export-{slug}'))
+    return {'object': {**{field: {'body': prefix + '-render', 'pointer': '/' + field} for field in fields},
+                       'sourceEvidence': {'list': [{'sha256': step} for step in steps]}}}
 
 
 def saved_spec(prefix, resource_role, version_role):
@@ -1276,7 +1685,10 @@ def source_content_spec(prefix):
          'resource': [
              {'role': f'seeded:service:{name}', 'at': {'pathSegment': 2}},
              {'role': f'seeded:layer:{name}', 'at': {'pathSegment': 4}}],
-         'content': {'featureServerFeatures': '$step'}}
+         'content': ({'featureServerFeatures': '$step', 'booleanFields': ['is_open'], 'booleanGeo': {
+             f'{prefix}-src-{slug}-before-raw': f'{prefix}-src-{slug}-before-geo',
+             f'{prefix}-src-{slug}-after-raw': f'{prefix}-src-{slug}-after-geo'}}
+             if name == 'shelters' else {'featureServerFeatures': '$step'})}
         for name, slug in SOURCE_LAYERS]}
 
 

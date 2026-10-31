@@ -1,9 +1,9 @@
 """P24 zero to a published map.
 
-Style and source content use controller reads; render remains fail-closed. Everything else in the
-pack stays fail-closed on local docker: there is no separate approver handoff, no
-worker-identity fact, and a fresh deployment has no seed-phase fixture bytes unless
-the controller already published the layers. Pack prompts stay in the pack.
+Style and source content use controller reads. Render uses the shared independent
+renderer when fixture bindings are available. On a fresh deployment the agent must
+publish the sources, so seed-phase bindings are unavailable and render fails closed.
+Other unsupported facts also fail closed on local Docker. Pack prompts stay in the pack.
 """
 from __future__ import annotations
 
@@ -36,7 +36,8 @@ def _custody(fields):
 
 def _features_exact():
     # Tolerance belongs to the frozen expectation; the oracle needs only live CRS and features.
-    return {'featureServerFeatures': 'p24-src-shelters-after-raw'}
+    return {'featureServerFeatures': 'p24-src-shelters-after-raw', 'booleanFields': ['is_open'],
+            'booleanGeo': {'p24-src-shelters-after-raw': 'p24-src-shelters-after-geo'}}
 
 
 class P24(Scenario):

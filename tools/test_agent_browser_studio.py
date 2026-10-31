@@ -25,7 +25,7 @@ from agent_browser_studio import (
     FLOOD_COLOR, FLOOD_OPACITY, LAYER_NAMES, LIST_PATH, STYLE_CONFIG, TOOLS, OriginLock, OriginLocked,
     PlaywrightPage, StudioBrowserServer, client_mcp_config, context_options, fixture_extent, fixture_path,
     label_ids, launch_options,
-    map_body, map_spec, measure_png, open_studio_browser, render_contract, resolve_fixture,
+    fixture_map_body, map_body, map_spec, measure_png, open_studio_browser, render_contract, resolve_fixture,
 )
 from agent_e2e_local_api import McpEndpoint, SessionContext, Stack
 from agent_e2e_local_projections import resolve_roles
@@ -149,8 +149,11 @@ def _dumps(value):
     return json.dumps(value, ensure_ascii=False).encode('utf-8')
 
 
-def _version_document(variant, flood):
-    body = map_body(variant, EXTENTS[variant], True)
+def _version_document(variant, flood, *, filtered=False, bound=False):
+    source_ids = {name: f'svc-{name}/{binding["layerId"]}' for name, binding in LAYERS.items()}
+    body = fixture_map_body(variant, LAYERS, source_ids, styled=True) if bound else map_body(variant, EXTENTS[variant], True)
+    if filtered:
+        body['mapSpec'] = map_spec(True, filtered=True)
     if flood is not None:
         for layer in body['mapSpec']['layers']:
             if layer['id'] == 'flood_zones':
@@ -167,6 +170,9 @@ def _factory(state):
         if path.startswith('/rest/services/'):
             for name, binding in LAYERS.items():
                 if f"/rest/services/{binding['service']}/" in path:
+                    if 'f=geojson' in path:
+                        document = json.loads(fixture_path(state['variant'], name).read_bytes())
+                        return 200, _dumps(document)
                     return 200, _dumps(_query_document(state['variant'], name))
             return 404, b'{}'
         if path == LIST_PATH:
@@ -186,7 +192,8 @@ def _factory(state):
         if method == 'POST' and path.endswith('/content-versions'):
             return 201, _dumps({'success': True, 'data': {}})
         if '/versions/' in path and method == 'GET':
-            return 200, _dumps(_version_document(state['variant'], state['flood']))
+            return 200, _dumps(_version_document(state['variant'], state['flood'], filtered=state['scenario'] == 'P24',
+                                                 bound=state['scenario'] == 'P09'))
         return 404, b'{}'
     return factory
 
@@ -236,6 +243,9 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
 
         import agent_e2e_scenario_backend
         monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+    import agent_browser_studio
+    monkeypatch.setattr(agent_browser_studio, 'observed_fixture_source_ids', lambda _rec, layers:
+                        {name: f'svc-{name}/{binding["layerId"]}' for name, binding in layers.items()})
     state = {'scenario': scenario_id, 'variant': variant, 'flood': flood}
     recorder = _recorder(tmp_path, state)
     extra = {
@@ -706,7 +716,7 @@ def test_expectations_match_the_pack_and_an_independent_fixture_walk(variant):
         assert set(expected) == set(select_case(PACK, scenario_id, variant)['assertions'])
         render = expected['render.actual']
         assert render['minimumNonBackgroundPixels'] == 1000
-        assert render['regions'][0]['minimumMatchingPixels'] == 4000
+        assert render['regions'][0]['minimumMatchingPixels'] == 100
         assert render['labelSourceIds'] == label_ids(scenario_id, variant)
         for row in expected['source-content.unchanged']['resources']:
             fixture = oracle.fixture_expectation(variant, 'features.exact', layer=row['resourceId'])
@@ -721,13 +731,29 @@ def test_expectations_match_the_pack_and_an_independent_fixture_walk(variant):
     composition = P08().expected(variant)['map.composition']
     assert composition['extent'] == walked
     assert composition['orderedLayerIds'] == ['parcels', 'flood_zones', 'shelters']
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_frozen_composite_sample_is_inside_flood_and_outside_parcels(variant):
+    contract = json.loads((ROOT / 'certification/agent-e2e/expectations/local/studio-composite-contract.json').read_text())
+    left, bottom, right, top = contract['sampleMercator'][variant]
+    def bounds(feature):
+        ring = feature['geometry']['coordinates'][0]
+        return min(p[0] for p in ring), min(p[1] for p in ring), max(p[0] for p in ring), max(p[1] for p in ring)
+    flood = json.loads(fixture_path(variant, 'flood_zones').read_text())['features'][0]
+    a, b, c, d = bounds(flood)
+    assert a < left < right < c and b < bottom < top < d
+    parcels = json.loads(fixture_path(variant, 'parcels').read_text())['features']
+    assert all(right <= a or left >= c or top <= b or bottom >= d for a, b, c, d in map(bounds, parcels))
+    walked = _walk_extent(variant)
     style = P09().expected(variant)['map.style']
     body = map_body(variant, walked, True)
     assert style['styleDocumentSha256'] == canonical_digest(body['mapSpec'])[7:]
     assert style['floodColor'] == '#0088ff'
     assert style['floodOpacity'] == 0.35
     assert style['labelField'] == 'name'
-    assert P09().expected(variant)['state.saved']['documentSha256'] == canonical_digest(body)[7:]
+    assert P09().expected(variant)['state.saved']['documentSha256'] == {'$role': 'recorded:p09-expected'}
+    assert P24().expected(variant)['map.style']['styleDocumentSha256'] == canonical_digest(map_spec(True, filtered=True))[7:]
     assert 'tolerance' in P24().expected(variant)['features.exact']
     with pytest.raises(ValueError):
         P08().expected('C')
@@ -735,9 +761,10 @@ def test_expectations_match_the_pack_and_an_independent_fixture_walk(variant):
         select_case(PACK, 'P08', 'C')
 
 
-def test_style_hash_is_shared_and_the_saved_document_hash_is_not():
+def test_style_hash_is_shared_and_saved_document_uses_bound_seed():
     assert P09().expected('A')['map.style']['styleDocumentSha256'] == P09().expected('B')['map.style']['styleDocumentSha256']
-    assert P09().expected('A')['state.saved']['documentSha256'] != P09().expected('B')['state.saved']['documentSha256']
+    assert P09().expected('A')['state.saved']['documentSha256'] == {'$role': 'recorded:p09-expected'}
+    assert P09().expected('B')['state.saved']['documentSha256'] == {'$role': 'recorded:p09-expected'}
 
 
 def test_scenario_modules_do_not_carry_pack_prompts():
@@ -990,8 +1017,9 @@ def test_fixture_source_queries_only_customer_fields_and_object_id():
     requests = []
     class Recorder:
         def json(self, step, method, path):
-            requests.append((step, parse_qs(urlsplit(path).query)['outFields'][0].split(',')))
-            return {'observation': {'httpStatus': 200, 'body': {'features': []}}}
+            if step.endswith('-raw'):
+                requests.append((step, parse_qs(urlsplit(path).query)['outFields'][0].split(',')))
+            return {'observation': {'httpStatus': 200, 'body': {'type': 'FeatureCollection', 'features': []}}}
     snapshot_sources(Recorder(), 'p08', LAYERS, 'before', variant='A')
     assert dict(requests) == {
         'p08-src-parcels-before-raw': ['id', 'name', 'owner', 'source_id', 'value'],

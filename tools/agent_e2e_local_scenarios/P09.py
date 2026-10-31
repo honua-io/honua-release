@@ -21,6 +21,7 @@ class P09(Scenario):
     def roles(self, stack, seeded, variant, run=None):
         return source_roles() + [
             RoleBinding('seeded:map', 'p09-maps-before', pointer='/data/items/0/itemId'),
+            RoleBinding('recorded:p09-expected', 'p09-expected-saved', pointer='/body'),
             RoleBinding('created:version', 'p09-maps', items='/data/items', id='/currentVersionId',
                         owner='/ownerId', before='p09-maps-before',
                         owner_any_of=['{agentUser}', '{agentKey}', 'api-key:{agentKey}']),
