@@ -229,3 +229,9 @@ def observe_approved_publication(http, pending, *, step, requested_by):
     result.update(proposalId=proposal_id, requestedBy=requested_by, approvedBy=proposal['resolvedBy'],
                   proposalReference=proposal_answer['reference'])
     return result
+
+
+def handoff_observations(http):
+    """Candidate API reads for the customer handoff. The model transcript is not an input."""
+    from agent_e2e_scenario_handoff import observe_handoff
+    return observe_handoff(http)

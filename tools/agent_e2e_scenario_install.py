@@ -49,3 +49,9 @@ def bind(*, deployment, campaign, provenance, health):
         'clientArtifactDigests': digests}, 'deployment.ready': {
             'deploymentId': deployment_id, 'healthStatus': health['status'],
             'authenticatedReadStatus': health['authenticatedReadStatus']}}
+
+
+def handoff_observations(http):
+    """Candidate API reads for the customer handoff. The model transcript is not an input."""
+    from agent_e2e_scenario_handoff import observe_handoff
+    return observe_handoff(http)

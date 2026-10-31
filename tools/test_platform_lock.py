@@ -306,7 +306,7 @@ def test_generator_reports_all_current_unresolved_release_work():
     # by tools/verify_content_digests.py; the runtime catalog/OKF digests need the candidate.
     assert "contentDigests.geospatialMcp" not in joined
     assert draft.lock["contentDigests"] == {
-        "geospatialMcp": "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
+        "geospatialMcp": "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
     }
     assert "contentDigests.catalog" in joined
     assert "contentDigests.okf" in joined
@@ -319,10 +319,10 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
     assert draft.lock["components"]["geospatial-mcp"]["artifacts"][0]["sha256"] == (
-        "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
+        "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
     )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
-        "sha256:fdf6040e39030c7b91f8b2b5a38a497b403c64fd04161ce32bb5863fb7314880"
+        "sha256:5f2122c9a453d50d7ec7a56d2ddafe234ec386c6c0b8d77188df5dae6fb48556"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
     assert "honua-server.artifacts[0].platformDigests" not in joined
@@ -911,10 +911,10 @@ def test_live_inputs_lock_the_published_honua_iac_release():
     assert [item for item in draft.unresolved
             if "honua-iac" in item and "Versions: not declared" not in item] == []
     assert draft.lock["components"]["honua-iac"]["artifacts"] == [{
-        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/03d16128676d6764f6de684e9fbb2f4a6bf90255.tar.gz",
-        "version": "0.4.6", "sourceRevision": "03d16128676d6764f6de684e9fbb2f4a6bf90255",
-        "sha256": "sha256:fdf6040e39030c7b91f8b2b5a38a497b403c64fd04161ce32bb5863fb7314880"}]
-    assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "03d16128676d6764f6de684e9fbb2f4a6bf90255"
+        "kind": "archive", "coordinate": "https://github.com/honua-io/honua-iac/archive/d2f3919fed00535816522ab8555c71fd5ab78cdc.tar.gz",
+        "version": "0.5.0", "sourceRevision": "d2f3919fed00535816522ab8555c71fd5ab78cdc",
+        "sha256": "sha256:5f2122c9a453d50d7ec7a56d2ddafe234ec386c6c0b8d77188df5dae6fb48556"}]
+    assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "d2f3919fed00535816522ab8555c71fd5ab78cdc"
 
 
 # --- Helm Preview out of the lock (ruling helm-preview-out-of-lock-2026-10-26) ---

@@ -49,17 +49,17 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "03d16128676d6764f6de684e9fbb2f4a6bf90255.tar.gz",
-          "sha256": "fdf6040e39030c7b91f8b2b5a38a497b403c64fd04161ce32bb5863fb7314880",
-          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/03d16128676d6764f6de684e9fbb2f4a6bf90255"
+          "filename": "d2f3919fed00535816522ab8555c71fd5ab78cdc.tar.gz",
+          "sha256": "5f2122c9a453d50d7ec7a56d2ddafe234ec386c6c0b8d77188df5dae6fb48556",
+          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/d2f3919fed00535816522ab8555c71fd5ab78cdc"
         }
       ],
       "id": "iac:git-archive",
-      "publication": "honua-iac Git archive 03d16128676d6764f6de684e9fbb2f4a6bf90255",
+      "publication": "honua-iac Git archive d2f3919fed00535816522ab8555c71fd5ab78cdc",
       "registry_http_status": 404,
       "urls": [
         "https://registry.terraform.io/v1/modules/honua-io",
-        "https://github.com/honua-io/honua-iac/archive/03d16128676d6764f6de684e9fbb2f4a6bf90255.tar.gz"
+        "https://github.com/honua-io/honua-iac/archive/d2f3919fed00535816522ab8555c71fd5ab78cdc.tar.gz"
       ]
     },
     {
@@ -868,6 +868,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-10-31T01:25:22Z",
+  "observed_at": "2026-10-31T07:24:40Z",
   "schema": "honua.first-publication-preflight/v1"
 }

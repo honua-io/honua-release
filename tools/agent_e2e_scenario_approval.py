@@ -38,3 +38,9 @@ def approve_once(*, requester_credential_env, approver_credential_env, approver_
         require(body['resolvedBy'] and body['resolvedBy'] != requested_by, 'approver is the requester')
     return {'qualification': False, 'proposalId': proposal_id, 'requestedBy': requested_by,
             'reference': answer['reference'], 'httpStatus': observation['httpStatus']}
+
+
+def handoff_observations(http):
+    """Candidate API reads for the customer handoff. The model transcript is not an input."""
+    from agent_e2e_scenario_handoff import observe_handoff
+    return observe_handoff(http)

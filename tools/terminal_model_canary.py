@@ -126,6 +126,67 @@ def lock_digest_of(path: Path) -> str:
         raise CanaryError(f"cannot read platform lock {path}: {exc}") from exc
 
 
+
+
+def pulled_image_proof(manifest: dict[str, Any], inspection: Any) -> dict[str, Any]:
+    server = manifest["components"]["honua-server"]
+    name = str(server["image"]).split("@", 1)[0]
+    digest = server["digest"]
+    repository = name.rsplit(":", 1)[0]
+    if (not isinstance(inspection, list) or len(inspection) != 1
+            or not isinstance(inspection[0], dict)
+            or repository + "@" + digest not in (inspection[0].get("RepoDigests") or [])):
+        raise CanaryError("pulled image digest did not match the selected candidate")
+    return {"reference": name + "@" + digest, "verified": True, "source": "docker-pull"}
+
+def verify_lock_binding(path: Path, digest: str, manifest: dict[str, Any], observed: dict[str, Any],
+                        manifest_path: Path | None = None) -> dict[str, Any]:
+    """Check exact lock bytes, its unique server image, and independently observed image evidence."""
+    if lock_digest_of(path) != digest:
+        raise CanaryError("platform lock bytes do not hash to the declared digest")
+    try:
+        lock = strict_json(path.read_bytes())
+        artifacts = lock["components"]["honua-server"]["artifacts"]
+        images = [a for a in artifacts if a.get("kind") == "image"]
+        if len(images) != 1:
+            raise ValueError("expected exactly one server image")
+        image = images[0]
+        locked = image["digest"]
+        server = manifest["components"]["honua-server"]
+        coordinate = str(server["image"]).split("@", 1)[0].rsplit(":", 1)[0]
+        if not LOCK_DIGEST.fullmatch(locked) or locked != server["digest"] or image["coordinate"] != coordinate:
+            raise ValueError("lock image does not match the selected candidate manifest")
+        source = observed.get("source")
+        if source == "lambda-function-readback":
+            if manifest_path is None or lock["sourceInputs"]["platformManifest"]["sha256"] != "sha256:" + hashlib.sha256(manifest_path.read_bytes()).hexdigest():
+                raise ValueError("lock does not bind the exact Lambda candidate manifest")
+            expected_digest = server["awsLambdaDigest"]
+            expected_ref = f"{str(server['awsLambdaImage']).split('@', 1)[0]}@{expected_digest}"
+            if observed.get("observedDigests") != [server["awsLambdaEcrDigest"]]:
+                raise ValueError("Lambda function does not run the locked manifest's ECR mirror")
+        else:
+            expected_digest = locked
+            expected_ref = f"{str(server['image']).split('@', 1)[0]}@{locked}"
+        if not LOCK_DIGEST.fullmatch(expected_digest) or observed.get("reference") != expected_ref:
+            raise ValueError("observed image reference differs from the lock")
+        if observed.get("verified") is not True:
+            raise ValueError("image observation was not verified")
+        if observed.get("source") not in {"docker-pull", "ecs-task-readback", "lambda-function-readback"}:
+            raise ValueError("image observation source is not admitted")
+        if observed["source"] == "ecs-task-readback":
+            locked_children = image.get("platformDigests")
+            if not locked_children or locked_children != server.get("platformDigests"):
+                raise ValueError("lock and candidate platform image digests do not match")
+            actual = observed.get("observedDigests")
+            allowed = {locked, *locked_children.values()}
+            if not isinstance(actual, list) or not actual or any(d not in allowed for d in actual):
+                raise ValueError("an ECS task runs an image outside the locked digest set")
+    except (AttributeError, KeyError, TypeError, ValueError, OSError) as exc:
+        raise CanaryError(f"candidate lock/image binding failed: {exc}") from exc
+    return {"lockDigest": digest, "serverDigest": expected_digest, "observedReference": observed["reference"],
+            "observationSource": observed["source"],
+            "observedDigests": observed.get("observedDigests", [locked])}
+
 def strict_json(raw: str | bytes) -> Any:
     def unique(pairs):
         result = {}
@@ -589,6 +650,7 @@ class ReceiptBuilder:
         cell: str = "local-docker",
         attempt: int = 1,
         guidance: str = "full",
+        temperature: float | None = None,
     ):
         if lock_digest is not None and not LOCK_DIGEST.fullmatch(lock_digest):
             raise CanaryError("lock digest must be sha256:<64 lowercase hex>")
@@ -615,12 +677,14 @@ class ReceiptBuilder:
             # full repeats the reviewed sequence; none is the customer goal only.
             # Both record the mode so a receipt cannot be read as the other.
             "guidance": guidance,
+            "temperature": temperature,
             "profile": "full-workflow",
             "executionOutcome": "not-completed",
             "functionalGpExecuted": None,
             "cell": cell,
             "attempt": attempt,
             "lockDigest": lock_digest,
+            "lockVerification": None,
             "serverImage": server_image_binding(manifest, cell),
             # Nothing has run yet, so a receipt that stops here failed on infrastructure.
             # execute_live clears this when the model is first given control.
@@ -892,7 +956,12 @@ class ReceiptBuilder:
     def bound(self) -> bool:
         """Bound to a caller's lock, or to the composed server image the green #123 receipt verified."""
         if LOCK_DIGEST.fullmatch(str(self.receipt["lockDigest"] or "")):
-            return True
+            proof = self.receipt.get("lockVerification") or {}
+            image = self.receipt.get("serverImage") or {}
+            return (proof.get("lockDigest") == self.receipt["lockDigest"]
+                    and proof.get("serverDigest") == image.get("digest")
+                    and proof.get("observedReference") == image.get("reference")
+                    and proof.get("observationSource") in {"docker-pull", "ecs-task-readback", "lambda-function-readback"})
         image = self.receipt.get("serverImage") or {}
         deterministic = self.receipt["linkedEvidence"]["deterministicReceipt"] or {}
         return bool(LOCK_DIGEST.fullmatch(str(image.get("digest") or ""))
@@ -1050,15 +1119,12 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class CandidateProxyClient:
     """Dependency-free client for the candidate's signed Studio SSE proxy."""
 
-    # Sent on every chat request. None omits the field so the provider default applies, which is
-    # what the shipped Studio AI client sends; the local corpus runner uses that setting.
-    temperature: float | None = 0
-
     def __init__(self, config: EndpointConfig, *, timeout_seconds: int = 120,
                  redactor: "Redactor | None" = None):
         if not config.configured:
             raise CanaryError("model endpoint configuration is incomplete")
         self.config = config
+        self.temperature = None
         # Candidate-supplied text (e.g. a proxy error message) crosses into receipts only through this.
         self.redactor = redactor or Redactor([config.api_key] if config.api_key else [])
         self.timeout_seconds = timeout_seconds
@@ -1216,12 +1282,9 @@ class CandidateProxyClient:
                 "provider": "bedrock",
                 "model": self.config.model,
                 "messages": messages,
-                "temperature": 0,
                 "certification": certification,
             }
-        if self.temperature is None:
-            del request_body["temperature"]
-        else:
+        if self.temperature is not None:
             request_body["temperature"] = self.temperature
         payload = json.dumps(request_body).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
@@ -1685,6 +1748,7 @@ def build_receipt_builder(
     cell: str = "local-docker",
     attempt: int = 1,
     guidance: str = "full",
+    temperature: float | None = None,
 ) -> ReceiptBuilder:
     manifest = load_manifest(manifest_path)
     journey = load_journey(journey_path)
@@ -1712,8 +1776,41 @@ def build_receipt_builder(
         cell=cell,
         attempt=attempt,
         guidance=guidance,
+        temperature=temperature,
     )
 
+
+
+def bind_locked_receipt(builder: ReceiptBuilder, args: argparse.Namespace) -> None:
+    if not args.lock:
+        raise CanaryError("a lock-bound run requires the actual platform lock bytes")
+    if lock_digest_of(args.lock) != args.lock_digest:
+        raise CanaryError("platform lock bytes do not hash to --lock-digest")
+    manifest = load_manifest(args.manifest)
+    if args.cell == "local-docker":
+        proof_path = args.image_proof or ROOT / "artifacts/terminal-canary-image-proof.json"
+        try:
+            observed = _load_json(proof_path)
+        except (OSError, ValueError, CanaryError) as exc:
+            raise CanaryError("a lock-bound local run requires a same-job pulled image observation") from exc
+    elif args.cell.startswith(("aws-ecs/", "aws-serverless/")):
+        linked = builder.receipt["linkedEvidence"]["deterministicReceipt"] or {}
+        if linked.get("candidateVerified") is not True or not args.deterministic_receipt:
+            raise CanaryError("a lock-bound cloud run requires the verified same-job deployment receipt")
+        receipt = _load_json(args.deterministic_receipt)
+        first = next((stage for stage in receipt.get("stages", []) if stage.get("number") == 1), {})
+        check = next((c for c in first.get("checks", []) if c.get("id") == "1.1-candidate-image"), {})
+        expected_source = "live-" + args.cell.split("/", 1)[0]
+        if check.get("status") != "pass" or first.get("evidence", {}).get("source") != expected_source:
+            raise CanaryError("the cloud image was not independently observed")
+        if not args.target:
+            raise CanaryError("a lock-bound cloud run requires a same-job target")
+        observed = _load_json(args.target.parent / "terminal-canary-image-proof.json")
+        if observed.get("reference") != receipt.get("server", {}).get("image"):
+            raise CanaryError("ECS image readback differs from the deterministic receipt")
+    else:
+        raise CanaryError("lock binding is not supported without an independent image observation")
+    builder.receipt["lockVerification"] = verify_lock_binding(args.lock, args.lock_digest, manifest, observed, args.manifest)
 
 def unavailable_receipt(
     builder: ReceiptBuilder,
@@ -1995,6 +2092,7 @@ def execute_live(
 ) -> dict[str, Any]:
     """Execute when #123 eventually supplies its live adapter; otherwise callers never enter here."""
     client = CandidateProxyClient(endpoint)
+    client.temperature = builder.receipt["temperature"]
     client.redactor = builder.redactor  # the receipt's own redaction boundary, including run secrets
     run_nonce = _new_run_nonce()
     driver = DriverAdapter(driver_command, builder.protocol)
@@ -2413,20 +2511,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-actions-per-stage", type=int, default=12)
     parser.add_argument("--lock-digest", help="sha256:<hex> of the exact platform-lock.json under certification")
     parser.add_argument("--lock", type=Path, help="platform-lock.json whose bytes must hash to --lock-digest")
+    parser.add_argument("--image-proof", type=Path, help="same-job image observation produced by the runner")
     parser.add_argument("--cell", choices=CELLS, default="local-docker")
     parser.add_argument("--profile", choices=("full-workflow", "redis-off-serving-refusal"), default="full-workflow")
     parser.add_argument("--guidance", choices=GUIDANCE_MODES, default="full",
                         help="full keeps the reviewed sequence hints; none sends the customer goal only")
+    parser.add_argument("--temperature", type=float, help="sampling temperature (default: omit, use provider default)")
     parser.add_argument("--target", type=Path, help="the reviewed target config chained to this cell's deterministic receipt")
     parser.add_argument("--attempt", type=int, choices=(1, 2), default=1)
     parser.add_argument("--allow-http-cell", metavar="HOSTNAME",
                         help="the provisioned cloud cell's ALB hostname; plain HTTP is admitted for exactly "
                              "this host (owner ruling canary-http-cell-2026-10-08)")
     args = parser.parse_args(argv)
+    if args.temperature is not None and not 0 <= args.temperature <= 1:
+        parser.error("--temperature must be between 0 and 1")
     if args.max_actions_per_stage <= 0:
         parser.error("--max-actions-per-stage must be positive")
     if args.lock_digest is not None and not LOCK_DIGEST.fullmatch(args.lock_digest):
         parser.error("--lock-digest must be sha256:<64 lowercase hex>")
+    default_lock = ROOT / "artifacts/terminal-canary-lock.json"
+    if args.lock_digest and args.lock is None and default_lock.is_file():
+        args.lock = default_lock
     if args.lock is not None and args.lock_digest is None:
         parser.error("--lock requires --lock-digest")
 
@@ -2458,10 +2563,8 @@ def main(argv: list[str] | None = None) -> int:
             cell=args.cell,
             attempt=args.attempt,
             guidance=args.guidance,
+            temperature=args.temperature,
         )
-        if args.lock is not None and lock_digest_of(args.lock) != args.lock_digest:
-            builder.mark_failed("the platform lock's bytes do not hash to --lock-digest; "
-                                "the receipt cannot be bound to that lock")
         if builder.receipt["status"] != "fail" and args.deterministic_receipt:
             try:
                 builder.receipt["linkedEvidence"]["deterministicReceipt"] = (
@@ -2472,6 +2575,11 @@ def main(argv: list[str] | None = None) -> int:
                         cell=args.cell,
                     )
                 )
+            except CanaryError as exc:
+                builder.mark_failed(str(exc))
+        if builder.receipt["status"] != "fail" and args.lock_digest:
+            try:
+                bind_locked_receipt(builder, args)
             except CanaryError as exc:
                 builder.mark_failed(str(exc))
         if builder.receipt["status"] != "fail":

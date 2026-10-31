@@ -13,12 +13,14 @@
     "status",
     "mode",
     "guidance",
+    "temperature",
     "profile",
     "executionOutcome",
     "functionalGpExecuted",
     "cell",
     "attempt",
     "lockDigest",
+    "lockVerification",
     "failureAttribution",
     "scope",
     "journeyContract",
@@ -51,6 +53,7 @@
       "description": "full repeats the reviewed stage sequence. none sends the customer goal without requiredSequence, tool order, or the refusal acknowledgement object.",
       "enum": ["full", "none"]
     },
+    "temperature": {"description": "Explicit sampling temperature, or null when omitted and the provider default applies.", "anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]},
     "profile": {"const": "full-workflow"},
     "executionOutcome": {"enum": ["not-completed", "completed"]},
     "functionalGpExecuted": {"enum": [true, null]},
@@ -58,9 +61,10 @@
                       "aws-serverless/redis-off", "aws-serverless/redis-on"]},
     "attempt": {"enum": [1, 2]},
     "lockDigest": {
-      "description": "sha256 of the exact platform-lock.json bytes a caller certifies; a pass requires it or serverImage.",
+      "description": "sha256 of the exact platform-lock.json bytes; a passing lock-bound run also requires verified lock and observed image evidence.",
       "anyOf": [{"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, {"type": "null"}]
     },
+    "lockVerification": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["lockDigest", "serverDigest", "observedReference", "observationSource"], "properties": {"lockDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "serverDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "observedReference": {"type": "string"}, "observationSource": {"enum": ["docker-pull", "ecs-task-readback", "lambda-function-readback"]}, "observedDigests": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}}]},
     "serverImage": {
       "description": "The honua-server image@digest the cell composed and the green deterministic receipt verified; binds a pass without a lock (operator ruling 2026-10-22).",
       "anyOf": [

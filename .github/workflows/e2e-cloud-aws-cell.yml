@@ -41,6 +41,8 @@ on:
       # (opt-in on approved ECS/Lambda GA cells), bound to this lock digest. Empty on a
       # manual dispatch: the canary binds to the manifest-pinned server image and counts for no lock.
       lock_digest: { required: false, type: string, default: "" }
+      trial_id: { required: false, type: string, default: "" }
+      lock_run_id: { required: false, type: string, default: "" }
     secrets:
       UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
       RELEASE_GH_TOKEN:
@@ -76,10 +78,12 @@ env:
   HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
   HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   CELL_DIR: e2e/cloud-evidence/${{ github.run_id }}/${{ github.run_attempt }}/${{ inputs.target }}/redis-${{ inputs.redis }}
-  CELL_ARTIFACT: ${{ inputs.target }}-redis-${{ inputs.redis }}-${{ github.run_attempt }}
+  CELL_ARTIFACT: ${{ inputs.target }}-redis-${{ inputs.redis }}-${{ github.run_attempt }}${{ inputs.trial_id != '' && format('-trial-{0}', inputs.trial_id) || '' }}
 
 jobs:
   provision:
+    needs: candidate-lock
+    if: ${{ needs.candidate-lock.outputs.valid == 'true' }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
     permissions:
@@ -270,6 +274,12 @@ jobs:
             python e2e/run_cloud.py --phase provision --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
           fi
 
+      - name: Record the running cloud image digest
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' && (inputs.target == 'aws-ecs' || inputs.target == 'aws-serverless') }}
+        env:
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+        run: python tools/terminal_model_ecs_image.py --target "${{ inputs.target }}" --output "$CELL_DIR/terminal-canary-image-proof.json"
+
       # Runs after a failed or cancelled provision too: anything apply created must reach teardown.
       - name: Seal the Terraform state for teardown
         if: always()
@@ -302,6 +312,7 @@ jobs:
           # Identifiers and verdicts only; this repository's artifacts are public.
           path: |
             ${{ env.CELL_DIR }}/provision.json
+            ${{ env.CELL_DIR }}/terminal-canary-image-proof.json
             ${{ env.CELL_DIR }}/deployment-execution-inputs.json
             ${{ env.CELL_DIR }}/deployment-terraform-inputs.json
             ${{ env.CELL_DIR }}/deployment-helm-inputs.json
@@ -314,9 +325,43 @@ jobs:
           if-no-files-found: warn
           retention-days: 14   # cloud-cell-retirement.yml recovers a failed teardown from these
 
+  candidate-lock:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ inputs.preview }}
+    outputs:
+      valid: ${{ steps.valid.outputs.valid }}
+    permissions:
+      actions: read
+    steps:
+      - name: Retrieve the candidate lock on an isolated runner
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOCK_RUN_ID: ${{ inputs.lock_run_id || github.run_id }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$LOCK_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'invalid lock_run_id'; exit 1; }
+          gh run download "$LOCK_RUN_ID" --repo "$GITHUB_REPOSITORY" --name candidate-manifest --dir "$RUNNER_TEMP/candidate-lock" </dev/null
+          lock="$RUNNER_TEMP/candidate-lock/frozen-lock/platform-lock.json"
+          test -f "$lock"
+          actual="sha256:$(sha256sum "$lock" | cut -d' ' -f1)"
+          [ "$actual" = "$LOCK_DIGEST" ] || { echo "::error::candidate lock digest mismatch"; exit 1; }
+      - name: Transfer the lock to the journey runner
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: terminal-model-lock-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/candidate-lock/frozen-lock/platform-lock.json
+          if-no-files-found: error
+
+      - name: Mark the candidate lock preflight complete
+        id: valid
+        run: echo "valid=true" >> "$GITHUB_OUTPUT"
+
   # ── journey: NO id-token, NO AWS credentials. The pinned clients and seam drivers run here. ─────────
   journey:
-    needs: provision
+    needs: [provision, candidate-lock]
     if: ${{ needs.provision.outputs.endpoint != '' }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
@@ -515,6 +560,16 @@ jobs:
           python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
             --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem"
 
+      - name: Download the candidate lock
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: terminal-model-lock-${{ env.CELL_ARTIFACT }}
+          path: artifacts
+      - name: Select the lock bytes for the canary
+        if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
+        run: mv artifacts/platform-lock.json artifacts/terminal-canary-lock.json
+
       # Genuine-model canary (fix unit J3): after the cell journey, against the same endpoint, chained to
       # this job's passing deterministic receipt and bound to the lock digest. Bedrock is reached by
       # the cell's task role; this job still holds no AWS credential. The row it writes is what the
@@ -527,7 +582,8 @@ jobs:
         continue-on-error: true
         env:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
-          TERMINAL_MODEL_NAME: ${{ inputs.bedrock_model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
+          TRIAL_ID: ${{ inputs.trial_id }}
+          TERMINAL_MODEL_NAME: ${{ inputs.bedrock_model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-6' }}
           TERMINAL_MODEL_RUNTIME: aws-bedrock
           TERMINAL_MODEL_QUANTIZATION: provider-managed
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
@@ -548,10 +604,25 @@ jobs:
           else
             echo "::notice::no lock_digest (manual dispatch): the genuine-model canary binds to the pinned server image and counts for no lock"
           fi
+          attempts=()
+          if [ -n "$TRIAL_ID" ]; then attempts=(--max-attempts 1); fi
           python e2e/run_cloud.py --phase model-canary --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
-            --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem" \
+            "${attempts[@]}" --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem" \
             "${binding[@]}"
       # Matches the train's journey-gate-report* download, which feeds mint_nightly_lock --declare-evidence.
+      - name: Retain the first canary trial receipt
+        if: ${{ always() && inputs.enable_bedrock && inputs.trial_id != '' && github.run_attempt == 1 }}
+        run: |
+          mkdir -p artifacts
+          test -f "$CELL_DIR/model-journey/model-canary-1.json"
+          cp "$CELL_DIR/model-journey/model-canary-1.json" artifacts/terminal-model-canary-receipt.json
+      - name: Upload the first canary trial receipt
+        if: ${{ always() && inputs.enable_bedrock && inputs.trial_id != '' && github.run_attempt == 1 }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: terminal-model-canary-trial-${{ inputs.trial_id }}-attempt-1
+          path: artifacts/terminal-model-canary-receipt.json
+          if-no-files-found: error
       - name: Upload the nightly-model-journey row
         if: ${{ always() && inputs.enable_bedrock }}
         continue-on-error: true
@@ -927,7 +998,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}
+          name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}${{ inputs.trial_id != '' && format('-trial-{0}', inputs.trial_id) || '' }}
           path: |
             e2e/gate-report-cloud.json
             e2e/cloud-evidence/**/cell-retirement.json

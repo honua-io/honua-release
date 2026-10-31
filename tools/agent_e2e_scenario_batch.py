@@ -12,3 +12,9 @@ def observe(case_id, target):
     if target == 'local-docker' or (isinstance(case_id, str) and case_id.endswith(':local-docker')):
         raise PackError('local-docker has no native AWS Batch job; refusing a local substitute')
     raise PackError('native Batch observation is not implemented for '+str(target))
+
+
+def handoff_observations(http):
+    """Candidate API reads for the customer handoff. The model transcript is not an input."""
+    from agent_e2e_scenario_handoff import observe_handoff
+    return observe_handoff(http)
