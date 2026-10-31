@@ -1,10 +1,8 @@
-"""The runner must securely capture and probe the same model-issued key before and after model-selected revocation, with a complete secret-scan inventory and real worker lifecycle custody. An admin key listing is not that evidence.
-
-The case stays unsupported until every pack assertion can be independently scored.
+"""Blocked by the credential boundary: recorder principals are runner-minted seed credentials; there is no runner hook to consume a model-created operation secret and register the same issued key for before/after probes. Controller metadata reads cannot prove issued-key access. Frozen secret-scan artifact identities also have no binding to the runner artifact inventory.
 """
 from __future__ import annotations
 
-REASON = 'The runner must securely capture and probe the same model-issued key before and after model-selected revocation, with a complete secret-scan inventory and real worker lifecycle custody. An admin key listing is not that evidence.'
+REASON = 'Blocked by the credential boundary: recorder principals are runner-minted seed credentials; there is no runner hook to consume a model-created operation secret and register the same issued key for before/after probes. Controller metadata reads cannot prove issued-key access. Frozen secret-scan artifact identities also have no binding to the runner artifact inventory.'
 
 from agent_e2e_local_api import Scenario as BaseScenario
 from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings

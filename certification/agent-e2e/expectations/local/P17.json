@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P17",
-  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner rejects needs_approver before setup. It must expose the actual requester credential, a distinct approver, an owned pending proposal and a specific same-proposal self-approval denial, with independent worker lifecycle evidence.",
+  "derivation": "Blocked by the immutable core role resolver: the native proposal list returns only proposals, with no total or cursor. A model-created pending proposal cannot satisfy the required complete seed/observe enumeration. The separate approver hook exists, but this case must not approve its own pending proposal. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
   "variants": {
     "A": {
       "approval.pending": {
@@ -13,7 +13,9 @@
       },
       "approval.no-bypass": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
     },
     "B": {
       "approval.pending": {
@@ -25,7 +27,13 @@
       },
       "approval.no-bypass": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
     }
+  },
+  "customerFiles": {
+    "A": [],
+    "B": []
   }
 }

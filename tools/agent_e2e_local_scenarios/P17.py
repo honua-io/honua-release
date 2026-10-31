@@ -1,10 +1,8 @@
-"""The runner rejects needs_approver before setup. It must expose the actual requester credential, a distinct approver, an owned pending proposal and a specific same-proposal self-approval denial, with independent worker lifecycle evidence.
-
-The case stays unsupported until every pack assertion can be independently scored.
+"""Blocked by the immutable core role resolver: the native proposal list returns only proposals, with no total or cursor. A model-created pending proposal cannot satisfy the required complete seed/observe enumeration. The separate approver hook exists, but this case must not approve its own pending proposal.
 """
 from __future__ import annotations
 
-REASON = 'The runner rejects needs_approver before setup. It must expose the actual requester credential, a distinct approver, an owned pending proposal and a specific same-proposal self-approval denial, with independent worker lifecycle evidence.'
+REASON = 'Blocked by the immutable core role resolver: the native proposal list returns only proposals, with no total or cursor. A model-created pending proposal cannot satisfy the required complete seed/observe enumeration. The separate approver hook exists, but this case must not approve its own pending proposal.'
 
 from agent_e2e_local_api import Scenario as BaseScenario
 from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings

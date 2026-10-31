@@ -1,10 +1,8 @@
-"""The runner needs a verified pair of same-named saved maps, authenticated operator and anonymous controls, a model-visible stable-id handoff, and a controller-verified publication event ordered after both clarification answers. The runner assigns the next topic after any question rather than verifying what was asked; it must record topic-matched clarification events, bind reply IDs as logical roles and prove publication followed both answers.
-
-The case stays unsupported until every pack assertion can be independently scored.
+"""Blocked by the frozen expectation interface: clarification reply IDs vary with preceding model actions, and no role can bind run.clarifications. Core assigns a topic to any question rather than observing the topic asked, and exposes no publication-after-answers fact. Freezing one transcript position or an empty answer ID list would produce invalid evidence.
 """
 from __future__ import annotations
 
-REASON = 'The runner needs a verified pair of same-named saved maps, authenticated operator and anonymous controls, a model-visible stable-id handoff, and a controller-verified publication event ordered after both clarification answers. The runner assigns the next topic after any question rather than verifying what was asked; it must record topic-matched clarification events, bind reply IDs as logical roles and prove publication followed both answers.'
+REASON = 'Blocked by the frozen expectation interface: clarification reply IDs vary with preceding model actions, and no role can bind run.clarifications. Core assigns a topic to any question rather than observing the topic asked, and exposes no publication-after-answers fact. Freezing one transcript position or an empty answer ID list would produce invalid evidence.'
 
 from agent_e2e_local_api import Scenario as BaseScenario
 from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings

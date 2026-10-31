@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P16",
-  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner must securely capture and probe the same model-issued key before and after model-selected revocation, with a complete secret-scan inventory and real worker lifecycle custody. An admin key listing is not that evidence.",
+  "derivation": "Blocked by the credential boundary: recorder principals are runner-minted seed credentials; there is no runner hook to consume a model-created operation secret and register the same issued key for before/after probes. Controller metadata reads cannot prove issued-key access. Frozen secret-scan artifact identities also have no binding to the runner artifact inventory. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
   "variants": {
     "A": {
       "key.read-only": null,
@@ -31,7 +31,9 @@
       },
       "secrets.absent": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
     },
     "B": {
       "key.read-only": null,
@@ -61,7 +63,13 @@
       },
       "secrets.absent": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
     }
+  },
+  "customerFiles": {
+    "A": [],
+    "B": []
   }
 }

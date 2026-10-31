@@ -1,10 +1,8 @@
-"""The runner rejects needs_approver before setup; it must provision a distinct approver principal and bind a real proposal, audit record, approved version and anonymous route. Worker lifecycle custody must also identify actual separate workers.
-
-The case stays unsupported until every pack assertion can be independently scored.
+"""Blocked by the immutable core role resolver: native proposal lists have no total or cursor, but created roles require one. The separate approver hook exists; proposal, execution audit and model-selected published URL identities still cannot be frozen from the native read shapes without inventing completeness or changing core-owned files.
 """
 from __future__ import annotations
 
-REASON = 'The runner rejects needs_approver before setup; it must provision a distinct approver principal and bind a real proposal, audit record, approved version and anonymous route. Worker lifecycle custody must also identify actual separate workers.'
+REASON = 'Blocked by the immutable core role resolver: native proposal lists have no total or cursor, but created roles require one. The separate approver hook exists; proposal, execution audit and model-selected published URL identities still cannot be frozen from the native read shapes without inventing completeness or changing core-owned files.'
 
 from agent_e2e_local_api import Scenario as BaseScenario
 from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings

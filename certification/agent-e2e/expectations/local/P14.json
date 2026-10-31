@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P14",
-  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner rejects needs_approver before setup; it must provision a distinct approver principal and bind a real proposal, audit record, approved version and anonymous route. Worker lifecycle custody must also identify actual separate workers.",
+  "derivation": "Blocked by the immutable core role resolver: native proposal lists have no total or cursor, but created roles require one. The separate approver hook exists; proposal, execution audit and model-selected published URL identities still cannot be frozen from the native read shapes without inventing completeness or changing core-owned files. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
   "variants": {
     "A": {
       "approval.separate": {
@@ -22,9 +22,13 @@
         }
       },
       "publication.public": null,
-      "tenant.denied": null,
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      },
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
       "source-content.unchanged": null
     },
     "B": {
@@ -46,10 +50,18 @@
         }
       },
       "publication.public": null,
-      "tenant.denied": null,
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      },
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
       "source-content.unchanged": null
     }
+  },
+  "customerFiles": {
+    "A": [],
+    "B": []
   }
 }

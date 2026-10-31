@@ -1,10 +1,8 @@
-"""The runner needs an authenticated foreign-tenant owner and task identity bound to distinct verified tenants, a same-title saved-map fixture, complete protected map inventory and real worker lifecycle custody. addPrincipal currently mints tenant-independent API keys, not tenant identities.
-
-The case stays unsupported until every pack assertion can be independently scored.
+"""The entire case is excluded on local Docker by the frozen preregistration because multi-tenant evaluation is out of scope. The runner must retain every assertion as excluded, never as passed. No tenant fixtures are provisioned.
 """
 from __future__ import annotations
 
-REASON = 'The runner needs an authenticated foreign-tenant owner and task identity bound to distinct verified tenants, a same-title saved-map fixture, complete protected map inventory and real worker lifecycle custody. addPrincipal currently mints tenant-independent API keys, not tenant identities.'
+REASON = 'The entire case is excluded on local Docker by the frozen preregistration because multi-tenant evaluation is out of scope. The runner must retain every assertion as excluded, never as passed. No tenant fixtures are provisioned.'
 
 from agent_e2e_local_api import Scenario as BaseScenario
 from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings
@@ -12,7 +10,7 @@ from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings
 
 class LocalScenario(BaseScenario):
     id = "P18"
-    supported_variants = ()
+    supported_variants = ('A', 'B')
 
     def seed(self, stack, variant):
         self.expected(variant)  # validate the development variant before touching the stack
