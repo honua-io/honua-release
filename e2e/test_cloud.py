@@ -6365,3 +6365,75 @@ def test_serverless_cell_shortens_the_proxy_idle_client_timeout_only_when_declar
         values = _tf_vars(serverless(run_id="r1")._vars(False))
         assert values["rds_proxy_idle_client_timeout_seconds"] == "60"
         assert values["enable_rds_proxy"] == "true"
+
+
+def test_bound_operate_receipt_replaces_the_journey_gap(monkeypatch, tmp_path):
+    state = {"cell": "aws-ecs/redis-on", "runId": "9", "runAttempt": "2"}
+    receipt = {"cell": "aws-ecs/redis-on", "runId": "9", "runAttempt": "2", "scenario": "O01",
+               "status": "pass", "productExecutions": ["op-1"],
+               "observations": {"serverReadback": True}}
+    assert run_cloud.operate_receipt_bound(state, receipt)
+    assert not run_cloud.operate_receipt_bound(state, {**receipt, "scenario": "O07"})
+    assert not run_cloud.operate_receipt_bound(state, {**receipt, "runId": "8"})
+    assert not run_cloud.operate_receipt_bound({**state, "cell": "other"}, receipt)
+    accepted = {**state, "report": {"journeyAttempts": []}}
+    run_cloud.apply_operate_receipt(accepted, receipt)
+    assert accepted["report"].get("status") != "fail"
+    assert accepted["operateBatch"]["productExecutions"] == ["op-1"]
+    assert run_cloud.should_record_empty_journey(accepted) is False
+    rejected = {"report": {"why": "provision note"}}
+    run_cloud.apply_operate_receipt(rejected, {**receipt, "status": "fail", "productExecutions": [],
+                                               "why": "no database restore executor",
+                                               "observations": {"serverReadback": False}})
+    assert rejected["report"]["status"] == "fail"
+    assert "no database restore executor" in rejected["report"]["why"]
+
+    cj = run_cloud.cloud_journey
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    monkeypatch.setattr(cj, "check_cost", lambda *a, **k: {"status": "pass"})
+    held = {"cell": "aws-ecs/redis-on", "target": "aws-ecs", "redis": "redis-on", "requireReal": True,
+            "provisionAttempted": True, "startedAt": cj.now(),
+            "operateBatch": {"scenario": "O05", "status": "fail"},
+            "report": {"cell": "aws-ecs/redis-on", "status": "fail", "why": "no database restore executor",
+                       "journeyAttempts": []}}
+    report = run_cloud.teardown_phase(held, {}, object(), reference_endpoint=None, destroy=False)
+    assert report["journeyAttempts"] == []
+    assert report["status"] == "fail"
+
+    directory = _phase_env(monkeypatch, run_id="operate-receipt")
+    stub = _PhaseStub(tmp_path)
+    monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
+    monkeypatch.setattr(run_cloud, "REPORT_PATH", tmp_path / "report.json")
+    monkeypatch.setattr(run_cloud, "forget_secret", lambda *_: None)
+    monkeypatch.setenv("HONUA_CLOUD_PROVISION_MARKER", str(tmp_path / "absent-marker"))
+    handoff = {"cell": "aws-ecs/redis-off", "redis": "redis-off", "target": "aws-ecs",
+               "runId": "operate-receipt", "runAttempt": "1", "candidateDigest": cj.candidate_digest(),
+               "startedAt": cj.now(), "provisionAttempted": False,
+               "endpoint": "https://operate-receipt-aws-ecs-redis-off.cert.demo.honua.io",
+               "report": {"cell": "aws-ecs/redis-off", "journeyAttempts": []}}
+    run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, handoff)
+    run_cloud._write_json(directory / "operate-batch.json", {
+        "cell": "aws-ecs/redis-off", "runId": "operate-receipt", "runAttempt": "1", "scenario": "O05",
+        "status": "fail", "why": "no database restore executor", "productExecutions": [],
+        "observations": {"serverReadback": False}})
+    journey_dir = tmp_path / "journey"
+    journey_dir.mkdir()
+    try:
+        result = run_cloud.main(["--phase", "teardown", "--target", "aws-ecs", "--redis", "off",
+                                 "--journey-dir", str(journey_dir)])
+        written = json.loads(run_cloud.REPORT_PATH.read_text())
+        assert result == 1 and written["status"] == "fail"
+        assert "journey job left no handoff" not in (written.get("why") or "")
+        assert "no database restore executor" in written["why"]
+        assert stub.torn_down == 0
+        (directory / "operate-batch.json").unlink()
+        (journey_dir / "journey.json").write_text(json.dumps(
+            {"cell": "aws-eks/redis-off", "status": "pass", "journeyAttempts": []}))
+        result = run_cloud.main(["--phase", "teardown", "--target", "aws-ecs", "--redis", "off",
+                                 "--journey-dir", str(journey_dir)])
+        written = json.loads(run_cloud.REPORT_PATH.read_text())
+        assert result == 1
+        assert "journey handoff is for another cell" in written["why"]
+        assert "journey job left no handoff" not in written["why"]
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "operate-receipt", ignore_errors=True)
