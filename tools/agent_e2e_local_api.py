@@ -50,6 +50,12 @@ Other hooks (base-class defaults below): between_sessions() (approve, or request
 one HTTP 503 on the model's request path after a trigger; fired events in RunRecord.fault_events),
 needs_approver() (a distinct approver key: stack.approver_key and stack.extra['approve'](proposal)),
 customer_files() (manifest-checked corpus files attached to the customer turn by digest).
+Restart facts: custody['restart:<prefix>'] (raw observations) and custody['lifecycle:<prefix>'] =
+{"resourceId": "server", "states": [...]} in corpus/oracle lifecycle shape; each state is runner-observed.
+Fault kinds: http_503_once (pre-forward) and response_lost_after_commit (forwarded and committed; the model
+gets 503; the event records upstreamStatus/upstreamOutcome/upstreamResponseSha256 beside the injected 503).
+Canaries: stack.extra['registerCanary'](name) during seed returns a runner-minted secret to plant; projections
+find it with {"matchedCanaries": [steps..., "$model-visible"]}.
 Exclusions come only from the frozen prereg list (agent_e2e_local_expectations.PREREG_EXCLUSIONS:
 tenant.denied, P18, custody.worker-replaced@local-docker); they are listed in receipts, never a pass,
 and never removed from n. Roles, projections and customer files are frozen in the expectation file.
