@@ -578,7 +578,17 @@ def observe_local_handoff(ctx: StageContext, answer: str | None) -> dict | None:
         parts = urlsplit(url or '')
         if not url or (parts.hostname or '') not in ('localhost', '127.0.0.1', '::1') or str(parts.port) != port:
             continue
-        status = http('GET', base + (parts.path or '/') + (('?' + parts.query) if parts.query else ''), None).get('status')
+        path = (parts.path or '/') + (('?' + parts.query) if parts.query else '')
+        answer_row = http('GET', base + path, None)
+        hops = 0
+        # Follow same-origin redirects (e.g. the root sending a browser to sign-in), at most three.
+        while answer_row.get('status') in (301, 302, 303, 307, 308) and hops < 3:
+            target = urlsplit(answer_row.get('location') or '')
+            if target.netloc and (target.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
+                break
+            path = (target.path or '/') + (('?' + target.query) if target.query else '')
+            answer_row, hops = http('GET', base + path, None), hops + 1
+        status = answer_row.get('status')
         ok = type(status) is int and 200 <= status <= 299
         resources.append({'url': url, 'served': ok, 'httpStatus': status})
         probes.append({'method': 'GET', 'url': url, 'worked': ok, 'httpStatus': status})
@@ -1936,18 +1946,19 @@ def local_http(method: str, url: str, admin_key: str | None, timeout: int = 20) 
     request = urllib.request.Request(url, method=method)
     if admin_key:
         request.add_header('X-API-Key', admin_key)
+    location = None
     try:
         with opener.open(request, timeout=timeout) as response:
             body, status = response.read(1_000_000), response.status
     except urllib.error.HTTPError as exc:
-        body, status = exc.read(100_000), exc.code
+        body, status, location = exc.read(100_000), exc.code, exc.headers.get('Location')
     except (urllib.error.URLError, OSError):
         return {'status': None}
     try:
         document = json.loads(body)
     except ValueError:
         document = None
-    return {'status': status, 'sha256': sha256(body), 'json': document}
+    return {'status': status, 'sha256': sha256(body), 'json': document, 'location': location}
 
 
 def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str | None = None) -> dict:

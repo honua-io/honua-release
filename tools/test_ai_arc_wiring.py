@@ -274,3 +274,16 @@ def test_handoff_probe_reads_urls_inside_markdown(tmp_path):
     ctx = type('C', (), {'slot': slot, 'options': {'http': lambda m, u, k: seen.append(u) or {'status': 200}}})()
     observed = R.observe_local_handoff(ctx, 'Honua is up at **http://localhost:18080**, see `http://localhost:18080/healthz/ready`.')
     assert seen == ['http://127.0.0.1:9/', 'http://127.0.0.1:9/healthz/ready'] and all(r['served'] for r in observed['resources'])
+
+
+
+def test_handoff_probe_follows_same_origin_redirects_only(tmp_path):
+    """Rehearsal finding: the install's root answers 302 to sign-in; the address is served."""
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', controller={'base_url': 'http://127.0.0.1:9'})
+    slot.vm = type('V', (), {'http_port': 18080})()
+    routes = {'http://127.0.0.1:9/': {'status': 302, 'location': '/login'},
+              'http://127.0.0.1:9/login': {'status': 200},
+              'http://127.0.0.1:9/away': {'status': 302, 'location': 'https://elsewhere.example/x'}}
+    ctx = type('C', (), {'slot': slot, 'options': {'http': lambda m, u, k: routes.get(u, {'status': 404})}})()
+    observed = R.observe_local_handoff(ctx, 'Open http://localhost:18080/ or http://localhost:18080/away')
+    assert [r['served'] for r in observed['resources']] == [True, False]
