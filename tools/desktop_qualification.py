@@ -14,13 +14,11 @@ import hashlib
 import json
 from pathlib import Path
 
-from check_protocol_certification import (
-    DIGEST_RE, SCRIPTING_DRIVER, _reject_json_constant, _unique_json_object,
-)
+from check_protocol_certification import DIGEST_RE, _reject_json_constant, _unique_json_object
 
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE = ROOT / "certification/sources/desktop-scripting-scope.v1.json"
-DRIVERS = {"licensed-scripting": SCRIPTING_DRIVER, "qgis-scripting": "pyqgis"}
+DRIVERS = {"qgis-scripting": "pyqgis"}
 OUTCOMES = {"certified", "certified-prior", "failing", "blocked", "not-probed", "not-applicable"}
 
 
@@ -47,10 +45,10 @@ def normalize(grid: dict, source: str) -> dict:
     driver = DRIVERS[source]
     cells = {}
     for row in grid["rows"]:
-        if source == "licensed-scripting" and row.get("driver") != driver:
-            continue
         for column, entry in row["cells"].items():
-            cell = entry if source == "licensed-scripting" else entry[driver]
+            cell = entry.get(driver)
+            if not isinstance(cell, dict):
+                raise ValueError("Producer cell is missing its governed client outcome")
             if cell["value"] not in OUTCOMES:
                 raise ValueError("Unknown original outcome")
             key = (row["row"], column)
@@ -66,7 +64,7 @@ def report(scope: dict, grids: dict, candidate_digest: str) -> dict:
     if scope.get("schema") != "honua.desktop-scripting-scope/v1":
         raise ValueError("Unknown scripting scope schema")
     if set(scope["sources"]) != set(DRIVERS) or set(grids) != set(DRIVERS):
-        raise ValueError("Both governed scripting sources are required")
+        raise ValueError("The governed QGIS producer is required")
     # Individual client limitations require a separate, reviewed scope revision.
     # This initial scope admits only the already deferred preview surface.
     if scope.get("client_limitations") != []:
@@ -117,14 +115,12 @@ def report(scope: dict, grids: dict, candidate_digest: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scope", type=Path, default=SCOPE)
-    parser.add_argument("--licensed-grid", type=Path, required=True)
     parser.add_argument("--qgis-grid", type=Path, required=True)
     parser.add_argument("--candidate-digest", required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     inputs = {name: read_input(path) for name, path in (
-        ("scope", args.scope), ("licensed-scripting", args.licensed_grid),
-        ("qgis-scripting", args.qgis_grid))}
+        ("scope", args.scope), ("qgis-scripting", args.qgis_grid))}
     result = report(inputs["scope"][0], {
         name: inputs[name][0] for name in DRIVERS
     }, args.candidate_digest)

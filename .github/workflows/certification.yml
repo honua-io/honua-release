@@ -3,7 +3,7 @@
 #
 # Retires the audit's "false conformance" findings at the gate level:
 #   - geospatial-mcp#25     (conformance checker reported FULL while ignoring resource coverage)
-#   - honua-esri-compat#25  (image/tile cert false-passed any >100-byte body)
+#   - client interoperability certification (image/tile checks previously accepted underspecified output)
 # Both are now fixed upstream; this gate is the release-repo half that RUNS the suites against the
 # pinned candidate and turns their results into a verdict that can FAIL.
 #
@@ -13,7 +13,7 @@
 #     certification/parse_conformance.py, which FAILS on any manifest FAIL, on a reference impl that
 #     is not FULL, and — the anti-false-pass guard — on NO verdict at all (vacuous/no evidence). That
 #     parser is self-tested in-job before it is trusted.
-#   - the Esri GeoServices lanes and OGC/STAC CITE suites need a live candidate server (+ a licensed
+#   - the GeoServices REST and OGC/STAC CITE suites need a live candidate server (+ a licensed
 #     private evidence identifiers, so they report BLOCKED honestly until
 #     a candidate endpoint is provided — never a fake green.
 #
@@ -257,9 +257,8 @@ jobs:
           prefix: cert-
 
   # ───────────────────────────────────────────────────────────────────────────
-  # esri-geoservices — BLOCKED: the honua-esri-compat lanes need a live candidate server AND a
-  # private producer evidence identifier. The false-pass that
-  # mattered (honua-esri-compat#25) is fixed upstream; this job runs the lanes once a candidate
+  # geoservices-conformance — BLOCKED: the protocol interop lanes need a live candidate server AND a
+  # private producer evidence identifier. The false-pass that mattered is fixed upstream; this job runs the lanes once a candidate
   # endpoint + toolchain are provided (HONUA_SERVER_URL), and reports BLOCKED until then.
   # ───────────────────────────────────────────────────────────────────────────
   conformance-esri-geoservices:
@@ -302,7 +301,7 @@ jobs:
           echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
           echo "pinned evidence source: $REPO@${SHA:-<unpinned>}#$ARTIFACT"
 
-      # honua-esri-compat is a private repo, so this needs a token with read access to it. Without
+      # The producer repository is private, so this needs a token with read access to it. Without
       # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
       - name: Check out the pinned Esri certification evidence
         id: evidence
@@ -339,7 +338,7 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-      - name: Federate Esri GeoServices certification evidence
+      - name: Federate GeoServices REST certification evidence
         run: |
           set -uo pipefail
           # Read the CERTIFIED bundle for this label, never the whole evidence/ tree. Scanning
@@ -354,7 +353,7 @@ jobs:
             fi
           done
           if [ -z "$BUNDLE" ]; then
-            echo "no certified Esri bundle found for ${{ inputs.platform_label }}" >&2
+            echo "no certified protocol bundle found for ${{ inputs.platform_label }}" >&2
           fi
           ARGS=(--manifest platform-manifest.yaml --sections esri --json-out _conformance/esri.json)
           [ -n "$BUNDLE" ] && ARGS+=(--esri-bundle "$BUNDLE")
@@ -368,7 +367,7 @@ jobs:
           rows = json.load(open('_conformance/esri.json'))['rows']
           bad = [r for r in rows if r['status'] != 'pass'] or rows
           print('; '.join(f\"{r['check']}: {r['why']}\" for r in bad[:3]))
-          " 2>/dev/null || echo 'Esri evidence could not be evaluated')"
+          " 2>/dev/null || echo 'Protocol evidence could not be evaluated')"
           {
             echo "status=$STATUS"
             echo "source=federated:${{ steps.pin.outputs.repo }}@${{ steps.pin.outputs.sha }}#${{ steps.pin.outputs.artifact }}"

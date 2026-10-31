@@ -39,7 +39,7 @@ NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "cap
 # The workflows (and triggering events) allowed to produce each class receipt. The checker trusts
 # the class and lock a receipt names, so only an allowlisted producer's run may supply it. Nightly
 # receipts come from the minting run itself. Qualifying producers (genuine-model-journey,
-# update-rollback, esri-bundle, cite) are added here as they land (#386/#381); until then those
+# update-rollback and CITE) are added here as they land (#386/#381); until then those
 # classes, and any other declared class, have no producer and refuse.
 RECEIPT_PRODUCERS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "update-rollback": ((".github/workflows/aws-update-rollback.yml",), ("workflow_dispatch",)),

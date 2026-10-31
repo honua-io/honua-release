@@ -124,6 +124,36 @@
     {
       "repo": "honua-release",
       "paths": [
+        "certification/sdk-publication-replay/published-registry-observations.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "//registry.npmjs.org/@honua/sdk-esri-compat/0.1.15"
+      ],
+      "reason": "Exact scheme-less registry coordinate recorded for the 0.1.15 publication replay.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-sdk-js#1994"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sdk-publication-replay/published-sdk-016-registry-observations.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "//registry.npmjs.org/@honua/sdk-esri-compat/0.1.16"
+      ],
+      "reason": "Exact scheme-less registry coordinate recorded for the 0.1.16 publication replay.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-sdk-js#1994"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
         "certification/executable-docs/evidence/sdk-source-build-20261012/initial/executable-docs.json",
         "certification/executable-docs/evidence/sdk-source-build-20261012/corrected/executable-docs.json"
       ],
@@ -155,6 +185,8 @@
         "sdk-esri-compat-0.2.1.tgz",
         "@honua/sdk-esri-compat@0.2.1",
         "40honua/sdk-esri-compat@0.2.1",
+        "npm/@honua/sdk-esri-compat@0.2.1",
+        "//registry.npmjs.org/@honua/sdk-esri-compat/0.2.1",
         "2Fsdk-esri-compat/0.2.1",
         "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.2.1.tgz"
       ],
@@ -180,6 +212,8 @@
         "sdk-esri-compat-0.2.10.tgz",
         "@honua/sdk-esri-compat@0.2.2",
         "40honua/sdk-esri-compat@0.2.2",
+        "npm/@honua/sdk-esri-compat@0.2.2",
+        "//registry.npmjs.org/@honua/sdk-esri-compat/0.2.2",
         "2Fsdk-esri-compat/0.2.2",
         "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.2.2.tgz"
       ],
@@ -220,24 +254,6 @@
       "reason": "Exact unmodified default-consumer lock coordinates. The generated migration tooling dependency resolves this historical package under its retained range; these observations do not advance the selected release cohort or endorse a vendor. Other versions, paths, identifiers and prose remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#181"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/sources/geometry-service-client-addressability.v1.json",
-        "certification/validate-protocol-requirements.py",
-        "tools/test_geometry_client_addressability.py"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "honua-io/honua-esri-compat",
-        "sources/esri-compat/matrix/geometry-service.matrix.json"
-      ],
-      "reason": "Exact existing upstream repository and pinned matrix path identify the source ownership and unchanged operation set. This exception covers these two source identifiers only; desktop implementation details remain in the private source repository.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#576"
     },
     {
       "repo": "honua-release",

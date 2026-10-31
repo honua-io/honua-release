@@ -329,7 +329,7 @@ jobs:
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
       # thing under test, so they are checked out at a PINNED sha, never a floating branch: evidence
       # taken from a moving ref attests demos that may already have changed, and makes the scenario
-      # non-reproducible across re-runs of the same train. The pin lives beside the esri evidence
+      # non-reproducible across re-runs of the same train. The pin lives beside the protocol evidence
       # producer in certification/conformance-evidence.yaml (see the rationale there and
       # honua-release#136).
       - name: Resolve the pinned honua-site revision

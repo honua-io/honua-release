@@ -103,27 +103,6 @@
       "delivery_pr": "https://github.com/honua-io/honua-server/pull/6308"
     },
     {
-      "id": "NC-03",
-      "priority": "P1",
-      "title": "Python client append certification reuses applyEdits; edit checks lack readback",
-      "owner": "honua-io/honua-esri-compat",
-      "issue": "https://github.com/honua-io/honua-esri-compat/issues/339",
-      "status": "implementation-in-progress",
-      "selectors": {
-        "client_lane": [
-          "arcgis-python-*"
-        ]
-      },
-      "sources": [
-        "https://github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/src/honua_esri_compat/lanes/arcgis_python.py#L1181"
-      ],
-      "impact": "Append can pass without calling append. Edit success booleans cannot detect acknowledged but unpersisted writes.",
-      "acceptance": "Call the actual supported append API or classify its client applicability honestly; independently query added/updated/deleted state.",
-      "verification_receipt": null,
-      "dimension": "assertions",
-      "delivery_pr": "https://github.com/honua-io/honua-esri-compat/pull/340"
-    },
-    {
       "id": "NC-04",
       "priority": "P1",
       "title": "MCP and .NET producer receipt schemas do not meet release v2 contract",

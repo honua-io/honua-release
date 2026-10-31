@@ -8,7 +8,7 @@ data — they probe the wire surface honua-server exposes anywhere it runs:
 
   health            GET /healthz                              -> 200
   geoservices-error a deliberately invalid GeoServices query  -> HTTP 200 + {"error":{...}} envelope
-                    (the Esri convention; the same behaviour the SDK guard depends on, checked here at
+                    (the GeoServices REST convention; the same behaviour the SDK guard depends on, checked here at
                      the HTTP layer so it is target-agnostic)
   service-catalog   GET /rest/services?f=json                 -> 200 + JSON object (a catalog shape)
   capabilities      GET /api/v1/admin/capabilities?f=json      -> 200 + JSON (the control-plane surface
@@ -158,7 +158,7 @@ def load_frozen_server(path: str | Path | None = None) -> dict:
         return {}
 
 
-def _is_esri_error_envelope(body: str) -> bool:
+def _is_protocol_error_envelope(body: str) -> bool:
     """True when `body` is a GeoServices `{"error":{"code":<int>,...}}` envelope — the same narrow
     shape the SDK guards use (honua-sdk-python#122 / honua-sdk-js#309)."""
     try:
@@ -196,15 +196,15 @@ def check_health(endpoint: str, fetch: Fetcher) -> CheckResult:
 
 
 def check_geoservices_error_surfacing(endpoint: str, fetch: Fetcher) -> CheckResult:
-    # A query against a non-existent service/layer with a deliberately malformed predicate. The Esri
+    # A query against a non-existent service/layer with a deliberately malformed predicate. The protocol
     # GeoServices convention (which honua-server implements) returns HTTP 200 with an {error} envelope.
     url = endpoint.rstrip("/") + "/rest/services/__honua_parity_missing__/FeatureServer/0/query?where=1%3D1))&f=json"
     r = fetch(url)
     if r.status == 0:
         return unreachable("geoservices-error", f"endpoint unreachable ({r.body})")
-    if r.status == 200 and _is_esri_error_envelope(r.body):
-        return CheckResult("geoservices-error", "pass", "invalid query -> HTTP 200 + {error} envelope (Esri convention)")
-    if _is_esri_error_envelope(r.body):
+    if r.status == 200 and _is_protocol_error_envelope(r.body):
+        return CheckResult("geoservices-error", "pass", "invalid query -> HTTP 200 + {error} envelope (GeoServices REST convention)")
+    if _is_protocol_error_envelope(r.body):
         # An error envelope on a non-200 is acceptable too (still surfaced); record the status for parity.
         return CheckResult("geoservices-error", "pass", f"invalid query -> {r.status} + {{error}} envelope",
                            {"status": r.status})
