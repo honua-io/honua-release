@@ -268,7 +268,8 @@ class EvidenceVault:
             except ValueError:
                 continue
             action = json.loads(raw)
-            out.append({'tool': action.get('tool'), 'kind': action.get('kind'), 'status': status, 'json': message})
+            out.append({'tool': action.get('tool'), 'kind': action.get('kind'), 'status': status, 'json': message,
+                        'arguments': action.get('arguments')})
         return out
 
     def model_actions(self):
@@ -287,7 +288,7 @@ class ControllerRecorder:
     """
 
     def __init__(self, *, base_url, workdir, candidate_digest, attempt_id, principals,
-                 http_factory=None, mcp_factory=None, vault=None, admitted_remote_origin=None):
+                 http_factory=None, mcp_factory=None, vault=None, admitted_remote_origin=None, sql_executor=None):
         self.base_url = base_url.rstrip('/')
         self._admitted_remote_origin = admitted_remote_origin
         if admitted_remote_origin is not None:
@@ -308,6 +309,7 @@ class ControllerRecorder:
         self._pending = {}
         self._http_factory = http_factory
         self._mcp_factory = mcp_factory
+        self._sql = sql_executor   # runtime-provided read-only SQL transport: (query) -> raw JSON bytes
         vault = vault if vault is not None else EvidenceVault(attempt_id)
         # Only these two capabilities of the runtime-owned vault are kept: deliver a new record, and
         # read the sealed action inventory. The recorder can neither seal actions nor rewrite records.
@@ -442,6 +444,23 @@ class ControllerRecorder:
                   'Content-Type: application/geo+json\r\n\r\n'.encode(), raw, f'\r\n--{boundary}--\r\n'.encode()]
         return self._request(step, principal, 'POST', '/api/v1/admin/import/upload', b''.join(parts),
                              'multipart/form-data; boundary=' + boundary)
+
+    # -- SQL ---------------------------------------------------------------
+    def sql(self, step, query):
+        """One read-only controller query against the case database (e.g. an imported, unpublished table).
+
+        The runtime executes it in a read-only transaction and returns the rows as JSON; the record is
+        kind 'sql', method 'SELECT', path = the exact query text, principal 'controller'.
+        """
+        self._claim(step)
+        require(self._sql is not None, 'this stack has no controller SQL transport')
+        from agent_e2e_local_runner import sql_allowlisted
+        query = sql_allowlisted(query)
+        status, raw = self._sql(query)
+        record = self._store(Record(step, self.phase, 'sql', 'controller', 'case-database-owner', 'SELECT', query,
+                                    status, raw, 'sha256:' + hashlib.sha256(raw).hexdigest(),
+                                    request_arguments_raw=query.encode(), content_type='application/json'))
+        return record.json
 
     def confirmation_read(self, step, path):
         """Runner only (the fault injector): a controller GET made DURING the session to verify that a

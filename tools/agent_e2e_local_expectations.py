@@ -109,7 +109,8 @@ def load_expected(scenario_id, variant):
     return _resolve(assertions, variant)
 
 
-READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replayOfModelAction', 'session', 'exactPath'}
+READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replayOfModelAction', 'session', 'exactPath',
+               'addresses'}
 
 
 def load_projections(scenario_id, variant):
@@ -142,7 +143,7 @@ def load_projections(scenario_id, variant):
 
 
 ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'total', 'next_page', 'page_limit',
-               'created_by'}
+               'created_by', 'parent', 'parent_link', 'owner_format'}
 
 
 def load_roles(scenario_id):

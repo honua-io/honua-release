@@ -81,7 +81,7 @@ def _canary():
 
 # --------------------------------------------------------------------------- scoring
 
-def check_reads(step, record, rule, model_actions):
+def check_reads(step, record, rule, model_actions, roles=None):
     """A record must be exactly the read the frozen projection declares for that step."""
     for field, actual in (('kind', record.kind), ('method', record.method), ('principal', record.principal),
                           ('phase', record.phase), ('origin', record.origin)):
@@ -94,6 +94,10 @@ def check_reads(step, record, rule, model_actions):
         raise ValueError(f'{step}: recorded request path is not the frozen read')
     if 'exactPath' in rule and record.path != rule['exactPath']:
         raise ValueError(f'{step}: recorded request path is not the frozen exact path')
+    if 'addresses' in rule:
+        # Per-role source selection: the exact request field must equal each role's resolved id.
+        for address in rule['addresses']:
+            projections.require_address(record, address, roles or {})
     if rule.get('replayOfModelAction') or 'session' in rule:
         logged = model_actions.get(record.replay_of) if record.replay_of else None
         if logged is None or logged.get('kind') not in ('tool_call', 'resource_read') or (
@@ -120,6 +124,84 @@ def frozen_roles(scenario, stack, seeded, variant, run):
     if runtime_roles and list(runtime_roles) != frozen:
         raise ValueError('scenario role bindings differ from the frozen expectation roles')
     return frozen
+
+
+SQL_FUNCTIONS = frozenset({'count', 'min', 'max', 'sum', 'avg', 'lower', 'upper', 'length', 'coalesce', 'round', 'abs',
+                           'st_astext', 'st_asgeojson', 'st_srid', 'st_x', 'st_y', 'st_geometrytype', 'st_npoints',
+                           'jsonb_typeof', 'json_typeof'})
+SQL_KEYWORDS = frozenset({'select', 'with', 'as', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'order', 'by',
+                          'asc', 'desc', 'limit', 'distinct', 'group', 'having', 'join', 'left', 'inner', 'on', 'true',
+                          'false', 'like', 'between', 'case', 'when', 'then', 'else', 'end', 'nulls', 'first', 'last'})
+
+
+def sql_allowlisted(query):
+    """Refuse anything but one plain SELECT over identifiers, literals, operators and allowlisted functions.
+
+    No semicolons, backslashes (psql meta-commands), comments, dollar quoting, casts to anything but simple
+    types, or calls to functions outside SQL_FUNCTIONS (so no pg_sleep, nextval, set_config, dblink, lo_*,
+    volatile or user functions).
+    """
+    if not isinstance(query, str) or not query.strip() or len(query) > 8192:
+        raise ValueError('controller SQL must be one SELECT')
+    text = query.strip()
+    if any(token in text for token in (';', '\\', '--', '/*', '*/', '$')):
+        raise ValueError('controller SQL must be one SELECT (no ; \\ comments or dollar quoting)')
+    if not re.match(r'(?is)\s*(select|with)\b', text):
+        raise ValueError('controller SQL must be one SELECT')
+    tokens = re.findall(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|::\s*[a-z_][a-z0-9_]*|[A-Za-z_][A-Za-z0-9_$]*|\d+(?:\.\d+)?|"
+                        r"<=|>=|<>|!=|[=<>(),.*+\-/%|]|\S", text)
+    for index, token in enumerate(tokens):
+        if token.startswith('::'):
+            if token[2:].strip().lower() not in ('text', 'int', 'integer', 'bigint', 'numeric', 'float', 'json', 'jsonb',
+                                                 'boolean', 'date', 'geometry'):
+                raise ValueError('controller SQL casts only to simple types')
+            continue
+        if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_$]*', token):
+            following = tokens[index + 1] if index + 1 < len(tokens) else ''
+            if following == '(' and token.lower() not in SQL_FUNCTIONS and token.lower() not in ('in', 'and', 'or', 'not', 'as'):
+                raise ValueError('controller SQL calls a function outside the allowlist: ' + token)
+            if token.lower() in ('insert', 'update', 'delete', 'create', 'drop', 'alter', 'grant', 'revoke', 'copy',
+                                 'truncate', 'call', 'do', 'execute', 'prepare', 'listen', 'notify', 'set', 'reset',
+                                 'into', 'for', 'lock', 'vacuum', 'analyze', 'refresh', 'comment', 'security'):
+                raise ValueError('controller SQL contains a non-read keyword: ' + token)
+        elif token.startswith('"') and index + 1 < len(tokens) and tokens[index + 1] == '(':
+            raise ValueError('controller SQL calls a quoted function name')
+        elif token not in ('<=', '>=', '<>', '!=', '=', '<', '>', '(', ')', ',', '.', '*', '+', '-', '/', '%', '||', '|') \
+                and not re.fullmatch(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\d+(?:\.\d+)?", token):
+            raise ValueError('controller SQL contains an unsupported token: ' + token)
+    return text
+
+
+def frozen_customer_handoffs(scenario, variant):
+    """Runner-seeded handoffs the customer attaches ("customerHandoffs": {variant: ["database:<name>"]})."""
+    from agent_e2e_local_expectations import load_document
+    try:
+        document = load_document(scenario.id)
+    except OSError:
+        return []
+    return list((document.get('customerHandoffs') or {}).get(variant) or [])
+
+
+def stage_customer_handoffs(stack, names, receipt, runtime=None):
+    """Attach each frozen handoff the scenario seeded through the runner (e.g. databaseHandoff) as a file."""
+    if not names:
+        return
+    folder = Path(stack.workdir) / 'customer-files'
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    staged = list(stack.extra.get('customerFiles', ()))
+    fields = ('kind', 'host', 'port', 'database', 'schema', 'username', 'password')
+    for name in names:
+        value = runtime.sealed_handoff(stack, name) if isinstance(name, str) and runtime is not None else None
+        if value is None or set(value) != set(fields):
+            raise ValueError('frozen customer handoff was not seeded through the runner: ' + str(name))
+        raw = json.dumps({key: value[key] for key in fields}, sort_keys=True, indent=2).encode()
+        path = folder / (name.replace(':', '__') + '.json')
+        path.write_bytes(raw)
+        staged.append({'name': name.split(':', 1)[0] + '-connection.json', 'corpusPath': 'handoff:' + name,
+                       'mediaType': 'application/json', 'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest(),
+                       'path': str(path)})
+    stack.extra['customerFiles'] = tuple(staged)
+    receipt['customerFiles'] = [{k: f[k] for k in ('corpusPath', 'mediaType', 'sha256')} for f in staged]
 
 
 def frozen_customer_files(scenario, variant):
@@ -176,7 +258,8 @@ def case_context(stack, runtime):
 
 def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None,
                      credentials=(), scenario_id=None, model_actions=None, frozen=None, canaries=None,
-                     model_visible=(), customer_files=None):
+                     model_visible=(), customer_files=None, final_answers=(), action_results=(),
+                     customer_credentials=()):
     """Score each pack assertion from the runner's own recorded responses, failing closed.
 
     With ``frozen`` (always, on the runner path) each assertion is scored only by its frozen
@@ -198,7 +281,9 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
         by_id[observation.assertion_id] = observation
     model_actions = dict(model_actions or {})
     ctx = projections.Context(records, roles, custody, run_facts, credentials, model_actions=model_actions,
-                              canaries=canaries, model_visible=model_visible, customer_files=customer_files)
+                              canaries=canaries, model_visible=model_visible, customer_files=customer_files,
+                              final_answers=final_answers, action_results=action_results,
+                              customer_credentials=customer_credentials)
     results = []
     for assertion in assertions:
         ruling = check_exclusion(scenario_id, assertion, expected[assertion])
@@ -227,7 +312,8 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 raise ValueError('observation is not a runner projection over recorded responses')
             steps = projections.referenced_steps(spec)
             text = json.dumps(spec)
-            if not steps and '"custody"' not in text and '"run"' not in text and '$model-visible' not in text:
+            if (not steps and '"custody"' not in text and '"run"' not in text and '"attachmentSnapshots"' not in text
+                    and not any(source in text for source in projections.PSEUDO_SOURCES)):
                 raise ValueError('projection reads no recorded evidence')
             for step in steps:
                 record = records.get(step)
@@ -240,7 +326,7 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                     # observe), so a pre-session snapshot counts only where the prereg'd projection says so.
                     if step not in reads:
                         raise ValueError('projection reads a step its frozen declaration does not list: ' + step)
-                    check_reads(step, record, reads[step], model_actions)
+                    check_reads(step, record, reads[step], model_actions, ctx.roles)
                     if step in projections.inventory_steps(spec) and 'exactPath' not in reads[step]:
                         raise ValueError('an inventory snapshot needs an exact frozen path: ' + step)
                 elif record.phase != 'observe' and step not in projections.baseline_steps(spec):
@@ -290,7 +376,7 @@ RECEIPT_REQUIRED = ('caseId', 'status', 'candidateDigest', 'attempt', 'arm', 'ap
 def validate_receipt(receipt):
     if not isinstance(receipt, dict) or any(key not in receipt for key in RECEIPT_REQUIRED):
         raise ValueError('malformed case receipt')
-    if receipt['attempt'] != 1 or receipt['status'] not in ('pass', 'fail', 'infrastructure', 'excluded'):
+    if receipt['attempt'] != 1 or receipt['status'] not in ('pass', 'fail', 'infrastructure', 'excluded', 'unsupported'):
         raise ValueError('receipt is not a scored first attempt')
     if receipt['packSha256'] != PACK_SHA256 or receipt['arm'] != arm_for(receipt.get('agentType', 'bedrock-proxy')):
         raise ValueError('receipt was produced from another pack or protocol')
@@ -306,7 +392,7 @@ def validate_receipt(receipt):
     rows = receipt['assertions']
     if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
         raise ValueError('malformed assertion rows')
-    if rows or receipt['status'] != 'infrastructure':
+    if (rows or receipt['status'] != 'infrastructure') and receipt['status'] != 'unsupported':
         if [r.get('assertion') for r in rows] != inventory:
             raise ValueError('receipt assertions differ from the pack inventory for the case')
         for row in rows:
@@ -315,6 +401,10 @@ def validate_receipt(receipt):
                     (covered is not None and row.get('ruling') != covered):
                 raise ValueError('receipt exclusion is not the preregistered exclusion for ' + row['assertion'])
     statuses = [row.get('status') for row in rows]
+    if receipt['status'] == 'unsupported':
+        if receipt['sessions'] or any(status != 'unsupported' for status in statuses):
+            raise ValueError('an unsupported case runs no session and scores nothing')
+        return
     if receipt['status'] == 'excluded':
         if not statuses or any(status != 'excluded' for status in statuses) or receipt['sessions']:
             raise ValueError('an excluded case must exclude every assertion and run no session')
@@ -763,8 +853,15 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
     def all_actions():
         return [a for s in receipt['sessions'] for a in s['actions']]
     try:
-        if variant not in DEVELOPMENT_VARIANTS or variant not in scenario.supported_variants:
+        if variant not in DEVELOPMENT_VARIANTS:
             raise ValueError('unsupported development variant')
+        if variant not in scenario.supported_variants:
+            # The scenario declares it cannot observe this variant yet: recorded as unsupported (no stack, no
+            # model call), never as infrastructure and never as a pass. Inventories do not schedule it.
+            receipt['status'] = 'unsupported'
+            receipt['assertions'] = [{'assertion': a, 'status': 'unsupported'} for a in case['assertions']]
+            receipt['finalAnswerCheck'] = {'status': 'unsupported'}
+            return receipt
         from agent_e2e_local_expectations import check_exclusion
         expected = scenario.expected(variant)
         rulings = {a: check_exclusion(scenario.id, a, expected.get(a)) for a in case['assertions']}
@@ -801,6 +898,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['customerFiles'] = [{k: f[k] for k in ('corpusPath', 'mediaType', 'sha256')}
                                         for f in stack.extra['customerFiles']]
         seeded = scenario.seed(stack, variant)
+        stage_customer_handoffs(stack, frozen_customer_handoffs(scenario, variant), receipt, runtime)
+        if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
+            runtime.attest(stack, 'customerFiles:before', {f['corpusPath']: f['sha256'] for f in stack.extra['customerFiles']}, [])
         recorder.set_phase('session')
         sessions, session_ids = [], []
         clarifications = list(case.get('clarifications') or [])
@@ -860,13 +960,24 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         try:
             observations = observe_scenario(scenario, stack, seeded, variant, run)
             bindings = frozen_roles(scenario, stack, seeded, variant, run)
+            if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
+                runtime.attest(stack, 'customerFiles:after', {
+                    f['corpusPath']: 'sha256:' + hashlib.sha256(Path(f['path']).read_bytes()).hexdigest()
+                    for f in stack.extra['customerFiles']}, [])
             vault = runtime.vault(stack)
             sealed = vault.records()
             model_actions = vault.model_actions()
             roles = projections.resolve_roles(bindings, sealed, agent_principal=run.agent_principal,
                                               action_results=vault.action_results())
             roles.update(session_roles(session_ids, sessions))
+            committed = [e for e in fault_events if e.get('kind') == 'response_lost_after_commit'
+                         and e.get('committedResourceId') not in (None, '')]
+            if len(committed) == 1:
+                # The verified-commit resource of a fired lost-response fault, for binding to controller reads.
+                roles['fault:committed-resource'] = committed[0]['committedResourceId']
             extras = case_context(stack, runtime)
+            extras['final_answers'] = tuple(run.final_answers)
+            extras['action_results'] = tuple(json.dumps(r['json'], sort_keys=True).encode() for r in vault.action_results())
             custody = runtime.custody(stack)  # includes runner facts recorded during observe (e.g. restarts)
         except Exception as exc:
             # After the session, an observation that cannot be made is a failed case, never a rerun.
@@ -880,6 +991,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                                                      records=sealed, roles=roles, custody=custody,
                                                      run_facts=run_facts,
                                                      credentials=tuple(getattr(runtime, '_secrets', ())),
+                                                     customer_credentials=tuple(runtime.customer_secrets()
+                                                                                if hasattr(runtime, 'customer_secrets') else ()),
                                                      scenario_id=scenario.id, model_actions=model_actions,
                                                      frozen=frozen_projections(scenario, variant), **extras)
         receipt['roles'] = {name: value for name, value in sorted(roles.items())}
@@ -938,6 +1051,21 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                 # A pass is only recorded when the case also tore down cleanly.
                 receipt['status'] = 'infrastructure'
     return receipt
+
+
+def unsupported_cases(cases, loader=None):
+    """Cases whose scenario module exists and declares the variant unsupported (not scheduled, listed)."""
+    loader = loader or load_scenario
+    out = []
+    for case_id in cases:
+        scenario_id, variant, _target = case_id.split(':')
+        try:
+            scenario = loader(scenario_id)
+        except Exception:  # a missing module is scheduled and fails as infrastructure, visibly
+            continue
+        if variant not in tuple(getattr(scenario, 'supported_variants', ())):
+            out.append(case_id)
+    return out
 
 
 def build_inventory(pack_path: Path, scenarios: list[str], variants: list[str]) -> list[str]:
@@ -1070,9 +1198,12 @@ class LocalRuntime:
         self.workdirs = []
         self._vaults = {}
         self._canaries = {}
+        self._handoff_secrets = {}
+        self._handoffs = {}
+        self._readers = set()
 
     def redact(self, text):
-        for value in self._secrets:
+        for value in list(self._secrets) + self.redact_only():
             text = text.replace(value, '[redacted]')
         return text
 
@@ -1153,7 +1284,96 @@ class LocalRuntime:
         return ControllerRecorder(base_url=stack.base_url, workdir=stack.workdir,
                                   candidate_digest=stack.candidate_digest, attempt_id=stack.compose_project,
                                   principals=principals, vault=vault,
-                                  admitted_remote_origin=getattr(self, 'verified_remote_origin', None))
+                                  admitted_remote_origin=getattr(self, 'verified_remote_origin', None),
+                                  sql_executor=lambda query: self.sql_read(stack, query))
+
+    # -- case database (controller side) ----------------------------------------------------------
+    def _db_container(self, stack):
+        import subprocess
+        ids = subprocess.run(['docker', 'ps', '-q', '--filter', f'label=com.docker.compose.project={stack.compose_project}',
+                              '--filter', 'label=com.docker.compose.service=db'], capture_output=True, text=True,
+                             check=True, timeout=60).stdout.split()
+        if len(ids) != 1:
+            raise RuntimeError('no unique database container for the case stack')
+        return ids[0]
+
+    READER_ROLE = 'corpus_reader'
+
+    def psql(self, stack, sql, *, read_only):
+        """Run SQL in the case's db container; returns (exit code, stdout bytes).
+
+        Reads (read_only=True) run as the dedicated SELECT-only role corpus_reader with a read-only
+        transaction default and a statement timeout, and the SQL is passed as ONE -c argument (never on stdin),
+        which psql sends to the server as a single command: no psql meta-command processing applies, and the
+        allowlist parser (sql_allowlisted) has already refused backslashes and anything but one SELECT.
+        Owner statements (read_only=False) are runner-authored setup only (role creation for handoffs).
+        """
+        import subprocess
+        user = self.READER_ROLE if read_only else 'honua'
+        if read_only:
+            self._ensure_reader(stack)
+        env = ['-e', 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000'] if read_only else []
+        done = subprocess.run(['docker', 'exec', *env, self._db_container(stack), 'psql', '-U', user, '-d', 'honua',
+                               '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', sql],
+                              capture_output=True, timeout=300)
+        return done.returncode, done.stdout
+
+    def _ensure_reader(self, stack):
+        if stack.compose_project in self._readers:
+            return
+        setup = (f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{self.READER_ROLE}') THEN "
+                 f"CREATE ROLE {self.READER_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; END IF; END $$; "
+                 f"GRANT pg_read_all_data TO {self.READER_ROLE}; "
+                 f"ALTER ROLE {self.READER_ROLE} SET default_transaction_read_only = on; "
+                 f"ALTER ROLE {self.READER_ROLE} SET statement_timeout = '15s';")
+        code, _ = self.psql(stack, setup, read_only=False)
+        if code != 0:
+            raise RuntimeError('could not prepare the read-only controller database role')
+        self._readers.add(stack.compose_project)
+
+    def sql_read(self, stack, query):
+        """Rows of one allowlisted SELECT as a JSON array (read-only role, read-only transaction, timeout)."""
+        sql_allowlisted(query)
+        code, out = self.psql(stack, f"SELECT coalesce(json_agg(t), '[]'::json) FROM ({query}) AS t", read_only=True)
+        return (200 if code == 0 else 500), out.strip() if code == 0 else b'{"error":"query failed"}'
+
+    def database_handoff(self, stack, name, schema):
+        """Seed a customer database login (SELECT on one schema) for the model to connect with.
+
+        The canonical handoff is kept privately by the runtime (only its fixed connection fields, all runner
+        values); the scenario receives a detached copy and cannot change what is attached for the model.
+        """
+        import copy
+        recorder = stack.extra['recorder']
+        if recorder.phase != 'seed' or not re.fullmatch(r'[a-z][a-z0-9_]{0,30}', name) \
+                or not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', schema):
+            raise ValueError('database handoffs are seeded by name and schema during seed')
+        role = f'customer_{name}'
+        password = secrets.token_hex(16)
+        sql = (f"CREATE ROLE {role} LOGIN PASSWORD '{password}'; "
+               f"GRANT CONNECT ON DATABASE honua TO {role}; "
+               f"GRANT USAGE ON SCHEMA {schema} TO {role}; "
+               f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {role};")
+        code, _out = self.psql(stack, sql, read_only=False)
+        if code != 0:
+            raise RuntimeError('could not seed the customer database login')
+        self._handoff_secrets.setdefault(stack.compose_project, []).append(password)
+        step = f'runner-db-handoff-{name}'
+        recorder.sql(step, f"SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname = '{role}'")
+        handoff = {'kind': 'postgresql', 'host': 'db', 'port': 5432, 'database': 'honua', 'schema': schema,
+                   'username': role, 'password': password}
+        self.attest(stack, f'databaseHandoff:{name}', {k: v for k, v in handoff.items() if k != 'password'}, [step])
+        self._handoffs.setdefault(stack.compose_project, {})[f'database:{name}'] = copy.deepcopy(handoff)
+        return copy.deepcopy(handoff)
+
+    def sealed_handoff(self, stack, name):
+        """The runtime's own copy of a seeded handoff (fixed fields only), or None."""
+        import copy
+        value = self._handoffs.get(stack.compose_project, {}).get(name)
+        return copy.deepcopy(value) if value is not None else None
+
+    def customer_secrets(self):
+        return [value for case in self._handoff_secrets.values() for value in case]
 
     def vault(self, stack):
         """The runtime-held evidence authority for this case (never handed to a scenario)."""
@@ -1222,6 +1442,7 @@ class LocalRuntime:
         stack.extra['addPrincipal'] = lambda name, grants: self.add_principal(stack, name, grants)
         stack.extra['restartServer'] = lambda prefix: self.restart_server(stack, prefix)
         stack.extra['registerCanary'] = lambda name: self.register_canary(stack, name)
+        stack.extra['databaseHandoff'] = lambda name, schema: self.database_handoff(stack, name, schema)
 
     def register_canary(self, stack, name):
         """A runner-minted private canary value for a scenario to plant (e.g. in a secret field) during seed.
@@ -1236,7 +1457,8 @@ class LocalRuntime:
 
     def redact_only(self):
         """Values redacted from exported evidence that are not credentials (they may legitimately leak)."""
-        return [value for case in self._canaries.values() for value in case.values()]
+        return ([value for case in self._canaries.values() for value in case.values()]
+                + [value for case in self._handoff_secrets.values() for value in case])
 
     def add_principal(self, stack, name, grants):
         """Mint one more case API key (e.g. a viewer) as a recorder principal; seed phase only."""
@@ -1556,12 +1778,19 @@ def export_case_evidence(case_dir, out_dir, secret_values, redact_values=()):
         target.mkdir(parents=True, exist_ok=True)
         for path in sorted(records.glob('*.json')):
             row = json.loads(path.read_bytes())
-            raw = base64.b64decode(row['bodyBase64'])
+            raw = base64.b64decode(row.pop('bodyBase64'))
             exported = redact(raw, secret_values + redact_values)
             if exported != raw:
-                row['bodyBase64'] = base64.b64encode(exported).decode('ascii')
                 row['redacted'] = True
                 row['exportedBodySha256'] = 'sha256:' + hashlib.sha256(exported).hexdigest()
+            # Every metadata string (path/query text, ids) is sanitized too, recording the original digest.
+            metadata = json.dumps(row, sort_keys=True).encode()
+            clean = redact(metadata, secret_values + redact_values)
+            if clean != metadata:
+                row = json.loads(clean)
+                row['metadataRedacted'] = True
+                row['originalMetadataSha256'] = 'sha256:' + hashlib.sha256(metadata).hexdigest()
+            row['bodyBase64'] = base64.b64encode(exported).decode('ascii')
             (target / path.name).write_text(json.dumps(row, sort_keys=True))
     visible = Path(case_dir) / 'model-visible'
     redactions = {}
@@ -1730,12 +1959,16 @@ def main(argv=None):
         return 0
     if args.operation == 'inventory':
         cases = build_inventory(PACK, args.scenarios.split(','), args.variants.split(','))
-        print(json.dumps([{'scenario': row.split(':')[0], 'variant': row.split(':')[1]} for row in cases],
-                         separators=(',', ':')))
+        skipped = set(unsupported_cases(cases))
+        print(json.dumps([{'scenario': row.split(':')[0], 'variant': row.split(':')[1]} for row in cases
+                          if row not in skipped], separators=(',', ':')))
         return 0
     if args.operation == 'aggregate':
         cases = build_inventory(PACK, args.scenarios.split(','), args.variants.split(','))
-        summary = aggregate_files(cases, sorted(args.artifacts.glob('**/receipt.json')))
+        skipped = unsupported_cases(cases)
+        summary = aggregate_files([c for c in cases if c not in skipped], sorted(args.artifacts.glob('**/receipt.json')))
+        # Not scheduled, never counted as passed or failed, but always listed.
+        summary['unsupportedCases'] = skipped
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps(summary['overall']))
@@ -1781,7 +2014,14 @@ def main(argv=None):
             finally:
                 # The private case directory holds unredacted credentials and action bodies.
                 shutil.rmtree(case_dir, ignore_errors=True)
-    args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
+    text = json.dumps(receipt, indent=2, sort_keys=True)
+    if runtime is not None:
+        clean = runtime.redact(text)
+        if clean != text:
+            receipt = json.loads(clean)
+            receipt['exportRedactions'] = {'originalReceiptSha256': 'sha256:' + hashlib.sha256(text.encode()).hexdigest()}
+            text = json.dumps(receipt, indent=2, sort_keys=True)
+    args.output.write_text(text + '\n')
     return 0 if receipt['status'] == 'pass' else 1
 
 
