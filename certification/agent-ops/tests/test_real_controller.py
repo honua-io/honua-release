@@ -75,6 +75,19 @@ def test_diagnosis_reads_real_project_logs_and_redacts_key(tmp_path, monkeypatch
     assert len(result['log_sha256']) == 64
 
 
+def test_diagnosis_redacts_operator_secret_not_in_environment(tmp_path, monkeypatch):
+    import subprocess
+    compose = tmp_path / 'compose.yml'
+    compose.write_text('services: {}')
+    secret = 'operator-secret-outside-environment'
+    monkeypatch.setattr(subprocess, 'run', lambda argv, **kwargs:
+                        subprocess.CompletedProcess(argv, 0, 'diagnostic ' + secret, ''))
+    controller = RealController('ops-' + '1' * 32, compose, tmp_path, 'prior', 'candidate',
+                                'http://127.0.0.1:1', sensitive_values=(secret,))
+    result = controller.apply('terminal_command', {'command': 'docker compose logs server'})
+    assert result['ok'] and secret not in str(result) and secret not in str(controller.audit)
+
+
 def test_metrics_are_live_read_and_not_invented(tmp_path, monkeypatch):
     class Response:
         status = 200
@@ -113,3 +126,25 @@ def test_unknown_tool_and_secret_like_logs_are_not_retained(tmp_path, monkeypatc
     result = c._diagnose(logs=True)
     assert result == {'ok': False, 'error': 'logs-sensitive'}
     assert secret not in str(result)
+
+
+def test_terminal_diagnostics_are_real_project_scoped_and_refuse_other_commands(tmp_path, monkeypatch):
+    import subprocess
+    compose = tmp_path / 'compose.yml'
+    compose.write_text('services: {}')
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '{"Service":"server","State":"running"}\n', '')
+    monkeypatch.setattr(subprocess, 'run', run)
+    project = 'ops-' + '1' * 32
+    controller = RealController(project, compose, tmp_path, 'prior', 'candidate', 'http://127.0.0.1:1')
+    result = controller.apply('terminal_command', {'command': 'docker compose ps'})
+    assert result['ok'] and 'running' in result['status']
+    assert calls[0][:4] == ['docker', 'compose', '-p', project]
+    assert controller.audit[-1]['receipt']['status_sha256'] == result['status_sha256']
+    assert controller.apply('terminal_command', {'command': 'docker compose down'})['error'] == 'not-real'
+    assert controller.apply('terminal_command', {'command': 'docker compose ps; echo injected'})['error'] == 'not-real'
+    assert len(calls) == 1
+    assert not controller.audit[-1]['ok']
+    assert controller.audit[-1]['effect'] == 'unclassified'

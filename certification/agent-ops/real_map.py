@@ -19,17 +19,22 @@ from real_seed import _verify_runtime
 from agent_e2e_setup_http import SetupHttp
 from agent_e2e_scenario_operations import data
 from agent_e2e_studio_fixture import exact_envelope, validation
-from local_http import open_local, require_loopback
+from local_http import open_local, reject_embedded_secrets, require_loopback
 
 
-def observe_public_source(base_url: str, service: str, layer_id: int) -> dict:
+def observe_public_source(base_url: str, service: str, layer_id: int, *, sensitive_values: tuple[str, ...] = ()) -> dict:
     require_loopback(base_url)
     if not re.fullmatch(r'[a-z0-9_-]{1,100}', service) or type(layer_id) is not int or layer_id < 0:
         raise ValueError('invalid public map source')
     path = f'/rest/services/{service}/FeatureServer/{layer_id}/query?where=1%3D1&outFields=*&f=geojson'
     with open_local(urllib.request.Request(base_url.rstrip('/') + path), timeout=10) as response:
         raw, status = response.read(2_000_001), response.status
+    from client import Redactor
+    decoded = raw.decode('utf-8')
+    if Redactor(sensitive_values=list(sensitive_values)).text(decoded) != decoded:
+        raise ValueError('map source disclosed a credential')
     collection = json.loads(raw)
+    reject_embedded_secrets(collection, sensitive_values)
     if (status != 200 or len(raw) > 2_000_000 or not isinstance(collection, dict) or
         collection.get('type') != 'FeatureCollection' or not isinstance(collection.get('features'), list) or
         not collection['features']):
@@ -112,7 +117,8 @@ def prepare_map(*, project: str, compose_file: Path, image_ref: str, base_url: s
                 'response_sha256': hashlib.sha256(observed.stdout.encode()).hexdigest()}
     retain('response', 'map-baseline', baseline)
     authorize()
-    source = observe_public_source(base_url, service, layer_id)
+    source = observe_public_source(base_url, service, layer_id,
+                                   sensitive_values=(os.environ[controller_env], os.environ[operator_env]))
     retain('response', 'map-public-source', source)
     source_path = source['path']
     identity = {'candidateKey': digest, 'attemptId': namespace.replace('_', '-')}

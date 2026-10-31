@@ -18,7 +18,8 @@ from ga_actions import _PROJECT
 
 
 class MigrationFault:
-    def __init__(self, project: str, compose_file: Path, *, pending_migrations: tuple[str, ...], candidate_image_id: str, timeout: float = 90):
+    def __init__(self, project: str, compose_file: Path, *, pending_migrations: tuple[str, ...], candidate_image_id: str,
+                 timeout: float = 90, sensitive_values: tuple[str, ...] = ()):
         if (not _PROJECT.fullmatch(project) or not compose_file.is_file() or timeout <= 0 or
             not re.fullmatch(r"sha256:[a-f0-9]{64}", candidate_image_id) or not pending_migrations or
             any(not re.fullmatch(r"[A-Za-z0-9._-]+\.sql", x) for x in pending_migrations)):
@@ -28,6 +29,7 @@ class MigrationFault:
         self.timeout = timeout
         self.pending_migrations = frozenset(pending_migrations)
         self.candidate_image_id = candidate_image_id
+        self.sensitive_values = sensitive_values
         self.holder_name = 'honua-chaos-' + uuid.uuid4().hex
         self.holder = None
         self.holder_pid = None
@@ -148,11 +150,11 @@ class MigrationFault:
                             if journal != '0':
                                 raise RuntimeError('interrupted migration was journaled')
                             from client import Redactor
-                            redactor = Redactor(sensitive_values=[os.environ.get(name, '') for name in (
+                            redactor = Redactor(sensitive_values=[*self.sensitive_values, *(os.environ.get(name, '') for name in (
                                 'E2E_API_KEY', 'TERMINAL_MODEL_API_KEY', 'HONUA_ADMIN_PASSWORD',
                                 'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
                                 'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
-                            )])
+                            ))])
                             excerpt = redactor.text(f"Executing Database Server script '{script}'\n{failure.group()}\n")
                             self.fired = {'kind': 'migration-backend-terminated', 'at': time.time(),
                                           'project': self.project, 'candidate_container': container_id,

@@ -30,3 +30,27 @@ def open_local(request: urllib.request.Request, *, timeout: float):
 def require_layer_path(path: str) -> None:
     if not isinstance(path, str) or not re.fullmatch(r'/[A-Za-z0-9_/-]+', path) or '//' in path:
         raise ValueError('invalid local layer path')
+
+
+def reject_embedded_secrets(value: object, secrets: tuple[str, ...] | list[str]) -> None:
+    """Reject decoded or percent-encoded credential echoes before retention."""
+    private = [secret for secret in secrets if isinstance(secret, str) and secret]
+    pending = [value]
+    while pending and private:
+        item = pending.pop()
+        if isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, str):
+            decoded = item
+            for _ in range(9):
+                if any(secret in decoded for secret in private):
+                    raise ValueError('observation disclosed a credential')
+                next_value = urllib.parse.unquote(decoded)
+                if next_value == decoded:
+                    break
+                decoded = next_value
+            else:
+                raise ValueError('observation has excessive encoding')

@@ -12,6 +12,8 @@ class Handler(BaseHTTPRequestHandler):
     credentials = []
     add_during_read = False
     id_reads = 0
+    echo_key = False
+    echo_other = ''
 
     def log_message(self, *_args):
         pass
@@ -28,6 +30,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             oid = int(params["objectIds"][0])
             body = {"features": [] if self.corrupt and oid == 2 else [{"attributes": {"id": oid, "name": "item"}, "geometry": {"x": oid, "y": 0}}]}
+        if self.echo_key:
+            body['echo'] = self.headers.get('X-API-Key')
+        if self.echo_other:
+            body['other'] = self.echo_other
         self.send_response(200)
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
@@ -38,6 +44,8 @@ def test_controller_reads_all_features_and_fails_on_missing():
     Handler.credentials = []
     Handler.add_during_read = False
     Handler.id_reads = 0
+    Handler.echo_key = False
+    Handler.echo_other = ''
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -58,7 +66,16 @@ def test_controller_reads_all_features_and_fails_on_missing():
         Handler.add_during_read = True
         with pytest.raises(ValueError, match="inventory changed"):
             observe_layer(base, "/layer", "controller-secret")
+        Handler.echo_key = True
+        with pytest.raises(ValueError, match='disclosed a credential'):
+            observe_layer(base, '/layer', 'controller-secret')
+        Handler.echo_key = False
+        Handler.echo_other = 'operator-secret-outside-environment'
+        with pytest.raises(ValueError, match='disclosed a credential'):
+            observe_layer(base, '/layer', 'controller-secret', sensitive_values=(Handler.echo_other,))
     finally:
+        Handler.echo_key = False
+        Handler.echo_other = ''
         server.shutdown()
         thread.join()
         server.server_close()
@@ -97,7 +114,7 @@ def test_saved_map_requires_actual_reopen_and_fresh_matching_draft(monkeypatch):
     envelope = {'family': 'map', 'body': {'layers': ['a']},
                 'validation': {'status': 'valid', 'diagnostics': [], 'generatedAt': '2026-10-31T00:00:00Z'}}
     calls = []
-    def read(base, path, key, *, method='GET', timeout=10):
+    def read(base, path, key, *, method='GET', timeout=10, sensitive_values=()):
         calls.append((method, path))
         if method == 'POST':
             data = {'draftId': draft, 'envelope': envelope}
@@ -110,7 +127,7 @@ def test_saved_map_requires_actual_reopen_and_fresh_matching_draft(monkeypatch):
     result = live_observer.reopen_saved_map('http://127.0.0.1:1', item, version, 'controller')
     assert result['draft_id'] == draft
     assert [call[0] for call in calls] == ['GET', 'POST', 'GET']
-    def corrupt(base, path, key, *, method='GET', timeout=10):
+    def corrupt(base, path, key, *, method='GET', timeout=10, sensitive_values=()):
         body, evidence = read(base, path, key, method=method, timeout=timeout)
         if 'package-drafts' in path:
             body['data']['envelope'] = {'family': 'map', 'body': {'layers': []}}

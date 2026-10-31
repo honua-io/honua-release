@@ -11,7 +11,7 @@ import json
 import urllib.parse
 import urllib.request
 
-from local_http import open_local, require_layer_path, require_loopback
+from local_http import open_local, reject_embedded_secrets, require_layer_path, require_loopback
 
 
 def _canonical(value: object) -> bytes:
@@ -19,7 +19,8 @@ def _canonical(value: object) -> bytes:
                       allow_nan=False).encode("utf-8")
 
 
-def observe_layer(base_url: str, layer_path: str, controller_key: str, *, timeout: float = 10) -> dict:
+def observe_layer(base_url: str, layer_path: str, controller_key: str, *, timeout: float = 10,
+                  sensitive_values: tuple[str, ...] = ()) -> dict:
     """Read metadata, enumerate IDs, and fetch each feature without trusting pagination."""
     require_loopback(base_url)
     require_layer_path(layer_path)
@@ -31,8 +32,21 @@ def observe_layer(base_url: str, layer_path: str, controller_key: str, *, timeou
         url = base_url.rstrip("/") + layer_path + path + "?" + urllib.parse.urlencode(params)
         request = urllib.request.Request(url, headers={"X-API-Key": controller_key})
         with open_local(request, timeout=timeout) as response:
-            raw, status = response.read(), response.status
+            raw, status = response.read(2_000_001), response.status
+        if status != 200 or len(raw) > 2_000_000:
+            raise ValueError('layer observation failed or exceeds size limit')
+        from client import Redactor
+        import os
+        sensitive = [controller_key, *sensitive_values, *(os.environ.get(name, '') for name in (
+            'E2E_API_KEY', 'OPS_SMOKE_OPERATOR_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY',
+            'TERMINAL_MODEL_API_KEY', 'HONUA_CANARY_AWS_ACCESS_KEY_ID',
+            'HONUA_CANARY_AWS_SECRET_ACCESS_KEY', 'HONUA_CANARY_AWS_SESSION_TOKEN',
+            'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED'))]
+        decoded = raw.decode('utf-8')
+        if Redactor(sensitive_values=sensitive).text(decoded) != decoded:
+            raise ValueError('layer observation disclosed a credential')
         document = json.loads(raw)
+        reject_embedded_secrets(document, sensitive)
         if not isinstance(document, dict) or document.get("error"):
             raise ValueError("controller API read failed")
         evidence.append({"method": "GET", "url": url, "status": status,
@@ -74,7 +88,8 @@ def observe_layer(base_url: str, layer_path: str, controller_key: str, *, timeou
             "fields": fields, "features": features, "evidence": evidence}
 
 
-def observe_database(project: str, compose_file: str, tables: list[tuple[str, str]], *, timeout: float = 30) -> dict:
+def observe_database(project: str, compose_file: str, tables: list[tuple[str, str]], *, timeout: float = 30,
+                     sensitive_values: tuple[str, ...] = ()) -> dict:
     """Snapshot every row and column definition of named trial tables via Postgres.
 
     Table names are controller-supplied and strictly validated. This is not a
@@ -125,10 +140,14 @@ def observe_database(project: str, compose_file: str, tables: list[tuple[str, st
         document = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise ValueError("database observation invalid") from exc
+    reject_embedded_secrets(document, list(sensitive_values))
     expected = {f'{schema}.{table}' for schema, table in tables}
     if not isinstance(document, dict) or set(document) != expected:
         raise ValueError("database observation incomplete")
     raw = completed.stdout.encode('utf-8')
+    from client import Redactor
+    if Redactor(sensitive_values=list(sensitive_values)).text(completed.stdout) != completed.stdout:
+        raise ValueError('database observation disclosed a credential')
     evidence = {"project": project, "container": container, "started_at": started,
                 "finished_at": time.time(), "sha256": hashlib.sha256(raw).hexdigest(),
                 "body_b64": base64.b64encode(raw).decode('ascii')}
@@ -140,13 +159,14 @@ def observe_database(project: str, compose_file: str, tables: list[tuple[str, st
     return document
 
 
-def observe_service_settings(base_url: str, service: str, controller_key: str, *, timeout: float = 10) -> dict:
+def observe_service_settings(base_url: str, service: str, controller_key: str, *, timeout: float = 10,
+                             sensitive_values: tuple[str, ...] = ()) -> dict:
     """Read actual service settings and access policy; layer ACLs need separate reads."""
     import re
     if not controller_key or not re.fullmatch(r'[a-zA-Z0-9_-]{1,100}', service):
         raise ValueError('invalid controller or service')
     path = '/api/v1/admin/services/' + urllib.parse.quote(service, safe='') + '/settings'
-    body, evidence = _controller_json(base_url, path, controller_key, timeout=timeout)
+    body, evidence = _controller_json(base_url, path, controller_key, timeout=timeout, sensitive_values=sensitive_values)
     data = body.get('data')
     if (body.get('success') is not True or not isinstance(data, dict) or data.get('serviceName') != service or
         not isinstance(data.get('enabledProtocols'), list) or not isinstance(data.get('accessPolicy'), dict)):
@@ -154,7 +174,8 @@ def observe_service_settings(base_url: str, service: str, controller_key: str, *
     return {'service': service, 'settings': data, 'evidence': evidence}
 
 
-def _controller_json(base_url: str, path: str, key: str, *, method: str = 'GET', timeout: float = 10) -> tuple[dict, dict]:
+def _controller_json(base_url: str, path: str, key: str, *, method: str = 'GET', timeout: float = 10,
+                     sensitive_values: tuple[str, ...] = ()) -> tuple[dict, dict]:
     import os
     import time
     require_loopback(base_url)
@@ -178,7 +199,7 @@ def _controller_json(base_url: str, path: str, key: str, *, method: str = 'GET',
         text = raw.decode('utf-8')
     except UnicodeDecodeError as exc:
         raise ValueError('controller observation is not UTF-8') from exc
-    secrets = [key, *(os.environ.get(name, '') for name in (
+    secrets = [key, *sensitive_values, *(os.environ.get(name, '') for name in (
         'E2E_API_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY',
         'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
         'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
@@ -186,6 +207,7 @@ def _controller_json(base_url: str, path: str, key: str, *, method: str = 'GET',
     if Redactor(sensitive_values=secrets).text(text) != text:
         raise ValueError('controller observation disclosed its credential')
     body = json.loads(raw)
+    reject_embedded_secrets(body, secrets)
     if not isinstance(body, dict) or body.get('error') or body.get('success') is False:
         raise ValueError('controller observation failed')
     return body, {'method': method, 'url': url, 'status': status, 'started_at': started,
@@ -217,7 +239,8 @@ def same_reopened_envelope(saved: object, reopened: object) -> bool:
     return without_time(saved) == without_time(reopened)
 
 
-def reopen_saved_map(base_url: str, item_id: str, version_id: str, controller_key: str, *, timeout: float = 10) -> dict:
+def reopen_saved_map(base_url: str, item_id: str, version_id: str, controller_key: str, *, timeout: float = 10,
+                     sensitive_values: tuple[str, ...] = ()) -> dict:
     """Reopen an existing version and corroborate the resulting draft by fresh reads.
 
     This creates a draft on the disposable trial stack. Call only after the
@@ -230,12 +253,13 @@ def reopen_saved_map(base_url: str, item_id: str, version_id: str, controller_ke
     except (TypeError, ValueError, AttributeError) as exc:
         raise ValueError('map version identity invalid') from exc
     root = f'/api/v1/studio/content-items/{item}/versions/{version}'
-    saved, first = _controller_json(base_url, root, controller_key, timeout=timeout)
+    saved, first = _controller_json(base_url, root, controller_key, timeout=timeout, sensitive_values=sensitive_values)
     source = saved.get('data')
     if (not isinstance(source, dict) or source.get('itemId') != item or source.get('versionId') != version or
         not isinstance(source.get('envelope'), dict) or source['envelope'].get('family') != 'map'):
         raise ValueError('saved map version observation incomplete')
-    reopened, second = _controller_json(base_url, root + '/reopen', controller_key, method='POST', timeout=timeout)
+    reopened, second = _controller_json(base_url, root + '/reopen', controller_key, method='POST', timeout=timeout,
+                                        sensitive_values=sensitive_values)
     draft = reopened.get('data')
     if not isinstance(draft, dict):
         raise ValueError('reopen did not create a draft')
@@ -243,7 +267,8 @@ def reopen_saved_map(base_url: str, item_id: str, version_id: str, controller_ke
         draft_id = str(UUID(draft.get('draftId')))
     except (TypeError, ValueError, AttributeError) as exc:
         raise ValueError('reopen draft identity invalid') from exc
-    observed, third = _controller_json(base_url, f'/api/v1/studio/package-drafts/{draft_id}', controller_key, timeout=timeout)
+    observed, third = _controller_json(base_url, f'/api/v1/studio/package-drafts/{draft_id}', controller_key,
+                                       timeout=timeout, sensitive_values=sensitive_values)
     fresh = observed.get('data')
     if not isinstance(fresh, dict):
         raise ValueError('reopened map draft read missing')
@@ -351,7 +376,8 @@ def compare_source_geometry(project: str, compose_file: str, table: str, feature
             'response_body_b64': base64.b64encode(raw).decode('ascii')}
 
 
-def observe_metadata_security(project: str, compose_file: str, services: list[str], *, timeout: float = 30) -> dict:
+def observe_metadata_security(project: str, compose_file: str, services: list[str], *, timeout: float = 30,
+                              sensitive_values: tuple[str, ...] = ()) -> dict:
     """Read scoped metadata security values and links in one SQL snapshot.
 
     A null policy is retained as null, never interpreted as a protective ACL.
@@ -411,11 +437,12 @@ def observe_metadata_security(project: str, compose_file: str, services: list[st
         raise ValueError('metadata security read exceeds limit')
     from client import Redactor
     import os
-    secrets = [os.environ.get(name, '') for name in ('E2E_API_KEY', 'OPS_SMOKE_OPERATOR_KEY',
-               'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY')]
+    secrets = [*sensitive_values, *(os.environ.get(name, '') for name in ('E2E_API_KEY', 'OPS_SMOKE_OPERATOR_KEY',
+               'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY'))]
     if Redactor(sensitive_values=secrets).text(completed.stdout) != completed.stdout:
         raise ValueError('metadata observation disclosed credential')
     doc = json.loads(raw)
+    reject_embedded_secrets(doc, secrets)
     def contains_sensitive_metadata(value):
         if isinstance(value, dict):
             return any(re.search(r'(?i)password|secret|token|authorization|api.?key', str(key)) or

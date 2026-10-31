@@ -32,3 +32,8 @@ def test_loopback_validation_and_redirect_refusal():
         server.shutdown()
         thread.join()
         server.server_close()
+def test_secret_screen_rejects_nested_and_percent_encoded_credentials():
+    import pytest
+    from local_http import reject_embedded_secrets
+    with pytest.raises(ValueError, match='credential'):
+        reject_embedded_secrets({'data': ['prefix operator%252Dsecret suffix']}, ('operator-secret',))

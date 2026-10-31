@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Callable
 
-from local_http import open_local, require_layer_path, require_loopback
+from local_http import open_local, reject_embedded_secrets, require_layer_path, require_loopback
 
 
 class ProbeFailure(ValueError):
@@ -275,7 +275,8 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
 
 
 def readback_writes(base_url: str, layer_path: str, controller_key: str,
-                    object_id_field: str, marker_field: str, ids: list[int], *, timeout: float = 3.0) -> dict:
+                    object_id_field: str, marker_field: str, ids: list[int], *, timeout: float = 3.0,
+                    sensitive_values: tuple[str, ...] = ()) -> dict:
     """Read acknowledged IDs from the live API using the controller principal.
 
     An empty feature result is a missing write. A malformed or failed response is
@@ -306,7 +307,18 @@ def readback_writes(base_url: str, layer_path: str, controller_key: str,
             status = response.status
         if len(raw) > 2_000_000:
             raise ValueError("write readback exceeds size limit")
+        from client import Redactor
+        import os
+        sensitive = [controller_key, *sensitive_values, *(os.environ.get(name, '') for name in (
+            'E2E_API_KEY', 'OPS_SMOKE_OPERATOR_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY',
+            'TERMINAL_MODEL_API_KEY', 'HONUA_CANARY_AWS_ACCESS_KEY_ID',
+            'HONUA_CANARY_AWS_SECRET_ACCESS_KEY', 'HONUA_CANARY_AWS_SESSION_TOKEN',
+            'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED'))]
+        decoded = raw.decode('utf-8')
+        if Redactor(sensitive_values=sensitive).text(decoded) != decoded:
+            raise ValueError('write readback disclosed a credential')
         body = json.loads(raw)
+        reject_embedded_secrets(body, sensitive)
         if (not isinstance(body, dict) or body.get("error") or body.get("exceededTransferLimit") is True or
             not isinstance(body.get("features"), list) or len(body['features']) > len(batch)):
             raise ValueError("invalid write readback")

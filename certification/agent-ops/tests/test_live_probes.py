@@ -15,6 +15,8 @@ class FeatureHandler(BaseHTTPRequestHandler):
     features = {}
     lock = threading.Lock()
     fail_reads = False
+    echo_key = False
+    echo_other = ''
 
     def log_message(self, *_args):
         pass
@@ -30,6 +32,10 @@ class FeatureHandler(BaseHTTPRequestHandler):
                                      for oid in ids if oid in self.features]}
             else:
                 body = {"count": len(self.features)}
+            if self.echo_key:
+                body['echo'] = self.headers.get('X-API-Key')
+            if self.echo_other:
+                body['other'] = self.echo_other
         self.send_response(200)
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
@@ -48,6 +54,8 @@ class FeatureHandler(BaseHTTPRequestHandler):
 def test_real_http_samples_and_missing_committed_write():
     FeatureHandler.features = {}
     FeatureHandler.fail_reads = False
+    FeatureHandler.echo_key = False
+    FeatureHandler.echo_other = ''
     server = ThreadingHTTPServer(("127.0.0.1", 0), FeatureHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -80,6 +88,15 @@ def test_real_http_samples_and_missing_committed_write():
         with pytest.raises(ValueError, match="cadence"):
             assess_traffic(sparse, readback)
         assert result["committed_writes"] >= 4
+        FeatureHandler.echo_key = True
+        with pytest.raises(ValueError, match='disclosed a credential'):
+            readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer", "controller", "objectid", "note", ids)
+        FeatureHandler.echo_key = False
+        FeatureHandler.echo_other = 'operator-secret-outside-environment'
+        with pytest.raises(ValueError, match='disclosed a credential'):
+            readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer", "controller", "objectid", "note", ids,
+                            sensitive_values=(FeatureHandler.echo_other,))
+        FeatureHandler.echo_other = ''
         assert {row["kind"] for row in record["samples"]} == {"read", "write", "writer"}
         assert all(row["finished_at"] >= row["started_at"] for row in record["samples"])
         # Restore can rewind a sequence: two acknowledged writes may have the
@@ -107,6 +124,8 @@ def test_real_http_samples_and_missing_committed_write():
         with pytest.raises(ValueError, match="incomplete"):
             assess_traffic(record, readback)
     finally:
+        FeatureHandler.echo_key = False
+        FeatureHandler.echo_other = ''
         server.shutdown()
         thread.join()
         server.server_close()

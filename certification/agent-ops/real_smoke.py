@@ -61,6 +61,7 @@ def main() -> None:
                                  compose_file=Path(os.environ['E2E_COMPOSE_FILE']),
                                  image_ref=os.environ['HONUA_SERVER_IMAGE'], authorize=authorize, retain=retain_credential)
         evidence['operator'] = operator.public_receipt()
+        sensitive = (key, operator.secret)
         if os.environ.get('OPS_SMOKE_MAP') == '1':
             from real_map import prepare_map
             os.environ['OPS_SMOKE_OPERATOR_KEY'] = operator.secret
@@ -77,7 +78,7 @@ def main() -> None:
         expected = {'parcels': 6, 'flood_zones': 1, 'shelters': 5}
         for name, binding in town['layers'].items():
             path = f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}"
-            observed = observe_layer(base, path, key)
+            observed = observe_layer(base, path, key, sensitive_values=sensitive)
             evidence['layers'][name] = observed
             if observed['count'] != expected[name]:
                 raise RuntimeError('live town feature count mismatch')
@@ -102,7 +103,7 @@ def main() -> None:
                 raise RuntimeError('live town field types differ from source fixture')
         station = town['stations']
         station_path = f"/rest/services/{station['service']}/FeatureServer/{station['layerId']}"
-        evidence['layers']['stations'] = observe_layer(base, station_path, key)
+        evidence['layers']['stations'] = observe_layer(base, station_path, key, sensitive_values=sensitive)
         station_observation = evidence['layers']['stations']
         metadata = json.loads(base64.b64decode(station_observation['evidence'][0]['body_b64']))
         if metadata.get('spatialReference', {}).get('wkid') != 3338:
@@ -130,7 +131,7 @@ def main() -> None:
                 raise RuntimeError('projected station values or geometry mismatch')
         mixed = town['mixed_schema']
         mixed_snapshot = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'],
-                                          [(mixed['schema'], mixed['table'])])
+                                          [(mixed['schema'], mixed['table'])], sensitive_values=sensitive)
         evidence['mixed_schema'] = mixed_snapshot
         mixed_value = mixed_snapshot[f"{mixed['schema']}.{mixed['table']}"]
         expected_types = {'permit_id': 'text', 'year': 'integer', 'fee': 'numeric',
@@ -142,21 +143,23 @@ def main() -> None:
         def server_snapshot():
             bindings = {**town['layers'], 'stations': station}
             return {name: observe_layer(base,
-                    f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}", key)
+                    f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}", key,
+                    sensitive_values=sensitive)
                     for name, binding in bindings.items()}
         def layer_data(snapshot):
             return {name: {field: observed[field] for field in ('count', 'object_id_field', 'fields', 'features')}
                     for name, observed in snapshot.items()}
         def service_settings():
             services = {binding['service'] for binding in town['layers'].values()} | {station['service']}
-            return {service: observe_service_settings(base, service, key) for service in sorted(services)}
+            return {service: observe_service_settings(base, service, key, sensitive_values=sensitive) for service in sorted(services)}
         def settings_data(snapshot):
             return {name: value['settings'] for name, value in snapshot.items()}
         if os.environ.get('OPS_SMOKE_EXPLICIT_ACL') == '1':
             evidence['service_settings'] = service_settings()
         def metadata_security():
             services = sorted({binding['service'] for binding in town['layers'].values()} | {station['service']})
-            observation = observe_metadata_security(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], services)
+            observation = observe_metadata_security(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], services,
+                                                    sensitive_values=sensitive)
             graph = observation['security']
             by_id = {service['id']: service['name'] for service in graph['services']}
             for binding in [*town['layers'].values(), station]:
@@ -183,14 +186,15 @@ def main() -> None:
             tables = sorted({(binding['schema'], binding['table']) for binding in town['layers'].values()} |
                             {(station['schema'], station['table']), (mixed['schema'], mixed['table']),
                              ('honua_data', 'e2e_src_fs'), ('honua_data', 'maui_zoning')})
-            before_db = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
+            before_db = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables,
+                                         sensitive_values=sensitive)
             evidence['before_database'] = before_db
             action_out = Path(os.environ['OPS_SMOKE_OUT']) / 'actions'
             action_out.mkdir(mode=0o700)
             controller = RealController(project=os.environ['COMPOSE_PROJECT_NAME'],
                                         compose_file=Path(os.environ['E2E_COMPOSE_FILE']), output=action_out,
                                         prior_image=os.environ['HONUA_SERVER_IMAGE'], candidate_image=candidate,
-                                        base_url=base)
+                                        base_url=base, sensitive_values=sensitive)
             evidence['prior_schema'] = controller.apply('ops_compose_schema', {})
             if (evidence['prior_schema'].get('ok') is not True or
                 evidence['prior_schema'].get('schema', 142) >= 142):
@@ -223,14 +227,15 @@ def main() -> None:
         ids = [row['object_id'] for row in samples['samples']
                if row['kind'] in ('write', 'writer') and row['ok']]
         # The public write probe uses no credential; readback uses the controller key.
-        readback = readback_writes(base, path, key, 'objectid', 'note', ids)
+        readback = readback_writes(base, path, key, 'objectid', 'note', ids, sensitive_values=sensitive)
         evidence['readback'] = readback
         result = assess_traffic(samples, readback)
         evidence['assessment'] = result
         if not result['rpo_zero']:
             raise RuntimeError('live probe lost an acknowledged write')
         if controller:
-            after_upgrade = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
+            after_upgrade = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables,
+                                             sensitive_values=sensitive)
             evidence['upgraded_database'] = after_upgrade
             def data_only(snapshot):
                 return {name: (value['fields'], value['rows']) for name, value in snapshot.items()}
@@ -255,7 +260,8 @@ def main() -> None:
             if (evidence['restored_schema'].get('ok') is not True or
                 evidence['restored_schema'].get('schema') != evidence['prior_schema']['schema']):
                 raise RuntimeError('backup restore did not return the prior schema')
-            after_restore = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
+            after_restore = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables,
+                                             sensitive_values=sensitive)
             evidence['restored_database'] = after_restore
             if data_only(before_db) != data_only(after_restore):
                 raise RuntimeError('seeded data changed on restore')
@@ -279,7 +285,7 @@ def main() -> None:
                                            capture_output=True, text=True, timeout=15, check=True)
                 fault = MigrationFault(controller.project, controller.compose_file,
                                        pending_migrations=(pending,), candidate_image_id=inspected.stdout.strip(),
-                                       timeout=100)
+                                       timeout=100, sensitive_values=sensitive)
                 evidence['fault_arm'] = fault.arm()
                 fault_result = {}
                 def fire_fault():
@@ -303,6 +309,11 @@ def main() -> None:
                         evidence['fault'] = fault_result
                     if evidence['interrupted_upgrade'].get('ok') is not False or not fault_result.get('receipt'):
                         raise RuntimeError('migration fault did not fire during the update')
+                    evidence['fault_diagnostics'] = controller.apply(
+                        'terminal_command', {'command': 'docker compose logs server'})
+                    if (evidence['fault_diagnostics'].get('ok') is not True or
+                        evidence['fault_diagnostics'].get('empty') is not False):
+                        raise RuntimeError('faulted service logs were not observed')
                     evidence['fault_restore'] = controller.apply(
                         'ops_compose_action', {'operation': 'restore_backup', 'backup_id': 'previous-release'})
                     if not evidence['fault_restore'].get('ok'):
@@ -313,13 +324,13 @@ def main() -> None:
                     evidence['fault_traffic'] = fault_samples
                 fault_ids = [row['object_id'] for row in fault_samples['samples']
                              if row['kind'] in ('write', 'writer') and row['ok']]
-                fault_readback = readback_writes(base, path, key, 'objectid', 'note', fault_ids)
+                fault_readback = readback_writes(base, path, key, 'objectid', 'note', fault_ids, sensitive_values=sensitive)
                 evidence['fault_readback'] = fault_readback
                 # Writes acknowledged after the backup can be lost by restore;
                 # retain that observation instead of assuming an RPO of zero.
                 evidence['fault_assessment'] = assess_traffic(fault_samples, fault_readback)
                 evidence['fault_restored_database'] = observe_database(
-                    os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
+                    os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables, sensitive_values=sensitive)
                 if data_only(before_db) != data_only(evidence['fault_restored_database']):
                     raise RuntimeError('seeded data changed after interrupted migration restore')
                 evidence['fault_restored_layers'] = server_snapshot()
@@ -339,15 +350,17 @@ def main() -> None:
         if 'map_fixture' in evidence:
             from real_map import observe_public_source, same_public_source
             fixture = evidence['map_fixture']
-            evidence['reopened_map'] = reopen_saved_map(base, fixture['item_id'], fixture['version_id'], key)
+            evidence['reopened_map'] = reopen_saved_map(base, fixture['item_id'], fixture['version_id'], key,
+                                                       sensitive_values=sensitive)
             if not same_reopened_envelope(fixture['envelope'], evidence['reopened_map']['envelope']):
                 raise RuntimeError('reopened saved map changed')
             evidence['operator_reopened_map'] = reopen_saved_map(
-                base, fixture['item_id'], fixture['version_id'], operator.secret)
+                base, fixture['item_id'], fixture['version_id'], operator.secret, sensitive_values=sensitive)
             if not same_reopened_envelope(fixture['envelope'], evidence['operator_reopened_map']['envelope']):
                 raise RuntimeError('operator reopened map changed')
             parcel = town['layers']['parcels']
-            evidence['reopened_map_source'] = observe_public_source(base, parcel['service'], parcel['layerId'])
+            evidence['reopened_map_source'] = observe_public_source(base, parcel['service'], parcel['layerId'],
+                                                                    sensitive_values=sensitive)
             if not same_public_source(fixture['public_source'], evidence['reopened_map_source']):
                 raise RuntimeError('reopened map source content changed')
         evidence['cleanup'] = 'pending'

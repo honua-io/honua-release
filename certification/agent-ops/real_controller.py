@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import urllib.request
 from dataclasses import dataclass, field
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from ga_actions import _PROJECT, invoke
-from local_http import open_local, require_loopback
+from local_http import open_local, reject_embedded_secrets, require_loopback
 
 
 def _contains_secret_like_text(text: str) -> bool:
@@ -40,6 +41,7 @@ class RealController:
     phase: str = "prior"
     execute: Callable = invoke
     audit: list[dict] = field(default_factory=list)
+    sensitive_values: tuple[str, ...] = field(default_factory=tuple, repr=False)
 
     def _invoke(self, operation: str) -> dict:
         return self.execute(operation=operation, project=self.project, compose_file=self.compose_file,
@@ -58,12 +60,16 @@ class RealController:
                                     capture_output=True, text=True, timeout=15, check=False)
             if result.returncode:
                 return {'ok': False, 'error': 'logs-unavailable'}
-            secrets = [os.environ.get(name, '') for name in (
+            secrets = [*self.sensitive_values, *(os.environ.get(name, '') for name in (
                 'E2E_API_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY',
                 'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
                 'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
-            )]
+            ))]
             text = Redactor(sensitive_values=secrets).text(result.stdout)[-16000:]
+            try:
+                reject_embedded_secrets(text, secrets)
+            except ValueError:
+                return {'ok': False, 'error': 'logs-sensitive'}
             if _contains_secret_like_text(text):
                 return {'ok': False, 'error': 'logs-sensitive'}
             return {'ok': True, 'log': text, 'empty': not bool(text),
@@ -102,19 +108,57 @@ class RealController:
             return {'ok': False, 'error': 'metrics-unavailable'}
         if status != 200 or len(raw) > 65536:
             return {'ok': False, 'error': 'metrics-unavailable'}
-        secrets = [os.environ.get(name, '') for name in (
+        secrets = [*self.sensitive_values, *(os.environ.get(name, '') for name in (
             'E2E_API_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY',
             'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
             'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
-        )]
+        ))]
         text = Redactor(sensitive_values=secrets).text(raw.decode('utf-8', 'replace'))
+        try:
+            reject_embedded_secrets(text, secrets)
+        except ValueError:
+            return {'ok': False, 'error': 'metrics-sensitive'}
         if _contains_secret_like_text(text):
             return {'ok': False, 'error': 'metrics-sensitive'}
         return {'ok': True, 'metrics': text, 'metrics_sha256': hashlib.sha256(text.encode()).hexdigest()}
 
+    def _terminal_read(self, command: str) -> dict:
+        """Run a narrow, read-only Compose command on the bound trial project."""
+        if not isinstance(command, str) or not _PROJECT.fullmatch(self.project) or not self.compose_file.is_file():
+            raise ValueError('invalid diagnostic command or project')
+        try:
+            words = shlex.split(command)
+        except ValueError:
+            return {'ok': False, 'error': 'invalid-command'}
+        if words == ['docker', 'compose', 'logs', 'server']:
+            result = self._diagnose(logs=True)
+            if result.get('ok'):
+                result['scope'] = 'last 200 server log lines, bounded to 16000 characters'
+            return result
+        if words != ['docker', 'compose', 'ps']:
+            return {'ok': False, 'error': 'not-real'}
+        result = subprocess.run(['docker', 'compose', '-p', self.project, '-f',
+                                 str(self.compose_file.resolve()), 'ps', '--format', 'json'],
+                                capture_output=True, text=True, timeout=15, check=False)
+        if result.returncode or len(result.stdout.encode()) > 65536:
+            return {'ok': False, 'error': 'status-unavailable'}
+        from client import Redactor
+        secrets = [*self.sensitive_values, *(os.environ.get(name, '') for name in (
+            'E2E_API_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY',
+            'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
+            'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED'))]
+        status = Redactor(sensitive_values=secrets).text(result.stdout)
+        try:
+            reject_embedded_secrets(status, secrets)
+        except ValueError:
+            return {'ok': False, 'error': 'status-sensitive'}
+        if _contains_secret_like_text(status):
+            return {'ok': False, 'error': 'status-sensitive'}
+        return {'ok': True, 'status': status, 'status_sha256': hashlib.sha256(status.encode()).hexdigest()}
+
     def apply(self, tool: str, arguments: dict) -> dict:
         started = time.time()
-        known = {'ops_compose_schema', 'ops_compose_action'}
+        known = {'ops_compose_schema', 'ops_compose_action', 'terminal_command'}
         tool_name = tool if isinstance(tool, str) and tool in known else 'unknown-tool'
         tool_digest = hashlib.sha256(str(tool).encode()).hexdigest()
         event = {"tool": tool_name, "tool_sha256": tool_digest, "arguments": None,
@@ -125,7 +169,12 @@ class RealController:
             event['arguments_sha256'] = hashlib.sha256(encoded).hexdigest()
             if not isinstance(arguments, dict):
                 raise ValueError("tool arguments must be an object")
-            if tool == "ops_compose_schema" and not arguments:
+            if tool == 'terminal_command' and set(arguments) == {'command'}:
+                event['effect'] = 'unclassified'
+                result = self._terminal_read(arguments['command'])
+                if result.get('ok') is True:
+                    event['effect'] = 'read'
+            elif tool == "ops_compose_schema" and not arguments:
                 result = self._invoke("schema")
             elif tool == "ops_compose_action":
                 operation = arguments.get("operation")
@@ -170,7 +219,7 @@ class RealController:
             event["receipt"] = {key: result[key] for key in (
                 "ok", "error", "operation", "project", "gate_sha256", "compose_sha256",
                 "exit_code", "backup_sha256", "runtime_image_ids", "schema",
-                "ready", "http_status", "log_sha256", "metrics_sha256",
+                "ready", "http_status", "log_sha256", "metrics_sha256", "status_sha256",
             ) if key in result}
             return result
         except Exception as exc:
