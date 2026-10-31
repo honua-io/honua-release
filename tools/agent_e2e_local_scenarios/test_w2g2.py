@@ -146,3 +146,50 @@ def test_p07_rejects_incomplete_catalog_response(tmp_path):
         return {row.assertion_id for row in scenario.observe(stack, None, 'A')}
     assert 'catalog.exact' in observe(False)
     assert 'catalog.exact' not in observe(True)
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_p07_full_runner_with_fake_candidate(tmp_path, missing):
+    import json
+    from agent_e2e_local_api import Seeded
+    from agent_e2e_local_runner import execute_case
+    from agent_e2e_local_scenarios.P07 import P07
+    from test_agent_e2e_local_runner import Candidate, FakeModel, FakeRuntime, DIGEST, serve
+
+    class CatalogCandidate(Candidate):
+        TOOLS = [{'name': 'honua_list_layers', 'description': 'List layers',
+                  'inputSchema': {'type': 'object', 'properties': {}}}]
+        def mcp(self, message, principal):
+            if message.get('method') == 'tools/call' and message['params']['name'] == 'honua_list_layers':
+                names = ['parcels', 'flood_zones', 'shelters', 'countries']
+                if missing:
+                    names.pop()
+                return {'content': [], 'isError': False, 'structuredContent': {
+                    'layers': [{'serviceName': name, 'name': name} for name in names],
+                    'offset': 0, 'hasMore': False, 'layerCount': len(names), 'totalCount': len(names)}}
+            return super().mcp(message, principal)
+
+    class FakeP07(P07):
+        def seed(self, stack, variant):
+            for name in ('parcels', 'flood_zones', 'shelters', 'countries'):
+                stack.extra['recorder'].json('p07-' + name.replace('_', '-') + '-publish-submit',
+                    'POST', '/api/v1/operations/service.publish/submit', {'serviceName': name})
+            return Seeded({'variant': variant})
+
+    candidate = CatalogCandidate()
+    server = serve(candidate)
+    candidate.base_url = f'http://127.0.0.1:{server.server_address[1]}'
+    try:
+        actions = [json.dumps({'kind': 'tool_call', 'tool': 'honua_list_layers', 'arguments': {}}),
+                   json.dumps({'kind': 'final', 'answer': 'The catalog is available.'})]
+        model = FakeModel(actions)
+        runtime = FakeRuntime(candidate.base_url, model, tmp_path)
+        case = {'prompts': {'A': 'Which layers can I use?'},
+                'assertions': ['catalog.exact', 'tenant.denied'], 'clarifications': []}
+        receipt = execute_case(case_id='P07:A:local-docker', scenario=FakeP07(), variant='A',
+                               case=case, candidate_digest=DIGEST, runtime=runtime)
+        assert [row['status'] for row in receipt['assertions']] == [
+            'fail' if missing else 'pass', 'excluded'], json.dumps(receipt, indent=2)
+    finally:
+        server.shutdown()
+        server.server_close()
