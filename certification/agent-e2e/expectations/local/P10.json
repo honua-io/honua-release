@@ -1,0 +1,287 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P10",
+  "derivation": "filter.exact from corpus/oracles/town-<variant>.json (openCapacityOver50Ids) via oracle.fixture_expectation; source-content.unchanged is the frozen shelters layer of corpus/town-<variant>/shelters.3857.geojson sorted by source_id (same values as expectations/p10-local-docker.json). Projections and their controller reads are frozen here; the runner scores only these.",
+  "roles": [
+    {
+      "role": "seeded:service:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/layerId"
+    }
+  ],
+  "projections": {
+    "filter.exact": {
+      "spec": {
+        "object": {
+          "resourceIds": {
+            "featureQueryIds": "p10-replay-query",
+            "service": {
+              "role": "seeded:service:shelters"
+            },
+            "layer": {
+              "role": "seeded:layer:shelters"
+            }
+          }
+        }
+      },
+      "reads": {
+        "p10-replay-query": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "replayOfModelAction": true
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "shelters",
+            "before": "p10-source-before",
+            "after": "p10-source-after",
+            "resource": [
+              "seeded:service:shelters",
+              "seeded:layer:shelters"
+            ]
+          }
+        ]
+      },
+      "reads": {
+        "p10-source-before": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p10-source-after": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        }
+      }
+    }
+  },
+  "variants": {
+    "A": {
+      "filter.exact": {
+        "$fixture": {
+          "assertion": "filter.exact"
+        }
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s1",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "Kestrel Central",
+                    "source_id": "s1"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19400,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s2",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "Kestrel Central",
+                    "source_id": "s2"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -18800,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s3",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s3"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19100,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s4",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s4"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19700,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s5",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s5"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -20000,
+                      -4700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "B": {
+      "filter.exact": {
+        "$fixture": {
+          "assertion": "filter.exact"
+        }
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s101",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s101"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13300,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s102",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s102"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      14200,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s103",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s103"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13600,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s104",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s104"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13900,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s105",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s105"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13000,
+                      -7700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
