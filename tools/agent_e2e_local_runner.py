@@ -169,6 +169,13 @@ def read_logged_action(path: Path, digest: str) -> dict:
     return action
 
 
+class SessionInterrupted(Exception):
+    def __init__(self, category, progress):
+        super().__init__(category)
+        self.category = category
+        self.progress = progress
+
+
 def run_model_session(*, prompt, tool_catalog, complete, invoke, log_dir, max_turns, max_actions,
                       max_tokens, certification):
     """Drive one model context with the customer request and discovered MCP catalog.
@@ -195,33 +202,39 @@ def run_model_session(*, prompt, tool_catalog, complete, invoke, log_dir, max_tu
     os.chmod(log_dir, 0o700)
     actions, hashes, usages, provenance = [], [], [], []
     final = None
+    def stop(category):
+        raise SessionInterrupted(category, {'actions': list(actions), 'modelVisibleDigests': list(hashes),
+                                            'usage': list(usages), 'provenance': list(provenance), 'nudges': 0})
     for turn in range(max_turns):
         # CandidateProxyClient serializes messages with json.dumps defaults. Hash
         # exactly that model-visible JSON value, including the system/tool list,
         # all user turns, and prior assistant turns, before the call.
         visible = json.dumps(messages).encode('utf-8')
         hashes.append('sha256:' + hashlib.sha256(visible).hexdigest())
-        content, usage, _elapsed, proof = complete(messages, {**certification, 'actionId': str(turn + 1)})
+        try:
+            content, usage, _elapsed, proof = complete(messages, {**certification, 'actionId': str(turn + 1)})
+        except Exception:
+            stop('infrastructure')
         usages.append(usage)
         provenance.append(proof)
         if sum(int(item.get('total_tokens') or 0) for item in usages) > max_tokens:
-            raise ValueError('model token budget exceeded')
+            stop('model')
         try:
             selected = json.loads(content)
         except (TypeError, ValueError):
-            raise ValueError('model response is not a JSON object') from None
+            stop('model')
         if not isinstance(selected, dict):
-            raise ValueError('model response is not a JSON object')
+            stop('model')
         if selected.get('kind') == 'final':
             if set(selected) != {'kind', 'answer'} or not isinstance(selected['answer'], str) or not selected['answer'].strip():
-                raise ValueError('invalid final answer')
+                stop('model')
             final = selected['answer']
             break
         if (set(selected) != {'kind', 'tool', 'arguments'} or selected.get('kind') != 'tool_call'
                 or selected.get('tool') not in names or not isinstance(selected.get('arguments'), dict)):
-            raise ValueError('invalid customer tool call')
+            stop('model')
         if len(actions) >= max_actions:
-            raise ValueError('model action budget exceeded')
+            stop('model')
         raw = action_bytes(selected)
         digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
         path = log_dir / f'action-{len(actions) + 1:04d}.json'
@@ -230,13 +243,91 @@ def run_model_session(*, prompt, tool_catalog, complete, invoke, log_dir, max_tu
             output.write(raw)
             output.flush()
             os.fsync(output.fileno())
-        result = invoke(selected['tool'], selected['arguments'])
-        status = 'fail' if result.get('isError') is True else 'pass'
-        actions.append({'digest': digest, 'resultDigest': 'sha256:' + hashlib.sha256(action_bytes(result)).hexdigest(),
-                        'status': status, 'logPath': str(path)})
+        action_record = {'digest': digest, 'status': 'unknown', 'logPath': str(path)}
+        actions.append(action_record)
+        try:
+            result = invoke(selected['tool'], selected['arguments'])
+        except Exception:
+            stop('infrastructure')
+        action_record['status'] = 'fail' if result.get('isError') is True else 'pass'
+        action_record['resultDigest'] = 'sha256:' + hashlib.sha256(action_bytes(result)).hexdigest()
         messages.append({'role': 'assistant', 'content': content})
         messages.append({'role': 'user', 'content': json.dumps({'toolResult': result}, separators=(',', ':'))})
     if final is None:
-        raise ValueError('model did not provide a final answer within the turn limit')
+        stop('model')
     return {'finalAnswer': final, 'modelVisibleDigests': hashes, 'actions': actions,
             'usage': usages, 'provenance': provenance, 'nudges': 0}
+
+
+def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtime):
+    """Execute one case once using a runtime that owns the fresh stack lifecycle.
+
+    Runtime exceptions become infrastructure outcomes; no phase is retried.
+    Exceptions are represented by class, avoiding accidental credential disclosure.
+    """
+    from agent_e2e_local_api import RunRecord
+    receipt = {'caseId': case_id, 'candidateDigest': candidate_digest, 'attempt': 1,
+               'status': 'infrastructure', 'actions': [], 'modelVisibleDigests': [],
+               'assertions': [], 'infrastructure': []}
+    stack = seeded = None
+    try:
+        if variant not in ('A', 'B') or variant not in scenario.supported_variants:
+            raise ValueError('unsupported development variant')
+        if scenario.fault_plan(variant) is not None:
+            # Do not pretend a requested fault fired: explicit runtime support
+            # and event evidence are mandatory before attempting this case.
+            raise ValueError('fault injection is not implemented by this runtime')
+        stack = runtime.setup(case_id, candidate_digest, scenario.needs_approver())
+        seeded = scenario.seed(stack, variant)
+        session_count = scenario.sessions_required() if hasattr(scenario, 'sessions_required') else 1
+        if type(session_count) is not int or session_count not in (1, 2):
+            raise ValueError('unsupported session count')
+        sessions = []
+        for number in range(session_count):
+            # Each runtime call must create a new conversation context; the same
+            # stack is intentionally retained for a two-session case.
+            followup = prompt if number == 0 else sessions[-1]['finalAnswer']
+            session = runtime.session(stack, followup, number + 1)
+            sessions.append(session)
+            receipt['modelVisibleDigests'].extend(session['modelVisibleDigests'])
+            receipt['actions'].extend([{k: v for k, v in action.items() if k != 'logPath'}
+                                       for action in session['actions']])
+        run = RunRecord(agent_principal=runtime.agent_principal(stack), sessions=len(sessions),
+                        fault_events=(), resource_hints=tuple(runtime.resource_hints(stack)),
+                        final_answers=tuple(s['finalAnswer'] for s in sessions))
+        observations = observe_scenario(scenario, stack, seeded, variant, run)
+        receipt['assertions'] = score_assertions(runtime.assertions, observations, scenario.expected(variant))
+        receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1],
+            runtime.handoff_observations(stack, observations), receipt['assertions'])
+        receipt['nudges'] = sum(s.get('nudges', 0) for s in sessions)
+        receipt['usage'] = [usage for session in sessions for usage in session['usage']]
+        receipt['status'] = ('pass' if all(row['status'] == 'pass' for row in receipt['assertions'])
+                             and receipt['finalAnswerCheck']['status'] == 'pass' else 'fail')
+    except SessionInterrupted as exc:
+        progress = exc.progress
+        receipt['modelVisibleDigests'].extend(progress['modelVisibleDigests'])
+        receipt['actions'].extend([{k: v for k, v in action.items() if k != 'logPath'}
+                                   for action in progress['actions']])
+        receipt['usage'] = progress['usage']
+        receipt['nudges'] = progress['nudges']
+        if exc.category == 'model':
+            receipt['status'] = 'fail'
+            receipt['failure'] = {'phase': 'model-session', 'reason': 'invalid response or bound exceeded'}
+        else:
+            receipt['infrastructure'].append({'phase': 'model-session', 'errorType': 'SessionInterrupted'})
+    except Exception as exc:
+        receipt['infrastructure'].append({'phase': 'execution', 'errorType': type(exc).__name__})
+    finally:
+        if stack is not None:
+            if seeded is not None:
+                try:
+                    scenario.cleanup(stack, seeded)
+                except Exception as exc:
+                    receipt['status'] = 'infrastructure'
+                    receipt['infrastructure'].append({'phase': 'scenario-cleanup', 'errorType': type(exc).__name__})
+            try:
+                runtime.teardown(stack)
+            except Exception as exc:
+                receipt['status'] = 'infrastructure'
+                receipt['infrastructure'].append({'phase': 'stack-teardown', 'errorType': type(exc).__name__})
+    return receipt

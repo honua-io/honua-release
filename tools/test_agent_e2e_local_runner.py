@@ -99,3 +99,42 @@ def test_model_session_records_exact_visible_inputs_and_verified_actions(tmp_pat
         out.write(b'{}')
     with pytest.raises(ValueError):
         read_logged_action(entry['logPath'], entry['digest'])
+
+
+def test_case_does_not_retry_infrastructure_failure_and_cleans_stack():
+    from agent_e2e_local_runner import execute_case
+    class Scenario:
+        supported_variants = ('A', 'B')
+        def fault_plan(self, variant): return None
+        def needs_approver(self): return False
+        def seed(self, stack, variant): return 'seed'
+        def cleanup(self, stack, seeded): events.append('cleanup')
+    class Runtime:
+        def setup(self, *args): events.append('setup'); return 'stack'
+        def session(self, *args): events.append('session'); raise RuntimeError('private detail')
+        def teardown(self, stack): events.append('teardown')
+    events = []
+    result = execute_case(case_id='P10:A:local-docker', scenario=Scenario(), variant='A', prompt='request',
+                          candidate_digest='sha256:abc', runtime=Runtime())
+    assert result['status'] == 'infrastructure'
+    assert events == ['setup', 'session', 'cleanup', 'teardown']
+    assert result['infrastructure'] == [{'phase': 'execution', 'errorType': 'RuntimeError'}]
+    assert 'private detail' not in str(result)
+
+
+def test_uncertain_tool_execution_retains_attempt_without_retry(tmp_path):
+    from agent_e2e_local_runner import SessionInterrupted, run_model_session
+    import json
+    count = []
+    def complete(messages, certification):
+        return json.dumps({'kind': 'tool_call', 'tool': 'x', 'arguments': {}}), {'total_tokens': 1}, 0, {}
+    def invoke(name, arguments):
+        count.append(name)
+        raise TimeoutError()
+    with pytest.raises(SessionInterrupted) as error:
+        run_model_session(prompt='Request', tool_catalog=[{'name': 'x'}], complete=complete, invoke=invoke,
+            log_dir=tmp_path, max_turns=3, max_actions=3, max_tokens=20, certification={})
+    assert error.value.category == 'infrastructure'
+    assert count == ['x']
+    assert error.value.progress['actions'][0]['status'] == 'unknown'
+    assert len(error.value.progress['modelVisibleDigests']) == 1
