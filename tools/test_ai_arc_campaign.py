@@ -44,7 +44,10 @@ def adjudicate_later(tmp_path, decision, delay=0.3, run='local-docker-A1-001'):
     def write():
         time.sleep(delay)
         written.append(time.monotonic())
-        (tmp_path / 'adjudications' / (run + '.json')).write_text(json.dumps(decision))
+        target = tmp_path / 'adjudications' / (run + '.json')
+        staging = target.with_suffix('.tmp')
+        staging.write_text(json.dumps(decision))
+        staging.replace(target)
     threading.Thread(target=write, daemon=True).start()
     return written
 
@@ -175,3 +178,20 @@ def test_reserve_command_names_the_reserve_manifest(tmp_path, monkeypatch):
                    out=tmp_path, hosts=['h1'], per_host=1, common=[], wait_poll=0.01, max_wait=0.5)
     sets = [c[c.index('--goal-set') + 1] for c in seen]
     assert sets == ['primary', 'reserve']
+
+
+
+def test_a_partially_written_adjudication_is_read_on_a_later_pass(tmp_path):
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    path = tmp_path / 'adjudications' / 'local-docker-A1-001.json'
+    path.write_text('{"finding": "harn')                      # mid-write
+    log = []
+
+    def finish():
+        time.sleep(0.2)
+        path.write_text(json.dumps(GOOD))
+    threading.Thread(target=finish, daemon=True).start()
+    C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(1), out=tmp_path, hosts=['h1'], per_host=1,
+                   common=[], reserve_rows=RESERVE, wait_poll=0.01, max_wait=5,
+                   launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:r01']

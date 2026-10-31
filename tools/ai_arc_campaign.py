@@ -109,7 +109,10 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
         if not path.is_file():
             return False
-        decision = json.loads(path.read_text())
+        try:
+            decision = json.loads(path.read_text())
+        except ValueError:
+            return False      # still being written; read it on the next pass
         if decision.get('finding') != 'harness-fault':
             return True       # the run stays counted as it stands
         receipt_path = out / 'runs' / run_id.replace(':', '-') / 'trial-receipt.json'
