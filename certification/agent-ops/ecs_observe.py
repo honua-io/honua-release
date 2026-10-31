@@ -154,22 +154,65 @@ class DatabaseJournal:
         return [row[0] for row in rows]
 
 
-def open_controller_state(*, cluster: str, service: str, database_dsn: str):
-    """Open read-only ECS and PostgreSQL clients using only controller credentials.
-
-    The caller obtains the DSN from the controller's private cell state and must
-    close the returned database connection. No coordinates or secrets are logged.
-    """
-    if not isinstance(database_dsn, str) or not database_dsn:
+def _database_parameters(connection_string: str) -> dict:
+    """Parse the Npgsql secret emitted by the cell; require TLS to the cell DB."""
+    if not isinstance(connection_string, str) or not connection_string:
         raise ValueError('database connection missing')
+    fields = {}
+    for part in connection_string.split(';'):
+        if not part.strip():
+            continue
+        key, separator, value = part.partition('=')
+        key = key.strip().lower()
+        if not separator or key in fields:
+            raise ValueError('invalid database connection')
+        fields[key] = value.strip()
+    required = ('host', 'database', 'username', 'password')
+    if any(not fields.get(name) for name in required):
+        raise ValueError('invalid database connection')
+    port = fields.get('port', '5432')
+    if not port.isascii() or not port.isdigit() or not 1 <= int(port) <= 65535:
+        raise ValueError('invalid database port')
+    return {'host': fields['host'], 'port': int(port), 'dbname': fields['database'],
+            'user': fields['username'], 'password': fields['password'], 'sslmode': 'require',
+            'connect_timeout': 30, 'autocommit': True,
+            'options': '-c default_transaction_read_only=on'}
+
+
+def open_controller_state(*, cluster: str, service: str, database_dsn: str):
+    """Open clients using the cell controller's verified outputs and private DB secret.
+
+    The caller must close the returned journal connection. Secrets are never logged.
+    """
+    parameters = _database_parameters(database_dsn)
     import boto3
     import psycopg
     observer = EcsObserver(boto3.client('ecs', region_name=_REGION), cluster, service)
-    connection = psycopg.connect(database_dsn, autocommit=True,
-                                 options='-c default_transaction_read_only=on')
+    connection = psycopg.connect(**parameters)
     return observer, DatabaseJournal(connection)
 
 
 def controller_snapshot(ecs: EcsObserver, journal: DatabaseJournal) -> dict:
     """Independently read the deployed service and committed migration journal."""
     return {'ecs': ecs.task_digests(), 'journal': journal.scripts()}
+
+
+def open_cell_controller_state(target, *, open_state=open_controller_state):
+    """Bind reads to the already-provisioned target's private Terraform state.
+
+    The target must be the controller's provisioned object, never model input or
+    a public handoff. Its own methods read outputs and the DB secret in memory.
+    """
+    workdir = getattr(target, '_workdir', None)
+    if workdir is None or getattr(target, 'name', None) != 'aws-ecs':
+        raise ValueError('verified ECS target required')
+    def output(name):
+        result = target._tf(workdir, 'output', '-raw', name)
+        value = getattr(result, 'stdout', None)
+        if not isinstance(value, str) or not value.strip():
+            raise ObservationMissing('cell output')
+        return value.strip()
+    cluster = output('ecs_cluster_name')
+    service = output('ecs_service_name')
+    connection = target._connection_string()
+    return open_state(cluster=cluster, service=service, database_dsn=connection)

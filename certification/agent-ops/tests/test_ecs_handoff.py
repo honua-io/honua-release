@@ -106,3 +106,35 @@ def test_fake_model_proxy_approver_and_controller_readback(tmp_path):
     assert observed['ecs']['image_digest'] == 'sha256:' + 'a' * 64
     assert observed['journal'] == ['142.sql']
     manager.shutdown()
+
+
+def test_controller_database_connection_uses_cell_secret_and_read_only_tls():
+    from ecs_observe import _database_parameters
+    params = _database_parameters('Host=db.example;Port=5432;Database=honua;Username=reader;Password=hidden')
+    assert params['host'] == 'db.example' and params['dbname'] == 'honua'
+    assert params['sslmode'] == 'require' and 'read_only=on' in params['options']
+    with pytest.raises(ValueError): _database_parameters('Host=db;Host=other;Database=x;Username=x;Password=x')
+    with pytest.raises(ValueError): _database_parameters('Host=db;Database=x;Username=x')
+
+
+def test_cell_controller_binding_reads_target_outputs_and_private_connection():
+    from types import SimpleNamespace
+    from ecs_observe import open_cell_controller_state
+    class Target:
+        name = 'aws-ecs'
+        _workdir = '/private/cell'
+        def _tf(self, workdir, command, flag, name):
+            assert (workdir, command, flag) == ('/private/cell', 'output', '-raw')
+            return SimpleNamespace(stdout={'ecs_cluster_name': 'cell-cluster',
+                                           'ecs_service_name': 'cell-service'}[name])
+        def _connection_string(self): return 'private-cell-secret'
+    captured = {}
+    def open_state(**kwargs):
+        captured.update(kwargs)
+        return ('ecs', 'database')
+    assert open_cell_controller_state(Target(), open_state=open_state) == ('ecs', 'database')
+    assert captured == {'cluster': 'cell-cluster', 'service': 'cell-service',
+                        'database_dsn': 'private-cell-secret'}
+    target = Target()
+    target._workdir = None
+    with pytest.raises(ValueError): open_cell_controller_state(target, open_state=open_state)
