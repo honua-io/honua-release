@@ -21,10 +21,10 @@ ASSERTIONS = {
 @pytest.mark.parametrize('variant', ['A', 'B'])
 def test_runner_inventory_and_expectation_shape(scenario_id, variant):
     scenario = load_scenario(scenario_id)
-    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P03', 'P04', 'P05', 'P07') else ())
+    assert scenario.supported_variants == (('A', 'B') if scenario_id == 'P07' else ())
     assert scenario.fault_plan(variant) is None
     assert set(scenario.expected(variant)) == ASSERTIONS[scenario_id]
-    if scenario_id not in ('P03', 'P04', 'P05', 'P07'):
+    if scenario_id != 'P07':
         assert 'unsupported' in importlib.import_module('agent_e2e_local_scenarios.' + scenario_id).__doc__.lower()
 
 
@@ -52,10 +52,10 @@ def test_p06_seed_includes_survey_and_is_idempotent(monkeypatch, tmp_path):
         def upload(self, step, raw, **kwargs):
             calls.append(('upload', step, kwargs['table'], len(raw)))
             return {'fixture': True}
-        def sql(self, step, query):
-            import re
-            if step.endswith('-table'):
-                return [{'table_name': re.search(r"table_name = '([^']+)'", query).group(1)}]
+        def table_inventory(self, step, schema):
+            name = step.removeprefix('p06-').removesuffix('-table').replace('-', '_')
+            return [{'table_schema': schema, 'table_name': 'p06_case123_' + name}]
+        def table_rows(self, step, schema, table, columns):
             return [{'feature': True}]
 
     monkeypatch.setattr(operations, 'discover_tables', lambda *args: {})
@@ -233,9 +233,9 @@ def test_p03_records_the_same_unpaged_inventory_before_and_after(tmp_path, monke
         def json(self, *args):
             calls.append(args)
             return {'observation': {'httpStatus': 200, 'body': {'data': []}}}
-        def sql(self, step, query):
+        def table_inventory(self, step, schema):
             name = step.removeprefix('p03-').removesuffix('-table').replace('-', '_')
-            return [{'table_name': name}]
+            return [{'table_schema': schema, 'table_name': name}]
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder(), 'databaseHandoff': lambda name, schema: calls.append(('handoff', name, schema))})
     case = load_scenario('P03')
@@ -260,7 +260,7 @@ def test_p05_retains_only_the_last_matching_import_report(tmp_path):
         def action_result(self, step, action):
             calls.append((step, action.sequence))
             return SimpleNamespace(status=200, json={'result': {'structuredContent': {'success': False}}})
-        def sql(self, step, query): pass
+        def table_inventory(self, step, schema): return []
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     case = load_scenario('P05')
@@ -380,8 +380,8 @@ def test_p05_reads_only_a_safe_table_named_by_the_sealed_report(tmp_path):
         def action_result(self, step, action):
             return SimpleNamespace(status=200, json={'result': {'isError': False, 'structuredContent': {
                 'success': True, 'schema': 'honua_data', 'table': self.table, 'geometryColumn': 'geom'}}})
-        def sql(self, step, query):
-            if step == 'p05-import-rows': calls.append((step, query))
+        def table_inventory(self, step, schema): return []
+        def table_rows(self, step, schema, table, columns): calls.append((step, schema, table, columns))
     def observe(table):
         stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                       {'recorder': Recorder(table)})
@@ -389,7 +389,7 @@ def test_p05_reads_only_a_safe_table_named_by_the_sealed_report(tmp_path):
         from agent_e2e_local_api import Seeded
         case.observe(stack, Seeded({'variant': 'A'}), 'A')
     observe('imported_shelters')
-    assert len(calls) == 1 and 'FROM honua_data.imported_shelters' in calls[0][1]
+    assert len(calls) == 1 and calls[0][1:3] == ('honua_data', 'imported_shelters')
     observe('unsafe;drop')
     assert len(calls) == 1
 
@@ -405,15 +405,15 @@ def test_p04_only_reads_a_table_from_the_matching_sealed_input(tmp_path):
         def action_result(self, step, action):
             return SimpleNamespace(status=200, json={'result': {'isError': False, 'structuredContent': {
                 'success': True, 'schema': 'honua_data', 'table': 'imported_parcels', 'geometryColumn': 'geom'}}})
-        def sql(self, step, query):
-            if step.endswith('-rows'): calls.append((step, query))
+        def table_inventory(self, step, schema): return []
+        def table_rows(self, step, schema, table, columns): calls.append((step, schema, table, columns))
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     from agent_e2e_local_api import Seeded
     scenario = load_scenario('P04')
     assert [item.assertion_id for item in scenario.observe(stack, Seeded({'variant': 'A'}), 'A')] == ['features.exact', 'geometry.crs', 'source-content.unchanged']
     assert len(calls) == 1 and calls[0][0] == 'p04-parcels-rows'
-    assert 'FROM honua_data.imported_parcels' in calls[0][1]
+    assert calls[0][1:3] == ('honua_data', 'imported_parcels')
 
 
 def test_p03_checks_server_api_key_owner_before_probes(tmp_path):
@@ -443,7 +443,7 @@ def test_p06_records_agent_publications_for_later_role_binding(tmp_path):
     from agent_e2e_local_api import Seeded
     calls = []
     class Recorder:
-        def sql(self, step, query): calls.append(step)
+        def table_rows(self, step, schema, table, columns): calls.append(step)
         def json(self, *args): calls.append(args[0])
         def actions(self):
             return [SimpleNamespace(kind='tool_call', tool='honua_publish_service', arguments={'table': 'parcels'}),
@@ -463,7 +463,7 @@ def test_p06_records_agent_publications_for_later_role_binding(tmp_path):
                      'p06-shelters-publish', 'p06-shelters-describe']
 
 
-def test_p05_sql_projection_rejects_changed_feature_and_wrong_table():
+def test_p05_legacy_free_form_records_cannot_prove_features():
     import copy
     import hashlib
     import json
@@ -486,7 +486,7 @@ def test_p05_sql_projection_rejects_changed_feature_and_wrong_table():
         results = score_assertions(list(expected), observations, expected, records={'p05-import-rows': record},
                                    roles=roles, scenario_id='P05', frozen=frozen_projections(case, 'A'))
         return next(row['status'] for row in results if row['assertion'] == 'features.exact')
-    assert score(rows, 'imported_shelters') == 'pass'
+    assert score(rows, 'imported_shelters') == 'fail'
     changed = copy.deepcopy(rows)
     changed[0]['capacity'] = 999
     assert score(changed, 'imported_shelters') == 'fail'
@@ -499,22 +499,20 @@ def test_p05_fixture_and_inventory_seed_are_idempotent(tmp_path):
     sources = {'valid': (root / 'shelters.csv').read_text(), 'invalid': (root / 'invalid-rows.csv').read_text()}
     calls = []
     class Recorder:
-        def sql(self, step, query):
-            calls.append((step, query))
-            if step.startswith('p05-fixture-'):
-                return [{'content': sources[step.removeprefix('p05-fixture-')], 'srid': 4326}]
+        def table_inventory(self, step, schema):
+            calls.append((step, schema))
             return []
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     case = load_scenario('P05')
     first = case.seed(stack, 'A')
     assert case.seed(stack, 'A') == first
-    assert [step for step, _ in calls] == ['p05-table-baseline', 'p05-fixture-valid', 'p05-fixture-invalid']
+    assert [step for step, _ in calls] == ['p05-table-baseline']
     with pytest.raises(ValueError):
         case.seed(stack, 'B')
 
 
-def test_p04_sql_projection_rejects_changed_attributes_and_foreign_table():
+def test_p04_legacy_free_form_records_cannot_prove_features():
     import copy
     import hashlib
     import json
@@ -545,7 +543,7 @@ def test_p04_sql_projection_rejects_changed_attributes_and_foreign_table():
                                   expected, records=records, roles=roles, scenario_id='P04',
                                   frozen=frozen_projections(case, 'A'))
         return next(row['status'] for row in result if row['assertion'] == 'features.exact')
-    assert score() == 'pass'
+    assert score() == 'fail'
     assert score(mutated=True) == 'fail'
     assert score(wrong_table=True) == 'fail'
 
@@ -559,24 +557,20 @@ def test_p04_fixture_and_inventory_seed_are_idempotent(tmp_path):
     fixtures = {name: (root / 'corpus' / path).read_text() for name, path in zip(('parcels', 'flood-zones'), files)}
     calls = []
     class Recorder:
-        def sql(self, step, query):
+        def table_inventory(self, step, schema):
             calls.append(step)
-            if step.startswith('p04-fixture-'):
-                text = fixtures[step.removeprefix('p04-fixture-')]
-                srid = int(json.loads(text)['crs']['properties']['name'].split(':')[-1])
-                return [{'content': text, 'srid': srid}]
             return []
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     case = load_scenario('P04')
     assert case.seed(stack, 'A') == case.seed(stack, 'A')
-    assert calls == ['p04-table-baseline', 'p04-fixture-parcels', 'p04-fixture-flood-zones']
+    assert calls == ['p04-table-baseline']
     with pytest.raises(ValueError):
         case.seed(stack, 'B')
 
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
-def test_p04_crs_digest_rejects_changed_coordinates(variant):
+def test_p04_legacy_free_form_records_cannot_prove_crs(variant):
     import copy
     import hashlib
     import json
@@ -611,7 +605,7 @@ def test_p04_crs_digest_rejects_changed_coordinates(variant):
         result = score_assertions(list(expected), obs, expected, records=values, roles=roles,
                                   scenario_id='P04', frozen=frozen_projections(case, variant))
         return next(row['status'] for row in result if row['assertion'] == 'geometry.crs')
-    assert score(records) == 'pass'
+    assert score(records) == 'fail'
     bad = dict(records)
     step = 'p04-parcels-rows'
     rows = copy.deepcopy(records[step].json)
@@ -639,15 +633,13 @@ def test_p04_roles_bind_each_table_to_its_matching_input():
     actions = [{'tool': 'honua_ingest_dataset', 'status': 'pass', 'arguments': {'data': data},
                 'json': {'result': {'structuredContent': {'table': table}}}}
                for data, table in [('a', 'parcel'), ('b', 'flood')]]
-    roles = resolve_roles(load_roles('P04'), records, agent_principal='agent', action_results=actions)
-    assert roles['created:table:parcels'] == 'parcel' and roles['created:table:flood-zones'] == 'flood'
-    actions[1]['arguments']['data'] = 'unrelated'
-    with pytest.raises(ValueError, match='matched 0'):
+    # Legacy free-form SQL records cannot establish a complete inventory.
+    with pytest.raises(ValueError, match='reviewed enumeration'):
         resolve_roles(load_roles('P04'), records, agent_principal='agent', action_results=actions)
 
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
-def test_p05_report_and_crs_reject_wrong_rows_and_coordinates(variant):
+def test_p05_legacy_free_form_records_cannot_prove_report_or_crs(variant):
     import copy
     import hashlib
     import json
@@ -688,7 +680,7 @@ def test_p05_report_and_crs_reject_wrong_rows_and_coordinates(variant):
         out = score_assertions(list(expected), observations, expected, records=values, roles=roles, scenario_id='P05',
             frozen=frozen_projections(case, variant), model_actions={action_id: action}, customer_files={path: invalid})
         return {r['assertion']: r['status'] for r in out}
-    assert scores(records)['csv.invalid-reported'] == scores(records)['geometry.crs'] == 'pass'
+    assert scores(records)['csv.invalid-reported'] == scores(records)['geometry.crs'] == 'fail'
     bad = dict(records)
     wrong = copy.deepcopy(errors)
     wrong[1]['row'] = 1
@@ -783,45 +775,16 @@ def test_p06_query_and_permission_projections_reject_wrong_state():
     assert score(wrong)['service.write-denied'] == 'fail'
 
 
-def test_p06_preservation_rejects_mutation_and_wrong_table():
-    import copy
-    import hashlib
-    import json
+def test_p06_preservation_rejects_missing_structured_reads():
     from agent_e2e_local_api import Observation
-    from agent_e2e_local_recorder import Record
     from agent_e2e_local_runner import frozen_projections, score_assertions
-    from agent_e2e_local_scenarios.P06 import source_query
     case = load_scenario('P06')
     expected = case.expected('A')
-    roles = {'seeded:table:' + n: 'fixture_' + n for n in ('parcels', 'shelters', 'survey_points')}
-    records = {}
-    def record(step, phase, query, rows):
-        raw = json.dumps(rows).encode()
-        return Record(step, phase, 'sql', 'controller', 'owner', 'SELECT', query, 200, raw,
-                      'sha256:' + hashlib.sha256(raw).hexdigest())
-    for n in ('parcels', 'shelters', 'survey_points'):
-        features = oracle.fixture_expectation('A', 'features.exact', layer=n)['features']
-        rows = [{**f['properties'], 'feature_type': 'Feature', 'srid': 3857, 'geometry': f['geometry']}
-                for f in sorted(features, key=lambda f:f['properties']['source_id'])]
-        query = source_query({'schema': 'honua_data', 'table': 'fixture_' + n}, n)
-        for suffix, phase in [('before', 'seed'), ('after', 'observe')]:
-            step = 'p06-' + n.replace('_', '-') + '-source-' + suffix
-            records[step] = record(step, phase, query, rows)
-    def score(values):
-        result = score_assertions(list(expected), [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})],
-                                  expected, records=values, roles=roles, scenario_id='P06',
-                                  frozen=frozen_projections(case, 'A'))
-        return next(r['status'] for r in result if r['assertion'] == 'source-content.unchanged')
-    assert score(records) == 'pass'
-    step = 'p06-parcels-source-after'
-    old = records[step]
-    changed = copy.deepcopy(old.json)
-    changed[0]['owner'] = 'changed'
-    bad = dict(records)
-    bad[step] = record(step, 'observe', old.path, changed)
-    assert score(bad) == 'fail'
-    bad[step] = record(step, 'observe', old.path.replace('fixture_parcels', 'foreign'), old.json)
-    assert score(bad) == 'fail'
+    observations = [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
+    result = score_assertions(list(expected), observations, expected, records={}, roles={},
+                              scenario_id='P06', frozen=frozen_projections(case, 'A'))
+    assert next(row for row in result if row['assertion'] == 'source-content.unchanged')['status'] == 'fail'
+
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
 @pytest.mark.parametrize('page_size', [100, 1000])
@@ -861,20 +824,9 @@ def test_p06_pagination_uses_every_sealed_replay_and_rejects_missing_page(varian
         evaluate(spec, Context(records, roles, model_actions=actions))
 
 
-def test_import_fixture_identity_sql_is_accepted_by_core_allowlist():
-    from agent_e2e_local_runner import sql_allowlisted
+def test_free_form_fixture_identity_sql_is_refused_by_core():
+    from agent_e2e_local_runner import structured_sql_request
     for scenario_id in ('P04', 'P05'):
-        scenario = load_scenario(scenario_id)
-        for variant in ('A', 'B'):
-            class Recorder:
-                def sql(self, step, query):
-                    sql_allowlisted(query)
-                    if step.endswith('baseline'):
-                        return []
-                    import re
-                    value = re.match(r"SELECT '((?:[^']|'')*)' AS content, (\d+) AS srid FROM ", query, re.S)
-                    assert value
-                    return [{'content': value.group(1).replace("''", "'"), 'srid': int(value.group(2))}]
-            stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', '/tmp', 'sha256:fake',
-                          {'recorder': Recorder()})
-            scenario.seed(stack, variant)
+        assert load_scenario(scenario_id).supported_variants == ()
+        with pytest.raises(ValueError):
+            structured_sql_request({'op': 'sql', 'query': "SELECT 'fixture' AS content"})
