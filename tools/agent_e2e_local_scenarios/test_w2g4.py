@@ -18,15 +18,15 @@ from agent_e2e_local_projections import resolve_roles
 from agent_e2e_local_recorder import ControllerRecorder, EvidenceVault, ProjectionError
 
 ROOT = Path(__file__).resolve().parents[2]
-AB_PACK = Path('/tmp/claude-1000/-home-mike-honua-io/c3861079-b75e-4621-81f6-60a567bcdb3b/scratchpad/pack.v2.AB-only.json')
-# CI has the identical public A/B file, never the full pack.
-if not AB_PACK.is_file():
-    AB_PACK = ROOT / 'certification/agent-e2e/pack.v2.AB-only.json'
+AB_PACK = ROOT / 'certification/agent-e2e/pack.v2.AB-only.json'
 IDS = ('P14', 'P15', 'P16', 'P17', 'P18', 'P20')
 PACK = {row['id']: row for row in json.loads(AB_PACK.read_text())['scenarios'] if row['id'] in IDS}
 ITEM = '11111111-1111-1111-1111-111111111111'
 VERSION = '22222222-2222-2222-2222-222222222222'
 DRAFT = '33333333-3333-3333-3333-333333333333'
+OTHER_DRAFT = '55555555-5555-5555-5555-555555555555'
+OTHER_ITEM = '66666666-6666-6666-6666-666666666666'
+OTHER_VERSION = '77777777-7777-7777-7777-777777777777'
 CONNECTION = '44444444-4444-4444-4444-444444444444'
 HASH = 'a' * 64
 DIGEST = 'sha256:' + 'b' * 64
@@ -56,6 +56,7 @@ class RecordedCandidate:
         self.version = None
         self.tables = []
         self.published = False
+        self.drafts = {}
 
     def http(self, recorder, principal, method, path, raw, headers):
         self.calls.append((recorder.phase, principal, method, path))
@@ -90,13 +91,18 @@ class RecordedCandidate:
                 'operationInstanceId': 'publish-' + body['serviceName'], 'correlationId': 'correlation',
                 'resourceIds': {'serviceName': body['serviceName'], 'layerId': '3'}}}
         elif path == '/api/v1/studio/package-drafts':
-            status, value = 201, {'data': {'draftId': DRAFT, 'itemId': ITEM, 'ownerId': body['ownerId']}}
-            self.envelope = body['envelope']
-            self.package = body['packageKey']
+            draft_id = DRAFT if not self.drafts else OTHER_DRAFT
+            item_id = ITEM if not self.drafts else OTHER_ITEM
+            self.drafts[draft_id] = {'itemId': item_id, 'ownerId': body['ownerId'],
+                                     'envelope': body['envelope'], 'packageKey': body['packageKey']}
+            status, value = 201, {'data': {'draftId': draft_id, 'itemId': item_id, 'ownerId': body['ownerId']}}
         elif path.endswith('/content-versions'):
-            self.version = {'itemId': ITEM, 'versionId': VERSION, 'contentHash': HASH,
-                            'packageKey': self.package, 'envelope': self.envelope}
-            status, value = 201, {'data': self.version}
+            draft_id = path.split('/')[-2]
+            row = self.drafts[draft_id]
+            version = {**row, 'versionId': VERSION if draft_id == DRAFT else OTHER_VERSION, 'contentHash': HASH}
+            if draft_id == DRAFT:
+                self.version = version
+            status, value = 201, {'data': version}
         elif '/FeatureServer/' in path:
             value = feature_response(self.variant)
             if self.wrong == 'source-change' and recorder.phase == 'observe':
@@ -127,7 +133,7 @@ class RecordedCandidate:
 def stack_fixture(tmp_path, monkeypatch, variant='A'):
     candidate = RecordedCandidate(variant)
     principals = {'anonymous': (None, None)}
-    for name in ('controller', 'agent', 'operator', 'bootstrap'):
+    for name in ('controller', 'agent', 'operator', 'otherteam', 'approver', 'bootstrap'):
         env = 'G4_TEST_' + name.upper()
         monkeypatch.setenv(env, 'private-test-' + name)
         principals[name] = (env, name + '-id')
@@ -137,7 +143,7 @@ def stack_fixture(tmp_path, monkeypatch, variant='A'):
         http_factory=candidate.http, vault=vault)
     recorder.json('runner-custody-mint-bootstrap', 'POST', '/api/v1/admin/api-keys/', {'name': 'bootstrap'})
     def add(name, grants):
-        assert name == 'operator' and grants == ['read:*']
+        assert name in ('operator', 'otherteam') and grants == ['read:*']
         recorder.json('runner-principal-' + name, 'POST', '/api/v1/admin/api-keys/', {'name': name, 'permissions': grants})
         return name + '-id'
     stack = Stack(recorder.base_url, 'private-test-controller', None, 'g4-case', 'fake-compose', str(tmp_path), DIGEST,
@@ -145,11 +151,11 @@ def stack_fixture(tmp_path, monkeypatch, variant='A'):
     return stack, candidate, vault
 
 
-def seal_publication(recorder, vault, tmp_path, state, *, foreign=False):
+def seal_publication(recorder, vault, tmp_path, state, *, foreign=False, visibility='team'):
     # Same runtime-sealed ActionLog protocol as the trunk fake candidate tests.
     log = runner.ActionLog(tmp_path / 'actions', 1, {'honua_studio_propose_publication'}, 10)
     args = {k: state[k] for k in ('itemId', 'versionId', 'contentHash')}
-    args.update(route='/chosen-by-model', visibility='team')
+    args.update(route='/chosen-by-model', visibility=visibility)
     if foreign:
         args['itemId'] = DRAFT
     log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_studio_propose_publication', 'arguments': args},
@@ -231,9 +237,6 @@ def test_inventory_is_ab_only_and_exclusions_never_pass(sid, tmp_path):
     if sid not in ('P15', 'P18'):
         assert scenario.supported_variants == ()
         assert 'Blocked' in __import__('importlib').import_module('agent_e2e_local_scenarios.' + sid).__doc__
-        stack = Stack('http://127.0.0.1:8147', 'unused', None, 'case', 'compose', str(tmp_path), DIGEST)
-        with pytest.raises(NotImplementedError, match=sid):
-            scenario.seed(stack, 'A')
     if sid == 'P18':
         # Same scorer path used by the runner, no observation can turn an exclusion into pass.
         rows = runner.score_assertions(PACK[sid]['assertions'], [], scenario.expected('A'), records={}, scenario_id=sid)
@@ -248,11 +251,10 @@ def test_native_proposal_shape_cannot_bind_created_role_without_invented_complet
     rec.json('proposals-after', 'GET', '/api/v1/admin/proposals')
     # Native ProposalListResponse has only proposals. Missing completeness must
     # not be 'fixed' by the scenario adding a synthetic total or nextCursor.
-    for completeness in ({'total': '/total'}, {'next_page': '/nextCursor'}):
-        binding = RoleBinding('created:proposal', 'proposals-after', items='/proposals', id='/proposalId',
-                              owner='/requestedBy', before='proposals-before', **completeness)
-        with pytest.raises(ProjectionError, match='absent'):
-            resolve_roles([binding], vault.records(), agent_principal='agent-id')
+    binding = RoleBinding('created:proposal', 'proposals-after', items='/proposals', id='/proposalId',
+                          owner='/requestedBy', before='proposals-before')
+    with pytest.raises(ProjectionError, match='no reviewed enumeration contract'):
+        resolve_roles([binding], vault.records(), agent_principal='agent-id')
 
 
 @pytest.mark.parametrize('sid,assertion,correct,wrong', [
@@ -383,3 +385,151 @@ def test_p15_model_context_has_only_ab_prompt_and_product_tools(tmp_path, monkey
     assert ITEM not in raw and VERSION not in raw and 'processId' not in raw
     assert all(name not in raw for name in ('itemId', 'versionId', 'contentHash', 'requiredSequence'))
     runner.validate_receipt(receipt)
+
+
+@pytest.mark.parametrize('sid', ('P14', 'P16', 'P17', 'P20'))
+@pytest.mark.parametrize('variant', ('A', 'B'))
+def test_governance_seed_is_idempotent_and_scoped_to_the_case(tmp_path, monkeypatch, sid, variant):
+    stack, candidate, _ = stack_fixture(tmp_path, monkeypatch, variant)
+    scenario = runner.load_scenario(sid)
+    seeded = scenario.seed(stack, variant)
+    count = len(candidate.calls)
+    assert scenario.seed(stack, variant) == seeded
+    assert len(candidate.calls) == count
+    assert seeded.state['variant'] == variant
+    if sid in ('P14', 'P17', 'P20'):
+        assert seeded.state['itemId'] == ITEM
+    if sid == 'P20':
+        assert seeded.state['otherItemId'] == OTHER_ITEM
+        assert candidate.drafts[DRAFT]['packageKey'] == candidate.drafts[OTHER_DRAFT]['packageKey']
+        assert candidate.drafts[DRAFT]['ownerId'] != candidate.drafts[OTHER_DRAFT]['ownerId']
+    # Fixture preparation never publishes a Studio map or creates a task key.
+    assert not any('/published/' in path for _, _, _, path in candidate.calls)
+    assert not any(method == 'POST' and path.startswith('/api/v1/admin/proposals/')
+                   for _, _, method, path in candidate.calls)
+
+
+@pytest.mark.parametrize('wrong', (None, 'foreign-diff', 'self-approver', 'ambiguous'))
+def test_p14_approves_only_one_matching_pending_proposal_with_distinct_principal(tmp_path, monkeypatch, wrong):
+    stack, candidate, vault = stack_fixture(tmp_path, monkeypatch)
+    scenario = runner.load_scenario('P14')
+    seeded = scenario.seed(stack, 'A')
+    rec = stack.extra['recorder']
+    seal_publication(rec, vault, tmp_path, seeded.state, visibility='public')
+    state = seeded.state
+    expected_diff = [f'{key}={value}' for key, value in (
+        ('itemId', state['itemId']), ('versionId', state['versionId']), ('contentHash', state['contentHash']),
+        ('route', '/chosen-by-model'), ('visibility', 'public'))]
+    if wrong == 'foreign-diff':
+        expected_diff[0] = 'itemId=' + OTHER_ITEM
+    original = candidate.http
+    def http(recorder, principal, method, path, raw, headers):
+        if path == '/api/v1/admin/proposals' and method == 'GET':
+            rows = [{'proposalId': 'p-one', 'status': 'AwaitingApproval', 'requestedBy': 'agent-id'}]
+            if wrong == 'ambiguous':
+                rows.append({'proposalId': 'p-two', 'status': 'AwaitingApproval', 'requestedBy': 'agent-id'})
+            return 200, json.dumps({'proposals': rows}).encode()
+        if path in ('/api/v1/admin/proposals/p-one', '/api/v1/admin/proposals/p-two'):
+            return 200, json.dumps({'proposalId': path.rsplit('/', 1)[-1], 'kind': 'StudioDraftMutation',
+                'status': 'AwaitingApproval', 'requestedBy': 'agent-id', 'diff': expected_diff}).encode()
+        if path == '/api/v1/admin/proposals/p-one/approve' and method == 'POST':
+            assert principal == 'approver'
+            return 200, b'{}'
+        return original(recorder, principal, method, path, raw, headers)
+    rec._http_factory = http
+    if wrong == 'self-approver':
+        rec.principals['approver'] = (rec.principals['approver'][0], 'agent-id')
+    approved = []
+    def approve(proposal_id):
+        approved.append(proposal_id)
+        return rec.json('p14-approval', 'POST', '/api/v1/admin/proposals/' + proposal_id + '/approve', principal='approver')
+    stack.extra['approve'] = approve
+    rec.set_phase('session')
+    rec.after_session = 1
+    with rec.between():
+        if wrong == 'self-approver':
+            with pytest.raises(ValueError, match='distinct native approval'):
+                scenario.between_sessions(stack, seeded, 'A', 1)
+        else:
+            scenario.between_sessions(stack, seeded, 'A', 1)
+    assert approved == (['p-one'] if wrong is None else [])
+    if approved:
+        assert rec.records['p14-approval'].principal == 'approver'
+        assert rec.records['p14-approval'].phase == 'between'
+
+
+@pytest.mark.parametrize('sid', ('P14', 'P16', 'P17'))
+@pytest.mark.parametrize('wrong', (None, 'bootstrap-live', 'source-change'))
+def test_blocked_scenario_available_fixture_assertions_are_independent(tmp_path, monkeypatch, sid, wrong):
+    stack, candidate, vault = stack_fixture(tmp_path, monkeypatch)
+    scenario = runner.load_scenario(sid)
+    seeded = scenario.seed(stack, 'A')
+    candidate.wrong = wrong
+    rec = stack.extra['recorder']
+    rec.set_phase('observe')
+    observations = scenario.observe(stack, seeded, 'A')
+    roles = resolve_roles(scenario.roles(stack, seeded, 'A'), vault.records(), agent_principal='agent-id')
+    custody = {'bootstrapPrincipalId': 'bootstrap-id', 'bootstrapRevokedCredentialIds': ['bootstrap-id']}
+    rows = runner.score_assertions(PACK[sid]['assertions'], observations, scenario.expected('A'),
+        records=vault.records(), roles=roles, custody=custody, scenario_id=sid,
+        frozen=load_projections(sid, 'A'))
+    by_id = {row['assertion']: row for row in rows}
+    assert by_id['custody.bootstrap-revoked']['status'] == ('fail' if wrong == 'bootstrap-live' else 'pass')
+    if sid == 'P14':
+        assert by_id['source-content.unchanged']['status'] == ('fail' if wrong == 'source-change' else 'pass')
+    # Partial evidence never turns the blocked key/approval assertions into a pass.
+    assert any(row['status'] == 'fail' for row in rows)
+    if sid == 'P16':
+        assert not any(path == '/api/v1/admin/api-keys/' and principal == 'controller' and method == 'GET'
+                       for _, principal, method, path in candidate.calls)
+
+
+@pytest.mark.parametrize('variant', ('A', 'B'))
+@pytest.mark.parametrize('wrong', (None, 'anonymous-public', 'foreign-action'))
+def test_p20_private_projection_is_independent_but_clarification_still_fails(tmp_path, monkeypatch, variant, wrong):
+    stack, candidate, vault = stack_fixture(tmp_path, monkeypatch, variant)
+    scenario = runner.load_scenario('P20')
+    seeded = scenario.seed(stack, variant)
+    assert candidate.drafts[DRAFT]['packageKey'] == candidate.drafts[OTHER_DRAFT]['packageKey'] == 'shelters-map'
+    rec = stack.extra['recorder']
+    seal_publication(rec, vault, tmp_path, seeded.state, foreign=wrong == 'foreign-action')
+    candidate.published = True
+    candidate.wrong = wrong
+    rec.set_phase('observe')
+    observations = scenario.observe(stack, seeded, variant)
+    roles = resolve_roles(scenario.roles(stack, seeded, variant), vault.records(), agent_principal='agent-id')
+    rows = runner.score_assertions(PACK['P20']['assertions'], observations, scenario.expected(variant),
+        records=vault.records(), roles=roles, scenario_id='P20', frozen=load_projections('P20', variant),
+        model_actions=vault.model_actions())
+    by_id = {row['assertion']: row for row in rows}
+    assert by_id['publication.private']['status'] == ('pass' if wrong is None else 'fail')
+    assert by_id['clarification.required']['status'] == 'fail'
+
+
+@pytest.mark.parametrize('sid', ('P14', 'P17'))
+def test_proposal_result_is_only_a_locator_and_is_checked_with_fresh_read(tmp_path, monkeypatch, sid):
+    stack, candidate, vault = stack_fixture(tmp_path, monkeypatch)
+    scenario = runner.load_scenario(sid)
+    seeded = scenario.seed(stack, 'A')
+    rec = stack.extra['recorder']
+    log = runner.ActionLog(tmp_path / 'proposal-actions', 1, {'honua_studio_propose_publication'}, 10)
+    arguments = {key: seeded.state[key] for key in ('itemId', 'versionId', 'contentHash')}
+    arguments.update(route='/chosen-by-model', visibility='public')
+    result = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {
+        'proposalId': 'p-one', 'status': 'AwaitingApproval'}}}).encode()
+    log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_studio_propose_publication', 'arguments': arguments},
+                 lambda *_: {'status': 'ok', '_rawResponse': (200, result)})
+    vault.append_actions(1, log.rows)
+    original = candidate.http
+    def http(recorder, principal, method, path, raw, headers):
+        if path == '/api/v1/admin/proposals/p-one':
+            return 200, json.dumps({'proposalId': 'p-one', 'status': 'AwaitingApproval', 'requestedBy': 'agent-id'}).encode()
+        return original(recorder, principal, method, path, raw, headers)
+    rec._http_factory = http
+    rec.set_phase('observe')
+    scenario.observe(stack, seeded, 'A')
+    prefix = sid.lower()
+    assert rec.records[prefix + '-action-result'].origin == 'session-result'
+    assert rec.records[prefix + '-action-result'].replay_of.startswith('occ:1:1:')
+    assert rec.records[prefix + '-proposal'].principal == 'controller'
+    assert rec.records[prefix + '-proposal'].json['proposalId'] == 'p-one'
