@@ -73546,6 +73546,46 @@
           ]
         }
       }
+    },
+    "pagination.complete": {
+      "spec": {
+        "object": {
+          "pages": {
+            "modelReplays": {
+              "tool": "honua_query_features",
+              "addresses": [
+                {
+                  "role": "child:serviceid:survey_points",
+                  "at": {
+                    "argument": "/serviceId"
+                  }
+                },
+                {
+                  "role": "child:layer:survey_points",
+                  "at": {
+                    "argument": "/layerId"
+                  }
+                }
+              ]
+            },
+            "to": {
+              "object": {
+                "status": {
+                  "status": "$step"
+                },
+                "sourceIds": {
+                  "body": "$step",
+                  "pointer": "/result/structuredContent/geojson/features/*/properties/source_id"
+                },
+                "responseSha256": {
+                  "sha256": "$step"
+                }
+              }
+            }
+          }
+        }
+      },
+      "reads": {}
     }
   }
 }

@@ -125,6 +125,14 @@ class P06(Scenario):
             service_id = described.get('serviceId')
             if not isinstance(service_id, str) or not service_id:
                 continue
+            if name == 'survey_points':
+                survey_actions = [action for action in recorder.actions()
+                    if action.kind == 'tool_call' and action.tool == 'honua_query_features'
+                    and isinstance(action.arguments, dict)
+                    and str(action.arguments.get('serviceId')) == service_id
+                    and str(action.arguments.get('layerId')) == str(layer)]
+                for index, action in enumerate(survey_actions):
+                    recorder.replay('p06-survey-replay-' + str(index), action)
             offsets = (0, 1000, 2000) if name == 'survey_points' else (0,)
             for offset in offsets:
                 recorder.mcp_call('p06-' + label + '-query-' + str(offset), 'honua_query_features',
@@ -135,7 +143,7 @@ class P06(Scenario):
             recorder.json('p06-' + label + '-write', 'POST', path + '/applyEdits?f=json',
                           {'adds': [], 'updates': [], 'deletes': []}, principal='p06-viewer')
         return [Observation(name, None, {'projection': 'extract/v1'})
-                for name in ('service.query', 'service.write-denied', 'source-content.unchanged')]
+                for name in ('service.query', 'pagination.complete', 'service.write-denied', 'source-content.unchanged')]
 
 
 scenario = P06()

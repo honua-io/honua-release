@@ -40,7 +40,7 @@ class P04(Scenario):
             if crs not in ('EPSG:4326', 'EPSG:3857'):
                 raise ValueError('fixture CRS unsupported')
             srid = int(crs.removeprefix('EPSG:'))
-            rows = recorder.sql('p04-fixture-' + label, "SELECT '" + text.replace("'", "''") + "' AS content, " + str(srid) + ' AS srid')
+            rows = recorder.sql('p04-fixture-' + label, "SELECT '" + text.replace("'", "''") + "' AS content, " + str(srid) + " AS srid FROM information_schema.tables WHERE table_schema = 'information_schema' AND table_name = 'tables'")
             if rows != [{'content': text, 'srid': srid}]:
                 raise ValueError('fixture identity could not be recorded')
         state = {'variant': variant}

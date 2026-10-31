@@ -457,7 +457,7 @@ def test_p06_records_agent_publications_for_later_role_binding(tmp_path):
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     layers = {name: {'schema': 'honua_data', 'table': name} for name in ('parcels', 'shelters', 'survey_points')}
-    assert [o.assertion_id for o in load_scenario('P06').observe(stack, Seeded({'layers': layers}), 'A')] == ['service.query', 'service.write-denied', 'source-content.unchanged']
+    assert [o.assertion_id for o in load_scenario('P06').observe(stack, Seeded({'layers': layers}), 'A')] == ['service.query', 'pagination.complete', 'service.write-denied', 'source-content.unchanged']
     assert calls == ['p06-parcels-source-after', 'p06-shelters-source-after', 'p06-survey-points-source-after',
                      'p06-services-after', 'p06-parcels-publish', 'p06-parcels-describe',
                      'p06-shelters-publish', 'p06-shelters-describe']
@@ -822,3 +822,59 @@ def test_p06_preservation_rejects_mutation_and_wrong_table():
     assert score(bad) == 'fail'
     bad[step] = record(step, 'observe', old.path.replace('fixture_parcels', 'foreign'), old.json)
     assert score(bad) == 'fail'
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+@pytest.mark.parametrize('page_size', [100, 1000])
+def test_p06_pagination_uses_every_sealed_replay_and_rejects_missing_page(variant, page_size):
+    import hashlib
+    import json
+    from agent_e2e_local_projections import Context, evaluate
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections
+
+    scenario = load_scenario('P06')
+    expected = scenario.expected(variant)['pagination.complete']
+    ids = expected['sourceIds']
+    roles = {'child:serviceid:survey_points': 'survey-service', 'child:layer:survey_points': 0}
+    records, actions = {}, {}
+    for index, start in enumerate(range(0, len(ids), page_size)):
+        occurrence = f'occ:1:{index}:sha256:' + format(index + 1, '064x')
+        args = {'serviceId': 'survey-service', 'layerId': 0, 'resultOffset': start, 'limit': page_size}
+        actions[occurrence] = {'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': args,
+                               '_session': 1, '_sequence': index}
+        body = {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {'geojson': {'features': [
+            {'properties': {'source_id': value}} for value in ids[start:start + page_size]]}}}}
+        raw = json.dumps(body).encode()
+        step = f'p06-survey-replay-{index}'
+        records[step] = Record(step, 'observe', 'mcp', 'controller', 'admin', 'POST', '/mcp#tools/call', 200,
+                               raw, 'sha256:' + hashlib.sha256(raw).hexdigest(), replay_of=occurrence,
+                               request_arguments_raw=json.dumps({'tool': 'honua_query_features', 'arguments': args}).encode())
+    spec = frozen_projections(scenario, variant)['pagination.complete']['spec']
+    observed = evaluate(spec, Context(records, roles, model_actions=actions))
+    oracle.verify('pagination.complete', observed, expected)
+    bad = copy.deepcopy(observed)
+    bad['pages'].pop()
+    with pytest.raises(oracle.VerificationError):
+        oracle.verify('pagination.complete', bad, expected)
+    del records[f'p06-survey-replay-{len(records)-1}']
+    with pytest.raises(ValueError):
+        evaluate(spec, Context(records, roles, model_actions=actions))
+
+
+def test_import_fixture_identity_sql_is_accepted_by_core_allowlist():
+    from agent_e2e_local_runner import sql_allowlisted
+    for scenario_id in ('P04', 'P05'):
+        scenario = load_scenario(scenario_id)
+        for variant in ('A', 'B'):
+            class Recorder:
+                def sql(self, step, query):
+                    sql_allowlisted(query)
+                    if step.endswith('baseline'):
+                        return []
+                    import re
+                    value = re.match(r"SELECT '((?:[^']|'')*)' AS content, (\d+) AS srid FROM ", query, re.S)
+                    assert value
+                    return [{'content': value.group(1).replace("''", "'"), 'srid': int(value.group(2))}]
+            stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', '/tmp', 'sha256:fake',
+                          {'recorder': Recorder()})
+            scenario.seed(stack, variant)

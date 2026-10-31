@@ -36,7 +36,7 @@ class P05(Scenario):
             if ';' in text:
                 raise ValueError('fixture cannot be represented by the recorder SQL contract')
             escaped = text.replace("'", "''")
-            rows = recorder.sql('p05-fixture-' + label, "SELECT '" + escaped + "' AS content, 4326 AS srid")
+            rows = recorder.sql('p05-fixture-' + label, "SELECT '" + escaped + "' AS content, 4326 AS srid FROM information_schema.tables WHERE table_schema = 'information_schema' AND table_name = 'tables'")
             if rows != [{'content': text, 'srid': 4326}]:
                 raise ValueError('fixture identity could not be recorded')
         state = {'variant': variant}
