@@ -922,6 +922,142 @@ def saved_default_fill_export(body, *, service, layer_id):
     return f'/rest/services/{service}/MapServer/export?{query}', rgba
 
 
+def _fixture_filter_sql(expression, fields, depth=0):
+    """Translate a bounded subset of MapLibre filters without accepting raw SQL."""
+    import math
+    require(depth <= 8 and isinstance(expression, list) and 2 <= len(expression) <= 12,
+            'unsupported authored filter')
+    op = expression[0]
+    if op in ('all', 'any'):
+        require(len(expression) >= 3, 'unsupported authored filter')
+        joiner = ' AND ' if op == 'all' else ' OR '
+        return '(' + joiner.join(_fixture_filter_sql(item, fields, depth + 1) for item in expression[1:]) + ')'
+    require(op in ('==', '!=', '>', '>=', '<', '<=') and len(expression) == 3, 'unsupported authored filter')
+    lookup, value = expression[1:]
+    require(isinstance(lookup, list) and len(lookup) == 2 and lookup[0] == 'get'
+            and isinstance(lookup[1], str) and lookup[1] in fields, 'unsupported authored filter field')
+    if type(value) is bool:
+        literal = 'TRUE' if value else 'FALSE'
+    elif type(value) in (int, float) and math.isfinite(value):
+        literal = str(value)
+    elif isinstance(value, str) and len(value) <= 200 and all(ord(char) >= 32 for char in value):
+        literal = "'" + value.replace("'", "''") + "'"
+    else:
+        raise ProjectionError('unsupported authored filter value')
+    return lookup[1] + ' ' + {'==': '=', '!=': '<>'}.get(op, op) + ' ' + literal
+
+
+def saved_authored_exports(body, fixtures, *, variant='A'):
+    """Translate supported literal saved layer paint to fixture-bound server exports.
+
+    Unsupported expressions and external source bindings fail closed. The
+    caller must independently inspect the PNGs and verify labels; request creation
+    by itself is never render evidence.
+    """
+    import math
+    from urllib.parse import urlencode
+    require(isinstance(body, dict) and isinstance(fixtures, dict), 'invalid authored map')
+    layers, bindings, spec = body.get('layers'), body.get('sourceBindings'), body.get('mapSpec')
+    require(isinstance(layers, list) and isinstance(bindings, list) and isinstance(spec, dict)
+            and spec.get('version') == 8 and isinstance(spec.get('layers'), list), 'authored map is incomplete')
+    view = body.get('view')
+    bbox = view.get('bbox') if isinstance(view, dict) else None
+    require(isinstance(bbox, list) and len(bbox) == 4 and all(type(v) in (int, float) and math.isfinite(v) for v in bbox)
+            and -180 <= bbox[0] < bbox[2] <= 180 and -85 <= bbox[1] < bbox[3] <= 85, 'invalid map extent')
+    require(len(layers) == len(fixtures) and {row.get('id') for row in layers if isinstance(row, dict)} == set(fixtures),
+            'saved layers differ from fixture')
+    result = []
+    for layer in layers:
+        name, source = layer.get('id'), layer.get('sourceId')
+        require(set(layer) <= {'id', 'type', 'title', 'visible', 'sourceId', 'metadata'},
+                'unsupported composition layer property')
+        fixture = fixtures[name]
+        service, layer_id = fixture.get('service'), fixture.get('layerId')
+        require(isinstance(service, str) and re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', service)
+                and type(layer_id) is int and 0 <= layer_id <= 2147483647, 'invalid fixture layer')
+        matching = [row for row in bindings if isinstance(row, dict) and row.get('sourceId') == source]
+        require(isinstance(source, str) and source and len(matching) == 1 and layer.get('visible') is True
+                and matching[0].get('protocol') == 'geoservices_feature_service'
+                and matching[0].get('locator') == {'url': f'/rest/services/{service}/FeatureServer/{layer_id}',
+                                                   'layerId': layer_id}, 'saved source differs from fixture')
+        rules = [row for row in spec['layers'] if isinstance(row, dict) and row.get('id') == name]
+        require(len(rules) == 1 and set(rules[0]) <= {'id', 'type', 'source', 'paint', 'layout', 'metadata', 'filter'}
+                and rules[0].get('source') in (name, source)
+                and rules[0].get('type') == layer.get('type'), 'unsupported authored rule')
+        rule = rules[0]
+        layout, paint = rule.get('layout', {}), rule.get('paint', {})
+        require(isinstance(layout, dict) and set(layout) <= {'visibility'} and layout.get('visibility', 'visible') == 'visible'
+                and isinstance(paint, dict), 'invalid authored paint')
+        kind = rule['type']
+        require(kind in ('fill', 'circle'), 'unsupported authored symbol')
+        allowed = {'fill-color', 'fill-opacity'} if kind == 'fill' else {'circle-color', 'circle-opacity', 'circle-radius'}
+        require(set(paint) <= allowed, 'unsupported authored paint property')
+        color, opacity = paint.get(kind + '-color'), paint.get(kind + '-opacity', 1)
+        require(isinstance(color, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', color)
+                and type(opacity) in (int, float) and math.isfinite(opacity) and 0 <= opacity <= 1,
+                'unsupported authored color')
+        rgba = [int(color[i:i + 2], 16) for i in (1, 3, 5)] + [round(opacity * 255)]
+        symbol = {'type': 'esriSFS', 'style': 'esriSFSSolid', 'color': rgba} if kind == 'fill' else {
+            'type': 'esriSMS', 'style': 'esriSMSCircle', 'color': rgba}
+        if kind == 'circle':
+            radius = paint.get('circle-radius', 5)
+            require(type(radius) in (int, float) and math.isfinite(radius) and 0 < radius <= 100,
+                    'unsupported authored radius')
+            symbol['size'] = radius * 2
+        dynamic = [{'id': layer_id, 'source': {'type': 'mapLayer', 'mapLayerId': layer_id},
+                    'drawingInfo': {'renderer': {'type': 'simple', 'symbol': symbol}}}]
+        if 'filter' in rule:
+            document = json.loads(fixture_path(variant, name).read_text(encoding='utf-8'))
+            fields = {field for feature in document['features'] for field in feature['properties']}
+            dynamic[0]['definitionExpression'] = _fixture_filter_sql(rule['filter'], fields)
+        query = urlencode({'f': 'image', 'bbox': ','.join(str(v) for v in bbox), 'bboxSR': 4326,
+                           'imageSR': 3857, 'size': '512,512', 'format': 'png32', 'transparent': 'true',
+                           'dynamicLayers': json.dumps(dynamic, separators=(',', ':'))})
+        result.append({'name': name, 'path': f'/rest/services/{service}/MapServer/export?{query}', 'rgba': rgba})
+    return result
+
+
+def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, expected_rgba, regions, minimum_pixels):
+    """Verify each saved, fixture-bound literal rule against controller-fetched pixels.
+
+    This checks the individual server exports only. It does not assert that text
+    labels were rendered, or that the layers form a correct composite image.
+    """
+    import base64
+    limits = ({name: minimum_pixels for name in fixtures} if type(minimum_pixels) is int else minimum_pixels)
+    require(version_step in recorder.records and isinstance(expected_rgba, dict)
+            and set(expected_rgba) == set(fixtures) and isinstance(regions, dict) and set(regions) == set(fixtures)
+            and isinstance(limits, dict) and set(limits) == set(fixtures)
+            and all(type(value) is int and value > 0 for value in limits.values()),
+            'invalid frozen authored expectations')
+    exports = saved_authored_exports(package_body(recorder.records[version_step].json), fixtures)
+    matches = {}
+    for row in exports:
+        wanted = expected_rgba[row['name']]
+        require(isinstance(wanted, (list, tuple)) and len(wanted) == 4
+                and all(type(value) is int and 0 <= value <= 255 for value in wanted)
+                and row['rgba'] == list(wanted), 'authored style differs from frozen expectation')
+        observation = recorder.json(prefix + '-' + row['name'].replace('_', '-'), 'GET', row['path'])['observation']
+        require(observation.get('httpStatus') == 200, 'server layer export failed')
+        try:
+            raw = base64.b64decode(observation['rawBodyBase64'], validate=True)
+            width, height, pixel = _decode_png(raw)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProjectionError('server layer export is not a decodable PNG') from exc
+        require(width == 512 and height == 512, 'server layer export has unexpected dimensions')
+        rect = regions[row['name']]
+        require(isinstance(rect, (tuple, list)) and len(rect) == 4 and all(type(v) is int for v in rect),
+                'invalid frozen layer region')
+        left, top, wide, high = rect
+        require(0 <= left < width and 0 <= top < height and wide > 0 and high > 0
+                and left + wide <= width and top + high <= height, 'invalid frozen layer region')
+        count = sum(_close(pixel(x, y), wanted, 2)
+                    for y in range(top, top + high) for x in range(left, left + wide))
+        require(count >= limits[row['name']], 'server layer pixels differ from frozen expectation')
+        matches[row['name']] = count
+    return {'matchedPixels': matches}
+
+
 def verify_saved_default_fill(recorder, version_step, export_step, *, service, layer_id, expected_rgba, minimum_pixels):
     """Check a recorded saved version against controller-fetched server pixels.
 

@@ -984,3 +984,81 @@ def test_unstyled_map_still_records_composition_and_save():
     record_map_measurements(recorder, 'version', 'p08')
     assert set(recorder.derived) == {'p08-composition', 'p08-saved'}
     assert recorder.derived['p08-composition']['orderedLayerIds'] == ['parcels']
+
+
+def test_authored_exports_bind_each_style_to_its_published_layer():
+    from urllib.parse import parse_qs, urlsplit
+    from agent_browser_studio import saved_authored_exports
+    body = map_body('A', [-20010, -5010, -18800, -4700], True)
+    body['view']['bbox'] = [-0.18, -0.05, -0.16, -0.04]
+    body['sourceBindings'] = []
+    for row in body['layers']:
+        name = row['id']
+        row.update(type='circle' if name == 'shelters' else 'fill', sourceId='source-' + name)
+        binding = LAYERS[name]
+        body['sourceBindings'].append({'sourceId': row['sourceId'], 'protocol': 'geoservices_feature_service',
+            'locator': {'url': f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}",
+                        'layerId': binding['layerId']}})
+    exports = saved_authored_exports(body, LAYERS)
+    assert [row['name'] for row in exports] == ['parcels', 'flood_zones', 'shelters']
+    flood = parse_qs(urlsplit(exports[1]['path']).query)
+    renderer = json.loads(flood['dynamicLayers'][0])[0]['drawingInfo']['renderer']
+    assert renderer['symbol']['color'] == [0, 136, 255, 89]
+    point = parse_qs(urlsplit(exports[2]['path']).query)
+    assert json.loads(point['dynamicLayers'][0])[0]['drawingInfo']['renderer']['symbol']['type'] == 'esriSMS'
+    shelter = next(row for row in body['mapSpec']['layers'] if row['id'] == 'shelters')
+    shelter['filter'] = ['all', ['==', ['get', 'is_open'], True], ['>', ['get', 'capacity'], 50]]
+    point = parse_qs(urlsplit(saved_authored_exports(body, LAYERS)[2]['path']).query)
+    expression = json.loads(point['dynamicLayers'][0])[0]['definitionExpression']
+    assert expression == '(is_open = TRUE AND capacity > 50)'
+    shelter['filter'] = ['==', ['get', 'unknown_field'], True]
+    with pytest.raises(ProjectionError, match='filter'):
+        saved_authored_exports(body, LAYERS)
+    del shelter['filter']
+    body['sourceBindings'][1]['locator']['url'] = '/rest/services/other/FeatureServer/1'
+    with pytest.raises(ProjectionError, match='fixture'):
+        saved_authored_exports(body, LAYERS)
+
+
+def test_authored_exports_require_each_frozen_color_and_nonempty_pixels():
+    from agent_browser_studio import verify_saved_authored_layers
+    body = map_body('A', [-20010, -5010, -18800, -4700], True)
+    body['view']['bbox'] = [-0.18, -0.05, -0.16, -0.04]
+    body['sourceBindings'] = []
+    for row in body['layers']:
+        name = row['id']
+        row.update(type='circle' if name == 'shelters' else 'fill', sourceId='source-' + name)
+        fixture = LAYERS[name]
+        body['sourceBindings'].append({'sourceId': row['sourceId'], 'protocol': 'geoservices_feature_service',
+            'locator': {'url': f"/rest/services/{fixture['service']}/FeatureServer/{fixture['layerId']}",
+                        'layerId': fixture['layerId']}})
+    class Recorder:
+        records = {'version': SimpleNamespace(json={'data': {'envelope': {'body': body}}})}
+        def json(self, step, method, path):
+            from urllib.parse import parse_qs, urlsplit
+            rule = json.loads(parse_qs(urlsplit(path).query)['dynamicLayers'][0])[0]
+            color = tuple(rule['drawingInfo']['renderer']['symbol']['color'])
+            return {'observation': {'httpStatus': 200, 'rawBodyBase64': base64.b64encode(_png(_paint(color))).decode()}}
+    expected = {'parcels': [217, 211, 197, 255], 'flood_zones': [0, 136, 255, 89],
+                'shelters': [34, 34, 34, 255]}
+    regions = {name: [40, 40, 80, 60] for name in expected}
+    result = verify_saved_authored_layers(Recorder(), 'version', 'proof', fixtures=LAYERS,
+                                          expected_rgba=expected, regions=regions, minimum_pixels=4000)
+    assert set(result['matchedPixels']) == set(expected)
+    expected['flood_zones'] = [255, 0, 0, 89]
+    with pytest.raises(ProjectionError, match='frozen'):
+        verify_saved_authored_layers(Recorder(), 'version', 'negative', fixtures=LAYERS,
+                                     expected_rgba=expected, regions=regions, minimum_pixels=4000)
+    body['layers'].pop()
+    with pytest.raises(ProjectionError, match='fixture'):
+        verify_saved_authored_layers(Recorder(), 'version', 'missing', fixtures=LAYERS,
+                                     expected_rgba=expected, regions=regions, minimum_pixels=4000)
+
+
+def test_missing_saved_label_rule_is_not_style_evidence():
+    from agent_browser_studio import style_from_body
+    from agent_e2e_pack import PackError
+    body = map_body('A', EXTENTS['A'], True)
+    body['mapSpec']['layers'] = [row for row in body['mapSpec']['layers'] if row['type'] != 'symbol']
+    with pytest.raises(PackError, match='label'):
+        style_from_body(body)
