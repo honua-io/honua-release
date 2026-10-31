@@ -1,0 +1,13 @@
+{
+  "status": "unsupported",
+  "assertions": [
+    "features.exact",
+    "csv.invalid-reported",
+    "geometry.crs",
+    "source-content.unchanged"
+  ],
+  "fixtureSha256": {
+    "A": "2a2cbca2414da07d84ab36904a2d41895587ef004230757e29257a00dd9721c4",
+    "B": "683b862ebfc6af515ae93caa9849b93aa09eb8f830bcc9312527d4cc8921d809"
+  }
+}
