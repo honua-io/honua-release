@@ -884,6 +884,25 @@ def test_p24_scores_style_and_source_and_fails_the_rest_closed(monkeypatch, tmp_
     assert 'unrecorded step' in outcome.results['candidate.identity']['reason']
 
 
+def test_p24_agent_claim_cannot_create_an_owned_layer(tmp_path):
+    from agent_e2e_local_api import RunRecord
+    recorder = _recorder(tmp_path, {'scenario': 'P24', 'variant': 'A', 'flood': None})
+    stack = Stack('http://127.0.0.1:8137', 'controller-key', None, 'g41studio', 'compose.yml',
+                  str(tmp_path), DIGEST, {'recorder': recorder, 'agentPrincipal': AGENT,
+                  'validatedConsoleCustomer': AGENT, 'consoleUserId': AGENT,
+                  'studioUrl': 'http://127.0.0.1:8137'})
+    scenario = P24()
+    seeded = scenario.seed(stack, 'A')
+    recorder.set_phase('observe')
+    run = RunRecord(AGENT, 1, (), (), ('I created svc-parcels and its layer.',))
+    scenario.observe(stack, seeded, 'A', run)
+    with pytest.raises(ProjectionError, match='unrecorded step'):
+        resolve_roles(frozen_roles(scenario, stack, seeded, 'A', run), recorder.records,
+                      agent_principal=AGENT, custody={'agentUserId': AGENT, 'agentKeyId': AGENT,
+                                                      'agentKeyOwnerUserId': AGENT})
+    assert 'p24-render' not in recorder.records
+
+
 def test_headless_chromium_blocks_other_origins_and_reads_the_canvas(tmp_path):
     pytest.importorskip('playwright')
     browsers = ROOT / '.playwright-browsers'
