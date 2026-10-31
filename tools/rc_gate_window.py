@@ -87,7 +87,8 @@ GA_DEFERRED: tuple[str, ...] = (
 # kept both required for rc. They are still read and reported as Preview evidence, never required.
 RC_ADVISORY: tuple[str, ...] = AI_GATES
 ARC_GATE = "ai-arc.yml"
-RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED) + (ARC_GATE,)
+STUDIO_CUSTOMER_GATE = "gate-studio-customer-journey.yml"
+RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED) + (ARC_GATE, STUDIO_CUSTOMER_GATE)
 
 # Workflows whose uploaded report or receipt can carry the honua-server image digest, the honua-server
 # source SHA, and the platform-lock digest. e2e-cloud-aws.yml's gate report also carries certifying /
@@ -96,6 +97,7 @@ RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED
 # terminal-model-canary.yml writes serverImage.digest, serverImage.sourceSha, and lockDigest.
 CANDIDATE_BOUND_GATES: frozenset[str] = frozenset({
     "e2e-cloud-aws.yml",
+    STUDIO_CUSTOMER_GATE,
     "ai-arc.yml",
     "gate-upgrade.yml",
     "terminal-model-canary.yml",
@@ -1069,7 +1071,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.gate:
         gates = tuple(args.gate)
     else:
-        gates = TRAIN_GATES + (ARC_GATE,) + (() if args.without_ai_gates else AI_GATES)
+        gates = TRAIN_GATES + (ARC_GATE, STUDIO_CUSTOMER_GATE) + (() if args.without_ai_gates else AI_GATES)
         if args.set == "rc":
             gates = tuple(g for g in gates if g not in GA_DEFERRED)
             advisory = tuple(g for g in RC_ADVISORY if g in gates)
