@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P14",
+  "derivation": "Blocked by the immutable core role resolver: native proposal lists have no total or cursor, but created roles require one. The separate approver hook exists; proposal, execution audit and model-selected published URL identities still cannot be frozen from the native read shapes without inventing completeness or changing core-owned files. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
+  "variants": {
+    "A": {
+      "approval.separate": {
+        "proposalId": {
+          "$role": "created:proposal"
+        },
+        "requesterPrincipalId": {
+          "$role": "seeded:principal:agent"
+        },
+        "approverPrincipalId": {
+          "$role": "seeded:principal:approver"
+        },
+        "approvedVersionId": {
+          "$role": "seeded:map:version"
+        },
+        "auditId": {
+          "$role": "created:audit"
+        }
+      },
+      "publication.public": null,
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      },
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
+      "source-content.unchanged": null
+    },
+    "B": {
+      "approval.separate": {
+        "proposalId": {
+          "$role": "created:proposal"
+        },
+        "requesterPrincipalId": {
+          "$role": "seeded:principal:agent"
+        },
+        "approverPrincipalId": {
+          "$role": "seeded:principal:approver"
+        },
+        "approvedVersionId": {
+          "$role": "seeded:map:version"
+        },
+        "auditId": {
+          "$role": "created:audit"
+        }
+      },
+      "publication.public": null,
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      },
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
+      "source-content.unchanged": null
+    }
+  },
+  "customerFiles": {
+    "A": [],
+    "B": []
+  }
+}

@@ -974,11 +974,13 @@ components:
     # (honua-iac#316) attests archive/<commit>.tar.gz, and these exact bytes carry its CycloneDX SBOM
     # and SLSA provenance attestations (the tag archive's different bytes carry none). With the
     # publisher attestations present, honua-iac leaves the sdk-attestation-exception-2026-10-27 set.
-    version: "0.5.0"                   # annotated v0.5.0; Git-source distribution
-    sha: "d2f3919fed00535816522ab8555c71fd5ab78cdc"   # v0.5.0^{}; release notes honua-iac#348
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/d2f3919fed00535816522ab8555c71fd5ab78cdc.tar.gz"
-    artifactSourceRevision: "d2f3919fed00535816522ab8555c71fd5ab78cdc"   # the tarball's pax comment (git get-tar-commit-id)
-    artifactSha256: "sha256:5f2122c9a453d50d7ec7a56d2ddafe234ec386c6c0b8d77188df5dae6fb48556"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
+    # RC.2: v0.6.0 adds topology-scoped deploy identities (#349) and Docker evaluation hosts (#352).
+    # The topology input is required; its feature flags are optional, so the pre-1.0 policy calls for a minor bump.
+    version: "0.6.0"                   # annotated v0.6.0; Git-source distribution
+    sha: "3f83a15351dc7c56edba771eab982a58bf51f973"   # v0.6.0^{}; release notes honua-iac#353
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/3f83a15351dc7c56edba771eab982a58bf51f973.tar.gz"
+    artifactSourceRevision: "3f83a15351dc7c56edba771eab982a58bf51f973"   # the tarball's pax comment (git get-tar-commit-id)
+    artifactSha256: "sha256:6097693ebbe990dbd5437401bb192faaa202f6efc2ca0e2d77670b51c0f6f552"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"

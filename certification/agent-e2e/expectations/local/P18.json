@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P18",
+  "derivation": "The entire case is excluded on local Docker by the frozen preregistration because multi-tenant evaluation is out of scope. The runner must retain every assertion as excluded, never as passed. No tenant fixtures are provisioned. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
+  "variants": {
+    "A": {
+      "tenant.denied": {
+        "$excluded": "P18"
+      },
+      "mutations.absent": {
+        "$excluded": "P18"
+      },
+      "custody.bootstrap-revoked": {
+        "$excluded": "P18"
+      },
+      "custody.worker-replaced": {
+        "$excluded": "P18"
+      }
+    },
+    "B": {
+      "tenant.denied": {
+        "$excluded": "P18"
+      },
+      "mutations.absent": {
+        "$excluded": "P18"
+      },
+      "custody.bootstrap-revoked": {
+        "$excluded": "P18"
+      },
+      "custody.worker-replaced": {
+        "$excluded": "P18"
+      }
+    }
+  },
+  "customerFiles": {
+    "A": [],
+    "B": []
+  }
+}
