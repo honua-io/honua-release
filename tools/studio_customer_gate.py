@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 REQUIRED_STAGES = frozenset({
-    'non-admin-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
+    'publisher-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
     'two-layers-filter-widget', 'session-expiry-recovery', 'authored-style-labels', 'save-reload-reopen',
     'independent-server-render', 'public-audience', 'accessibility',
 })

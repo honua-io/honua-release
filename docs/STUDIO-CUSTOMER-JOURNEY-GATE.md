@@ -18,12 +18,14 @@ progress attachment. It writes a report binding the server SHA, server digest, p
 manifest digest, Console SHA, Console digest and Console run URL. The newest failed run for
 the same candidate supersedes any older passing run. Missing evidence fails admission.
 
-The customer suite covers a fresh non-admin OIDC session, short-lived bearer refresh, two
+The customer suite covers a fresh install-publisher OIDC session, short-lived bearer refresh, two
 file imports and publications, typed OGC/FeatureServer fields, two map layers, category style,
 attribute labels, filtering, table transport, saved version ownership, reload/reopen,
 independent server export pixels and negative controls, public audience and axe checks.
+A publisher's self-approval attempt is denied; a different operator approves publication.
 A permission denial or missing authoring/render capability stays red; it cannot be recast as
-an infrastructure success. Admin testbed setup does not elevate the browser customer.
+an infrastructure success. The customer authenticates as the install publisher; the
+testbed verifier's API key is never given to the browser or Console.
 
 The release session must update its own candidate files after the Console suite and required
 product repairs land: pin the new Console source SHA and published digest, retain the selected

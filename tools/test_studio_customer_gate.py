@@ -46,6 +46,14 @@ def test_partial_or_no_customer_journey_is_rejected():
             g.validate_evidence(*values[:3], progress)
 
 
+def test_previous_non_admin_receipt_cannot_replace_the_publisher_journey():
+    values = evidence()
+    completed = set(g.REQUIRED_STAGES) - {"publisher-auth"}
+    completed.add("non-admin-auth")
+    with pytest.raises(ValueError, match="partial"):
+        g.validate_evidence(*values[:3], {"qualificationComplete": True, "completed": list(completed)})
+
+
 def test_tag_only_or_mismatched_digest_is_rejected():
     for digest in ["nightly", "", "sha256:short"]:
         components = pins()
