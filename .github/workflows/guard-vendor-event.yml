@@ -1,0 +1,38 @@
+name: vendor-terms-event
+
+# Events are inspected after publication. Callers must install a triggering
+# workflow in each repository; this workflow does not block or delete comments.
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  commit_comment:
+    types: [created]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  vendor-terms-event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out trusted guard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          path: guard
+          persist-credentials: false
+      - name: Inspect event text
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          python3 guard/tools/vendor_terms_event.py --repo "$REPO_NAME" \
+            --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
