@@ -48,3 +48,14 @@ def test_owner_set_rejects_other_owner_and_unreviewed_formats():
         resolve_roles([binding()], records('other'), agent_principal=KEY, custody=CUSTODY)
     with pytest.raises(ProjectionError, match='unreviewed owner set'):
         resolve_roles([binding(['{agentUser}', '{modelClaim}'])], records(USER), agent_principal=KEY, custody=CUSTODY)
+
+
+def test_geoservices_boolean_cross_check_preserves_type_and_rejects_disagreement():
+    from agent_e2e_local_projections import restore_feature_booleans
+    from agent_e2e_local_recorder import ProjectionError
+    normalized = {'srid': 3857, 'features': [{'properties': {'source_id': 's1', 'is_open': 1}}]}
+    geo = {'type': 'FeatureCollection', 'features': [{'properties': {'source_id': 's1', 'is_open': True}}]}
+    assert restore_feature_booleans(normalized, geo, ['is_open'])['features'][0]['properties']['is_open'] is True
+    normalized['features'][0]['properties']['is_open'] = 0
+    with pytest.raises(ProjectionError, match='value differs'):
+        restore_feature_booleans(normalized, geo, ['is_open'])

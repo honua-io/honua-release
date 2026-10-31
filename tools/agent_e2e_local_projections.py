@@ -43,6 +43,8 @@ Spec operations (exactly one key per object unless noted):
                                        addressing those roles ("$step" = the replay record), in call order
   {"absoluteUrl": SPEC}                a verified relative route ("/...") joined to the candidate's base URL
   {"featureServerFeatures": STEP}      FeatureServer query (point/polyline/polygon) -> {srid, features}
+  {"featureServerFeatures": STEP, "booleanGeo": {STEP: STEP, ...}, "booleanFields": [FIELD, ...]}
+                                       cross-check GeoServices integer booleans against same-resource GeoJSON
   {"customerFileColumn": PATH, "rows": SPEC, "column": NAME, "firstDataRow": 2}
                                        map observed CSV row numbers to a column of a frozen attachment
 protectedContent rows: "resource" lists identity roles, or is "inventory" (same request, exact frozen
@@ -77,7 +79,10 @@ def referenced_steps(spec, found=None):
             for row in spec['protectedContent']:
                 if isinstance(row, dict):
                     found.update(row.get(key) for key in ('before', 'after') if isinstance(row.get(key), str))
+                    referenced_steps(row.get('content'), found)
             return found
+        if isinstance(spec.get('booleanGeo'), dict):
+            found.update(step for step in spec['booleanGeo'].values() if isinstance(step, str))
         for op in ('each', 'leakedCredentials', 'matchedCanaries', 'scannedDigests'):
             if isinstance(spec.get(op), list):
                 found.update(step for step in spec[op] if isinstance(step, str) and step not in PSEUDO_SOURCES)
@@ -419,6 +424,19 @@ def evaluate(spec, ctx, *, item=None, step=None):
         record = ctx.record(named(spec['featureServerFeatures']))
         require(record.status == 200 and isinstance(record.json, dict), 'feature read failed')
         return feature_server_features(record.json)
+    if keys == {'featureServerFeatures', 'booleanGeo', 'booleanFields'}:
+        from urllib.parse import urlsplit
+        name = named(spec['featureServerFeatures'])
+        record = ctx.record(name)
+        mapping = spec['booleanGeo']
+        require(isinstance(mapping, dict) and name in mapping and isinstance(mapping[name], str),
+                'boolean GeoJSON read is missing')
+        geo = ctx.record(mapping[name])
+        require(record.status == 200 and geo.status == 200 and record.phase == geo.phase
+                and record.method == geo.method == 'GET' and record.principal == geo.principal == 'controller'
+                and urlsplit(record.path).path == urlsplit(geo.path).path,
+                'boolean GeoJSON does not address the same source')
+        return restore_feature_booleans(feature_server_features(record.json), geo.json, spec['booleanFields'])
     if keys == {'customerFileColumn', 'rows', 'column', 'firstDataRow'}:
         import csv
         import io
@@ -630,6 +648,34 @@ def feature_server_features(value):
         out.append({'type': 'Feature', 'id': source_id, 'properties': attributes, 'geometry': shape})
     out.sort(key=lambda f: f['properties']['source_id'])
     return {'srid': reference['wkid'], 'features': out}
+
+
+def restore_feature_booleans(normalized, geojson, fields):
+    """Verify GeoServices 0/1 values against the same features' typed GeoJSON values."""
+    require(isinstance(normalized, dict) and isinstance(normalized.get('features'), list)
+            and isinstance(geojson, dict) and geojson.get('type') == 'FeatureCollection'
+            and isinstance(geojson.get('features'), list) and isinstance(fields, list) and fields
+            and all(isinstance(field, str) and re.fullmatch(r'[a-z][a-z0-9_]*', field) for field in fields)
+            and len(set(fields)) == len(fields),
+            'invalid boolean feature cross-check')
+    typed = {}
+    for feature in geojson['features']:
+        props = feature.get('properties') if isinstance(feature, dict) else None
+        require(isinstance(props, dict) and isinstance(props.get('source_id'), str)
+                and props['source_id'] not in typed, 'invalid GeoJSON feature identity')
+        typed[props['source_id']] = props
+    require(len(typed) == len(normalized['features']), 'GeoJSON feature inventory differs')
+    for feature in normalized['features']:
+        props = feature['properties']
+        require(props['source_id'] in typed, 'GeoJSON feature identity differs')
+        for field in fields:
+            require(field in props and field in typed[props['source_id']], 'boolean field is missing')
+            wire, value = props[field], typed[props['source_id']][field]
+            require((value is None and wire is None) or
+                    (type(value) is bool and (type(wire) is bool or type(wire) is int and wire in (0, 1))
+                     and bool(wire) is value), 'boolean feature value differs')
+            props[field] = value
+    return normalized
 
 
 def _to_3857(lon, lat):
