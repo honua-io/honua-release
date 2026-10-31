@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P16",
-  "derivation": "Blocked by the credential boundary: recorder principals are runner-minted seed credentials; there is no runner hook to consume a model-created operation secret and register the same issued key for before/after probes. Controller metadata reads cannot prove issued-key access. Frozen secret-scan artifact identities also have no binding to the runner artifact inventory. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
+  "derivation": "Bootstrap revocation uses the reviewed runner custody fact and a fresh negative probe. Key lifecycle and secret scanning remain unscored until the same model-issued credential and scan inventory have runner-owned bindings. API-key listing is not a reviewed inventory.",
   "variants": {
     "A": {
       "key.read-only": null,
@@ -30,7 +30,17 @@
         ]
       },
       "secrets.absent": null,
-      "custody.bootstrap-revoked": null,
+      "custody.bootstrap-revoked": {
+        "bootstrapPrincipalId": {
+          "$role": "seeded:principal:bootstrap"
+        },
+        "revokedCredentialIds": [
+          {
+            "$role": "seeded:principal:bootstrap"
+          }
+        ],
+        "postRevocationProbeStatus": 401
+      },
       "custody.worker-replaced": {
         "$excluded": "custody.worker-replaced@local-docker"
       }
@@ -62,7 +72,17 @@
         ]
       },
       "secrets.absent": null,
-      "custody.bootstrap-revoked": null,
+      "custody.bootstrap-revoked": {
+        "bootstrapPrincipalId": {
+          "$role": "seeded:principal:bootstrap"
+        },
+        "revokedCredentialIds": [
+          {
+            "$role": "seeded:principal:bootstrap"
+          }
+        ],
+        "postRevocationProbeStatus": 401
+      },
       "custody.worker-replaced": {
         "$excluded": "custody.worker-replaced@local-docker"
       }
@@ -71,5 +91,38 @@
   "customerFiles": {
     "A": [],
     "B": []
+  },
+  "roles": [
+    {
+      "role": "seeded:principal:bootstrap",
+      "step": "runner-custody-mint-bootstrap",
+      "pointer": "/data/apiKey/id"
+    }
+  ],
+  "projections": {
+    "custody.bootstrap-revoked": {
+      "spec": {
+        "object": {
+          "bootstrapPrincipalId": {
+            "custody": "bootstrapPrincipalId"
+          },
+          "revokedCredentialIds": {
+            "custody": "bootstrapRevokedCredentialIds"
+          },
+          "postRevocationProbeStatus": {
+            "status": "p15-bootstrap-probe"
+          }
+        }
+      },
+      "reads": {
+        "p15-bootstrap-probe": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/api-keys/",
+          "principal": "bootstrap",
+          "phase": "observe"
+        }
+      }
+    }
   }
 }

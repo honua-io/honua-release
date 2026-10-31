@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P20",
-  "derivation": "Blocked by the frozen expectation interface: clarification reply IDs vary with preceding model actions, and no role can bind run.clarifications. Core assigns a topic to any question rather than observing the topic asked, and exposes no publication-after-answers fact. Freezing one transcript position or an empty answer ID list would produce invalid evidence. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
+  "derivation": "The private publication check is the same native operator/anonymous route contract as P15. Clarification remains unscored until stable-ID handoff, topic matching, reply identity and publication ordering are independently recorded by core.",
   "variants": {
     "A": {
       "clarification.required": null,
@@ -25,7 +25,22 @@
             },
             "status": 401
           }
-        ]
+        ],
+        "versionId": {
+          "$role": "seeded:map:version"
+        },
+        "contentHash": {
+          "$role": "seeded:map:hash"
+        },
+        "visibility": "team",
+        "operatorId": {
+          "$role": "seeded:principal:operator"
+        },
+        "operatorPermissions": [
+          "read:*"
+        ],
+        "operatorStatus": "active",
+        "operatorActive": true
       }
     },
     "B": {
@@ -50,12 +65,155 @@
             },
             "status": 401
           }
-        ]
+        ],
+        "versionId": {
+          "$role": "seeded:map:version"
+        },
+        "contentHash": {
+          "$role": "seeded:map:hash"
+        },
+        "visibility": "team",
+        "operatorId": {
+          "$role": "seeded:principal:operator"
+        },
+        "operatorPermissions": [
+          "read:*"
+        ],
+        "operatorStatus": "active",
+        "operatorActive": true
       }
     }
   },
   "customerFiles": {
     "A": [],
     "B": []
+  },
+  "roles": [
+    {
+      "role": "seeded:map:item",
+      "step": "p15-map-saved",
+      "pointer": "/data/itemId"
+    },
+    {
+      "role": "seeded:map:version",
+      "step": "p15-map-saved",
+      "pointer": "/data/versionId"
+    },
+    {
+      "role": "seeded:map:hash",
+      "step": "p15-map-saved",
+      "pointer": "/data/contentHash"
+    },
+    {
+      "role": "seeded:principal:operator",
+      "step": "runner-principal-operator",
+      "pointer": "/data/apiKey/id"
+    },
+    {
+      "role": "seeded:principal:bootstrap",
+      "step": "runner-custody-mint-bootstrap",
+      "pointer": "/data/apiKey/id"
+    },
+    {
+      "role": "seeded:service:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/layerId"
+    }
+  ],
+  "projections": {
+    "publication.private": {
+      "spec": {
+        "object": {
+          "requests": {
+            "each": [
+              "p15-operator",
+              "p15-anonymous"
+            ],
+            "to": {
+              "object": {
+                "principalId": {
+                  "principal": "$step"
+                },
+                "method": {
+                  "method": "$step"
+                },
+                "resourceId": {
+                  "body": "p15-operator",
+                  "pointer": "/data/itemId"
+                },
+                "status": {
+                  "status": "$step"
+                },
+                "responseSha256": {
+                  "sha256": "$step"
+                },
+                "disclosedResourceIds": {
+                  "disclosed": "$step",
+                  "roles": [
+                    "seeded:map:item"
+                  ]
+                }
+              }
+            }
+          },
+          "versionId": {
+            "body": "p15-operator",
+            "pointer": "/data/versionId"
+          },
+          "contentHash": {
+            "body": "p15-operator",
+            "pointer": "/data/contentHash"
+          },
+          "visibility": {
+            "body": "p15-operator",
+            "pointer": "/data/visibility"
+          },
+          "operatorId": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/id"
+          },
+          "operatorPermissions": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/permissions"
+          },
+          "operatorStatus": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/status"
+          },
+          "operatorActive": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/canAuthenticate"
+          }
+        }
+      },
+      "reads": {
+        "p15-operator": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/published(?:/[A-Za-z0-9_-]{1,100}){1,8}",
+          "principal": "operator",
+          "phase": "observe"
+        },
+        "p15-anonymous": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/published(?:/[A-Za-z0-9_-]{1,100}){1,8}",
+          "principal": "anonymous",
+          "phase": "observe"
+        },
+        "p15-operator-grants": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/api-keys/[^/]+/effective-permissions",
+          "principal": "controller",
+          "phase": "observe"
+        }
+      }
+    }
   }
 }
