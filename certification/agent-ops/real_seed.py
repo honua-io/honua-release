@@ -30,14 +30,19 @@ from state import _projected_layer, messy_table  # noqa: E402
 CORPUS = ROOT / 'certification' / 'agent-e2e' / 'corpus'
 
 
-def _verify_runtime(project: str, compose_file: Path, image_ref: str, digest: str, base_url: str) -> dict:
+def _verify_runtime(project: str, compose_file: Path, image_ref: str, digest: str, base_url: str,
+                    *, excluded_env: tuple[str, ...] = ()) -> dict:
     if not re.fullmatch(r'ops-[0-9a-f]{32}', project) or not compose_file.is_file() or not image_ref.endswith('@' + digest):
         raise ValueError('isolated trial project and immutable image required')
     origin = urllib.parse.urlsplit(base_url)
     if origin.scheme != 'http' or origin.hostname != '127.0.0.1' or origin.path not in ('', '/') or origin.query or origin.fragment or origin.port is None:
         raise ValueError('trial endpoint must be an explicit loopback port')
     def docker(*args):
-        result = subprocess.run(['docker', *args], capture_output=True, text=True, timeout=15, check=False)
+        child_env = os.environ.copy()
+        for name in excluded_env:
+            child_env.pop(name, None)
+        result = subprocess.run(['docker', *args], capture_output=True, text=True, timeout=15, check=False,
+                                env=child_env)
         if result.returncode != 0:
             raise ValueError('trial runtime identity unavailable')
         return result.stdout.strip()

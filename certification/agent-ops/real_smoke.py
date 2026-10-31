@@ -312,15 +312,19 @@ def main() -> None:
                     raise RuntimeError('acknowledged writes lost during fault recovery')
         evidence['status'] = 'operations-pass'
         if 'map_fixture' in evidence:
-            from real_map import observe_public_source
+            from real_map import observe_public_source, same_public_source
             fixture = evidence['map_fixture']
             evidence['reopened_map'] = reopen_saved_map(base, fixture['item_id'], fixture['version_id'], key)
             if not same_reopened_envelope(fixture['envelope'], evidence['reopened_map']['envelope']):
                 raise RuntimeError('reopened saved map changed')
+            evidence['operator_reopened_map'] = reopen_saved_map(
+                base, fixture['item_id'], fixture['version_id'], operator.secret)
+            if not same_reopened_envelope(fixture['envelope'], evidence['operator_reopened_map']['envelope']):
+                raise RuntimeError('operator reopened map changed')
             parcel = town['layers']['parcels']
             evidence['reopened_map_source'] = observe_public_source(base, parcel['service'], parcel['layerId'])
-            if evidence['reopened_map_source']['feature_count'] != fixture['public_source']['feature_count']:
-                raise RuntimeError('reopened map source feature count changed')
+            if not same_public_source(fixture['public_source'], evidence['reopened_map_source']):
+                raise RuntimeError('reopened map source content changed')
         evidence['cleanup'] = 'pending'
         print('real Compose operations completed: town layers, anonymous public traffic, controller readback' +
               (', upgrade and backup restore' if controller else ''))

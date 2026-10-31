@@ -19,10 +19,11 @@ from real_seed import _verify_runtime
 from agent_e2e_setup_http import SetupHttp
 from agent_e2e_scenario_operations import data
 from agent_e2e_studio_fixture import exact_envelope, validation
-from local_http import open_local
+from local_http import open_local, require_loopback
 
 
 def observe_public_source(base_url: str, service: str, layer_id: int) -> dict:
+    require_loopback(base_url)
     if not re.fullmatch(r'[a-z0-9_-]{1,100}', service) or type(layer_id) is not int or layer_id < 0:
         raise ValueError('invalid public map source')
     path = f'/rest/services/{service}/FeatureServer/{layer_id}/query?where=1%3D1&outFields=*&f=geojson'
@@ -37,6 +38,29 @@ def observe_public_source(base_url: str, service: str, layer_id: int) -> dict:
             'body_b64': base64.b64encode(raw).decode(), 'feature_count': len(collection['features'])}
 
 
+def same_public_source(before: dict, after: dict) -> bool:
+    """Compare all source data, disregarding only feature enumeration order."""
+    def decode(receipt):
+        if not isinstance(receipt, dict) or receipt.get('status') != 200:
+            raise ValueError('source receipt missing')
+        raw = base64.b64decode(receipt['body_b64'], validate=True)
+        if hashlib.sha256(raw).hexdigest() != receipt.get('sha256'):
+            raise ValueError('source receipt digest mismatch')
+        value = json.loads(raw)
+        if (not isinstance(value, dict) or value.get('type') != 'FeatureCollection' or
+            not isinstance(value.get('features'), list) or not value['features'] or
+            any(not isinstance(feature, dict) for feature in value['features']) or
+            len(value['features']) != receipt.get('feature_count')):
+            raise ValueError('source receipt incomplete')
+        value['features'] = sorted(value['features'], key=lambda feature:
+            json.dumps(feature, sort_keys=True, separators=(',', ':'), allow_nan=False))
+        return value
+    try:
+        return before.get('path') == after.get('path') and decode(before) == decode(after)
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return False
+
+
 def prepare_map(*, project: str, compose_file: Path, image_ref: str, base_url: str,
                 work: Path, service: str, layer_id: int, controller_env: str,
                 operator_env: str, operator_id: str) -> dict:
@@ -47,7 +71,7 @@ def prepare_map(*, project: str, compose_file: Path, image_ref: str, base_url: s
         raise ValueError('invalid map setup inputs')
     owner = str(uuid.UUID(operator_id))
     digest = image_ref.split('@', 1)[1]
-    runtime = _verify_runtime(project, compose_file, image_ref, digest, base_url)
+    runtime = _verify_runtime(project, compose_file, image_ref, digest, base_url, excluded_env=(operator_env,))
     work.mkdir(mode=0o700)
     directory = os.open(work.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -57,7 +81,7 @@ def prepare_map(*, project: str, compose_file: Path, image_ref: str, base_url: s
     item = str(uuid.uuid4())
     namespace = 'ops_map_' + uuid.uuid4().hex[:16]
     def authorize():
-        if _verify_runtime(project, compose_file, image_ref, digest, base_url) != runtime:
+        if _verify_runtime(project, compose_file, image_ref, digest, base_url, excluded_env=(operator_env,)) != runtime:
             raise ValueError('map setup runtime changed')
     def retain(kind, step, record):
         from agent_e2e_pack import canonical_digest
@@ -76,9 +100,12 @@ def prepare_map(*, project: str, compose_file: Path, image_ref: str, base_url: s
         return {'key': target.name, 'sha256': canonical_digest(record)}
     authorize()
     sql = "SELECT count(*) FROM honua.studio_content_items WHERE item_id='" + item + "'::uuid"
+    child_env = os.environ.copy()
+    child_env.pop(operator_env, None)
     observed = subprocess.run(['docker', 'compose', '-p', project, '-f', str(compose_file.resolve()),
                                'exec', '-T', 'db', 'psql', '-v', 'ON_ERROR_STOP=1', '-U', 'honua',
-                               '-d', 'honua', '-Atc', sql], capture_output=True, text=True, timeout=15, check=False)
+                               '-d', 'honua', '-Atc', sql], capture_output=True, text=True, timeout=15,
+                              check=False, env=child_env)
     if observed.returncode != 0 or observed.stdout.strip() != '0':
         raise ValueError('map identity absence not observed')
     baseline = {'project': project, 'item_id': item, 'count': 0,
@@ -89,8 +116,10 @@ def prepare_map(*, project: str, compose_file: Path, image_ref: str, base_url: s
     retain('response', 'map-public-source', source)
     source_path = source['path']
     identity = {'candidateKey': digest, 'attemptId': namespace.replace('_', '-')}
-    setup = SetupHttp(base_url, controller_env, identity=identity, authorize=authorize, retain=retain, timeout=120)
-    requester = SetupHttp(base_url, operator_env, identity=identity, authorize=authorize, retain=retain, timeout=120)
+    setup = SetupHttp(base_url, controller_env, identity=identity, authorize=authorize, retain=retain,
+                      private_values=(os.environ[operator_env],), timeout=120)
+    requester = SetupHttp(base_url, operator_env, identity=identity, authorize=authorize, retain=retain,
+                          private_values=(os.environ[controller_env],), timeout=120)
     body = {'mapPackageId': namespace, 'format': 'honua_map_package.v1',
             'sourceBindings': [{'sourceId': 'parcels', 'protocol': 'geoservices_feature_service',
                                 'locator': {'serviceId': service, 'layerId': layer_id}}],

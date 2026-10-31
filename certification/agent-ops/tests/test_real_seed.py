@@ -42,3 +42,26 @@ def test_runtime_binding_rejects_other_container_or_port(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, 'run', wrong_host)
     with pytest.raises(ValueError, match='endpoint mismatch'):
         _verify_runtime('ops-' + 'a' * 32, compose, 'server@' + digest, digest, 'http://127.0.0.1:8123')
+
+
+def test_runtime_binding_excludes_operator_key_from_children(tmp_path, monkeypatch):
+    import subprocess
+    from real_seed import _verify_runtime
+    compose = tmp_path / 'compose.yml'
+    compose.write_text('services: {}')
+    monkeypatch.setenv('OPS_OPERATOR_TEST_KEY', 'private-operator-key')
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(kwargs['env'])
+        if 'ps' in argv:
+            output = 'c' * 64
+        elif 'port' in argv:
+            output = '127.0.0.1:8123'
+        else:
+            output = 'sha256:' + 'b' * 64
+        return subprocess.CompletedProcess(argv, 0, output, '')
+    monkeypatch.setattr(subprocess, 'run', run)
+    digest = 'sha256:' + 'a' * 64
+    _verify_runtime('ops-' + 'a' * 32, compose, 'server@' + digest, digest,
+                    'http://127.0.0.1:8123', excluded_env=('OPS_OPERATOR_TEST_KEY',))
+    assert calls and all('OPS_OPERATOR_TEST_KEY' not in env for env in calls)
