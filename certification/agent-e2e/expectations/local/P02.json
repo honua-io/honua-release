@@ -1,4 +1,17 @@
 {
-  "A": {},
-  "B": {}
+  "schemaVersion": 1,
+  "scenario": "P02",
+  "derivation": "Null means unavailable: see scenario module for the evidence required. Fixture references resolve against the pinned town corpus.",
+  "variants": {
+    "A": {
+      "configuration.persisted": null,
+      "restart.observed": null,
+      "secrets.absent": null
+    },
+    "B": {
+      "configuration.persisted": null,
+      "restart.observed": null,
+      "secrets.absent": null
+    }
+  }
 }

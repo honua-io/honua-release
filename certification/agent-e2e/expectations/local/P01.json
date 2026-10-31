@@ -1,4 +1,21 @@
 {
-  "A": {},
-  "B": {}
+  "schemaVersion": 1,
+  "scenario": "P01",
+  "derivation": "Null means unavailable: see scenario module for the evidence required. Fixture references resolve against the pinned town corpus.",
+  "variants": {
+    "A": {
+      "candidate.identity": null,
+      "deployment.ready": null,
+      "authentication.required": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": null
+    },
+    "B": {
+      "candidate.identity": null,
+      "deployment.ready": null,
+      "authentication.required": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": null
+    }
+  }
 }
