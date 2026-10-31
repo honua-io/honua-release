@@ -283,6 +283,12 @@ class JourneyExecutor:
         kind = action.get("kind")
         if kind == "terminal_command":
             return self.execute_sdk_command(number, action, view)
+        if kind == "resource_read":
+            uri = action.get("uri")
+            if number != 5 or uri != "honua://catalog/processes":
+                raise ActionRejected("model action", "resource is outside the current stage and bounded view")
+            result = self.transport.resource_read(uri, view, self.principal(number))
+            return {"status": "pass", "accepted": True, "resource": result}
         if kind != "tool_call":
             raise ActionRejected("model action", "only structured calls from the bounded server view may execute")
         name, arguments = action.get("tool"), action.get("arguments")

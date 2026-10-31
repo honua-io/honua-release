@@ -269,6 +269,31 @@ class Transport:
                 raise ExecutionError(name, "candidate error carries contradictory execution evidence")
             return result
 
+    def resource_read(self, uri, view, principal="proposer"):
+        """Read the admitted catalog through the same initialized, authority-checked proxy."""
+        import probes
+
+        if uri != "honua://catalog/processes":
+            raise ActionRejected("resource read", "resource is outside the current stage and bounded view")
+        if not self.proxy or not self.proxy.is_file():
+            raise ExecutionError("resource read", "verified installed proxy is unavailable", blocked=True)
+        credential = self.credential(principal)
+        bearer = credential.startswith("Bearer ")
+        with probes.McpProxySession(str(self.proxy), self.base_url + "/mcp",
+                                    {"HONUA_API_KEY": "" if bearer else credential,
+                                     "HONUA_ADMIN_KEY": "",
+                                     "HONUA_MCP_AUTH_TOKEN": credential[7:] if bearer else ""}) as session:
+            if "error" in session.initialize(workflow_view="setup"):
+                raise ExecutionError("resource read", "proxy initialize refused")
+            current = session.request("tools/list", {"view": "setup"}).get("result", {})
+            if current.get("_meta") != view["metadata"] or current.get("tools") != view["tools"]:
+                raise ExecutionError("resource read", "bounded authority changed since observation")
+            discovery.record_call("mcp", "resources/read")
+            response = session.request("resources/read", {"uri": uri})
+            if "error" in response or not isinstance(response.get("result"), dict):
+                raise ExecutionError("resource read", "candidate resource read refused")
+            return response["result"]
+
     def secret_values(self):
         return credential_values(self.credentials) + [v.removeprefix("Bearer ")
             for v in getattr(self, "_issued_credentials", [])]

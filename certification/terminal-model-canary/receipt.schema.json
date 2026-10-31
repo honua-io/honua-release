@@ -188,7 +188,7 @@
           "stageNumber": {"type": "integer", "minimum": 1},
           "stageId": {"type": "string", "minLength": 1},
           "attribution": {"enum": ["MODEL_SELECTED", "HARNESS_DRIVEN"]},
-          "kind": {"enum": ["terminal_command", "tool_call", "setup", "error_injection", "approval", "verification", "teardown"]},
+          "kind": {"enum": ["terminal_command", "tool_call", "resource_read", "setup", "error_injection", "approval", "verification", "teardown"]},
           "status": {"enum": ["pass", "fail", "blocked", "pending"]},
           "request": {"$ref": "#/$defs/payloadSummary"},
           "result": {"$ref": "#/$defs/payloadSummary"},
@@ -209,7 +209,7 @@
             "if": {"properties": {"attribution": {"const": "MODEL_SELECTED"}}},
             "then": {
               "properties": {
-                "kind": {"enum": ["terminal_command", "tool_call"]},
+                "kind": {"enum": ["terminal_command", "tool_call", "resource_read"]},
                 "selectionEvidence": {"type": "object"}
               }
             },
