@@ -332,12 +332,24 @@ def test_iac_sha_is_the_honua_iac_block(tmp_path, monkeypatch):
     sha: "5069bffb27a1fe48485bf48c798804821a59e61a"
 """
     assert aws.honua_iac_sha(fixture) == IAC_SHA
-    assert aws.honua_iac_sha((ROOT / 'platform-manifest.yaml').read_text(encoding='utf-8')) == IAC_SHA
+    # pull_request CI checks out the merge with trunk, which advances this pin.
+    # The fixture above holds the parser; the live file is whatever this checkout pins.
+    live = (ROOT / 'platform-manifest.yaml').read_text(encoding='utf-8')
+    pinned = aws.honua_iac_sha(live)
+    section = live.split('\n  honua-iac:\n', 1)[1]
+    block = []
+    for line in section.splitlines():
+        if block and line.startswith('  ') and not line.startswith('    ') and line.rstrip().endswith(':'):
+            break
+        block.append(line)
+    sha_lines = [line for line in block if line.startswith('    sha: "')]
+    assert sha_lines and sha_lines[0].startswith(f'    sha: "{pinned}"')
+    assert pinned != 'd5a09d13c4ad541c05702e598c3679c0f42db7af'
     out = tmp_path / 'github-output.txt'
     monkeypatch.setenv('GITHUB_OUTPUT', str(out))
     assert aws.main(['print-pins']) == 0
     text = out.read_text(encoding='utf-8')
-    assert f'iac_sha={IAC_SHA}' in text
+    assert f'iac_sha={pinned}' in text
     assert f'devops_sha={aws.DEVOPS_SHA}' in text
     assert aws.main(['print-iac-sha']) == 0
 
