@@ -85,7 +85,7 @@ def test_model_session_records_exact_visible_inputs_and_verified_actions(tmp_pat
         calls.append(json.dumps(messages).encode())
         answer = ({'kind': 'tool_call', 'tool': 'customer_tool', 'arguments': {'x': 1}} if len(calls) == 1
                   else {'kind': 'final', 'answer': 'Finished.'})
-        return json.dumps(answer), {'total_tokens': 3}, 0, {'verified': True}
+        return json.dumps(answer), {'prompt_tokens': 2, 'completion_tokens': 1, 'total_tokens': 3}, 0, {'verified': True}
     result = run_model_session(prompt='Customer request', tool_catalog=[{'name': 'customer_tool', 'inputSchema': {}}],
         complete=complete, invoke=lambda name, args: {'content': [], 'isError': False}, log_dir=tmp_path,
         max_turns=3, max_actions=2, max_tokens=20, certification={'runNonce': 'one'})
@@ -127,7 +127,7 @@ def test_uncertain_tool_execution_retains_attempt_without_retry(tmp_path):
     import json
     count = []
     def complete(messages, certification):
-        return json.dumps({'kind': 'tool_call', 'tool': 'x', 'arguments': {}}), {'total_tokens': 1}, 0, {}
+        return json.dumps({'kind': 'tool_call', 'tool': 'x', 'arguments': {}}), {'prompt_tokens': 1, 'completion_tokens': 0, 'total_tokens': 1}, 0, {}
     def invoke(name, arguments):
         count.append(name)
         raise TimeoutError()
@@ -186,3 +186,64 @@ def test_fresh_stack_driver_uses_new_project_and_checks_candidate(tmp_path, monk
     assert driver.projects[0] != driver.projects[1]
     assert first.admin_key != second.admin_key
     assert driver.calls == ['setup', 'teardown', 'setup', 'teardown']
+
+
+def test_candidate_lock_requires_matching_bytes_image_and_source(tmp_path, monkeypatch):
+    import json
+    import yaml
+    import agent_e2e_local_runner as runner
+    digest, revision = 'sha256:' + 'a' * 64, 'b' * 40
+    manifest = {'platformRelease': '2026.1-rc.2', 'components': {'honua-server':
+        {'image': 'ghcr.io/example/server:release', 'digest': digest, 'sha': revision}}}
+    (tmp_path / 'platform-manifest.yaml').write_text(yaml.safe_dump(manifest))
+    monkeypatch.setattr(runner, 'ROOT', tmp_path)
+    lock = {'components': {'honua-server': {'source': {'revision': revision},
+             'artifacts': [{'kind': 'image', 'digest': digest}]}}}
+    lock_path = tmp_path / 'lock.json'
+    raw = json.dumps(lock).encode()
+    lock_path.write_bytes(raw)
+    lock_digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+    assert runner._candidate_binding(lock_digest=lock_digest, lock_path=lock_path)[0] == digest
+    with pytest.raises(ValueError): runner._candidate_binding(lock_digest='sha256:' + 'c' * 64, lock_path=lock_path)
+    lock['components']['honua-server']['source']['revision'] = 'c' * 40
+    raw = json.dumps(lock).encode()
+    lock_path.write_bytes(raw)
+    with pytest.raises(ValueError):
+        runner._candidate_binding(lock_digest='sha256:' + hashlib.sha256(raw).hexdigest(), lock_path=lock_path)
+
+
+def test_case_scores_state_and_final_answer_without_publishing_action_args():
+    from agent_e2e_local_runner import execute_case
+    raw = b'{"resourceIds":["one"]}'
+    evidence = {'requests': [{'method': 'GET', 'url': '/query', 'status': 200,
+        'body_b64': base64.b64encode(raw).decode(), 'sha256': hashlib.sha256(raw).hexdigest()}]}
+    class Scenario:
+        supported_variants = ('A', 'B')
+        def fault_plan(self, variant): return None
+        def needs_approver(self): return False
+        def sessions_required(self): return 1
+        def seed(self, stack, variant): return 'seed'
+        def observe(self, stack, seeded, variant, run):
+            assert run.sessions == 1 and run.final_answers == ('Here are the results.',)
+            return [Observation('filter.exact', {'resourceIds': ['one']}, evidence)]
+        def expected(self, variant): return {'filter.exact': {'resourceIds': ['one']}}
+        def cleanup(self, stack, seeded): pass
+    class Runtime:
+        assertions = ['filter.exact']
+        model = 'us.anthropic.claude-sonnet-4-6'
+        def setup(self, *args): return 'stack'
+        def session(self, *args):
+            return {'finalAnswer': 'Here are the results.', 'modelVisibleDigests': ['sha256:call'],
+                    'actions': [{'digest': 'sha256:action', 'logPath': '/private/action'}], 'nudges': 0,
+                    'usage': [{'prompt_tokens': 2, 'completion_tokens': 1, 'total_tokens': 3}], 'provenance': []}
+        def agent_principal(self, stack): return 'actor'
+        def resource_hints(self, stack): return []
+        def handoff_observations(self, stack, observations): return {}
+        def retain_observations(self, stack, observations): return {'sha256': 'sha256:evidence'}
+        def teardown(self, stack): pass
+    receipt = execute_case(case_id='P10:A:local-docker', scenario=Scenario(), variant='A', prompt='request',
+                           candidate_digest='sha256:case', runtime=Runtime())
+    assert receipt['status'] == 'pass'
+    assert receipt['assertions'][0]['status'] == receipt['finalAnswerCheck']['status'] == 'pass'
+    assert '/private/action' not in str(receipt)
+    assert receipt['actions'] == [{'digest': 'sha256:action'}]

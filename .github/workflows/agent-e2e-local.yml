@@ -1,0 +1,161 @@
+name: Local goal-driven corpus
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Comma-separated local scenario IDs, such as P10
+        required: true
+        type: string
+      variants:
+        description: Comma-separated development variants A and B only
+        required: true
+        default: A,B
+        type: string
+      image_ref:
+        description: Exact manifest server image reference including digest, mutually exclusive with lock_digest
+        required: false
+        type: string
+      lock_digest:
+        description: Exact sha256 digest of platform-lock.json, mutually exclusive with image_ref
+        required: false
+        type: string
+      lock_run_id:
+        description: Workflow run containing the platform lock artifact, required with lock_digest
+        required: false
+        type: string
+      lock_artifact:
+        description: Name of the artifact containing platform-lock.json
+        required: false
+        default: platform-lock
+        type: string
+      model:
+        description: Reviewed Bedrock model ID
+        required: true
+        default: us.anthropic.claude-sonnet-4-6
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  HONUA_CANARY_STUDIO_AI_ENABLED: "true"
+  HONUA_CANARY_BEDROCK_REGION: us-east-1
+  HONUA_CANARY_BEDROCK_MODEL: ${{ inputs.model }}
+  HONUA_CANARY_TRANSCRIPT_KEY_ID: terminal-model-canary
+  HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE: env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED
+  HONUA_CANARY_TRANSCRIPT_SIGNING_SEED: ${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}
+  TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
+  GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.inventory.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
+      - id: inventory
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+          VARIANTS: ${{ inputs.variants }}
+        run: |
+          set -euo pipefail
+          matrix="$(python tools/agent_e2e_local_runner.py inventory --scenarios "$SCENARIOS" --variants "$VARIANTS")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  case:
+    needs: inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.inventory.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
+      - name: Fetch exact lock artifact
+        if: ${{ inputs.lock_digest != '' && inputs.lock_run_id != '' }}
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: ${{ inputs.lock_artifact }}
+          path: candidate-lock
+          run-id: ${{ inputs.lock_run_id }}
+          github-token: ${{ github.token }}
+      - name: Assume Bedrock role
+        id: aws
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          output-credentials: true
+          output-env-credentials: false
+      - name: Run one case
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          VARIANT: ${{ matrix.variant }}
+          IMAGE_REF: ${{ inputs.image_ref }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+          MODEL: ${{ inputs.model }}
+          HONUA_CANARY_AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          HONUA_CANARY_AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        run: |
+          set -euo pipefail
+          args=(case --scenario "$SCENARIO" --variant "$VARIANT" --model "$MODEL" --output artifacts/receipt.json)
+          [ -z "$IMAGE_REF" ] || args+=(--image-ref "$IMAGE_REF")
+          [ -z "$LOCK_DIGEST" ] || args+=(--lock-digest "$LOCK_DIGEST" --lock-path candidate-lock/platform-lock.json)
+          python tools/agent_e2e_local_runner.py "${args[@]}"
+      - name: Retain case evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-${{ matrix.scenario }}-${{ matrix.variant }}
+          path: artifacts/
+          if-no-files-found: error
+
+  aggregate:
+    if: always() && needs.inventory.result == 'success'
+    needs: [inventory, case]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          pattern: corpus-*
+          path: case-artifacts
+      - name: Reject missing or duplicate cases and summarize
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+          VARIANTS: ${{ inputs.variants }}
+        run: python tools/agent_e2e_local_runner.py aggregate --scenarios "$SCENARIOS" --variants "$VARIANTS" --artifacts case-artifacts --output artifacts/summary.json
+      - name: Retain summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-summary
+          path: artifacts/summary.json
+          if-no-files-found: error

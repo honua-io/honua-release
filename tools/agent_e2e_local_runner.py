@@ -224,6 +224,11 @@ def run_model_session(*, prompt, tool_catalog, complete, invoke, log_dir, max_tu
             stop('infrastructure')
         usages.append(usage)
         provenance.append(proof)
+        if (not isinstance(usage, dict) or type(usage.get('prompt_tokens')) is not int
+                or type(usage.get('completion_tokens')) is not int or usage['prompt_tokens'] <= 0
+                or usage['completion_tokens'] < 0
+                or usage.get('total_tokens') != usage['prompt_tokens'] + usage['completion_tokens']):
+            stop('infrastructure')
         if sum(int(item.get('total_tokens') or 0) for item in usages) > max_tokens:
             stop('model')
         try:
@@ -296,6 +301,7 @@ def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtim
             followup = prompt if number == 0 else sessions[-1]['finalAnswer']
             session = runtime.session(stack, followup, number + 1)
             sessions.append(session)
+            receipt.setdefault('provenance', []).extend(session['provenance'])
             receipt['modelVisibleDigests'].extend(session['modelVisibleDigests'])
             receipt['actions'].extend([{k: v for k, v in action.items() if k != 'logPath'}
                                        for action in session['actions']])
@@ -304,10 +310,15 @@ def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtim
                         final_answers=tuple(s['finalAnswer'] for s in sessions))
         observations = observe_scenario(scenario, stack, seeded, variant, run)
         receipt['assertions'] = score_assertions(runtime.assertions, observations, scenario.expected(variant))
+        receipt['finalAnswerSha256'] = 'sha256:' + hashlib.sha256(run.final_answers[-1].encode('utf-8')).hexdigest()
         receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1],
             runtime.handoff_observations(stack, observations), receipt['assertions'])
         receipt['nudges'] = sum(s.get('nudges', 0) for s in sessions)
         receipt['usage'] = [usage for session in sessions for usage in session['usage']]
+        receipt['model'] = runtime.model
+        receipt['temperature'] = 0
+        receipt['cost'] = model_cost(receipt['usage'], runtime.model)
+        receipt['evidence'] = runtime.retain_observations(stack, observations)
         receipt['status'] = ('pass' if all(row['status'] == 'pass' for row in receipt['assertions'])
                              and receipt['finalAnswerCheck']['status'] == 'pass' else 'fail')
     except SessionInterrupted as exc:
@@ -316,7 +327,11 @@ def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtim
         receipt['actions'].extend([{k: v for k, v in action.items() if k != 'logPath'}
                                    for action in progress['actions']])
         receipt['usage'] = progress['usage']
+        receipt.setdefault('provenance', []).extend(progress['provenance'])
         receipt['nudges'] = progress['nudges']
+        receipt['model'] = runtime.model
+        receipt['temperature'] = 0
+        receipt['cost'] = model_cost(progress['usage'], runtime.model) if progress['usage'] else None
         if exc.category == 'model':
             receipt['status'] = 'fail'
             receipt['failure'] = {'phase': 'model-session', 'reason': 'invalid response or bound exceeded'}
@@ -514,6 +529,26 @@ class LocalRuntime(LocalStackDriver):
         finally:
             client.close()
 
+    def handoff_observations(self, stack, observations):
+        ids = next((o.observed.get('resourceIds') for o in observations
+                    if o.assertion_id == 'filter.exact' and isinstance(o.observed, dict)), None)
+        if not isinstance(ids, list):
+            return None
+        return {'resources': [], 'facts': {'counts': {name: len(ids) for name in ('features', 'rows', 'points')}}}
+
+    def retain_observations(self, stack, observations):
+        import os
+        from dataclasses import asdict
+        rows = [asdict(item) for item in observations]
+        raw = json.dumps(rows, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
+        path = Path(stack.workdir) / 'controller-observations.json'
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return {'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest(), 'path': str(path)}
+
     def teardown(self, stack):
         import os
         try:
@@ -578,3 +613,117 @@ def create_local_connection(stack):
     if proof.status != 'pass':
         raise ValueError('case fixture connection was not verified')
     return connection_id
+
+
+def model_cost(usages, model):
+    """Price observed tokens using the repository's reviewed model price receipt."""
+    from decimal import Decimal
+    path = ROOT / 'certification/agent-e2e/model-pricing.json'
+    raw = path.read_bytes()
+    price = json.loads(raw)
+    if price['modelId'] != model:
+        raise ValueError('no reviewed price for selected model')
+    prompt = output = 0
+    for usage in usages:
+        a, b = usage.get('prompt_tokens'), usage.get('completion_tokens')
+        if type(a) is not int or type(b) is not int or a <= 0 or b < 0 or a > price['pricingScope']['inputTokenLimit']:
+            raise ValueError('observed usage is outside the reviewed pricing scope')
+        prompt += a
+        output += b
+    value = (Decimal(prompt) * Decimal(price['inputUsdPerMillion']) +
+             Decimal(output) * Decimal(price['outputUsdPerMillion'])) / Decimal(1000000)
+    return {'usd': str(value), 'pricingSha256': 'sha256:' + hashlib.sha256(raw).hexdigest()}
+
+
+def _candidate_binding(image_ref=None, lock_digest=None, lock_path=None):
+    """Bind the requested candidate to the exact manifest image the driver composes."""
+    import re
+    import yaml
+    manifest = yaml.safe_load((ROOT / 'platform-manifest.yaml').read_text())
+    server = manifest['components']['honua-server']
+    image = str(server['image']).split('@', 1)[0] + '@' + server['digest']
+    if bool(image_ref) == bool(lock_digest):
+        raise ValueError('provide exactly one image reference or lock digest')
+    if image_ref:
+        if image_ref != image or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', image_ref):
+            raise ValueError('image reference differs from exact composed manifest image')
+    else:
+        if not lock_path or not re.fullmatch(r'sha256:[0-9a-f]{64}', lock_digest):
+            raise ValueError('lock digest requires exact lock bytes')
+        raw = Path(lock_path).read_bytes()
+        if 'sha256:' + hashlib.sha256(raw).hexdigest() != lock_digest:
+            raise ValueError('platform lock digest mismatch')
+        lock = json.loads(raw)
+        component = lock['components']['honua-server']
+        images = [a for a in component['artifacts'] if a.get('kind') == 'image' and a.get('digest') == server['digest']]
+        if len(images) != 1 or component.get('source', {}).get('revision') != server['sha']:
+            raise ValueError('platform lock does not bind the composed image and source')
+    return server['digest'], manifest['platformRelease'], image
+
+
+def main(argv=None):
+    import argparse
+    import importlib
+    import shutil
+    from terminal_model_canary import DriverAdapter
+    parser = argparse.ArgumentParser(description='Local development corpus case runner')
+    sub = parser.add_subparsers(dest='operation', required=True)
+    inventory = sub.add_parser('inventory')
+    inventory.add_argument('--scenarios', required=True)
+    inventory.add_argument('--variants', required=True)
+    case = sub.add_parser('case')
+    case.add_argument('--scenario', required=True)
+    case.add_argument('--variant', required=True)
+    case.add_argument('--image-ref')
+    case.add_argument('--lock-digest')
+    case.add_argument('--lock-path', type=Path)
+    case.add_argument('--model', required=True)
+    case.add_argument('--output', type=Path, required=True)
+    collect = sub.add_parser('aggregate')
+    collect.add_argument('--scenarios', required=True)
+    collect.add_argument('--variants', required=True)
+    collect.add_argument('--artifacts', type=Path, required=True)
+    collect.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args(argv)
+    pack = ROOT / 'certification/agent-e2e/pack.v2.AB-only.json'
+    if args.operation == 'inventory':
+        cases = build_inventory(pack, args.scenarios.split(','), args.variants.split(','))
+        print(json.dumps([{'scenario': row.split(':')[0], 'variant': row.split(':')[1]} for row in cases], separators=(',', ':')))
+        return 0
+    if args.operation == 'aggregate':
+        cases = build_inventory(pack, args.scenarios.split(','), args.variants.split(','))
+        summary = aggregate_files(cases, sorted(args.artifacts.glob('**/receipt.json')))
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(summary, indent=2) + '\n')
+        return 0 if all(row['status'] == 'pass' for row in summary['cases']) else 1
+    case_id = f'{args.scenario}:{args.variant}:local-docker'
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    receipt = {'caseId': case_id, 'attempt': 1, 'status': 'infrastructure', 'infrastructure': []}
+    try:
+        data = select_case(pack, args.scenario, args.variant)
+        candidate, release, image = _candidate_binding(args.image_ref, args.lock_digest, args.lock_path)
+        module = importlib.import_module('agent_e2e_local_scenarios.' + args.scenario)
+        scenario = getattr(module, 'scenario', module)
+        protocol = json.loads((ROOT / 'certification/terminal-model-canary/driver-protocol.v1.json').read_text())
+        driver = DriverAdapter(ROOT / protocol['adapterPath'], protocol, timeout_seconds=1200)
+        limits = data['limits']
+        runtime = LocalRuntime(driver, assertions=data['assertions'], model=args.model, release_id=release,
+                               max_turns=limits['maxTurns'], max_actions=limits['maxActions'])
+        receipt = execute_case(case_id=case_id, scenario=scenario, variant=args.variant,
+                               prompt=data['prompts'][args.variant], candidate_digest=candidate, runtime=runtime)
+        receipt['serverImage'] = image
+        receipt['lockDigest'] = args.lock_digest
+        evidence = receipt.get('evidence')
+        if evidence:
+            source = Path(evidence.pop('path'))
+            dest = args.output.parent / 'controller-observations.json'
+            shutil.copyfile(source, dest)
+            evidence['file'] = dest.name
+    except Exception as exc:
+        receipt['infrastructure'].append({'phase': 'case-initialization', 'errorType': type(exc).__name__})
+    args.output.write_text(json.dumps(receipt, indent=2) + '\n')
+    return 0 if receipt['status'] == 'pass' else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
