@@ -447,6 +447,31 @@ def test_artifact_zip_yields_report_objects_and_ignores_other_members():
 
 
 
+def test_fetches_real_arc_campaign_and_aggregate_artifact_names(monkeypatch):
+    import hashlib
+
+    trial_raw = b'{"schema":"honua.ai-arc-trial/v1","runId":"trial-1"}\n'
+    campaign = io.BytesIO()
+    with zipfile.ZipFile(campaign, "w") as archive:
+        archive.writestr("local-docker/runs/trial-1/trial-receipt.json", trial_raw)
+    aggregate = io.BytesIO()
+    with zipfile.ZipFile(aggregate, "w") as archive:
+        archive.writestr("ai-arc-aggregate-local-docker-A1.json", '{"schema":"honua.ai-arc.aggregate/v1"}')
+    names = [f"ai-arc-campaign-{arm}-{target}" for arm in ("A1", "A2")
+             for target in ("local-docker", "aws-ecs", "aws-eks", "aws-lambda")]
+    assert all(w.artifact_carries_evidence(name) for name in names)
+    assert all(w.artifact_carries_evidence(f"ai-arc-aggregate-{arm}") for arm in ("A1", "A2"))
+    artifacts = [{"id": 1, "name": names[0], "size_in_bytes": len(campaign.getvalue())},
+                 {"id": 2, "name": "ai-arc-aggregate-A1", "size_in_bytes": len(aggregate.getvalue())}]
+    monkeypatch.setattr(w, "_get", lambda url, token: {"artifacts": artifacts})
+    monkeypatch.setattr(w, "_get_bytes", lambda url, token, limit:
+                        campaign.getvalue() if "/1/zip" in url else aggregate.getvalue())
+    docs = w.fetch_run_reports("honua-io/honua-release", "test-token", 123)
+    assert {doc["schema"] for doc in docs} == {"honua.ai-arc-trial/v1", "honua.ai-arc.aggregate/v1"}
+    trial = next(doc for doc in docs if doc["schema"] == "honua.ai-arc-trial/v1")
+    assert trial["_artifact_sha256"] == "sha256:" + hashlib.sha256(trial_raw).hexdigest()
+
+
 def test_arc_admission_contract(tmp_path, monkeypatch):
     import copy
     import hashlib
@@ -571,14 +596,28 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         altered = copy.deepcopy(a1)
         mutate(altered)
         assert not evaluate(altered, a2)["admissible"], mutate
-    # A newer comparison arm or focused run never displaces required evidence.
+    # Comparison arms do not displace a required arm; a newer diagnostic required run does.
     comparison = copy.deepcopy(a1)
     for d in comparison:
         d.update(arm="C1", required=False)
     assert evaluate(a1, a2, (comparison,))["admissible"]
     diagnostic = copy.deepcopy(a1)
     diagnostic[agg_index]["certifying"] = False
-    assert evaluate(a1, a2, (diagnostic,))["admissible"]
+    assert not evaluate(a1, a2, (diagnostic,))["admissible"]
+    mixed_development = copy.deepcopy(a1)
+    mixed_development[trial_index]["goalSet"] = {"name": "development"}
+    mixed_development[agg_index]["unsafeAttempts"] = 1
+    assert not evaluate(a1, a2, (mixed_development,))["admissible"]
+    for bad_docs in (diagnostic, mixed_development):
+        newer = _run(0.5, conclusion="failure", run_id=3)
+        newer["reports"] = bad_docs
+        old_a1 = _run(2, run_id=1)
+        old_a1["reports"] = a1
+        old_a2 = _run(1, run_id=2)
+        old_a2["reports"] = a2
+        result = _eval({w.ARC_GATE: {"runs": [old_a1, old_a2, newer]}}, unbound={})
+        assert not result["admissible"]
+        assert result["gates"][w.ARC_GATE]["arms"]["A1"]["verdict"] == "red"
     invalid = copy.deepcopy(a1)
     invalid[agg_index]["completed"] = 0
     assert not evaluate(a1, a2, (invalid,))["admissible"]

@@ -153,7 +153,7 @@ _DIGEST_PARENTS = {"honua-server", "serverImage", "runtimeIdentity"}
 _LOCK_KEYS = {"lockDigest", "platformLockDigest", "platformLock", "candidateLockDigest"}
 _FAIL_STATUSES = {"fail", "failed", "failure"}
 # "canary" covers terminal-model-canary-local-docker-<attempt>, whose name has none of the others.
-_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock", "canary", "aggregate", "ai-arc-trial-")
+_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock", "canary", "aggregate", "ai-arc-campaign-", "ai-arc-trial-")
 _NESTED_IDENTITY = ("runtimeIdentity", "serverImage", "honua-server")
 
 
@@ -528,16 +528,17 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
         return "unrelated"
     docs = _documents(run)
     if gate == ARC_GATE:
-        if any(is_diagnostic(d) or (d.get("schema") in ("honua.ai-arc-trial/v1", "honua.ai-arc.report/v1")
-                                   and (d.get("goalSet") == "development"
-                                        or isinstance(d.get("goalSet"), dict)
-                                        and d["goalSet"].get("name") == "development")) for d in docs):
-            return "unrelated"
         matching = any(d.get("schema") in ("honua.ai-arc.aggregate/v1", "honua.ai-arc-trial/v1")
                        and d.get("arm") == arm and d.get("required") is True
                        and matches_candidate(d.get("candidate"), candidate) for d in docs)
         if not matching:
             return "unrelated"
+        diagnostic = any(is_diagnostic(d) or (d.get("schema") in
+            ("honua.ai-arc-trial/v1", "honua.ai-arc.report/v1") and
+            (d.get("goalSet") == "development" or isinstance(d.get("goalSet"), dict)
+             and d["goalSet"].get("name") == "development")) for d in docs)
+        if diagnostic:
+            return "superseding"
         return "qualifying" if run.get("conclusion") == "success" and _arc_valid(docs, candidate, arm) else "superseding"
     if not docs or not any(matches_candidate(doc, candidate) for doc in docs):
         return "unrelated"
@@ -802,7 +803,7 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
                         classified.append((created, int(run.get("id") or 0), kind, run))
                 classified.sort(key=lambda item: (item[0], item[1]))
                 if not classified:
-                    arm_results[arm] = {"verdict": "red", "reason": "no candidate-bound non-diagnostic run"}
+                    arm_results[arm] = {"verdict": "red", "reason": "no candidate-bound required-arm run"}
                     continue
                 created, _, kind, run = classified[-1]
                 good = kind == "qualifying" and created >= cutoff
