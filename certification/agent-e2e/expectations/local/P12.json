@@ -5,15 +5,40 @@
   "variants": {
     "A": {
       "state.saved": null,
-      "restart.observed": null,
+      "restart.observed": {
+        "resourceId": "server",
+        "terminalState": "ready",
+        "requiredStates": [
+          "restarted"
+        ]
+      },
       "state.reopened": null,
       "source-content.unchanged": null
     },
     "B": {
       "state.saved": null,
-      "restart.observed": null,
+      "restart.observed": {
+        "resourceId": "server",
+        "terminalState": "ready",
+        "requiredStates": [
+          "restarted"
+        ]
+      },
       "state.reopened": null,
       "source-content.unchanged": null
     }
+  },
+  "projections": {
+    "restart.observed": {
+      "spec": {
+        "custody": "lifecycle:between-1"
+      },
+      "reads": {}
+    }
+  },
+  "roles": [],
+  "customerFiles": {
+    "A": [],
+    "B": []
   }
 }

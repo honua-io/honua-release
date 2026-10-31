@@ -58,8 +58,8 @@ def test_p02_records_real_order_and_refuses_to_grade_partial_evidence(stack):
     assert case.seed(stack, 'A') == seeded
     with pytest.raises(ValueError):
         case.seed(stack, 'B')
-    with pytest.raises(RuntimeError, match='inventory alone'):
-        case.observe(stack, seeded, 'A')
+    observations = case.observe(stack, seeded, 'A')
+    assert [row.assertion_id for row in observations] == ['restart.observed']
     assert [entry[0] for entry in calls] == ['p02-connections-seed', 'p02-connections-before-restart', 'restart', 'p02-connections-after-restart']
 
 
@@ -152,3 +152,30 @@ def test_worker_exclusion_is_explicit_and_never_a_pass(scenario_id):
                             records={}, scenario_id=scenario_id, frozen={})
     assert rows[0]['status'] == 'excluded'
     assert rows[0]['ruling'] == 'custody.worker-replaced@local-docker'
+
+
+@pytest.mark.parametrize('scenario_id,prefix', [('P02', 'p02'), ('P12', 'between-1')])
+def test_frozen_restart_projection_passes_and_rejects_wrong_state(scenario_id, prefix):
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_runner import score_assertions
+    document = json.loads((ROOT / 'certification/agent-e2e/expectations/local' / (scenario_id + '.json')).read_text())
+    expected = {'restart.observed': document['variants']['A']['restart.observed']}
+    frozen = {'restart.observed': document['projections']['restart.observed']}
+    observation = Observation('restart.observed', None, {'projection': 'extract/v1'})
+    def score(states):
+        return score_assertions(['restart.observed'], [observation], expected, records={},
+            custody={'lifecycle:' + prefix: {'resourceId': 'server', 'states': states}},
+            scenario_id=scenario_id, frozen=frozen)[0]['status']
+    assert score(['running', 'restarted', 'running', 'ready']) == 'pass'
+    assert score(['running', 'running', 'ready']) == 'fail'
+
+
+def test_protected_inventory_shape_cannot_satisfy_configuration_binding():
+    # Core's protectedContent output is deliberately not re-labelled as digest fields.
+    projected = {'profile': 'honua.protected-content/v1',
+                 'before': [{'resourceId': 'connections', 'content': {'items': []}}],
+                 'after': [{'resourceId': 'connections', 'content': {'items': []}}]}
+    expected = {'configurationBeforeSha256': 'a' * 64,
+                'configurationAfterSha256': 'a' * 64, 'savedDataSourceIds': ['fixture']}
+    with pytest.raises(oracle.VerificationError):
+        oracle.verify('configuration.persisted', projected, expected)
