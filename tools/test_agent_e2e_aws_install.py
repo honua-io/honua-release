@@ -559,3 +559,12 @@ def test_install_plan_requires_complete_slot_binding_before_approval(harness):
     assert result['status'] == 'fail'
     assert result['result']['error'] == 'malformed'
     assert harness.approval is None and not harness.approver.calls
+
+
+def test_integrity_is_checked_again_after_teardown(harness):
+    def destroy():
+        (Path(harness.module_dir) / 'main.tf').write_text('# late mutation\n')
+        return []
+    harness.aws.destroy = destroy
+    assert harness.finish('')[:3] == ('infrastructure', 'infrastructure', 'module-tamper')
+    assert harness.observed['teardownRemaining'] == []

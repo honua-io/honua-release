@@ -777,6 +777,10 @@ class InstallHarness:
         except Exception:
             self._note('inventory-unread')
         self.observed['teardownRemaining'] = remaining
+        try:
+            self._tamper('finish-after-teardown')
+        except InfrastructureError:
+            pass
         return self.score(final_answer)
 
     def score(self, final_answer):
