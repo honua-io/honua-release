@@ -242,3 +242,26 @@ def test_p05_retains_only_the_last_agent_import_report(tmp_path):
     case = load_scenario('P05')
     assert case.observe(stack, case.seed(stack, 'A'), 'A') == []
     assert calls == [('p05-import-report', 3)]
+
+
+def test_core_role_binding_rejects_two_services_from_same_tool():
+    import hashlib
+    import json
+    from agent_e2e_local_api import RoleBinding
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+
+    def record(step, phase, rows):
+        raw = json.dumps({'data': rows, 'next': None}).encode()
+        return Record(step, phase, 'http', 'controller', 'admin', 'GET', '/services', 200,
+                      raw, 'sha256:' + hashlib.sha256(raw).hexdigest())
+    records = {'before': record('before', 'seed', []),
+               'after': record('after', 'observe', [{'name': 'parcels'}, {'name': 'shelters'}])}
+    binding = RoleBinding('created:service:parcels', 'after', items='/data', id='/name',
+                          before='before', next_page='/next',
+                          created_by={'tool': 'honua_publish_service', 'pointer': '/result/structuredContent/serviceName'})
+    actions = [{'tool': 'honua_publish_service', 'status': 'pass',
+                'json': {'result': {'structuredContent': {'serviceName': name}}}}
+               for name in ('parcels', 'shelters')]
+    with pytest.raises(ValueError, match='matched 2'):
+        resolve_roles([binding], records, agent_principal='agent', action_results=actions)
