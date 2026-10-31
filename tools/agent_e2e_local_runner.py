@@ -376,7 +376,7 @@ RECEIPT_REQUIRED = ('caseId', 'status', 'candidateDigest', 'attempt', 'arm', 'ap
 def validate_receipt(receipt):
     if not isinstance(receipt, dict) or any(key not in receipt for key in RECEIPT_REQUIRED):
         raise ValueError('malformed case receipt')
-    if receipt['attempt'] != 1 or receipt['status'] not in ('pass', 'fail', 'infrastructure', 'excluded'):
+    if receipt['attempt'] != 1 or receipt['status'] not in ('pass', 'fail', 'infrastructure', 'excluded', 'unsupported'):
         raise ValueError('receipt is not a scored first attempt')
     if receipt['packSha256'] != PACK_SHA256 or receipt['arm'] != arm_for(receipt.get('agentType', 'bedrock-proxy')):
         raise ValueError('receipt was produced from another pack or protocol')
@@ -392,7 +392,7 @@ def validate_receipt(receipt):
     rows = receipt['assertions']
     if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
         raise ValueError('malformed assertion rows')
-    if rows or receipt['status'] != 'infrastructure':
+    if (rows or receipt['status'] != 'infrastructure') and receipt['status'] != 'unsupported':
         if [r.get('assertion') for r in rows] != inventory:
             raise ValueError('receipt assertions differ from the pack inventory for the case')
         for row in rows:
@@ -401,6 +401,10 @@ def validate_receipt(receipt):
                     (covered is not None and row.get('ruling') != covered):
                 raise ValueError('receipt exclusion is not the preregistered exclusion for ' + row['assertion'])
     statuses = [row.get('status') for row in rows]
+    if receipt['status'] == 'unsupported':
+        if receipt['sessions'] or any(status != 'unsupported' for status in statuses):
+            raise ValueError('an unsupported case runs no session and scores nothing')
+        return
     if receipt['status'] == 'excluded':
         if not statuses or any(status != 'excluded' for status in statuses) or receipt['sessions']:
             raise ValueError('an excluded case must exclude every assertion and run no session')
@@ -849,8 +853,15 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
     def all_actions():
         return [a for s in receipt['sessions'] for a in s['actions']]
     try:
-        if variant not in DEVELOPMENT_VARIANTS or variant not in scenario.supported_variants:
+        if variant not in DEVELOPMENT_VARIANTS:
             raise ValueError('unsupported development variant')
+        if variant not in scenario.supported_variants:
+            # The scenario declares it cannot observe this variant yet: recorded as unsupported (no stack, no
+            # model call), never as infrastructure and never as a pass. Inventories do not schedule it.
+            receipt['status'] = 'unsupported'
+            receipt['assertions'] = [{'assertion': a, 'status': 'unsupported'} for a in case['assertions']]
+            receipt['finalAnswerCheck'] = {'status': 'unsupported'}
+            return receipt
         from agent_e2e_local_expectations import check_exclusion
         expected = scenario.expected(variant)
         rulings = {a: check_exclusion(scenario.id, a, expected.get(a)) for a in case['assertions']}
@@ -1040,6 +1051,21 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                 # A pass is only recorded when the case also tore down cleanly.
                 receipt['status'] = 'infrastructure'
     return receipt
+
+
+def unsupported_cases(cases, loader=None):
+    """Cases whose scenario module exists and declares the variant unsupported (not scheduled, listed)."""
+    loader = loader or load_scenario
+    out = []
+    for case_id in cases:
+        scenario_id, variant, _target = case_id.split(':')
+        try:
+            scenario = loader(scenario_id)
+        except Exception:  # a missing module is scheduled and fails as infrastructure, visibly
+            continue
+        if variant not in tuple(getattr(scenario, 'supported_variants', ())):
+            out.append(case_id)
+    return out
 
 
 def build_inventory(pack_path: Path, scenarios: list[str], variants: list[str]) -> list[str]:
@@ -1933,12 +1959,16 @@ def main(argv=None):
         return 0
     if args.operation == 'inventory':
         cases = build_inventory(PACK, args.scenarios.split(','), args.variants.split(','))
-        print(json.dumps([{'scenario': row.split(':')[0], 'variant': row.split(':')[1]} for row in cases],
-                         separators=(',', ':')))
+        skipped = set(unsupported_cases(cases))
+        print(json.dumps([{'scenario': row.split(':')[0], 'variant': row.split(':')[1]} for row in cases
+                          if row not in skipped], separators=(',', ':')))
         return 0
     if args.operation == 'aggregate':
         cases = build_inventory(PACK, args.scenarios.split(','), args.variants.split(','))
-        summary = aggregate_files(cases, sorted(args.artifacts.glob('**/receipt.json')))
+        skipped = unsupported_cases(cases)
+        summary = aggregate_files([c for c in cases if c not in skipped], sorted(args.artifacts.glob('**/receipt.json')))
+        # Not scheduled, never counted as passed or failed, but always listed.
+        summary['unsupportedCases'] = skipped
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps(summary['overall']))

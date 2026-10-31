@@ -2418,3 +2418,20 @@ def test_core3f_fault_committed_resource_binds_the_controller_draft_read(candida
         runner.check_reads('draft', draft, rule, {}, {})
     with pytest.raises(ValueError, match='not recorded'):
         evaluate({'runFact': 'faultEvents', 'pointer': '/0/committedResourceId'}, Context({}))
+
+
+def test_core3j_unsupported_variants_are_recorded_and_not_scheduled(candidate, tmp_path):
+    class OnlyA(FakeP10):
+        supported_variants = ('A',)
+    runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+    receipt = runner.execute_case(case_id='P10:B:local-docker', scenario=OnlyA(), variant='B', case=case('B'),
+                                  candidate_digest=DIGEST, runtime=runtime)
+    assert receipt['status'] == 'unsupported' and not receipt['sessions'] and not runtime.workdirs
+    assert {a['status'] for a in receipt['assertions']} == {'unsupported'}
+    runner.validate_receipt(receipt)
+    with pytest.raises(ValueError):
+        runner.validate_receipt({**receipt, 'sessions': [{'modelVisibleDigests': ['x']}]})
+    cases = runner.build_inventory(runner.PACK, ['P10'], ['A', 'B'])
+    assert runner.unsupported_cases(cases, loader=lambda sid: OnlyA()) == ['P10:B:local-docker']
+    assert runner.unsupported_cases(cases, loader=lambda sid: (_ for _ in ()).throw(ImportError())) == []
+    # Held-out C never reaches here: select_case and build_inventory refuse it (test_held_out_variant_is_refused...).
