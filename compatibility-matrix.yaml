@@ -180,7 +180,7 @@ capabilities:
     lifecycle: internal
     capabilityKeys: [admin.multi-tenancy]
     deployment: "Honua's own demo stack (honua-demo-infra, demo.honua.io) only."
-    reason: "Ruling R29: no customer-facing multi-tenant claim exists; ELv2 bars third parties from operating Honua as a managed service."
+    reason: "Ruling R29: no customer-facing multi-tenant claim exists; the Fair Core License (FCL-1.0-ALv2) bars third parties from offering Honua as a competing managed service."
     ruling: "https://github.com/honua-io/honua-release/issues/376"
 
 # Support window policy: server supports clients within N-2 minor of its contract version.
