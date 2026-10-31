@@ -46,6 +46,16 @@ def require_exact_positive(answer, item, version, owner_id=None):
         raise ValueError('positive control did not return the exact saved map version')
 
 
+def require_seeded_map(recorder, step, item, version):
+    record = recorder.records.get(step)
+    value = record.json if record is not None else None
+    value = value.get('data') if isinstance(value, dict) else None
+    if (record is None or record.phase != 'seed' or record.status not in (200, 201) or
+            not record.intact() or not isinstance(value, dict) or
+            value.get('itemId') != item or value.get('versionId') != version):
+        raise ValueError('map identity is not bound to the seed-recorded version')
+
+
 def observation(assertion, spec):
     return Observation(assertion, None, {'projection': 'extract/v1', 'spec': spec})
 
@@ -75,6 +85,7 @@ def observe_partial(scenario_id, stack, seeded, variant):
         item, version = guid(seeded.state['itemId']), guid(seeded.state['versionId'])
         path = f'/api/v1/studio/content-items/{item}/versions/{version}'
         prefix = scenario_id.lower()
+        require_seeded_map(recorder, f'{prefix}-map-saved', item, version)
         if scenario_id in ('P15', 'P20'):
             for suffix, principal in (('operator', 'operator'), ('anonymous', 'anonymous')):
                 answer = recorder.json(f'{prefix}-{suffix}', 'GET', path, principal=principal)
@@ -87,6 +98,7 @@ def observe_partial(scenario_id, stack, seeded, variant):
                 foreign_version = guid(seeded.state['foreignVersionId'])
                 if (foreign_item, foreign_version) == (item, version) or foreign_item == item:
                     raise ValueError('tenant control must protect a distinct foreign map')
+                require_seeded_map(recorder, 'p15-foreign-saved', foreign_item, foreign_version)
                 tenant_item, tenant_version = foreign_item, foreign_version
                 tenant_path = f'/api/v1/studio/content-items/{foreign_item}/versions/{foreign_version}'
                 item_role, version_role = FOREIGN, FOREIGN_VERSION

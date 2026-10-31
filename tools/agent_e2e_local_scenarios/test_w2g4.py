@@ -70,7 +70,8 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
             value = {'data': {'apiKey': {'id': path.split('/')[-1] + '-id'}}}
             return 201, json.dumps(value).encode()
         if path == '/fixture-map':
-            return 201, json.dumps({'data': {'itemId': ITEM, 'versionId': VERSION}}).encode()
+            version = '55555555-5555-5555-5555-555555555555' if state['wrong'] == 'unbound-seed' else VERSION
+            return 201, json.dumps({'data': {'itemId': ITEM, 'versionId': version}}).encode()
         if path == '/fixture-foreign-map':
             return 201, json.dumps({'data': {'itemId': FOREIGN_ITEM, 'versionId': FOREIGN_VERSION}}).encode()
         if path == '/api/v1/agent/target':
@@ -220,6 +221,12 @@ def test_p18_recorded_map_projection_detects_a_real_envelope_change(tmp_path, mo
 def test_p18_refuses_a_foreign_baseline_for_another_resource(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='same controller-read version'):
         recorded_case(tmp_path, monkeypatch, 'P18', 'A', 'other-baseline')
+
+
+@pytest.mark.parametrize('sid', ('P15', 'P18', 'P20'))
+def test_map_state_must_match_seed_recorded_identity(tmp_path, monkeypatch, sid):
+    with pytest.raises(ValueError, match='seed-recorded version'):
+        recorded_case(tmp_path, monkeypatch, sid, 'A', 'unbound-seed')
 
 
 @pytest.mark.parametrize('sid', ('P15', 'P18'))
