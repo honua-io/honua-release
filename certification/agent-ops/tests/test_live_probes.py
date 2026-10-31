@@ -1,5 +1,6 @@
 """Exercise actual HTTP probes with a local fake public FeatureServer."""
 import json
+import copy
 import threading
 import time
 import urllib.parse
@@ -51,29 +52,41 @@ def test_real_http_samples_and_missing_committed_write():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     traffic = ProbeTraffic(f"http://127.0.0.1:{server.server_port}", "/layer", "customer", "note",
-                           {"x": 1, "y": 2}, interval=0.03, writer_interval=0.04)
+                           {"x": 1, "y": 2}, interval=0.1, writer_interval=0.1)
     try:
         traffic.start()
-        time.sleep(0.3)
+        time.sleep(0.8)
         record = traffic.stop()
         ids = [row["object_id"] for row in record["samples"]
                if row["kind"] in ("write", "writer") and row["ok"]]
-        observed, evidence = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
+        readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
                                              "controller", "objectid", "note", ids)
-        assert len(evidence) == len(ids)
-        assert all(len(item["sha256"]) == 64 and "controller" not in str(item) for item in evidence)
-        result = assess_traffic(record, observed)
+        assert len(readback["responses"]) == len(ids)
+        assert all(len(item["sha256"]) == 64 and "controller" not in str(item) for item in readback["responses"])
+        result = assess_traffic(record, readback)
         assert result["rpo_zero"] is True
+        late = copy.deepcopy(readback)
+        late["started_monotonic"] = record["ended_monotonic"] + 11
+        with pytest.raises(ValueError, match="late controller"):
+            assess_traffic(record, late)
+        sparse = copy.deepcopy(record)
+        sparse["interval"] = 1
+        with pytest.raises(ValueError, match="cadence"):
+            assess_traffic(sparse, readback)
         assert result["committed_writes"] >= 4
         assert {row["kind"] for row in record["samples"]} == {"read", "write", "writer"}
         assert all(row["finished_at"] >= row["started_at"] for row in record["samples"])
-        observed = dict(FeatureHandler.features)
-        lost = next(iter(observed))
-        del observed[lost]
-        assert lost in assess_traffic(record, observed)["lost_writes"]
+        lost = ids[0]
+        del FeatureHandler.features[lost]
+        readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
+                                   "controller", "objectid", "note", ids)
+        assert lost in assess_traffic(record, readback)["lost_writes"]
+        readback["responses"][0]["sha256"] = "0" * 64
+        with pytest.raises(ValueError, match="integrity"):
+            assess_traffic(record, readback)
         record["complete"] = False
         with pytest.raises(ValueError, match="incomplete"):
-            assess_traffic(record, observed)
+            assess_traffic(record, readback)
     finally:
         server.shutdown()
         thread.join()
@@ -84,12 +97,13 @@ def test_missing_channel_and_duplicate_ack_fail_closed():
     def sample(kind, timestamp, **extra):
         return {"kind": kind, "ok": True, "started_monotonic": timestamp,
                 "finished_monotonic": timestamp, **extra}
-    record = {"complete": True, "started_monotonic": 0.0, "ended_monotonic": 1.0,
-              "samples": [sample("read", .2), sample("read", .8)]}
+    record = {"complete": True, "started_monotonic": 0.1, "ended_monotonic": 0.9,
+              "interval": 0.1, "writer_interval": 0.1,
+              "samples": [sample("read", .2), sample("read", .4), sample("read", .6), sample("read", .8)]}
     with pytest.raises(ValueError, match="samples"):
         assess_traffic(record, {})
     for kind in ("write", "writer"):
-        record["samples"].extend([sample(kind, .2, object_id=1, marker="a"),
-                                  sample(kind, .8, object_id=1, marker="a")])
+        record["samples"].extend([sample(kind, .2, object_id=1, marker="a"), sample(kind, .4, object_id=1, marker="a"),
+                                  sample(kind, .6, object_id=1, marker="a"), sample(kind, .8, object_id=1, marker="a")])
     with pytest.raises(ValueError, match="committed-write"):
         assess_traffic(record, {1: "a"})
