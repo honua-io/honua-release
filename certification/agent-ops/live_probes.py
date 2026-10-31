@@ -17,6 +17,14 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Callable
 
+from local_http import open_local, require_layer_path, require_loopback
+
+
+class ProbeFailure(ValueError):
+    def __init__(self, message: str, receipt: dict):
+        super().__init__(message)
+        self.receipt = receipt
+
 
 @dataclass
 class ProbeTraffic:
@@ -38,6 +46,8 @@ class ProbeTraffic:
     _ended: float | None = field(default=None, init=False)
 
     def _request(self, path: str, params: dict, method: str = "GET") -> tuple[dict, dict]:
+        require_loopback(self.base_url)
+        require_layer_path(self.layer_path)
         encoded = urllib.parse.urlencode(params).encode()
         url = self.base_url.rstrip("/") + self.layer_path + path
         request = urllib.request.Request(
@@ -45,19 +55,30 @@ class ProbeTraffic:
             data=encoded if method == "POST" else None, method=method,
             headers={"X-API-Key": self.customer_key, "Content-Type": "application/x-www-form-urlencoded"},
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            raw = response.read()
+        try:
+            response = open_local(request, timeout=self.timeout)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            raw = response.read(2_000_001)
             status = response.status
-        body = json.loads(raw)
+        receipt = {"method": method, "path": self.layer_path + path, "status": status,
+                   "request_sha256": hashlib.sha256(encoded).hexdigest(),
+                   "response_sha256": hashlib.sha256(raw).hexdigest()}
+        if status < 200 or status >= 300 or len(raw) > 2_000_000:
+            raise ProbeFailure("HTTP request failed", receipt)
+        try:
+            body = json.loads(raw)
+        except (ValueError, TypeError) as exc:
+            raise ProbeFailure("invalid FeatureServer JSON", receipt) from exc
         if not isinstance(body, dict) or body.get("error"):
-            raise ValueError("invalid or failed FeatureServer response")
-        return body, {"method": method, "path": self.layer_path + path,
-                      "status": status, "response_sha256": hashlib.sha256(raw).hexdigest()}
+            raise ProbeFailure("invalid or failed FeatureServer response", receipt)
+        return body, receipt
 
     def _read(self) -> dict:
         body, receipt = self._request("/query", {"f": "json", "where": "1=1", "returnCountOnly": "true"})
         if type(body.get("count")) is not int:
-            raise ValueError("read response has no count")
+            raise ProbeFailure("read response has no count", receipt)
         return {"count": body["count"], "http": receipt}
 
     def _write(self) -> dict:
@@ -68,14 +89,14 @@ class ProbeTraffic:
             "rollbackOnFailure": "true",
         }, method="POST")
         if body.get("success") is False:
-            raise ValueError("write transaction failed")
+            raise ProbeFailure("write transaction failed", receipt)
         results = body.get("addResults")
         if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
-            raise ValueError("write response lacks a single result")
+            raise ProbeFailure("write response lacks a single result", receipt)
         result = results[0]
         object_id = result.get("objectId")
         if result.get("success") is not True or type(object_id) is not int or object_id < 0:
-            raise ValueError("write was not acknowledged with an object id")
+            raise ProbeFailure("write was not acknowledged with an object id", receipt)
         return {"object_id": object_id, "marker": marker, "http": receipt}
 
     def _loop(self, kind: str, period: float, operation: Callable[[], dict]) -> None:
@@ -90,6 +111,8 @@ class ProbeTraffic:
                 sample = {"kind": kind, "ok": True, **result}
             except (OSError, ValueError, TypeError, urllib.error.URLError) as exc:
                 sample = {"kind": kind, "ok": False, "error_type": type(exc).__name__}
+                if isinstance(exc, ProbeFailure):
+                    sample["http"] = exc.receipt
                 if isinstance(exc, urllib.error.HTTPError):
                     sample["http_status"] = exc.code
             finally:
@@ -125,6 +148,7 @@ class ProbeTraffic:
     def stop(self) -> dict:
         if self._started is None or self._ended is not None:
             raise ValueError("traffic was not started or was already stopped")
+        stop_requested = time.monotonic()
         self._stop.set()
         for thread in self._threads:
             thread.join(self.timeout + 1)
@@ -137,6 +161,7 @@ class ProbeTraffic:
         with self._lock:
             samples = list(self._samples)
         return {"started_monotonic": self._started, "ended_monotonic": self._ended,
+                "stop_requested_monotonic": stop_requested,
                 "complete": all(not thread.is_alive() for thread in self._threads + workers),
                 "interval": self.interval, "writer_interval": self.writer_interval,
                 "samples": samples}
@@ -150,8 +175,10 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
     """
     samples = record.get("samples")
     start, end = record.get("started_monotonic"), record.get("ended_monotonic")
+    stop_requested = record.get("stop_requested_monotonic")
     if (record.get("complete") is not True or not isinstance(samples, list) or
         not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or end <= start or
+        not isinstance(stop_requested, (int, float)) or not start < stop_requested <= end or
         not isinstance(readback, dict)):
         raise ValueError("incomplete traffic or readback")
     gaps = {}
@@ -169,7 +196,7 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
                            for row in rows):
             raise ValueError("missing or invalid samples")
         starts = sorted(row["started_monotonic"] for row in rows)
-        if (starts[0] - start > intervals[kind] * 2.5 or end - starts[-1] > intervals[kind] * 2.5 or
+        if (starts[0] - start > intervals[kind] * 2.5 or stop_requested - starts[-1] > intervals[kind] * 2.5 or
             any(b - a > intervals[kind] * 2.5 for a, b in zip(starts, starts[1:]))):
             raise ValueError("probe cadence was not maintained")
         successes = sorted((row for row in rows if row["ok"]), key=lambda row: row["started_monotonic"])
@@ -247,6 +274,8 @@ def readback_writes(base_url: str, layer_path: str, controller_key: str,
     import base64
     import hashlib
 
+    require_loopback(base_url)
+    require_layer_path(layer_path)
     if (not controller_key or not object_id_field or not marker_field or not ids or
         any(type(oid) is not int or oid < 0 for oid in ids) or len(set(ids)) != len(ids)):
         raise ValueError("invalid readback request")
@@ -258,7 +287,7 @@ def readback_writes(base_url: str, layer_path: str, controller_key: str,
                                         "returnGeometry": "false"})
         url = base_url.rstrip("/") + layer_path + "/query?" + params
         req = urllib.request.Request(url, headers={"X-API-Key": controller_key})
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with open_local(req, timeout=timeout) as response:
             raw = response.read()
             status = response.status
         body = json.loads(raw)

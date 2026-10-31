@@ -87,3 +87,65 @@ def test_database_snapshot_is_project_scoped_and_missing_table_fails(tmp_path, m
     monkeypatch.setattr(subprocess, 'run', lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, '', 'missing'))
     with pytest.raises(RuntimeError, match='container identity unavailable'):
         observe_database(project, str(compose), [('public', 'absent')])
+
+
+def test_saved_map_requires_actual_reopen_and_fresh_matching_draft(monkeypatch):
+    import live_observer
+    item = '11111111-1111-4111-8111-111111111111'
+    version = '22222222-2222-4222-8222-222222222222'
+    draft = '33333333-3333-4333-8333-333333333333'
+    envelope = {'family': 'map', 'body': {'layers': ['a']}}
+    calls = []
+    def read(base, path, key, *, method='GET', timeout=10):
+        calls.append((method, path))
+        if method == 'POST':
+            data = {'draftId': draft, 'envelope': envelope}
+        elif 'package-drafts' in path:
+            data = {'draftId': draft, 'itemId': item, 'baseVersionId': version, 'envelope': envelope}
+        else:
+            data = {'itemId': item, 'versionId': version, 'envelope': envelope}
+        return {'data': data}, {'status': 200}
+    monkeypatch.setattr(live_observer, '_controller_json', read)
+    result = live_observer.reopen_saved_map('http://127.0.0.1:1', item, version, 'controller')
+    assert result['draft_id'] == draft
+    assert [call[0] for call in calls] == ['GET', 'POST', 'GET']
+    def corrupt(base, path, key, *, method='GET', timeout=10):
+        body, evidence = read(base, path, key, method=method, timeout=timeout)
+        if 'package-drafts' in path:
+            body['data']['envelope'] = {'family': 'map', 'body': {'layers': []}}
+        return body, evidence
+    monkeypatch.setattr(live_observer, '_controller_json', corrupt)
+    with pytest.raises(ValueError, match='differs'):
+        live_observer.reopen_saved_map('http://127.0.0.1:1', item, version, 'controller')
+
+
+def test_runtime_requires_every_expected_healthy_replica(tmp_path, monkeypatch):
+    import subprocess
+    from live_observer import observe_runtime
+    compose = tmp_path / 'compose.yml'
+    compose.write_text('services: {}')
+    project, cid, digest = 'ops-' + 'a' * 32, 'c' * 64, 'sha256:' + 'b' * 64
+    image = 'server@' + digest
+    def run(argv, **kwargs):
+        if 'ps' in argv: stdout = cid
+        elif 'image' in argv: stdout = digest
+        else: stdout = digest + '|running|healthy'
+        return subprocess.CompletedProcess(argv, 0, stdout, '')
+    monkeypatch.setattr(subprocess, 'run', run)
+    assert observe_runtime(project, str(compose), image, 1)['replicas'][0]['image_id'] == digest
+    with pytest.raises(ValueError, match='missing or duplicate'):
+        observe_runtime(project, str(compose), image, 2)
+
+
+def test_service_settings_requires_access_policy_and_matching_identity(monkeypatch):
+    import live_observer
+    def read(*args, **kwargs):
+        return {'success': True, 'data': {'serviceName': 'shelters',
+                'enabledProtocols': ['featureserver'], 'accessPolicy': {'allowAnonymous': False}}}, {'status': 200}
+    monkeypatch.setattr(live_observer, '_controller_json', read)
+    assert live_observer.observe_service_settings('http://127.0.0.1:1', 'shelters', 'controller')['settings']['accessPolicy']['allowAnonymous'] is False
+    def missing(*args, **kwargs):
+        return {'success': True, 'data': {'serviceName': 'shelters', 'enabledProtocols': []}}, {'status': 200}
+    monkeypatch.setattr(live_observer, '_controller_json', missing)
+    with pytest.raises(ValueError, match='ACL missing'):
+        live_observer.observe_service_settings('http://127.0.0.1:1', 'shelters', 'controller')
