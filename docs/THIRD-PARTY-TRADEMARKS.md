@@ -234,22 +234,28 @@ already-pinned check.
 ### Guard newly changed content
 
 `guard-vendor-delta.yml` is a reusable pull request and merge queue check. It compares the
-candidate against the target commit without a committed baseline, classifies changed text in
+candidate against the PR merge base (or merge queue base) without a committed baseline, classifies changed text in
 its full file context, and rejects new avoidable, confidential and nominative uses. The
 specification and interoperability vocabularies and approved exceptions still apply. New path
 components are checked as well. Existing findings on unchanged lines do not block the check.
-The check also examines HTML entities and common ASCII source-code escapes, including nested
-combinations up to a bounded depth; deeper encodings fail closed. It cannot prove
+The check also examines HTML entities and common source-code escapes, including nested
+combinations up to a bounded depth; deeper encodings fail closed. An additional Unicode
+normalization pass checks compatibility characters and ignores invisible format characters and
+variation selectors. Unicode-containing lines over 100,000 characters and normalized changes
+over 16 Mi characters fail closed to bound normalization memory use.
+It cannot prove
 what dynamically constructed strings or every language-specific encoding will produce at runtime.
 Escape scanning is conservative: raw strings and nested escapes can be flagged even when the
 language displays an escape literally or evaluates fewer decoding layers. Review an approved
-exception when that occurs.
+exception when that occurs. Embedded names are checked conservatively; the overlap between a
+preceding `e` and a capitalized `Srid` is exempted. An all-lowercase spatial-reference name can
+still be ambiguous and may need an approved exception.
 
 The check also inspects pull request titles and descriptions when a pull request event runs.
 GitHub ruleset workflows ignore event activity filters, so a title or description edit after a
 passing check may not rerun it. The check fails closed if either revision, a changed submodule,
 Git LFS pointers, or changed text in a supported source file cannot be inspected. Changed blobs
-over 64 MiB, candidate text over 16 MiB, tokens over 4,096 characters, and inputs with excessive inspection work fail closed to bound
+over 64 MiB, more than 1,000,000 changed lines per file, candidate text over 16 MiB, tokens over 4,096 characters, and inputs with excessive inspection work fail closed to bound
 resource use. Recognized binary assets are checked for plainly encoded terms, but compressed and
 visual content is not inspected. Other binary content fails closed. It does not inspect issue
 titles, comments, or review text. These require a separate
