@@ -83,6 +83,7 @@ env:
 jobs:
   provision:
     needs: candidate-lock
+    if: ${{ needs.candidate-lock.outputs.valid == 'true' }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
     permissions:
@@ -326,6 +327,9 @@ jobs:
 
   candidate-lock:
     runs-on: ubuntu-latest
+    continue-on-error: ${{ inputs.preview }}
+    outputs:
+      valid: ${{ steps.valid.outputs.valid }}
     permissions:
       actions: read
     steps:
@@ -351,6 +355,10 @@ jobs:
           path: ${{ runner.temp }}/candidate-lock/frozen-lock/platform-lock.json
           if-no-files-found: error
 
+      - name: Mark the candidate lock preflight complete
+        id: valid
+        run: echo "valid=true" >> "$GITHUB_OUTPUT"
+
   # ── journey: NO id-token, NO AWS credentials. The pinned clients and seam drivers run here. ─────────
   journey:
     needs: [provision, candidate-lock]
@@ -359,7 +367,6 @@ jobs:
     continue-on-error: ${{ inputs.preview }}
     permissions:
       contents: read
-      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
