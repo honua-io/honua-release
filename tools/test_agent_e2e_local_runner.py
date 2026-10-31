@@ -620,7 +620,8 @@ def test_binding_projection_from_custody_and_secret_scan():
     from agent_e2e_local_projections import Context, evaluate
     records = {'cfg': _record('cfg', body={'connection': 'password=hunter2-secret'})}
     ctx = Context(records, credentials=('hunter2-secret', 'unused-credential'))
-    assert evaluate({'leakedCredentials': ['cfg']}, ctx) == [hashlib.sha256(b'hunter2-secret').hexdigest()[:16]]
+    from agent_e2e_local_projections import credential_fingerprint
+    assert evaluate({'leakedCredentials': ['cfg']}, ctx) == [credential_fingerprint('hunter2-secret')]
 
 
 def test_protected_content_requires_seed_before_and_observe_after():
@@ -1842,17 +1843,19 @@ def test_core3_sql_read_runs_read_only_in_the_case_db_container(monkeypatch, tmp
         return subprocess.CompletedProcess(argv, 0, b'[{"a":1}]\n', b'')
     monkeypatch.setattr(subprocess, 'run', fake_run)
     stack = Stack('http://127.0.0.1:1', ADMIN, None, 'corpus-x', 'f', str(tmp_path), DIGEST, {})
-    status, raw = runner.LocalRuntime(None, model='m', release_id='r').sql_read(stack, 'SELECT 1 AS a')
+    status, raw = runner.LocalRuntime(None, model='m', release_id='r').sql_read(stack, 'SELECT 1 AS a FROM honua_data.t')
     assert status == 200 and raw == b'[{"a":1}]'
     exec_argv, script = calls[-1]
     assert exec_argv[:2] == ['docker', 'exec'] and '-i' not in exec_argv and script is None   # SQL never on stdin
-    assert 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000' in exec_argv
+    assert any(a.startswith('PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000') for a in exec_argv)
     assert exec_argv[exec_argv.index('-U') + 1] == 'corpus_reader'
     command = exec_argv[exec_argv.index('-c', exec_argv.index('psql')) + 1]
-    assert 'json_agg' in command and 'SELECT 1 AS a' in command
+    assert 'json_agg' in command and 'SELECT 1 AS a FROM honua_data.t' in command
+    assert 'search_path=pg_catalog,public,pg_temp' in ' '.join(exec_argv)
     reader_setup = [argv for argv, _ in calls if 'psql' in argv and argv[argv.index('-U') + 1] == 'honua']
     setup_sql = reader_setup[0][reader_setup[0].index('-c', reader_setup[0].index('psql')) + 1]
     assert 'pg_read_all_data' in setup_sql and "statement_timeout = '15s'" in setup_sql
+    assert ' INHERIT' in setup_sql and 'NOINHERIT' not in setup_sql and 'search_path = pg_catalog, public, pg_temp' in setup_sql
 
 
 def test_core3_database_handoff_is_seeded_attested_attached_and_redacted(candidate, tmp_path, monkeypatch):
@@ -2122,9 +2125,9 @@ def test_core3r1_sql_allowlist_refuses_client_syntax_and_side_effects(query):
 
 def test_core3r1_sql_allowlist_admits_plain_reads():
     for query in ('SELECT source_id, capacity FROM honua_data.t ORDER BY source_id',
-                  "SELECT count(*) AS n FROM t WHERE name = 'x''y' AND capacity > 50",
-                  'SELECT st_astext(geometry), st_srid(geometry) FROM t',
-                  'WITH a AS (SELECT id FROM t) SELECT id FROM a'):
+                  "SELECT count(*) AS n FROM honua_data.t WHERE name = 'x''y' AND capacity > 50",
+                  'SELECT st_astext(geometry), st_srid(geometry) FROM honua_data.t',
+                  'WITH a AS (SELECT id FROM honua_data.t) SELECT id FROM a'):
         assert runner.sql_allowlisted(query) == query
 
 
@@ -2187,7 +2190,8 @@ def test_core3r3_handoff_passwords_are_scanned_and_stripped_from_exports(candida
     password = scenario_holder['s'].handoff['password']
     from agent_e2e_local_projections import Context, evaluate
     visible = tuple(json.dumps(m).encode() for m in model.sent)
-    fingerprint = hashlib.sha256(password.encode()).hexdigest()[:16]
+    from agent_e2e_local_projections import credential_fingerprint
+    fingerprint = credential_fingerprint(password)
     # The attachment itself is the intended place: not a leak.
     assert evaluate({'leakedCredentials': ['$model-visible']},
                     Context({}, model_visible=visible[:1], customer_credentials=(password,))) == []
@@ -2435,3 +2439,115 @@ def test_core3j_unsupported_variants_are_recorded_and_not_scheduled(candidate, t
     assert runner.unsupported_cases(cases, loader=lambda sid: OnlyA()) == ['P10:B:local-docker']
     assert runner.unsupported_cases(cases, loader=lambda sid: (_ for _ in ()).throw(ImportError())) == []
     # Held-out C never reaches here: select_case and build_inventory refuse it (test_held_out_variant_is_refused...).
+
+
+
+# ---- Astra review 5722741479 of #1172 and lane asks (k)-(n) -----------------------------------
+
+@pytest.mark.parametrize('query', ['SELECT 1 FROM shelters', 'SELECT 1 FROM public.evil', 'SELECT 1 AS one',
+                                   'SELECT x FROM honua_data.t a JOIN evil b ON a.id = b.id',
+                                   'SELECT 1 FROM "Public".x'])
+def test_core3s1_relations_must_be_in_reviewed_schemas(query):
+    with pytest.raises(ValueError):
+        runner.sql_allowlisted(query)
+
+
+def test_core3s3_sql_from_binds_exactly_one_qualified_relation():
+    from agent_e2e_local_projections import address_value
+    from agent_e2e_local_recorder import Record
+
+    def read(query):
+        return Record('r', 'observe', 'sql', 'controller', None, 'SELECT', query, 200, b'[]',
+                      'sha256:' + hashlib.sha256(b'[]').hexdigest())
+    assert address_value(read('SELECT a FROM honua_data.p05 ORDER BY a'), {'sqlFrom': 'qualified'}) == 'honua_data.p05'
+    for query in ('SELECT a.x FROM honua_data.p05 a JOIN honua_data.town b ON a.id = b.id',
+                  'SELECT x FROM honua_data.p05 WHERE x IN (SELECT y FROM honua_data.town)',
+                  'WITH c AS (SELECT y FROM honua_data.town) SELECT y FROM c'):
+        with pytest.raises(ValueError, match='exactly one'):
+            address_value(read(query), {'sqlFrom': 'table'})
+
+
+def test_core3s4_inventory_rows_must_be_exactly_the_reviewed_items():
+    from agent_e2e_local_projections import Context, evaluate, proven_complete
+    body = {'data': [{'id': 'c1'}, {'id': 'c2'}]}
+    record = _record('l', body=body, path='/api/v1/admin/connections')
+    proven_complete(record, body['data'], 'l')
+    with pytest.raises(ValueError, match='exactly the reviewed items'):   # same length, different rows
+        proven_complete(record, [{'id': 'c1'}, {'id': 'c9'}], 'l')
+    # Absence cannot be faked by pointing the inventory at a different same-length list.
+    faked = {'data': [{'id': 'c1'}], 'other': [{'id': 'x'}]}
+    with pytest.raises(ValueError, match='exactly the reviewed items'):
+        evaluate({'absent': 'l', 'items': '/other', 'id': '/id', 'role': 'seeded:c'},
+                 Context({'l': _record('l', body=faked, path='/api/v1/admin/connections')}, {'seeded:c': 'c1'}))
+
+
+def projections_canonical(ctx):
+    from agent_e2e_local_projections import canonical
+    return canonical(ctx.record('cfg').json).encode()
+
+
+def test_core3k_scanned_digests_bind_exact_raw_bytes():
+    from agent_e2e_local_projections import Context, evaluate, scan_roles
+    raw = b'{"connection":"ok"}'
+    ctx = Context({'cfg': _record('cfg', body={'connection': 'ok'})}, final_answers=('Done.',))
+    roles = scan_roles([RoleBinding('scan:artifacts', '', sources=('cfg', '$final-answers'))], ctx)
+    digests = evaluate({'scannedDigests': ['cfg', '$final-answers']}, ctx)
+    assert roles['scan:artifacts'] == digests == sorted([hashlib.sha256(ctx.record('cfg').raw).hexdigest(),
+                                                         hashlib.sha256(b'Done.').hexdigest()])
+    # A canonicalized value of the same content is not the scanned bytes.
+    canonical_digest = evaluate({'canonicalSha256': {'body': 'cfg', 'pointer': ''}}, ctx)
+    assert ctx.record('cfg').raw != projections_canonical(ctx) and canonical_digest not in digests
+    assert evaluate({'scannedDigests': ['cfg']}, ctx) != roles['scan:artifacts']   # a narrower scan does not match
+    with pytest.raises(ValueError):
+        evaluate({'scannedDigests': ['$model-visible']}, ctx)
+
+
+def test_core3l_model_replays_aggregate_every_sealed_query_of_the_service():
+    import dataclasses
+    from agent_e2e_local_projections import Context, evaluate
+    actions = {}
+    records = {}
+    for n, layer in enumerate((0, 0, 1), start=1):
+        occurrence = f'occ:1:{n}:sha256:{n}'
+        actions[occurrence] = {'kind': 'tool_call', 'tool': 'honua_query_features', '_session': 1, '_sequence': n,
+                               'arguments': {'serviceId': 'svc', 'layerId': layer, 'where': f'w{n}'}}
+        records[f'replay-{n}'] = dataclasses.replace(
+            _record(f'replay-{n}', kind='mcp', path='/mcp#tools/call',
+                    body={'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {'returnedCount': n}}}),
+            method='POST', replay_of=occurrence)
+    roles = {'seeded:service:s': 'svc', 'seeded:layer:l': 0}
+    spec = {'modelReplays': {'tool': 'honua_query_features',
+                             'addresses': [{'role': 'seeded:service:s', 'at': {'argument': '/serviceId'}},
+                                           {'role': 'seeded:layer:l', 'at': {'argument': '/layerId'}}]},
+            'to': {'body': '$step', 'pointer': '/result/structuredContent/returnedCount'}}
+    assert evaluate(spec, Context(records, roles, model_actions=actions)) == [1, 2]   # layer 1 is another source
+    del records['replay-2']
+    with pytest.raises(ValueError, match='no single controller replay'):          # an unreplayed model query
+        evaluate(spec, Context(records, roles, model_actions=actions))
+
+
+def test_core3m_extent_accepts_an_epsg_crs_string():
+    from agent_e2e_local_projections import extent_contains_fixture_buffer
+    buffer = runner.oracle.fixture_expectation('A', 'buffer.metric')
+    (cx, cy), r = buffer['center3857'], buffer['radiusMetres']
+    view = {'xmin': cx - r - 10, 'ymin': cy - r - 10, 'xmax': cx + r + 10, 'ymax': cy + r + 10, 'crs': 'EPSG:3857'}
+    assert extent_contains_fixture_buffer(view, 'A') is True
+    for crs in ('EPSG:32633', 'epsg:3857x', 'urn:ogc:def:crs:EPSG::3857'):
+        with pytest.raises(ValueError):
+            extent_contains_fixture_buffer({**view, 'crs': crs}, 'A')
+    with pytest.raises(ValueError, match='twice'):
+        extent_contains_fixture_buffer({**view, 'spatialReference': {'wkid': 3857}}, 'A')
+
+
+def test_core3n_relative_publication_routes_resolve_against_the_candidate():
+    from agent_e2e_local_projections import Context, evaluate
+    records = {'pub': _record('pub', body={'data': {'route': '/published/maps/m1'}})}
+    ctx = Context(records, base_url='http://127.0.0.1:8137')
+    spec = {'absoluteUrl': {'body': 'pub', 'pointer': '/data/route'}}
+    assert evaluate(spec, ctx) == 'http://127.0.0.1:8137/published/maps/m1'
+    for route in ('https://evil.example/x', '//evil.example/x', 'published/x', '/a/../../etc'):
+        bad = Context({'pub': _record('pub', body={'data': {'route': route}})}, base_url='http://127.0.0.1:8137')
+        with pytest.raises(ValueError):
+            evaluate(spec, bad)
+    with pytest.raises(ValueError, match='base URL'):
+        evaluate(spec, Context(records))

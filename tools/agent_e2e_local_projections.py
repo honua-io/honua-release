@@ -36,6 +36,12 @@ Spec operations (exactly one key per object unless noted):
   {"matchedCanaries": [STEP, ...]}     names of runner-registered private canaries found in bodies
   {"attachmentSnapshots": [PATH, ...]} protected-content snapshots of customer attachments (runner digests
                                        at staging and at observe, from the vault's custody facts)
+  {"scannedDigests": [STEP | "$model-visible" | "$final-answers" | "$action-results", ...]}
+                                       sorted sha256 (bare hex) of the exact raw bytes each scan covers
+  {"modelReplays": {"tool": NAME, "addresses": [ADDRESS, ...]}, "to": SPEC}
+                                       SPEC over the controller replay of EVERY sealed model call of that tool
+                                       addressing those roles ("$step" = the replay record), in call order
+  {"absoluteUrl": SPEC}                a verified relative route ("/...") joined to the candidate's base URL
   {"featureServerFeatures": STEP}      FeatureServer query (point/polyline/polygon) -> {srid, features}
   {"customerFileColumn": PATH, "rows": SPEC, "column": NAME, "firstDataRow": 2}
                                        map observed CSV row numbers to a column of a frozen attachment
@@ -153,6 +159,16 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
 
 
+class _ArgumentsView:
+    """A logged model call seen as a request, for address checks on its arguments."""
+    kind = 'mcp'
+    path = '/mcp#tools/call'
+    step = 'model-call'
+
+    def __init__(self, action):
+        self.request_arguments = {'tool': action.get('tool'), 'arguments': action.get('arguments') or {}}
+
+
 def address_value(record, at):
     """The one request field an address spec names: {"pathSegment": N} (0-based, after the leading "/"),
     {"query": NAME} or {"argument": "/pointer"} (into the MCP tool arguments). No pooling of other values."""
@@ -169,12 +185,15 @@ def address_value(record, at):
         require(len(values) == 1, 'address query parameter is absent or repeated')
         return values[0]
     if kind == 'sqlFrom':
-        # The single table the SELECT reads (the identifier after FROM): "table" or "qualified".
+        # The one relation the SELECT reads, exactly as parsed (schema-qualified). A query reading several
+        # relations (joins, subqueries over other tables, CTEs) cannot be bound to a single table role.
+        from agent_e2e_local_runner import sql_relations
         require(record.kind == 'sql' and where in ('table', 'qualified'), 'sqlFrom needs a SQL record')
-        match = re.search(r'(?i)\bfrom\s+("?[A-Za-z_][A-Za-z0-9_]*"?)(?:\s*\.\s*("?[A-Za-z_][A-Za-z0-9_]*"?))?', record.path)
-        require(match is not None, 'SQL read names no table')
-        schema, table = (match.group(1), match.group(2)) if match.group(2) else (None, match.group(1))
-        table, schema = table.strip('"'), (schema or '').strip('"')
+        relations, ctes = sql_relations(record.path)
+        real = [(schema, name) for schema, name in relations if not (schema is None and name in ctes)]
+        require(len(real) == 1 and len(relations) == 1 and not ctes and real[0][0] is not None,
+                'SQL read does not read exactly one schema-qualified relation')
+        schema, table = real[0]
         return table if where == 'table' else f'{schema}.{table}'
     if kind == 'argument':
         require(record.kind == 'mcp' and isinstance(record.request_arguments, dict), 'address argument needs an MCP call')
@@ -200,7 +219,9 @@ def same_request(left, right):
 class Context:
     def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=(), model_actions=None,
                  canaries=None, model_visible=(), customer_files=None, final_answers=(), action_results=(),
-                 customer_credentials=()):
+                 customer_credentials=(), base_url=None, scan_roles=None):
+        self.base_url = base_url
+        self.scan_roles = dict(scan_roles or {})
         # Credentials the customer intentionally handed over (e.g. a database login): they may appear in the
         # customer's own attachment, and nowhere else.
         self.customer_credentials = tuple(v for v in customer_credentials if isinstance(v, str) and len(v) >= 8)
@@ -364,6 +385,42 @@ def evaluate(spec, ctx, *, item=None, step=None):
     if keys == {'runFact', 'pointer'}:
         require(spec['runFact'] in ctx.run_facts, 'run fact not recorded by the runner: ' + str(spec['runFact']))
         return pointer_get(ctx.run_facts[spec['runFact']], spec['pointer'])
+    if keys == {'scannedDigests'}:
+        sources = spec['scannedDigests']
+        require(isinstance(sources, list) and sources, 'scannedDigests needs sources')
+        return sorted(hashlib.sha256(raw).hexdigest() for raw in _scan_bodies(sources, ctx, named))
+    if keys == {'modelReplays', 'to'}:
+        select = spec['modelReplays']
+        require(isinstance(select, dict) and set(select) == {'tool', 'addresses'} and select['addresses'],
+                'modelReplays needs {"tool", "addresses"}')
+        calls = []
+        for occurrence, action in ctx.model_actions.items():
+            if action.get('kind') != 'tool_call' or action.get('tool') != select['tool']:
+                continue
+            probe = _ArgumentsView(action)
+            try:
+                for address in select['addresses']:
+                    require_address(probe, address, ctx.roles)
+            except ProjectionError:
+                continue
+            calls.append((action['_session'], action['_sequence'], occurrence))
+        require(calls, 'no sealed model call of that tool addresses those roles')
+        out = []
+        for _session, _sequence, occurrence in sorted(calls):
+            replays = [r for r in ctx.records.values() if r.replay_of == occurrence and r.kind == 'mcp'
+                       and r.origin == 'controller' and r.principal == 'controller' and r.phase == 'observe']
+            require(len(replays) == 1, 'a sealed model call has no single controller replay: ' + occurrence)
+            out.append(sub(spec['to'], step=replays[0].step))
+        return out
+    if keys == {'absoluteUrl'}:
+        from urllib.parse import urlsplit
+        route = sub(spec['absoluteUrl'])
+        require(isinstance(ctx.base_url, str) and ctx.base_url.startswith(('http://', 'https://')),
+                'the candidate base URL is not known to this projection')
+        parts = urlsplit(route) if isinstance(route, str) else None
+        require(parts is not None and route.startswith('/') and not route.startswith('//') and not parts.scheme
+                and not parts.netloc and '..' not in parts.path.split('/'), 'not a verified relative route')
+        return ctx.base_url.rstrip('/') + route
     if keys == {'attachmentSnapshots'}:
         paths = spec['attachmentSnapshots']
         require(isinstance(paths, list) and paths, 'attachmentSnapshots needs attachment paths')
@@ -405,7 +462,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
         for raw in bodies:
             for credential in ctx.credentials + ctx.customer_credentials:
                 if credential.encode() in raw:
-                    found.add(hashlib.sha256(credential.encode()).hexdigest()[:16])
+                    found.add(credential_fingerprint(credential))
         return sorted(found)
     if keys == {'map', 'to'}:
         values = sub(spec['map'])
@@ -488,6 +545,12 @@ def _without_attachments(raw):
     return json.dumps(out).encode()
 
 
+def credential_fingerprint(credential):
+    """A non-reversible label for a leaked credential (PBKDF2, fixed salt): reports which credential leaked
+    without putting it, or a fast unsalted hash of it, into evidence."""
+    return hashlib.pbkdf2_hmac('sha256', credential.encode(), b'honua-corpus-leak-fingerprint/v1', 100_000).hex()[:16]
+
+
 def _scan_bodies(steps, ctx, named, strip_attachments=False):
     """Bytes to scan: recorded steps plus runner-held pseudo-sources (model requests, final answers,
     captured replies to the model's own actions, i.e. its task output). Each must actually exist."""
@@ -560,8 +623,14 @@ def extent_contains_fixture_buffer(extent, variant):
     require(variant in ('A', 'B'), 'only development variants A and B are enabled')
     require(isinstance(extent, dict) and all(type(extent.get(k)) in (int, float) for k in ('xmin', 'ymin', 'xmax', 'ymax')),
             'extent lacks numeric bounds')
+    require(not ('crs' in extent and 'spatialReference' in extent), 'extent states its CRS twice')
     reference = extent.get('spatialReference')
     wkid = reference.get('latestWkid', reference.get('wkid')) if isinstance(reference, dict) else None
+    if wkid is None and isinstance(extent.get('crs'), str):
+        # A Studio view states its CRS as "EPSG:<code>"; only an exact EPSG code is accepted.
+        match = re.fullmatch(r'EPSG:(\d{4,6})', extent['crs'].strip())
+        require(match is not None, 'extent CRS string is not EPSG:<code>')
+        wkid = int(match.group(1))
     require(wkid in (3857, 102100, 4326), 'extent CRS is not a supported reviewed CRS')
     xmin, ymin, xmax, ymax = (float(extent[k]) for k in ('xmin', 'ymin', 'xmax', 'ymax'))
     require(xmin < xmax and ymin < ymax, 'extent is empty or inverted')
@@ -696,7 +765,8 @@ def proven_complete(record, values, label):
         rows = pointer_get(body, contract['items'])
     except ProjectionError:
         raise ProjectionError('enumeration does not have the reviewed response shape: ' + label) from None
-    require(isinstance(rows, list) and len(rows) == len(values), 'enumeration rows are not the reviewed items: ' + label)
+    require(isinstance(rows, list) and isinstance(values, list) and canonical(rows) == canonical(values),
+            'enumeration rows are not exactly the reviewed items: ' + label)
     paging = contract['paging']
     if paging == 'unpaged':
         return
@@ -718,6 +788,8 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
     roles = {}
     for binding in bindings:
         name = binding.role
+        if isinstance(name, str) and name.startswith('scan:'):
+            continue  # resolved by the runner from its own raw sources (scan_roles)
         require(isinstance(name, str) and name.split(':', 1)[0] in ('seeded', 'created', 'recorded', 'child')
                 and name not in roles, 'invalid or duplicate logical role: ' + str(name))
         require(binding.step in records, 'role binds an unrecorded step: ' + name)
@@ -824,3 +896,13 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
     require(len(created) == len(set(created)) and not set(created) & seeded,
             'created roles collide with each other or with seeded state')
     return roles
+
+
+def scan_roles(bindings, ctx):
+    """scan:<name> roles: the sorted sha256 of the exact raw bytes of frozen sources (records or pseudo-sources)."""
+    out = {}
+    for binding in bindings:
+        if isinstance(binding.role, str) and binding.role.startswith('scan:'):
+            require(binding.sources, 'scan role needs its frozen sources: ' + binding.role)
+            out[binding.role] = evaluate({'scannedDigests': list(binding.sources)}, ctx)
+    return out

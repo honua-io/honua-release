@@ -143,7 +143,7 @@ def load_projections(scenario_id, variant):
 
 
 ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'total', 'next_page', 'page_limit',
-               'created_by', 'parent', 'parent_link', 'owner_format'}
+               'created_by', 'parent', 'parent_link', 'owner_format', 'sources'}
 
 
 def load_roles(scenario_id):
@@ -152,7 +152,9 @@ def load_roles(scenario_id):
     rows = load_document(scenario_id).get('roles') or []
     out = []
     for row in rows:
-        if not isinstance(row, dict) or set(row) - ROLE_FIELDS or not {'role', 'step'} <= set(row):
+        if not isinstance(row, dict) or set(row) - ROLE_FIELDS or not ({'role', 'step'} <= set(row)
+                                                                        or (str(row.get('role', '')).startswith('scan:')
+                                                                            and isinstance(row.get('sources'), list))):
             raise ValueError('malformed frozen role binding')
-        out.append(RoleBinding(**row))
+        out.append(RoleBinding(**{'step': '', **row, **({'sources': tuple(row['sources'])} if 'sources' in row else {})}))
     return out

@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Live PostGIS contract for the local corpus runner's controller SQL reads (tools/agent_e2e_local_runner.py sql_allowlisted + LocalRuntime.psql/sql_read). Every attack must be refused by the parser AND by the database when the parser is bypassed; allowed reads must return rows; no attack may change state.",
+  "seed": [
+    "CREATE SCHEMA honua_data",
+    "CREATE TABLE honua_data.shelters (source_id text PRIMARY KEY, capacity int, geometry geometry(Point, 3857))",
+    "INSERT INTO honua_data.shelters VALUES ('s1', 80, ST_SetSRID(ST_MakePoint(-19100, -4700), 3857)), ('s2', 40, ST_SetSRID(ST_MakePoint(-18800, -4700), 3857))",
+    "CREATE SEQUENCE honua_data.counter",
+    "CREATE FUNCTION honua_data.bump() RETURNS int LANGUAGE sql VOLATILE AS 'INSERT INTO honua_data.shelters VALUES (''s9'', 1, NULL) RETURNING 1'",
+    "CREATE EXTENSION IF NOT EXISTS dblink",
+    "CREATE FUNCTION public.length(text) RETURNS int LANGUAGE sql VOLATILE AS 'INSERT INTO honua_data.shelters VALUES (''shadow'', 1, NULL) RETURNING 1'"
+  ],
+  "allowed": [
+    {
+      "name": "plain select",
+      "sql": "SELECT source_id, capacity FROM honua_data.shelters ORDER BY source_id",
+      "rows": 2
+    },
+    {
+      "name": "filtered count",
+      "sql": "SELECT count(*) AS n FROM honua_data.shelters WHERE capacity > 50",
+      "rows": 1
+    },
+    {
+      "name": "geometry functions",
+      "sql": "SELECT source_id, st_astext(geometry) AS wkt, st_srid(geometry) AS srid FROM honua_data.shelters ORDER BY source_id",
+      "rows": 2
+    },
+    {
+      "name": "catalog inventory",
+      "sql": "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = 'honua_data' ORDER BY table_name",
+      "rows": 1
+    },
+    {
+      "name": "with clause",
+      "sql": "WITH a AS (SELECT source_id FROM honua_data.shelters) SELECT source_id FROM a ORDER BY source_id",
+      "rows": 2
+    },
+    {
+      "name": "builtin resolves before a public shadow",
+      "sql": "SELECT length(source_id) AS n FROM honua_data.shelters ORDER BY source_id",
+      "rows": 2
+    },
+    {
+      "name": "catalog role read",
+      "sql": "SELECT rolname FROM pg_catalog.pg_roles WHERE rolname = 'corpus_reader'",
+      "rows": 1
+    }
+  ],
+  "attacks": [
+    {
+      "name": "insert",
+      "sql": "INSERT INTO honua_data.shelters VALUES ('x', 1, NULL)"
+    },
+    {
+      "name": "update",
+      "sql": "UPDATE honua_data.shelters SET capacity = 0"
+    },
+    {
+      "name": "delete",
+      "sql": "DELETE FROM honua_data.shelters"
+    },
+    {
+      "name": "create table",
+      "sql": "CREATE TABLE honua_data.evil (a int)"
+    },
+    {
+      "name": "alter table",
+      "sql": "ALTER TABLE honua_data.shelters ADD COLUMN evil int"
+    },
+    {
+      "name": "drop table",
+      "sql": "DROP TABLE honua_data.shelters"
+    },
+    {
+      "name": "truncate",
+      "sql": "TRUNCATE honua_data.shelters"
+    },
+    {
+      "name": "copy to program",
+      "sql": "COPY honua_data.shelters TO PROGRAM 'id'"
+    },
+    {
+      "name": "copy from file",
+      "sql": "COPY honua_data.shelters FROM '/etc/passwd'"
+    },
+    {
+      "name": "multi-statement",
+      "sql": "SELECT 1; DELETE FROM honua_data.shelters"
+    },
+    {
+      "name": "pg_sleep",
+      "sql": "SELECT pg_sleep(30)"
+    },
+    {
+      "name": "set_config",
+      "sql": "SELECT set_config('default_transaction_read_only', 'off', false)"
+    },
+    {
+      "name": "nextval",
+      "sql": "SELECT nextval('honua_data.counter')"
+    },
+    {
+      "name": "dblink to owner",
+      "sql": "SELECT * FROM dblink('dbname=honua user=honua', 'DELETE FROM honua_data.shelters RETURNING 1') AS t(x int)"
+    },
+    {
+      "name": "dblink_exec",
+      "sql": "SELECT dblink_exec('dbname=honua user=honua', 'DELETE FROM honua_data.shelters')"
+    },
+    {
+      "name": "lo_import",
+      "sql": "SELECT lo_import('/etc/passwd')"
+    },
+    {
+      "name": "pg_read_file",
+      "sql": "SELECT pg_read_file('/etc/passwd')"
+    },
+    {
+      "name": "pg_ls_dir",
+      "sql": "SELECT pg_ls_dir('.')"
+    },
+    {
+      "name": "volatile user function",
+      "sql": "SELECT honua_data.bump()"
+    },
+    {
+      "name": "data-modifying CTE",
+      "sql": "WITH gone AS (DELETE FROM honua_data.shelters RETURNING *) SELECT * FROM gone"
+    },
+    {
+      "name": "select for update",
+      "sql": "SELECT * FROM honua_data.shelters FOR UPDATE"
+    },
+    {
+      "name": "select into",
+      "sql": "SELECT * INTO honua_data.copy FROM honua_data.shelters"
+    },
+    {
+      "name": "psql shell meta-command",
+      "sql": "\\! id",
+      "bare": false
+    },
+    {
+      "name": "psql copy meta-command",
+      "sql": "\\copy honua_data.shelters TO '/tmp/out'",
+      "bare": false
+    },
+    {
+      "name": "comment hiding a statement",
+      "sql": "SELECT 1 /* ; DELETE FROM honua_data.shelters */"
+    },
+    {
+      "name": "line comment",
+      "sql": "SELECT 1 -- ; DELETE FROM honua_data.shelters"
+    },
+    {
+      "name": "dollar-quoted body",
+      "sql": "SELECT $$x$$"
+    },
+    {
+      "name": "quoted function name",
+      "sql": "SELECT \"pg_sleep\"(30)"
+    },
+    {
+      "name": "schema-qualified sleep",
+      "sql": "SELECT pg_catalog.pg_sleep(30)"
+    },
+    {
+      "name": "regclass cast",
+      "sql": "SELECT 'honua_data.shelters'::regclass"
+    },
+    {
+      "name": "lock table",
+      "sql": "LOCK TABLE honua_data.shelters"
+    },
+    {
+      "name": "set role",
+      "sql": "SET ROLE honua"
+    },
+    {
+      "name": "unqualified relation",
+      "sql": "SELECT * FROM shelters"
+    },
+    {
+      "name": "unreviewed schema",
+      "sql": "SELECT * FROM public.spatial_ref_sys"
+    }
+  ],
+  "notes": {
+    "layers": "parser = sql_allowlisted refuses before any database call; database = the same SQL sent through LocalRuntime.psql(read_only=True) as corpus_reader, both inside the runner's json_agg wrapper (what sql_read sends) and bare (not for psql client syntax, which the runner never sends bare); state = row count, sequence position and table list unchanged afterwards.",
+    "regclass": "A regclass cast is read-only at the database layer; the parser refuses it as an unreviewed cast, so its database outcome is recorded but not required to fail.",
+    "set_config": "set_config inside a read-only transaction may succeed for a session setting; the parser refuses it, and the database result shows no write follows in the same command."
+  },
+  "databaseMayAnswer": [
+    "set_config",
+    "comment hiding a statement",
+    "dollar-quoted body",
+    "regclass cast",
+    "unreviewed schema"
+  ]
+}

@@ -186,6 +186,7 @@ class RoleBinding:
                                     # server's captured reply to a successful sealed agent call of that tool
     parent: str | None = None       # child:<kind>: the role whose resource this observe-phase read addresses
     parent_link: dict | None = None # child: {"at": <request field addressing the parent>, "pointer": <response field naming it>}
+    sources: tuple | None = None    # scan:<name>: the exact raw sources whose sha256 digests the role lists
     owner_format: str | None = None # created: how the server renders the agent principal in ``owner``:
                                     # "{id}" (default) or "api-key:{id}" (reviewed formats only)
 

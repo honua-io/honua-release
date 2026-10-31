@@ -134,6 +134,24 @@ SQL_KEYWORDS = frozenset({'select', 'with', 'as', 'from', 'where', 'and', 'or', 
                           'false', 'like', 'between', 'case', 'when', 'then', 'else', 'end', 'nulls', 'first', 'last'})
 
 
+# Function and type resolution is pinned: pg_catalog first, then public (where PostGIS installs its st_*
+# functions; CREATE on public is not granted to PUBLIC on PostgreSQL 15+), and pg_temp last.
+SQL_SEARCH_PATH = 'pg_catalog, public, pg_temp'
+SQL_SCHEMAS = frozenset({'honua_data', 'information_schema', 'pg_catalog'})
+
+
+def sql_relations(text):
+    """Every relation the query reads after FROM or JOIN, as (schema or None, name), plus CTE names."""
+    ctes = {m.lower() for m in re.findall(r'(?i)(?:\bwith|,)\s+([a-z_][a-z0-9_]*)\s+as\s*\(', text)}
+    found = []
+    for match in re.finditer(r'(?i)\b(?:from|join)\s+(\(?)\s*("?[a-z_][a-z0-9_]*"?)(?:\s*\.\s*("?[a-z_][a-z0-9_]*"?))?', text):
+        if match.group(1):
+            continue  # a subquery; its own FROM is matched separately
+        first, second = match.group(2).strip('"').lower(), (match.group(3) or '').strip('"').lower()
+        found.append((first, second) if second else (None, first))
+    return found, ctes
+
+
 def sql_allowlisted(query):
     """Refuse anything but one plain SELECT over identifiers, literals, operators and allowlisted functions.
 
@@ -148,6 +166,14 @@ def sql_allowlisted(query):
         raise ValueError('controller SQL must be one SELECT (no ; \\ comments or dollar quoting)')
     if not re.match(r'(?is)\s*(select|with)\b', text):
         raise ValueError('controller SQL must be one SELECT')
+    relations, ctes = sql_relations(text)
+    if not relations:
+        raise ValueError('controller SQL reads no relation')
+    for schema, name in relations:
+        if schema is None and name in ctes:
+            continue
+        if schema not in SQL_SCHEMAS:
+            raise ValueError(f'controller SQL reads {schema or "an unqualified"}.{name}: qualify it with a reviewed schema')
     tokens = re.findall(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|::\s*[a-z_][a-z0-9_]*|[A-Za-z_][A-Za-z0-9_$]*|\d+(?:\.\d+)?|"
                         r"<=|>=|<>|!=|[=<>(),.*+\-/%|]|\S", text)
     for index, token in enumerate(tokens):
@@ -253,13 +279,13 @@ def case_context(stack, runtime):
             raise ValueError('customer file changed after staging: ' + item['corpusPath'])
         files[item['corpusPath']] = raw
     return {'canaries': dict(getattr(runtime, '_canaries', {}).get(stack.compose_project, {})),
-            'model_visible': tuple(visible), 'customer_files': files}
+            'model_visible': tuple(visible), 'customer_files': files, 'base_url': stack.base_url}
 
 
 def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None,
                      credentials=(), scenario_id=None, model_actions=None, frozen=None, canaries=None,
                      model_visible=(), customer_files=None, final_answers=(), action_results=(),
-                     customer_credentials=()):
+                     customer_credentials=(), base_url=None):
     """Score each pack assertion from the runner's own recorded responses, failing closed.
 
     With ``frozen`` (always, on the runner path) each assertion is scored only by its frozen
@@ -283,7 +309,7 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
     ctx = projections.Context(records, roles, custody, run_facts, credentials, model_actions=model_actions,
                               canaries=canaries, model_visible=model_visible, customer_files=customer_files,
                               final_answers=final_answers, action_results=action_results,
-                              customer_credentials=customer_credentials)
+                              customer_credentials=customer_credentials, base_url=base_url)
     results = []
     for assertion in assertions:
         ruling = check_exclusion(scenario_id, assertion, expected[assertion])
@@ -313,6 +339,7 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
             steps = projections.referenced_steps(spec)
             text = json.dumps(spec)
             if (not steps and '"custody"' not in text and '"run"' not in text and '"attachmentSnapshots"' not in text
+                    and '"modelReplays"' not in text and '"scan:' not in text
                     and not any(source in text for source in projections.PSEUDO_SOURCES)):
                 raise ValueError('projection reads no recorded evidence')
             for step in steps:
@@ -978,6 +1005,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             extras = case_context(stack, runtime)
             extras['final_answers'] = tuple(run.final_answers)
             extras['action_results'] = tuple(json.dumps(r['json'], sort_keys=True).encode() for r in vault.action_results())
+            roles.update(projections.scan_roles(bindings, projections.Context(
+                sealed, roles, custody, run_facts, model_actions=model_actions, **extras)))
             custody = runtime.custody(stack)  # includes runner facts recorded during observe (e.g. restarts)
         except Exception as exc:
             # After the session, an observation that cannot be made is a failed case, never a rerun.
@@ -1312,7 +1341,8 @@ class LocalRuntime:
         user = self.READER_ROLE if read_only else 'honua'
         if read_only:
             self._ensure_reader(stack)
-        env = ['-e', 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000'] if read_only else []
+        env = (['-e', 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000 '
+                      f'-c search_path={SQL_SEARCH_PATH.replace(" ", "")}'] if read_only else [])
         done = subprocess.run(['docker', 'exec', *env, self._db_container(stack), 'psql', '-U', user, '-d', 'honua',
                                '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', sql],
                               capture_output=True, timeout=300)
@@ -1322,10 +1352,12 @@ class LocalRuntime:
         if stack.compose_project in self._readers:
             return
         setup = (f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{self.READER_ROLE}') THEN "
-                 f"CREATE ROLE {self.READER_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; END IF; END $$; "
+                 f"CREATE ROLE {self.READER_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT; END IF; END $$; "
+                 f"ALTER ROLE {self.READER_ROLE} INHERIT; "
                  f"GRANT pg_read_all_data TO {self.READER_ROLE}; "
                  f"ALTER ROLE {self.READER_ROLE} SET default_transaction_read_only = on; "
-                 f"ALTER ROLE {self.READER_ROLE} SET statement_timeout = '15s';")
+                 f"ALTER ROLE {self.READER_ROLE} SET statement_timeout = '15s'; "
+                 f"ALTER ROLE {self.READER_ROLE} SET search_path = {SQL_SEARCH_PATH};")
         code, _ = self.psql(stack, setup, read_only=False)
         if code != 0:
             raise RuntimeError('could not prepare the read-only controller database role')
@@ -1359,7 +1391,7 @@ class LocalRuntime:
             raise RuntimeError('could not seed the customer database login')
         self._handoff_secrets.setdefault(stack.compose_project, []).append(password)
         step = f'runner-db-handoff-{name}'
-        recorder.sql(step, f"SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname = '{role}'")
+        recorder.sql(step, f"SELECT rolname, rolcanlogin FROM pg_catalog.pg_roles WHERE rolname = '{role}'")
         handoff = {'kind': 'postgresql', 'host': 'db', 'port': 5432, 'database': 'honua', 'schema': schema,
                    'username': role, 'password': password}
         self.attest(stack, f'databaseHandoff:{name}', {k: v for k, v in handoff.items() if k != 'password'}, [step])
