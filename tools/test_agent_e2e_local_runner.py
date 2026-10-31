@@ -1770,3 +1770,129 @@ def test_core2r4_lost_response_needs_commit_on_the_proxy_path_too():
     assert len(injector.skipped) == 4 and not injector.events
     event = injector.lose('tool_call', action, {'status': 'ok'}, 201, reply({'structuredContent': {'mapId': 'm'}}))
     assert event['committedResourceId'] == 'm' and event['upstreamStatus'] == 201
+
+
+# ---- core3: services-stage capabilities ---------------------------------------------------------
+
+def test_core3_controller_sql_reads_are_recorded_select_only(candidate, tmp_path):
+    import os
+    from agent_e2e_local_recorder import EvidenceVault
+    os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
+    seen = []
+
+    def executor(query):
+        seen.append(query)
+        return 200, json.dumps([{'source_id': 's1', 'capacity': 80}]).encode()
+    vault = EvidenceVault('c')
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST, vault=vault,
+                                  attempt_id='c', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')},
+                                  sql_executor=executor)
+    recorder.set_phase('observe')
+    rows = recorder.sql('imported-rows', 'SELECT source_id, capacity FROM honua_data.p05_points ORDER BY source_id;')
+    assert rows == [{'source_id': 's1', 'capacity': 80}]
+    record = vault.records()['imported-rows']
+    assert (record.kind, record.method, record.principal) == ('sql', 'SELECT', 'controller')
+    assert record.path == 'SELECT source_id, capacity FROM honua_data.p05_points ORDER BY source_id'
+    for bad in ('DELETE FROM t', 'SELECT 1; DROP TABLE t', 'UPDATE t SET a = 1'):
+        with pytest.raises(ValueError, match='one SELECT'):
+            recorder.sql('bad-' + str(len(seen)), bad)
+    rule = {'kind': 'sql', 'method': 'SELECT', 'principal': 'controller', 'phase': 'observe',
+            'path': r'SELECT source_id, capacity FROM honua_data\.p05_points ORDER BY source_id'}
+    runner.check_reads('imported-rows', record, rule, {})
+    with pytest.raises(ValueError, match='path'):
+        runner.check_reads('imported-rows', record, {**rule, 'path': r'SELECT \* FROM other'}, {})
+
+
+def test_core3_sql_read_runs_read_only_in_the_case_db_container(monkeypatch, tmp_path):
+    import subprocess
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs.get('input')))
+        if argv[:2] == ['docker', 'ps']:
+            return subprocess.CompletedProcess(argv, 0, 'db-1\n', '')
+        return subprocess.CompletedProcess(argv, 0, b'[{"a":1}]\n', b'')
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    stack = Stack('http://127.0.0.1:1', ADMIN, None, 'corpus-x', 'f', str(tmp_path), DIGEST, {})
+    status, raw = runner.LocalRuntime(None, model='m', release_id='r').sql_read(stack, 'SELECT 1 AS a')
+    assert status == 200 and raw == b'[{"a":1}]'
+    exec_argv, script = calls[-1]
+    assert exec_argv[:3] == ['docker', 'exec', '-i'] and 'PGOPTIONS=-c default_transaction_read_only=on' in exec_argv
+    assert b'json_agg' in script and b'SELECT 1 AS a' in script
+
+
+def test_core3_database_handoff_is_seeded_attested_attached_and_redacted(candidate, tmp_path, monkeypatch):
+    import agent_e2e_local_expectations as expectations
+    statements = []
+
+    def fake_psql(self, stack, sql, *, read_only):
+        statements.append((sql, read_only))
+        if read_only:
+            return 0, json.dumps([{'rolname': 'customer_town', 'rolcanlogin': True}]).encode()
+        return 0, b''
+    monkeypatch.setattr(FakeRuntime, 'psql', fake_psql)
+    monkeypatch.setattr(FakeRuntime, '_db_container', lambda self, stack: 'db-1')
+    original = expectations.load_document
+    monkeypatch.setattr(expectations, 'load_document', lambda sid: (
+        {**original('P10'), 'scenario': 'P03', 'customerHandoffs': {'A': ['database:town']}} if sid == 'P03' else original(sid)))
+
+    class P03(HookP10):
+        id = 'P03'
+
+        def seed(self, stack, variant):
+            seeded = super().seed(stack, variant)
+            self.handoff_value = stack.extra['databaseHandoff']('town', 'honua_data')
+            return seeded
+    scenario = P03()
+    receipt, model, runtime = run_hook_case(candidate, tmp_path, [tool(CORRECT_WHERE), FINAL], scenario)
+    handoff = scenario.handoff_value
+    assert handoff['username'] == 'customer_town' and len(handoff['password']) == 32
+    create, read_only = statements[0]
+    assert not read_only and 'GRANT SELECT ON ALL TABLES IN SCHEMA honua_data TO customer_town' in create
+    attached = json.loads(model.sent[0][1]['content'])['customerAttachments']
+    assert attached[0]['name'] == 'database-connection.json' and json.loads(attached[0]['content'])['password'] == handoff['password']
+    assert receipt['custody']['databaseHandoff:town'] == {k: v for k, v in handoff.items() if k != 'password'}
+    assert handoff['password'] not in json.dumps(receipt)
+    assert receipt['customerFiles'][-1]['corpusPath'] == 'handoff:database:town'
+    # A handoff the scenario did not seed through the runner is refused.
+    monkeypatch.setattr(expectations, 'load_document', lambda sid: (
+        {**original('P10'), 'scenario': 'P03', 'customerHandoffs': {'A': ['database:other']}} if sid == 'P03' else original(sid)))
+    (tmp_path / 'z').mkdir()
+    receipt, model, _ = run_hook_case(candidate, tmp_path / 'z', [tool(CORRECT_WHERE), FINAL], P03())
+    assert receipt['status'] == 'infrastructure' and not model.sent
+    stack = Stack('http://127.0.0.1:1', ADMIN, None, 'p', 'f', str(tmp_path), DIGEST, {'recorder': type('R', (), {'phase': 'observe'})()})
+    with pytest.raises(ValueError, match='during seed'):
+        runner.LocalRuntime(None, model='m', release_id='r').database_handoff(stack, 'late', 'honua_data')
+
+
+def test_core3_attachment_snapshots_come_from_runner_digests(tmp_path):
+    from agent_e2e_local_projections import Context, evaluate
+    path = 'town-A/shelters.3857.geojson'
+    custody = {'customerFiles:before': {path: 'sha256:aa'}, 'customerFiles:after': {path: 'sha256:aa'}}
+    value = evaluate({'attachmentSnapshots': [path]}, Context({}, custody=custody))
+    runner.oracle.verify('source-content.unchanged', value,
+                         {'profile': 'honua.protected-content/v1', 'resources': [{'resourceId': path, 'content': {'sha256': 'sha256:aa'}}]})
+    changed = {**custody, 'customerFiles:after': {path: 'sha256:bb'}}
+    with pytest.raises(ValueError):
+        runner.oracle.verify('source-content.unchanged', evaluate({'attachmentSnapshots': [path]}, Context({}, custody=changed)),
+                             {'profile': 'honua.protected-content/v1', 'resources': [{'resourceId': path, 'content': {'sha256': 'sha256:aa'}}]})
+    with pytest.raises(ValueError, match='not staged'):
+        evaluate({'attachmentSnapshots': ['town-A/other.csv']}, Context({}, custody=custody))
+    with pytest.raises(ValueError, match='not recorded by the runner'):
+        evaluate({'attachmentSnapshots': [path]}, Context({}))
+
+
+def test_core3_read_rules_select_the_source_by_role(tmp_path):
+    import dataclasses
+    replay = dataclasses.replace(_record('q', kind='mcp', path='/mcp#tools/call',
+                                         arguments={'tool': 'honua_query_features', 'arguments': {'serviceId': 'svc-b', 'layerId': 0}}),
+                                 method='POST', replay_of='occ:1:1:sha256:x')
+    logged = {'occ:1:1:sha256:x': {'kind': 'tool_call', 'tool': 'honua_query_features',
+                                   'arguments': {'serviceId': 'svc-b', 'layerId': 0}, '_session': 1}}
+    rule = {'kind': 'mcp', 'method': 'POST', 'path': '/mcp#tools/call', 'principal': 'controller', 'phase': 'observe',
+            'replayOfModelAction': True, 'addresses': ['seeded:service:roads']}
+    runner.check_reads('q', replay, rule, logged, {'seeded:service:roads': 'svc-b'})
+    with pytest.raises(ValueError, match='does not address'):  # a query of another same-tool service
+        runner.check_reads('q', replay, rule, logged, {'seeded:service:roads': 'svc-a'})
+    with pytest.raises(ValueError, match='does not address'):
+        runner.check_reads('q', replay, rule, logged, {})

@@ -109,7 +109,8 @@ def load_expected(scenario_id, variant):
     return _resolve(assertions, variant)
 
 
-READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replayOfModelAction', 'session', 'exactPath'}
+READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replayOfModelAction', 'session', 'exactPath',
+               'addresses'}
 
 
 def load_projections(scenario_id, variant):

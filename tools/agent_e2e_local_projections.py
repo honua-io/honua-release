@@ -34,6 +34,8 @@ Spec operations (exactly one key per object unless noted):
   {"leakedCredentials": [STEP, ...]}   fingerprints of runner-held case credentials found in bodies
                                        ("$model-visible" scans every exported model-visible request too)
   {"matchedCanaries": [STEP, ...]}     names of runner-registered private canaries found in bodies
+  {"attachmentSnapshots": [PATH, ...]} protected-content snapshots of customer attachments (runner digests
+                                       at staging and at observe, from the vault's custody facts)
   {"featureServerFeatures": STEP}      FeatureServer query (point/polyline/polygon) -> {srid, features}
   {"customerFileColumn": PATH, "rows": SPEC, "column": NAME, "firstDataRow": 2}
                                        map observed CSV row numbers to a column of a frozen attachment
@@ -319,6 +321,14 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(spec['role'] in ctx.roles, 'logical role unresolved: ' + str(spec['role']))
         require(str(ctx.roles[spec['role']]) in addressed(record), 'recorded request did not address the role ' + spec['role'])
         return ctx.roles[spec['role']]
+    if keys == {'attachmentSnapshots'}:
+        paths = spec['attachmentSnapshots']
+        require(isinstance(paths, list) and paths, 'attachmentSnapshots needs attachment paths')
+        before, after = ctx.custody.get('customerFiles:before'), ctx.custody.get('customerFiles:after')
+        require(isinstance(before, dict) and isinstance(after, dict), 'attachment digests were not recorded by the runner')
+        rows = lambda facts: [{'resourceId': p, 'content': {'sha256': facts[p]}} for p in paths]  # noqa: E731
+        require(all(p in before and p in after for p in paths), 'attachment was not staged for this case')
+        return {'profile': 'honua.protected-content/v1', 'before': rows(before), 'after': rows(after)}
     if keys == {'featureServerFeatures'}:
         record = ctx.record(named(spec['featureServerFeatures']))
         require(record.status == 200 and isinstance(record.json, dict), 'feature read failed')

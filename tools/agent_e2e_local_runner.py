@@ -81,7 +81,7 @@ def _canary():
 
 # --------------------------------------------------------------------------- scoring
 
-def check_reads(step, record, rule, model_actions):
+def check_reads(step, record, rule, model_actions, roles=None):
     """A record must be exactly the read the frozen projection declares for that step."""
     for field, actual in (('kind', record.kind), ('method', record.method), ('principal', record.principal),
                           ('phase', record.phase), ('origin', record.origin)):
@@ -94,6 +94,12 @@ def check_reads(step, record, rule, model_actions):
         raise ValueError(f'{step}: recorded request path is not the frozen read')
     if 'exactPath' in rule and record.path != rule['exactPath']:
         raise ValueError(f'{step}: recorded request path is not the frozen exact path')
+    if 'addresses' in rule:
+        # Per-role source selection: the read (or the replayed model call) must address these roles.
+        targets = projections.addressed(record)
+        for role in rule['addresses']:
+            if roles is None or role not in roles or str(roles[role]) not in targets:
+                raise ValueError(f'{step}: the read does not address the frozen role {role}')
     if rule.get('replayOfModelAction') or 'session' in rule:
         logged = model_actions.get(record.replay_of) if record.replay_of else None
         if logged is None or logged.get('kind') not in ('tool_call', 'resource_read') or (
@@ -120,6 +126,37 @@ def frozen_roles(scenario, stack, seeded, variant, run):
     if runtime_roles and list(runtime_roles) != frozen:
         raise ValueError('scenario role bindings differ from the frozen expectation roles')
     return frozen
+
+
+def frozen_customer_handoffs(scenario, variant):
+    """Runner-seeded handoffs the customer attaches ("customerHandoffs": {variant: ["database:<name>"]})."""
+    from agent_e2e_local_expectations import load_document
+    try:
+        document = load_document(scenario.id)
+    except OSError:
+        return []
+    return list((document.get('customerHandoffs') or {}).get(variant) or [])
+
+
+def stage_customer_handoffs(stack, names, receipt):
+    """Attach each frozen handoff the scenario seeded through the runner (e.g. databaseHandoff) as a file."""
+    if not names:
+        return
+    folder = Path(stack.workdir) / 'customer-files'
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    seeded = stack.extra.get('handoffs') or {}
+    staged = list(stack.extra.get('customerFiles', ()))
+    for name in names:
+        if not isinstance(name, str) or name not in seeded:
+            raise ValueError('frozen customer handoff was not seeded through the runner: ' + str(name))
+        raw = json.dumps(seeded[name], sort_keys=True, indent=2).encode()
+        path = folder / (name.replace(':', '__') + '.json')
+        path.write_bytes(raw)
+        staged.append({'name': name.split(':', 1)[0] + '-connection.json', 'corpusPath': 'handoff:' + name,
+                       'mediaType': 'application/json', 'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest(),
+                       'path': str(path)})
+    stack.extra['customerFiles'] = tuple(staged)
+    receipt['customerFiles'] = [{k: f[k] for k in ('corpusPath', 'mediaType', 'sha256')} for f in staged]
 
 
 def frozen_customer_files(scenario, variant):
@@ -227,7 +264,8 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 raise ValueError('observation is not a runner projection over recorded responses')
             steps = projections.referenced_steps(spec)
             text = json.dumps(spec)
-            if not steps and '"custody"' not in text and '"run"' not in text and '$model-visible' not in text:
+            if (not steps and '"custody"' not in text and '"run"' not in text and '$model-visible' not in text
+                    and '"attachmentSnapshots"' not in text):
                 raise ValueError('projection reads no recorded evidence')
             for step in steps:
                 record = records.get(step)
@@ -240,7 +278,7 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                     # observe), so a pre-session snapshot counts only where the prereg'd projection says so.
                     if step not in reads:
                         raise ValueError('projection reads a step its frozen declaration does not list: ' + step)
-                    check_reads(step, record, reads[step], model_actions)
+                    check_reads(step, record, reads[step], model_actions, ctx.roles)
                     if step in projections.inventory_steps(spec) and 'exactPath' not in reads[step]:
                         raise ValueError('an inventory snapshot needs an exact frozen path: ' + step)
                 elif record.phase != 'observe' and step not in projections.baseline_steps(spec):
@@ -790,6 +828,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['customerFiles'] = [{k: f[k] for k in ('corpusPath', 'mediaType', 'sha256')}
                                         for f in stack.extra['customerFiles']]
         seeded = scenario.seed(stack, variant)
+        stage_customer_handoffs(stack, frozen_customer_handoffs(scenario, variant), receipt)
+        if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
+            runtime.attest(stack, 'customerFiles:before', {f['corpusPath']: f['sha256'] for f in stack.extra['customerFiles']}, [])
         recorder.set_phase('session')
         sessions, session_ids = [], []
         clarifications = list(case.get('clarifications') or [])
@@ -849,6 +890,10 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         try:
             observations = observe_scenario(scenario, stack, seeded, variant, run)
             bindings = frozen_roles(scenario, stack, seeded, variant, run)
+            if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
+                runtime.attest(stack, 'customerFiles:after', {
+                    f['corpusPath']: 'sha256:' + hashlib.sha256(Path(f['path']).read_bytes()).hexdigest()
+                    for f in stack.extra['customerFiles']}, [])
             vault = runtime.vault(stack)
             sealed = vault.records()
             model_actions = vault.model_actions()
@@ -1058,6 +1103,7 @@ class LocalRuntime:
         self.workdirs = []
         self._vaults = {}
         self._canaries = {}
+        self._handoff_secrets = {}
 
     def redact(self, text):
         for value in self._secrets:
@@ -1138,7 +1184,60 @@ class LocalRuntime:
         vault = self._vaults.setdefault(stack.compose_project, EvidenceVault(stack.compose_project))
         return ControllerRecorder(base_url=stack.base_url, workdir=stack.workdir,
                                   candidate_digest=stack.candidate_digest, attempt_id=stack.compose_project,
-                                  principals=principals, vault=vault)
+                                  principals=principals, vault=vault,
+                                  sql_executor=lambda query: self.sql_read(stack, query))
+
+    # -- case database (controller side) ----------------------------------------------------------
+    def _db_container(self, stack):
+        import subprocess
+        ids = subprocess.run(['docker', 'ps', '-q', '--filter', f'label=com.docker.compose.project={stack.compose_project}',
+                              '--filter', 'label=com.docker.compose.service=db'], capture_output=True, text=True,
+                             check=True, timeout=60).stdout.split()
+        if len(ids) != 1:
+            raise RuntimeError('no unique database container for the case stack')
+        return ids[0]
+
+    def psql(self, stack, sql, *, read_only):
+        """Run SQL as the database owner inside the case's db container; returns (exit code, stdout bytes)."""
+        import subprocess
+        env = ['-e', 'PGOPTIONS=-c default_transaction_read_only=on'] if read_only else []
+        done = subprocess.run(['docker', 'exec', '-i', *env, self._db_container(stack), 'psql', '-U', 'honua', '-d', 'honua',
+                               '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1'], input=sql.encode(),
+                              capture_output=True, timeout=300)
+        return done.returncode, done.stdout
+
+    def sql_read(self, stack, query):
+        """Rows of one SELECT as a JSON array, in a read-only transaction."""
+        code, out = self.psql(stack, f'SELECT coalesce(json_agg(t), \'[]\'::json) FROM ({query}) AS t;', read_only=True)
+        return (200 if code == 0 else 500), out.strip() if code == 0 else b'{"error":"query failed"}'
+
+    def database_handoff(self, stack, name, schema):
+        """Seed a customer database login (SELECT on one schema) for the model to connect with.
+
+        Returns the handoff the customer would give: host/port/database/username/password. The password is a
+        runner-minted value, redacted from exported evidence; the login is attested in custody.
+        """
+        recorder = stack.extra['recorder']
+        if recorder.phase != 'seed' or not re.fullmatch(r'[a-z][a-z0-9_]{0,30}', name) \
+                or not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', schema):
+            raise ValueError('database handoffs are seeded by name and schema during seed')
+        role = f'customer_{name}'
+        password = secrets.token_hex(16)
+        sql = (f'CREATE ROLE {role} LOGIN PASSWORD \'{password}\';\n'
+               f'GRANT CONNECT ON DATABASE honua TO {role};\n'
+               f'GRANT USAGE ON SCHEMA {schema} TO {role};\n'
+               f'GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {role};\n')
+        code, _out = self.psql(stack, sql, read_only=False)
+        if code != 0:
+            raise RuntimeError('could not seed the customer database login')
+        self._handoff_secrets.setdefault(stack.compose_project, []).append(password)
+        step = f'runner-db-handoff-{name}'
+        recorder.sql(step, f"SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname = '{role}'")
+        handoff = {'kind': 'postgresql', 'host': 'db', 'port': 5432, 'database': 'honua', 'schema': schema,
+                   'username': role, 'password': password}
+        self.attest(stack, f'databaseHandoff:{name}', {k: v for k, v in handoff.items() if k != 'password'}, [step])
+        stack.extra.setdefault('handoffs', {})[f'database:{name}'] = handoff
+        return handoff
 
     def vault(self, stack):
         """The runtime-held evidence authority for this case (never handed to a scenario)."""
@@ -1207,6 +1306,7 @@ class LocalRuntime:
         stack.extra['addPrincipal'] = lambda name, grants: self.add_principal(stack, name, grants)
         stack.extra['restartServer'] = lambda prefix: self.restart_server(stack, prefix)
         stack.extra['registerCanary'] = lambda name: self.register_canary(stack, name)
+        stack.extra['databaseHandoff'] = lambda name, schema: self.database_handoff(stack, name, schema)
 
     def register_canary(self, stack, name):
         """A runner-minted private canary value for a scenario to plant (e.g. in a secret field) during seed.
@@ -1221,7 +1321,8 @@ class LocalRuntime:
 
     def redact_only(self):
         """Values redacted from exported evidence that are not credentials (they may legitimately leak)."""
-        return [value for case in self._canaries.values() for value in case.values()]
+        return ([value for case in self._canaries.values() for value in case.values()]
+                + [value for case in self._handoff_secrets.values() for value in case])
 
     def add_principal(self, stack, name, grants):
         """Mint one more case API key (e.g. a viewer) as a recorder principal; seed phase only."""
