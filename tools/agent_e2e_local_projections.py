@@ -32,11 +32,19 @@ Spec operations (exactly one key per object unless noted):
   {"target": STEP, "role": NAME}       the role's live id, only if the recorded request addressed it
                                        (a path segment, query value, or MCP argument value)
   {"leakedCredentials": [STEP, ...]}   fingerprints of runner-held case credentials found in bodies
+                                       ("$model-visible" scans every exported model-visible request too)
+  {"matchedCanaries": [STEP, ...]}     names of runner-registered private canaries found in bodies
+  {"featureServerFeatures": STEP}      FeatureServer query (point/polyline/polygon) -> {srid, features}
+  {"customerFileColumn": PATH, "rows": SPEC, "column": NAME, "firstDataRow": 2}
+                                       map observed CSV row numbers to a column of a frozen attachment
+protectedContent rows: "resource" lists identity roles, or is "inventory" (same request, exact frozen
+path); "beforePhase" may be "seed" (default) or "between".
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from agent_e2e_local_recorder import ProjectionError
 
@@ -47,7 +55,7 @@ def require(condition, reason):
 
 
 _STEP_OPS = ('body', 'status', 'sha256', 'principal', 'method', 'replayOf', 'disclosed',
-             'featureServerPoints', 'featureQueryIds', 'target')
+             'featureServerPoints', 'featureQueryIds', 'target', 'featureServerFeatures')
 
 
 def referenced_steps(spec, found=None):
@@ -62,14 +70,31 @@ def referenced_steps(spec, found=None):
                 if isinstance(row, dict):
                     found.update(row.get(key) for key in ('before', 'after') if isinstance(row.get(key), str))
             return found
-        for op in ('each', 'leakedCredentials'):
+        for op in ('each', 'leakedCredentials', 'matchedCanaries'):
             if isinstance(spec.get(op), list):
-                found.update(step for step in spec[op] if isinstance(step, str))
+                found.update(step for step in spec[op] if isinstance(step, str) and step != '$model-visible')
         for value in spec.values():
             referenced_steps(value, found)
     elif isinstance(spec, list):
         for value in spec:
             referenced_steps(value, found)
+    return found
+
+
+def inventory_steps(spec, found=None):
+    """protectedContent steps whose identity is the (exact) inventory request itself."""
+    found = set() if found is None else found
+    if isinstance(spec, dict):
+        rows = spec.get('protectedContent')
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, dict) and row.get('resource') == 'inventory':
+                    found.update(v for v in (row.get('before'), row.get('after')) if isinstance(v, str))
+        for value in spec.values():
+            inventory_steps(value, found)
+    elif isinstance(spec, list):
+        for value in spec:
+            inventory_steps(value, found)
     return found
 
 
@@ -143,8 +168,12 @@ def same_request(left, right):
 
 
 class Context:
-    def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=(), model_actions=None):
+    def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=(), model_actions=None,
+                 canaries=None, model_visible=(), customer_files=None):
         self.model_actions = dict(model_actions or {})
+        self.canaries = dict(canaries or {})              # name -> secret value (runner-registered)
+        self.model_visible = tuple(model_visible)         # exported model-visible request bytes
+        self.customer_files = dict(customer_files or {})  # corpusPath -> bytes (frozen, digest-checked)
         self.records, self.roles = records, dict(roles or {})
         self.custody, self.run_facts = dict(custody or {}), dict(run_facts or {})
         self.credentials = tuple(value for value in credentials if isinstance(value, str) and len(value) >= 8)
@@ -246,16 +275,17 @@ def evaluate(spec, ctx, *, item=None, step=None):
         before, after, labels = [], [], set()
         for row in rows:
             require(isinstance(row, dict) and {'label', 'before', 'after', 'resource'} <= set(row)
-                    <= {'label', 'before', 'after', 'resource', 'pointer', 'content'},
+                    <= {'label', 'before', 'after', 'resource', 'pointer', 'content', 'beforePhase'},
                     'invalid protectedContent row (label, before, after and resource roles are required)')
             # The snapshots must be of the protected resource itself: both reads address every
             # resolved identity role of it, and they are the identical request.
             resource = row['resource']
-            require(isinstance(resource, list) and resource and all(isinstance(r, str) for r in resource),
-                    'protectedContent resource must list identity roles')
+            require(resource == 'inventory' or (isinstance(resource, list) and resource
+                                                and all(isinstance(r, str) for r in resource)),
+                    'protectedContent resource must list identity roles or be "inventory"')
             first, second = ctx.record(row['before']), ctx.record(row['after'])
             require(same_request(first, second), 'protected before/after reads are different requests')
-            for role in resource:
+            for role in ([] if resource == 'inventory' else resource):
                 require(role in ctx.roles, 'logical role unresolved: ' + role)
                 for record in (first, second):
                     require(str(ctx.roles[role]) in addressed(record),
@@ -264,7 +294,9 @@ def evaluate(spec, ctx, *, item=None, step=None):
             require(isinstance(label, str) and label and label not in labels, 'duplicate protected label')
             labels.add(label)
             require(not ('pointer' in row and 'content' in row), 'protectedContent row has two content sources')
-            for phase, name, sink in (('seed', row['before'], before), ('observe', row['after'], after)):
+            before_phase = row.get('beforePhase', 'seed')
+            require(before_phase in ('seed', 'between'), 'protected baseline phase must be seed or between')
+            for phase, name, sink in ((before_phase, row['before'], before), ('observe', row['after'], after)):
                 record = ctx.record(name)
                 require(record.phase == phase, f'protected {phase} snapshot read in the wrong phase')
                 require(record.status == 200 and record.json is not None, 'protected snapshot read failed')
@@ -283,12 +315,43 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(spec['role'] in ctx.roles, 'logical role unresolved: ' + str(spec['role']))
         require(str(ctx.roles[spec['role']]) in addressed(record), 'recorded request did not address the role ' + spec['role'])
         return ctx.roles[spec['role']]
+    if keys == {'featureServerFeatures'}:
+        record = ctx.record(named(spec['featureServerFeatures']))
+        require(record.status == 200 and isinstance(record.json, dict), 'feature read failed')
+        return feature_server_features(record.json)
+    if keys == {'customerFileColumn', 'rows', 'column', 'firstDataRow'}:
+        import csv
+        import io
+        raw = ctx.customer_files.get(spec['customerFileColumn'])
+        require(isinstance(raw, bytes), 'customer file is not a frozen attachment of this case')
+        table = list(csv.DictReader(io.StringIO(raw.decode('utf-8'))))
+        numbers = sub(spec['rows'])
+        require(isinstance(numbers, list) and all(type(n) is int for n in numbers), 'row numbers must be integers')
+        first = spec['firstDataRow']
+        require(type(first) is int and first >= 1, 'invalid first data row')
+        out = []
+        for number in numbers:
+            index = number - first
+            require(0 <= index < len(table) and spec['column'] in table[index], 'reported row is not in the file')
+            out.append(table[index][spec['column']])
+        return out
+    if keys == {'matchedCanaries'}:
+        steps = spec['matchedCanaries']
+        require(isinstance(steps, list) and steps and ctx.canaries, 'matchedCanaries needs steps and registered canaries')
+        bodies = [ctx.record(named(n)).raw for n in steps if n != '$model-visible']
+        if '$model-visible' in steps:
+            require(ctx.model_visible, 'no model-visible bytes were exported for this case')
+            bodies += list(ctx.model_visible)
+        return sorted(name for name, value in ctx.canaries.items() if any(value.encode() in body for body in bodies))
     if keys == {'leakedCredentials'}:
         steps = spec['leakedCredentials']
         require(isinstance(steps, list) and steps, 'leakedCredentials needs recorded steps')
         found = set()
-        for name in steps:
-            raw = ctx.record(named(name)).raw
+        bodies = [ctx.record(named(n)).raw for n in steps if n != '$model-visible']
+        if '$model-visible' in steps:
+            require(ctx.model_visible, 'no model-visible bytes were exported for this case')
+            bodies += list(ctx.model_visible)
+        for raw in bodies:
             for credential in ctx.credentials:
                 if credential.encode() in raw:
                     found.add(hashlib.sha256(credential.encode()).hexdigest()[:16])
@@ -344,6 +407,44 @@ def evaluate(spec, ctx, *, item=None, step=None):
     raise ProjectionError('unknown projection operation: ' + ','.join(sorted(keys)))
 
 
+def feature_server_features(value):
+    """Normalize a complete, unquantized 2D FeatureServer query of any geometry type to GeoJSON-like features."""
+    require(isinstance(value, dict) and 'error' not in value, 'missing successful FeatureServer query')
+    kind = value.get('geometryType')
+    require(kind in ('esriGeometryPoint', 'esriGeometryPolyline', 'esriGeometryPolygon'), 'unsupported geometry type')
+    require(value.get('exceededTransferLimit') is False and value.get('transform') is None
+            and value.get('hasZ', False) is False and value.get('hasM', False) is False,
+            'query is incomplete, quantized or not 2D')
+    reference = value.get('spatialReference')
+    require(isinstance(reference, dict) and type(reference.get('wkid')) is int, 'query lacks its coordinate system')
+    oid = value.get('objectIdFieldName')
+    fields = value.get('fields')
+    require(isinstance(oid, str) and oid != 'source_id' and isinstance(fields, list), 'invalid query fields')
+    names = [f.get('name') for f in fields if isinstance(f, dict)]
+    require(oid in names and 'source_id' in names and len(set(names)) == len(names), 'invalid query field inventory')
+    out, seen = [], set()
+    for row in value.get('features') or []:
+        require(isinstance(row, dict) and set(row) == {'attributes', 'geometry'}, 'invalid query feature')
+        attributes, geometry = dict(row['attributes']), row['geometry']
+        require(set(attributes) == set(names) and isinstance(geometry, dict), 'query attribute inventory differs')
+        source_id = attributes['source_id']
+        require(isinstance(source_id, str) and source_id and source_id not in seen, 'missing or duplicate source id')
+        seen.add(source_id)
+        del attributes[oid]
+        if kind == 'esriGeometryPoint':
+            shape = {'type': 'Point', 'coordinates': [geometry['x'], geometry['y']]}
+        elif kind == 'esriGeometryPolyline':
+            paths = geometry['paths']
+            shape = ({'type': 'LineString', 'coordinates': paths[0]} if len(paths) == 1
+                     else {'type': 'MultiLineString', 'coordinates': paths})
+        else:
+            rings = geometry['rings']
+            shape = {'type': 'Polygon', 'coordinates': rings}
+        out.append({'type': 'Feature', 'id': source_id, 'properties': attributes, 'geometry': shape})
+    out.sort(key=lambda f: f['properties']['source_id'])
+    return {'srid': reference['wkid'], 'features': out}
+
+
 def substitute_roles(expected, roles):
     """Replace {"$role": name} with the resolved live id; unresolved roles fail closed."""
     if isinstance(expected, dict):
@@ -358,7 +459,43 @@ def substitute_roles(expected, roles):
     return expected
 
 
-def resolve_roles(bindings, records, *, agent_principal):
+# Enumerations reviewed against honua-server as unpaged (they return every row): (method, path regex, source).
+UNPAGED_ENUMERATIONS = (
+    ('GET', r'/api/v1/admin/connections/?',
+     'honua-server SecureConnectionEndpoints.HandleGetConnections: registry.GetActiveConnectionsAsync, no paging'),
+)
+
+
+def _complete(listing, values, binding, name):
+    from urllib.parse import parse_qsl, urlsplit
+    modes = [m for m in ('total', 'next_page', 'page_limit') if getattr(binding, m) is not None]
+    unpaged = any(listing.method == method and re.fullmatch(path, listing.path)
+                  for method, path, _source in UNPAGED_ENUMERATIONS)
+    if unpaged and not modes:
+        return  # a reviewed endpoint that always returns every row
+    require(len(modes) == 1,
+            'created role needs exactly one completeness proof (total, next_page, page_limit or unpaged): ' + name)
+    mode = modes[0]
+    if mode == 'total':
+        count = pointer_get(listing.json, binding.total)
+        require(type(count) is int and count == len(values), 'created role enumeration is incomplete: ' + name)
+    elif mode == 'next_page':
+        # The cursor field must exist (a wrong pointer is not proof of a last page) and be empty.
+        try:
+            cursor = pointer_get(listing.json, binding.next_page)
+        except ProjectionError:
+            raise ProjectionError('created role completeness pointer is absent: ' + name) from None
+        require(cursor in (None, ''), 'created role enumeration has further pages: ' + name)
+    else:
+        limit = binding.page_limit
+        require(isinstance(limit, dict) and set(limit) == {'param', 'value'} and type(limit['value']) is int
+                and limit['value'] > 0, 'invalid page_limit: ' + name)
+        query = dict(parse_qsl(urlsplit(listing.path.split('#', 1)[0]).query))
+        require(query.get(limit['param']) == str(limit['value']), 'enumeration did not request the declared page size: ' + name)
+        require(len(values) < limit['value'], 'created role enumeration filled its page and may continue: ' + name)
+
+
+def resolve_roles(bindings, records, *, agent_principal, action_results=()):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
     for binding in bindings:
@@ -378,9 +515,10 @@ def resolve_roles(bindings, records, *, agent_principal):
             continue
         require(record.phase == 'observe' and binding.items is not None and binding.id is not None,
                 'created role must enumerate observe-phase state: ' + name)
-        # Both constraints are mandatory: owned by the agent principal AND created after seed.
-        require(binding.owner is not None and binding.before is not None,
-                'created role needs both the agent-owner filter and a seed-phase baseline: ' + name)
+        # Mandatory: agent authorship (owner field or the server's reply to the agent's call) AND created after seed.
+        require((binding.owner is None) != (binding.created_by is None) and binding.before is not None,
+                'created role needs exactly one authorship proof (owner or created_by) and a seed-phase baseline: '
+                + name)
         rows = pointer_get(record.json, binding.items)
         require(isinstance(rows, list), 'created role enumeration is not a list: ' + name)
         require(binding.before in records, 'created role baseline is not recorded: ' + name)
@@ -393,26 +531,31 @@ def resolve_roles(bindings, records, *, agent_principal):
                 'created role baseline enumerates a different request scope: ' + name)
         baseline = pointer_get(baseline_record.json, binding.items)
         require(isinstance(baseline, list), 'created role baseline is not a list: ' + name)
-        require((binding.total is None) != (binding.next_page is None),
-                'created role needs exactly one completeness proof (total or next_page): ' + name)
         for listing, values in ((record, rows), (baseline_record, baseline)):
-            if binding.total is not None:
-                count = pointer_get(listing.json, binding.total)
-                require(type(count) is int and count == len(values), 'created role enumeration is incomplete: ' + name)
-            else:
-                # The cursor field must exist (a wrong pointer is not proof of a last page) and be empty.
-                try:
-                    cursor = pointer_get(listing.json, binding.next_page)
-                except ProjectionError:
-                    raise ProjectionError('created role completeness pointer is absent: ' + name) from None
-                require(cursor in (None, ''), 'created role enumeration has further pages: ' + name)
+            _complete(listing, values, binding, name)
         excluded = {str(pointer_get(row, binding.id)) for row in baseline}
+        authored = None
+        if binding.created_by is not None:
+            spec = binding.created_by
+            require(isinstance(spec, dict) and set(spec) == {'tool', 'pointer'}, 'invalid created_by: ' + name)
+            authored = set()
+            for result in action_results:
+                if result.get('tool') == spec['tool'] and result.get('status') == 'pass':
+                    try:
+                        value = pointer_get(result['json'], spec['pointer'])
+                    except ProjectionError:
+                        continue
+                    if isinstance(value, (str, int)) and not isinstance(value, bool):
+                        authored.add(str(value))
         matches = []
         for row in rows:
             identity = pointer_get(row, binding.id)
             if str(identity) in excluded:
                 continue
-            if str(pointer_get(row, binding.owner)) != str(agent_principal):
+            if authored is not None:
+                if str(identity) not in authored:
+                    continue
+            elif str(pointer_get(row, binding.owner)) != str(agent_principal):
                 continue
             matches.append(identity)
         require(len(matches) == 1, f'created role {name} matched {len(matches)} live resources')

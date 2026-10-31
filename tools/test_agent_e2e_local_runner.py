@@ -316,7 +316,9 @@ def test_full_loop_passes_on_correct_state_with_runner_owned_evidence(candidate,
     assert receipt['custody']['postRevocationProbeStatus'] == 401
     assert receipt['custody']['bootstrapRevokedCredentialIds'] == ['key-1']
     # Logical roles were resolved from the seed-phase publish handle.
-    assert receipt['roles'] == {'seeded:layer:shelters': '0', 'seeded:service:shelters': 'p10-shelters'}
+    assert {k: v for k, v in receipt['roles'].items() if k.startswith('seeded:')} == {
+        'seeded:layer:shelters': '0', 'seeded:service:shelters': 'p10-shelters'}
+    assert receipt['roles']['session:current'] == receipt['sessions'][0]['sessionId']
     # Receipts carry digests, never action bodies or the private log path.
     assert 'logPath' not in json.dumps(receipt) and CORRECT_WHERE not in json.dumps(receipt)
     runner.validate_receipt(receipt)
@@ -700,7 +702,7 @@ def test_finding3_created_roles_require_owner_and_post_seed_creation():
     # Owner-only would have accepted the pre-seed resource; baseline-only the foreign one.
     for binding in (RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner'),
                     RoleBinding('created:map', 'after', items='/items', id='/id', before='before')):
-        with pytest.raises(ValueError, match='both'):
+        with pytest.raises(ValueError, match='authorship proof'):
             resolve_roles([binding], records, agent_principal='agent')
     both = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before',
                        next_page='/next')

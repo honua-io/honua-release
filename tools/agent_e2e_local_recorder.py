@@ -220,9 +220,26 @@ class EvidenceVault:
         require(chain == self._chain, 'harness action log head differs')
         return [(entry, raw) for entry, raw, _ in self._actions]
 
+    def action_results(self):
+        """The server's captured replies to sealed agent actions: [{tool, kind, status, json}] (digest-checked)."""
+        out = []
+        for entry, raw in self.entries():
+            _session, _sequence, _digest, _path, status, raw_sha, raw_path, _http = entry
+            if not (isinstance(raw_sha, str) and isinstance(raw_path, str)):
+                continue
+            body = Path(raw_path).read_bytes()
+            require('sha256:' + hashlib.sha256(body).hexdigest() == raw_sha, 'captured action response digest mismatch')
+            try:
+                message = parse_jsonrpc(body)
+            except ValueError:
+                continue
+            action = json.loads(raw)
+            out.append({'tool': action.get('tool'), 'kind': action.get('kind'), 'status': status, 'json': message})
+        return out
+
     def model_actions(self):
         """digest -> the model's logged action (for replay-provenance checks)."""
-        return {entry[2]: json.loads(raw) for entry, raw in self.entries()}
+        return {entry[2]: {**json.loads(raw), '_session': entry[0]} for entry, raw in self.entries()}
 
 
 class ControllerRecorder:
