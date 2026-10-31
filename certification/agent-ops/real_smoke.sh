@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 umask 077
 mkdir "$OPS_SMOKE_OUT"
 export COMPOSE_PROJECT_NAME="ops-$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
-export E2E_SERVER_PORT="${OPS_SMOKE_PORT:-18747}"
+export E2E_SERVER_PORT="${OPS_SMOKE_PORT:-$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')}"
 export E2E_BASE="http://127.0.0.1:$E2E_SERVER_PORT" HONUA_PUBLIC_BASE_URL="http://127.0.0.1:$E2E_SERVER_PORT"
 export E2E_API_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 export HONUA_SERVER_IMAGE="$(cd "$ROOT" && python3 -c 'from tools.compose_ga_rc1_gate import REPOSITORY, RC1_INDEX_DIGEST; print(REPOSITORY+"@"+RC1_INDEX_DIGEST)')"

@@ -11,7 +11,8 @@ from pathlib import Path
 from live_observer import compare_source_geometry, observe_database, observe_layer
 from ga_actions import invoke
 from live_probes import ProbeTraffic, assess_traffic, readback_writes
-from real_seed import prepare_town
+from real_seed import _verify_runtime, prepare_town
+from real_credentials import mint_operator
 from state import _projected_layer, messy_table
 
 
@@ -30,6 +31,29 @@ def main() -> None:
                             project=os.environ['COMPOSE_PROJECT_NAME'], compose_file=Path(os.environ['E2E_COMPOSE_FILE']),
                             image_ref=os.environ['HONUA_SERVER_IMAGE'], authorize=lambda: None)
         evidence['town'] = town
+        def authorize():
+            if _verify_runtime(os.environ['COMPOSE_PROJECT_NAME'], Path(os.environ['E2E_COMPOSE_FILE']),
+                               os.environ['HONUA_SERVER_IMAGE'], os.environ['HONUA_SERVER_IMAGE'].split('@', 1)[1], base) != town['runtime_identity']:
+                raise RuntimeError('trial runtime changed')
+        def retain_credential(kind, body):
+            target = Path(os.environ['OPS_SMOKE_OUT']) / ('credential-' + kind + '.json')
+            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(fd, 'w') as handle:
+                json.dump(body, handle, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            directory = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+            encoded = json.dumps(body, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()
+            import hashlib
+            return {'key': target.name, 'sha256': 'sha256:' + hashlib.sha256(encoded).hexdigest()}
+        operator = mint_operator(base, key, project=os.environ['COMPOSE_PROJECT_NAME'],
+                                 compose_file=Path(os.environ['E2E_COMPOSE_FILE']),
+                                 image_ref=os.environ['HONUA_SERVER_IMAGE'], authorize=authorize, retain=retain_credential)
+        evidence['operator'] = operator.public_receipt()
         expected = {'parcels': 6, 'flood_zones': 1, 'shelters': 5}
         for name, binding in town['layers'].items():
             path = f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}"
