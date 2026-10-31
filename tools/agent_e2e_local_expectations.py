@@ -143,7 +143,7 @@ def load_projections(scenario_id, variant):
 
 
 ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'total', 'next_page', 'page_limit',
-               'created_by', 'parent'}
+               'created_by', 'parent', 'parent_link'}
 
 
 def load_roles(scenario_id):

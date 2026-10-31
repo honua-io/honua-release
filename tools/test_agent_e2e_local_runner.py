@@ -25,10 +25,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Test-only enumeration contracts for the fake candidate's inventories (the real registry is reviewed core code).
 TEST_CONTRACTS = (
-    {'kind': 'http', 'method': 'GET', 'path': r'/maps', 'paging': {'cursor': '/next'}},
-    {'kind': 'mcp', 'tool': 'honua_list_maps', 'paging': {'total': '/result/total'}},
-    {'kind': 'http', 'method': 'POST', 'path': r'/api/v1/admin/maps/search', 'paging': {'cursor': '/next'}},
-    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/maps', 'paging': 'unpaged'},
+    {'kind': 'http', 'method': 'GET', 'path': r'/maps', 'items': '/items', 'paging': {'cursor': '/next'}},
+    {'kind': 'mcp', 'tool': 'honua_list_maps', 'items': '/result/items', 'paging': {'total': '/result/total'}},
+    {'kind': 'http', 'method': 'POST', 'path': r'/api/v1/admin/maps/search', 'items': '/items', 'paging': {'cursor': '/next'}},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/maps', 'items': '/items', 'paging': 'unpaged'},
 )
 
 
@@ -578,7 +578,8 @@ def test_permission_matrix_projection_binds_targets_principals_and_disclosure():
 
     def row(step, role):
         return {'object': {'principalId': {'principal': step}, 'method': {'method': step},
-                           'resourceId': {'target': step, 'role': role}, 'status': {'status': step},
+                           'resourceId': {'target': step, 'role': role, 'at': {'pathSegment': 3}},
+                           'status': {'status': step},
                            'responseSha256': {'sha256': step},
                            'disclosedResourceIds': {'disclosed': step, 'roles': ['seeded:map:theirs']}}}
     spec = {'object': {'requests': {'list': [row('own', 'seeded:map:ours'), row('foreign', 'seeded:map:theirs'),
@@ -595,7 +596,7 @@ def test_permission_matrix_projection_binds_targets_principals_and_disclosure():
                                                 row('control', 'seeded:map:theirs')]}}}
     bad = Observation('publication.private', None, {'projection': 'extract/v1', 'spec': swapped})
     result = runner.score_assertions(['publication.private'], [bad], {'publication.private': expected}, records=records, roles=roles)
-    assert result[0]['status'] == 'fail' and 'did not address' in result[0]['reason']
+    assert result[0]['status'] == 'fail' and 'does not address' in result[0]['reason']
     # A denial that discloses the foreign id fails.
     records['foreign'] = _record('foreign', status=404, body={'id': 'map-2'}, path='/api/v1/maps/map-2',
                                  principal_id='key-a')
@@ -626,13 +627,13 @@ def test_protected_content_requires_seed_before_and_observe_after():
     from agent_e2e_local_projections import Context, evaluate
     records = {'b': _record('b', phase='seed', body={'data': {'title': 'Map', 'updatedAt': 1}}, path='/maps/map-1'),
                'a': _record('a', phase='observe', body={'data': {'title': 'Map', 'updatedAt': 2}}, path='/maps/map-1')}
-    spec = {'protectedContent': [{'label': 'map', 'before': 'b', 'after': 'a', 'resource': ['seeded:map:m'],
+    spec = {'protectedContent': [{'label': 'map', 'before': 'b', 'after': 'a', 'resource': [{'role': 'seeded:map:m', 'at': {'pathSegment': 1}}],
                                   'content': {'object': {'title': {'body': '$step', 'pointer': '/data/title'}}}}]}
     roles = {'seeded:map:m': 'map-1'}
     value = evaluate(spec, Context(records, roles))
     assert value['before'] == value['after'] == [{'resourceId': 'map', 'content': {'title': 'Map'}}]
     swapped = {'protectedContent': [{'label': 'map', 'before': 'a', 'after': 'b', 'pointer': '/data',
-                                     'resource': ['seeded:map:m']}]}
+                                     'resource': [{'role': 'seeded:map:m', 'at': {'pathSegment': 1}}]}]}
     with pytest.raises(ValueError, match='wrong phase'):
         evaluate(swapped, Context(records, roles))
     # Third review, item 1: a snapshot of another resource (or a different request) is not preservation.
@@ -1510,8 +1511,16 @@ def test_core2_created_role_by_agent_authorship_and_complete_page(tmp_path):
                       action_results=results)
     with pytest.raises(ValueError, match='no reviewed enumeration contract'):
         resolve_roles([binding], pair(path='/api/v1/admin/unreviewed'), agent_principal='agent', action_results=results)
-    connections = pair(path='/api/v1/admin/connections')
-    assert resolve_roles([binding], connections, agent_principal='agent', action_results=results) == {'created:map': 'map-2'}
+    def connections_listing(step, phase, rows):
+        raw = json.dumps({'success': True, 'data': rows}).encode()   # the server's wrapped list shape
+        return Record(step, phase, 'http', 'controller', None, 'GET', '/api/v1/admin/connections', 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    connections = {'before': connections_listing('before', 'seed', [{'id': 'map-1'}]),
+                   'after': connections_listing('after', 'observe', [{'id': 'map-1'}, {'id': 'map-2'}])}
+    wrapped = RoleBinding('created:map', 'after', items='/data', id='/id', before='before', created_by=created_by)
+    assert resolve_roles([wrapped], connections, agent_principal='agent', action_results=results) == {'created:map': 'map-2'}
+    with pytest.raises(ValueError, match='reviewed response shape|reviewed items'):   # wrong shape for this endpoint
+        resolve_roles([binding], pair(path='/api/v1/admin/connections'), agent_principal='agent', action_results=results)
     with pytest.raises(ValueError, match='authorship'):
         resolve_roles([RoleBinding('created:map', 'after', items='/items', id='/id', before='before', owner='/o',
                                    created_by=created_by)],
@@ -1566,7 +1575,8 @@ def test_core2_between_baselines_and_session_bound_replays(tmp_path):
     saved = {'data': {'title': 'Map', 'version': 'v2'}}
     records = {'b': _record('b', phase='between', body=saved, path='/maps/map-1'),
                'a': _record('a', phase='observe', body=saved, path='/maps/map-1')}
-    spec = {'protectedContent': [{'label': 'map', 'before': 'b', 'after': 'a', 'resource': ['created:map'],
+    spec = {'protectedContent': [{'label': 'map', 'before': 'b', 'after': 'a',
+                                  'resource': [{'role': 'created:map', 'at': {'pathSegment': 1}}],
                                   'beforePhase': 'between', 'pointer': '/data'}]}
     value = evaluate(spec, Context(records, {'created:map': 'map-1'}))
     assert value['before'] == value['after']
@@ -1806,7 +1816,7 @@ def test_core3_controller_sql_reads_are_recorded_select_only(candidate, tmp_path
                                   attempt_id='c', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')},
                                   sql_executor=executor)
     recorder.set_phase('observe')
-    rows = recorder.sql('imported-rows', 'SELECT source_id, capacity FROM honua_data.p05_points ORDER BY source_id;')
+    rows = recorder.sql('imported-rows', 'SELECT source_id, capacity FROM honua_data.p05_points ORDER BY source_id')
     assert rows == [{'source_id': 's1', 'capacity': 80}]
     record = vault.records()['imported-rows']
     assert (record.kind, record.method, record.principal) == ('sql', 'SELECT', 'controller')
@@ -1835,8 +1845,14 @@ def test_core3_sql_read_runs_read_only_in_the_case_db_container(monkeypatch, tmp
     status, raw = runner.LocalRuntime(None, model='m', release_id='r').sql_read(stack, 'SELECT 1 AS a')
     assert status == 200 and raw == b'[{"a":1}]'
     exec_argv, script = calls[-1]
-    assert exec_argv[:3] == ['docker', 'exec', '-i'] and 'PGOPTIONS=-c default_transaction_read_only=on' in exec_argv
-    assert b'json_agg' in script and b'SELECT 1 AS a' in script
+    assert exec_argv[:2] == ['docker', 'exec'] and '-i' not in exec_argv and script is None   # SQL never on stdin
+    assert 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000' in exec_argv
+    assert exec_argv[exec_argv.index('-U') + 1] == 'corpus_reader'
+    command = exec_argv[exec_argv.index('-c', exec_argv.index('psql')) + 1]
+    assert 'json_agg' in command and 'SELECT 1 AS a' in command
+    reader_setup = [argv for argv, _ in calls if 'psql' in argv and argv[argv.index('-U') + 1] == 'honua']
+    setup_sql = reader_setup[0][reader_setup[0].index('-c', reader_setup[0].index('psql')) + 1]
+    assert 'pg_read_all_data' in setup_sql and "statement_timeout = '15s'" in setup_sql
 
 
 def test_core3_database_handoff_is_seeded_attested_attached_and_redacted(candidate, tmp_path, monkeypatch):
@@ -1908,11 +1924,11 @@ def test_core3_read_rules_select_the_source_by_role(tmp_path):
     logged = {'occ:1:1:sha256:x': {'kind': 'tool_call', 'tool': 'honua_query_features',
                                    'arguments': {'serviceId': 'svc-b', 'layerId': 0}, '_session': 1}}
     rule = {'kind': 'mcp', 'method': 'POST', 'path': '/mcp#tools/call', 'principal': 'controller', 'phase': 'observe',
-            'replayOfModelAction': True, 'addresses': ['seeded:service:roads']}
+            'replayOfModelAction': True, 'addresses': [{'role': 'seeded:service:roads', 'at': {'argument': '/serviceId'}}]}
     runner.check_reads('q', replay, rule, logged, {'seeded:service:roads': 'svc-b'})
     with pytest.raises(ValueError, match='does not address'):  # a query of another same-tool service
         runner.check_reads('q', replay, rule, logged, {'seeded:service:roads': 'svc-a'})
-    with pytest.raises(ValueError, match='does not address'):
+    with pytest.raises(ValueError, match='unresolved'):
         runner.check_reads('q', replay, rule, logged, {})
 
 
@@ -1926,8 +1942,9 @@ def test_core3_recorded_and_child_roles_and_absence_baselines():
                'other': _record('other', body={'data': {'layers': [{'id': 'layer-7'}]}}, path='/api/v1/studio/maps/map-1')}
     bindings = [RoleBinding('recorded:config-before', 'cfg-before', pointer='/data'),
                 RoleBinding('seeded:map', 'cfg-seed', pointer='/data/datasource'),
-                RoleBinding('child:map-layer', 'map', pointer='/data/layers/0/id', parent='seeded:map')]
-    with pytest.raises(ValueError, match='does not address its parent'):  # seeded:map is "town", not map-9
+                RoleBinding('child:map-layer', 'map', pointer='/data/layers/0/id', parent='seeded:map',
+                            parent_link={'at': {'pathSegment': 4}, 'pointer': '/data/id'})]
+    with pytest.raises(ValueError, match='does not address'):  # seeded:map is "town", not map-9
         resolve_roles(bindings, records, agent_principal='a')
     records['cfg-seed'] = _record('cfg-seed', phase='seed', body={'data': {'datasource': 'map-9'}}, path='/x')
     roles = resolve_roles(bindings, records, agent_principal='a')
@@ -1937,7 +1954,8 @@ def test_core3_recorded_and_child_roles_and_absence_baselines():
     with pytest.raises(ValueError, match='seed- or between-phase'):
         resolve_roles([RoleBinding('recorded:x', 'cfg-after', pointer='/data')], records, agent_principal='a')
     with pytest.raises(ValueError, match='already resolved parent'):
-        resolve_roles([RoleBinding('child:layer', 'map', pointer='/data/layers/0/id', parent='created:map')],
+        resolve_roles([RoleBinding('child:layer', 'map', pointer='/data/layers/0/id', parent='created:map',
+                                   parent_link={'at': {'pathSegment': 4}, 'pointer': '/data/id'})],
                       records, agent_principal='a')
     # Absence baseline: only a provably complete enumeration can show the resource did not exist.
     listing = {'items': [{'id': 'map-1'}]}
@@ -2087,3 +2105,156 @@ def test_core2r5_lost_response_plans_need_a_confirm_read():
     raw = json.dumps({'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {'mapId': 'm'}}}).encode()
     assert injector.lose('tool_call', {'kind': 'tool_call', 'tool': 'honua_create_map'}, {'status': 'ok'}, 200, raw) is None
     assert injector.skipped[0]['reason'].startswith('no runner controller read')
+
+
+# ---- Astra review 5722613204 of #1172 -----------------------------------------------------------
+
+@pytest.mark.parametrize('query', [
+    'SELECT pg_sleep(10)', "SELECT nextval('s')", "SELECT set_config('a', 'b', false)", "SELECT * FROM dblink('x', 'y')",
+    "SELECT lo_import('/etc/passwd')", 'SELECT "pg_sleep"(1)', 'SELECT pg_catalog.pg_sleep(1)', '\\! id',
+    'SELECT 1; DROP TABLE t', 'SELECT 1 -- note', 'SELECT 1 /* c */', 'SELECT $$x$$', "SELECT 'a'::regclass",
+    'WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x', 'COPY t TO STDOUT', 'SELECT * INTO t2 FROM t',
+    'SELECT * FROM t FOR UPDATE', 'SELECT my_volatile_fn()', 'VALUES (1)'])
+def test_core3r1_sql_allowlist_refuses_client_syntax_and_side_effects(query):
+    with pytest.raises(ValueError):
+        runner.sql_allowlisted(query)
+
+
+def test_core3r1_sql_allowlist_admits_plain_reads():
+    for query in ('SELECT source_id, capacity FROM honua_data.t ORDER BY source_id',
+                  "SELECT count(*) AS n FROM t WHERE name = 'x''y' AND capacity > 50",
+                  'SELECT st_astext(geometry), st_srid(geometry) FROM t',
+                  'WITH a AS (SELECT id FROM t) SELECT id FROM a'):
+        assert runner.sql_allowlisted(query) == query
+
+
+def _handoff_case(candidate, tmp_path, monkeypatch, scenario_cls, replies=None):
+    import agent_e2e_local_expectations as expectations
+    monkeypatch.setattr(FakeRuntime, 'psql', lambda self, stack, sql, *, read_only: (
+        0, json.dumps([{'rolname': 'customer_town', 'rolcanlogin': True}]).encode() if read_only else b''))
+    monkeypatch.setattr(FakeRuntime, '_db_container', lambda self, stack: 'db-1')
+    original = expectations.load_document
+    monkeypatch.setattr(expectations, 'load_document', lambda sid: (
+        {**original('P10'), 'scenario': 'P03', 'customerHandoffs': {'A': ['database:town']}} if sid == 'P03' else original(sid)))
+    return run_hook_case(candidate, tmp_path, replies or [tool(CORRECT_WHERE), FINAL], scenario_cls())
+
+
+def test_core3r2_handoffs_are_sealed_runner_values(candidate, tmp_path, monkeypatch):
+    class Fabricated(HookP10):
+        id = 'P03'
+
+        def seed(self, stack, variant):
+            seeded = super().seed(stack, variant)
+            stack.extra['handoffs'] = {'database:town': {'kind': 'postgresql', 'host': 'db', 'port': 5432,
+                                       'database': 'honua', 'schema': 's', 'username': 'u', 'password': 'p' * 12,
+                                       'hint': 'filter on is_open'}}
+            return seeded
+    receipt, model, _ = _handoff_case(candidate, tmp_path / 'a' if (tmp_path / 'a').mkdir() is None else None,
+                                      monkeypatch, Fabricated)
+    assert receipt['status'] == 'infrastructure' and not model.sent   # never seeded through the runner
+
+    class Mutating(HookP10):
+        id = 'P03'
+
+        def seed(self, stack, variant):
+            seeded = super().seed(stack, variant)
+            handoff = stack.extra['databaseHandoff']('town', 'honua_data')
+            handoff['hint'] = 'filter on is_open'     # post-mint mutation of the returned copy
+            handoff['host'] = 'attacker.invalid'
+            return seeded
+    receipt, model, _ = _handoff_case(candidate, tmp_path / 'b' if (tmp_path / 'b').mkdir() is None else None,
+                                      monkeypatch, Mutating)
+    attached = json.loads(json.loads(model.sent[0][1]['content'])['customerAttachments'][0]['content'])
+    assert set(attached) == {'kind', 'host', 'port', 'database', 'schema', 'username', 'password'}
+    assert attached['host'] == 'db' and 'hint' not in json.dumps(model.sent)
+
+
+def test_core3r3_handoff_passwords_are_scanned_and_stripped_from_exports(candidate, tmp_path, monkeypatch):
+    class P03(HookP10):
+        id = 'P03'
+
+        def seed(self, stack, variant):
+            seeded = super().seed(stack, variant)
+            self.handoff = stack.extra['databaseHandoff']('town', 'honua_data')
+            return seeded
+    scenario_holder = {}
+
+    def make():
+        scenario_holder['s'] = P03()
+        return scenario_holder['s']
+    leak = lambda messages: json.dumps({'kind': 'final', 'answer': 'Use password ' + scenario_holder['s'].handoff['password']})
+    receipt, model, runtime = _handoff_case(candidate, tmp_path, monkeypatch, make, [tool(CORRECT_WHERE), leak])
+    password = scenario_holder['s'].handoff['password']
+    from agent_e2e_local_projections import Context, evaluate
+    visible = tuple(json.dumps(m).encode() for m in model.sent)
+    fingerprint = hashlib.sha256(password.encode()).hexdigest()[:16]
+    # The attachment itself is the intended place: not a leak.
+    assert evaluate({'leakedCredentials': ['$model-visible']},
+                    Context({}, model_visible=visible[:1], customer_credentials=(password,))) == []
+    # Echoed in the final answer or by the model in its own turn: a leak.
+    assert evaluate({'leakedCredentials': ['$final-answers']},
+                    Context({}, final_answers=('Use password ' + password,), customer_credentials=(password,))) == [fingerprint]
+    echoed = json.dumps([{'role': 'assistant', 'content': 'the password is ' + password}]).encode()
+    assert evaluate({'leakedCredentials': ['$model-visible']},
+                    Context({}, model_visible=(echoed,), customer_credentials=(password,))) == [fingerprint]
+    # Exported evidence and the receipt carry no plaintext (bodies and metadata such as SQL text).
+    out = tmp_path / 'export'
+    for case_dir in runtime.workdirs:
+        runner.export_case_evidence(Path(case_dir), out, runtime._secrets, runtime.redact_only())
+    exported = ''.join(p.read_text() for p in out.rglob('*.json'))
+    assert password not in exported and password not in runtime.redact(json.dumps(receipt))
+
+
+def test_core3r4_addresses_and_parent_links_are_exact_fields():
+    import dataclasses
+    from agent_e2e_local_projections import resolve_roles
+    replay = dataclasses.replace(_record('q', kind='mcp', path='/mcp#tools/call', arguments={
+        'tool': 'honua_query_features', 'arguments': {'serviceId': 'svc-a', 'layerId': 0, 'where': "name = 'svc-b'"}}),
+        method='POST', replay_of='occ:1:1:sha256:x')
+    logged = {'occ:1:1:sha256:x': {'kind': 'tool_call', 'tool': 'honua_query_features', '_session': 1,
+                                   'arguments': {'serviceId': 'svc-a', 'layerId': 0, 'where': "name = 'svc-b'"}}}
+    rule = {'kind': 'mcp', 'method': 'POST', 'path': '/mcp#tools/call', 'principal': 'controller', 'phase': 'observe',
+            'replayOfModelAction': True, 'addresses': [{'role': 'seeded:service:roads', 'at': {'argument': '/serviceId'}}]}
+    with pytest.raises(ValueError, match='does not address'):   # the expected id only appears in an unrelated field
+        runner.check_reads('q', replay, rule, logged, {'seeded:service:roads': "name = 'svc-b'"})
+    runner.check_reads('q', replay, rule, logged, {'seeded:service:roads': 'svc-a'})
+    records = {'seed': _record('seed', phase='seed', body={'data': {'id': 'map-9'}}, path='/x'),
+               'layer': _record('layer', body={'data': {'mapId': 'map-1', 'note': 'copied from map-9', 'id': 'layer-3'}},
+                                path='/api/v1/studio/maps/map-1/layers/layer-3?from=map-9')}
+    binding = [RoleBinding('seeded:map', 'seed', pointer='/data/id'),
+               RoleBinding('child:layer', 'layer', pointer='/data/id', parent='seeded:map',
+                           parent_link={'at': {'pathSegment': 4}, 'pointer': '/data/mapId'})]
+    with pytest.raises(ValueError, match='does not address'):   # map-9 is only in the query/note, not the parent field
+        resolve_roles(binding, records, agent_principal='a')
+
+
+@pytest.mark.parametrize('path,body,items', [
+    # Server-serialized terminal pages: WhenWritingNull omits nextCursor (ConsoleJobJsonContext.cs:8, ListJobsTool.cs:261).
+    ('/api/v1/admin/jobs?limit=200', {'items': [{'jobId': 'j1', 'requestedBy': 'api-key:k'}]}, '/items'),
+    ('/api/v1/admin/jobs?limit=200', {'items': []}, '/items'),
+])
+def test_core3r5_job_list_terminal_pages_without_cursor_are_complete(path, body, items):
+    from agent_e2e_local_projections import proven_complete, pointer_get
+    proven_complete(_record('l', body=body, path=path), pointer_get(body, items), 'l')
+    with pytest.raises(ValueError, match='further page'):
+        paged = {**body, 'nextCursor': 'abc'}
+        proven_complete(_record('l', body=paged, path=path), pointer_get(paged, items), 'l')
+    with pytest.raises(ValueError, match='reviewed response shape'):
+        proven_complete(_record('l', body={'jobs': body['items']}, path=path), body['items'], 'l')
+
+
+def test_core3r5_mcp_job_list_terminal_page_without_cursor_is_complete():
+    from agent_e2e_local_projections import proven_complete
+    terminal = {'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {'jobCount': 1, 'jobs': [{'jobId': 'j1'}]}}}
+    record = _record('l', kind='mcp', body=terminal, arguments={'tool': 'honua_list_jobs', 'arguments': {'limit': 200}})
+    proven_complete(record, [{'jobId': 'j1'}], 'l')
+    more = {'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {'jobCount': 1, 'jobs': [{'jobId': 'j1'}],
+                                                                          'nextCursor': 'c2'}}}
+    with pytest.raises(ValueError, match='further page'):
+        proven_complete(_record('l', kind='mcp', body=more, arguments={'tool': 'honua_list_jobs', 'arguments': {}}),
+                        [{'jobId': 'j1'}], 'l')
+    # A layer listing must still prove its end through totalCount; omission is not allowed there.
+    layers = {'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {'layers': [{'id': 1}]}}}
+    with pytest.raises(ValueError):
+        proven_complete(_record('l', kind='mcp', body=layers, arguments={'tool': 'honua_list_layers', 'arguments': {}}),
+                        [{'id': 1}], 'l')
