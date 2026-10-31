@@ -165,8 +165,32 @@ class OperateClient(CandidateProxyClient):
 
 
 def build_endpoint(arm_id: str) -> EndpointConfig:
+    """Studio AI proxy on the composed server. The admin key is X-API-Key, as the canary uses."""
     arm = ARMS[arm_id]
-    return EndpointConfig.from_environment(model=arm["bedrock"], runtime="aws-bedrock")
+    return EndpointConfig.from_environment(
+        model=arm["bedrock"],
+        runtime="aws-bedrock",
+        require_api_key=True,
+        api_key_header="x-api-key",
+    )
+
+
+def server_ready(endpoint: EndpointConfig, *, timeout_seconds: float = 300) -> bool:
+    """Wait until the composed server answers readiness. This does not call the model."""
+    base = endpoint.validated_base_url()
+    root = base[:-4] if base.endswith("/api") else base
+    url = root.rstrip("/") + "/healthz/ready"
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                if getattr(response, "status", 200) == 200:
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(2)
 
 
 def shipped_temperature() -> int:
@@ -181,6 +205,7 @@ __all__ = [
     "Redactor",
     "build_endpoint",
     "parse_model_action",
+    "server_ready",
     "shipped_temperature",
     "write_receipt",
 ]

@@ -1,0 +1,32 @@
+# Studio AI proxy for a live operate trial. The runner adds this file only when it
+# starts the composed server for a model call. Values come from the job environment.
+# The customer fixture stays free of these names. A failed server start is retried until
+# the harness stops the project; Postgres can accept connections a moment after compose up.
+services:
+  honua:
+    restart: on-failure
+    environment:
+      StudioAiProxy__Enabled: ${HONUA_CANARY_STUDIO_AI_ENABLED:-false}
+      StudioAiProxy__DefaultProvider: bedrock
+      StudioAiProxy__Providers__bedrock__Kind: bedrock
+      StudioAiProxy__Providers__bedrock__Model: ${HONUA_CANARY_BEDROCK_MODEL:-}
+      StudioAiProxy__Providers__bedrock__Region: ${HONUA_CANARY_BEDROCK_REGION:-us-east-1}
+      StudioAiProxy__MaxEventBytes: "4194304"
+      StudioAiProxy__MaxResponseBytes: "8388608"
+      StudioAiProxy__MaxPromptCharacters: "400000"
+      StudioAiProxy__MaxRequestBytes: "4194304"
+      StudioAiProxy__Disclosure__WorkloadDataClassification: synthetic-fixture
+      StudioAiProxy__Disclosure__Approvals__0__Provider: bedrock
+      StudioAiProxy__Disclosure__Approvals__0__Kind: bedrock
+      StudioAiProxy__Disclosure__Approvals__0__Destination: aws-bedrock:${HONUA_CANARY_BEDROCK_REGION:-us-east-1}
+      StudioAiProxy__Disclosure__Approvals__0__Model: ${HONUA_CANARY_BEDROCK_MODEL:-}
+      StudioAiProxy__Disclosure__Approvals__0__UseCase: studio-chat
+      StudioAiProxy__Disclosure__Approvals__0__DataClassification: synthetic-fixture
+      AiExecutionAdmission__DeploymentId: operate-live
+      StudioAiProxy__TranscriptSigning__KeyId: ${HONUA_CANARY_TRANSCRIPT_KEY_ID:-}
+      StudioAiProxy__TranscriptSigning__PrivateKeyReference: ${HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE:-}
+      HONUA_CANARY_TRANSCRIPT_SIGNING_SEED: ${HONUA_CANARY_TRANSCRIPT_SIGNING_SEED:-}
+      AWS_REGION: ${HONUA_CANARY_BEDROCK_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${HONUA_CANARY_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${HONUA_CANARY_AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${HONUA_CANARY_AWS_SESSION_TOKEN:-}

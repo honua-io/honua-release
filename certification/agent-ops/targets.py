@@ -178,28 +178,43 @@ def prepare_images(
     return note
 
 
-def _compose(fixture: Path, state: dict, *args: str) -> subprocess.CompletedProcess[str]:
+PROXY_COMPOSE = Path(__file__).with_name("studio-proxy.yml")
+# The server refuses Security:ConnectionEncryption:MasterKey shorter than 32 characters.
+# The stub image never reads it. A live server gets the same development key the local
+# server compose publishes.
+LIVE_MASTER_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+
+def _compose(
+    fixture: Path,
+    state: dict,
+    *args: str,
+    proxy: bool = False,
+) -> subprocess.CompletedProcess[str]:
     project = f"{state['town_slug']}-gis-{state['fixture_token']}"
     env = os.environ.copy()
     env["HONUA_IMAGE"] = state["image_ref"]
-    env["HONUA_ADMIN_PASSWORD"] = "local-only"
-    env["HONUA_MASTER_KEY"] = "local-only"
-    env["POSTGRES_PASSWORD"] = "local-only"
-    return _run_env(
-        ["docker", "compose", "-p", project, "-f", str(fixture / "compose.yaml"), *args],
-        fixture,
-        env,
+    env["HONUA_ADMIN_PASSWORD"] = os.environ.get("HONUA_ADMIN_PASSWORD") or "local-only"
+    supplied_key = os.environ.get("HONUA_MASTER_KEY") or ""
+    env["HONUA_MASTER_KEY"] = supplied_key if proxy and len(supplied_key) >= 32 else (
+        LIVE_MASTER_KEY if proxy else "local-only"
     )
+    env["POSTGRES_PASSWORD"] = "local-only"
+    argv = ["docker", "compose", "-p", project, "-f", str(fixture / "compose.yaml")]
+    if proxy:
+        argv.extend(["-f", str(PROXY_COMPOSE)])
+    argv.extend(args)
+    return _run_env(argv, fixture, env)
 
 
 def _run_env(argv: list[str], cwd: Path, env: dict) -> subprocess.CompletedProcess[str]:
     return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, check=False)
 
 
-def start_deployment(fixture: Path, state: dict) -> dict:
+def start_deployment(fixture: Path, state: dict, *, proxy: bool = False) -> dict:
     """Create the trial's compose project. Images must already be local."""
     project = f"{state['town_slug']}-gis-{state['fixture_token']}"
-    up = _compose(fixture, state, "up", "-d", "--pull", "never")
+    up = _compose(fixture, state, "up", "-d", "--pull", "never", proxy=proxy)
     note = {
         "executed": up.returncode == 0,
         "server_readback": False,
