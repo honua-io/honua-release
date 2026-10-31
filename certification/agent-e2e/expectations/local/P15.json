@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P15",
-  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner needs a verified Studio saved-map fixture, operator membership and tenant-bound outsider identity. Its current addPrincipal mints tenant-independent API keys and custody labels key IDs as worker IDs. It must record real isolated bootstrap and task worker lifecycles before enabling the complete case.",
+  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner needs a verified Studio saved-map fixture, operator membership and tenant-bound outsider identity. Its current addPrincipal mints tenant-independent API keys and the runner reports worker custody as unsupported. It must record real isolated bootstrap and task worker lifecycles before enabling the complete case.",
   "variants": {
     "A": {
       "publication.private": {
