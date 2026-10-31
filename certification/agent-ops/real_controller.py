@@ -7,11 +7,17 @@ readback before it can use these actions as evaluation evidence.
 from __future__ import annotations
 
 import time
+import hashlib
+import os
+import re
+import subprocess
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from ga_actions import invoke
+from ga_actions import _PROJECT, invoke
+from local_http import open_local, require_loopback
 
 
 @dataclass
@@ -32,6 +38,65 @@ class RealController:
                             output=self.output, prior_image=self.prior_image,
                             candidate_image=self.candidate_image, base_url=self.base_url,
                             expected_backup_sha256=self.backup_sha256)
+
+    def _diagnose(self, *, logs: bool) -> dict:
+        if not _PROJECT.fullmatch(self.project) or not self.compose_file.is_file():
+            raise ValueError('invalid trial project')
+        require_loopback(self.base_url)
+        if logs:
+            from client import Redactor
+            result = subprocess.run(['docker', 'compose', '-p', self.project, '-f',
+                                     str(self.compose_file.resolve()), 'logs', '--no-color', '--tail', '200', 'server'],
+                                    capture_output=True, text=True, timeout=15, check=False)
+            if result.returncode:
+                return {'ok': False, 'error': 'logs-unavailable'}
+            secrets = [os.environ.get(name, '') for name in (
+                'E2E_API_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY',
+                'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
+                'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
+            )]
+            text = Redactor(sensitive_values=secrets).text(result.stdout)[-16000:]
+            return {'ok': True, 'log': text, 'log_sha256': hashlib.sha256(text.encode()).hexdigest()}
+        prefix = ['docker', 'compose', '-p', self.project, '-f', str(self.compose_file.resolve())]
+        ps = subprocess.run(prefix + ['ps', '-q', '--status', 'running', 'server'],
+                            capture_output=True, text=True, timeout=15, check=False)
+        containers = ps.stdout.split()
+        if ps.returncode or not containers or any(not re.fullmatch(r'[a-f0-9]{12,64}', cid) for cid in containers):
+            return {'ok': False, 'ready': False}
+        for container in containers:
+            check = subprocess.run(['docker', 'exec', container, 'wget', '-q', '-T', '5', '-O', '/dev/null',
+                                    'http://127.0.0.1:8080/healthz/ready'],
+                                   capture_output=True, text=True, timeout=10, check=False)
+            if check.returncode:
+                return {'ok': False, 'ready': False}
+        return {'ok': True, 'ready': True, 'replicas_checked': len(containers)}
+
+    def _metrics(self) -> dict:
+        from client import Redactor
+        from real_seed import _verify_runtime
+        require_loopback(self.base_url)
+        ref = self.prior_image if self.phase == 'prior' else self.candidate_image if self.phase == 'upgraded' else None
+        if ref is None or '@sha256:' not in ref:
+            return {'ok': False, 'error': 'runtime-identity-unavailable'}
+        try:
+            _verify_runtime(self.project, self.compose_file, ref, ref.split('@', 1)[1], self.base_url)
+        except ValueError:
+            return {'ok': False, 'error': 'runtime-identity-unavailable'}
+        try:
+            with open_local(urllib.request.Request(self.base_url.rstrip('/') + '/metrics'), timeout=5) as response:
+                raw = response.read(65537)
+                status = response.status
+        except (OSError, ValueError):
+            return {'ok': False, 'error': 'metrics-unavailable'}
+        if status != 200 or len(raw) > 65536:
+            return {'ok': False, 'error': 'metrics-unavailable'}
+        secrets = [os.environ.get(name, '') for name in (
+            'E2E_API_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY',
+            'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
+            'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
+        )]
+        text = Redactor(sensitive_values=secrets).text(raw.decode('utf-8', 'replace'))
+        return {'ok': True, 'metrics': text, 'metrics_sha256': hashlib.sha256(text.encode()).hexdigest()}
 
     def apply(self, tool: str, arguments: dict) -> dict:
         started = time.time()
@@ -85,6 +150,7 @@ class RealController:
             event["receipt"] = {key: result[key] for key in (
                 "ok", "error", "operation", "project", "gate_sha256", "compose_sha256",
                 "exit_code", "backup_sha256", "runtime_image_ids", "schema",
+                "ready", "http_status", "log_sha256", "metrics_sha256",
             ) if key in result}
             return result
         except Exception as exc:
