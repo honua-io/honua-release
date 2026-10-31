@@ -731,3 +731,11 @@ def test_live_workflow_refuses_before_any_provisioning():
     workflow = (HERE.parent.parent / '.github' / 'workflows' / 'agent-ops.yml').read_text()
     live = workflow.split('\n  live:\n', 1)[1]
     assert live.index('Refuse live trials until real evidence is wired') < live.index('actions/checkout@')
+
+
+def test_pr_workflow_runs_real_compose_smoke_without_model():
+    workflow = (HERE.parent.parent / '.github' / 'workflows' / 'agent-ops.yml').read_text()
+    smoke = workflow.split('\n  real-compose-smoke:\n', 1)[1].split('\n  pilot-stub:', 1)[0]
+    assert "github.event_name == 'pull_request'" in smoke
+    assert 'bash certification/agent-ops/real_smoke.sh' in smoke
+    assert '--priced-ok' not in smoke
