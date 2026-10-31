@@ -68,16 +68,16 @@
                           -5000
                         ],
                         [
-                          -19300,
-                          -5000
-                        ],
-                        [
-                          -19300,
-                          -4900
-                        ],
-                        [
                           -19400,
                           -4900
+                        ],
+                        [
+                          -19300,
+                          -4900
+                        ],
+                        [
+                          -19300,
+                          -5000
                         ],
                         [
                           -19400,
@@ -105,16 +105,16 @@
                           -5000
                         ],
                         [
-                          -19700,
-                          -5000
-                        ],
-                        [
-                          -19700,
-                          -4900
-                        ],
-                        [
                           -19800,
                           -4900
+                        ],
+                        [
+                          -19700,
+                          -4900
+                        ],
+                        [
+                          -19700,
+                          -5000
                         ],
                         [
                           -19800,
@@ -142,16 +142,16 @@
                           -5000
                         ],
                         [
-                          -19100,
-                          -5000
-                        ],
-                        [
-                          -19100,
-                          -4900
-                        ],
-                        [
                           -19200,
                           -4900
+                        ],
+                        [
+                          -19100,
+                          -4900
+                        ],
+                        [
+                          -19100,
+                          -5000
                         ],
                         [
                           -19200,
@@ -164,16 +164,16 @@
                           -4980
                         ],
                         [
-                          -19180,
-                          -4940
-                        ],
-                        [
-                          -19140,
-                          -4940
-                        ],
-                        [
                           -19140,
                           -4980
+                        ],
+                        [
+                          -19140,
+                          -4940
+                        ],
+                        [
+                          -19180,
+                          -4940
                         ],
                         [
                           -19180,
@@ -201,16 +201,16 @@
                           -5000
                         ],
                         [
-                          -19900,
-                          -5000
-                        ],
-                        [
-                          -19900,
-                          -4900
-                        ],
-                        [
                           -20000,
                           -4900
+                        ],
+                        [
+                          -19900,
+                          -4900
+                        ],
+                        [
+                          -19900,
+                          -5000
                         ],
                         [
                           -20000,
@@ -238,16 +238,16 @@
                           -5000
                         ],
                         [
-                          -18900,
-                          -5000
-                        ],
-                        [
-                          -18900,
-                          -4900
-                        ],
-                        [
                           -19000,
                           -4900
+                        ],
+                        [
+                          -18900,
+                          -4900
+                        ],
+                        [
+                          -18900,
+                          -5000
                         ],
                         [
                           -19000,
@@ -275,16 +275,16 @@
                           -5000
                         ],
                         [
-                          -19500,
-                          -5000
-                        ],
-                        [
-                          -19500,
-                          -4900
-                        ],
-                        [
                           -19600,
                           -4900
+                        ],
+                        [
+                          -19500,
+                          -4900
+                        ],
+                        [
+                          -19500,
+                          -5000
                         ],
                         [
                           -19600,
@@ -318,16 +318,16 @@
                           -5010
                         ],
                         [
-                          -19650,
-                          -5010
-                        ],
-                        [
-                          -19650,
-                          -4890
-                        ],
-                        [
                           -20010,
                           -4890
+                        ],
+                        [
+                          -19650,
+                          -4890
+                        ],
+                        [
+                          -19650,
+                          -5010
                         ],
                         [
                           -20010,
@@ -386,7 +386,7 @@
                   "properties": {
                     "capacity": 80,
                     "is_open": true,
-                    "name": "H\u0101lau, \"North\" refuge",
+                    "name": "Hālau, \"North\" refuge",
                     "source_id": "s3"
                   },
                   "geometry": {
@@ -403,7 +403,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d\u2019accueil",
+                    "name": "Centre d’accueil",
                     "source_id": "s4"
                   },
                   "geometry": {
@@ -420,7 +420,7 @@
                   "properties": {
                     "capacity": 50,
                     "is_open": true,
-                    "name": "M\u0101lama refuge",
+                    "name": "Mālama refuge",
                     "source_id": "s5"
                   },
                   "geometry": {
@@ -502,16 +502,16 @@
                           -8000
                         ],
                         [
-                          13100,
-                          -8000
-                        ],
-                        [
-                          13100,
-                          -7900
-                        ],
-                        [
                           13000,
                           -7900
+                        ],
+                        [
+                          13100,
+                          -7900
+                        ],
+                        [
+                          13100,
+                          -8000
                         ],
                         [
                           13000,
@@ -539,16 +539,16 @@
                           -8000
                         ],
                         [
-                          13500,
-                          -8000
-                        ],
-                        [
-                          13500,
-                          -7900
-                        ],
-                        [
                           13400,
                           -7900
+                        ],
+                        [
+                          13500,
+                          -7900
+                        ],
+                        [
+                          13500,
+                          -8000
                         ],
                         [
                           13400,
@@ -576,16 +576,16 @@
                           -8000
                         ],
                         [
-                          13900,
-                          -8000
-                        ],
-                        [
-                          13900,
-                          -7900
-                        ],
-                        [
                           13800,
                           -7900
+                        ],
+                        [
+                          13900,
+                          -7900
+                        ],
+                        [
+                          13900,
+                          -8000
                         ],
                         [
                           13800,
@@ -598,16 +598,16 @@
                           -7980
                         ],
                         [
-                          13820,
-                          -7940
-                        ],
-                        [
-                          13860,
-                          -7940
-                        ],
-                        [
                           13860,
                           -7980
+                        ],
+                        [
+                          13860,
+                          -7940
+                        ],
+                        [
+                          13820,
+                          -7940
                         ],
                         [
                           13820,
@@ -635,16 +635,16 @@
                           -8000
                         ],
                         [
-                          13700,
-                          -8000
-                        ],
-                        [
-                          13700,
-                          -7900
-                        ],
-                        [
                           13600,
                           -7900
+                        ],
+                        [
+                          13700,
+                          -7900
+                        ],
+                        [
+                          13700,
+                          -8000
                         ],
                         [
                           13600,
@@ -672,16 +672,16 @@
                           -8000
                         ],
                         [
-                          13300,
-                          -8000
-                        ],
-                        [
-                          13300,
-                          -7900
-                        ],
-                        [
                           13200,
                           -7900
+                        ],
+                        [
+                          13300,
+                          -7900
+                        ],
+                        [
+                          13300,
+                          -8000
                         ],
                         [
                           13200,
@@ -709,16 +709,16 @@
                           -8000
                         ],
                         [
-                          14100,
-                          -8000
-                        ],
-                        [
-                          14100,
-                          -7900
-                        ],
-                        [
                           14000,
                           -7900
+                        ],
+                        [
+                          14100,
+                          -7900
+                        ],
+                        [
+                          14100,
+                          -8000
                         ],
                         [
                           14000,
@@ -752,16 +752,16 @@
                           -8010
                         ],
                         [
-                          13350,
-                          -8010
-                        ],
-                        [
-                          13350,
-                          -7890
-                        ],
-                        [
                           12990,
                           -7890
+                        ],
+                        [
+                          13350,
+                          -7890
+                        ],
+                        [
+                          13350,
+                          -8010
                         ],
                         [
                           12990,
@@ -820,7 +820,7 @@
                   "properties": {
                     "capacity": 120,
                     "is_open": false,
-                    "name": "H\u0101lau, \"North\" refuge",
+                    "name": "Hālau, \"North\" refuge",
                     "source_id": "s103"
                   },
                   "geometry": {
@@ -837,7 +837,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d\u2019accueil",
+                    "name": "Centre d’accueil",
                     "source_id": "s104"
                   },
                   "geometry": {
@@ -854,7 +854,7 @@
                   "properties": {
                     "capacity": null,
                     "is_open": true,
-                    "name": "M\u0101lama refuge",
+                    "name": "Mālama refuge",
                     "source_id": "s105"
                   },
                   "geometry": {
@@ -1116,7 +1116,7 @@
           "method": "GET",
           "principal": "controller",
           "phase": "seed",
-          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
               "role": "seeded:service:shelters",
@@ -1137,7 +1137,7 @@
           "method": "GET",
           "principal": "controller",
           "phase": "seed",
-          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
               "role": "seeded:service:parcels",
@@ -1158,7 +1158,7 @@
           "method": "GET",
           "principal": "controller",
           "phase": "seed",
-          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
               "role": "seeded:service:flood_zones",
@@ -1179,7 +1179,7 @@
           "method": "GET",
           "principal": "controller",
           "phase": "observe",
-          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
               "role": "seeded:service:flood_zones",
@@ -1200,7 +1200,7 @@
           "method": "GET",
           "principal": "controller",
           "phase": "observe",
-          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
               "role": "seeded:service:shelters",
@@ -1221,7 +1221,7 @@
           "method": "GET",
           "principal": "controller",
           "phase": "observe",
-          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
               "role": "seeded:service:parcels",

@@ -197,12 +197,20 @@ def _query_document(variant, name):
     features = []
     for index, feature in enumerate(document['features']):
         coords = feature['geometry']['coordinates']
-        geometry = {'x': coords[0], 'y': coords[1]} if kind == 'Point' else {'rings': coords}
-        features.append({'attributes': {'OBJECTID': index, **feature['properties']}, 'geometry': geometry})
+        geometry = {'x': coords[0], 'y': coords[1]} if kind == 'Point' else {'rings': _esri_rings(coords)}
+        features.append({'attributes': {'id': index, **feature['properties']}, 'geometry': geometry})
     return {'geometryType': 'esriGeometryPoint' if kind == 'Point' else 'esriGeometryPolygon',
             'spatialReference': {'wkid': 3857}, 'exceededTransferLimit': False,
-            'objectIdFieldName': 'OBJECTID', 'fields': [{'name': key} for key in features[0]['attributes']],
+            'objectIdFieldName': 'id', 'fields': [{'name': key} for key in features[0]['attributes']],
             'features': features}
+
+
+def _esri_rings(rings):
+    result = []
+    for index, ring in enumerate(rings):
+        area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(ring, ring[1:]))
+        result.append(list(reversed(ring)) if (index == 0 and area > 0) or (index > 0 and area < 0) else ring)
+    return result
 
 
 def _seed_publications(recorder):
@@ -675,6 +683,9 @@ def test_expectations_match_the_pack_and_an_independent_fixture_walk(variant):
         assert render['labelSourceIds'] == label_ids(scenario_id, variant)
         for row in expected['source-content.unchanged']['resources']:
             fixture = oracle.fixture_expectation(variant, 'features.exact', layer=row['resourceId'])
+            for feature in fixture['features']:
+                if feature['geometry']['type'] == 'Polygon':
+                    feature['geometry']['coordinates'] = _esri_rings(feature['geometry']['coordinates'])
             assert 'tolerance' not in row['content']
             assert row['content']['srid'] == 3857
             assert row['content']['features'] == sorted(fixture['features'], key=lambda feature: feature['properties']['source_id'])
@@ -944,6 +955,22 @@ def test_fixture_source_read_rejects_embedded_server_error():
             return {'observation': {'httpStatus': 200, 'body': {'error': {'code': 400}}}}
     with pytest.raises(ProjectionError, match='required fields'):
         snapshot_sources(Recorder(), 'p08', LAYERS, 'before')
+
+
+def test_fixture_source_queries_only_customer_fields_and_object_id():
+    from urllib.parse import parse_qs, urlsplit
+    from agent_browser_studio import snapshot_sources
+    requests = []
+    class Recorder:
+        def json(self, step, method, path):
+            requests.append((step, parse_qs(urlsplit(path).query)['outFields'][0].split(',')))
+            return {'observation': {'httpStatus': 200, 'body': {'features': []}}}
+    snapshot_sources(Recorder(), 'p08', LAYERS, 'before', variant='A')
+    assert dict(requests) == {
+        'p08-src-parcels-before-raw': ['id', 'name', 'owner', 'source_id', 'value'],
+        'p08-src-flood-zones-before-raw': ['id', 'name', 'source_id'],
+        'p08-src-shelters-before-raw': ['id', 'capacity', 'is_open', 'name', 'source_id'],
+    }
 
 
 def test_unstyled_map_still_records_composition_and_save():

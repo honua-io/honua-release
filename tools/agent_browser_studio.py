@@ -964,11 +964,17 @@ def record_map_measurements(recorder, version_step, prefix):
     recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(body)})
 
 
-def snapshot_sources(recorder, prefix, layers, when):
+def snapshot_sources(recorder, prefix, layers, when, *, variant='A'):
     from agent_e2e_p10_observer import source_path
+    from urllib.parse import quote
     for name, slug in SOURCE_LAYERS:
         raw = f'{prefix}-src-{slug}-{when}-raw'
-        result = recorder.json(raw, 'GET', source_path(layers[name]))['observation']
+        fixture = json.loads(fixture_path(variant, name).read_text(encoding='utf-8'))
+        fields = sorted({field for feature in fixture['features'] for field in feature['properties']})
+        require('source_id' in fields and all(re.fullmatch(r'[a-z][a-z0-9_]*', f) for f in fields),
+                'fixture has unsupported source fields')
+        path = source_path(layers[name]).replace('outFields=%2A', 'outFields=' + quote(','.join(['id'] + fields), safe=''))
+        result = recorder.json(raw, 'GET', path)['observation']
         body = result.get('body')
         require(result.get('httpStatus') == 200 and isinstance(body, dict) and 'error' not in body
                 and isinstance(body.get('features'), list),
@@ -1050,7 +1056,7 @@ def seed_case(scenario_id, stack, variant, *, create_map):
         layers = {name: {'service': town['layers'][name]['service'], 'layerId': town['layers'][name]['layerId']}
                   for name in LAYER_NAMES}
     if layers:
-        snapshot_sources(recorder, prefix, layers, 'before')
+        snapshot_sources(recorder, prefix, layers, 'before', variant=variant)
     if create_map:
         seed_unstyled_map(recorder, variant, fixture_extent(variant), stack.extra.get('agentPrincipal'))
     rows = items_of(recorder.json(prefix + '-maps-before', 'GET', LIST_PATH)['observation']['body'])
@@ -1067,7 +1073,7 @@ def observe_map(stack, seeded, prefix, *, created):
     recorder = stack.extra['recorder']
     layers = seeded.state.get('layers') or {}
     if layers:
-        snapshot_sources(recorder, prefix, layers, 'after')
+        snapshot_sources(recorder, prefix, layers, 'after', variant=seeded.state['variant'])
     listing = recorder.json(prefix + '-maps', 'GET', LIST_PATH)
     rows = items_of(listing['observation']['body'])
     if created:
