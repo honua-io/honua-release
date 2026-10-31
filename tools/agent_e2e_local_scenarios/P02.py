@@ -1,13 +1,12 @@
 """P02 remains unsupported pending independent evidence for all three assertions.
 
-Core must supply a bounded scan of task artifacts, logs and final answers against
-private canaries and credential fingerprints, with retained artifact digests. It
-must bind model-created configuration digests and datasource identities to trusted
-pre-restart records. The current restart helper records changed container start
-times, but not the stopped state required by the lifecycle oracle. The inventory
-reads below are partial evidence only and do not prove task success.
+Core must bind model-created configuration and scanned-artifact digests to
+independent pre-restart reads, and scan task outputs/final answers for registered
+canaries and credentials; current exact binding expectations cannot do this.
+The runner-owned lifecycle fact can independently prove the controller restart.
+Inventory reads alone do not prove persistence or secret absence.
 """
-from agent_e2e_local_api import Scenario, Seeded
+from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_scenario_operations import body
 
 
@@ -35,7 +34,7 @@ class P02(Scenario):
         if fact.get('restarted') is not True:
             raise RuntimeError('controller restart did not complete')
         body(recorder.json('p02-connections-after-restart', 'GET', '/api/v1/admin/connections/'))
-        raise RuntimeError('P02 unsupported: inventory alone cannot prove persistence or secret absence')
+        return [Observation('restart.observed', None, {'projection': 'extract/v1'})]
 
 
 scenario = P02()

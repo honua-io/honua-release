@@ -1,14 +1,12 @@
 """P12 is unsupported: a fresh-session read after restart cannot yet be proven.
 
-The runner can restart between sessions, but the restart fact is not in the
-resourceId/states shape required by the lifecycle oracle, and the projection
-language cannot extract a stopped state from it. The scorer also rejects
-between-phase reads outside protected-content baselines. A second-session map
-read must be bound to that session and the seeded version.
+The runner can now record an oracle-compatible restart between sessions. A
+second-session map read still needs to be bound to the seeded version and
+fixture-derived expected content and hash.
 StudioSetup.prepare_saved_map additionally requires a real SQL absence baseline
 and separate task and setup transports, which the runner does not expose.
 """
-from agent_e2e_local_api import Scenario
+from agent_e2e_local_api import Observation, Scenario
 
 
 class P12(Scenario):
@@ -27,7 +25,7 @@ class P12(Scenario):
         raise RuntimeError('P12 unsupported: no independent saved-map setup baseline')
 
     def observe(self, stack, seeded, variant, run=None):
-        raise RuntimeError('P12 unsupported: lifecycle and fresh-session read cannot yet be scored')
+        return [Observation('restart.observed', None, {'projection': 'extract/v1'})]
 
 
 scenario = P12()

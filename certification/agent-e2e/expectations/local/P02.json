@@ -5,13 +5,38 @@
   "variants": {
     "A": {
       "configuration.persisted": null,
-      "restart.observed": null,
+      "restart.observed": {
+        "resourceId": "server",
+        "terminalState": "ready",
+        "requiredStates": [
+          "restarted"
+        ]
+      },
       "secrets.absent": null
     },
     "B": {
       "configuration.persisted": null,
-      "restart.observed": null,
+      "restart.observed": {
+        "resourceId": "server",
+        "terminalState": "ready",
+        "requiredStates": [
+          "restarted"
+        ]
+      },
       "secrets.absent": null
     }
+  },
+  "projections": {
+    "restart.observed": {
+      "spec": {
+        "custody": "lifecycle:p02"
+      },
+      "reads": {}
+    }
+  },
+  "roles": [],
+  "customerFiles": {
+    "A": [],
+    "B": []
   }
 }
