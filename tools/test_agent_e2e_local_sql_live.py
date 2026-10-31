@@ -222,10 +222,14 @@ def test_foreign_descendants_refused_without_executing_remote_side_effect(databa
         recorder.table_rows('foreign-descendant-' + ('partition' if partitioned else 'inheritance'),
                             'honua_data', parent, ['x'])
     assert marker() == before
+    code, _ = runtime.psql(stack, 'DROP USER MAPPING FOR corpus_reader SERVER review_loopback; '
+                          'REVOKE USAGE ON FOREIGN SERVER review_loopback FROM corpus_reader', read_only=False)
+    assert code == 0
 
 
 def test_preexisting_reader_with_unreviewed_membership_is_refused_without_repair(database):
     runtime, stack, recorder = database
+    runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
     code, _ = runtime.psql(stack, 'CREATE ROLE unexpected_reader_grant; GRANT unexpected_reader_grant TO corpus_reader', read_only=False)
     assert code == 0
     probe = runner.LocalRuntime(None, model='m', release_id='r')
@@ -268,6 +272,7 @@ def test_direct_unsafe_relations_refused_without_state_change(database, kind):
 ])
 def test_existing_reader_rejects_extra_authority_without_repair(database, setup, cleanup):
     runtime, stack, _ = database
+    runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
     code, _ = runtime.psql(stack, setup, read_only=False)
     assert code == 0
     try:
