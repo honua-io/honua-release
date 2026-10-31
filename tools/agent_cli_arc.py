@@ -14,7 +14,7 @@ AWS_SETUP_TOOLS = frozenset(('describe_environment','analyze_customer_requiremen
 
 
 def run_stage(*, agent, model, stage, target_kind, prompt, backends, log_dir,
-              max_actions=80, max_turns=40, timeout=600, cli_factory=CliModelSession):
+              max_actions=80, max_turns=40, timeout=2700, cli_factory=CliModelSession):
     if stage not in (1,2,3,4) or target_kind not in ('remote-vm','aws-ecs'):
         raise ValueError('invalid arc stage or target')
     required = ('quickstart_shell' if target_kind == 'remote-vm' else 'honua_devops') if stage == 1 else (

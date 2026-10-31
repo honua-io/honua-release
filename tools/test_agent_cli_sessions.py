@@ -62,6 +62,8 @@ rpc('initialize', {'protocolVersion':'2025-03-26'})
 assert rpc('prompts/list', {})['result'] == {'prompts': []}
 assert rpc('experimental/discovery', {})['error']['code'] == -32601
 assert rpc('tools/list', {})['result']['tools'][0]['name'] == 'honua_query_features'
+if MODE == 'cli_failure':
+    print(json.dumps({'type':'turn.failed','error':{'message':'provider unavailable'}})); sys.exit(1)
 if MODE == 'timeout': time.sleep(20)
 if MODE == 'unknown': rpc('tools/call', {'name':'Bash','arguments':{'command':'touch bad'}})
 else: rpc('tools/call', {'name':'honua_query_features','arguments':{'actual':True}})
@@ -167,6 +169,15 @@ def test_cancel_during_dispatched_action_is_undetermined(tmp_path):
             assert response.status == 202
         assert proxy.failure_category == 'post-action-undetermined'
         release.set(); thread.join(5)
+
+
+def test_cli_failure_is_infrastructure_with_raw_diagnostics(tmp_path):
+    cli = CliModelSession('codex-cli', 'gpt-6.1-sol', binary=fake_cli(tmp_path, 'codex-cli', 'cli_failure'), auth_root=tmp_path)
+    with pytest.raises(CliFailure) as caught:
+        cli.run(prompt='Customer goal only', tool_view=TOOLS, execute=lambda *_: {}, log_dir=tmp_path/'log')
+    assert caught.value.category == 'infrastructure'
+    assert caught.value.progress['provenance'][0]['exitCode'] == 1
+    assert 'provider unavailable' in (tmp_path/'log/cli-stdout.jsonl').read_text()
 
 
 def test_action_bound_logs_only_actual_callbacks(tmp_path):
