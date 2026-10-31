@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "P20",
+  "supportedVariants": [],
+  "unsupportedReason": "Unsupported on the frozen local Stack: clarification.required needs askedTopics, answerMessageIds and publicationAfterAnswers. Static town fixtures and final map permissions cannot establish whether or when the model asked either clarification. The interface explicitly forbids observe from reading the model transcript or claims, and provides no independent clarification event source. Private publication alone cannot satisfy the complete assertion list. No conversation-derived expectation or synthetic clarification receipt is permitted.",
+  "provenance": {
+    "sources": [
+      {
+        "path": "certification/agent-e2e/corpus/oracles/town-A.json",
+        "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb"
+      },
+      {
+        "path": "certification/agent-e2e/corpus/oracles/town-B.json",
+        "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f"
+      }
+    ],
+    "derivation": "Town oracle fixtures contain no native governance, credential custody, issued-key history or clarification event identities. Null marks an unavailable expectation and must fail oracle.verify; it is never a passing baseline."
+  },
+  "variants": {
+    "A": {
+      "clarification.required": null,
+      "publication.private": null
+    },
+    "B": {
+      "clarification.required": null,
+      "publication.private": null
+    }
+  }
+}

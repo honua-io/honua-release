@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "P18",
+  "supportedVariants": [],
+  "unsupportedReason": "Unsupported on the frozen local Stack: tenant.denied requires independently verified native owner and outsider tenant identities plus authorized and denied reads of the same protected map. StudioTenantObserver requires original SQL source custody and distinct owner/outsider/task transports absent from Stack. mutations.absent needs a protected baseline, and bootstrap retirement/worker replacement evidence is also absent. This lane cannot provision additional tenants; a controller or anonymous denial cannot prove refusal under the actual task account.",
+  "provenance": {
+    "sources": [
+      {
+        "path": "certification/agent-e2e/corpus/oracles/town-A.json",
+        "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb"
+      },
+      {
+        "path": "certification/agent-e2e/corpus/oracles/town-B.json",
+        "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f"
+      }
+    ],
+    "derivation": "Town oracle fixtures contain no native governance, credential custody, issued-key history or clarification event identities. Null marks an unavailable expectation and must fail oracle.verify; it is never a passing baseline."
+  },
+  "variants": {
+    "A": {
+      "tenant.denied": null,
+      "mutations.absent": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": null
+    },
+    "B": {
+      "tenant.denied": null,
+      "mutations.absent": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": null
+    }
+  }
+}
