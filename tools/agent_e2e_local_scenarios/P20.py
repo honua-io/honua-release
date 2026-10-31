@@ -8,18 +8,12 @@ or action ordering in frozen expectations. Source data depends on server #6815.
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_local_expectations import load_roles
+from agent_e2e_local_projections_w2g4 import seed_saved_map
 from agent_e2e_local_scenarios.P15 import scenario as private_map
 from agent_e2e_scenario_operations import data
-from agent_e2e_scenario_backend import TownSetup
-from agent_e2e_p10_observer import source_path
 from agent_e2e_studio_observer import guid
-
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 class P20(Scenario):
@@ -39,34 +33,13 @@ class P20(Scenario):
         if stack.extra.get('p20SeedStarted'):
             raise ValueError('incomplete seed; reconcile the original case without retry')
         stack.extra['p20SeedStarted'] = True
+        selected = seed_saved_map(stack, variant, package='shelters-map', namespace_prefix='p20')
         rec = stack.extra['recorder']
-        connection = stack.extra.get('connectionId')
-        if connection is None:
-            connection = stack.extra['ensureConnection']()
-            stack.extra['connectionId'] = connection
-        namespace = 'p20_' + stack.compose_project.replace('-', '')[-16:]
-        town = TownSetup(rec, ROOT / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
-            variant=variant, namespace=namespace, starting_state='published-town', connection_id=connection)
-        stack.extra['addPrincipal']('operator', ['read:*'])
-        binding = town['layers']['shelters']
-        body = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_text())['execution']['mapBody']
-        body['mapPackageId'] = 'shelters-map'
-        body['sourceBindings'] = [{'sourceId': 'shelters', 'protocol': 'ogc_features',
-                                   'locator': {'collectionId': str(binding['layerId'])}}]
-        body['mapSpec']['sources'] = {'shelters': {'type': 'geojson',
-            'data': '/ogc/features/collections/' + str(binding['layerId']) + '/items'}}
-        body['mapSpec']['layers'] = [{'id': 'shelters', 'source': 'shelters', 'type': 'circle',
-                                     'paint': {'circle-color': '#ef2020'}}]
-        envelope = {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map_package.v1', 'body': body}
-        package = 'shelters-map'
-        draft = data(rec.json('p20-selected-draft', 'POST', '/api/v1/studio/package-drafts', {
-            'packageKey': package, 'workspaceId': namespace, 'ownerId': rec.principals['agent'][1],
-            'envelope': envelope}), (201,))
-        saved = data(rec.json('p15-map-saved', 'POST', '/api/v1/studio/package-drafts/'
-                              + guid(draft['draftId']) + '/content-versions', {}), (201,))
-        selected = Seeded({'variant': variant, 'itemId': guid(saved['itemId']), 'versionId': guid(saved['versionId']),
-                           'contentHash': saved['contentHash'], 'shelters': binding})
-        rec.json('p15-source-before', 'GET', source_path(binding))
+        package = selected.state['packageKey']
+        initial = rec.records['p15-map-saved'].json['data']
+        envelope = initial.get('envelope')
+        if not isinstance(envelope, dict) or initial.get('packageKey') != package:
+            raise ValueError('seeded map did not expose its native package and envelope')
         other_owner = stack.extra['addPrincipal']('otherteam', ['read:*'])
         if other_owner == rec.principals['agent'][1]:
             raise ValueError('the other map must have a separate owner')
