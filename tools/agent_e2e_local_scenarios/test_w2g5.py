@@ -86,7 +86,9 @@ def test_runner_contract():
         assert p21.fault_plan(variant) == {
             'kind': 'response_lost_after_commit', 'id': 'p21-map-create',
             'after': None, 'match': {'tool': 'honua_studio_create_draft'},
-            'commit': {'pointer': '/result/structuredContent/draftId'}}
+            'commit': {'pointer': '/result/structuredContent/draftId',
+                       'confirm': {'path': '/api/v1/studio/package-drafts/{id}',
+                                   'attempts': 3, 'intervalSeconds': 0}}}
         assert p22.fault_plan(variant) is None
     assert p22.sessions_required() == 2
 
@@ -96,7 +98,8 @@ def test_p21_fault_forwards_then_hides_successful_response():
     from agent_e2e_local_faults import FaultInjector, validate_fault_plan
     p21 = importlib.import_module('agent_e2e_local_scenarios.P21').scenario
     calls = []
-    injector = FaultInjector(validate_fault_plan(p21.fault_plan('A')))
+    injector = FaultInjector(validate_fault_plan(p21.fault_plan('A')),
+                             confirm=lambda path: (200, 'commit-read'))
     def candidate(kind, action):
         calls.append(action)
         return {'status': 'ok', '_rawResponse': (200, b'{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"draftId":"d1"}}}')}
