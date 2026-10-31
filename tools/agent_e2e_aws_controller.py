@@ -65,7 +65,7 @@ class StdioOperator:
             request = {'jsonrpc': '2.0', 'id': seq, 'method': method, 'params': params}
             self.process.stdin.write((json.dumps(request) + '\n').encode())
             self.process.stdin.flush()
-            deadline = time.monotonic() + 1500
+            deadline = time.monotonic() + (30 if method in ('initialize', 'tools/list') else 3000)
             while True:
                 while b'\n' in self.pending:
                     raw, self.pending = self.pending.split(b'\n', 1)
@@ -232,7 +232,7 @@ class AwsController:
         # The retained variable file and backend are the ones prepared before the agent.
         run_checked(['terraform', '-chdir=' + str(root), 'init', '-input=false', '-no-color'])
         run_checked(['terraform', '-chdir=' + str(root), 'destroy', '-auto-approve',
-                     '-input=false', '-no-color', '-var-file=' + self.slot['variablesFile']])
+                     '-input=false', '-no-color', '-var-file=' + self.slot['variablesFile']], timeout=2400)
         for attempt in range(6):
             remaining = self.inventory()
             if not remaining:

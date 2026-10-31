@@ -392,7 +392,7 @@ def test_destroy_invokes_real_terraform_and_verifies_live_inventory(tmp_path, mo
     root.mkdir(parents=True)
     obj.slot = {'iacRoot': str(tmp_path), 'terraformRoot': str(root), 'variablesFile': str(root / 'terraform.tfvars')}
     calls = []
-    monkeypatch.setattr(controller, 'run_checked', lambda argv: calls.append(argv))
+    monkeypatch.setattr(controller, 'run_checked', lambda argv, **kwargs: calls.append(argv))
     inventories = iter([['arn:lingering'], []])
     obj.inventory = lambda: next(inventories)
     obj.sleep = lambda seconds: None
@@ -499,6 +499,7 @@ def test_case_cli_reaches_live_controller_and_session_factory(tmp_path, monkeypa
     class Session:
         def __init__(self, runtime, stack):
             captured.append((runtime.agent, runtime.model, stack))
+            assert runtime.timeout == 3300
     monkeypatch.setitem(sys.modules, 'agent_e2e_cli_sessions', SimpleNamespace(CorpusCliSession=Session))
     assert isinstance(aws.open_session('codex-cli', 'gpt-6.1-sol'), Session)
     assert captured == [('codex-cli', 'gpt-6.1-sol', None)]

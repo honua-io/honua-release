@@ -92,7 +92,7 @@ jobs:
       cancel-in-progress: false
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     environment: aws-cell-provision
     permissions:
       contents: read

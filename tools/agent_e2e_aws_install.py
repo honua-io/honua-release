@@ -1002,7 +1002,7 @@ def open_session(agent, model):
         from agent_e2e_cli_sessions import CorpusCliSession
     except ImportError:
         raise InfrastructureError('cli-arms', 'CLI session prerequisite is missing') from None
-    runtime = type('Runtime', (), {'agent': agent, 'model': model})()
+    runtime = type('Runtime', (), {'agent': agent, 'model': model, 'timeout': 3300})()
     return CorpusCliSession(runtime, None)
 
 
