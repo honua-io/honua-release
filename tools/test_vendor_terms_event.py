@@ -73,6 +73,9 @@ class EventTests(unittest.TestCase):
     def test_html_blocks_do_not_join_separate_paragraphs(self):
         self.assertEqual(guard.visible_html_text("Arc<p>" + "GIS</p>"), "Arc\nGIS\n")
 
+    def test_markdown_view_preserves_protocol_underscores(self):
+        self.assertEqual(guard.visible_markdown_text("Use `esriSRUnit_Meter`"), "Use esriSRUnit_Meter")
+
     def test_cli_rejects_oversized_event_without_echoing_it(self):
         with tempfile.TemporaryDirectory() as directory:
             event = Path(directory) / "event.json"

@@ -8,46 +8,18 @@ repository for it to receive events.
 
 import argparse
 import json
-import re
 import sys
-from html.parser import HTMLParser
 from pathlib import Path
 
 import vendor_terms_delta as guard
 
 
-class VisibleHtmlText(HTMLParser):
-    BLOCKS = {"address", "article", "aside", "blockquote", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6",
-              "hr", "li", "ol", "p", "pre", "section", "table", "td", "th", "tr", "ul"}
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self.parts.append(data)
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in self.BLOCKS:
-            self.parts.append("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in self.BLOCKS:
-            self.parts.append("\n")
-
-
 def visible_html_text(text: str) -> str:
-    parser = VisibleHtmlText()
-    parser.feed(text)
-    parser.close()
-    return "".join(parser.parts)
+    return guard.visible_html_text(text)
 
 
 def visible_markdown_text(text: str) -> str:
-    # This bounded heuristic covers common inline formatting. It is not a full
-    # GitHub Markdown renderer; scheduled audits and human review remain needed.
-    text = re.sub(r"\[([^\[\]\n]*)\]\([^()\n]*\)", r"\1", text)
-    return text.translate(str.maketrans("", "", "*_~`[]"))
+    return guard.visible_markdown_text(text)
 
 
 def event_texts(event_name: str, payload: dict) -> tuple[str, str]:

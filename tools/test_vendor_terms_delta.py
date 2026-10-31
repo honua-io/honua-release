@@ -166,6 +166,16 @@ class DeltaTests(unittest.TestCase):
         payload = {'pull_request': {'title': 'Handle ' + 'es' + 'ri' + 'GeometryPoint', 'body': None}}
         self.assertEqual(guard.find_pr_metadata_hits('fixture', payload), [])
 
+    def test_pull_request_protocol_identifier_keeps_literal_underscore(self):
+        payload = {'pull_request': {'title': 'Handle `es' + 'riSRUnit_Meter`', 'body': None}}
+        self.assertEqual(guard.find_pr_metadata_hits('fixture', payload), [])
+
+    def test_pull_request_rendered_markdown_cannot_hide_a_mark(self):
+        for body in ('Arc**' + 'GIS**', 'Arc<!-- -->' + 'GIS', '<em>Arc</em>' + 'GIS'):
+            with self.subTest(body=body):
+                payload = {'pull_request': {'title': 'Change', 'body': body}}
+                self.assertTrue(guard.find_pr_metadata_hits('fixture', payload))
+
     def test_pull_request_formatted_text_is_classified(self):
         mark = 'Es' + 'ri'
         for body in (f'```\n{mark}\n```', f'<!-- {mark} -->', f'`{mark}`', f'<span>{mark}</span>'):

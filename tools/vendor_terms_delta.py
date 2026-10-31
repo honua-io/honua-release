@@ -12,6 +12,7 @@ import sys
 import unicodedata
 from urllib.parse import unquote
 from pathlib import Path
+from html.parser import HTMLParser
 
 import check_vendor_terms as policy
 
@@ -377,6 +378,52 @@ def find_new_hits(root: Path, repo: str, base: str, head: str) -> list[policy.Hi
     return findings
 
 
+class VisibleHtmlText(HTMLParser):
+    BLOCKS = {"address", "article", "aside", "blockquote", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+              "hr", "li", "ol", "p", "pre", "section", "table", "td", "th", "tr", "ul"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in self.BLOCKS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.BLOCKS:
+            self.parts.append("\n")
+
+
+def visible_html_text(text: str) -> str:
+    parser = VisibleHtmlText()
+    parser.feed(text)
+    parser.close()
+    return "".join(parser.parts)
+
+
+def visible_markdown_text(text: str) -> str:
+    """Remove common Markdown presentation while preserving literal code identifiers."""
+    text = re.sub(r"\[([^\[\]\n]*)\]\([^()\n]*\)", r"\1", text)
+    code_spans: list[str] = []
+
+    def preserve_code(match: re.Match[str]) -> str:
+        code_spans.append(match.group(2))
+        return f"\x00CODE{len(code_spans) - 1}\x00"
+
+    text = re.sub(r"(`+)([^\n]*?)\1", preserve_code, text)
+    text = text.replace("*", "").replace("~", "")
+    # Underscores are often literal wire-identifier characters. Strip only paired
+    # emphasis delimiters that cannot be part of an identifier.
+    text = re.sub(r"(?<!\w)(_{1,2})(?=\S)(.+?)(?<=\S)\1(?!\w)", r"\2", text)
+    for index, code in enumerate(code_spans):
+        text = text.replace(f"\x00CODE{index}\x00", code)
+    return text.translate(str.maketrans("", "", "[]`"))
+
+
 def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
     pr = payload.get('pull_request')
     if not isinstance(pr, dict) or not isinstance(pr.get('title'), str):
@@ -390,11 +437,15 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
     findings: list[policy.Hit] = []
     for path, text in (('pull-request-title.md', pr['title']), ('pull-request-body.md', body)):
         validate_scan_bounds(text)
-        findings.extend(hit for hit in classifier.classify_text(path, text)
-                        if hit.cls not in ('spec', 'spec-interop'))
-        findings.extend(classify_fence_labels(classifier, path, text))
-        findings.extend(classify_embedded_names(classifier, path, text))
-        findings.extend(classify_decoded_text(classifier, path, text))
+        html_visible = visible_html_text(text)
+        markdown_visible = visible_markdown_text(html_visible)
+        for candidate in dict.fromkeys((text, html_visible, markdown_visible)):
+            validate_scan_bounds(candidate)
+            findings.extend(hit for hit in classifier.classify_text(path, candidate)
+                            if hit.cls not in ('spec', 'spec-interop'))
+            findings.extend(classify_fence_labels(classifier, path, candidate))
+            findings.extend(classify_embedded_names(classifier, path, candidate))
+            findings.extend(classify_decoded_text(classifier, path, candidate))
     return findings
 
 
