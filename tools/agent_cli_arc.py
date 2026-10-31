@@ -24,7 +24,7 @@ def run_stage(*, agent, model, stage, target_kind, prompt, backends, log_dir,
     if set(backends) != {required}:
         raise ValueError('the arc stage may expose only its own product surface')
     if required == 'honua' and isinstance(backends[required], HttpMcpBackend) and backends[required].workflow_view != 'full':
-        raise ValueError('the installed server must expose its verified full MCP tool view')
+        raise ValueError('the installed server must request its full MCP tool view')
     if required == 'honua_devops' and isinstance(backends[required], StdioMcpBackend) and not backends[required].credential_mode:
         raise ValueError('AWS setup requires slot-scoped temporary operator credentials')
     if 'quickstart_shell' in backends and (stage != 1 or target_kind != 'remote-vm'):

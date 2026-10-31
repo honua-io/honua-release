@@ -87,8 +87,11 @@ and OpenSSL, which are outside the explicitly authorized shell allowlist.
 After setup, `SshTunnel(remote_shell, remote_port=8080).start()` owns a pinned
 SSH forward from a fresh loopback port to that VM. The controller connects an
 `HttpMcpBackend(tunnel.base_url + '/mcp', header='X-API-Key', token=...,
-workflow_view='full').start()` to the installed candidate. It must verify the
-server-authored full tool view; a silently narrowed catalog fails closed. The
+workflow_view='full').start()` to the installed candidate. The controller sends
+the explicit authenticated full-view request on each page and rejects responses
+that identify a narrowed workflow view. The canonical full export has no view
+attestation; the candidate's identity and wire contract must be verified by the
+runner. The
 server credential and tunnel identity stay in controller memory, never CLI
 configuration. Stage 4 connects to g41's browser server with its controller-
 held `McpEndpoint` URL/header/token. g41 owns its origin lock and independent

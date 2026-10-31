@@ -173,6 +173,7 @@ class HttpMcpBackend:
         if header not in (None, 'Authorization', 'X-API-Key') or bool(header) != bool(token):
             raise ValueError('invalid controller-side MCP authentication')
         if workflow_view not in (None, 'full'): raise ValueError('unsupported MCP workflow view')
+        if workflow_view == 'full' and not token: raise ValueError('full MCP catalog requires authentication')
         self.endpoint, self.header, self.token, self.timeout = endpoint, header, token, timeout
         self.workflow_view = workflow_view
         self.counter = 0
@@ -218,9 +219,11 @@ class HttpMcpBackend:
             params = {'view':self.workflow_view} if self.workflow_view else {}
             if cursor: params['cursor'] = cursor
             page = self.rpc('tools/list', params)
-            if self.workflow_view and (not isinstance(page.get('_meta'),dict)
+            # Honua's full export is the canonical paginated MCP result and has
+            # no view metadata; narrowed workflow projections carry that metadata.
+            if self.workflow_view and '_meta' in page and (not isinstance(page['_meta'],dict)
                     or page['_meta'].get('view') != self.workflow_view):
-                raise ValueError('server did not attest to the requested full tool view')
+                raise ValueError('server returned a narrowed tool view')
             tools.extend(page['tools'])
             cursor = page.get('nextCursor')
             if not cursor: return {'tools':tools}

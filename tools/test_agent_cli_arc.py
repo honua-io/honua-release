@@ -298,7 +298,7 @@ def test_tool_schema_and_redacted_credential_fields_are_allowed():
     assert _screen(value,[])==value
 
 
-def test_honua_http_backend_negotiates_and_verifies_full_tool_view():
+def test_honua_http_backend_negotiates_paginated_full_tool_view():
     from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
     requests=[]
     class Handler(BaseHTTPRequestHandler):
@@ -310,18 +310,27 @@ def test_honua_http_backend_negotiates_and_verifies_full_tool_view():
                 self.send_response(202); self.end_headers(); return
             result=({'protocolVersion':'2025-03-26','capabilities':{},'serverInfo':{'name':'fake'}}
                     if request['method']=='initialize' else
-                    {'tools':[{'name':'honua_ops_health','inputSchema':{'type':'object'}}], '_meta':{'view':'full'}})
+                    {'tools':[{'name':'honua_ops_health','inputSchema':{'type':'object'}}]})
             raw=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode()
             self.send_response(200); self.send_header('Content-Length',str(len(raw))); self.end_headers(); self.wfile.write(raw)
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
     try:
-        backend=HttpMcpBackend(f'http://127.0.0.1:{server.server_port}/mcp',workflow_view='full').start()
+        backend=HttpMcpBackend(f'http://127.0.0.1:{server.server_port}/mcp',header='X-API-Key',token='scoped-test-key',workflow_view='full').start()
         assert backend.tool_view()['tools'][0]['name']=='honua_ops_health'
         assert requests[0]['params']['_meta']['honua.io/workflow-view']=='full'
         assert requests[-1]['params']['view']=='full'
     finally:
         server.shutdown(); server.server_close(); thread.join()
+
+
+def test_full_catalog_requires_auth_and_rejects_narrowed_view_metadata():
+    with pytest.raises(ValueError, match='requires authentication'):
+        HttpMcpBackend('http://127.0.0.1:8123/mcp', workflow_view='full')
+    backend = HttpMcpBackend('http://127.0.0.1:8123/mcp', header='X-API-Key', token='scoped-test-key', workflow_view='full')
+    backend.rpc = lambda *_args, **_kwargs: {'tools': [], '_meta': {'view': 'setup'}}
+    with pytest.raises(ValueError, match='narrowed'):
+        backend.tool_view()
 
 
 def test_unhealthy_vm_blocks_before_cli_session(tmp_path):
