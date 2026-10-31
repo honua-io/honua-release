@@ -8,7 +8,7 @@ the controller already published the layers. Pack prompts stay in the pack.
 from __future__ import annotations
 
 from agent_browser_studio import (
-    handoff_spec, observe_map, render_spec, seed_case, source_content_spec, style_spec,
+    handoff_spec, observe_map, render_spec, seed_case, source_content_spec, source_roles, style_spec,
 )
 from agent_e2e_local_api import Observation, RoleBinding, Scenario
 
@@ -35,13 +35,8 @@ def _custody(fields):
 
 
 def _features_exact():
-    """Read the shelters snapshot, then a tolerance key that snapshot does not have."""
-    step = 'p24-src-shelters-after'
-    return {'object': {
-        'srid': {'body': step, 'pointer': '/srid'},
-        'features': {'body': step, 'pointer': '/features'},
-        'tolerance': {'body': step, 'pointer': '/tolerance'},
-    }}
+    # Tolerance belongs to the frozen expectation; the oracle needs only live CRS and features.
+    return {'featureServerFeatures': 'p24-src-shelters-after-raw'}
 
 
 class P24(Scenario):
@@ -55,7 +50,7 @@ class P24(Scenario):
         return seed_case(self.id, stack, variant, create_map=False)
 
     def roles(self, stack, seeded, variant, run=None):
-        return [
+        return source_roles() + [
             RoleBinding('created:map', 'p24-maps', items='/data/items', id='/itemId',
                         owner='/ownerId', before='p24-maps-before'),
             RoleBinding('created:version', 'p24-maps', items='/data/items', id='/currentVersionId',
@@ -76,8 +71,8 @@ class P24(Scenario):
                 'radialToleranceMetres', 'areaRelativeTolerance')),
             'map.style': style_spec('p24', 'created:map'),
             'state.reopened': {'object': {
-                'resourceId': {'target': 'p24-version', 'role': 'created:map'},
-                'versionId': {'target': 'p24-version', 'role': 'created:version'},
+                'resourceId': {'target': 'p24-version', 'role': 'created:map', 'at': {'pathSegment': 4}},
+                'versionId': {'target': 'p24-version', 'role': 'created:version', 'at': {'pathSegment': 6}},
                 'documentSha256': {'body': 'p24-saved', 'pointer': '/documentSha256'},
                 'freshSessionId': _missing(_SESSION, '/freshSessionId'),
             }},

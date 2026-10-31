@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -26,7 +27,7 @@ from agent_e2e_local_recorder import ProjectionError
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / 'certification/agent-e2e/corpus'
 CONTRACT_PATH = ROOT / 'certification/agent-e2e/expectations/local/studio-render-contract.json'
-LIST_PATH = '/api/v1/studio/content-items?family=map&limit=100'
+LIST_PATH = '/api/v1/studio/content-items?family=map&limit=200'
 LAYER_NAMES = ('parcels', 'flood_zones', 'shelters')
 SOURCE_LAYERS = (('parcels', 'parcels'), ('flood_zones', 'flood-zones'), ('shelters', 'shelters'))
 STYLE_CONFIG = {'floodLayerId': 'flood_zones', 'shelterLayerId': 'shelters'}
@@ -99,7 +100,7 @@ class OriginLock:
     def allows(self, url):
         try:
             self.resolve(url)
-        except OriginLocked:
+        except (ValueError, TypeError):
             return False
         return True
 
@@ -115,7 +116,7 @@ def launch_options():
 
 def context_options():
     return {'viewport': {'width': 512, 'height': 512}, 'device_scale_factor': 1,
-            'accept_downloads': False, 'java_script_enabled': True}
+            'accept_downloads': False, 'java_script_enabled': True, 'service_workers': 'block'}
 
 
 def use_worktree_browsers():
@@ -209,6 +210,8 @@ class PlaywrightPage:
         self._browser = self._pw.chromium.launch(**launch_options())
         self._context = self._browser.new_context(**context_options())
         self._context.route('**/*', self._gate)
+        # HTTP routing does not cover WebSockets. The eval admits no socket surface.
+        self._context.route_web_socket('**/*', lambda socket: socket.close())
         self._context.on('download', self._cancel_download)
         self._page = self._context.new_page()
 
@@ -287,15 +290,21 @@ class StudioBrowserServer:
         self.server = None
         self.decoy = []
         self.lock = None
+        self._owner = None
+        self._http_thread = None
 
     def start(self):
         from agent_e2e_local_api import McpEndpoint
         self.lock = OriginLock(self.studio_url)
-        self.page = self.page_factory(self.lock) if self.page_factory else PlaywrightPage(self.lock)
+        self._owner = ThreadPoolExecutor(max_workers=1, thread_name_prefix='studio-browser')
         try:
+            self.page = self._owner.submit(self.page_factory or PlaywrightPage, self.lock).result()
             self._serve()
         except Exception:
-            self.page.close()
+            if self.page is not None:
+                self._owner.submit(self.page.close).result()
+            self._owner.shutdown()
+            self._owner = None
             self.page = None
             raise
         self.endpoint = McpEndpoint(url=f'http://127.0.0.1:{self.server.server_address[1]}/mcp',
@@ -327,8 +336,11 @@ class StudioBrowserServer:
             def do_POST(self):
                 if not self.authorized():
                     return self.send(401, b'{"error":"unauthorized"}')
-                length = int(self.headers.get('Content-Length') or 0)
-                if length > MAX_BODY:
+                try:
+                    length = int(self.headers.get('Content-Length') or 0)
+                except ValueError:
+                    return self.send(400)
+                if length < 0 or length > MAX_BODY:
                     return self.send(413)
                 try:
                     message = json.loads(self.rfile.read(length) or b'{}')
@@ -348,45 +360,50 @@ class StudioBrowserServer:
                     result = {'tools': tool_catalog()}
                 elif method == 'tools/call':
                     params = message.get('params') if isinstance(message.get('params'), dict) else {}
-                    status, text, digest = server.perform(params.get('name'), params.get('arguments'))
-                    result = {'content': [{'type': 'text', 'text': text}], 'isError': status != 'ok',
-                              'structuredContent': {'screenshotSha256': digest}}
+                    from agent_e2e_local_runner import ActionBoundExceeded
+                    try:
+                        status, text, digest = server.perform(params.get('name'), params.get('arguments'),
+                                                              rpc_id=message.get('id'))
+                    except ActionBoundExceeded:
+                        return self.send(200, json.dumps(_rpc_error(message, -32000, 'action bound exceeded')).encode())
+                    result = _tool_result(status, text, digest)
                 else:
                     return self.send(200, json.dumps(_rpc_error(message, -32601, 'method not available')).encode())
-                self.send(200, json.dumps({'jsonrpc': '2.0', 'id': message.get('id'), 'result': result}).encode())
+                from agent_e2e_local_recorder import action_bytes
+                self.send(200, action_bytes({'jsonrpc': '2.0', 'id': message.get('id'), 'result': result}))
 
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self._http_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self._http_thread.start()
 
     def stop(self):
         if self.server is not None:
             self.server.shutdown()
             self.server.server_close()
+            self._http_thread.join()
             self.server = None
-        if self.page is not None:
-            self.page.close()
+        try:
+            if self.page is not None:
+                if self._owner is not None:
+                    self._owner.submit(self.page.close).result()
+                else:
+                    self.page.close()
+        finally:
             self.page = None
+            if self._owner is not None:
+                self._owner.shutdown()
+                self._owner = None
 
-    def perform(self, name, arguments):
+    def perform(self, name, arguments, *, rpc_id=None):
+        if self._owner is not None:
+            return self._owner.submit(self._perform, name, arguments, rpc_id).result()
+        return self._perform(name, arguments, rpc_id)
+
+    def _perform(self, name, arguments, rpc_id):
         if not isinstance(arguments, dict):
             arguments = {}
-        status, text = 'fail', 'refused'
-        try:
-            if name not in TOOLS or set(arguments) != TOOL_ARGS[name]:
-                raise OriginLocked('tool is not available')
-            text = getattr(self, '_' + name)(arguments)
-            status = 'ok'
-        except OriginLocked as exc:
-            text = str(exc)
-        png = b''
-        if self.page is not None:
-            try:
-                png = self.page.screenshot() or b''
-            except Exception:
-                png = b''
-        digest = hashlib.sha256(png).hexdigest() if png else None
         selected = {'kind': 'tool_call', 'tool': name if isinstance(name, str) else 'refused',
-                    'arguments': arguments, 'screenshotSha256': digest}
+                    'arguments': arguments}
         from agent_e2e_local_recorder import action_bytes
         try:
             action_bytes(selected)
@@ -394,11 +411,34 @@ class StudioBrowserServer:
             selected['arguments'] = {'refused': 'unserializable'}
 
         def execute(_kind, _action):
-            return {'status': 'ok' if status == 'ok' else 'fail', 'screenshotSha256': digest}
-        self.action_log.dispatch('tool_call', selected, execute)
+            status, text = 'fail', 'refused'
+            try:
+                if not isinstance(name, str) or name not in TOOLS or set(arguments) != TOOL_ARGS[name]:
+                    raise OriginLocked('tool is not available')
+                text = getattr(self, '_' + name)(arguments)
+                status = 'ok'
+            except OriginLocked as exc:
+                text = str(exc)
+            except Exception as exc:
+                # Keep failed browser calls in the action history without returning page/credential details.
+                text = 'browser action failed (' + type(exc).__name__ + ')'
+            png = b''
+            if self.page is not None:
+                try:
+                    png = self.page.screenshot() or b''
+                except Exception:
+                    pass
+            digest = hashlib.sha256(png).hexdigest() if png else None
+            result = {'status': status, 'text': text[:8000], 'screenshotSha256': digest}
+            # The action is written before execution. Its result, including the screenshot digest,
+            # is retained separately and bound by the runner's response digest and action chain.
+            response = {'jsonrpc': '2.0', 'id': rpc_id, 'result': _tool_result(status, text[:8000], digest)}
+            return {**result, '_rawResponse': (200, action_bytes(response))}
+
+        result = self.action_log.dispatch('tool_call', selected, execute)
         # Not evidence. Tests corrupt this to prove the sealed action log is the recorder's.
         self.decoy.append('side-log-is-not-evidence')
-        return status, text[:8000], digest
+        return result['status'], result['text'], result['screenshotSha256']
 
     def _studio_navigate(self, arguments):
         url = self.lock.resolve(arguments['url'])
@@ -458,6 +498,11 @@ def _rpc_error(message, code, text):
             'error': {'code': code, 'message': text}}
 
 
+def _tool_result(status, text, digest):
+    return {'content': [{'type': 'text', 'text': text}], 'isError': status != 'ok',
+            'structuredContent': {'screenshotSha256': digest}}
+
+
 def open_studio_browser(stack, action_log):
     """Start the studio MCP server for one session. The runner stops it."""
     origin = stack.extra.get('studioUrl') or stack.base_url
@@ -485,71 +530,6 @@ def client_mcp_config(honua, studio=None):
 def fixture_path(variant, name):
     require(variant in ('A', 'B') and name in LAYER_NAMES, 'unknown fixture layer')
     return CORPUS / f'town-{variant}' / f'{name}.3857.geojson'
-
-
-def _feature(feature):
-    require(isinstance(feature, dict) and feature.get('type') == 'Feature', 'source feature is malformed')
-    properties, geometry = feature.get('properties'), feature.get('geometry')
-    require(isinstance(properties, dict) and isinstance(properties.get('source_id'), str) and properties['source_id'],
-            'source feature has no source id')
-    require(feature.get('id') == properties['source_id'], 'source feature id differs from source id')
-    require(isinstance(geometry, dict) and geometry.get('type') in
-            ('Point', 'Polygon', 'MultiPolygon', 'LineString', 'MultiLineString'),
-            'source feature geometry is unsupported')
-    return {'type': 'Feature', 'id': feature['id'], 'properties': properties, 'geometry': geometry}
-
-
-def _sorted_features(features):
-    require(isinstance(features, list), 'source features are missing')
-    rows = [_feature(feature) for feature in features]
-    require(len({row['id'] for row in rows}) == len(rows), 'source features repeat a source id')
-    rows.sort(key=lambda row: row['properties']['source_id'])
-    return rows
-
-
-def normalize_source(body):
-    """GeoJSON FeatureCollection, or a feature-service query, to {srid, features} sorted by source_id.
-
-    Polygon and polyline query responses drop only the object-id attribute. A live query whose
-    attributes differ from the fixture still fails the protected-content comparison.
-    """
-    require(isinstance(body, dict), 'source response is not an object')
-    if body.get('type') == 'FeatureCollection':
-        crs = body.get('crs')
-        name = crs.get('properties', {}).get('name') if isinstance(crs, dict) and isinstance(crs.get('properties'), dict) else None
-        require(name == 'EPSG:3857', 'source coordinate reference is not EPSG:3857')
-        return {'srid': 3857, 'features': _sorted_features(body.get('features'))}
-    geometry = body.get('geometryType')
-    if geometry == 'esriGeometryPoint':
-        from agent_e2e_query_projection import feature_server_points
-        value = feature_server_points(body)
-        value['features'].sort(key=lambda feature: feature['properties']['source_id'])
-        return value
-    require(geometry in ('esriGeometryPolygon', 'esriGeometryPolyline'), 'unsupported source geometry')
-    reference = body.get('spatialReference')
-    require(isinstance(reference, dict) and reference.get('wkid') == 3857, 'source coordinate reference is not EPSG:3857')
-    require(body.get('exceededTransferLimit') is False, 'source read is incomplete')
-    oid = body.get('objectIdFieldName')
-    rows = []
-    for feature in body.get('features') or []:
-        attributes = dict(feature.get('attributes') or {})
-        source_id = attributes.get('source_id')
-        require(isinstance(source_id, str) and source_id, 'source feature has no source id')
-        if isinstance(oid, str) and oid in attributes:
-            del attributes[oid]
-        shape = feature.get('geometry') or {}
-        if geometry == 'esriGeometryPolygon':
-            coordinates = shape.get('rings')
-            kind = 'Polygon'
-        else:
-            coordinates = shape.get('paths')
-            kind = 'LineString' if isinstance(coordinates, list) and len(coordinates) == 1 else 'MultiLineString'
-            if kind == 'LineString':
-                coordinates = coordinates[0]
-        require(isinstance(coordinates, list) and coordinates, 'source feature geometry is empty')
-        rows.append({'type': 'Feature', 'id': source_id, 'properties': {**attributes, 'source_id': source_id},
-                     'geometry': {'type': kind, 'coordinates': coordinates}})
-    return {'srid': 3857, 'features': _sorted_features(rows)}
 
 
 def fixture_extent(variant):
@@ -637,12 +617,6 @@ def saved_digest(body):
     return canonical_digest(body)[7:]
 
 
-def record_source_snapshot(recorder, raw_step, derived_step):
-    record = recorder.records[raw_step]
-    require(record.status == 200 and isinstance(record.json, dict), 'source read failed')
-    recorder.store_derived(derived_step, normalize_source(record.json))
-
-
 def record_map_measurements(recorder, version_step, prefix):
     body = package_body(recorder.records[version_step].json)
     recorder.store_derived(prefix + '-composition', composition_from_body(body))
@@ -672,9 +646,8 @@ def record_render(recorder, step, studio_url, map_path, contract, page=None):
 def snapshot_sources(recorder, prefix, layers, when):
     from agent_e2e_p10_observer import source_path
     for name, slug in SOURCE_LAYERS:
-        raw, derived = f'{prefix}-src-{slug}-{when}-raw', f'{prefix}-src-{slug}-{when}'
+        raw = f'{prefix}-src-{slug}-{when}-raw'
         recorder.json(raw, 'GET', source_path(layers[name]))
-        record_source_snapshot(recorder, raw, derived)
 
 
 def items_of(body):
@@ -771,7 +744,7 @@ def observe_map(stack, seeded, prefix, *, created):
 
 def composition_spec(prefix, role):
     return {'object': {
-        'mapId': {'target': prefix + '-version', 'role': role},
+        'mapId': {'target': prefix + '-version', 'role': role, 'at': {'pathSegment': 4}},
         'orderedLayerIds': {'body': prefix + '-composition', 'pointer': '/orderedLayerIds'},
         'visibility': {'body': prefix + '-composition', 'pointer': '/visibility'},
         'extent': {'body': prefix + '-composition', 'pointer': '/extent'}}}
@@ -779,7 +752,7 @@ def composition_spec(prefix, role):
 
 def style_spec(prefix, role):
     return {'object': {
-        'mapId': {'target': prefix + '-version', 'role': role},
+        'mapId': {'target': prefix + '-version', 'role': role, 'at': {'pathSegment': 4}},
         'styleDocumentSha256': {'body': prefix + '-style', 'pointer': '/styleDocumentSha256'},
         'labelField': {'body': prefix + '-style', 'pointer': '/labelField'},
         'floodColor': {'body': prefix + '-style', 'pointer': '/floodColor'},
@@ -792,16 +765,26 @@ def render_spec(prefix):
 
 def saved_spec(prefix, resource_role, version_role):
     return {'object': {
-        'resourceId': {'target': prefix + '-version', 'role': resource_role},
-        'versionId': {'target': prefix + '-version', 'role': version_role},
+        'resourceId': {'target': prefix + '-version', 'role': resource_role, 'at': {'pathSegment': 4}},
+        'versionId': {'target': prefix + '-version', 'role': version_role, 'at': {'pathSegment': 6}},
         'documentSha256': {'body': prefix + '-saved', 'pointer': '/documentSha256'}}}
 
 
 def source_content_spec(prefix):
     return {'protectedContent': [
-        {'label': name, 'before': f'{prefix}-src-{slug}-before', 'after': f'{prefix}-src-{slug}-after',
-         'content': {'body': '$step', 'pointer': ''}}
+        {'label': name, 'before': f'{prefix}-src-{slug}-before-raw', 'after': f'{prefix}-src-{slug}-after-raw',
+         'resource': [
+             {'role': f'seeded:service:{name}', 'at': {'pathSegment': 2}},
+             {'role': f'seeded:layer:{name}', 'at': {'pathSegment': 4}}],
+         'content': {'featureServerFeatures': '$step'}}
         for name, slug in SOURCE_LAYERS]}
+
+
+def source_roles():
+    from agent_e2e_local_api import RoleBinding
+    return [binding for name, slug in SOURCE_LAYERS for binding in (
+        RoleBinding(f'seeded:service:{name}', f'publish-{slug}-submit', pointer='/data/resourceIds/serviceName'),
+        RoleBinding(f'seeded:layer:{name}', f'publish-{slug}-submit', pointer='/data/resourceIds/layerId'))]
 
 
 def handoff_spec(prefix, role):
@@ -818,75 +801,3 @@ def label_ids(scenario, variant):
         return sorted(feature['properties']['source_id'] for feature in document['features'])
     facts = json.loads((CORPUS / 'oracles' / f'town-{variant}.json').read_text(encoding='utf-8'))
     return list(facts['openCapacityOver50Ids'])
-
-
-def render_expected(scenario, variant):
-    return {'layerIds': ['flood_zones', 'parcels', 'shelters'],
-            'minimumNonBackgroundPixels': RENDER_MINIMUM_NON_BACKGROUND,
-            'regions': [{'id': 'flood', 'minimumMatchingPixels': RENDER_MINIMUM_MATCHING}],
-            'labelSourceIds': label_ids(scenario, variant)}
-
-
-def source_content_expected(variant):
-    resources = []
-    for name, _slug in SOURCE_LAYERS:
-        document = json.loads(fixture_path(variant, name).read_text(encoding='utf-8'))
-        resources.append({'resourceId': name, 'content': normalize_source(document)})
-    return {'profile': 'honua.protected-content/v1', 'resources': resources}
-
-
-def _role(name):
-    return {'$role': name}
-
-
-def expectation_document(scenario_id):
-    """Fixture-derived expectation document. Variant C is not present."""
-    variants = {}
-    for variant in ('A', 'B'):
-        extent = fixture_extent(variant)
-        styled = map_body(variant, extent, True)
-        if scenario_id == 'P08':
-            variants[variant] = {
-                'map.composition': {'mapId': _role('created:map'),
-                                    'orderedLayerIds': list(LAYER_NAMES),
-                                    'visibility': {name: True for name in LAYER_NAMES},
-                                    'extent': extent},
-                'render.actual': render_expected('P08', variant),
-                'source-content.unchanged': source_content_expected(variant)}
-        elif scenario_id == 'P09':
-            variants[variant] = {
-                'map.style': {'mapId': _role('seeded:map'), **style_from_body(styled)},
-                'render.actual': render_expected('P09', variant),
-                'state.saved': {'resourceId': _role('seeded:map'), 'versionId': _role('created:version'),
-                                'documentSha256': saved_digest(styled)},
-                'source-content.unchanged': source_content_expected(variant)}
-        elif scenario_id == 'P24':
-            variants[variant] = {
-                'candidate.identity': {'componentBindingDigest': '', 'serverSourceRevision': '',
-                                       'serverOciDigest': '', 'clientArtifactDigests': []},
-                'deployment.ready': {'deploymentId': '', 'healthStatus': 0, 'authenticatedReadStatus': 0},
-                'features.exact': {'$fixture': {'assertion': 'features.exact', 'layer': 'shelters'}},
-                'filter.exact': {'$fixture': {'assertion': 'filter.exact'}},
-                'buffer.metric': {'$fixture': {'assertion': 'buffer.metric'}},
-                'map.style': {'mapId': _role('created:map'), **style_from_body(styled)},
-                'state.reopened': {'resourceId': _role('created:map'), 'versionId': _role('created:version'),
-                                   'documentSha256': saved_digest(styled), 'freshSessionId': ''},
-                'approval.separate': {'proposalId': '', 'requesterPrincipalId': '', 'approverPrincipalId': '',
-                                      'approvedVersionId': '', 'auditId': ''},
-                'publication.public': {'publishedUrl': '', 'anonymousHttpStatus': 0,
-                                       'resourceId': _role('created:map'), 'publishedVersionId': _role('created:version')},
-                'render.actual': render_expected('P24', variant),
-                'custody.bootstrap-revoked': {'bootstrapPrincipalId': '', 'revokedCredentialIds': [],
-                                              'postRevocationProbeStatus': 0},
-                'custody.worker-replaced': {'bootstrapWorkerId': '', 'taskWorkerId': '',
-                                            'bootstrapWorkerTerminalState': '', 'taskPrincipalId': '',
-                                            'taskProvisioningCredentialIds': []},
-                'source-content.unchanged': source_content_expected(variant)}
-        else:
-            raise ValueError('unknown studio scenario')
-    derivation = {
-        'P08': 'Layer order is parcels, flood_zones, shelters from bottom to top. Extent is the exact union of those EPSG:3857 fixture geometries, with no padding. Render minimums follow the controller render contract. Source content is the three fixture layers sorted by source_id. The map id is the created:map role.',
-        'P09': 'Style hash, flood color #0088ff, opacity 0.35 and shelter label field name come from the fixture style document with no geometries inside it. The saved document hash is that map body plus the variant extent. Render labels are every shelter source id. The map id is the seeded map and the version id is the created version.',
-        'P24': 'Style, render and source content use the same fixture derivation as the studio scenarios. features.exact, filter.exact and buffer.metric are fixture references. Candidate identity, deployment, approval, publication, reopen session and worker custody are not observed on local docker, so those expectations are empty and their projections fail closed. A fresh deployment has no seed-phase source bytes unless the controller already published the layers.',
-    }
-    return {'schemaVersion': 1, 'scenario': scenario_id, 'derivation': derivation[scenario_id], 'variants': variants}

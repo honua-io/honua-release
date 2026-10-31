@@ -7,10 +7,12 @@ without that browser.
 from __future__ import annotations
 
 import hashlib
+import dataclasses
 import json
 import os
 import struct
 import zlib
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,8 +27,11 @@ from agent_browser_studio import (
 )
 from agent_e2e_local_api import McpEndpoint, SessionContext, Stack
 from agent_e2e_local_projections import resolve_roles
-from agent_e2e_local_recorder import ControllerRecorder, ProjectionError, read_logged_action
-from agent_e2e_local_runner import ActionLog, PACK, load_scenario, oracle, score_assertions, select_case
+from agent_e2e_local_recorder import ControllerRecorder, EvidenceVault, ProjectionError, read_logged_action
+from agent_e2e_local_runner import (
+    ActionLog, load_scenario, oracle, score_assertions, select_case,
+    frozen_projections, frozen_roles,
+)
 from agent_e2e_local_scenarios.P08 import P08
 from agent_e2e_local_scenarios.P09 import P09
 from agent_e2e_local_scenarios.P24 import P24
@@ -34,6 +39,7 @@ from agent_e2e_pack import canonical_digest
 from agent_e2e_studio_style_observer import project
 
 ROOT = Path(__file__).resolve().parents[1]
+PACK = Path(os.environ.get('HONUA_AGENT_E2E_DEV_PACK', ROOT / 'certification/agent-e2e/pack.v2.AB-only.json'))
 AGENT = 'agent-key-1'
 MAP = 'map-item-1'
 VER_SEED = 'version-seed-1'
@@ -182,7 +188,7 @@ def _factory(state):
         if path.startswith('/rest/services/'):
             for name, binding in LAYERS.items():
                 if f"/rest/services/{binding['service']}/" in path:
-                    return 200, fixture_path(state['variant'], name).read_bytes()
+                    return 200, _dumps(_query_document(state['variant'], name))
             return 404, b'{}'
         if path == LIST_PATH:
             if recorder.phase == 'seed' and state['scenario'] == 'P09':
@@ -194,6 +200,10 @@ def _factory(state):
             return 200, _dumps({'success': True, 'data': {'items': rows, 'total': len(rows)}})
         if method == 'POST' and path == '/api/v1/studio/package-drafts':
             return 201, _dumps({'success': True, 'data': {'draftId': DRAFT}})
+        if method == 'POST' and path.startswith('/api/v1/admin/services/'):
+            binding = LAYERS[path.rsplit('/', 1)[1]]
+            return 201, _dumps({'data': {'resourceIds': {
+                'serviceName': binding['service'], 'layerId': binding['layerId']}}})
         if method == 'POST' and path.endswith('/content-versions'):
             return 201, _dumps({'success': True, 'data': {}})
         if '/versions/' in path and method == 'GET':
@@ -202,19 +212,39 @@ def _factory(state):
     return factory
 
 
-def _recorder(tmp_path, state):
+def _query_document(variant, name):
+    document = json.loads(fixture_path(variant, name).read_bytes())
+    kind = document['features'][0]['geometry']['type']
+    features = []
+    for index, feature in enumerate(document['features']):
+        coords = feature['geometry']['coordinates']
+        geometry = {'x': coords[0], 'y': coords[1]} if kind == 'Point' else {'rings': coords}
+        features.append({'attributes': {'OBJECTID': index, **feature['properties']}, 'geometry': geometry})
+    return {'geometryType': 'esriGeometryPoint' if kind == 'Point' else 'esriGeometryPolygon',
+            'spatialReference': {'wkid': 3857}, 'exceededTransferLimit': False,
+            'objectIdFieldName': 'OBJECTID', 'fields': [{'name': key} for key in features[0]['attributes']],
+            'features': features}
+
+
+def _seed_publications(recorder):
+    for name, slug in (('parcels', 'parcels'), ('flood_zones', 'flood-zones'), ('shelters', 'shelters')):
+        recorder.json(f'publish-{slug}-submit', 'POST', '/api/v1/admin/services/' + name, {})
+
+
+def _recorder(tmp_path, state, *, vault=None):
     return ControllerRecorder(
         base_url='http://127.0.0.1:8137', workdir=str(tmp_path), candidate_digest=DIGEST,
-        attempt_id='attempt-1', principals={'controller': (None, 'controller')}, http_factory=_factory(state))
+        attempt_id='attempt-1', principals={'controller': (None, 'controller')}, http_factory=_factory(state), vault=vault)
 
 
 def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, published=False):
     if not published:
         class Town:
             def __init__(self, http, manifest):
-                pass
+                self.recorder = http
 
             def prepare(self, **kwargs):
+                _seed_publications(self.recorder)
                 return {'layers': {name: dict(binding) for name, binding in LAYERS.items()}}
 
         import agent_e2e_scenario_backend
@@ -232,6 +262,7 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
         'renderPage': page, 'studioUrl': 'http://127.0.0.1:8137',
     }
     if published:
+        _seed_publications(recorder)
         extra['publishedLayers'] = {name: dict(binding) for name, binding in LAYERS.items()}
     stack = Stack('http://127.0.0.1:8137', 'controller-key', None, 'g41studio', 'compose.yml',
                   str(tmp_path), DIGEST, extra)
@@ -239,11 +270,12 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
     seeded = scenario.seed(stack, variant)
     recorder.set_phase('observe')
     observations = scenario.observe(stack, seeded, variant)
-    roles = resolve_roles(scenario.roles(stack, seeded, variant), recorder.records, agent_principal=AGENT)
+    roles = resolve_roles(frozen_roles(scenario, stack, seeded, variant, None), recorder.records, agent_principal=AGENT)
     expected = scenario.expected(variant)
     assertions = list(select_case(PACK, scenario_id, variant)['assertions'])
     results = score_assertions(assertions, observations, expected, records=recorder.records,
-                               roles=roles, custody={}, run_facts={})
+                               roles=roles, custody={}, run_facts={}, scenario_id=scenario_id,
+                               frozen=frozen_projections(scenario, variant))
     return SimpleNamespace(scenario=scenario, seeded=seeded, recorder=recorder, observations=observations,
                            results={row['assertion']: row for row in results}, stack=stack, roles=roles)
 
@@ -294,17 +326,28 @@ def test_refused_navigation_stays_out_of_the_page_and_still_logs_the_screenshot(
     assert digest == hashlib.sha256(BLUE_PNG).hexdigest()
     assert not any(call[0] == 'goto' for call in page.calls if isinstance(call, tuple))
     assert log.rows[0]['status'] == 'fail'
-    recorder = _recorder(tmp_path / 'records', {'scenario': 'P08', 'variant': 'A', 'flood': None})
-    recorder.append_actions(1, log.rows)
+    vault = EvidenceVault('attempt-1')
+    recorder = _recorder(tmp_path / 'records', {'scenario': 'P08', 'variant': 'A', 'flood': None}, vault=vault)
+    vault.append_actions(1, log.rows)
     action = recorder.actions()[0]
     logged = read_logged_action(action.path, action.digest)
-    assert logged['screenshotSha256'] == digest
+    assert 'screenshotSha256' not in logged  # write-ahead action precedes the screenshot
+    response = json.loads(Path(log.rows[0]['resultRawPath']).read_bytes())
+    assert response['result']['structuredContent']['screenshotSha256'] == digest
+    assert log.rows[0]['resultRawSha256'] == 'sha256:' + hashlib.sha256(Path(log.rows[0]['resultRawPath']).read_bytes()).hexdigest()
     assert logged['tool'] == 'studio_navigate'
     server.decoy[:] = ['this side log is not the action log']
-    assert read_logged_action(action.path, action.digest)['screenshotSha256'] == digest
+    assert vault.records() == {}
+    assert vault.action_results()[0]['json']['result']['structuredContent']['screenshotSha256'] == digest
+    retained_response = Path(log.rows[0]['resultRawPath'])
+    original = retained_response.read_bytes()
+    retained_response.write_bytes(b'{}')
+    with pytest.raises(ValueError, match='response digest mismatch'):
+        vault.action_results()
+    retained_response.write_bytes(original)
     Path(action.path).write_bytes(b'{"tampered":true}\n')
     with pytest.raises(ValueError):
-        recorder.actions()
+        read_logged_action(action.path, action.digest)
 
 
 def test_evaluate_is_not_a_tool_and_upload_stays_in_the_fixture_directory(tmp_path):
@@ -380,6 +423,94 @@ def test_studio_endpoint_keeps_the_token_out_of_the_url(tmp_path):
 
 def test_session_context_offers_the_studio_browser_only_when_set():
     assert SessionContext.__dataclass_fields__['studio_browser'].default is None
+
+
+def _rpc_call(server, name, arguments, request_id=1):
+    import urllib.request
+    request = urllib.request.Request(server.endpoint.url, data=_dumps({
+        'jsonrpc': '2.0', 'id': request_id, 'method': 'tools/call',
+        'params': {'name': name, 'arguments': arguments}}),
+        headers={'Authorization': server.endpoint.token, 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(request, timeout=35) as response:
+        return response.read()
+
+
+def test_http_browser_actions_and_cleanup_use_the_creating_thread(tmp_path):
+    calls = []
+    log = ActionLog(tmp_path / 'log', 1, set(), 10)
+
+    class ThreadPage(FakePage):
+        def __init__(self, lock):
+            super().__init__()
+            self.owner = threading.get_ident()
+            calls.append(('create', self.owner))
+
+        def click(self, selector):
+            assert threading.get_ident() == self.owner
+            # The write-ahead record must already exist before a browser effect.
+            assert len(log.rows) == 1
+            assert json.loads(Path(log.rows[0]['logPath']).read_bytes())['tool'] == 'studio_click'
+            calls.append(('click', threading.get_ident()))
+
+        def screenshot(self):
+            assert threading.get_ident() == self.owner
+            calls.append(('screenshot', threading.get_ident()))
+            return b'png'
+
+        def close(self):
+            assert threading.get_ident() == self.owner
+            calls.append(('close', threading.get_ident()))
+
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, tmp_path, page_factory=ThreadPage)
+    server.start()
+    try:
+        raw = _rpc_call(server, 'studio_click', {'selector': '#save'}, request_id=71)
+        assert json.loads(raw)['result']['isError'] is False
+        # The captured response is byte-for-byte what the HTTP client received.
+        assert Path(log.rows[0]['resultRawPath']).read_bytes() == raw
+    finally:
+        server.stop()
+    assert [name for name, _ in calls] == ['create', 'click', 'screenshot', 'close']
+    assert len({owner for _, owner in calls}) == 1
+    assert calls[0][1] != threading.get_ident()
+
+
+def test_concurrent_http_calls_cannot_execute_past_the_action_bound(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    page = FakePage()
+    log = ActionLog(tmp_path / 'log', 1, set(), 1)
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, tmp_path, page_factory=lambda lock: page)
+    server.start()
+    try:
+        with ThreadPoolExecutor(max_workers=2) as clients:
+            results = list(clients.map(lambda n: json.loads(_rpc_call(
+                server, 'studio_click', {'selector': '#save'}, request_id=n)), (1, 2)))
+        assert sum('result' in row for row in results) == 1
+        assert sum(row.get('error', {}).get('message') == 'action bound exceeded' for row in results) == 1
+        assert page.calls == [('click', '#save'), 'screenshot']
+        assert len(log.rows) == 1
+        assert log.rows[0]['status'] == 'pass'
+    finally:
+        server.stop()
+
+
+def test_browser_exception_is_recorded_and_the_server_keeps_serving(tmp_path):
+    class BrokenPage(FakePage):
+        def click(self, selector):
+            raise RuntimeError('page error containing private context')
+
+    log = ActionLog(tmp_path / 'log', 1, set(), 4)
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, tmp_path, page_factory=lambda lock: BrokenPage())
+    server.start()
+    try:
+        result = json.loads(_rpc_call(server, 'studio_click', {'selector': '#save'}))['result']
+        assert result['isError'] is True
+        assert 'private context' not in json.dumps(result)
+        assert log.rows[0]['status'] == 'fail'
+        assert json.loads(_rpc_call(server, 'studio_snapshot', {}))['result']['isError'] is False
+        assert [row['status'] for row in log.rows] == ['fail', 'pass']
+    finally:
+        server.stop()
 
 
 def test_unstyled_seed_is_not_already_the_finished_style():
@@ -508,6 +639,20 @@ def test_red_canvas_fails_the_render_while_the_style_passes(monkeypatch, tmp_pat
     assert 'region absent' in outcome.results['render.actual']['reason']
 
 
+def test_source_read_of_another_service_fails_the_frozen_address(monkeypatch, tmp_path):
+    outcome = _run(tmp_path, monkeypatch, 'P09', 'A', png=BLUE_PNG)
+    records = dict(outcome.recorder.records)
+    step = 'p09-src-shelters-after-raw'
+    records[step] = dataclasses.replace(records[step], path=records[step].path.replace('svc-shelters', 'svc-parcels'))
+    results = score_assertions(
+        ['source-content.unchanged'],
+        [row for row in outcome.observations if row.assertion_id == 'source-content.unchanged'],
+        {'source-content.unchanged': outcome.scenario.expected('A')['source-content.unchanged']},
+        records=records, roles=outcome.roles, scenario_id='P09', frozen=frozen_projections(outcome.scenario, 'A'))
+    assert results[0]['status'] == 'fail'
+    assert 'does not address seeded:service:shelters' in results[0]['reason']
+
+
 def test_p24_scores_style_render_and_source_and_fails_the_rest_closed(monkeypatch, tmp_path):
     outcome = _run(tmp_path, monkeypatch, 'P24', 'A', png=BLUE_PNG, published=True)
     assert P24().needs_approver() is True
@@ -518,12 +663,9 @@ def test_p24_scores_style_render_and_source_and_fails_the_rest_closed(monkeypatc
     assert all(row.observed is None for row in outcome.observations)
     blob = json.dumps([row.evidence for row in outcome.observations])
     assert 'Kestrel' not in blob and 'Willow' not in blob
-    for name in ('map.style', 'render.actual', 'source-content.unchanged'):
+    for name in ('features.exact', 'map.style', 'render.actual', 'source-content.unchanged'):
         assert _status(outcome, name) == 'pass', outcome.results[name]
-    assert _status(outcome, 'features.exact') == 'fail'
-    assert 'tolerance' in outcome.results['features.exact']['reason']
-    assert _status(outcome, 'custody.worker-replaced') == 'fail'
-    assert 'custody fact not recorded' in outcome.results['custody.worker-replaced']['reason']
+    assert _status(outcome, 'custody.worker-replaced') == 'excluded'
     assert _status(outcome, 'candidate.identity') == 'fail'
     assert 'unrecorded step' in outcome.results['candidate.identity']['reason']
 
@@ -577,24 +719,28 @@ def test_headless_chromium_blocks_other_origins_and_reads_the_canvas(tmp_path):
         assert any('example.com' in url for url in page.aborted)
         assert any(url.startswith('http://127.0.0.1:9/') for url in page.aborted)
         log = ActionLog(tmp_path / 'log', 1, set(), 5)
-        server = StudioBrowserServer(origin, log, str(tmp_path), page_factory=lambda lock: page)
+        # The agent browser must be constructed on its owning worker, independently of this
+        # controller page. Exercise actual HTTP MCP requests, not a same-thread perform call.
+        server = StudioBrowserServer(origin, log, str(tmp_path))
         server.start()
-        status, _text, digest = server.perform('studio_navigate', {'url': '/canvas'})
-        assert status == 'ok'
-        assert page.current_url().startswith(origin)
-        refused, _text, _digest = server.perform('studio_navigate', {'url': 'https://example.com/'})
-        assert refused == 'fail'
-        assert page.current_url().startswith(origin)
-        recorder = _recorder(tmp_path / 'records', {'scenario': 'P08', 'variant': 'A', 'flood': None})
-        recorder.append_actions(1, log.rows)
-        logged = read_logged_action(recorder.actions()[0].path, recorder.actions()[0].digest)
-        assert logged['screenshotSha256'] == digest
+        raw = _rpc_call(server, 'studio_navigate', {'url': '/canvas'})
+        result = json.loads(raw)['result']
+        assert result['isError'] is False
+        digest = result['structuredContent']['screenshotSha256']
+        assert digest
+        assert Path(log.rows[0]['resultRawPath']).read_bytes() == raw
+        refused = json.loads(_rpc_call(server, 'studio_navigate', {'url': 'https://example.com/'}))['result']
+        assert refused['isError'] is True
+        assert refused['structuredContent']['screenshotSha256'] == digest
+        vault = EvidenceVault('attempt-1')
+        vault.append_actions(1, log.rows)
+        assert vault.action_results()[0]['json']['result']['structuredContent']['screenshotSha256'] == digest
         server.decoy[:] = ['corrupt']
-        assert read_logged_action(recorder.actions()[0].path, recorder.actions()[0].digest)['screenshotSha256'] == digest
+        assert vault.action_results()[0]['json']['result']['structuredContent']['screenshotSha256'] == digest
     finally:
         if server is not None:
             server.stop()
-        elif page is not None:
+        if page is not None:
             page.close()
         httpd.shutdown()
         httpd.server_close()

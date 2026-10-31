@@ -6,7 +6,7 @@ in its own browser. Pack prompts stay in the pack.
 from __future__ import annotations
 
 from agent_browser_studio import (
-    handoff_spec, observe_map, render_spec, saved_spec, seed_case, source_content_spec, style_spec,
+    handoff_spec, observe_map, render_spec, saved_spec, seed_case, source_content_spec, source_roles, style_spec,
 )
 from agent_e2e_local_api import Observation, RoleBinding, Scenario
 
@@ -19,7 +19,7 @@ class P09(Scenario):
         return seed_case(self.id, stack, variant, create_map=True)
 
     def roles(self, stack, seeded, variant, run=None):
-        return [
+        return source_roles() + [
             RoleBinding('seeded:map', 'p09-maps-before', pointer='/data/items/0/itemId'),
             RoleBinding('created:version', 'p09-maps', items='/data/items', id='/currentVersionId',
                         owner='/ownerId', before='p09-maps-before'),
