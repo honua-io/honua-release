@@ -17,11 +17,22 @@ def load_yaml(path: Path) -> dict:
 
 
 class VendorGuardCallerExamplesTests(unittest.TestCase):
-    def test_event_caller_matches_reusable_triggers_and_has_read_only_token(self) -> None:
+    def test_event_caller_matches_triggers_and_scopes_write_permissions_per_surface(self) -> None:
         caller = load_yaml(EXAMPLES / "event-caller.yml.example")
-        called = load_yaml(ROOT / ".github/workflows/guard-vendor-event.yml")
-        self.assertEqual(caller["on"], {k: v for k, v in called["on"].items() if k != "workflow_call"})
-        self.assertEqual(caller["permissions"], {"contents": "read"})
+        called = [
+            load_yaml(ROOT / ".github/workflows/guard-vendor-event.yml"),
+            load_yaml(ROOT / ".github/workflows/guard-vendor-commit-comment.yml"),
+        ]
+        triggers = {key: value for workflow in called for key, value in workflow["on"].items()
+                    if key != "workflow_call"}
+        self.assertEqual(caller["on"], triggers)
+        self.assertEqual(caller["permissions"], {})
+        self.assertEqual(caller["jobs"]["remediate-text"]["permissions"], {
+            "contents": "read", "issues": "write", "pull-requests": "write",
+        })
+        self.assertEqual(caller["jobs"]["remediate-commit-comment"]["permissions"], {
+            "contents": "write",
+        })
 
     def test_audit_caller_exposes_shard_recovery_with_read_only_permissions(self) -> None:
         caller = load_yaml(EXAMPLES / "audit-caller.yml.example")
@@ -34,7 +45,8 @@ class VendorGuardCallerExamplesTests(unittest.TestCase):
     def test_callers_pin_the_same_immutable_release_commit(self) -> None:
         refs = []
         for file, job, workflow in (
-            ("event-caller.yml.example", "inspect", "guard-vendor-event.yml"),
+            ("event-caller.yml.example", "remediate-text", "guard-vendor-event.yml"),
+            ("event-caller.yml.example", "remediate-commit-comment", "guard-vendor-commit-comment.yml"),
             ("audit-caller.yml.example", "audit", "audit-vendor-github.yml"),
         ):
             uses = load_yaml(EXAMPLES / file)["jobs"][job]["uses"]
