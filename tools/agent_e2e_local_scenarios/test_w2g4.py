@@ -251,7 +251,7 @@ def test_native_proposal_shape_cannot_bind_created_role_without_invented_complet
     for completeness in ({'total': '/total'}, {'next_page': '/nextCursor'}):
         binding = RoleBinding('created:proposal', 'proposals-after', items='/proposals', id='/proposalId',
                               owner='/requestedBy', before='proposals-before', **completeness)
-        with pytest.raises(ProjectionError, match='absent'):
+        with pytest.raises(ProjectionError, match='absent|reviewed enumeration contract'):
             resolve_roles([binding], vault.records(), agent_principal='agent-id')
 
 

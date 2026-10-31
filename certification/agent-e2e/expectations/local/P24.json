@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P24",
+  "derivation": "Null means unavailable: see scenario module for the evidence required. Fixture references resolve against the pinned town corpus.",
+  "variants": {
+    "A": {
+      "candidate.identity": null,
+      "deployment.ready": null,
+      "features.exact": {
+        "$fixture": {
+          "assertion": "features.exact",
+          "layer": [
+            "parcels",
+            "flood_zones",
+            "shelters"
+          ]
+        }
+      },
+      "filter.exact": {
+        "$fixture": {
+          "assertion": "filter.exact"
+        }
+      },
+      "buffer.metric": {
+        "$fixture": {
+          "assertion": "buffer.metric"
+        }
+      },
+      "map.style": null,
+      "state.reopened": null,
+      "approval.separate": null,
+      "publication.public": null,
+      "render.actual": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
+      "source-content.unchanged": null
+    },
+    "B": {
+      "candidate.identity": null,
+      "deployment.ready": null,
+      "features.exact": {
+        "$fixture": {
+          "assertion": "features.exact",
+          "layer": [
+            "parcels",
+            "flood_zones",
+            "shelters"
+          ]
+        }
+      },
+      "filter.exact": {
+        "$fixture": {
+          "assertion": "filter.exact"
+        }
+      },
+      "buffer.metric": {
+        "$fixture": {
+          "assertion": "buffer.metric"
+        }
+      },
+      "map.style": null,
+      "state.reopened": null,
+      "approval.separate": null,
+      "publication.public": null,
+      "render.actual": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
+      "source-content.unchanged": null
+    }
+  }
+}
