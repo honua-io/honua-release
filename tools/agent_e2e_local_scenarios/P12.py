@@ -71,10 +71,14 @@ class P12(Scenario):
             'ownerId': rec.principals['agent'][1],
             'envelope': {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map_package.v1', 'body': map_body}
         }), (201,))
+        if draft.get('envelope', {}).get('body') != map_body:
+            raise ValueError('seed draft does not match the reviewed map fixture')
         draft_id = guid(draft['draftId'])
         saved = data(rec.json('p12-seed-save', 'POST', '/api/v1/studio/package-drafts/' + draft_id + '/content-versions', {}), (201,))
         item_id, version_id = guid(saved['itemId']), guid(saved['versionId'])
-        rec.json('p12-seed-version', 'GET', '/api/v1/studio/content-items/' + item_id + '/versions/' + version_id)
+        initial = data(rec.json('p12-seed-version', 'GET', '/api/v1/studio/content-items/' + item_id + '/versions/' + version_id))
+        if initial.get('itemId') != item_id or initial.get('versionId') != version_id or initial.get('envelope', {}).get('body') != map_body:
+            raise ValueError('seeded version does not match the reviewed map fixture')
         seed = {'variant': variant, 'itemId': item_id, 'draftId': draft_id, 'initialVersionId': version_id,
                 'shelters': binding}
         stack.extra['p12Seed'] = copy.deepcopy(seed)
