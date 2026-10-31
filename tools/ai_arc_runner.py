@@ -718,9 +718,27 @@ class StudioStage(DelegatingStage):
     the server's map rendering API. Unavailable on a slot where no Console is observed serving."""
 
     def precondition(self, ctx):
-        if not ctx.slot.facts.get('consoleBaseUrl'):
-            return ('Honua Console is not serving on this slot: ' +
-                    ctx.arc['consoleDeployment'].get(ctx.target, 'no Console deployment for this target'))
+        base = ctx.slot.facts.get('consoleBaseUrl')
+        gap = ctx.arc['consoleDeployment'].get(ctx.target, 'no Console deployment for this target')
+        if not base:
+            return 'Honua Console is not serving on this slot: ' + gap
+        http = ctx.options.get('http')
+        health = http('GET', base.rstrip('/') + '/version.json', None) if http else {'status': None}
+        ctx.slot.facts['consoleHealth'] = {'status': health.get('status'), 'sha256': health.get('sha256')}
+        if health.get('status') != 200 or not isinstance(health.get('json'), dict):
+            return f"Honua Console health probe failed ({health.get('status')}): " + gap
+        return None
+
+    def unavailable(self, ctx):
+        reason = super().unavailable(ctx)
+        if reason:
+            return reason
+        # The customer principal must actually sign in to this Console before the stage can run.
+        probe = getattr(self._inner, 'sign_in_probe', None)
+        signed = probe(ctx) if callable(probe) else None
+        ctx.slot.facts['consoleSignIn'] = signed if isinstance(signed, dict) else {'ok': bool(signed)}
+        if not (signed.get('ok') if isinstance(signed, dict) else signed):
+            return 'the customer principal could not sign in to Honua Console (adapter sign_in_probe)'
         return None
     stage, lane = 'studio', 'g41 feat/agent-studio-browser'
     adapter = 'agent_e2e_studio_arc'
@@ -1017,18 +1035,20 @@ def kill_cli_processes(pids, wait: float = 15.0) -> list[dict]:
 
 
 def finalize_stage(ctx, reason: str = 'unspecified', worker=None) -> dict:
-    """The one shutdown every stage exit takes (normal end, model end, model error, any exception,
-    deadline, overrun), exactly once, in this order, never swallowing a result:
+    """The one shutdown every stage exit takes (availability, prepare, normal end, model end, model error,
+    any exception, deadline, overrun), exactly once. Every step runs in its own guard; a step that raises
+    is recorded and the remaining steps still run; any recorded error makes the shutdown incomplete:
 
-      1. close the runner-owned dispatch gate (nothing further reaches the product)
+      1. close the runner-owned dispatch gate (nothing further reaches the product; no new credential
+         can be minted through the gated controller)
       2. SIGKILL the agent CLI process groups and wait for them to exit
-      3. revoke agent credentials through the controller; every result is retained; a failed revocation
-         is incomplete; then probe each credential (it must be refused) and a live one is incomplete
-      4. drain in-flight calls; every dispatched call whose outcome is unknown must reach a terminal
-         state through a controller probe within the drain bound, otherwise it stays unresolved
-      5. join the session worker, then close the backends
-    Observation and finalization happen only afterwards. Anything incomplete makes the stage
-    undetermined (a failed run), whatever else happened."""
+      3. revoke every registered credential (registered at mint, before use); every result retained
+      4. drain in-flight calls; unknown outcomes must reach a terminal state within the drain bound
+      5. join the session worker
+      6. reconcile: revoke anything registered meanwhile, then probe EVERY registered credential (each
+         must be refused); a live or unrevocable credential is incomplete
+      7. close the backends
+    Observation and finalization happen only afterwards; anything incomplete makes the stage undetermined."""
     if getattr(ctx, 'finalized', None) is not None:
         return ctx.finalized
     order = getattr(ctx, 'finalize_order', None)
@@ -1038,44 +1058,68 @@ def finalize_stage(ctx, reason: str = 'unspecified', worker=None) -> dict:
             ctx.finalize_order = order
         except AttributeError:
             pass
-    facts = {'reason': reason}
-    ctx.gate.close()
-    for item in list(ctx.live):
-        if hasattr(item, 'close_gate'):
-            item.close_gate()
-    order.append('gate')
-    facts['gateClosed'] = True
-    facts['killed'] = kill_cli_processes(cli_processes())
-    order.append('kill')
-    revoked, probes = [], []
-    for item in list(ctx.live):
-        if hasattr(item, 'revoke'):
-            revoked.extend(item.revoke())
-    order.append('revoke')
-    for item in list(ctx.live):
-        if hasattr(item, 'probe'):
-            probes.extend(item.probe())
-    order.append('probe')
-    facts['revoked'], facts['credentialProbes'] = revoked, probes
-    facts['revocationFailed'] = any(r.get('status') not in (200, 204) for r in revoked)
-    facts['credentialAlive'] = any(p.get('alive') is not False for p in probes)
+    facts = {'reason': reason, 'errors': [], 'revoked': [], 'credentialProbes': [], 'killed': [],
+             'unresolvedOutcomes': [], 'inflightRemaining': 0, 'settled': []}
+
+    def step(name, fn):
+        try:
+            fn()
+        except BaseException as exc:  # noqa: BLE001  (recorded; cleanup continues)
+            facts['errors'].append({'step': name, 'error': f'{type(exc).__name__}: {str(exc)[:160]}'})
+        order.append(name)
+
+    def close_gate():
+        ctx.gate.close()
+        for item in list(ctx.live):
+            if hasattr(item, 'close_gate'):
+                item.close_gate()
+    step('gate', close_gate)
+    facts['gateClosed'] = ctx.gate.closed
+
+    def kill():
+        facts['killed'] = kill_cli_processes(cli_processes())
+    step('kill', kill)
+
+    def revoke():
+        for item in list(ctx.live):
+            if hasattr(item, 'revoke'):
+                facts['revoked'].extend(item.revoke())
+    step('revoke', revoke)
     drain_deadline = time.monotonic() + DRAIN_SECONDS
-    facts['inflightRemaining'] = ctx.gate.drain(DRAIN_SECONDS)
-    facts['settled'] = list(ctx.gate.settled)
-    unresolved = list(ctx.gate.unknown)
-    for item in list(ctx.live):
-        if unresolved and hasattr(item, 'settle'):
-            unresolved = item.settle(unresolved, max(0.0, drain_deadline - time.monotonic()))
-    facts['unresolvedOutcomes'] = unresolved
-    order.append('drain')
-    if worker is not None:
-        worker.join(GRACE_SECONDS)
+
+    def drain():
+        facts['inflightRemaining'] = ctx.gate.drain(DRAIN_SECONDS)
+        facts['settled'] = list(ctx.gate.settled)
+        unresolved = list(ctx.gate.unknown)
+        for item in list(ctx.live):
+            if unresolved and hasattr(item, 'settle'):
+                unresolved = item.settle(unresolved, max(0.0, drain_deadline - time.monotonic()))
+        facts['unresolvedOutcomes'] = unresolved
+    step('drain', drain)
+
+    def join():
+        if worker is not None:
+            worker.join(GRACE_SECONDS)
+    step('join', join)
     facts['workerExited'] = worker is None or not worker.is_alive()
-    close_live(ctx)
+
+    def reconcile():
+        # Credentials registered while the worker settled are revoked now; then every one is probed.
+        for item in list(ctx.live):
+            if hasattr(item, 'revoke'):
+                facts['revoked'].extend(item.revoke())
+        for item in list(ctx.live):
+            if hasattr(item, 'probe'):
+                facts['credentialProbes'].extend(item.probe())
+    step('probe', reconcile)
+    facts['revocationFailed'] = any(r.get('status') not in (200, 204) for r in facts['revoked'])
+    facts['credentialAlive'] = any(p.get('alive') is not False for p in facts['credentialProbes'])
+    step('close', lambda: close_live(ctx))
     facts['order'] = list(order)
-    facts['complete'] = (all(k['exited'] for k in facts['killed']) and not facts['revocationFailed']
-                         and not facts['credentialAlive'] and facts['inflightRemaining'] == 0
-                         and not facts['unresolvedOutcomes'] and facts['workerExited'])
+    facts['complete'] = (not facts['errors'] and all(k.get('exited') for k in facts['killed'])
+                         and not facts['revocationFailed'] and not facts['credentialAlive']
+                         and facts['inflightRemaining'] == 0 and not facts['unresolvedOutcomes']
+                         and facts['workerExited'])
     ctx.finalized = facts
     return facts
 
@@ -1224,7 +1268,8 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
                              ('a credential is still accepted', shutdown.get('credentialAlive')),
                              ('in-flight work unsettled', shutdown.get('inflightRemaining')),
                              ('an action outcome never resolved', shutdown.get('unresolvedOutcomes')),
-                             ('CLI did not exit', not all(x.get('exited') for x in shutdown.get('killed') or [])))
+                             ('CLI did not exit', not all(x.get('exited') for x in shutdown.get('killed') or [])),
+                             ('a cleanup step raised', shutdown.get('errors')))
             if bad)
     return {'assertions': scored, 'excluded': [a['assertion'] for a in scored if a['status'] == 'excluded'],
             'finalAnswerCheck': {k: check.get(k) for k in ('status', 'false_success', 'undetermined', 'findings', 'links')},
@@ -1236,14 +1281,11 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
     stage = module.stage
     result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
     started = time.monotonic()
-    try:
-        reason = within(ctx.remaining(), module.unavailable, ctx, ctx=ctx)
-    except PhaseTimeout as exc:
-        return {**result, 'outcome': 'fail', 'cause': str(exc)}
-    if reason:
-        return {**result, 'outcome': 'stage-unavailable', 'cause': reason}
     row, worker, exit_reason, unavailable = {}, None, 'normal', None
     try:
+        reason = within(ctx.remaining(), module.unavailable, ctx, ctx=ctx)
+        if reason:
+            raise StageUnavailable(reason)
         within(ctx.remaining(), module.prepare, ctx, ctx=ctx)
         handoff_text = ctx.arc['handoffs'].get(STAGES[STAGES.index(stage) - 1]) if stage != 'setup' else None
         ctx.handoff = (handoff_text, previous_answer)
@@ -1265,7 +1307,9 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         shutdown = finalize_stage(ctx, exit_reason, worker)
     if unavailable is not None and not scan_actions(ctx.private_dir / stage) and not ctx.gate.unknown \
             and not ctx.gate.settled and shutdown['complete']:
-        return {**result, 'outcome': 'stage-unavailable', 'cause': unavailable}
+        return {**result, 'outcome': 'stage-unavailable', 'cause': unavailable, 'shutdown': shutdown}
+    if unavailable is not None and not shutdown['complete']:
+        exit_reason = 'unavailable-incomplete'
     if exit_reason != 'normal' or unavailable is not None:
         recovered = scan_actions(ctx.private_dir / stage)        # everything attempted through termination
         if recovered or not row.get('actions'):

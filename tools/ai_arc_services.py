@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -42,6 +43,8 @@ def runtime_class():
             self.extra_secrets = extra_secrets if isinstance(extra_secrets, list) else list(extra_secrets)
             self.answers, self.withheld, self.catalog_redactions = {}, 0, 0
             self.stacks, self.cancelled, self.agent_keys = [], [], []
+            self.minted, self.unaccounted = [], []
+            self.lock = threading.Lock()
             self.gate = None
 
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
@@ -71,49 +74,73 @@ def runtime_class():
                     self.extra_secrets.append(value)
             return stack
 
-        def cancel(self):
-            """Stop outstanding agent work through the controller: revoke every case agent credential."""
+        def _recorder(self, stack, principals):
+            """Every credential the runtime mints is registered with the finalizer the moment the controller
+            returns it, before anything can use it (mint -> register -> use); after the stage gate closes
+            no further credential can be minted through this recorder."""
+            recorder = super()._recorder(stack, principals)
+            original = recorder.json
+
+            def json_call(step, method, path, body=None, **kw):
+                minting = method == 'POST' and path.rstrip('/') == '/api/v1/admin/api-keys'
+                if minting and self.gate is not None and self.gate.closed:
+                    raise RuntimeError('credential acquisition refused: the stage has ended')
+                answer = original(step, method, path, body, **kw)
+                if minting:
+                    observation = answer.get('observation') or {}
+                    data = (observation.get('body') or {}).get('data') if isinstance(observation.get('body'), dict) else None
+                    if observation.get('httpStatus') == 201 and isinstance(data, dict):
+                        self.register(data.get('apiKey', {}).get('id'), data.get('key'))
+                    elif observation.get('httpStatus') is None or observation.get('httpStatus') >= 500:
+                        self.unaccounted.append(step)      # a mint whose outcome is unknown
+                return answer
+            recorder.json = json_call
+            return recorder
+
+        def register(self, key_id, key):
+            with self.lock:
+                if key_id and key and key_id not in {m['id'] for m in self.minted}:
+                    self.minted.append({'id': key_id, 'key': key})
+                    if key not in self.extra_secrets:
+                        self.extra_secrets.append(key)
+
+        def _http(self, method, path, key):
             import urllib.error
             import urllib.request
+            request = urllib.request.Request(self.arc['base_url'] + path, method=method, headers={'X-API-Key': key})
+            try:
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    return response.status
+            except urllib.error.HTTPError as exc:
+                return exc.code
+            except Exception:  # noqa: BLE001
+                return None
+
+        def cancel(self):
+            """Revoke every registered case credential not yet revoked (idempotent; reconciles late mints)."""
             results = []
-            for stack in self.stacks:
-                agent = (stack.extra.get('custody') or {}).get('agentPrincipalId')
-                if not agent or agent in self.cancelled:
+            with self.lock:
+                pending = [m for m in self.minted if m['id'] not in self.cancelled]
+            for minted in pending:
+                if self._http('GET', '/api/v1/admin/api-keys/', minted['key']) in (401, 403):
+                    # Already refused (e.g. the bootstrap key the custody step revoked): nothing to revoke.
+                    results.append({'principal': minted['id'], 'status': 204, 'note': 'already refused'})
+                    self.cancelled.append(minted['id'])
                     continue
-                request = urllib.request.Request(f"{stack.base_url}/api/v1/admin/api-keys/{agent}/revoke", method='POST',
-                                                 headers={'X-API-Key': self.arc['admin_key']})
-                try:
-                    with urllib.request.urlopen(request, timeout=20) as response:
-                        status = response.status
-                except urllib.error.HTTPError as exc:
-                    status = exc.code
-                except Exception as exc:  # noqa: BLE001
-                    results.append({'principal': agent, 'status': None, 'error': type(exc).__name__})
-                    continue
-                results.append({'principal': agent, 'status': status})
+                status = self._http('POST', f"/api/v1/admin/api-keys/{minted['id']}/revoke", self.arc['admin_key'])
+                results.append({'principal': minted['id'], 'status': status})
                 if status in (200, 204):
-                    self.cancelled.append(agent)
+                    self.cancelled.append(minted['id'])
+            for step in self.unaccounted:
+                results.append({'principal': None, 'status': None, 'error': 'mint outcome unknown: ' + step})
             return results
 
         def probe(self):
-            """Each case agent credential must now be refused by the product (401/403)."""
-            import urllib.error
-            import urllib.request
-            results = []
-            for stack, key in zip(self.stacks, self.agent_keys):
-                if not key:
-                    continue
-                request = urllib.request.Request(f"{stack.base_url}/api/v1/admin/api-keys/", headers={'X-API-Key': key})
-                try:
-                    with urllib.request.urlopen(request, timeout=20) as response:
-                        status = response.status
-                except urllib.error.HTTPError as exc:
-                    status = exc.code
-                except Exception:  # noqa: BLE001
-                    status = None
-                results.append({'principal': (stack.extra.get('custody') or {}).get('agentPrincipalId'),
-                                'status': status, 'alive': status not in (401, 403)})
-            return results
+            """Every registered credential must now be refused by the product (401/403)."""
+            with self.lock:
+                minted = list(self.minted)
+            return [{'principal': m['id'], 'status': (status := self._http('GET', '/api/v1/admin/api-keys/', m['key'])),
+                     'alive': status not in (401, 403)} for m in minted]
 
         def raw_execute(self, stack, names):
             execute = super().raw_execute(stack, names)

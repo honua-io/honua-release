@@ -630,9 +630,43 @@ def test_denied_revocation_on_normal_and_error_exits_is_undetermined(tmp_path, m
     try:
         result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         shutdown = result['shutdown']
-        assert shutdown['order'][:4] == ['gate', 'kill', 'revoke', 'probe']
+        assert shutdown['order'][:6] == ['gate', 'kill', 'revoke', 'drain', 'join', 'probe']
         assert shutdown['revocationFailed'] and shutdown['credentialAlive'] and shutdown['complete'] is False
-        assert [r['status'] for r in shutdown['revoked']] == [401]
+        assert 401 in [r['status'] for r in shutdown['revoked']], 'every revocation result is retained'
         assert result['outcome'] == 'undetermined'
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.parametrize('after_mint', ['stall-past-deadline', 'raise'])
+def test_credentials_minted_during_setup_are_registered_revoked_and_probed(tmp_path, monkeypatch, after_mint):
+    """Astra 8th review B1 on the real #1152 runtime: pause or fail right after the real credential mint,
+    before the runtime's own setup returns."""
+    import time as _time
+    import urllib.error
+    import urllib.request
+    import agent_e2e_local_runner as runner
+    original = runner.LocalRuntime._prepare
+
+    def paused(self, stack, permissions):
+        original(self, stack, permissions)
+        if after_mint == 'raise':
+            raise OSError('failed at the acquisition boundary')
+        past_deadline(1.0)
+    monkeypatch.setattr(runner.LocalRuntime, '_prepare', paused)
+    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, lambda execute, corpus: None, deadline=20.0)
+    try:
+        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        shutdown = result['shutdown']
+        assert shutdown['credentialProbes'] and all(p['alive'] is False for p in shutdown['credentialProbes'])
+        for key in state.keys:
+            request = urllib.request.Request(f'http://127.0.0.1:{server.server_address[1]}/api/v1/admin/api-keys/',
+                                             headers={'X-API-Key': key})
+            try:
+                status = urllib.request.urlopen(request, timeout=10).status
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+            assert status in (401, 403), 'no minted credential authenticates after finalization'
+        assert result['outcome'] in ('fail', 'undetermined')
     finally:
         server.shutdown()

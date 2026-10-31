@@ -766,8 +766,8 @@ def test_finalize_stage_matrix(tmp_path, monkeypatch, exit_reason, revocation, p
     receipt, _ = run(tmp_path, arc=arc, slot=slot, mods=modules(setup=stage))
     setup = receipt['stages'][0]
     order = stage.ctx.finalize_order
-    assert order[:5] == ['gate', 'kill', 'revoke', 'probe', 'drain'], order
-    assert 'observe' not in order[:5] and order.count('gate') == 1, 'finalized exactly once, before observing'
+    assert order[:7] == ['gate', 'kill', 'revoke', 'drain', 'join', 'probe', 'close'], order
+    assert 'observe' not in order[:7] and order.count('gate') == 1, 'finalized exactly once, before observing'
     complete = revocation == 'ok' and pending != 'never'
     shutdown = setup.get('shutdown') or {}
     assert shutdown.get('complete', complete) is complete
@@ -788,3 +788,137 @@ def test_studio_is_unavailable_without_a_serving_console(tmp_path):
     reason = R.StudioStage().unavailable(ctx)
     assert reason and 'Console' in reason and 'aws-ecs module deploys no Console' in reason
     assert next(s for s in ARC['stages'] if s['id'] == 'studio')['drivers'] == ['console-assistant', 'arm-browser']
+
+
+
+class Registry:
+    """Credential registry with the finalizer contract: register at mint, revoke idempotently, probe all."""
+
+    def __init__(self, deny=(), fail_step=None):
+        self.minted, self.revoked, self.deny, self.fail_step = [], set(), set(deny), fail_step
+
+    def register(self, key):
+        self.minted.append(key)
+
+    def _maybe_fail(self, step):
+        if self.fail_step == step:
+            raise RuntimeError(step + ' exploded')
+
+    def close_gate(self):
+        self._maybe_fail('close_gate')
+
+    def revoke(self):
+        self._maybe_fail('revoke')
+        out = []
+        for key in self.minted:
+            if key not in self.revoked:
+                ok = key not in self.deny
+                out.append({'principal': key, 'status': 200 if ok else 401})
+                if ok:
+                    self.revoked.add(key)
+        return out
+
+    def probe(self):
+        self._maybe_fail('probe')
+        return [{'principal': k, 'alive': k not in self.revoked} for k in self.minted]
+
+    def settle(self, unknowns, timeout):
+        self._maybe_fail('settle')
+        return []
+
+
+class AcquireStage(FakeStage):
+    def __init__(self, registry, *, late=False, raise_after_mint=False, pending=False):
+        super().__init__('setup')
+        self.registry, self.late, self.raise_after_mint, self.pending = registry, late, raise_after_mint, pending
+
+    def run(self, ctx, session, prompt):
+        ctx.live.append(self.registry)
+        if self.pending:
+            ctx.gate.unknown.append({'tool': 'x', 'outcome': 'error'})
+        self.registry.register('agent-1')
+        if self.raise_after_mint:
+            raise OSError('failed right after minting')
+        if self.late:
+            time.sleep(1.4)                       # past the 1 s deadline, inside the grace period
+            self.registry.register('agent-late')  # acquired after the first revocation pass
+        return {'finalAnswer': GOOD_ANSWER, 'actions': [act()], 'nudges': 0}
+
+
+def finalize_case(tmp_path, monkeypatch, stage, name='x'):
+    monkeypatch.setattr(R, 'GRACE_SECONDS', 5)
+    monkeypatch.setattr(R, 'kill_cli_processes', lambda pids: [])
+    arc = copy.deepcopy(ARC)
+    arc['limits']['setup']['maxSeconds'] = 1
+    receipt, _ = run(tmp_path, name=name, arc=arc, mods=modules(setup=stage))
+    return receipt['stages'][0], receipt
+
+
+@pytest.mark.parametrize('deny', [(), ('agent-late',)])
+def test_credentials_acquired_after_the_first_pass_are_reconciled(tmp_path, monkeypatch, deny):
+    registry = Registry(deny=deny)
+    setup, receipt = finalize_case(tmp_path, monkeypatch, AcquireStage(registry, late=True))
+    shutdown = setup['shutdown']
+    assert {p['principal'] for p in shutdown['credentialProbes']} == {'agent-1', 'agent-late'}
+    if deny:
+        assert shutdown['complete'] is False and setup['outcome'] == 'undetermined'
+    else:
+        assert 'agent-late' in registry.revoked and shutdown['complete'] is True
+
+
+def test_exception_right_after_minting_still_revokes_and_probes(tmp_path, monkeypatch):
+    registry = Registry()
+    setup, receipt = finalize_case(tmp_path, monkeypatch, AcquireStage(registry, raise_after_mint=True))
+    assert registry.revoked == {'agent-1'} and setup['shutdown']['credentialProbes']
+
+
+@pytest.mark.parametrize('fail_step', ['close_gate', 'revoke', 'probe', 'settle'])
+def test_a_raising_cleanup_step_never_skips_the_rest(tmp_path, monkeypatch, fail_step):
+    registry = Registry(fail_step=fail_step)
+    setup, receipt = finalize_case(tmp_path, monkeypatch, AcquireStage(registry, pending=True))
+    shutdown = setup['shutdown']
+    assert shutdown['order'] == ['gate', 'kill', 'revoke', 'drain', 'join', 'probe', 'close']
+    assert shutdown['errors'] and shutdown['complete'] is False and setup['outcome'] == 'undetermined'
+    assert receipt['status'] == 'undetermined'
+
+
+@pytest.mark.parametrize('how', ['reason', 'raises', 'times-out'])
+def test_availability_exits_are_finalized(tmp_path, monkeypatch, how):
+    class Probe(FakeStage):
+        def unavailable(self, ctx):
+            self.ctx = ctx
+            ctx.live.append(Registry())
+            if how == 'raises':
+                raise RuntimeError('availability probe failed')
+            if how == 'times-out':
+                time.sleep(1.5)
+            return 'lane not landed'
+    stage = Probe('setup')
+    setup, receipt = finalize_case(tmp_path, monkeypatch, stage, name=how)
+    assert stage.ctx.gate.closed and stage.ctx.finalized is not None
+    assert setup['outcome'] in ('stage-unavailable', 'undetermined', 'fail')
+    assert receipt['status'] != 'completed'
+
+
+
+@pytest.mark.parametrize('health, signin, expected', [
+    ({'status': None}, True, 'health probe failed'),
+    ({'status': 200, 'json': None}, True, 'health probe failed'),
+    ({'status': 200, 'json': {'version': '1'}}, False, 'could not sign in'),
+    ({'status': 200, 'json': {'version': '1'}}, True, None),
+])
+def test_studio_requires_a_healthy_console_and_a_real_sign_in(tmp_path, monkeypatch, health, signin, expected):
+    import types
+
+    class Adapter(R.StageModule):
+        stage = 'studio'
+
+        def sign_in_probe(self, ctx):
+            return {'ok': signin, 'principal': 'customer'}
+    monkeypatch.setitem(sys.modules, 'agent_e2e_studio_arc', types.SimpleNamespace(arc_stage=lambda ctx: Adapter()))
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', facts={'consoleBaseUrl': 'http://127.0.0.1:1'})
+    ctx = R.StageContext(arc=ARC, target='local-docker', arm=A1, variant='A', run_dir=tmp_path, private_dir=tmp_path,
+                         slot=slot, candidate=CAND_IN, install=ARC['versionPair']['install'], limits=ARC['limits']['studio'],
+                         deadline=time.monotonic() + 60, options={'http': lambda m, u, k: health})
+    reason = R.StudioStage().unavailable(ctx)
+    assert (reason is None) if expected is None else (expected in reason)
