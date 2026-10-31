@@ -206,6 +206,8 @@ class PlaywrightPage:
         from playwright.sync_api import sync_playwright
         self.origin = origin
         self.aborted = []
+        self._initial_document = True
+        self._origin_failed = False
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(**launch_options())
         self._context = self._browser.new_context(**context_options())
@@ -214,6 +216,28 @@ class PlaywrightPage:
         self._context.route_web_socket('**/*', lambda socket: socket.close())
         self._context.on('download', self._cancel_download)
         self._page = self._context.new_page()
+        self._page.on('framenavigated', self._navigation)
+        # This MCP surface owns one page. Popups cannot create an unobserved browsing surface.
+        self._context.on('page', lambda page: page.close())
+
+    def _navigation(self, frame):
+        if not self.origin.allows(frame.url):
+            self._origin_failed = True
+            self._context.close()
+
+    def _check_origin(self):
+        frames = self._page.frames
+        initial = self._initial_document and len(frames) == 1 and self._page.url == 'about:blank'
+        if self._origin_failed or not initial and any(not self.origin.allows(frame.url) for frame in frames):
+            self._origin_failed = True
+            self._context.close()
+            raise OriginLocked('refused document origin')
+
+    def _interact(self, operation):
+        self._check_origin()
+        self._initial_document = False
+        operation()
+        self._check_origin()
 
     def _gate(self, route):
         url = route.request.url
@@ -231,39 +255,49 @@ class PlaywrightPage:
             pass
 
     def goto(self, url):
+        url = self.origin.resolve(url)
+        self._initial_document = False
         response = self._page.goto(url, wait_until='load', timeout=30000)
+        self._check_origin()
         return 200 if response is None else response.status
 
     def current_url(self):
         return self._page.url
 
     def click(self, selector):
-        self._page.click(selector, timeout=5000)
+        self._interact(lambda: self._page.click(selector, timeout=5000))
 
     def fill(self, selector, text):
-        self._page.fill(selector, text, timeout=5000)
+        self._interact(lambda: self._page.fill(selector, text, timeout=5000))
 
     def press(self, key):
-        self._page.keyboard.press(key)
+        self._interact(lambda: self._page.keyboard.press(key))
 
     def set_input_files(self, selector, path):
-        self._page.set_input_files(selector, path, timeout=5000)
+        self._interact(lambda: self._page.set_input_files(selector, path, timeout=5000))
 
     def screenshot(self):
+        self._check_origin()
         canvas = self._page.locator('#map')
         if canvas.count():
-            return canvas.screenshot(type='png')
-        return self._page.screenshot(type='png')
+            png = canvas.screenshot(type='png')
+        else:
+            png = self._page.screenshot(type='png')
+        self._check_origin()
+        return png
 
     def snapshot_text(self):
+        self._check_origin()
         body = self._page.locator('body')
         try:
             text = body.aria_snapshot()
         except Exception:
             text = body.inner_text(timeout=5000)
+        self._check_origin()
         return (text or '')[:8000]
 
     def attribute(self, name):
+        self._check_origin()
         node = self._page.locator('#honua-render')
         if not node.count():
             return ''
