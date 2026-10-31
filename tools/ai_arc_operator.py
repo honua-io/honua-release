@@ -6,11 +6,11 @@ release's ``.sha256``, and registers ``Honua.DevOps.Agent --mcp`` with their MCP
   claude mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp
   codex mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp
 
-In the arc, the agent CLI's only MCP server is the #1160 recording proxy, so every call is in the
+In the arc, the agent CLI's only MCP servers are #1160's recording proxies, so every call is in the
 runner's action log. The runner therefore starts the verified binary itself, exactly as that
-registration would (same executable, same ``--mcp`` argument, stdio transport), and the proxy
-serves the operator's own ``tools/list`` and forwards each ``tools/call`` to it. The registration
-command is recorded in the receipt as the customer equivalent.
+registration would (same executable, same ``--mcp`` argument, stdio transport), through #1160's
+``StdioMcpBackend`` (bounded reads, credential screening, audit log); the proxy serves the
+operator's own ``tools/list``. The registration command is recorded in the receipt.
 
 The operator process gets slot-scoped, short-lived AWS credentials (STS session credentials) in
 its own environment from the runner. The model never sees them: they are not in any tool view,
@@ -21,11 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import subprocess
 import tarfile
-import threading
 from pathlib import Path
 from typing import Callable
 
@@ -98,74 +96,3 @@ def slot_credentials(path: str | None) -> dict:
     if not data.get('expiresAt'):
         raise OperatorError('operator credentials must carry their expiry')
     return {k: v for k, v in env.items() if v}
-
-
-class StdioMcp:
-    """A newline-delimited JSON-RPC MCP client over the operator's stdio (``--mcp``)."""
-
-    def __init__(self, argv: list[str], env: dict, *, cwd: str, timeout: int = 900, popen=subprocess.Popen):
-        base = {k: os.environ[k] for k in ('PATH', 'LANG') if k in os.environ}
-        self.proc = popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=cwd,
-                          env={**base, 'HOME': cwd, **env}, text=True, bufsize=1)
-        self.timeout, self.next_id, self.lock = timeout, 0, threading.Lock()
-
-    def rpc(self, method: str, params: dict | None = None) -> dict:
-        with self.lock:
-            self.next_id += 1
-            ident = self.next_id
-            self.proc.stdin.write(json.dumps({'jsonrpc': '2.0', 'id': ident, 'method': method,
-                                              'params': params or {}}) + '\n')
-            self.proc.stdin.flush()
-            while True:
-                line = self.proc.stdout.readline()
-                if not line:
-                    raise OperatorError('operator MCP process closed its output')
-                try:
-                    message = json.loads(line)
-                except ValueError:
-                    continue
-                if message.get('id') == ident:
-                    if 'error' in message:
-                        return {'error': message['error']}
-                    return message.get('result') or {}
-
-    def notify(self, method: str) -> None:
-        with self.lock:
-            self.proc.stdin.write(json.dumps({'jsonrpc': '2.0', 'method': method}) + '\n')
-            self.proc.stdin.flush()
-
-    def close(self) -> None:
-        try:
-            self.proc.stdin.close()
-            self.proc.wait(timeout=30)
-        except Exception:
-            self.proc.kill()
-
-
-def operator_surface(binary: str, credentials: dict, workdir: str, *, popen=subprocess.Popen):
-    """Start the verified operator and return (tool_view, execute, close) for the recording proxy."""
-    client = StdioMcp([binary, '--mcp'], credentials, cwd=workdir, popen=popen)
-    client.rpc('initialize', {'protocolVersion': '2025-03-26', 'capabilities': {},
-                              'clientInfo': {'name': 'honua-ai-arc', 'version': '1'}})
-    client.notify('notifications/initialized')
-    listed = client.rpc('tools/list')
-    tools = listed.get('tools') if isinstance(listed, dict) else None
-    if not isinstance(tools, list) or not tools:
-        client.close()
-        raise OperatorError('operator advertised no tools')
-    names = {t.get('name') for t in tools}
-    secrets = [v for k, v in credentials.items() if k != 'AWS_REGION']
-
-    def scrub(value):
-        text = json.dumps(value)
-        for secret in secrets:
-            text = text.replace(secret, '[redacted]')
-        return json.loads(text)
-
-    def execute(kind, action):
-        if kind != 'tool_call' or action.get('tool') not in names or not isinstance(action.get('arguments'), dict):
-            return {'status': 'fail', 'refusal': 'invalid-action', 'result': {'error': 'not an operator tool call'}}
-        result = scrub(client.rpc('tools/call', {'name': action['tool'], 'arguments': action['arguments']}))
-        failed = 'error' in result or result.get('isError') is True
-        return {'status': 'fail' if failed else 'ok', 'result': result}
-    return {'tools': tools}, execute, client.close

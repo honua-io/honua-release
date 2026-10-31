@@ -1,12 +1,14 @@
 name: AI arc
+run-name: AI arc ${{ inputs.arm }} (${{ inputs.targets }}, ${{ inputs.goal_set }}) ${{ inputs.lock_digest }}
 
-# One matrix run per arm. Each trial is one agent arm working on ONE deployment through the four
-# arc stages (setup, ops, services, maps with Studio); see certification/ai-arc/README.md.
-# The aggregate job writes one candidate-bound receipt per target x arm for tools/rc_gate_window.py.
-# Every trial is a first attempt; nothing is rerun or replaced except through an adjudicated void.
-# This workflow creates no AWS resources: AWS slots come from the release cell machinery and are
-# handed in as slot receipts; local-docker targets run on ephemeral VMs from the runner's host
-# provisioner. Agent CLIs need subscription sign-in, so trials run on the controller's runner.
+# One run per arm (the arm is in the run name, the inputs and every aggregate). Each arc run is one
+# agent arm working on ONE deployment through setup, ops, services and Studio; see
+# certification/ai-arc/README.md. One campaign job per target schedules the runs (three concurrent
+# slots per VM host for local-docker) and pauses for adjudication after any undetermined run before
+# starting another (prereg void policy). The aggregate job writes one candidate-bound
+# honua.ai-arc.aggregate/v1 receipt per target x arm for tools/rc_gate_window.py. Every run is a
+# first attempt. This workflow creates no AWS resources. Agent CLIs need subscription sign-in, so
+# campaign jobs run on the controller's runner.
 
 on:
   workflow_dispatch:
@@ -61,10 +63,10 @@ on:
         required: false
         default: '["self-hosted","linux","honua-arc"]'
         type: string
-      max_parallel:
-        description: Concurrent trials
+      hosts:
+        description: Comma-separated VM Docker host aliases for local-docker (three runs per host)
         required: false
-        default: "4"
+        default: honua-eval-1,honua-eval-2,honua-eval-3,honua-eval-4
         type: string
 
 permissions:
@@ -75,20 +77,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  inventory:
+  targets:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.inventory.outputs.matrix }}
+      matrix: ${{ steps.targets.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - id: inventory
+      - id: targets
         env:
-          ARM: ${{ inputs.arm }}
           TARGETS: ${{ inputs.targets }}
-          TRIALS: ${{ inputs.trials }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
           REVISION: ${{ inputs.quickstart_revision }}
         run: |
@@ -96,34 +96,19 @@ jobs:
           [[ "$LOCK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "lock_digest must be sha256:<64 hex>"; exit 1; }
           [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "quickstart_revision must be a 40-hex commit"; exit 1; }
           python tools/ai_arc_runner.py check
-          mkdir -p schedule
-          rows='[]'
-          IFS=',' read -ra names <<< "$TARGETS"
-          for target in "${names[@]}"; do
-            args=(inventory --target "$target" --arm "$ARM")
-            [ -z "$TRIALS" ] || args+=(--trials "$TRIALS")
-            python tools/ai_arc_runner.py "${args[@]}" > "schedule/$target.json"
-            rows="$(python -c 'import json,sys; a=json.loads(sys.argv[1]); t=sys.argv[2]; a+=[dict(r, target=t) for r in json.load(open(sys.argv[3]))]; print(json.dumps(a))' "$rows" "$target" "schedule/$target.json")"
-          done
-          echo "matrix=$rows" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ai-arc-schedule
-          path: schedule/
-          if-no-files-found: error
+          echo "matrix=$(python -c 'import json,os; t=[x for x in os.environ["TARGETS"].split(",") if x]; assert t and len(set(t))==len(t); print(json.dumps(t))')" >> "$GITHUB_OUTPUT"
 
-  trial:
-    needs: inventory
+  campaign:
+    needs: targets
     runs-on: ${{ fromJSON(inputs.runner) }}
-    timeout-minutes: 240
+    timeout-minutes: 2880
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJSON(inputs.max_parallel) }}
       matrix:
-        include: ${{ fromJSON(needs.inventory.outputs.matrix) }}
+        target: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
@@ -140,73 +125,47 @@ jobs:
           mkdir -p "$RUNNER_TEMP/arc-inputs"
           curl -fsS "https://raw.githubusercontent.com/honua-io/honua-server/${REVISION}/docs/get-started/quickstart.md" \
             -o "$RUNNER_TEMP/arc-inputs/quickstart.md"
-      - name: Open the sealed held-out goal set
+      - name: Open the sealed held-out primary and reserve manifests
         if: ${{ inputs.goal_set == 'held-out' }}
         env:
           AI_ARC_HELDOUT_KEY: ${{ secrets.AI_ARC_HELDOUT_KEY }}
         run: |
           set -euo pipefail
-          python3 tools/ai_arc_runner.py decrypt-goals --sealed certification/ai-arc/heldout.v1.sealed \
-            --output "$RUNNER_TEMP/arc-inputs/goals.json"
-      - name: Acquire the trial's slot
-        id: slot
+          python3 tools/ai_arc_runner.py decrypt-goals --set primary --output "$RUNNER_TEMP/arc-inputs/primary.json"
+          python3 tools/ai_arc_runner.py decrypt-goals --set reserve --output "$RUNNER_TEMP/arc-inputs/reserve.json"
+      - name: Run the campaign (first attempts; pauses for adjudication after an undetermined run)
         env:
           TARGET: ${{ matrix.target }}
-          TRIAL: ${{ matrix.runId }}
-        run: |
-          set -euo pipefail
-          # The runner machine's provisioner (outside this repository) prints an ephemeral host for
-          # local-docker or an empty release-cell slot receipt path for AWS. Without one the trial
-          # still runs and records its setup stage as stage-unavailable.
-          if [ -n "${HONUA_ARC_SLOT_PROVISIONER:-}" ]; then
-            "$HONUA_ARC_SLOT_PROVISIONER" acquire "$TARGET" "$TRIAL" > "$RUNNER_TEMP/arc-inputs/slot.json"
-          else
-            echo '{}' > "$RUNNER_TEMP/arc-inputs/slot.json"
-          fi
-      - name: Run one arc trial
-        env:
-          TARGET: ${{ matrix.target }}
-          TRIAL: ${{ matrix.runId }}
-          VARIANT: ${{ matrix.variant }}
           ARM: ${{ inputs.arm }}
+          HOSTS: ${{ inputs.hosts }}
+          TRIALS: ${{ inputs.trials }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
+          REVISION: ${{ inputs.quickstart_revision }}
           GOAL_SET: ${{ inputs.goal_set }}
         run: |
           set -euo pipefail
-          slot="$RUNNER_TEMP/arc-inputs/slot.json"
-          out="artifacts/${TRIAL//:/-}"
-          args=(trial --target "$TARGET" --arm "$ARM" --trial-id "$TRIAL" --variant "$VARIANT" --output "$out"
-                --lock-digest "$LOCK_DIGEST" --lock-path candidate-lock/platform-lock.json
-                --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md")
-          host="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("dockerHost",""))' "$slot")"
-          cell="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("slotReceipt",""))' "$slot")"
-          creds="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("slotCredentials",""))' "$slot")"
-          [ -z "$host" ] || args+=(--docker-host "$host")
-          [ -z "$cell" ] || args+=(--slot-receipt "$cell")
-          [ -z "$creds" ] || args+=(--slot-credentials "$creds")
-          [ "$GOAL_SET" != held-out ] || args+=(--goal-set "$RUNNER_TEMP/arc-inputs/goals.json")
-          python3 tools/ai_arc_runner.py "${args[@]}"
-      - name: Release the trial's slot
+          args=(--target "$TARGET" --arm "$ARM" --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST"
+                --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md" --quickstart-revision "$REVISION"
+                --out "artifacts/$TARGET")
+          [ "$TARGET" != local-docker ] || args+=(--hosts "$HOSTS" --per-host 3)
+          [ -z "$TRIALS" ] || args+=(--trials "$TRIALS")
+          [ "$GOAL_SET" != held-out ] || args+=(--goal-set "$RUNNER_TEMP/arc-inputs/primary.json"
+                                               --reserve-set "$RUNNER_TEMP/arc-inputs/reserve.json")
+          python3 tools/ai_arc_campaign.py "${args[@]}"
+      - name: Forget decrypted inputs
         if: always()
-        env:
-          TARGET: ${{ matrix.target }}
-          TRIAL: ${{ matrix.runId }}
-        run: |
-          if [ -n "${HONUA_ARC_SLOT_PROVISIONER:-}" ]; then
-            "$HONUA_ARC_SLOT_PROVISIONER" release "$TARGET" "$TRIAL"
-          fi
-          rm -rf "$RUNNER_TEMP/arc-inputs"
-      - name: Retain trial evidence
+        run: rm -rf "$RUNNER_TEMP/arc-inputs"
+      - name: Retain campaign evidence (private evidence is redacted before it reaches this tree)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ai-arc-trial-${{ strategy.job-index }}
+          name: ai-arc-campaign-${{ inputs.arm }}-${{ matrix.target }}
           path: artifacts/
           if-no-files-found: error
 
   aggregate:
-    if: always() && needs.inventory.result == 'success'
-    needs: [inventory, trial]
+    if: always() && needs.targets.result == 'success'
+    needs: [targets, campaign]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -219,18 +178,19 @@ jobs:
       - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: ai-arc-schedule
-          path: schedule
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          pattern: ai-arc-trial-*
-          path: trials
+          pattern: ai-arc-campaign-${{ inputs.arm }}-*
+          path: campaigns
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
           name: ${{ inputs.lock_artifact }}
           path: candidate-lock
           run-id: ${{ inputs.lock_run_id }}
           github-token: ${{ github.token }}
+      - name: Open the sealed reserve manifest (void replacements)
+        if: ${{ inputs.goal_set == 'held-out' }}
+        env:
+          AI_ARC_HELDOUT_KEY: ${{ secrets.AI_ARC_HELDOUT_KEY }}
+        run: python tools/ai_arc_runner.py decrypt-goals --set reserve --output "$RUNNER_TEMP/reserve.json"
       - name: One receipt per target x arm
         env:
           ARM: ${{ inputs.arm }}
@@ -239,26 +199,22 @@ jobs:
           GOAL_SET: ${{ inputs.goal_set }}
         run: |
           set -euo pipefail
-          read -r sha digest < <(python -c '
-          import json, sys
-          c = json.load(open("candidate-lock/platform-lock.json"))["components"]["honua-server"]
-          d = [a["digest"] for a in c["artifacts"] if a.get("kind") == "image"]
-          print(c["source"]["revision"], d[0] if len(d) == 1 else "")')
           mkdir -p receipts
           IFS=',' read -ra names <<< "$TARGETS"
           for target in "${names[@]}"; do
-            args=(aggregate --target "$target" --arm "$ARM" --schedule "schedule/$target.json" --trials-dir trials
-                  --candidate-sha "$sha" --candidate-digest "$digest" --lock-digest "$LOCK_DIGEST"
-                  --goal-set-name "$GOAL_SET"
-                  --output "receipts/ai-arc-aggregate-$target-$ARM.json"
-                  --report "receipts/ai-arc-report-$target-$ARM.json")
-            [ ! -f "certification/ai-arc/voids/$target-$ARM.json" ] || args+=(--voids "certification/ai-arc/voids/$target-$ARM.json")
+            dir="campaigns/ai-arc-campaign-$ARM-$target/$target"
+            args=(aggregate --target "$target" --arm "$ARM" --schedule "$dir/schedule.json" --trials-dir "$dir/runs"
+                  --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --goal-set-name "$GOAL_SET"
+                  --voids "$dir/voids.json"
+                  --output "receipts/ai-arc-aggregate-$target-$ARM.json" --report "receipts/ai-arc-report-$target-$ARM.json")
+            [ "$GOAL_SET" != held-out ] || args+=(--reserve-set "$RUNNER_TEMP/reserve.json")
             python tools/ai_arc_runner.py "${args[@]}"
           done
+          rm -f "$RUNNER_TEMP/reserve.json"
       - name: Retain the aggregate receipts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ai-arc-receipt
+          name: ai-arc-aggregate-${{ inputs.arm }}
           path: receipts/
           if-no-files-found: error

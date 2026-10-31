@@ -82,6 +82,10 @@
         "after": "question",
         "say": "Name it Flood planning and share it with the operators only."
       }
+    ],
+    "drivers": [
+      "assistant",
+      "arm-browser"
     ]
   },
   "stages": [
@@ -90,20 +94,40 @@
       "title": "Set up Honua",
       "dependsOn": [],
       "versionRole": "install",
-      "assertions": [
-        "candidate.identity",
-        "deployment.ready",
-        "authentication.required"
-      ],
-      "awsAssertions": [
-        "candidate.identity",
-        "deployment.ready",
-        "authentication.required",
-        "topology.matches-goal",
-        "deploy-identity.least-privilege",
-        "credentials.short-lived",
-        "handoff.verified"
-      ]
+      "required": {
+        "local-docker": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required"
+        ],
+        "aws-ecs": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required",
+          "topology.matches-goal",
+          "deploy-identity.least-privilege",
+          "credentials.short-lived",
+          "handoff.verified"
+        ],
+        "aws-eks": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required",
+          "topology.matches-goal",
+          "deploy-identity.least-privilege",
+          "credentials.short-lived",
+          "handoff.verified"
+        ],
+        "aws-lambda": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required",
+          "topology.matches-goal",
+          "deploy-identity.least-privilege",
+          "credentials.short-lived",
+          "handoff.verified"
+        ]
+      }
     },
     {
       "id": "ops",
@@ -112,14 +136,44 @@
         "setup"
       ],
       "versionRole": "candidate",
-      "assertions": [
-        "upgrade.candidate-serving",
-        "rollback.prior-serving",
-        "restore.migration-142",
-        "diagnosis.recovered",
-        "approval.separate",
-        "data.preserved"
-      ]
+      "required": {
+        "local-docker": [
+          "candidate.serving",
+          "upgrade.candidate-serving",
+          "rollback.prior-serving",
+          "restore.migration-142",
+          "diagnosis.recovered",
+          "approval.separate",
+          "data.preserved"
+        ],
+        "aws-ecs": [
+          "candidate.serving",
+          "upgrade.candidate-serving",
+          "rollback.prior-serving",
+          "restore.migration-142",
+          "diagnosis.recovered",
+          "approval.separate",
+          "data.preserved"
+        ],
+        "aws-eks": [
+          "candidate.serving",
+          "upgrade.candidate-serving",
+          "rollback.prior-serving",
+          "restore.migration-142",
+          "diagnosis.recovered",
+          "approval.separate",
+          "data.preserved"
+        ],
+        "aws-lambda": [
+          "candidate.serving",
+          "upgrade.candidate-serving",
+          "rollback.prior-serving",
+          "restore.migration-142",
+          "diagnosis.recovered",
+          "approval.separate",
+          "data.preserved"
+        ]
+      }
     },
     {
       "id": "services",
@@ -133,7 +187,105 @@
         "P06",
         "P15",
         "P16"
-      ]
+      ],
+      "required": {
+        "local-docker": [
+          "candidate.serving",
+          "P04:features.exact",
+          "P04:geometry.crs",
+          "P04:source-content.unchanged",
+          "P04:finalAnswerCheck",
+          "P06:service.query",
+          "P06:pagination.complete",
+          "P06:service.write-denied",
+          "P06:source-content.unchanged",
+          "P06:finalAnswerCheck",
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck",
+          "P16:key.read-only",
+          "P16:key.revoked",
+          "P16:secrets.absent",
+          "P16:custody.bootstrap-revoked",
+          "P16:custody.worker-replaced",
+          "P16:finalAnswerCheck"
+        ],
+        "aws-ecs": [
+          "candidate.serving",
+          "P04:features.exact",
+          "P04:geometry.crs",
+          "P04:source-content.unchanged",
+          "P04:finalAnswerCheck",
+          "P06:service.query",
+          "P06:pagination.complete",
+          "P06:service.write-denied",
+          "P06:source-content.unchanged",
+          "P06:finalAnswerCheck",
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck",
+          "P16:key.read-only",
+          "P16:key.revoked",
+          "P16:secrets.absent",
+          "P16:custody.bootstrap-revoked",
+          "P16:custody.worker-replaced",
+          "P16:finalAnswerCheck"
+        ],
+        "aws-eks": [
+          "candidate.serving",
+          "P04:features.exact",
+          "P04:geometry.crs",
+          "P04:source-content.unchanged",
+          "P04:finalAnswerCheck",
+          "P06:service.query",
+          "P06:pagination.complete",
+          "P06:service.write-denied",
+          "P06:source-content.unchanged",
+          "P06:finalAnswerCheck",
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck",
+          "P16:key.read-only",
+          "P16:key.revoked",
+          "P16:secrets.absent",
+          "P16:custody.bootstrap-revoked",
+          "P16:custody.worker-replaced",
+          "P16:finalAnswerCheck"
+        ],
+        "aws-lambda": [
+          "candidate.serving",
+          "P04:features.exact",
+          "P04:geometry.crs",
+          "P04:source-content.unchanged",
+          "P04:finalAnswerCheck",
+          "P06:service.query",
+          "P06:pagination.complete",
+          "P06:service.write-denied",
+          "P06:source-content.unchanged",
+          "P06:finalAnswerCheck",
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck",
+          "P16:key.read-only",
+          "P16:key.revoked",
+          "P16:secrets.absent",
+          "P16:custody.bootstrap-revoked",
+          "P16:custody.worker-replaced",
+          "P16:finalAnswerCheck"
+        ]
+      }
     },
     {
       "id": "studio",
@@ -149,7 +301,93 @@
       "drivers": [
         "arm-browser",
         "studio-assistant"
-      ]
+      ],
+      "required": {
+        "local-docker": [
+          "candidate.serving",
+          "assistant:P08:map.composition",
+          "assistant:P08:render.actual",
+          "assistant:P08:source-content.unchanged",
+          "assistant:P08:finalAnswerCheck",
+          "assistant:P09:map.style",
+          "assistant:P09:render.actual",
+          "assistant:P09:state.saved",
+          "assistant:P09:source-content.unchanged",
+          "assistant:P09:finalAnswerCheck",
+          "arm-browser:P08:map.composition",
+          "arm-browser:P08:render.actual",
+          "arm-browser:P08:source-content.unchanged",
+          "arm-browser:P08:finalAnswerCheck",
+          "arm-browser:P09:map.style",
+          "arm-browser:P09:render.actual",
+          "arm-browser:P09:state.saved",
+          "arm-browser:P09:source-content.unchanged",
+          "arm-browser:P09:finalAnswerCheck"
+        ],
+        "aws-ecs": [
+          "candidate.serving",
+          "assistant:P08:map.composition",
+          "assistant:P08:render.actual",
+          "assistant:P08:source-content.unchanged",
+          "assistant:P08:finalAnswerCheck",
+          "assistant:P09:map.style",
+          "assistant:P09:render.actual",
+          "assistant:P09:state.saved",
+          "assistant:P09:source-content.unchanged",
+          "assistant:P09:finalAnswerCheck",
+          "arm-browser:P08:map.composition",
+          "arm-browser:P08:render.actual",
+          "arm-browser:P08:source-content.unchanged",
+          "arm-browser:P08:finalAnswerCheck",
+          "arm-browser:P09:map.style",
+          "arm-browser:P09:render.actual",
+          "arm-browser:P09:state.saved",
+          "arm-browser:P09:source-content.unchanged",
+          "arm-browser:P09:finalAnswerCheck"
+        ],
+        "aws-eks": [
+          "candidate.serving",
+          "assistant:P08:map.composition",
+          "assistant:P08:render.actual",
+          "assistant:P08:source-content.unchanged",
+          "assistant:P08:finalAnswerCheck",
+          "assistant:P09:map.style",
+          "assistant:P09:render.actual",
+          "assistant:P09:state.saved",
+          "assistant:P09:source-content.unchanged",
+          "assistant:P09:finalAnswerCheck",
+          "arm-browser:P08:map.composition",
+          "arm-browser:P08:render.actual",
+          "arm-browser:P08:source-content.unchanged",
+          "arm-browser:P08:finalAnswerCheck",
+          "arm-browser:P09:map.style",
+          "arm-browser:P09:render.actual",
+          "arm-browser:P09:state.saved",
+          "arm-browser:P09:source-content.unchanged",
+          "arm-browser:P09:finalAnswerCheck"
+        ],
+        "aws-lambda": [
+          "candidate.serving",
+          "assistant:P08:map.composition",
+          "assistant:P08:render.actual",
+          "assistant:P08:source-content.unchanged",
+          "assistant:P08:finalAnswerCheck",
+          "assistant:P09:map.style",
+          "assistant:P09:render.actual",
+          "assistant:P09:state.saved",
+          "assistant:P09:source-content.unchanged",
+          "assistant:P09:finalAnswerCheck",
+          "arm-browser:P08:map.composition",
+          "arm-browser:P08:render.actual",
+          "arm-browser:P08:source-content.unchanged",
+          "arm-browser:P08:finalAnswerCheck",
+          "arm-browser:P09:map.style",
+          "arm-browser:P09:render.actual",
+          "arm-browser:P09:state.saved",
+          "arm-browser:P09:source-content.unchanged",
+          "arm-browser:P09:finalAnswerCheck"
+        ]
+      }
     }
   ],
   "handoffs": {
@@ -161,11 +399,11 @@
     "local-docker": {
       "tier": "GA",
       "host": "ephemeral VM Docker host reached over a runner-owned SSH connection",
-      "setupSurface": "allow-listed recorded shell in a scratch directory on the host",
+      "setupSurface": "#1160 run_quickstart shell on a runner-owned VM slot (docker compose for this project with the published compose definition only, curl to localhost)",
       "goals": {
         "setup": {
-          "A": "Please install Honua on this computer with Docker, using the release in the setup notes and the getting-started guide in this folder. Tell me when it is running and how I sign in.",
-          "B": "I want to try Honua on my own machine. Can you get it running in Docker for me? The setup notes say which release to use, and the guide is in this folder. Let me know when I can sign in."
+          "A": "Please install Honua on this computer with Docker, using the release in the setup notes and the attached getting-started guide. Tell me when it is running and how I sign in.",
+          "B": "I want to try Honua on my own machine. Can you get it running in Docker for me? The setup notes say which release to use, and the guide is attached. Let me know when I can sign in."
         },
         "ops": {
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
@@ -183,6 +421,9 @@
       "bars": {
         "runs": 20,
         "minArcPasses": 17
+      },
+      "customerNotes": {
+        "setup": "Release: Honua {release}. Server image: {image}. I already created the secrets file and the key ring from the guide's second step in the install folder, so please don't make new ones. Use port {port} for Honua on this machine; the port after it is free for the other one."
       }
     },
     "aws-ecs": {
@@ -357,5 +598,30 @@
     "containerImage": "ghcr.io/honua-io/honua-devops@sha256:ddec7485a2681cf75876f8852f98de7121ef885e5f40bf154d61c509fec15a4c",
     "registration": "claude mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp (Codex: codex mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp); in the arc the runner starts the same verified binary with --mcp behind the recording proxy",
     "credentials": "slot-scoped short-lived STS session credentials in the operator process environment only"
+  },
+  "hosts": {
+    "local-docker": {
+      "slotsPerHost": 3,
+      "portBase": 18080,
+      "portStride": 100
+    }
+  },
+  "opsScope": {
+    "source": "certification/ai-arc/gating-scope.json (founder-approved: approvedBy=founder, approvedAt)",
+    "modes": {
+      "full": "every ops assertion is scored (prereg option A)",
+      "executed-subset": "only scoredOps[target] are scored (prereg option B); every other ops assertion is listed as unscored, never dropped",
+      "not-gating": "the target does not gate (prereg option C); ops is scored in full and results publish as they land"
+    },
+    "default": "full",
+    "catalog": [
+      "candidate.serving",
+      "upgrade.candidate-serving",
+      "rollback.prior-serving",
+      "restore.migration-142",
+      "diagnosis.recovered",
+      "approval.separate",
+      "data.preserved"
+    ]
   }
 }

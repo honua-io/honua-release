@@ -116,6 +116,21 @@ One aggregate per target × arm, from one `ai-arc.yml` matrix run, bound to the 
 - **What it covers:** Bedrock (Studio assistant), AWS cells and ephemeral VMs. Subscription CLI cost is recorded as `unknown`.
 - **Stop rule:** the ledger stops at the cap.
 
+## Ops stage scope: founder decision Sun 20:00
+**Why this needs deciding:** the product executors behind the ops stage are still being built.
+- honua-server #6811 (Compose), #6812 (ECS and Lambda image release), #6813 (restore across migration 142), #6814 (restart and config).
+- honua-iac #351 (controller restore).
+
+The ops stage can only count what the product actually executes, so one of these is chosen at 20:00, from the state at that time:
+
+| Option | Ops stage for a target | When it applies |
+|---|---|---|
+| **A (full)** | Update rc.1 to the candidate, roll back with restore across 142, diagnose and remediate a failing service. All proposals are executed by the product | The target's executors are merged and rehearsed |
+| **B (executed subset)** | Diagnose a failing service from `honua_ops_*` and `honua_alert_events`, propose the fix, the harness approves, and the product executes it. This applies only to proposal kinds with a merged executor; the update and rollback assertions are not scored on that target. Release notes name exactly which operations were measured | The executors are partly merged |
+| **C (target not gating)** | The target doesn't gate. Its arc results publish as they land | No executor is merged for the target |
+
+Under every option, the harness never performs a product operation, and an operation without an executor is never counted as passed.
+
 ## Founder sign-off (Sun 20:00)
 - [ ] Bars and run counts
 - [ ] Definitions, limits and the void policy
