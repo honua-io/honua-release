@@ -35,13 +35,6 @@ def test_unsupported_case_cannot_seed_score_or_mutate(scenario, stack, tmp_path)
     assert scenario.id in type(scenario).__name__
     assert scenario.needs_approver() == (scenario.id in ('P21', 'P22'))
     for variant in ('A', 'B'):
-        if scenario.id == 'P21':
-            for _ in range(2):
-                with pytest.raises(NotImplementedError):
-                    scenario.seed(stack, variant)
-        if scenario.id != 'P23':
-            with pytest.raises(NotImplementedError):
-                scenario.observe(stack, Seeded({}), variant)
         with pytest.raises(NotImplementedError):
             scenario.expected(variant)
     assert scenario.cleanup(stack, Seeded({})) is None
@@ -212,3 +205,48 @@ def test_p22_seed_saves_and_reads_owned_version(stack, monkeypatch, variant):
     assert p22.seed(stack, variant) == seeded
     assert recorder.calls == ['p22-source-before', 'p22-draft-create', 'p22-draft-validate',
                               'p22-draft-save', 'p22-version-before']
+    from agent_e2e_local_api import RunRecord
+    result = p22.observe(stack, seeded, variant, RunRecord('agent-id', 2, (), (), ()))
+    assert len(result) == 5 and all(row.observed is None for row in result)
+    assert recorder.calls[-2:] == ['p22-version-after', 'p22-source-after']
+    with pytest.raises(ValueError):
+        p22.observe(stack, seeded, variant, RunRecord('agent-id', 1, (), (), ()))
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_p21_reads_committed_draft_and_rejects_missing_fault(stack, monkeypatch, variant):
+    import agent_e2e_scenario_backend as backend
+    import agent_e2e_p10_observer as observer
+    from agent_e2e_local_api import RunRecord
+    class FakeTown:
+        def __init__(self, recorder, manifest):
+            pass
+        def prepare(self, **kwargs):
+            return {'layers': {'shelters': {'service': 'shared', 'layerId': 1}}}
+    class FakeRecorder:
+        def __init__(self):
+            self.calls = []
+        def json(self, step, method, path, body=None, *, principal='controller'):
+            self.calls.append(step)
+            value = {'draftId': 'draft-1', 'ownerId': 'agent-id'} if step == 'p21-committed-draft' else {}
+            return {'observation': {'httpStatus': 200, 'body': {'data': value}}}
+    monkeypatch.setattr(backend, 'TownSetup', FakeTown)
+    monkeypatch.setattr(observer, 'source_path', lambda layer: '/shared/source')
+    recorder = FakeRecorder()
+    stack.extra.update(recorder=recorder, agentPrincipal='agent-id', ensureConnection=lambda: 'connection-id')
+    p21 = importlib.import_module('agent_e2e_local_scenarios.P21').scenario
+    seeded = p21.seed(stack, variant)
+    assert p21.seed(stack, variant) == seeded
+    with pytest.raises(ValueError):
+        p21.observe(stack, seeded, variant, RunRecord('agent-id', 1, (), (), ()))
+    event = {'id': 'p21-map-create', 'kind': 'response_lost_after_commit',
+             'tool': 'honua_studio_create_draft', 'forwarded': True, 'httpStatus': 503,
+             'upstreamOutcome': 'ok', 'upstreamStatus': 200,
+             'upstreamResponseSha256': 'sha256:' + '1' * 64, 'committedResourceId': 'draft-1'}
+    rows = p21.observe(stack, seeded, variant, RunRecord('agent-id', 1, (event,), (), ()))
+    assert len(rows) == 5 and all(row.observed is None for row in rows)
+    assert recorder.calls == ['p21-source-before', 'p21-drafts-before', 'p21-committed-draft',
+                              'p21-drafts-after', 'p21-source-after']
+    bad = {**event, 'committedResourceId': 'wrong-draft'}
+    with pytest.raises(ValueError):
+        p21.observe(stack, seeded, variant, RunRecord('agent-id', 1, (bad,), (), ()))
