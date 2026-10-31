@@ -133,5 +133,10 @@ class P13(Scenario):
                 Observation('shared.preserved', None, {'projection': 'extract/v1'}),
                 Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
+    def handoff(self, stack, seeded, variant, run=None):
+        return {'object': {'resources': {'list': []}, 'facts': {'object': {
+            'names': {'list': [{'body': 'p13-target-v1', 'pointer': '/data/envelope/body/title'}]},
+            'counts': {'object': {'maps': {'body': 'p13-maps-inventory-after', 'pointer': '/data/total'}}}}}}}
+
 
 scenario = P13()
