@@ -11,11 +11,11 @@
     "clientArtifact": "platform-manifest.yaml clientArtifacts.<key>.sourceSha: the commit the published registry package (and its README) was built from",
     "component": "platform-manifest.yaml components.<key>.sha: the pinned component revision",
     "npmPublished": "gitHead of the npm dist-tag `latest` of the package: what npmjs.com shows today (the package is not a manifest pin)",
-    "defaultBranch": "head of the repository's default branch at run time: the published site/samples a reader sees today",
+    "defaultBranch": "the last commit that changed this file on the default branch: the copy a reader sees on GitHub today",
     "checkout": "this repository's own checkout: the release docs that ship with the candidate"
   },
   "documents": [
-    {"repo": "honua-io/honua-sdk-js", "path": "README.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "README.md", "sourceBuild": true, "revision": {"defaultBranch": true}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-js", "path": "INSTALL.md", "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-js", "path": "docs/quickstart.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-js", "path": "mcp/README.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-mcp-server"}, "runtime": "node"},
