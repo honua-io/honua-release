@@ -1,10 +1,11 @@
-"""P13 is unsupported pending an assertion-specific restore/history projection.
+"""P13 is unsupported until complete preservation can be scored independently.
 
-The seed creates two separately owned maps and the published town. The runner
-must verify a post-seed shelter style change and restoration to the seeded v1,
-plus complete shared-map, service and source snapshots. A final v1 pointer alone
-would also accept a no-op. The current runner exposes no assertion projection
-registry hook for those checks.
+The frozen restore projection checks the seeded v1, a later agent-authored style
+change and the final pointer. The remaining shared.preserved and complete town
+source assertions need identity-bound map/service inventories and polygon feature
+normalization. The frozen core projection language currently normalizes only
+FeatureServer points. The runner needs a reviewed polygon normalizer and a way
+to bind complete shared inventories before this scenario can be enabled.
 """
 from pathlib import Path
 from urllib.parse import urlencode
@@ -25,6 +26,7 @@ class P13(Scenario):
         item_id = str(uuid4())
         layers = [{'id': name, 'sourceId': str(town['layers'][name]['service']), 'visible': True}
                   for name in ('parcels', 'flood_zones', 'shelters')]
+        layers[2]['style'] = {'type': 'circle', 'paint': {'circle-color': '#315a86'}}
         envelope = {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map_package.v1',
                     'bindings': [], 'dependencies': [], 'provenance': [],
                     'body': {'title': 'Town map', 'layers': layers}}
@@ -91,7 +93,9 @@ class P13(Scenario):
     def roles(self, stack, seeded, variant, run=None):
         return [RoleBinding('seeded:map:target', 'p13-target-save', pointer='/data/itemId'),
                 RoleBinding('seeded:version:v1', 'p13-target-save', pointer='/data/versionId'),
-                RoleBinding('seeded:hash:v1', 'p13-target-save', pointer='/data/contentHash')]
+                RoleBinding('seeded:hash:v1', 'p13-target-save', pointer='/data/contentHash'),
+                RoleBinding('seeded:service:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/serviceName'),
+                RoleBinding('seeded:layer:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/layerId')]
 
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_p10_observer import source_path
@@ -103,9 +107,8 @@ class P13(Scenario):
         recorder.json('p13-target-v1', 'GET', '/api/v1/studio/content-items/' + item + '/versions/' + target['versionId'])
         recorder.json('p13-shared-after', 'GET', seeded.state['shared']['listPath'])
         recorder.json('p13-shelters-after', 'GET', source_path(seeded.state))
-        return [Observation('source-content.unchanged', None, {'projection': 'extract/v1', 'spec': {
-            'protectedContent': [{'label': 'shelters', 'before': 'p13-shelters-before',
-                                  'after': 'p13-shelters-after'}]}})]
+        return [Observation('version.restored', None, {'projection': 'extract/v1'}),
+                Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
 
 scenario = P13()

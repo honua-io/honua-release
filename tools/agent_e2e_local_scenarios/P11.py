@@ -1,12 +1,13 @@
 """P11 remains unsupported until local job-to-output and saved-map evidence is bound.
 
-The runner needs an assertion-specific projection for the authenticated job and
-its persisted artifact, a post-seed agent-owned job locator, and a map/output
-binding. A fixture buffer alone cannot prove the requested saved result was made.
+The runner needs a post-seed agent-owned job locator, a frozen projection for
+the persisted buffer artifact and an independently verified map/output binding.
+Complete source preservation also needs polygon normalization; typed attribute
+queries depend on honua-server #6815. A fixture buffer alone cannot prove the requested saved result was made.
 """
 from pathlib import Path
 
-from agent_e2e_local_api import Observation, Scenario, Seeded
+from agent_e2e_local_api import Observation, RoleBinding, Scenario, Seeded
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,12 +38,14 @@ class P11(Scenario):
         stack.extra['p11Seed'] = seed
         return Seeded(seed)
 
+    def roles(self, stack, seeded, variant, run=None):
+        return [RoleBinding('seeded:service:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/serviceName'),
+                RoleBinding('seeded:layer:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/layerId')]
+
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_p10_observer import source_path
         stack.extra['recorder'].json('p11-shelters-after', 'GET', source_path(seeded.state))
-        return [Observation('source-content.unchanged', None, {'projection': 'extract/v1', 'spec': {
-            'protectedContent': [{'label': 'shelters', 'before': 'p11-shelters-before',
-                                  'after': 'p11-shelters-after'}]}})]
+        return [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
 
 scenario = P11()

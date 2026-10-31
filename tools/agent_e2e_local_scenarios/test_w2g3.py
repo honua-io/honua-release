@@ -63,7 +63,7 @@ def test_p11_seed_idempotent_and_declares_recorded_source_projection(monkeypatch
     observation = P11.scenario.observe(stack, first, variant)[0]
     assert observation.assertion_id == 'source-content.unchanged'
     assert observation.observed is None
-    assert observation.evidence['spec']['protectedContent'][0]['before'] == 'p11-shelters-before'
+    assert observation.evidence == {'projection': 'extract/v1'}
     assert recorder.calls[-1][0] == 'p11-shelters-after'
 
 
@@ -109,7 +109,7 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
     assert seeded.state['target']['versionId'] != seeded.state['shared']['versionId']
     assert seeded.state['target']['owner'] != seeded.state['shared']['owner']
     observations = P13.scenario.observe(stack, seeded, variant)
-    assert [item.assertion_id for item in observations] == ['source-content.unchanged']
+    assert [item.assertion_id for item in observations] == ['version.restored', 'source-content.unchanged']
     with pytest.raises(ValueError):
         P13.scenario.seed(stack, 'B' if variant == 'A' else 'A')
 
@@ -126,42 +126,6 @@ def test_seeded_shelter_preservation_rejects_mutation(scenario_id, variant):
         oracle.verify('source-content.unchanged', observed, expected)
 
 
-def test_p13_restore_projection_rejects_noop_wrong_style_and_pointer():
-    from agent_e2e_local_projections_w2g3 import project_restore
-    from agent_e2e_local_recorder import ProjectionError, Record
-    def record(path, data, *, seed=False):
-        body = {'success': True, 'data': data}
-        raw = json.dumps(body).encode()
-        return Record('fixture', 'seed' if seed else 'observe', 'http', 'controller', 'controller-id',
-                      'POST' if seed else 'GET', path, 201 if seed else 200,
-                      raw, 'sha256:' + hashlib.sha256(raw).hexdigest(), body)
-    item, v1, owner = 'item-1', 'version-1', 'agent-1'
-    def version(vid, number, color):
-        return {'itemId': item, 'versionId': vid, 'ownerId': owner, 'createdBy': owner,
-                'versionNumber': number, 'contentHash': 'a' * 64,
-                'envelope': {'body': {'layers': [{'id': 'shelters', 'style': {'color': color}}]}}}
-    first, changed = version(v1, 1, 'blue'), version('version-2', 2, 'red')
-    root = '/api/v1/studio/content-items/' + item + '/versions'
-    seed_record = record('/api/v1/studio/package-drafts/draft/content-versions', copy.deepcopy(first), seed=True)
-    records = {'p13-target-save': seed_record, 'p13-target-after': record('/api/v1/studio/content-items?workspaceId=fixture',
-                    {'total': 1, 'nextCursor': None, 'items': [{'itemId': item, 'ownerId': owner, 'currentVersionId': v1}]}),
-               'p13-target-versions': record(root, {'itemId': item, 'versions': [first, changed]}),
-               'p13-target-v1': record(root + '/' + v1, first)}
-    expected = {'resourceId': item, 'restoredVersionId': v1, 'documentSha256': 'a' * 64}
-    actual = project_restore(records, item_id=item, version_id=v1, agent_principal=owner)
-    oracle.verify('version.restored', actual, expected)
-    for mutate in ('no-op', 'same-style', 'wrong-pointer', 'foreign-author'):
-        bad = copy.deepcopy(records)
-        if mutate == 'no-op': bad['p13-target-versions'].json['data']['versions'].pop()
-        if mutate == 'same-style': bad['p13-target-versions'].json['data']['versions'][1]['envelope']['body']['layers'][0]['style']['color'] = 'blue'
-        if mutate == 'wrong-pointer': bad['p13-target-after'].json['data']['items'][0]['currentVersionId'] = 'version-2'
-        if mutate == 'foreign-author': bad['p13-target-versions'].json['data']['versions'][1]['createdBy'] = 'foreign'
-        step = 'p13-target-after' if mutate == 'wrong-pointer' else 'p13-target-versions'
-        bad[step] = record(bad[step].path, bad[step].json['data'])
-        with pytest.raises(ProjectionError):
-            project_restore(bad, item_id=item, version_id=v1, agent_principal=owner)
-
-
 @pytest.mark.parametrize('variant', ['A', 'B'])
 def test_town_setup_verifies_only_selected_fixture_bytes(monkeypatch, variant):
     from agent_e2e_local_scenarios import w2g3_common
@@ -175,3 +139,81 @@ def test_town_setup_verifies_only_selected_fixture_bytes(monkeypatch, variant):
     monkeypatch.setattr(w2g3_common, 'verify_corpus', verify)
     setup = w2g3_common.town_setup(object(), variant)
     assert len(calls) == 1 and set(setup.files) == calls[0]
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_frozen_restore_projection_rejects_actual_noop(variant):
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_projections
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import score_assertions
+    item = '11111111-1111-1111-1111-111111111111'
+    version = '22222222-2222-2222-2222-222222222222'
+    owner, digest = 'agent', 'a' * 64
+    def record(step, path, value):
+        raw = json.dumps({'data': value}).encode()
+        return Record(step, 'observe', 'http', 'controller', 'controller', 'GET', path, 200,
+                      raw, 'sha256:' + hashlib.sha256(raw).hexdigest())
+    v1 = {'versionId': version, 'createdBy': owner, 'envelope': {'body': {'layers': [{}, {}, {'style': {'color':'blue'}}]}}}
+    v2 = {'versionId': 'new', 'createdBy': owner, 'envelope': {'body': {'layers': [{}, {}, {'style': {'color':'red'}}]}}}
+    root = '/api/v1/studio/content-items/' + item + '/versions'
+    records = {'p13-target-after': record('p13-target-after', '/api/v1/studio/content-items?workspaceId=case', {'items':[{'itemId':item,'currentVersionId':version}]}),
+               'p13-target-v1': record('p13-target-v1', root + '/' + version, {'contentHash':digest, **v1}),
+               'p13-target-versions': record('p13-target-versions', root, {'versions':[v1,v2]})}
+    expected = load_expected('P13', variant)['version.restored']
+    roles = {'seeded:map:target':item, 'seeded:version:v1':version, 'seeded:hash:v1':digest}
+    observation = Observation('version.restored', None, {'projection':'extract/v1'})
+    def score(rows):
+        return score_assertions(['version.restored'], [observation], {'version.restored':expected}, records=rows,
+                                roles=roles, run_facts={'agentPrincipal':owner}, scenario_id='P13',
+                                frozen=load_projections('P13', variant))[0]['status']
+    assert score(records) == 'pass'
+    records['p13-target-versions'] = record('p13-target-versions', root, {'versions':[v1]})
+    assert score(records) == 'fail'
+
+
+def test_restore_frozen_projection_with_recorded_http_and_wrong_live_history(tmp_path):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_projections
+    from agent_e2e_local_recorder import ControllerRecorder
+    from agent_e2e_local_runner import score_assertions
+    item = '11111111-1111-1111-1111-111111111111'
+    v1id = '22222222-2222-2222-2222-222222222222'
+    owner, digest = 'agent', 'a' * 64
+    def version(vid, style):
+        return {'versionId':vid, 'createdBy':owner, 'envelope':{'body':{'layers':[{}, {}, {'style':{'color':style}}]}}}
+    v1, v2 = version(v1id,'blue'), version('new','red')
+    history = {'versions':[v1,v2]}
+    root = '/api/v1/studio/content-items/' + item + '/versions'
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            if self.path.startswith('/api/v1/studio/content-items?'):
+                data = {'items':[{'itemId':item,'currentVersionId':v1id}]}
+            elif self.path == root: data = history
+            elif self.path == root + '/' + v1id: data = {'contentHash':digest, **v1}
+            else: self.send_error(404); return
+            raw = json.dumps({'data':data}).encode()
+            self.send_response(200); self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(raw))); self.end_headers(); self.wfile.write(raw)
+    server = ThreadingHTTPServer(('127.0.0.1',0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        for wrong in (False, True):
+            if wrong: history['versions'] = [v1]
+            recorder = ControllerRecorder(base_url=f'http://127.0.0.1:{server.server_port}',
+                workdir=str(tmp_path / str(wrong)), candidate_digest='sha256:'+'a'*64,
+                attempt_id='test', principals={'controller':(None,'controller')})
+            recorder.set_phase('observe')
+            recorder.json('p13-target-after','GET','/api/v1/studio/content-items?workspaceId=case')
+            recorder.json('p13-target-v1','GET',root+'/'+v1id)
+            recorder.json('p13-target-versions','GET',root)
+            result = score_assertions(['version.restored'], [Observation('version.restored',None,{'projection':'extract/v1'})],
+                {'version.restored':load_expected('P13','A')['version.restored']}, records=recorder.records,
+                roles={'seeded:map:target':item,'seeded:version:v1':v1id,'seeded:hash:v1':digest},
+                run_facts={'agentPrincipal':owner}, scenario_id='P13', frozen=load_projections('P13','A'))
+            assert result[0]['status'] == ('fail' if wrong else 'pass')
+    finally:
+        server.shutdown(); server.server_close()
