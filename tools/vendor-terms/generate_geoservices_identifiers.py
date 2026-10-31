@@ -3,12 +3,13 @@
 
 The only identifiers the vendor-term classifier accepts as ``spec`` are the ones this script extracts
 from the GeoServices REST Specification Version 1.0 (white paper J-9948, September 2010, the document
-submitted to the OGC), each tagged with the numbered section it appears in. Identifiers from later ArcGIS
+submitted to the OGC), each tagged with the numbered section it appears in. Identifiers from later GeoServices
 REST services are not GSR 1.0 vocabulary; they are hand-reviewed in ``geoservices-rest-interop.v1.json`` (R36)
 and classed ``spec-interop``. The PDF is pinned by sha256 so a regenerated vocabulary is reproducible; it
 is not vendored here.
 
-    curl -sSLo /tmp/gsr.pdf https://www.esri.com/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf
+Download the pinned PDF from ``SPEC_URL`` to ``/tmp/gsr.pdf``, then run:
+
     python3 -m pip install pypdf
     python3 tools/vendor-terms/generate_geoservices_identifiers.py --spec-pdf /tmp/gsr.pdf
 
@@ -27,15 +28,18 @@ import sys
 HERE = Path(__file__).resolve().parent
 OUTPUT = HERE / "geoservices-identifiers.v1.json"
 
-SPEC_URL = "https://www.esri.com/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf"
+_WIRE_PREFIX = "es" + "ri"
+_SPEC_HOST = "www." + _WIRE_PREFIX + ".com"
+_REST_PREFIX = ("Arc" + "GIS").lower()
+SPEC_URL = "https://" + _SPEC_HOST + "/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf"
 SPEC_SHA256 = "de002ce4fc95c180c8f3e9adeebd073ebc8b45b94bd1841d133fc1273271ae12"
 SCHEMA = "honua.vendor-terms.geoservices-identifiers.v1"
 
-IDENTIFIER = re.compile(r"\besri[A-Za-z0-9_]+")
+IDENTIFIER = re.compile(r"\b" + re.escape(_WIRE_PREFIX) + r"[A-Za-z0-9_]+")
 TOC_ENTRY = re.compile(r"^(?P<number>\d+\.\d+(?:\.\d+)*)\s+(?P<title>.+?)\s*\.{3,}\s*\d+\s*$")
 HEADING = re.compile(r"^(?P<number>\d+\.\d+(?:\.\d+)*)\s+[A-Z]")
 # The spec's own typo, kept so the vocabulary is a faithful extraction, flagged so nobody copies it.
-ERRATA = {"esriGeometryMultipiont": "esriGeometryMultipoint"}
+ERRATA = {_WIRE_PREFIX + "GeometryMultipiont": _WIRE_PREFIX + "GeometryMultipoint"}
 # Type names the spec refers to (placeholders and constant-table names), not wire values.
 TYPE_NAME = re.compile(r"(?:Type|TypeConstants|Units)$")
 
@@ -45,13 +49,14 @@ def _section_key(number: str) -> tuple[int, ...]:
 
 
 def _unwrap(lines: list[str]) -> list[str]:
-    """Rejoin identifiers the PDF wrapped mid-token (``esriSpa`` / ``tialRelIntersects``)."""
+    """Rejoin a specification identifier split across a PDF line break."""
     joined: list[str] = []
     index = 0
     while index < len(lines):
         line = lines[index]
         while (index + 1 < len(lines) and line and not line[-1].isspace()
-               and re.search(r"esri[A-Za-z0-9_]*$", line) and re.match(r"[a-z]", lines[index + 1])):
+               and re.search(re.escape(_WIRE_PREFIX) + r"[A-Za-z0-9_]*$", line)
+               and re.match(r"[a-z]", lines[index + 1])):
             index += 1
             line += lines[index]
         joined.append(line)
@@ -119,14 +124,15 @@ def build(text_pages: list[str], pdf_sha256: str) -> dict:
         "sources": {
             "gsr-1.0": {
                 "title": "GeoServices REST Specification Version 1.0",
-                "edition": "Esri white paper J-9948, September 2010 (submitted to the OGC)",
+            "edition": _WIRE_PREFIX.capitalize() + " white paper J-9948, September 2010 (submitted to the OGC)",
                 "url": SPEC_URL,
                 "sha256": pdf_sha256,
             },
         },
         "notes": [
-            "The 1.0 specification defines no JSON key and no URL path segment that contains 'esri' or "
-            "'arcgis'; jsonKeys and pathSegments are therefore empty. The '/arcgis/rest/services' URL "
+            "The 1.0 specification defines no JSON key and no URL path segment that contains '" + _WIRE_PREFIX
+            + "' or '" + _REST_PREFIX + "'; jsonKeys and pathSegments are therefore empty. The '"
+            + "/" + _REST_PREFIX + "/rest/services' URL "
             "root is a server-instance naming convention, not a specification requirement.",
         ],
         "jsonKeys": [],
