@@ -52,9 +52,11 @@ class P24(Scenario):
     def roles(self, stack, seeded, variant, run=None):
         return source_roles() + [
             RoleBinding('created:map', 'p24-maps', items='/data/items', id='/itemId',
-                        owner='/ownerId', before='p24-maps-before'),
+                        owner='/ownerId', before='p24-maps-before',
+                        owner_any_of=['{agentUser}', '{agentKey}', 'api-key:{agentKey}']),
             RoleBinding('created:version', 'p24-maps', items='/data/items', id='/currentVersionId',
-                        owner='/ownerId', before='p24-maps-before'),
+                        owner='/ownerId', before='p24-maps-before',
+                        owner_any_of=['{agentUser}', '{agentKey}', 'api-key:{agentKey}']),
         ]
 
     def observe(self, stack, seeded, variant, run=None):

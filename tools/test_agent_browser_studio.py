@@ -232,7 +232,7 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
     recorder = _recorder(tmp_path, state)
     extra = {
         'recorder': recorder, 'ensureConnection': lambda: 'conn-1', 'agentPrincipal': AGENT,
-        'verifiedConsoleIdentity': AGENT,
+        'validatedConsoleCustomer': AGENT, 'consoleUserId': AGENT,
         'studioUrl': 'http://127.0.0.1:8137',
     }
     if published:
@@ -244,7 +244,9 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
     seeded = scenario.seed(stack, variant)
     recorder.set_phase('observe')
     observations = scenario.observe(stack, seeded, variant)
-    roles = resolve_roles(frozen_roles(scenario, stack, seeded, variant, None), recorder.records, agent_principal=AGENT)
+    custody = {'agentUserId': AGENT, 'agentKeyId': AGENT, 'agentKeyOwnerUserId': AGENT}
+    roles = resolve_roles(frozen_roles(scenario, stack, seeded, variant, None), recorder.records,
+                          agent_principal=AGENT, custody=custody)
     expected = scenario.expected(variant)
     assertions = list(select_case(PACK, scenario_id, variant)['assertions'])
     results = score_assertions(assertions, observations, expected, records=recorder.records,
@@ -402,8 +404,8 @@ def test_studio_case_requires_explicit_console_origin(tmp_path):
     with pytest.raises(ProjectionError, match='no provisioned Console origin'):
         P08().seed(stack, 'A')
     stack.extra.update(consoleUrl='http://127.0.0.1:25174', agentPrincipal=AGENT,
-                       verifiedConsoleIdentity='dev-operator')
-    with pytest.raises(ProjectionError, match='no verified session for the agent principal'):
+                       consoleUserId=AGENT, validatedConsoleCustomer='dev-operator')
+    with pytest.raises(ProjectionError, match='candidate has not authenticated the runner customer'):
         P08().seed(stack, 'A')
 
 
@@ -441,8 +443,8 @@ def test_p24_uploads_only_runner_admitted_customer_files(tmp_path):
     state = {'scenario': 'P24', 'variant': 'A', 'flood': None}
     recorder = _recorder(tmp_path, state)
     stack = Stack('http://127.0.0.1:8137', 'k', None, 'g41', 'f', str(tmp_path), DIGEST, {
-        'recorder': recorder, 'agentPrincipal': AGENT, 'verifiedConsoleIdentity': AGENT,
-        'consoleUrl': 'http://127.0.0.1:25174',
+        'recorder': recorder, 'agentPrincipal': AGENT, 'validatedConsoleCustomer': AGENT,
+        'consoleUserId': AGENT, 'consoleUrl': 'http://127.0.0.1:25174',
         'customerFiles': ({'name': 'parcels.3857.geojson', 'path': str(source),
                            'sha256': 'sha256:' + hashlib.sha256(source.read_bytes()).hexdigest()},),
     })
@@ -731,7 +733,7 @@ def test_seed_is_idempotent(monkeypatch, tmp_path):
         attempt_id='attempt-1', principals={'controller': (None, 'controller')}, http_factory=factory)
     stack = Stack('http://127.0.0.1:8137', 'k', None, 'g41studio', 'f', str(tmp_path), DIGEST, {
         'recorder': recorder, 'ensureConnection': lambda: 'conn-1', 'agentPrincipal': AGENT,
-        'verifiedConsoleIdentity': AGENT,
+        'validatedConsoleCustomer': AGENT, 'consoleUserId': AGENT,
         'consoleUrl': 'http://127.0.0.1:25174',
     })
     first = P08().seed(stack, 'A')

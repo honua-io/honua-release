@@ -903,7 +903,12 @@
       "items": "/data/items",
       "id": "/itemId",
       "owner": "/ownerId",
-      "before": "p08-maps-before"
+      "before": "p08-maps-before",
+      "owner_any_of": [
+        "{agentUser}",
+        "{agentKey}",
+        "api-key:{agentKey}"
+      ]
     }
   ],
   "projections": {

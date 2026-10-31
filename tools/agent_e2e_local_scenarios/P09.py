@@ -22,7 +22,8 @@ class P09(Scenario):
         return source_roles() + [
             RoleBinding('seeded:map', 'p09-maps-before', pointer='/data/items/0/itemId'),
             RoleBinding('created:version', 'p09-maps', items='/data/items', id='/currentVersionId',
-                        owner='/ownerId', before='p09-maps-before'),
+                        owner='/ownerId', before='p09-maps-before',
+                        owner_any_of=['{agentUser}', '{agentKey}', 'api-key:{agentKey}']),
         ]
 
     def observe(self, stack, seeded, variant, run=None):

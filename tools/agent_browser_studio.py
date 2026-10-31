@@ -74,7 +74,7 @@ def remote_docker_host():
 
 class CaseConsole:
     """A digest-pinned quickstart Console attached to one remote case network."""
-    def __init__(self, stack, image):
+    def __init__(self, stack, image, *, edge_secret=None):
         self.host = remote_docker_host()
         if self.host is None:
             raise ValueError('Console requires an approved remote eval Docker host')
@@ -94,9 +94,16 @@ class CaseConsole:
                    '--label', 'honua.corpus.case=' + stack.compose_project,
                    '--network', stack.compose_project + '_default', '--publish', '127.0.0.1::8080',
                    '--env', 'ASPNETCORE_ENVIRONMENT=Development', '--env', 'ASPNETCORE_URLS=http://+:8080',
+                   '--env', 'Studio__EmbedJsStudio=true',
                    '--env', 'HONUA_SERVER_BASE_URL=http://server:8080', '--env', 'HONUA_ADMIN_API_KEY',
                    '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
                    '--tmpfs', '/tmp:noexec,nosuid,size=100m', image]
+        if edge_secret is not None:
+            if not isinstance(edge_secret, str) or len(edge_secret) < 32:
+                raise ValueError('Console edge secret is invalid')
+            env['Honua__Console__Auth__EdgeForwarded__SharedSecret'] = edge_secret
+            command[-1:-1] = ['--env', 'Honua__Console__Auth__Mode=EdgeForwarded',
+                               '--env', 'Honua__Console__Auth__EdgeForwarded__SharedSecret']
         try:
             self._attempted = True
             result = subprocess.run(command, env=env, capture_output=True, timeout=180, check=False)
@@ -346,16 +353,22 @@ def render_contract():
 class PlaywrightPage:
     """Controller page. It screenshots and reads attributes. It has no evaluate tool."""
 
-    def __init__(self, origin):
+    def __init__(self, origin, identity=None):
         use_worktree_browsers()
         from playwright.sync_api import sync_playwright
         self.origin = origin
         self.aborted = []
         self._initial_document = True
         self._origin_failed = False
+        self._identity = identity
+        self._identity_tokens = []
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(**launch_options())
-        self._context = self._browser.new_context(**context_options())
+        options = context_options()
+        if identity is not None:
+            options['extra_http_headers'] = {'X-Honua-Edge-Auth': identity['edgeSecret'],
+                                             'X-Forwarded-User': identity['subject']}
+        self._context = self._browser.new_context(**options)
         self._context.route('**/*', self._gate)
         # Do not use sync Playwright's WebSocket route: closing a socket from its
         # callback can deadlock the owning greenlet. The document's enforced CSP
@@ -395,7 +408,15 @@ class PlaywrightPage:
         # invoking this handler for every hop. Fetch exactly one hop, inspect its
         # Location, then let the browser request an admitted redirect separately.
         try:
-            response = route.fetch(max_redirects=0, timeout=10000)
+            fetch_args = {'max_redirects': 0, 'timeout': 10000}
+            if self._identity is not None:
+                token = self._identity['mintToken']()
+                self._identity_tokens.append(token)
+                fetch_args['headers'] = {**route.request.headers,
+                    'X-Honua-Edge-Auth': self._identity['edgeSecret'],
+                    'X-Forwarded-User': self._identity['subject'],
+                    'X-Forwarded-Access-Token': token.removeprefix('Bearer ')}
+            response = route.fetch(**fetch_args)
             headers = dict(response.headers)
             location = headers.get('location')
             if 300 <= response.status < 400 and location and not self.origin.allows(urljoin(url, location)):
@@ -475,11 +496,12 @@ class PlaywrightPage:
 class StudioBrowserServer:
     """Loopback MCP server. Tools are the allowlist above; evaluate and devtools are absent."""
 
-    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=()):
+    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=(), identity=None):
         self.studio_url = studio_url
         self.action_log = action_log
         self.fixture_dir = fixture_dir
         self.page_factory = page_factory
+        self.identity = identity
         self.token = secrets.token_hex(24)
         self._sensitive = tuple(value for value in sensitive if isinstance(value, str) and len(value) >= 8)
         self.page = None
@@ -497,7 +519,8 @@ class StudioBrowserServer:
         self.lock = OriginLock(self.studio_url)
         self._owner = _DaemonOwner()
         try:
-            self.page = self._owner.submit(self.page_factory or PlaywrightPage, self.lock).result(timeout=self.owner_timeout)
+            factory = self.page_factory or (lambda lock: PlaywrightPage(lock, identity=self.identity))
+            self.page = self._owner.submit(factory, self.lock).result(timeout=self.owner_timeout)
             if isinstance(self.page, PlaywrightPage):
                 self._owner.idle = self.page.pump_events
             self._serve()
@@ -681,6 +704,10 @@ class StudioBrowserServer:
     def _studio_snapshot(self, _arguments):
         text = self.page.snapshot_text()
         values = self._sensitive + (self.token,)
+        if self.identity is not None:
+            values += (self.identity['edgeSecret'],)
+            values += tuple(getattr(self.page, '_identity_tokens', ()))
+            values += tuple(token.removeprefix('Bearer ') for token in getattr(self.page, '_identity_tokens', ()))
         context = getattr(self.page, '_context', None)
         if context is not None:
             values += tuple(value for cookie in context.cookies()
@@ -732,7 +759,7 @@ def _tool_result(status, text, digest):
             'structuredContent': {'screenshotSha256': digest}}
 
 
-def open_studio_browser(stack, action_log):
+def open_studio_browser(stack, action_log, *, identity=None):
     """Start the studio MCP server for one session. The runner stops it."""
     origin = stack.extra.get('consoleUrl') or stack.extra.get('studioUrl')
     require(isinstance(origin, str) and origin, 'case has no provisioned Console origin')
@@ -741,7 +768,7 @@ def open_studio_browser(stack, action_log):
     sensitive = (stack.admin_key, stack.approver_key, os.environ.get('HONUA_CORPUS_AGENT_KEY'),
                  os.environ.get('HONUA_CORPUS_BOOTSTRAP_KEY'))
     server = StudioBrowserServer(origin, action_log, fixture, page_factory=stack.extra.get('studioPageFactory'),
-                                 sensitive=sensitive)
+                                 sensitive=sensitive, identity=identity)
     server.start()
     return server
 
@@ -906,9 +933,9 @@ def seed_case(scenario_id, stack, variant, *, create_map):
     if not origin and callable(stack.extra.get('startConsole')):
         origin = stack.extra['startConsole']()
     require(isinstance(origin, str) and origin, 'case has no provisioned Console origin')
-    agent = stack.extra.get('agentPrincipal')
-    require(isinstance(agent, str) and agent and stack.extra.get('verifiedConsoleIdentity') == agent,
-            'Console has no verified session for the agent principal')
+    user = stack.extra.get('consoleUserId')
+    require(isinstance(user, str) and user and stack.extra.get('validatedConsoleCustomer') == user,
+            'candidate has not authenticated the runner customer')
     stack.extra['studioUrl'] = origin
     # Expose only files the runner has already admitted from the frozen customer
     # inventory. The corpus directory also contains controller-only SQL.
@@ -961,8 +988,8 @@ def observe_map(stack, seeded, prefix, *, created):
     rows = items_of(listing['observation']['body'])
     if created:
         before = {row.get('itemId') for row in items_of(recorder.records[prefix + '-maps-before'].json)}
-        agent = stack.extra.get('agentPrincipal')
-        matches = [row for row in rows if row.get('itemId') not in before and row.get('ownerId') == agent]
+        owners = {stack.extra.get('agentPrincipal'), stack.extra.get('consoleUserId')}
+        matches = [row for row in rows if row.get('itemId') not in before and row.get('ownerId') in owners]
         require(len(matches) == 1, 'map list does not identify one new map')
         row = matches[0]
     else:

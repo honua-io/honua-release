@@ -20,7 +20,8 @@ class P08(Scenario):
 
     def roles(self, stack, seeded, variant, run=None):
         return source_roles() + [RoleBinding('created:map', 'p08-maps', items='/data/items', id='/itemId',
-                            owner='/ownerId', before='p08-maps-before')]
+                            owner='/ownerId', before='p08-maps-before',
+                            owner_any_of=['{agentUser}', '{agentKey}', 'api-key:{agentKey}'])]
 
     def observe(self, stack, seeded, variant, run=None):
         observe_map(stack, seeded, 'p08', created=True)

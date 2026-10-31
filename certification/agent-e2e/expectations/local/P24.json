@@ -1009,7 +1009,12 @@
       "items": "/data/items",
       "id": "/itemId",
       "owner": "/ownerId",
-      "before": "p24-maps-before"
+      "before": "p24-maps-before",
+      "owner_any_of": [
+        "{agentUser}",
+        "{agentKey}",
+        "api-key:{agentKey}"
+      ]
     },
     {
       "role": "created:version",
@@ -1017,7 +1022,12 @@
       "items": "/data/items",
       "id": "/currentVersionId",
       "owner": "/ownerId",
-      "before": "p24-maps-before"
+      "before": "p24-maps-before",
+      "owner_any_of": [
+        "{agentUser}",
+        "{agentKey}",
+        "api-key:{agentKey}"
+      ]
     }
   ],
   "projections": {
