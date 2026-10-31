@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import agent_e2e_local_runner as runner
-from agent_e2e_local_api import RoleBinding, Stack
+from agent_e2e_local_api import Observation, RoleBinding, Seeded, Stack
 from agent_e2e_local_expectations import load_projections
 from agent_e2e_local_projections import resolve_roles
 from agent_e2e_local_recorder import ControllerRecorder, EvidenceVault, ProjectionError
@@ -534,3 +534,22 @@ def test_proposal_result_is_only_a_locator_and_is_checked_with_fresh_read(tmp_pa
     assert rec.records[prefix + '-action-result'].replay_of.startswith('occ:1:1:')
     assert rec.records[prefix + '-proposal'].principal == 'controller'
     assert rec.records[prefix + '-proposal'].json['proposalId'] == 'p-one'
+
+
+def test_source_projection_rejects_service_and_layer_role_swaps(tmp_path, monkeypatch):
+    _, stack, _ = p15_case(tmp_path, monkeypatch)
+    recorder = stack.extra['recorder']
+    scenario = runner.load_scenario('P15')
+    roles = resolve_roles(scenario.roles(stack, Seeded({}), 'A'), recorder.records, agent_principal='agent-id')
+    expected = {'source-content.unchanged': scenario.expected('A')['source-content.unchanged']}
+    projection = {'source-content.unchanged': load_projections('P15', 'A')['source-content.unchanged']}
+    observation = [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
+    def score(bindings):
+        return runner.score_assertions(['source-content.unchanged'], observation, expected,
+            records=recorder.records, roles=bindings, scenario_id='P15', frozen=projection)[0]
+    assert score(roles)['status'] == 'pass'
+    swapped = dict(roles)
+    service, layer = 'seeded:service:shelters', 'seeded:layer:shelters'
+    swapped[service], swapped[layer] = swapped[layer], swapped[service]
+    bad = score(swapped)
+    assert bad['status'] == 'fail' and 'does not address' in bad['reason']
