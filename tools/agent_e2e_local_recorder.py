@@ -76,7 +76,8 @@ class Record:
 
     @property
     def request_arguments(self) -> dict | None:
-        """MCP: the tool and arguments sent. HTTP: the JSON request body, when it was JSON."""
+        """MCP records only: the {"tool", "arguments"} (or {"uri"}) that was sent. HTTP records return None;
+        their request body is kept as raw bytes in ``request_arguments_raw`` and compared byte for byte."""
         if self.request_arguments_raw is None:
             return None
         try:
