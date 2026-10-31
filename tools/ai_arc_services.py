@@ -43,7 +43,7 @@ def runtime_class():
             self.extra_secrets = extra_secrets if isinstance(extra_secrets, list) else list(extra_secrets)
             self.answers, self.withheld, self.catalog_redactions = {}, 0, 0
             self.stacks, self.cancelled, self.agent_keys = [], [], []
-            self.minted, self.unaccounted = [], []
+            self.minted, self.outstanding = [], set()
             self.lock = threading.Lock()
             self.gate = None
 
@@ -75,26 +75,39 @@ def runtime_class():
             return stack
 
         def _recorder(self, stack, principals):
-            """Every credential the runtime mints is registered with the finalizer the moment the controller
-            returns it, before anything can use it (mint -> register -> use); after the stage gate closes
-            no further credential can be minted through this recorder."""
+            """Credential custody at the acquisition boundary. Before a mint is dispatched it is recorded as
+            outstanding. The response is registered with the finalizer inside the recorder's own store
+            hook, before the recorder persists or returns anything, so a later recording or hand-off failure
+            cannot hide it. A mint that never reaches registration (transport, read or persistence failure,
+            or an uninterpretable success) stays unaccounted, which keeps the shutdown incomplete. After the
+            stage gate closes no further credential can be minted."""
             recorder = super()._recorder(stack, principals)
-            original = recorder.json
+            original_json, original_store = recorder.json, recorder._store
+
+            def minting(method, path):
+                return method == 'POST' and path.rstrip('/') == '/api/v1/admin/api-keys'
+
+            def store(record):
+                if record.kind == 'http' and minting(record.method, record.path):
+                    try:
+                        if record.status == 201:
+                            data = json.loads(record.raw)['data']
+                            self.register(data['apiKey']['id'], data['key'])
+                            self.outstanding.discard(record.step)
+                        elif record.status < 500:
+                            self.outstanding.discard(record.step)    # a definite refusal minted nothing
+                    except Exception:  # noqa: BLE001  (uninterpretable success stays outstanding)
+                        pass
+                return original_store(record)
 
             def json_call(step, method, path, body=None, **kw):
-                minting = method == 'POST' and path.rstrip('/') == '/api/v1/admin/api-keys'
-                if minting and self.gate is not None and self.gate.closed:
-                    raise RuntimeError('credential acquisition refused: the stage has ended')
-                answer = original(step, method, path, body, **kw)
-                if minting:
-                    observation = answer.get('observation') or {}
-                    data = (observation.get('body') or {}).get('data') if isinstance(observation.get('body'), dict) else None
-                    if observation.get('httpStatus') == 201 and isinstance(data, dict):
-                        self.register(data.get('apiKey', {}).get('id'), data.get('key'))
-                    elif observation.get('httpStatus') is None or observation.get('httpStatus') >= 500:
-                        self.unaccounted.append(step)      # a mint whose outcome is unknown
-                return answer
-            recorder.json = json_call
+                if minting(method, path):
+                    if self.gate is not None and self.gate.closed:
+                        raise RuntimeError('credential acquisition refused: the stage has ended')
+                    with self.lock:
+                        self.outstanding.add(step)
+                return original_json(step, method, path, body, **kw)
+            recorder._store, recorder.json = store, json_call
             return recorder
 
         def register(self, key_id, key):
@@ -116,6 +129,18 @@ def runtime_class():
             except Exception:  # noqa: BLE001
                 return None
 
+        def _list_keys(self):
+            import urllib.request
+            request = urllib.request.Request(self.arc['base_url'] + '/api/v1/admin/api-keys/',
+                                             headers={'X-API-Key': self.arc['admin_key']})
+            try:
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    data = json.loads(response.read(4_000_000)).get('data')
+            except Exception:  # noqa: BLE001
+                return []
+            rows = data if isinstance(data, list) else (data or {}).get('items', []) if isinstance(data, dict) else []
+            return [r for r in rows if isinstance(r, dict)]
+
         def cancel(self):
             """Revoke every registered case credential not yet revoked (idempotent; reconciles late mints)."""
             results = []
@@ -131,7 +156,20 @@ def runtime_class():
                 results.append({'principal': minted['id'], 'status': status})
                 if status in (200, 204):
                     self.cancelled.append(minted['id'])
-            for step in self.unaccounted:
+            if self.outstanding:
+                # Recover accepted-but-unregistered mints from the controller's own list and revoke them.
+                # The outstanding acquisition still keeps the shutdown incomplete (it was never accounted).
+                listing = self._list_keys()
+                for row in listing:
+                    name, key_id = str(row.get('name', '')), row.get('id')
+                    known = {m['id'] for m in self.minted}
+                    if key_id and key_id not in known and name.startswith(self.arc['project'] + '-') \
+                            and not row.get('revoked') and key_id not in self.cancelled:
+                        status = self._http('POST', f"/api/v1/admin/api-keys/{key_id}/revoke", self.arc['admin_key'])
+                        results.append({'principal': key_id, 'status': status, 'note': 'recovered unregistered mint'})
+                        if status in (200, 204):
+                            self.cancelled.append(key_id)
+            for step in sorted(self.outstanding):
                 results.append({'principal': None, 'status': None, 'error': 'mint outcome unknown: ' + step})
             return results
 

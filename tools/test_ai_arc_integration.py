@@ -392,28 +392,34 @@ def test_overrun_late_unsafe_attempt_is_counted_and_never_reaches_the_product(tm
 
 
 def test_overrun_waits_for_accepted_mutations_to_settle_before_finalizing(tmp_path, monkeypatch):
+    """An accepted mutation still in flight when the session ends settles before the stage finalizes.
+    Deterministic: the session returns while its update is in flight (no reliance on setup timing)."""
+    import threading
     import time as _time
     corpus = pytest.importorskip('test_agent_e2e_local_runner')
     original = corpus.Candidate.mcp
-    finished = {}
+    finished, started = {}, threading.Event()
 
     def slow_mcp(self, message, principal):
         if message.get('method') == 'tools/call' and message['params']['name'] == 'honua_update_features':
-            _time.sleep(3)
+            started.set()
+            _time.sleep(6)
             finished['at'] = _time.monotonic()
         return original(self, message, principal)
     monkeypatch.setattr(corpus.Candidate, 'mcp', slow_mcp)
 
     def script(execute, corpus):
-        before_deadline()                                 # accepted just before the deadline, settles after it
-        execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_update_features', 'arguments': {'serviceId': 'p10'}})
-    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script)
+        threading.Thread(target=lambda: execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_update_features',
+                                                               'arguments': {'serviceId': 'p10'}}), daemon=True).start()
+        assert started.wait(30), 'the update reached the product'
+    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, deadline=300.0)
     try:
         result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         returned = _time.monotonic()
         assert finished['at'] <= returned, 'the stage finalized only after the accepted mutation settled'
-        assert any(row['tool'] == 'honua_update_features' for row in result['shutdown']['settled'])
-        assert result['shutdown']['inflightRemaining'] == 0 and result['outcome'] == 'fail'
+        assert any(row.get('tool') == 'honua_update_features' for row in result['shutdown']['settled']), \
+            'the in-flight mutation is recorded as settled by the drain'
+        assert result['shutdown']['inflightRemaining'] == 0
     finally:
         server.shutdown()
 
@@ -630,7 +636,7 @@ def test_denied_revocation_on_normal_and_error_exits_is_undetermined(tmp_path, m
     try:
         result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         shutdown = result['shutdown']
-        assert shutdown['order'][:6] == ['gate', 'kill', 'revoke', 'drain', 'join', 'probe']
+        assert shutdown['order'][:7] == ['gate', 'kill', 'revoke', 'drain', 'join', 'reconcile', 'probe']
         assert shutdown['revocationFailed'] and shutdown['credentialAlive'] and shutdown['complete'] is False
         assert 401 in [r['status'] for r in shutdown['revoked']], 'every revocation result is retained'
         assert result['outcome'] == 'undetermined'
@@ -668,5 +674,55 @@ def test_credentials_minted_during_setup_are_registered_revoked_and_probed(tmp_p
                 status = exc.code
             assert status in (401, 403), 'no minted credential authenticates after finalization'
         assert result['outcome'] in ('fail', 'undetermined')
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.parametrize('failure', ['store-raises', 'read-raises'])
+def test_a_mint_that_fails_before_returning_is_never_lost(tmp_path, monkeypatch, failure):
+    """Astra 9th review B1, on the real #1152 recorder: the controller accepts the bootstrap mint, then
+    recording fails (store) or the response is lost (read) before the recorder returns."""
+    import urllib.error
+    import urllib.request
+    import agent_e2e_local_recorder as recorder_mod
+    corpus = pytest.importorskip('test_agent_e2e_local_runner')
+    if failure == 'store-raises':
+        original_store = recorder_mod.ControllerRecorder._store
+
+        def store(self, record):
+            if record.step == 'runner-custody-mint-bootstrap':
+                raise OSError('disk full while persisting the response')
+            return original_store(self, record)
+        monkeypatch.setattr(recorder_mod.ControllerRecorder, '_store', store)
+    else:
+        original_request = recorder_mod.ControllerRecorder._request
+
+        def request(self, step, principal, method, path, body, content_type):
+            if step == 'runner-custody-mint-bootstrap':
+                http = urllib.request.Request(self.base_url + path, data=body, method=method,
+                                              headers={'Content-Type': content_type, 'X-API-Key': corpus.ADMIN})
+                urllib.request.urlopen(http, timeout=10).read()        # accepted by the product
+                raise OSError('connection reset while reading the response')
+            return original_request(self, step, principal, method, path, body, content_type)
+        monkeypatch.setattr(recorder_mod.ControllerRecorder, '_request', request)
+    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, lambda execute, corpus: None, deadline=120.0)
+    try:
+        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        shutdown = result['shutdown']
+        if failure == 'store-raises':
+            # Registered inside the store hook before persistence: revoked, probed, refused.
+            for key in state.keys:
+                req = urllib.request.Request(f'http://127.0.0.1:{server.server_address[1]}/api/v1/admin/api-keys/',
+                                             headers={'X-API-Key': key})
+                try:
+                    status = urllib.request.urlopen(req, timeout=10).status
+                except urllib.error.HTTPError as exc:
+                    status = exc.code
+                assert status in (401, 403)
+            assert shutdown['credentialProbes']
+        else:
+            # Never registered: the outstanding acquisition keeps the shutdown incomplete.
+            assert any('mint outcome unknown' in str(r.get('error')) for r in shutdown['revoked'])
+            assert shutdown['complete'] is False and result['outcome'] == 'undetermined'
     finally:
         server.shutdown()

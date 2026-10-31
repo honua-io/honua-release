@@ -864,15 +864,19 @@ def screen_catalog(view, ctx):
     return json.loads(cleaned)
 
 
-def close_live(ctx) -> None:
+def close_live(ctx) -> list[dict]:
+    """Close every live backend (each one, even when another raises); return the failures."""
+    errors = []
     while ctx.live:
         backend = ctx.live.pop()
         close = getattr(backend, 'close', None)
         if close:
             try:
                 close()
-            except Exception as exc:
+            except BaseException as exc:  # noqa: BLE001
+                errors.append({'step': 'close', 'error': f'{type(exc).__name__}: {str(exc)[:160]}'})
                 ctx.slot.facts.setdefault('closeErrors', []).append(type(exc).__name__)
+    return errors
 
 
 def logged_actions(row: dict) -> list[dict]:
@@ -1104,17 +1108,23 @@ def finalize_stage(ctx, reason: str = 'unspecified', worker=None) -> dict:
     facts['workerExited'] = worker is None or not worker.is_alive()
 
     def reconcile():
-        # Credentials registered while the worker settled are revoked now; then every one is probed.
+        # Credentials registered while the worker settled are revoked now.
         for item in list(ctx.live):
             if hasattr(item, 'revoke'):
                 facts['revoked'].extend(item.revoke())
+    step('reconcile', reconcile)
+
+    def probe():
+        # Then every registered credential is probed, even if reconciliation raised.
         for item in list(ctx.live):
             if hasattr(item, 'probe'):
                 facts['credentialProbes'].extend(item.probe())
-    step('probe', reconcile)
+    step('probe', probe)
     facts['revocationFailed'] = any(r.get('status') not in (200, 204) for r in facts['revoked'])
     facts['credentialAlive'] = any(p.get('alive') is not False for p in facts['credentialProbes'])
-    step('close', lambda: close_live(ctx))
+    def close():
+        facts['errors'].extend(close_live(ctx))     # a failed close is a failed cleanup, never swallowed
+    step('close', close)
     facts['order'] = list(order)
     facts['complete'] = (not facts['errors'] and all(k.get('exited') for k in facts['killed'])
                          and not facts['revocationFailed'] and not facts['credentialAlive']

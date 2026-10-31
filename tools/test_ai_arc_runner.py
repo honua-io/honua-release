@@ -766,8 +766,8 @@ def test_finalize_stage_matrix(tmp_path, monkeypatch, exit_reason, revocation, p
     receipt, _ = run(tmp_path, arc=arc, slot=slot, mods=modules(setup=stage))
     setup = receipt['stages'][0]
     order = stage.ctx.finalize_order
-    assert order[:7] == ['gate', 'kill', 'revoke', 'drain', 'join', 'probe', 'close'], order
-    assert 'observe' not in order[:7] and order.count('gate') == 1, 'finalized exactly once, before observing'
+    assert order[:8] == ['gate', 'kill', 'revoke', 'drain', 'join', 'reconcile', 'probe', 'close'], order
+    assert 'observe' not in order[:8] and order.count('gate') == 1, 'finalized exactly once, before observing'
     complete = revocation == 'ok' and pending != 'never'
     shutdown = setup.get('shutdown') or {}
     assert shutdown.get('complete', complete) is complete
@@ -826,6 +826,9 @@ class Registry:
         self._maybe_fail('settle')
         return []
 
+    def close(self):
+        self._maybe_fail('close')
+
 
 class AcquireStage(FakeStage):
     def __init__(self, registry, *, late=False, raise_after_mint=False, pending=False):
@@ -872,14 +875,16 @@ def test_exception_right_after_minting_still_revokes_and_probes(tmp_path, monkey
     assert registry.revoked == {'agent-1'} and setup['shutdown']['credentialProbes']
 
 
-@pytest.mark.parametrize('fail_step', ['close_gate', 'revoke', 'probe', 'settle'])
+@pytest.mark.parametrize('fail_step', ['close_gate', 'revoke', 'probe', 'settle', 'close'])
 def test_a_raising_cleanup_step_never_skips_the_rest(tmp_path, monkeypatch, fail_step):
     registry = Registry(fail_step=fail_step)
     setup, receipt = finalize_case(tmp_path, monkeypatch, AcquireStage(registry, pending=True))
     shutdown = setup['shutdown']
-    assert shutdown['order'] == ['gate', 'kill', 'revoke', 'drain', 'join', 'probe', 'close']
+    assert shutdown['order'] == ['gate', 'kill', 'revoke', 'drain', 'join', 'reconcile', 'probe', 'close']
     assert shutdown['errors'] and shutdown['complete'] is False and setup['outcome'] == 'undetermined'
-    assert receipt['status'] == 'undetermined'
+    assert receipt['status'] == 'undetermined', 'a failed cleanup step never lets the arc complete'
+    if fail_step == 'revoke':
+        assert shutdown['credentialProbes'], 'a throwing reconciliation never skips the probes'
 
 
 @pytest.mark.parametrize('how', ['reason', 'raises', 'times-out'])
