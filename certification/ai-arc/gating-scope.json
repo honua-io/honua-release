@@ -1,5 +1,7 @@
 {
   "gating": [],
+  "opsScope": {},
+  "scoredOps": {},
   "approvedBy": null,
   "approvedAt": null
 }

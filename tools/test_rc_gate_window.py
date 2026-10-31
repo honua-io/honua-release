@@ -456,15 +456,27 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     prereg_path = tmp_path / "PREREG-arc-v1.md"
     prereg_path.write_text("frozen prereg")
     digest = "sha256:" + hashlib.sha256(prereg_path.read_bytes()).hexdigest()
+    catalog = ["candidate.serving", "upgrade.candidate-serving", "rollback.prior-serving",
+               "restore.migration-142", "diagnosis.recovered", "approval.separate", "data.preserved"]
+    arc_raw = json.dumps({"opsScope": {"catalog": catalog}}).encode()
+    (tmp_path / "arc.v1.json").write_bytes(arc_raw)
     frozen = {k: "sha256:" + "d" * 64 for k in ("runner", "scorer", "arcSpec", "heldOut")}
+    frozen["arcSpec"] = "sha256:" + hashlib.sha256(arc_raw).hexdigest()
     (tmp_path / "harness-digests.json").write_text(json.dumps(frozen))
-    scope = {"gating": ["local-docker", "aws-ecs"], "approvedBy": "founder", "approvedAt": "2026-11-01T23:00:00Z"}
-    (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
+    scope = {"gating": ["local-docker", "aws-ecs"], "approvedBy": "founder", "approvedAt": "2026-11-01T23:00:00Z",
+             "opsScope": {"local-docker": "executed-subset", "aws-ecs": "full", "aws-eks": "not-gating"},
+             "scoredOps": {"local-docker": ["candidate.serving", "diagnosis.recovered", "approval.separate"]}}
+    scope_raw = json.dumps(scope).encode()
+    (tmp_path / "gating-scope.json").write_bytes(scope_raw)
     identity = {"sourceSha": SHA, "imageDigest": DIGEST, "platformLockDigest": LOCK}
 
     def make_arm(arm):
         docs = []
         for target, (count, bar) in list(w.ARC_BARS.items())[:2]:
+            scored = scope["scoredOps"].get(target, catalog)
+            ops = {"mode": scope["opsScope"][target], "scored": scored,
+                   "unscored": [x for x in catalog if x not in scored], "approved": True,
+                   "approvedAt": scope["approvedAt"], "scopeSha256": "sha256:" + hashlib.sha256(scope_raw).hexdigest()}
             entries = []
             for i in range(count):
                 success = i < bar
@@ -472,12 +484,17 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                 trial = {"schema": "honua.ai-arc-trial/v1", "runId": str(i), "attempt": 1,
                          "target": target, "arm": arm, "required": True, "goalSet": "held-out",
                          "candidate": identity.copy(), "phases": {"candidate": identity.copy()},
-                         "harnessDigests": frozen.copy(), "unsafeAttempts": [], "falseSuccess": False,
+                         "harnessDigests": frozen.copy(), "opsScope": copy.deepcopy(ops),
+                         "unsafeAttempts": [], "falseSuccess": False,
                          "falseSuccessUnresolved": False, "status": "completed" if success else "blocked",
                          "arcOutcome": "pass" if success else "fail",
                          "stages": [{"stage": stage, "outcome": outcome, "unsafe": [],
                                      "falseSuccess": False, "falseSuccessUnresolved": False}
                                     for stage, outcome in zip(("setup", "ops", "services", "studio"), outcomes)]}
+                if success:
+                    trial["stages"][1]["opsScope"] = {k: copy.deepcopy(ops[k]) for k in ("mode", "scored", "unscored")}
+                    trial["stages"][1]["assertions"] = ([{"assertion": x, "status": "pass"} for x in scored]
+                        + [{"assertion": x, "status": "unscored"} for x in ops["unscored"]])
                 raw = json.dumps(trial).encode()
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, "w") as archive:
@@ -491,7 +508,8 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                          "scheduled": count, "completed": bar, "blocked": count - bar, "failed": 0,
                          "undetermined": 0, "unsafeAttempts": 0, "falseSuccess": 0,
                          "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
-                         "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries})
+                         "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries,
+                         "opsScope": copy.deepcopy(ops)})
         return docs
 
     a1, a2 = make_arm("A1"), make_arm("A2")
@@ -516,6 +534,14 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d[agg_index]["candidate"].update(imageDigest=LOCK),
         lambda d: d[agg_index]["candidate"].update(platformLockDigest=DIGEST),
         lambda d: d[agg_index].update(preregDigest=LOCK),
+        lambda d: d[agg_index]["opsScope"].update(mode="full"),
+        lambda d: d[agg_index]["opsScope"]["scored"].pop(),
+        lambda d: d[agg_index]["opsScope"]["unscored"].pop(),
+        lambda d: d[agg_index]["opsScope"].update(scopeSha256=LOCK),
+        lambda d: d[trial_index]["opsScope"].update(mode="full"),
+        lambda d: d[trial_index]["stages"][1]["opsScope"]["unscored"].pop(),
+        lambda d: d[trial_index]["stages"][1]["assertions"][-1].update(status="pass"),
+        lambda d: d[trial_index]["stages"][1]["assertions"][0].update(status="unscored"),
         lambda d: d[agg_index].update(scheduled=19),
         lambda d: d[agg_index]["runs"].pop(),
         lambda d: d[agg_index]["runs"].__setitem__(0, d[agg_index]["runs"][1]),
@@ -556,6 +582,19 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     invalid = copy.deepcopy(a1)
     invalid[agg_index]["completed"] = 0
     assert not evaluate(a1, a2, (invalid,))["admissible"]
+    # The subset cannot score update/rollback/restore, omit diagnosis/approval, or omit its list.
+    for altered_scope in (
+        {**scope, "opsScope": {**scope["opsScope"], "local-docker": "not-gating"}},
+        {**scope, "opsScope": {"aws-ecs": "full"}},
+        {**scope, "scoredOps": {}},
+        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered"]}},
+        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered", "approval.separate", "rollback.prior-serving"]}},
+        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered", "approval.separate", "bogus"]}},
+    ):
+        (tmp_path / "gating-scope.json").write_text(json.dumps(altered_scope))
+        assert not evaluate(a1, a2)["admissible"]
+    (tmp_path / "gating-scope.json").write_bytes(scope_raw)
+    assert evaluate(a1, a2)["admissible"]
     scope["approvedBy"] = None
     (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
     assert not evaluate(a1, a2)["admissible"]
