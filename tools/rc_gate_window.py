@@ -334,6 +334,7 @@ def _documents(run: dict) -> list[dict]:
 
 
 ARC_DIR = Path(__file__).resolve().parents[1] / "certification" / "ai-arc"
+ARC_HARNESS_DIGESTS = Path(__file__).resolve().parent / "ai_arc_harness_digests.json"
 ARC_BARS = {"local-docker": (20, 17), "aws-ecs": (10, 8),
             "aws-eks": (5, 4), "aws-lambda": (5, 4)}
 ARC_EXCLUSIONS = {"tenant.denied", "P18", "custody.worker-replaced@local-docker"}
@@ -342,7 +343,7 @@ ARC_EXCLUSIONS = {"tenant.denied", "P18", "custody.worker-replaced@local-docker"
 def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
     try:
         scope = json.loads((ARC_DIR / "gating-scope.json").read_text())
-        frozen = json.loads((ARC_DIR / "harness-digests.json").read_text())
+        frozen = json.loads(ARC_HARNESS_DIGESTS.read_text())
         prereg = "sha256:" + hashlib.sha256((ARC_DIR / "PREREG-arc-v1.md").read_bytes()).hexdigest()
         targets = scope["gating"]
         approved_at = dt.datetime.fromisoformat(scope["approvedAt"].replace("Z", "+00:00"))

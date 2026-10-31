@@ -452,6 +452,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     import hashlib
 
     monkeypatch.setattr(w, "ARC_DIR", tmp_path)
+    monkeypatch.setattr(w, "ARC_HARNESS_DIGESTS", tmp_path / "harness-digests.json")
     prereg_path = tmp_path / "PREREG-arc-v1.md"
     prereg_path.write_text("frozen prereg")
     digest = "sha256:" + hashlib.sha256(prereg_path.read_bytes()).hexdigest()
