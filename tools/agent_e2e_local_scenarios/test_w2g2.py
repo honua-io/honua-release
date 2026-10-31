@@ -41,22 +41,14 @@ def test_fixture_oracle_rejects_changed_feature(scenario_id, layer, variant):
 
 
 def test_p06_seed_includes_survey_and_is_idempotent(monkeypatch, tmp_path):
-    import agent_e2e_scenario_backend as backend
     import agent_e2e_scenario_operations as operations
     calls = []
-
-    class Town:
-        def __init__(self, recorder, manifest): pass
-        def prepare(self, **kwargs):
-            calls.append(('town', kwargs['starting_state']))
-            return {'layers': {}}
 
     class Recorder:
         def upload(self, step, raw, **kwargs):
             calls.append(('upload', step, kwargs['table'], len(raw)))
             return {'fixture': True}
 
-    monkeypatch.setattr(backend, 'TownSetup', Town)
     monkeypatch.setattr(operations, 'discover_tables', lambda *args: {})
     monkeypatch.setattr(operations, 'completed_import', lambda http, accepted, **kw:
                         {'table': kw['table'], 'featureCount': kw['feature_count']})
@@ -66,8 +58,7 @@ def test_p06_seed_includes_survey_and_is_idempotent(monkeypatch, tmp_path):
     scenario = load_scenario('P06')
     first = scenario.seed(stack, 'A')
     assert scenario.seed(stack, 'A') == first
-    assert first.state['survey']['featureCount'] > 1
-    assert calls[0] == ('town', 'imported-town')
-    assert len([call for call in calls if call[0] == 'upload']) == 1
+    assert first.state['layers']['survey_points']['featureCount'] > 1
+    assert len([call for call in calls if call[0] == 'upload']) == 4
     with pytest.raises(ValueError):
         scenario.seed(stack, 'B')
