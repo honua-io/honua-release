@@ -590,6 +590,10 @@ def _select_rows(rows: list[dict], *, pilot: bool, max_rows: int | None) -> list
 
 
 def main(argv: list[str] | None = None) -> int:
+    supplied = sys.argv[1:] if argv is None else argv
+    if any(arg == '--agent' or arg.startswith('--agent=') for arg in supplied):
+        import cli_agent
+        return cli_agent.main(supplied)
     parser = argparse.ArgumentParser(description="Operate-stage runner. Prints one JSON summary line.")
     parser.add_argument("--target", choices=("local-docker", "aws-ecs"), default="local-docker")
     parser.add_argument("--model", choices=("stub", "live"), default="stub")

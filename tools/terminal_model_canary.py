@@ -2488,6 +2488,10 @@ def write_receipt(path: Path, receipt: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    supplied = sys.argv[1:] if argv is None else argv
+    if any(arg == '--agent' or arg.startswith('--agent=') for arg in supplied):
+        import terminal_model_cli_canary
+        return terminal_model_cli_canary.main(supplied)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / "platform-manifest.yaml")
     parser.add_argument("--journey", type=Path, default=DEFAULT_JOURNEY)
