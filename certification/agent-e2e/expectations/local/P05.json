@@ -1,13 +1,31 @@
 {
-  "status": "unsupported",
-  "assertions": [
-    "features.exact",
-    "csv.invalid-reported",
-    "geometry.crs",
-    "source-content.unchanged"
-  ],
-  "fixtureSha256": {
-    "A": "2a2cbca2414da07d84ab36904a2d41895587ef004230757e29257a00dd9721c4",
-    "B": "683b862ebfc6af515ae93caa9849b93aa09eb8f830bcc9312527d4cc8921d809"
+  "schemaVersion": 1,
+  "scenario": "P05",
+  "derivation": "Known static facts use the corpus fixture oracle. Null marks an unavailable expectation and cannot pass oracle verification.",
+  "variants": {
+    "A": {
+      "features.exact": {
+        "$fixture": {
+          "assertion": "features.exact",
+          "layer": "shelters",
+          "srid": 3857
+        }
+      },
+      "csv.invalid-reported": null,
+      "geometry.crs": null,
+      "source-content.unchanged": null
+    },
+    "B": {
+      "features.exact": {
+        "$fixture": {
+          "assertion": "features.exact",
+          "layer": "shelters",
+          "srid": 3857
+        }
+      },
+      "csv.invalid-reported": null,
+      "geometry.crs": null,
+      "source-content.unchanged": null
+    }
   }
 }
