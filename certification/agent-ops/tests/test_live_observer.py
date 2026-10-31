@@ -52,3 +52,25 @@ def test_controller_reads_all_features_and_fails_on_missing():
         server.shutdown()
         thread.join()
         server.server_close()
+
+
+def test_database_snapshot_is_project_scoped_and_missing_table_fails(tmp_path, monkeypatch):
+    import subprocess
+    from live_observer import observe_database
+
+    compose = tmp_path / 'compose.yml'
+    compose.write_text('services: {}\n')
+    calls = []
+    def run(argv, **_kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '{"fields":[{"name":"id","type":"integer"}],"rows":[{"id":1}]}', '')
+    monkeypatch.setattr(subprocess, 'run', run)
+    project = 'ops-' + 'c' * 32
+    snapshot = observe_database(project, str(compose), [('honua_data', 'e2e_src_fs')])
+    assert snapshot['honua_data.e2e_src_fs']['rows'] == [{'id': 1}]
+    assert calls[0][0:4] == ['docker', 'compose', '-p', project]
+    with pytest.raises(ValueError, match='table'):
+        observe_database(project, str(compose), [('public', 'foo;drop')])
+    monkeypatch.setattr(subprocess, 'run', lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, '', 'missing'))
+    with pytest.raises(RuntimeError, match='observation failed'):
+        observe_database(project, str(compose), [('public', 'absent')])

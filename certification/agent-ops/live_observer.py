@@ -61,3 +61,51 @@ def observe_layer(base_url: str, layer_path: str, controller_key: str, *, timeou
                          "geometry_sha256": hashlib.sha256(_canonical(row["geometry"])).hexdigest()})
     return {"count": len(features), "object_id_field": object_id_field,
             "fields": fields, "features": features, "evidence": evidence}
+
+
+def observe_database(project: str, compose_file: str, tables: list[tuple[str, str]], *, timeout: float = 30) -> dict:
+    """Snapshot every row and column definition of named trial tables via Postgres.
+
+    Table names are controller-supplied and strictly validated. This is not a
+    substitute for service ACL or saved-map API observations.
+    """
+    import re
+    import subprocess
+    from pathlib import Path
+
+    if not re.fullmatch(r"ops-[0-9a-f]{32}", project) or not Path(compose_file).is_file() or not tables:
+        raise ValueError("invalid trial database observation request")
+    identifier = re.compile(r"[a-z_][a-z0-9_]*\Z")
+    if len(set(tables)) != len(tables) or any(not identifier.fullmatch(schema) or not identifier.fullmatch(table)
+                                              for schema, table in tables):
+        raise ValueError("invalid table name")
+    result = {}
+    for schema, table in tables:
+        name = f'{schema}.{table}'
+        # Names cannot contain quotes and are validated above. A missing table
+        # fails psql; an empty one is recorded as an empty row list, not missing.
+        sql = f'''SELECT json_build_object(
+          'fields', (SELECT json_agg(json_build_object('name', a.attname,
+                    'type', format_type(a.atttypid,a.atttypmod), 'notNull', a.attnotnull)
+                    ORDER BY a.attnum) FROM pg_attribute a
+                    WHERE a.attrelid = '"{schema}"."{table}"'::regclass
+                    AND a.attnum > 0 AND NOT a.attisdropped),
+          'rows', (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)
+                    FROM "{schema}"."{table}" t))::text'''
+        completed = subprocess.run(['docker', 'compose', '-p', project, '-f', str(Path(compose_file).resolve()),
+                                    'exec', '-T', 'db', 'psql', '-v', 'ON_ERROR_STOP=1',
+                                    '-U', 'honua', '-d', 'honua', '-Atc', sql],
+                                   capture_output=True, text=True, timeout=timeout, check=False)
+        if completed.returncode != 0:
+            raise RuntimeError(f"database observation failed for {name}")
+        try:
+            document = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"database observation invalid for {name}") from exc
+        if not isinstance(document, dict) or not isinstance(document.get('fields'), list) or not document['fields'] or not isinstance(document.get('rows'), list):
+            raise ValueError(f"database observation incomplete for {name}")
+        raw = completed.stdout.encode('utf-8')
+        result[name] = {"fields": document['fields'], "rows": document['rows'],
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "body_b64": base64.b64encode(raw).decode('ascii')}
+    return result

@@ -202,6 +202,9 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("object_id") not in ids or entry["object_id"] in observed:
             raise ValueError("invalid readback identity")
+        observed_at = entry.get("observed_monotonic")
+        if not isinstance(observed_at, (int, float)) or not began <= observed_at <= end + max_readback_delay_s:
+            raise ValueError("late controller readback")
         url = entry.get("url")
         parsed = urllib.parse.urlsplit(url) if isinstance(url, str) else None
         if (entry.get("method") != "GET" or parsed is None or
@@ -270,7 +273,8 @@ def readback_writes(base_url: str, layer_path: str, controller_key: str,
                 raise ValueError("write readback identity mismatch")
         evidence.append({"object_id": oid, "method": "GET", "url": url, "status": status,
                          "sha256": hashlib.sha256(raw).hexdigest(),
-                         "body_b64": base64.b64encode(raw).decode("ascii"), "observed_at": time.time()})
+                         "body_b64": base64.b64encode(raw).decode("ascii"), "observed_at": time.time(),
+                         "observed_monotonic": time.monotonic()})
     return {"started_monotonic": started_monotonic, "base_url": base_url.rstrip("/"),
             "layer_path": layer_path, "object_id_field": object_id_field,
             "marker_field": marker_field, "responses": evidence}

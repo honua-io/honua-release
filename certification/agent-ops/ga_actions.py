@@ -9,6 +9,7 @@ import hashlib
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 _GATE = Path(__file__).resolve().parents[2] / "e2e" / "harness" / "upgrade-chaos.sh"
@@ -73,8 +74,11 @@ verify_image() {
   test -n "$expected"
   containers="$(compose ps -q --status running server)"
   test -n "$containers"
+  umask 077
+  : > "$OUT/runtime-image-ids.tmp"
   while IFS= read -r id; do
     test -n "$id" && test "$(docker inspect --format '{{.Image}}' "$id")" = "$expected"
+    printf '%s\n' "$expected" >> "$OUT/runtime-image-ids.tmp"
   done <<< "$containers"
 }
 '''
@@ -124,12 +128,20 @@ cu_start_server() {
     if operation == "restore-prior":
         guard += "RESTORING=1\n"
     script = prelude + functions + guard + "\n" + operations[operation] + "\n"
+    started_at = time.time()
     result = subprocess.run(["bash", "-c", script, "ops-ga-action", str(compose_file), project,
                              str(output), prior_image, candidate_image, base_url],
                             env=os.environ.copy(), capture_output=True, text=True,
                             timeout=timeout, check=False)
     note = {"ok": result.returncode == 0, "operation": operation, "project": project,
-            "gate_sha256": hashlib.sha256(source.encode()).hexdigest(), "exit_code": result.returncode}
+            "gate_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "compose_sha256": hashlib.sha256(compose_file.read_bytes()).hexdigest(),
+            "started_at": started_at, "finished_at": time.time(), "exit_code": result.returncode}
+    if operation in {"start-candidate", "restore-prior"} and result.returncode == 0:
+        ids = (output / "runtime-image-ids.tmp").read_text().splitlines()
+        if not ids or any(not re.fullmatch(r"sha256:[0-9a-f]{64}", item) for item in ids):
+            raise ValueError("invalid runtime image observations")
+        note["runtime_image_ids"] = ids
     if operation == "backup" and result.returncode == 0:
         with backup.open("rb") as stream:
             note["backup_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
