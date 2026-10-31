@@ -259,6 +259,7 @@ def live_actions(
             return False, False, {
                 "kind": "transport_error",
                 "replay": type(exc).__name__,
+                "detail": _error_detail(exc, state),
                 "model_acted": False,
                 "state_changed": False,
             }
@@ -285,6 +286,7 @@ def live_actions(
             return priced, False, {
                 "kind": "provider_5xx" if priced else "transport_error",
                 "replay": type(exc).__name__,
+                "detail": _error_detail(exc, state),
                 "model_acted": priced,
                 "state_changed": any(item.get("tool") for item in transcript),
             }
@@ -448,7 +450,7 @@ def run_row(
         }
         if evidence is not None and infrastructure_evidence(evidence):
             record["infrastructure"] = True
-            record["infrastructure_evidence"] = {"kind": evidence["kind"], "replay": evidence["replay"]}
+            record["infrastructure_evidence"] = {key: evidence[key] for key in ("kind", "replay", "detail") if key in evidence}
             record["outcome"] = "infrastructure"
             _write_artifacts(work.parent, row, transcript, state)
             return record
@@ -511,6 +513,18 @@ def _resolve_ambiguous(graded: dict, row_id: str, out: Path, *, live: bool) -> d
             return graded
         decisions[check.get("task")] = decision
     return apply_fallback(graded, decisions)
+
+
+def _error_detail(exc: Exception, state: dict) -> str:
+    """Keep bounded, redacted transport diagnostics in trial artifacts."""
+    redactor = _redactor(state)
+    from client import Redactor
+    sensitive = [os.environ.get(name, "") for name in (
+        "TERMINAL_MODEL_API_KEY", "HONUA_ADMIN_PASSWORD", "HONUA_CANARY_AWS_ACCESS_KEY_ID",
+        "HONUA_CANARY_AWS_SECRET_ACCESS_KEY", "HONUA_CANARY_AWS_SESSION_TOKEN",
+        "HONUA_CANARY_TRANSCRIPT_SIGNING_SEED",
+    )]
+    return Redactor(sensitive).text(redactor.text(str(exc))).replace("\n", " ")[:500]
 
 
 def _redactor(state: dict):

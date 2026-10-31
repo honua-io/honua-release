@@ -250,6 +250,31 @@ jobs:
           python-version: "3.12"
       - name: Install harness dependencies
         run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" "boto3>=1.35,<2" pytest
+      - name: Log in to the image registry
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      # Pull or build before assuming the short-lived Bedrock role: a cold AOT build can
+      # outlast its session. The live runner then validates and uses these local images.
+      - name: Prepare candidate images
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          DOCKER_BUILDKIT: "1"
+          NEWER_SHA: ${{ inputs.newer_sha }}
+          NEWER_DIGEST: ${{ inputs.newer_digest }}
+        run: |
+          python - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, "certification/agent-ops")
+          from targets import prepare_images
+          result = prepare_images(source="pull", newer_sha=os.environ["NEWER_SHA"],
+                                  newer_digest=os.environ["NEWER_DIGEST"] or None,
+                                  server_source=Path("honua-server"))
+          if not result["ok"]:
+              raise SystemExit(result["detail"])
+          PYCODE
       - name: Assume the Bedrock-enabled role (OIDC)
         id: aws
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
@@ -263,10 +288,6 @@ jobs:
         env:
           HONUA_CANARY_AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
         run: test -n "$HONUA_CANARY_AWS_ACCESS_KEY_ID"
-      - name: Log in to the image registry
-        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
       - name: Mint the composed server admin key
         run: |
           set -euo pipefail
@@ -312,7 +333,7 @@ jobs:
             --priced-ok \
             --arm "${{ inputs.arm }}" \
             --execute-compose \
-            --image-source pull \
+            --image-source local \
             --newer-sha "${{ inputs.newer_sha }}" \
             --server-source honua-server \
             "${DIGEST[@]}" \
