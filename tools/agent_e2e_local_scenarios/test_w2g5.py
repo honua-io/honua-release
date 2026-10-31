@@ -35,13 +35,15 @@ def test_unsupported_case_cannot_seed_score_or_mutate(scenario, stack, tmp_path)
     assert scenario.id in type(scenario).__name__
     assert scenario.needs_approver() == (scenario.id in ('P21', 'P22'))
     for variant in ('A', 'B'):
-        for _ in range(2):
+        if scenario.id != 'P23':
+            for _ in range(2):
+                with pytest.raises(NotImplementedError):
+                    scenario.seed(stack, variant)
+        if scenario.id != 'P23':
             with pytest.raises(NotImplementedError):
-                scenario.seed(stack, variant)
-        for call in (lambda: scenario.observe(stack, Seeded({}), variant),
-                     lambda: scenario.expected(variant)):
-            with pytest.raises(NotImplementedError):
-                call()
+                scenario.observe(stack, Seeded({}), variant)
+        with pytest.raises(NotImplementedError):
+            scenario.expected(variant)
     assert scenario.cleanup(stack, Seeded({})) is None
     assert list(tmp_path.iterdir()) == []
     assert not (ROOT / 'certification/agent-e2e/expectations/local' /
@@ -90,7 +92,8 @@ def test_runner_contract():
     for variant in ('A', 'B'):
         assert p21.fault_plan(variant) == {
             'kind': 'response_lost_after_commit', 'id': 'p21-map-create',
-            'after': None, 'match': {'tool': 'honua_studio_create_draft'}}
+            'after': None, 'match': {'tool': 'honua_studio_create_draft'},
+            'commit': {'pointer': '/result/structuredContent/draftId'}}
         assert p22.fault_plan(variant) is None
     assert p22.sessions_required() == 2
 
@@ -103,7 +106,7 @@ def test_p21_fault_forwards_then_hides_successful_response():
     injector = FaultInjector(validate_fault_plan(p21.fault_plan('A')))
     def candidate(kind, action):
         calls.append(action)
-        return {'status': 'ok', '_rawResponse': (200, b'{"draftId":"d1"}')}
+        return {'status': 'ok', '_rawResponse': (200, b'{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"draftId":"d1"}}}')}
     execute = injector.wrap(candidate)
     action = {'tool': 'honua_studio_create_draft', 'arguments': {}}
     assert execute('tool_call', action)['httpStatus'] == 503
@@ -111,6 +114,7 @@ def test_p21_fault_forwards_then_hides_successful_response():
     event = injector.events[0]
     assert event['forwarded'] is True and event['upstreamOutcome'] == 'ok'
     assert event['upstreamStatus'] == 200 and event['upstreamResponseSha256']
+    assert event['committedResourceId'] == 'd1'
 
 
 def test_p21_failed_upstream_is_not_evidence_of_commit():
@@ -119,6 +123,53 @@ def test_p21_failed_upstream_is_not_evidence_of_commit():
     injector = FaultInjector(p21.fault_plan('A'))
     action = {'tool': 'honua_studio_create_draft', 'arguments': {}}
     injector.wrap(lambda *_: {'status': 'fail', '_rawResponse': (400, b'error')})('tool_call', action)
-    # A fired event by itself does not establish a successful upstream commit.
-    assert injector.events[0]['upstreamOutcome'] == 'fail'
-    assert injector.events[0]['upstreamStatus'] == 400
+    # Rejected requests do not arm a misleading committed fault.
+    assert injector.events == []
+    assert injector.skipped[0]['upstreamOutcome'] == 'fail'
+    assert injector.skipped[0]['upstreamStatus'] == 400
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_p23_seed_records_distinct_owners_and_is_idempotent(stack, monkeypatch, variant):
+    import agent_e2e_scenario_backend as backend
+    import agent_e2e_p10_observer as observer
+    class FakeTown:
+        def __init__(self, recorder, manifest):
+            self.recorder = recorder
+        def prepare(self, **kwargs):
+            return {'layers': {'shelters': {'service': 'shared', 'layerId': 1}}}
+    class FakeRecorder:
+        def __init__(self):
+            self.calls = []
+        def json(self, step, method, path, body=None, *, principal='controller'):
+            self.calls.append((step, method, path, body, principal))
+            if method == 'GET':
+                return {'observation': {'httpStatus': 200, 'body': {}}}
+            result = {**body, 'draftId': 'draft-' + principal}
+            return {'observation': {'httpStatus': 201, 'body': {'data': result}}}
+    monkeypatch.setattr(backend, 'TownSetup', FakeTown)
+    monkeypatch.setattr(observer, 'source_path', lambda layer: '/shared/source')
+    recorder = FakeRecorder()
+    stack.extra.update(recorder=recorder, agentPrincipal='agent-id',
+                       addPrincipal=lambda name, grants: 'foreign-id',
+                       ensureConnection=lambda: 'connection-id')
+    p23 = importlib.import_module('agent_e2e_local_scenarios.P23').scenario
+    seed = p23.seed(stack, variant)
+    assert p23.seed(stack, variant) == seed
+    assert seed.state['owned']['owner'] == 'agent-id'
+    assert seed.state['foreign']['owner'] == 'foreign-id'
+    assert seed.state['shared']['service'] == 'shared'
+    assert [call[4] for call in recorder.calls] == [
+        'controller', 'agent', 'p23-foreign', 'controller', 'controller', 'controller']
+    from agent_e2e_local_api import RunRecord
+    run = RunRecord('agent-id', 1, (), (), ())
+    result = p23.observe(stack, seed, variant, run)
+    assert [row.assertion_id for row in result] == [
+        'cleanup.complete', 'shared.preserved', 'source-content.unchanged']
+    assert all(row.observed is None for row in result)
+    assert [call[0] for call in recorder.calls[-3:]] == [
+        'p23-inventory-after', 'p23-foreign-after', 'p23-source-after']
+    with pytest.raises(ValueError):
+        p23.observe(stack, seed, variant, RunRecord('foreign-id', 1, (), (), ()))
+    with pytest.raises(ValueError):
+        p23.seed(stack, 'B' if variant == 'A' else 'A')
