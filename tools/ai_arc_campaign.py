@@ -69,7 +69,8 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                                  timeout=3600, check=True)
             slot_doc = json.loads(got.stdout)
             for flag, key in (('--slot-receipt', 'slotReceipt'), ('--slot-credentials', 'slotCredentials'),
-                              ('--deploy-identity-contract', 'deployIdentityContract')):
+                              ('--deploy-identity-contract', 'deployIdentityContract'),
+                              ('--bootstrap-outputs', 'bootstrapOutputs'), ('--operator-binary', 'operatorBinary')):
                 if slot_doc.get(key):
                     command += [flag, slot_doc[key]]
         try:

@@ -244,6 +244,12 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
     served = instance.get('source') or document.get('commitSha') or document.get('sourceRevision')
     revision_ok = isinstance(served, str) and len(served) >= 7 and expected['sourceSha'].startswith(served)
     console = [c for c in containers if c.get('Service') == 'console' and c.get('State') == 'running']
+    console_port = None
+    for publisher in (console[0].get('Publishers') or []) if console else []:
+        if isinstance(publisher, dict) and publisher.get('PublishedPort') and \
+                str(publisher.get('URL', '127.0.0.1')) in ('127.0.0.1', '0.0.0.0', '::', ''):
+            console_port = int(publisher['PublishedPort'])
+            break
     evidence = {'console': bool(console),
                 'containers': [{k: c.get(k) for k in ('Service', 'State', 'Health')} for c in containers],
                 'repoDigestMatch': reference in repo_digests, 'servedRevision': served, 'expected': reference,
@@ -251,4 +257,4 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
                 'adminStatus': admin.get('status')}
     return {'identity': reference in repo_digests and revision_ok, 'ready': healthy and ready.get('status') == 200,
             'authRequired': anonymous.get('status') in (401, 403) and admin.get('status') == 200,
-            'console': bool(console), 'evidence': evidence}
+            'console': bool(console), 'consolePort': console_port, 'evidence': evidence}

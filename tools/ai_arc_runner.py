@@ -59,6 +59,9 @@ FAMILIES = ('anthropic', 'openai')
 
 # Everything whose bytes change behavior. Absent files contribute 'absent' (so landing a lane changes it).
 RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
+                'tools/agent_e2e_aws_install.py', 'tools/agent_e2e_aws_controller.py',
+                'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
+                'tools/agent_browser_studio.py',
                 'tools/ai_arc_safety.py', 'tools/ai_arc_services.py', 'tools/ai_arc_campaign.py',
                 'tools/agent_cli_arc.py', 'tools/agent_cli_backends.py', 'tools/agent_cli_sessions.py',
                 'tools/agent_e2e_cli_sessions.py', 'tools/agent_e2e_local_runner.py',
@@ -474,7 +477,7 @@ class DelegatingStage(StageModule):
         return self._inner.backends(ctx)
 
     def run(self, ctx, session, prompt):
-        if type(self._inner).run is not StageModule.run:
+        if getattr(type(self._inner), 'run', StageModule.run) is not StageModule.run:
             return self._inner.run(ctx, session, prompt)
         return StageModule.run(self, ctx, session, prompt)   # backends() resolves on this stage first
 
@@ -544,7 +547,12 @@ class LocalSetup(StageModule):
         expected = {'image': ctx.install['image'], 'imageDigest': ctx.install['imageDigest'],
                     'sourceSha': ctx.install['sourceRevision']}
         facts = ai_arc_local.observe_serving(ctx.slot.vm, expected, ctx.options['http'], ctx.slot.controller['base_url'])
-        ctx.slot.facts['consoleObserved'] = facts.get('console', False)   # a Console origin is attached by g41's adapter
+        ctx.slot.facts['consoleObserved'] = facts.get('console', False)
+        if facts.get('console') and facts.get('consolePort'):
+            # The customer's Compose install includes Console: reach it through a runner-owned tunnel.
+            console = ai_arc_local.Tunnel(ctx.slot.vm, facts['consolePort'])
+            ctx.slot.closers.append(console.close)
+            ctx.slot.facts['consoleBaseUrl'] = console.base_url
         return [assert_row('install.identity', facts['identity'], facts['evidence']),
                 assert_row('deployment.ready', facts['ready'], facts['evidence']),
                 assert_row('authentication.required', facts['authRequired'], facts['evidence'])]
@@ -590,11 +598,13 @@ class AwsSetup(DelegatingStage):
             return f'the #1160 stage adapter does not support {ctx.target} yet'
         if not ctx.options.get('slot_receipt'):
             return 'no empty release-cell slot was reserved (--slot-receipt)'
-        if not ctx.options.get('slot_credentials'):
-            return 'the slot provisioner supplied no short-lived operator credentials (--slot-credentials)'
         return None
 
     def prepare(self, ctx):
+        if getattr(self._inner, 'owns_operator', False):
+            return self._inner.prepare(ctx)       # #1165's harness installs and binds the operator
+        if not ctx.options.get('slot_credentials'):
+            raise StageUnavailable('the slot provisioner supplied no short-lived operator credentials')
         import ai_arc_operator
         credentials = ai_arc_operator.slot_credentials(ctx.options['slot_credentials'])
         ctx.slot.harness_secrets.extend(v for k, v in credentials.items() if k.startswith('AWS_') and k != 'AWS_REGION')
@@ -626,6 +636,8 @@ class AwsSetup(DelegatingStage):
         return ai_arc_operator.operator_environment(contract, credentials)
 
     def backends(self, ctx):
+        if getattr(self._inner, 'owns_operator', False):
+            return self._inner.backends(ctx)
         from agent_cli_backends import StdioMcpBackend
         binary, _ = self.operator
         env = self.operator_identity(ctx)
@@ -1439,6 +1451,24 @@ def verify_stage_evidence(arc: dict, target: str, row: dict, folder: Path) -> No
 
 # --------------------------------------------------------------------------- one run
 
+def supported_services(arc: dict) -> list[str]:
+    """Corpus scenarios this checkout can score for both development variants, minus whole-scenario
+    prereg exclusions: the candidate list for freezing ``stages[services].scenarios`` at the cut."""
+    import importlib
+    out = []
+    for path in sorted((ROOT / 'tools/agent_e2e_local_scenarios').glob('P[0-9][0-9].py')):
+        sid = path.stem
+        if sid in arc['exclusions']:
+            continue
+        try:
+            module = importlib.import_module('agent_e2e_local_scenarios.' + sid)
+        except Exception:  # noqa: BLE001
+            continue
+        if {'A', 'B'} <= set(getattr(getattr(module, 'scenario', None), 'supported_variants', ())):
+            out.append(sid)
+    return out
+
+
 def harness_digests() -> dict:
     def files(patterns):
         rows = []
@@ -1973,6 +2003,8 @@ def main(argv=None) -> int:
     trial.add_argument('--slot-receipt')
     trial.add_argument('--slot-credentials')
     trial.add_argument('--deploy-identity-contract', help='honua-iac deploy_identity_contract export (absolute path)')
+    trial.add_argument('--bootstrap-outputs', help='aws-ecs: the bootstrap/aws-exec-identity outputs (approval MAC contract)')
+    trial.add_argument('--operator-binary', help='aws-ecs: the verified honua-devops binary')
     trial.add_argument('--lock-digest', required=True)
     trial.add_argument('--lock-path', required=True)
     agg = sub.add_parser('aggregate', help='one receipt per target x arm')
@@ -1988,6 +2020,7 @@ def main(argv=None) -> int:
     agg.add_argument('--output', type=Path, required=True)
     agg.add_argument('--report', type=Path, required=True)
     sub.add_parser('check', help='validate the arc definition and its model-visible strings')
+    sub.add_parser('freeze-services', help='list the corpus scenarios supported for A and B on this checkout')
     args = parser.parse_args(argv)
     arc = load_arc()
     if args.command == 'check':
@@ -1995,6 +2028,9 @@ def main(argv=None) -> int:
         hits = {k: v for k, v in hits.items() if v}
         print(json.dumps({'arcSha256': arc['_sha256'], 'harnessDigests': harness_digests(), 'forbidden': hits}))
         return 1 if hits else 0
+    if args.command == 'freeze-services':
+        print(json.dumps(supported_services(arc)))
+        return 0
     if args.command == 'inventory':
         arm = arm_by_id(arc, args.arm)
         print(json.dumps(schedule(arc, args.target, arm, load_goal_set('primary') if args.held_out else None,
@@ -2009,7 +2045,9 @@ def main(argv=None) -> int:
         slot = build_slot(args.target, args)
         options = {'quickstart': args.quickstart, 'quickstart_revision': args.quickstart_revision,
                    'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials,
-                   'deploy_identity_contract': args.deploy_identity_contract, 'http': local_http}
+                   'deploy_identity_contract': args.deploy_identity_contract,
+                   'bootstrap_outputs': args.bootstrap_outputs, 'operator_binary': args.operator_binary,
+                   'http': local_http}
         receipt = run_trial(arc=arc, target=args.target, arm=arm, variant=args.variant, run_id=args.run_id,
                             out_dir=args.output, slot=slot, candidate=candidate, session=ArcSession(arm),
                             options=options, goal_set=goal_set, case_id=args.case_id,
