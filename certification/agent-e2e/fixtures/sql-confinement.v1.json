@@ -190,13 +190,16 @@
   "notes": {
     "layers": "parser = sql_allowlisted refuses before any database call; database = the same SQL sent through LocalRuntime.psql(read_only=True) as corpus_reader, both inside the runner's json_agg wrapper (what sql_read sends) and bare (not for psql client syntax, which the runner never sends bare); state = row count, sequence position and table list unchanged afterwards.",
     "regclass": "A regclass cast is read-only at the database layer; the parser refuses it as an unreviewed cast, so its database outcome is recorded but not required to fail.",
-    "set_config": "set_config inside a read-only transaction may succeed for a session setting; the parser refuses it, and the database result shows no write follows in the same command."
+    "set_config": "set_config inside a read-only transaction may succeed for a session setting; the parser refuses it, and the database result shows no write follows in the same command.",
+    "line comment": "Bare, psql sends \"SELECT 1 -- ...\" and the comment swallows the rest, so the database answers the harmless SELECT 1; wrapped (as sql_read sends it) the comment also swallows the wrapper and the server refuses it. The state check proves nothing executed after the comment.",
+    "liveRun": "2026-10-31 on honua-eval-3 (postgis/postgis@sha256:b4466ea2...): parser refused all 34 attacks; with the parser bypassed the database refused every write, multi-statement, sleep, sequence, dblink, file, large-object, volatile-function, CTE, FOR UPDATE, INTO, LOCK, SET ROLE and client meta-command attempt; answered only set_config (session setting), comments, dollar quotes, a regclass cast and a reviewed-schema-outside read, with state unchanged in every case."
   },
   "databaseMayAnswer": [
     "set_config",
     "comment hiding a statement",
     "dollar-quoted body",
     "regclass cast",
-    "unreviewed schema"
+    "unreviewed schema",
+    "line comment"
   ]
 }
