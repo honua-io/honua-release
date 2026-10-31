@@ -180,10 +180,10 @@ jobs:
                 --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md")
           host="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("dockerHost",""))' "$slot")"
           cell="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("slotReceipt",""))' "$slot")"
-          devops="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("devopsMcp",""))' "$slot")"
+          creds="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("slotCredentials",""))' "$slot")"
           [ -z "$host" ] || args+=(--docker-host "$host")
           [ -z "$cell" ] || args+=(--slot-receipt "$cell")
-          [ -z "$devops" ] || args+=(--devops-mcp "$devops")
+          [ -z "$creds" ] || args+=(--slot-credentials "$creds")
           [ "$GOAL_SET" != held-out ] || args+=(--goal-set "$RUNNER_TEMP/arc-inputs/goals.json")
           python3 tools/ai_arc_runner.py "${args[@]}"
       - name: Release the trial's slot

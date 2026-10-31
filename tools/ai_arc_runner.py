@@ -602,7 +602,8 @@ class AwsSetup(DelegatingStage):
     """Setup on ECS (GA), EKS and Lambda (Preview) through the honua-devops operator.
 
     Composes: an empty release-cell slot (--slot-receipt, from the release cell machinery), the
-    operator process (--devops-mcp, short-lived credentials injected into its environment only),
+    operator release pinned in arc.v1.json (installed and verified by tools/ai_arc_operator.py, slot-scoped
+    short-lived credentials (--slot-credentials) in its environment only),
     the harness approver of the exact saved-plan digest, and the observers: topology matches the
     goal, the deploy identity matches the honua-iac topology manifest (least privilege), no IAM
     user or long-lived key, verified install handoff, served candidate. Until the g43 lane lands
@@ -615,9 +616,35 @@ class AwsSetup(DelegatingStage):
     def precondition(self, ctx):
         if not ctx.options.get('slot_receipt'):
             return 'no empty release-cell slot was reserved (--slot-receipt)'
-        if not ctx.options.get('devops_mcp'):
-            return 'the honua-devops operator MCP command was not supplied (--devops-mcp)'
+        if not ctx.options.get('slot_credentials'):
+            return 'the slot provisioner supplied no short-lived operator credentials (--slot-credentials)'
         return None
+
+    def prepare(self, ctx):
+        """Install the pinned operator release the customer way and hold its credentials runner-side."""
+        import ai_arc_operator
+        credentials = ai_arc_operator.slot_credentials(ctx.options['slot_credentials'])
+        ctx.slot.harness_secrets.extend(v for k, v in credentials.items() if k != 'AWS_REGION')
+        installed = ai_arc_operator.install(ctx.arc['operator'], ctx.trial_dir / 'setup' / 'operator-install',
+                                            download=ctx.options.get('operator_download'))
+        installed['registration'] = ai_arc_operator.registration_command(
+            ctx.arm['agent'], Path('<dir>') / ai_arc_operator.BINARY)
+        ctx.slot.facts['operator'] = {k: v for k, v in installed.items() if k != 'binary'}
+        self._operator = (installed['binary'], credentials)
+        return self._inner.prepare(ctx)
+
+    def surface(self, ctx):
+        import ai_arc_operator
+        binary, credentials = self._operator
+        workdir = ctx.trial_dir / 'setup' / 'operator-home'
+        workdir.mkdir(parents=True, mode=0o700)
+        tool_view, execute, close = ai_arc_operator.operator_surface(
+            binary, credentials, str(workdir), **({'popen': ctx.options['operator_popen']}
+                                                  if ctx.options.get('operator_popen') else {}))
+        ctx.slot.facts.setdefault('operator', {})['toolCount'] = len(tool_view['tools'])
+        surface = Surface(tool_view=tool_view, execute=execute, close=close)
+        wrap = getattr(self._inner, 'wrap_surface', None)
+        return wrap(ctx, surface) if wrap else surface
 
 
 # ---- stage 2: ops on the server /mcp with the harness as approver
@@ -1009,6 +1036,9 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, trial_id: str,
                 previous_answer = _read_answer(out_dir, stage) or previous_answer
     finally:
         receipt['teardown'] = teardown_slot(slot)
+    if target != 'local-docker':
+        receipt['operator'] = {'pinned': {k: arc['operator'][k] for k in ('repo', 'tag', 'commit', 'containerImage')},
+                               'installed': slot.facts.get('operator')}
     return finish_trial(receipt, out_dir)
 
 
@@ -1029,7 +1059,7 @@ def _read_answer(out_dir: Path, stage: str) -> str | None:
     return path.read_text(encoding='utf-8') if path.is_file() else None
 
 
-RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_shell.py')
+RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_shell.py', 'tools/ai_arc_operator.py')
 SCORER_FILES = ('tools/agent_e2e_handoff.py', 'certification/agent-e2e/corpus/oracle.py',
                 'tools/agent_e2e_local_projections.py')
 
@@ -1368,7 +1398,7 @@ def main(argv=None) -> int:
     trial.add_argument('--ssh-option', action='append')
     trial.add_argument('--quickstart', help='the published quickstart page at the pinned honua-server revision')
     trial.add_argument('--slot-receipt')
-    trial.add_argument('--devops-mcp')
+    trial.add_argument('--slot-credentials', help='slot-scoped STS credentials file from the slot provisioner')
     trial.add_argument('--goal-set')
     for p in (trial,):
         p.add_argument('--candidate-sha')
@@ -1427,7 +1457,8 @@ def main(argv=None) -> int:
         candidate = candidate_from_args(args)
         goal_set = load_goal_set(args.goal_set)
         slot = provision_slot(args.target, args)
-        options = {'quickstart': args.quickstart, 'slot_receipt': args.slot_receipt, 'devops_mcp': args.devops_mcp,
+        options = {'quickstart': args.quickstart, 'slot_receipt': args.slot_receipt,
+                   'slot_credentials': args.slot_credentials,
                    'http': local_http}
         try:
             receipt = run_trial(arc=arc, target=args.target, arm=arm, variant=args.variant, trial_id=args.trial_id,

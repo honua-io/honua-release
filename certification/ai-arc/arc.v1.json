@@ -333,5 +333,29 @@
     "tenant.denied",
     "P18",
     "custody.worker-replaced@local-docker"
-  ]
+  ],
+  "operator": {
+    "repo": "honua-io/honua-devops",
+    "tag": "v2026.1.1",
+    "commit": "09a8984b519bfeeaf5ac63e5a3174e662e3866d1",
+    "entryTool": "install_honua",
+    "toolCount": 28,
+    "assets": {
+      "linux-x64": {
+        "name": "honua-devops-linux-x64.tar.gz",
+        "sha256": "253f0d3c6696590a3c55f03b77b6364e7972f979b4e3d327a936d8a4fc4612aa"
+      },
+      "osx-arm64": {
+        "name": "honua-devops-osx-arm64.tar.gz",
+        "sha256": "5fe82b26f4f393bdbf77ed19fa07ea019d49c398005812d80521a419124a96d0"
+      },
+      "osx-x64": {
+        "name": "honua-devops-osx-x64.tar.gz",
+        "sha256": "83b326dd15287e904d8e185c00d071d8f8e5c92423060eed973b17d9a2daac47"
+      }
+    },
+    "containerImage": "ghcr.io/honua-io/honua-devops@sha256:ddec7485a2681cf75876f8852f98de7121ef885e5f40bf154d61c509fec15a4c",
+    "registration": "claude mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp (Codex: codex mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp); in the arc the runner starts the same verified binary with --mcp behind the recording proxy",
+    "credentials": "slot-scoped short-lived STS session credentials in the operator process environment only"
+  }
 }
