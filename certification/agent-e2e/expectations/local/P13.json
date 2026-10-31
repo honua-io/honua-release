@@ -1134,7 +1134,10 @@
         "object": {
           "resourceId": {
             "target": "p13-target-v1",
-            "role": "seeded:map:target"
+            "role": "seeded:map:target",
+            "at": {
+              "pathSegment": 4
+            }
           },
           "restoredVersionId": {
             "body": "p13-target-after",
@@ -1173,7 +1176,10 @@
           },
           "originalVersionId": {
             "target": "p13-target-v1",
-            "role": "seeded:version:v1"
+            "role": "seeded:version:v1",
+            "at": {
+              "pathSegment": 6
+            }
           },
           "listedItemId": {
             "body": "p13-target-after",
@@ -1222,8 +1228,18 @@
             "before": "p13-parcels-before",
             "after": "p13-parcels-after",
             "resource": [
-              "seeded:service:parcels",
-              "seeded:layer:parcels"
+              {
+                "role": "seeded:service:parcels",
+                "at": {
+                  "argument": "/serviceId"
+                }
+              },
+              {
+                "role": "seeded:layer:parcels",
+                "at": {
+                  "argument": "/layerId"
+                }
+              }
             ],
             "content": {
               "object": {
@@ -1285,8 +1301,18 @@
             "before": "p13-flood-zones-before",
             "after": "p13-flood-zones-after",
             "resource": [
-              "seeded:service:flood_zones",
-              "seeded:layer:flood_zones"
+              {
+                "role": "seeded:service:flood_zones",
+                "at": {
+                  "argument": "/serviceId"
+                }
+              },
+              {
+                "role": "seeded:layer:flood_zones",
+                "at": {
+                  "argument": "/layerId"
+                }
+              }
             ],
             "content": {
               "object": {
@@ -1342,8 +1368,18 @@
             "before": "p13-shelters-before",
             "after": "p13-shelters-after",
             "resource": [
-              "seeded:service:shelters",
-              "seeded:layer:shelters"
+              {
+                "role": "seeded:service:shelters",
+                "at": {
+                  "argument": "/serviceId"
+                }
+              },
+              {
+                "role": "seeded:layer:shelters",
+                "at": {
+                  "argument": "/layerId"
+                }
+              }
             ],
             "content": {
               "object": {
@@ -1455,8 +1491,18 @@
             "before": "p13-shared-before",
             "after": "p13-shared-after",
             "resource": [
-              "seeded:workspace:shared",
-              "seeded:owner:shared"
+              {
+                "role": "seeded:workspace:shared",
+                "at": {
+                  "query": "workspaceId"
+                }
+              },
+              {
+                "role": "seeded:owner:shared",
+                "at": {
+                  "query": "owner"
+                }
+              }
             ],
             "content": {
               "object": {
@@ -1492,7 +1538,12 @@
             "before": "p13-service-parcels-before",
             "after": "p13-service-parcels-after",
             "resource": [
-              "seeded:service:parcels"
+              {
+                "role": "seeded:service:parcels",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
             ],
             "content": {
               "object": {
@@ -1526,7 +1577,12 @@
             "before": "p13-service-flood-zones-before",
             "after": "p13-service-flood-zones-after",
             "resource": [
-              "seeded:service:flood_zones"
+              {
+                "role": "seeded:service:flood_zones",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
             ],
             "content": {
               "object": {
@@ -1560,7 +1616,12 @@
             "before": "p13-service-shelters-before",
             "after": "p13-service-shelters-after",
             "resource": [
-              "seeded:service:shelters"
+              {
+                "role": "seeded:service:shelters",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
             ],
             "content": {
               "object": {
