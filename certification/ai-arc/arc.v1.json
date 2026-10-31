@@ -223,58 +223,53 @@
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-ecs": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-eks": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-lambda": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ]
       },
       "scenarios": [
         "P10",
-        "P07",
-        "P13"
+        "P15"
       ],
       "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack.",
       "goalSource": "The services stage sends no arc-authored goal: each scenario in stages[services].scenarios runs with its own development-pack prompt (held-out: unavailable), the first one after the plain handoff. Coverage is exactly those scenarios."

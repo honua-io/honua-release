@@ -397,7 +397,7 @@ def test_stage_contract_is_derived_from_the_scenario_data():
     bad['stages'][2]['scenarios'] = ['P10']
     with pytest.raises(ValueError):
         R.validate_arc(bad)
-    assert next(s for s in ARC['stages'] if s['id'] == 'services')['scenarios'] == ['P10', 'P07', 'P13']
+    assert next(s for s in ARC['stages'] if s['id'] == 'services')['scenarios'] == ['P10', 'P15']
 
 
 # ---------------------------------------------------------------- held-out custody (real Fernet round trip)
