@@ -236,6 +236,27 @@ jobs:
 vocabularies, allowlist, baselines and ledgers a caller runs therefore cannot change under an
 already-pinned check.
 
+### Install the event and audit callers
+
+The reviewable examples in [`docs/examples/vendor-guard/`](examples/vendor-guard/)
+provide separate per-repository caller workflows for event detection and the
+scheduled REST audit. Their full SHA pins the reviewed reusable workflows and
+trusted scanner code; **the pinned commit must first be available on GitHub**.
+Update both pins together to a reviewed, reachable full commit SHA before
+installation. Copy the examples to `.github/workflows/` on each target default
+branch and verify Actions, workflow access policies, token read permissions, and
+actual event delivery there. Installing these examples is a per-repository
+change; they do not configure an organization ruleset or install themselves.
+
+The event caller detects text only after publication and cannot block or remove
+it. The audit caller scans only content its repository token can read; scheduled
+runs cover one of 16 review shards per day. Check run outcomes and rerun every
+missing shard with `workflow_dispatch` and `review_shard` in the range 0–15.
+Disabled Actions, missed schedules, request budgets, repository visibility,
+unsupported events and out-of-scope surfaces prevent a clean-run claim from
+implying organization-wide coverage. The separate delta workflow is needed for
+code and PR metadata checks; these callers do not enforce a branch ruleset.
+
 ### Guard newly changed content
 
 `guard-vendor-event.yml` inspects issue titles and descriptions, issue comments,
