@@ -109,7 +109,7 @@ def load_expected(scenario_id, variant):
     return _resolve(assertions, variant)
 
 
-READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replayOfModelAction'}
+READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replayOfModelAction', 'session', 'exactPath'}
 
 
 def load_projections(scenario_id, variant):
@@ -127,8 +127,11 @@ def load_projections(scenario_id, variant):
     out = {}
     for assertion, row in rows.items():
         if not isinstance(row, dict) or set(row) != {'spec', 'reads'} or not isinstance(row['spec'], dict) \
-                or not isinstance(row['reads'], dict) or not row['reads']:
+                or not isinstance(row['reads'], dict):
             raise ValueError('malformed frozen projection: ' + assertion)
+        from agent_e2e_local_projections import referenced_steps
+        if referenced_steps(row['spec']) and not row['reads']:
+            raise ValueError('frozen projection reads records but declares no read rules: ' + assertion)
         for step, rule in row['reads'].items():
             if not isinstance(rule, dict) or set(rule) - READ_FIELDS or \
                     not {'kind', 'method', 'path', 'principal', 'phase'} <= set(rule):
@@ -138,7 +141,8 @@ def load_projections(scenario_id, variant):
     return out
 
 
-ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'total', 'next_page'}
+ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'total', 'next_page', 'page_limit',
+               'created_by'}
 
 
 def load_roles(scenario_id):

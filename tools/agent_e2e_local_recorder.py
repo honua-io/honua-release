@@ -53,6 +53,7 @@ class Record:
                                    # a sealed model action, captured by the runner gateway or proxy
     content_type: str | None = None
     recorded_at: str = ''
+    after_session: int = 0         # how many model sessions had completed when the read was made
 
     def metadata(self, case_id) -> dict:
         """Everything about the record the ledger binds: request identity, principal, phase, status, body."""
@@ -60,7 +61,7 @@ class Record:
                 'principal': self.principal, 'principalId': self.principal_id, 'method': self.method,
                 'path': self.path, 'status': self.status, 'bodySha256': 'sha256:' + hashlib.sha256(self.raw).hexdigest(),
                 'replayOf': self.replay_of, 'origin': self.origin, 'contentType': self.content_type,
-                'recordedAt': self.recorded_at,
+                'recordedAt': self.recorded_at, 'afterSession': self.after_session,
                 'requestArgumentsSha256': (None if self.request_arguments_raw is None else
                                            'sha256:' + hashlib.sha256(self.request_arguments_raw).hexdigest())}
 
@@ -98,6 +99,7 @@ class Record:
             row['replayOf'] = self.replay_of
         if self.origin != 'controller':
             row['origin'] = self.origin
+        row['afterSession'] = self.after_session
         return row
 
 
@@ -155,6 +157,11 @@ def parse_jsonrpc(raw: bytes) -> dict:
     return responses[0]
 
 
+def occurrence(session, sequence, digest):
+    """The identity of one sealed model action occurrence (not just its content digest)."""
+    return f'occ:{session}:{sequence}:{digest}'
+
+
 _GENESIS = 'sha256:' + hashlib.sha256(b'honua-corpus-action-log/v1').hexdigest()
 
 
@@ -177,6 +184,7 @@ class EvidenceVault:
         self._actions = []          # (entry, action_bytes, chain)
         self._chain = _GENESIS
         self._sessions = set()
+        self._custody = {}          # name -> (canonical json bytes, evidence steps, digest)
 
     def digest(self, record):
         return 'sha256:' + hashlib.sha256(json.dumps(record.metadata(self.case_id), sort_keys=True,
@@ -195,6 +203,31 @@ class EvidenceVault:
             require(self.digest(record) == self._digests[step] and record.intact(), 'vault record altered: ' + step)
             out[step] = record
         return out
+
+    def attest(self, name, value, steps):
+        """Runtime only: seal one runner-observed custody fact with the records that support it."""
+        require(isinstance(name, str) and name, 'invalid custody fact name')
+        steps = tuple(steps or ())
+        missing = [step for step in steps if step not in self._records]
+        require(not missing, 'custody fact cites unrecorded evidence: ' + ','.join(missing))
+        raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+        digest = 'sha256:' + hashlib.sha256(raw + b'\n' + json.dumps(
+            [(step, self._digests[step]) for step in steps]).encode()).hexdigest()
+        self._custody[name] = (raw, steps, digest)
+
+    def custody(self):
+        """Detached copies of the sealed custody facts (re-verified against their evidence)."""
+        out = {}
+        for name, (raw, steps, digest) in self._custody.items():
+            require(all(step in self._records for step in steps), 'custody evidence disappeared: ' + name)
+            check = 'sha256:' + hashlib.sha256(raw + b'\n' + json.dumps(
+                [(step, self._digests[step]) for step in steps]).encode()).hexdigest()
+            require(check == digest, 'custody fact altered: ' + name)
+            out[name] = json.loads(raw)
+        return out
+
+    def custody_evidence(self):
+        return {name: list(steps) for name, (_raw, steps, _digest) in self._custody.items()}
 
     def ledger(self):
         return dict(self._digests)
@@ -221,9 +254,28 @@ class EvidenceVault:
         require(chain == self._chain, 'harness action log head differs')
         return [(entry, raw) for entry, raw, _ in self._actions]
 
+    def action_results(self):
+        """The server's captured replies to sealed agent actions: [{tool, kind, status, json}] (digest-checked)."""
+        out = []
+        for entry, raw in self.entries():
+            _session, _sequence, _digest, _path, status, raw_sha, raw_path, _http = entry
+            if not (isinstance(raw_sha, str) and isinstance(raw_path, str)):
+                continue
+            body = Path(raw_path).read_bytes()
+            require('sha256:' + hashlib.sha256(body).hexdigest() == raw_sha, 'captured action response digest mismatch')
+            try:
+                message = parse_jsonrpc(body)
+            except ValueError:
+                continue
+            action = json.loads(raw)
+            out.append({'tool': action.get('tool'), 'kind': action.get('kind'), 'status': status, 'json': message})
+        return out
+
     def model_actions(self):
         """digest -> the model's logged action (for replay-provenance checks)."""
-        return {entry[2]: json.loads(raw) for entry, raw in self.entries()}
+        return {occurrence(entry[0], entry[1], entry[2]): {**json.loads(raw), '_session': entry[0], '_sequence': entry[1],
+                                                           '_digest': entry[2]}
+                for entry, raw in self.entries()}
 
 
 class ControllerRecorder:
@@ -252,6 +304,7 @@ class ControllerRecorder:
         self.principals = dict(principals)
         self._records: dict[str, Record] = {}
         self.phase = 'seed'
+        self.after_session = 0      # set by the runner as sessions complete; bound into every record
         self._pending = {}
         self._http_factory = http_factory
         self._mcp_factory = mcp_factory
@@ -306,7 +359,8 @@ class ControllerRecorder:
     def _store(self, record: Record):
         import dataclasses
         require(record.intact(), 'recorded digest differs from the retained bytes')
-        record = dataclasses.replace(record, recorded_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+        record = dataclasses.replace(record, recorded_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                                     after_session=self.after_session)
         self._deliver(record)
         self._records[record.step] = record
         row = {**record.index(), 'bodyBase64': base64.b64encode(record.raw).decode('ascii')}
@@ -316,7 +370,7 @@ class ControllerRecorder:
         return record
 
     # -- HTTP --------------------------------------------------------------
-    def _request(self, step, principal, method, path, body, content_type):
+    def _request(self, step, principal, method, path, body, content_type, origin='controller'):
         """One request to the local stack or explicitly admitted cell; retain every response."""
         import urllib.error
         import urllib.parse
@@ -363,7 +417,7 @@ class ControllerRecorder:
         # enumerations with different body-defined scopes are different requests.
         record = self._store(Record(step, self.phase, 'http', principal, identity, method, path, status, raw,
                                     'sha256:' + hashlib.sha256(raw).hexdigest(), request_arguments_raw=body,
-                                    content_type=content_type))
+                                    content_type=content_type, origin=origin))
         return {'observation': {'httpStatus': status, 'body': record.json, 'responseDigest': record.sha256,
                                 'rawBodyBase64': base64.b64encode(raw).decode('ascii')},
                 'reference': {'key': step, 'sha256': record.sha256}}
@@ -388,6 +442,19 @@ class ControllerRecorder:
                   'Content-Type: application/geo+json\r\n\r\n'.encode(), raw, f'\r\n--{boundary}--\r\n'.encode()]
         return self._request(step, principal, 'POST', '/api/v1/admin/import/upload', b''.join(parts),
                              'multipart/form-data; boundary=' + boundary)
+
+    def confirmation_read(self, step, path):
+        """Runner only (the fault injector): a controller GET made DURING the session to verify that a
+        model-requested creation committed. Recorded with phase 'session-confirm' and origin
+        'fault-confirmation', so no frozen read rule accepts it as observed state."""
+        require(self.phase == 'session', 'confirmation reads happen only while the session runs')
+        self.phase = 'session-confirm'
+        try:
+            answer = self._request(step, 'controller', 'GET', path, None, 'application/json',
+                                   origin='fault-confirmation')
+        finally:
+            self.phase = 'session'
+        return answer['observation']['httpStatus']
 
     # -- MCP ---------------------------------------------------------------
     def _mcp(self, step, principal, rpc, *, replay_of=None, arguments=None, label):
@@ -467,7 +534,8 @@ class ControllerRecorder:
         require(logged.get('kind') == 'tool_call' and isinstance(logged.get('arguments'), dict)
                 and isinstance(logged.get('tool'), str), 'only a logged tool call can be replayed')
         tool, arguments = logged['tool'], json.loads(json.dumps(logged['arguments']))
-        return self._mcp(step, principal, lambda c: c.call_tool(tool, arguments), replay_of=action.digest,
+        return self._mcp(step, principal, lambda c: c.call_tool(tool, arguments),
+                         replay_of=occurrence(action.session, action.sequence, action.digest),
                          arguments={'tool': tool, 'arguments': arguments}, label='tools/call')
 
     def action_result(self, step, action: LoggedAction):
@@ -491,5 +559,5 @@ class ControllerRecorder:
                      else {'uri': logged.get('uri')})
         _env, identity = self.principals.get('agent', (None, None))
         return self._store(Record(step, 'observe', 'mcp', 'agent', identity, 'POST', '/mcp#' + label,
-                                  int(http_status or 0), raw, raw_sha, digest, action_bytes(arguments),
-                                  'session-result'))
+                                  int(http_status or 0), raw, raw_sha, occurrence(_session, _sequence, digest),
+                                  action_bytes(arguments), 'session-result'))

@@ -53,19 +53,20 @@ def test_full_stub_run(tmp_path: Path):
         "--rows", str(HERE / "rows" / "development.jsonl"),
         "--out", str(out),
     ])
-    assert code == 0
+    assert code == 2
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert summary["priced"] is False
     assert summary["model"] is None
     assert summary["driver"] == "stub"
     assert summary["guidance"] == "none"
     assert summary["n"] == 60
-    assert summary["unconditional"]["successes"] == 60
+    assert summary["unconditional"]["successes"] == 58
     assert summary["unsafe"]["count"] == 0
-    assert summary["false_success"]["count"] == 0
+    assert summary["false_success"]["count"] is None
+    assert summary["false_success"]["unresolved"] == 2
     assert summary["healthy_false_alarm"]["count"] == 0
     assert summary["q_bars"]["apply"] is False
-    assert summary["stop"]["reasons"] == []
+    assert summary["stop"]["reasons"] == ["unresolved"]
     assert summary["context_tokens"]["trials"] == 60
     trials = (out / "trials.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(trials) == 60
@@ -129,12 +130,11 @@ def test_bad_tool_arguments_keep_the_priced_call(monkeypatch, tmp_path: Path):
         "--rows", _one_row(out, row),
         "--out", str(out / "run"),
     ])
-    assert code == 0
-    trial = json.loads((out / "run" / "trials.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert trial["priced_call"] is True
-    assert trial["infrastructure"] is False
-    assert trial["outcome"] != "infrastructure"
-    assert calls["n"] == 2
+    assert code == 2
+    summary = json.loads((out / "run" / "summary.json").read_text(encoding="utf-8"))
+    assert summary["stop"]["reasons"] == ["not-real"]
+    assert not (out / "run" / "trials.jsonl").exists()
+    assert calls["n"] == 0
 
 
 def _one_row(out: Path, row: dict) -> str:
@@ -333,7 +333,7 @@ def test_missing_images_stop_before_a_model_call(monkeypatch, tmp_path: Path):
     ]) == 2
     assert called["n"] == 0
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
-    assert summary["stop"]["reasons"] == ["images"]
+    assert summary["stop"]["reasons"] == ["not-real"]
     assert not (out / "trials.jsonl").exists()
 
 
@@ -483,20 +483,10 @@ def test_ledger_records_bedrock_tokens_and_stops_at_the_cap(monkeypatch, tmp_pat
         "--rows", _rows(out, rows),
         "--out", str(out / "run"),
     ]) == 2
-    assert calls["n"] == 1
-    trial = json.loads((out / "run" / "trials.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert trial["input_tokens"] == 1_000_000
-    assert trial["output_tokens"] == 0
-    assert trial["usage_source"] == "bedrock-input-token-count"
-    assert Decimal(trial["cost_usd"]) == Decimal("3")
-    assert (out / "run" / "transcripts" / f"{trial['id']}.json").is_file()
-    assert (out / "run" / "audit" / f"{trial['id']}.json").is_file()
-    saved = json.loads(ledger.read_text(encoding="utf-8"))
-    assert saved["status"] == "budget_exhausted"
-    assert Decimal(saved["spent_usd"]) == Decimal("3")
-    assert Decimal(saved["cap_usd"]) == Decimal("1")
+    assert calls["n"] == 0
+    assert not ledger.exists()
     summary = json.loads((out / "run" / "summary.json").read_text(encoding="utf-8"))
-    assert "budget_exhausted" in summary["stop"]["reasons"]
+    assert summary["stop"]["reasons"] == ["not-real"]
 
 
 def _rows(out: Path, rows: list[dict]) -> str:
@@ -690,32 +680,137 @@ def test_workflow_runs_the_pilot_before_a_priced_call():
         assert name in workflow
 
 
-def test_transport_error_detail_is_redacted_in_trial_record(monkeypatch, tmp_path):
-    import client
-    from runner import run_row
-    from rows import build_row
-    from scenarios import load_prompts
+def test_transport_error_detail_is_redacted_in_trial_record(monkeypatch):
+    from runner import _error_detail
 
     secret = "private-admin-value"
     monkeypatch.setenv("TERMINAL_MODEL_API_KEY", secret)
     monkeypatch.setenv("HONUA_CANARY_AWS_SESSION_TOKEN", "private-session-value")
+    detail = _error_detail(RuntimeError(f"admission failed: expired session {secret} private-session-value"), {})
+    assert detail == "admission failed: expired session [REDACTED] [REDACTED]"
+
+
+def test_stub_with_priced_flag_is_refused(tmp_path):
+    assert main(["--model", "stub", "--priced-ok", "--pilot", "--out", str(tmp_path)]) == 2
+    assert not (tmp_path / "trials.jsonl").exists()
+
+
+def test_direct_live_entrypoints_refuse_before_call(tmp_path):
+    import pytest
+    from runner import live_actions, run_row
+    from rows import build_row
+    from scenarios import load_prompts
+
+    row = build_row("O01", "A", 1, load_prompts(qualification=False))
+    with pytest.raises(RuntimeError, match="not-real"):
+        run_row(row, arm="primary", model="live", work=tmp_path, execute=False, priced_ok=True)
+    with pytest.raises(RuntimeError, match="not-real"):
+        live_actions({}, [], row, "primary", 1, allow_call=lambda: True, on_usage=lambda _: None)
+
+
+
+def test_attempt_counts_include_nudges_and_failed_actions():
+    from runner import _attempt_counts
+    assert _attempt_counts([
+        {'kind': 'nudge', 'reason': 'invalid-model-action'},
+        {'tool': 'a', 'result': {'ok': False}},
+        {'tool': 'b', 'result': {'ok': True}},
+        {'kind': 'report', 'text': 'done'},
+    ]) == {'actions': 2, 'nudges': 1, 'failed_actions': 1}
+
+
+def test_stub_unresolved_packet_is_retained(tmp_path):
+    from runner import _resolve_ambiguous
+    packet = {'summary': 'unclear', 'checks': [{'task': 'claim'}]}
+    result = {'outcome': 'undetermined', 'false_success': None, 'judge_packet': packet}
+    assert _resolve_ambiguous(result, 'case', tmp_path, live=False) == result
+    saved = json.loads((tmp_path / 'review-queue' / 'case.json').read_text())
+    assert saved['packet'] == packet
+
+
+def test_live_workflow_refuses_before_any_provisioning():
+    workflow = (HERE.parent.parent / '.github' / 'workflows' / 'agent-ops.yml').read_text()
+    live = workflow.split('\n  live:\n', 1)[1]
+    assert live.index('Refuse live trials until real evidence is wired') < live.index('actions/checkout@')
+
+
+def test_live_session_counts_nudge_and_failed_action_without_restarting(monkeypatch):
+    import json
+    import client
+    import runner
 
     class Endpoint:
         configured = True
+        def validated_base_url(self): return 'http://127.0.0.1:1234'
 
-    class Client:
+    class Model:
         def __init__(self, endpoint):
-            pass
+            self.answers = iter([
+                'not a valid action',
+                json.dumps({'kind': 'tool_call', 'tool': 'example', 'arguments': {}}),
+                json.dumps({'kind': 'tool_call', 'tool': 'finish', 'arguments': {'summary': 'failed'}}),
+            ])
+            instances.append(self)
+        def complete(self, messages, certification):
+            lengths.append(len(messages))
+            return next(self.answers), {'prompt_tokens': 2, 'completion_tokens': 1}, 0, {}
 
-        def ensure_admission(self):
-            raise client.CanaryError(f"admission failed: expired session {secret} private-session-value")
+    instances, lengths, actions = [], [], []
+    monkeypatch.setattr(client, 'build_endpoint', lambda arm: Endpoint())
+    monkeypatch.setattr(client, 'OperateClient', Model)
+    transcript = []
+    def execute(name, arguments):
+        actions.append((name, arguments))
+        return {'ok': False, 'error': 'rejected'}
+    priced, complete, evidence = runner._live_session(
+        {'image_digest': 'sha256:test'}, transcript, {'id': 'trial', 'prompt': 'operate'},
+        'primary', 2, allow_call=lambda: True, on_usage=lambda pair: None, execute_action=execute)
+    assert priced and complete and evidence is None
+    assert len(instances) == 1 and lengths == [2, 4, 6]
+    assert actions == [('example', {})]
+    assert runner._attempt_counts(transcript) == {'actions': 1, 'nudges': 1, 'failed_actions': 1}
 
-    monkeypatch.setattr(client, "build_endpoint", lambda arm: Endpoint())
-    monkeypatch.setattr(client, "OperateClient", Client)
-    row = build_row("O01", "A", 1, load_prompts(qualification=False))
-    record = run_row(row, arm="primary", model="live", work=tmp_path,
-                     execute=False, priced_ok=True)
-    evidence = record["infrastructure_evidence"]
-    assert evidence["replay"] == "CanaryError"
-    assert evidence["detail"] == "admission failed: expired session [REDACTED] [REDACTED]"
-    assert secret not in json.dumps(record)
+
+def test_live_session_retains_failed_action_when_executor_crashes(monkeypatch):
+    import client
+    import pytest
+    import runner
+    class Endpoint:
+        configured = True
+        def validated_base_url(self): return 'http://127.0.0.1:1234'
+    class Model:
+        def __init__(self, endpoint): pass
+        def complete(self, messages, certification):
+            return json.dumps({'kind': 'tool_call', 'tool': 'example', 'arguments': {}}), {}, 0, {}
+    monkeypatch.setattr(client, 'build_endpoint', lambda arm: Endpoint())
+    monkeypatch.setattr(client, 'OperateClient', Model)
+    def crash(name, arguments):
+        raise RuntimeError('private detail must not enter transcript')
+    transcript = []
+    with pytest.raises(RuntimeError):
+        runner._live_session({'image_digest': 'sha256:test'}, transcript, {'id': 'trial', 'prompt': 'operate'},
+                             'primary', 2, allow_call=lambda: True, on_usage=lambda pair: None,
+                             execute_action=crash)
+    assert runner._attempt_counts(transcript)['failed_actions'] == 1
+    assert 'private detail' not in str(transcript)
+
+
+def test_live_session_action_cap_does_not_mark_completion(monkeypatch):
+    import client
+    import runner
+    class Endpoint:
+        configured = True
+        def validated_base_url(self): return 'http://127.0.0.1:1234'
+    class Model:
+        def __init__(self, endpoint): pass
+        def complete(self, messages, certification):
+            return json.dumps({'kind': 'tool_call', 'tool': 'example', 'arguments': {}}), {}, 0, {}
+    monkeypatch.setattr(client, 'build_endpoint', lambda arm: Endpoint())
+    monkeypatch.setattr(client, 'OperateClient', Model)
+    transcript = []
+    priced, complete, evidence = runner._live_session(
+        {'image_digest': 'sha256:test'}, transcript, {'id': 'trial', 'prompt': 'operate'},
+        'primary', 1, allow_call=lambda: True, on_usage=lambda pair: None,
+        execute_action=lambda name, arguments: {'ok': True})
+    assert priced and not complete and evidence['kind'] == 'action_cap'
+    assert runner._attempt_counts(transcript)['actions'] == 1

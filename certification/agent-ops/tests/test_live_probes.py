@@ -1,0 +1,148 @@
+"""Exercise actual HTTP probes with a local fake public FeatureServer."""
+import json
+import copy
+import threading
+import time
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import pytest
+
+from live_probes import ProbeTraffic, assess_traffic, readback_writes
+
+
+class FeatureHandler(BaseHTTPRequestHandler):
+    features = {}
+    lock = threading.Lock()
+    fail_reads = False
+    echo_key = False
+    echo_other = ''
+
+    def log_message(self, *_args):
+        pass
+
+    def do_GET(self):
+        with self.lock:
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if self.fail_reads:
+                body = {"error": {"code": 500}}
+            elif "objectIds" in query:
+                ids = [int(value) for value in query["objectIds"][0].split(',')]
+                body = {"features": [{"attributes": {"objectid": oid, "note": self.features[oid]}}
+                                     for oid in ids if oid in self.features]}
+            else:
+                body = {"count": len(self.features)}
+            if self.echo_key:
+                body['echo'] = self.headers.get('X-API-Key')
+            if self.echo_other:
+                body['other'] = self.echo_other
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+
+    def do_POST(self):
+        params = urllib.parse.parse_qs(self.rfile.read(int(self.headers["Content-Length"])).decode())
+        feature = json.loads(params["adds"][0])[0]
+        with self.lock:
+            object_id = len(self.features) + 1
+            self.features[object_id] = feature["attributes"]["note"]
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(json.dumps({"addResults": [{"success": True, "objectId": object_id}]}).encode())
+
+
+def test_real_http_samples_and_missing_committed_write():
+    FeatureHandler.features = {}
+    FeatureHandler.fail_reads = False
+    FeatureHandler.echo_key = False
+    FeatureHandler.echo_other = ''
+    server = ThreadingHTTPServer(("127.0.0.1", 0), FeatureHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    traffic = ProbeTraffic(f"http://127.0.0.1:{server.server_port}", "/layer", "customer", "note",
+                           {"x": 1, "y": 2}, interval=0.1, writer_interval=0.1)
+    try:
+        traffic.start()
+        time.sleep(0.8)
+        record = traffic.stop()
+        ids = [row["object_id"] for row in record["samples"]
+               if row["kind"] in ("write", "writer") and row["ok"]]
+        readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
+                                             "controller", "objectid", "note", ids)
+        assert len(readback["responses"]) == (len(ids) + 99) // 100
+        assert all(len(item["sha256"]) == 64 and "controller" not in str(item) for item in readback["responses"])
+        try:
+            result = assess_traffic(record, readback)
+        except ValueError as exc:
+            # A loaded host can miss real scheduling deadlines. That is a
+            # correctly refused measurement, not a flaky test failure.
+            assert 'cadence was not maintained' in str(exc)
+            return
+        assert result["rpo_zero"] is True
+        late = copy.deepcopy(readback)
+        late["started_monotonic"] = record["ended_monotonic"] + 11
+        with pytest.raises(ValueError, match="late controller"):
+            assess_traffic(record, late)
+        sparse = copy.deepcopy(record)
+        sparse["interval"] = 1
+        with pytest.raises(ValueError, match="cadence"):
+            assess_traffic(sparse, readback)
+        assert result["committed_writes"] >= 4
+        FeatureHandler.echo_key = True
+        with pytest.raises(ValueError, match='disclosed a credential'):
+            readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer", "controller", "objectid", "note", ids)
+        FeatureHandler.echo_key = False
+        FeatureHandler.echo_other = 'operator-secret-outside-environment'
+        with pytest.raises(ValueError, match='disclosed a credential'):
+            readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer", "controller", "objectid", "note", ids,
+                            sensitive_values=(FeatureHandler.echo_other,))
+        FeatureHandler.echo_other = ''
+        assert {row["kind"] for row in record["samples"]} == {"read", "write", "writer"}
+        assert all(row["finished_at"] >= row["started_at"] for row in record["samples"])
+        # Restore can rewind a sequence: two acknowledged writes may have the
+        # same ID but distinct markers, only one of which remains observable.
+        reused = copy.deepcopy(record)
+        acknowledged = [row for row in reused['samples'] if row['kind'] in ('write', 'writer') and row['ok']]
+        acknowledged[1]['object_id'] = acknowledged[0]['object_id']
+        reused_ids = [row['object_id'] for row in acknowledged]
+        reused_readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
+                                          "controller", "objectid", "note", reused_ids)
+        reused_result = assess_traffic(reused, reused_readback)
+        assert reused_result['lost_writes'] == [acknowledged[0]['object_id']]
+        assert reused_result['lost_write_markers'] == [
+            {'object_id': acknowledged[1]['object_id'], 'marker': acknowledged[1]['marker']}]
+        assert not reused_result['rpo_zero']
+        lost = ids[0]
+        del FeatureHandler.features[lost]
+        readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
+                                   "controller", "objectid", "note", ids)
+        assert lost in assess_traffic(record, readback)["lost_writes"]
+        readback["responses"][0]["sha256"] = "0" * 64
+        with pytest.raises(ValueError, match="integrity"):
+            assess_traffic(record, readback)
+        record["complete"] = False
+        with pytest.raises(ValueError, match="incomplete"):
+            assess_traffic(record, readback)
+    finally:
+        FeatureHandler.echo_key = False
+        FeatureHandler.echo_other = ''
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+
+def test_missing_channel_and_duplicate_ack_fail_closed():
+    def sample(kind, timestamp, **extra):
+        return {"kind": kind, "ok": True, "started_monotonic": timestamp,
+                "finished_monotonic": timestamp, **extra}
+    # Draining in-flight requests after stop is not a missed scheduled sample.
+    record = {"complete": True, "started_monotonic": 0.1, "ended_monotonic": 1.3, "stop_requested_monotonic": 0.9,
+              "interval": 0.1, "writer_interval": 0.1,
+              "samples": [sample("read", .2), sample("read", .4), sample("read", .6), sample("read", .8)]}
+    with pytest.raises(ValueError, match="samples"):
+        assess_traffic(record, {})
+    for kind in ("write", "writer"):
+        record["samples"].extend([sample(kind, .2, object_id=1, marker="a"), sample(kind, .4, object_id=1, marker="a"),
+                                  sample(kind, .6, object_id=1, marker="a"), sample(kind, .8, object_id=1, marker="a")])
+    with pytest.raises(ValueError, match="committed-write"):
+        assess_traffic(record, {1: "a"})

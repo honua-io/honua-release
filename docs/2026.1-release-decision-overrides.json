@@ -163,7 +163,7 @@
     "R29": {
       "date": "2026-10-03",
       "authority": "https://github.com/honua-io/honua-release/issues/376",
-      "ruling": "Multi-tenancy is internal: used only on Honua's own demo infrastructure, not offered for customer deployment in 2026.1, not GA/Preview/Experimental; no customer-facing multi-tenant claim exists (ELv2 bars third parties from operating Honua as a managed service). Supersedes the 2026-09-04 Preview/trial wording.",
+      "ruling": "Multi-tenancy is internal: used only on Honua's own demo infrastructure, not offered for customer deployment in 2026.1, not GA/Preview/Experimental; no customer-facing multi-tenant claim exists (the Fair Core License, FCL-1.0-ALv2, bars third parties from offering Honua as a competing managed service). Supersedes the 2026-09-04 Preview/trial wording.",
       "effect": "An issue whose only subject is multi-tenant operation leaves the release buckets. Cross-tenant authorization denial and isolation cells inside single-tenant GA issues are security floors, not multi-tenant claims, and stay in their buckets.",
       "moved": [],
       "basis": "2026-10-03 scan of every open release/2026.1 cohort member (titles, labels and bodies mentioning tenant/tenancy): no open issue is multi-tenant-only. The multi-tenant-only work (honua-server#4793, honua-server#346) already carries release/2026.2 and is outside the cohort; closed members keep their recorded buckets."
@@ -603,6 +603,14 @@
       "retained_2026_2": [
         "honua-server#2439"
       ]
+    },
+    "ai-arc-required-2026-10-31": {
+      "date": "2026-10-31",
+      "authority": "Founder decision in the rc.2 release session, 2026-10-31: Required for rc.2",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "The AI arc is required for 2026.1-rc.2 admission for each founder-approved gating target and both required arms.",
+      "effect": "Supersedes wedge-critical-retier-2026-10-25 for the arc gate only. The genuine-model canary and gate-agent-e2e remain advisory.",
+      "moved": []
     },
     "wedge-critical-retier-2026-10-25": {
       "date": "2026-10-25",
