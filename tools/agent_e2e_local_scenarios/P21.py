@@ -19,7 +19,8 @@ class P21(Scenario):
         if variant not in ('A', 'B'):
             raise ValueError('unsupported variant')
         return {'kind': 'response_lost_after_commit', 'id': 'p21-map-create',
-                'after': None, 'match': {'tool': 'honua_studio_create_draft'}}
+                'after': None, 'match': {'tool': 'honua_studio_create_draft'},
+                'commit': {'pointer': '/result/structuredContent/draftId'}}
 
     def needs_approver(self):
         return True
