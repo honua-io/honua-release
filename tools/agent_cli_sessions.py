@@ -332,6 +332,12 @@ class CliModelSession:
             raise ValueError('invalid stage MCP server set')
         if 'quickstart_shell' in servers and (stage != 1 or target_kind != 'remote-vm'):
             raise ValueError('quickstart shell is restricted to stage 1 on a remote VM')
+        for server, item in servers.items():
+            names = {tool.get('name') for tool in item['tool_view'].get('tools', [])}
+            if server == 'quickstart_shell' and names != {'run_quickstart'}:
+                raise ValueError('quickstart shell must use the runner-controlled command recorder')
+            if server != 'quickstart_shell' and names & {'run_command','run_quickstart','write_file','read_file'}:
+                raise ValueError('unmanaged shell or file MCP tools are not permitted')
         contract = QUICKSTART_CONTRACT if 'quickstart_shell' in servers else NATIVE_CONTRACT
         tool_views = {name: value['tool_view'] for name, value in servers.items()}
         primary_view = tool_view if legacy else tool_views

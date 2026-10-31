@@ -30,6 +30,13 @@ it is dispatched; a shared ledger orders actions across multiple servers. The
 CLI transcript can detect forbidden attempts and supply the final answer/usage,
 but cannot supply actions, resource hints, or independent observations.
 
+The developing arc runner's generic `run_command` / `read_file` / `write_file`
+surface includes commands outside this lane's explicit allowlist. The CLI
+session refuses that unmanaged surface before launching a model. The arc runner
+must wire `run_stage` and `RemoteQuickstartShell` for its setup stage; it cannot
+use the generic surface as a substitute. This integration belongs to the
+separate arc-runner lane.
+
 The controller starts `StdioMcpBackend(binary, slot_env=..., workdir=...).start()`
 using the published binary documented in honua-devops `docs/QUICKSTART-MCP.md`.
 Supply a fresh scratch workdir and an explicit slot environment. AWS access keys,

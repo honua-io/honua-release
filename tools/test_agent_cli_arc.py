@@ -115,6 +115,21 @@ def test_studio_stage_rejects_server_mcp_bypass(tmp_path):
                   'honua':Backend('honua_ops_health')},log_dir=tmp_path)
 
 
+def test_legacy_shell_surface_is_rejected_before_cli(tmp_path):
+    cli=CliModelSession('claude-cli','claude-opus-5-5',binary=fake_multi_cli(tmp_path,'claude-cli'),auth_root=tmp_path)
+    with pytest.raises(CliFailure) as failure:
+        cli.run(prompt='Complete the stage',tool_view=view('run_command'),execute=lambda *_:None,log_dir=tmp_path/'log')
+    assert failure.value.category=='infrastructure'
+    assert not failure.value.progress['actions']
+
+
+def test_quickstart_backend_cannot_advertise_file_tools(tmp_path):
+    cli=CliModelSession('claude-cli','claude-opus-5-5',binary=fake_multi_cli(tmp_path,'claude-cli'),auth_root=tmp_path)
+    with pytest.raises(CliFailure):
+        cli.run(prompt='Complete the stage',servers={'quickstart_shell':{'tool_view':view('write_file'),
+            'execute':lambda *_:None}},stage=1,target_kind='remote-vm',log_dir=tmp_path/'log')
+
+
 @pytest.mark.parametrize('command',[
  'docker run -v /:/host image', 'docker compose exec server sh', 'docker compose down --volumes',
  'docker compose -f ../../other.yml up -d', 'docker compose up -d; cat /etc/passwd',
