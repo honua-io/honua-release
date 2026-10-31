@@ -91,9 +91,21 @@ a fresh cell for the next case. There is no host-wide campaign lock.
 Host-local Docker is refused for these
 CLI arms. The pre-existing local Sonnet 5.5 P10 smoke was made before the remote
 redirect: it reached the candidate, then failed during MCP discovery with zero
-recorded model actions. The stack was torn down and the attempt retained; no
-second real CLI session has been run. An empty `prompts/list` discovery response
-was added and tested with fake executables.
+recorded model actions. The stack was torn down and the attempt retained. The old receipt did not retain
+request names or CLI stderr, so it does not identify the rejected method. The
+proxy now returns an empty `prompts/list` and a standard method-not-found error
+for other unsupported discovery requests, without treating those requests as
+model actions. Fake CLI tests cover both cases.
+
+The published quickstart was installed on the remote eval Docker host for two
+read-only smoke attempts and removed afterward, including its volumes and
+credentials. Opus reached the proxy but failed at discovery before the latter
+fix; a wrapper error lost its detailed proxy and CLI diagnostics. Codex completed
+initialize and tools/list (12 tools; 44,865-byte proxy response) but exited
+without a recorded model action. Its receipt records a CLI failure or forbidden
+event; the transcript was not retained, so the precise cause is unknown. The
+image lacked `honua_ops_health`, while a controller read using the scoped key
+verified `honua_list_layers`. Neither attempt is a successful model smoke.
 
 The legacy corpus adapter uses W2's runner-owned gateway, controller reads and
 oracle. Its remote-cell mode requires the retained target configuration and

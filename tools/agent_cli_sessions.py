@@ -103,6 +103,7 @@ class RecordingProxy:
         self.execute, self.log_dir = execute, Path(log_dir)
         self.session, self.max_actions = session, max_actions
         self.actions, self.visible, self.hints, self.methods = (ledger['actions'] if ledger else []), [], [], []
+        self.events = []
         self.server_name = server_name
         self.failure = None
         self.failure_category = None
@@ -127,19 +128,29 @@ class RecordingProxy:
                     request = json.loads(self.rfile.read(length))
                     if request.get('jsonrpc') != '2.0':
                         raise ValueError('invalid JSON-RPC')
+                    method = request.get('method')
+                    proxy.events.append({'method': method if method in ('initialize', 'notifications/initialized',
+                        'tools/list', 'tools/call', 'prompts/list', 'resources/list',
+                        'resources/templates/list', 'resources/read', 'ping') else 'other',
+                        'requestBytes': length})
                     if 'id' not in request:
                         if request.get('method') != 'notifications/initialized':
                             raise ValueError('unsupported notification')
                         self.send_response(202)
                         self.end_headers()
                         return
-                    answer = proxy.rpc(request['method'], request.get('params', {}))
-                    raw = encoded({'jsonrpc': '2.0', 'id': request['id'], 'result': answer})
+                    try:
+                        answer = proxy.rpc(request['method'], request.get('params', {}))
+                        raw = encoded({'jsonrpc': '2.0', 'id': request['id'], 'result': answer})
+                    except NotImplementedError:
+                        raw = encoded({'jsonrpc': '2.0', 'id': request['id'],
+                                       'error': {'code': -32601, 'message': 'Method not found'}})
                 except Exception:
                     proxy.failure = proxy.failure or 'invalid or undetermined MCP request'
                     raw = encoded({'jsonrpc': '2.0', 'id': locals().get('request', {}).get('id'),
                                    'error': {'code': -32600, 'message': 'MCP request refused'}})
                 proxy.visible.append(digest(raw))
+                if proxy.events: proxy.events[-1]['responseBytes'] = len(raw)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(raw)))
@@ -182,9 +193,9 @@ class RecordingProxy:
             action = {'kind': 'resource_read', 'uri': params.get('uri')}
             valid = self.server_name in (None, 'honua') and action['uri'] == 'honua://catalog/processes'
         else:
-            self.failure = 'non-MCP action attempted'
-            self.failure_category = 'model'
-            raise ValueError(self.failure)
+            # Optional MCP discovery extensions are not model actions. Reject
+            # them at the protocol boundary without killing an otherwise valid session.
+            raise NotImplementedError(method)
         if self.server_name is not None:
             action['server'] = self.server_name
             if self.server_name == 'quickstart_shell': action['kind'] = 'shell_command'
@@ -273,7 +284,7 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract):
         path = home / 'mcp.json'
         write_private(path, encoded(config))
         args = [binary, '-p', '--model', model, '--output-format', 'stream-json', '--verbose',
-                '--restricted', '--tools', '', '--allowedTools', ','.join(
+                '--debug-file', str(home / 'claude-mcp-debug.log'), '--restricted', '--tools', '', '--allowedTools', ','.join(
                     'mcp__' + name + '__' + tool for name, item in servers.items() for tool in item['names']),
                 '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
                 '--strict-mcp-config', '--mcp-config', str(path), '--setting-sources', '',
@@ -346,6 +357,27 @@ def parse_transcript(agent, raw, names):
                 if isinstance(event.get('usage'), dict): usage.append(event['usage'])
             if event.get('type') in ('turn.failed', 'error'): forbidden = True
     return final, usage, turns, forbidden
+
+
+def transcript_diagnostics(raw):
+    """Keep event types and hashes, never the potentially sensitive transcript."""
+    events = []
+    for line in raw.splitlines()[:500]:
+        try:
+            item = json.loads(line)
+            kind = item.get('type') if isinstance(item, dict) else None
+            detail = item.get('item', {}) if isinstance(item, dict) else {}
+            event = {'type': kind if kind in ('system', 'assistant', 'result', 'thread.started',
+                     'turn.started', 'turn.completed', 'turn.failed', 'error', 'item.started',
+                     'item.completed', 'item.updated') else 'other', 'lineSha256': digest(line)}
+            if isinstance(detail, dict):
+                subtype = detail.get('type')
+                event['itemType'] = subtype if subtype in ('mcp_tool_call', 'agent_message',
+                    'reasoning', 'plan', 'command_execution', 'file_change', 'web_search') else 'other'
+            events.append(event)
+        except (ValueError, UnicodeError):
+            events.append({'type': 'invalid-json', 'lineSha256': digest(line)})
+    return events
 
 
 class CliModelSession:
@@ -442,12 +474,27 @@ class CliModelSession:
                     process.wait(timeout=10)
                     stdout.seek(0)
                     raw = stdout.read(16_000_001)
+                    stderr.seek(0)
+                    stderr_raw = stderr.read(16_000_001)
                 out['actions'] = ledger['actions']
                 for proxy in proxies.values(): out['modelVisibleDigests'].extend(proxy.visible)
                 metadata['mcpResponsesByServer'] = {name: p.visible for name, p in proxies.items()}
                 metadata['mcpResponseSha256'] = next(iter(proxies.values())).visible if legacy else None
                 metadata['mcpMethods'] = {name: p.methods for name, p in proxies.items()}
+                metadata['mcpEvents'] = {name: p.events for name, p in proxies.items()}
+                metadata['stderrSha256'] = digest(stderr_raw)
+                debug_path = home / 'claude-mcp-debug.log'
+                if debug_path.is_file():
+                    debug = debug_path.read_bytes()
+                    metadata['cliDebugSha256'] = digest(debug)
+                    metadata['cliDebugMcpLineCount'] = sum(b'mcp' in line.lower() for line in debug.splitlines())
+                    metadata['cliDebugMcpEvents'] = [
+                        {'lineSha256': digest(line), 'event': next((word for word in
+                         ('connected', 'connecting', 'failed', 'error', 'tools', 'initialized')
+                         if word.encode() in line.lower()), 'other')}
+                        for line in debug.splitlines() if b'mcp' in line.lower()][:200]
                 metadata['transcriptSha256'] = digest(raw)
+                metadata['cliEvents'] = transcript_diagnostics(raw)
                 out['provenance'] = [metadata]
                 out['resourceHints'] = [hint for p in proxies.values() for hint in p.hints]
                 failed_proxy = next((p for p in proxies.values() if p.failure), None)
@@ -463,7 +510,7 @@ class CliModelSession:
                 out['tokens'] = sum(sum(u.get(k, 0) for k in ('input_tokens', 'output_tokens',
                     'cache_read_input_tokens', 'cache_creation_input_tokens')) for u in usage)
                 if forbidden or turns > max_turns:
-                    raise CliFailure('forbidden action attempted or turn bound exceeded', out)
+                    raise CliFailure('CLI reported a failure, forbidden action, or turn bound exceeded', out)
                 if process.returncode or not isinstance(final, str) or not final.strip():
                     raise CliFailure('CLI failed or omitted final answer', out,
                                      'post-action-undetermined' if ledger['actions'] else 'infrastructure')
