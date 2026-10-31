@@ -1,9 +1,9 @@
-# Third-party trademarks: Esri and ArcGIS terms
+# Third-party naming policy
 
 Status: policy for every honua-io repository (honua-release#425, release plan honua-release#376).
 
-Operator ruling, 2026-10-03: some Esri and ArcGIS terms are unavoidable because they are part of the
-GeoServices REST specification, but we minimise every other use for legal reasons.
+Operator ruling, 2026-10-03: some third-party terms are unavoidable as exact GeoServices REST identifiers;
+minimize every other use.
 
 Ruling R30 (honua-release#376): desktop-client certification detail stays in the private certification
 repository. Rulings R32 to R37 (honua-release#425) settle the vocabularies, the certification labels and
@@ -14,27 +14,20 @@ never allowed, and how to request an exception. `tools/check_vendor_terms.py` ap
 The `gate-vendor-terms` workflow fails a pull request that adds an avoidable use or carries any
 confidential use. This is an engineering control; guidance from counsel takes precedence over it.
 
-## Marks covered
+## Covered terminology
 
-`Esri`, `ArcGIS`, and Esri product names, including the desktop client, ArcGIS Online, ArcGIS Enterprise,
-Portal for ArcGIS, ArcGIS Server, ArcGIS Desktop, ArcGIS Maps SDKs (including the former ArcGIS API for
-JavaScript and ArcGIS Runtime), ArcGIS Living Atlas, Esri Leaflet, ArcMap, ArcCatalog, the desktop
-client's Python scripting module, ArcObjects, ArcSDE and ArcIMS. Matching is case-insensitive and looks at
-whole words, so `EsriFeatureLayer`, `esri_path` and `ARCGIS_URL` all count, but `SourceSrid` does not.
-The exact patterns are in `tools/check_vendor_terms.py`. This page does not spell out the confidential
-ones, because the lint applies to this page too.
-
-Esri publishes its own terms for its marks on its
-[copyright and trademarks page](https://www.esri.com/en-us/legal/copyright-proprietary-rights). This
-policy links to those terms rather than restating them.
+The classifier checks a controlled vocabulary of third-party company and product names, case-insensitively
+and at whole-word boundaries. The exact patterns live in `tools/check_vendor_terms.py`; this page does not
+duplicate them. Confidential entries are kept out of public documentation. This policy is an internal
+engineering rule, not legal advice.
 
 ## The classes
 
 | Class | What | Gate |
 | --- | --- | --- |
 | `spec` | GeoServices REST Specification 1.0 identifiers, used verbatim | allowed |
-| `spec-interop` | later ArcGIS REST wire values, each cited (R36) | allowed, reported separately |
-| `nominative` | attributed compatibility statements and stamped labels | allowed |
+| `spec-interop` | later GeoServices REST wire values, each cited (R36) | allowed, reported separately |
+| `nominative` | legacy attributed labels that still name a product | remove |
 | `confidential` | desktop-client certification detail (R30) | always fails |
 | `avoidable` | everything else | fails above the baseline |
 
@@ -50,78 +43,49 @@ response serialisation, fixtures and API docs.
 The vocabulary is
 [`tools/vendor-terms/geoservices-identifiers.v1.json`](../tools/vendor-terms/geoservices-identifiers.v1.json),
 which `tools/vendor-terms/generate_geoservices_identifiers.py` generates from the pinned specification
-PDF: every `esri*` identifier the 1.0 text uses (146), each tagged with the numbered section it comes
-from. Nothing else is in it.
+PDF: every vendor-prefixed identifier the 1.0 text uses (146), each tagged with the numbered section it
+comes from. Nothing else is in it.
 
-Only the exact identifier counts as `spec`. Our own types named after it, such as `EsriGeometryType` or
-`EsriFieldTypeMapper`, are avoidable. The specification defines no JSON key and no URL path segment that
-contains a mark. In particular, the `/arcgis/rest/services` URL root is a naming convention for server
-instances, not a specification requirement (see the site-root alias below).
+Only an exact identifier listed in the specification vocabulary counts as `spec`. Honua type names and
+URL aliases do not inherit that exception. The specification does not define URL roots.
 
-### 2. `spec-interop`: later ArcGIS REST wire values (R36)
+### 2. `spec-interop`: later GeoServices REST wire values (R36)
 
-The interop vocabulary is later ArcGIS REST, not GeoServices REST 1.0. Clients of later ArcGIS REST
-services send or expect some identifiers that the 1.0 text does not list, for example the newer
+The interop vocabulary covers later GeoServices REST values beyond version 1.0. Clients of later protocol
+revisions send or expect some identifiers that the 1.0 text does not list, for example the newer
 `fields[].type` members such as `esriFieldTypeGUID`, `jobStatus` values and the `esriSRUnit_*`
-constants. Honua emits them for interoperability. They are in
-[`tools/vendor-terms/arcgis-rest-interop.v1.json`](../tools/vendor-terms/arcgis-rest-interop.v1.json).
-Each entry names its family, the field it fills, the 1.0 section that defines that field, and the ArcGIS
-REST reference page that documents it (`reference`). `listedVerbatim` records whether that page spelled the
+constants. Honua emits them for interoperability. They are in the versioned interoperability vocabulary.
+Each entry names its family, the field it fills, the 1.0 section that defines that field, and the protocol
+reference page that documents it (`reference`). `listedVerbatim` records whether that page spelled the
 identifier out when it was checked. The classifier reports these identifiers as `spec-interop`, separately
 from `spec`.
 
 The vocabulary grows only with a cited entry. The classifier refuses an entry without a family, a field
-and a `developers.arcgis.com` reference, and it refuses the whole file with it. An identifier without a
+and an authoritative protocol reference, and it refuses the whole file with it. An identifier without a
 citation is an allowlist request, not interop.
 
-The same file lists identifiers that are not wire values. They stay avoidable under a category that says
-what to do about them:
+The same file lists similar-looking identifiers that are not wire values. They remain avoidable and
+should be corrected or renamed.
 
-- `avoidable/non-wire-identifier`: `esriGeometryNull`, `esriSpatialRelWithinDistance` and
-  `esriSpatialRelBeyondDistance`. Rename them.
-- `avoidable/wrong-wire-value`: `esriMosaicByAttribute`. The wire value is `esriMosaicAttribute`, so
-  correct it.
+### 3. `nominative`: legacy labels to remove
 
-### 3. `nominative`: compatibility statements and labels with attribution
+Use protocol-neutral wording to describe compatibility, such as the protocol name, client category and
+version. Do not name a third-party product:
 
-We may name an Esri product to say truthfully that Honua works with it. Examples are "Honua works with
-ArcGIS Pro 3.3", "tested with ArcGIS Maps SDK for .NET 200.x", a compatibility-matrix row, or a client
-label in certification data. These uses are allowed when all of the following hold:
+- The statement identifies the protocol or client category and version without a third-party product
+  name. Nothing about a path or directory changes this requirement.
+- Do not claim endorsement, sponsorship, affiliation or partnership.
+- Headings and titles use Honua and protocol-neutral terms.
 
-- The same file carries the attribution below. Nothing else makes a use nominative: not a path, a file
-  name or a directory such as `matrix/` or `compatibility/`.
-- The mark names the product as plain text, with no logo and no stylisation, and only as much of it as
-  identifies the product.
-- The line claims no endorsement, sponsorship, affiliation or partnership. The lint checks every line
-  for this before anything else. A line with words such as "endorsed by", "sponsored by", "affiliated
-  with", "official", "certified by", "approved by", "partner" or "powered by" is
-  `avoidable/endorsement-claim`, even in an attributed file. The only exception is the attribution
-  notice's own disclaimer.
-- The mark does not lead: no heading, page title, product tagline or marketing sentence starts with it.
-  Honua is the subject, and the Esri product is the thing it works with.
-- The mark is a whole word. Inside code blocks, inline code, URLs, paths or compound names it is not a
-  compatibility statement.
-
-Three shapes qualify:
-
-- **Prose**: a docs or site line with compatibility language ("works with", "tested with",
-  "compatible", "supports", and similar).
-- **Table rows**: a Markdown or HTML table cell that holds only the product name, optionally followed by
-  a version. Other prose in the same page still needs the compatibility language.
-- **Labels in data files (R37)**: a JSON or YAML value that is only the product name, optionally followed
-  by a version, such as `"canonical_client": "ArcGIS Maps SDK for .NET"`. The file's header must carry the
-  attribution: a top-level `trademarkNotice` field (JSON or YAML) or the YAML file's leading comment
-  block. The certification generator stamps its output this way. Certification data is JSON or YAML under
-  `certification/`, or a file whose `schema` names a Honua certification schema, and its labels are
-  reported as `certification-label`. An unstamped file's labels stay avoidable. A stamp makes the label
-  nominative, not the detail around it, so desktop-client detail in the same file stays confidential.
+Legacy product-name matches are reported for migration; attribution does not make a product name neutral.
+Table cells, prose, and JSON/YAML labels follow the same rule.
 
 ### 4. `confidential`: desktop-client certification detail (R30)
 
 Test recipes, fixtures, replay inputs, runner and licence configuration, and tool-specific code for
 desktop-client compatibility live only in the private certification repository. Public repositories
 reference those results by evidence identifier (bundle digest, cell id, pass or fail), and state
-compatibility only in nominative form. The lint finds this detail anywhere in a public repository: in
+compatibility using protocol-neutral terms. The lint finds this detail anywhere in a public repository: in
 code, config, tests, data, prose and paths.
 
 | Category | What it matches |
@@ -129,13 +93,10 @@ code, config, tests, data, prose and paths.
 | `desktop-scripting` | the desktop client's Python scripting module, anywhere, including imports and identifiers built on it |
 | `desktop-file` | desktop project files, toolbox files and Python toolbox files, by extension |
 | `runner-detail` | licence-manager hosts and variables, the desktop client's install paths and Python environment, and CI runner labels that carry a mark |
-| `desktop-client` | the desktop client's name, unless it is part of a nominative use |
+| `desktop-client` | third-party desktop product names |
 
-The desktop client's name is the one term that falls on both sides. In an attributed compatibility
-statement or a stamped label, it names the product Honua works with, so it is nominative:
-"Honua works with ArcGIS Pro 3.3" is such a statement.
-The same name in code, config, tests, data or unattributed prose is confidential, and so is a spelling of
-it fused into an identifier, a path or a lane name.
+Third-party desktop product names are avoided in all public material. Technical protocol identifiers
+remain permitted only when the specification requires their exact spelling.
 
 A confidential use always fails the gate. It is never baselined (the baseline counts avoidable uses
 only), and it is never allowlisted (an allowlist entry does not apply to it). The way out is to move the
@@ -151,40 +112,28 @@ honua-server#5408.
 
 ### 5. `avoidable`: everything else
 
-Everything else is avoidable: our identifiers outside the specification vocabulary (classes, methods,
+Everything outside the specification vocabulary is avoidable: our identifiers (classes, methods,
 variables, enum members, constants), repository, package, module and namespace names, file and directory
 names, test names, fixture and lane labels, comments, log and error messages, docs and marketing copy,
-endorsement claims, and any compatibility statement that lacks the attribution. Replace the mark with a
-neutral term such as
-"GeoServices", "feature service", "desktop GIS client" or "the reference client". Otherwise, turn the
-mention into an attributed compatibility statement, or request an exception.
+endorsement claims, and third-party product names. Use neutral terms such as
+"GeoServices REST", "feature service", "desktop GIS client" or "reference client".
 
-## Required attribution
+## Compatibility statements
 
-Every file that carries a nominative compatibility statement includes this text verbatim, as plain text.
-In docs it goes at the end of the page. On the site it goes in the page source of each page that names a
-product. In a compatibility matrix it goes in a comment or a `trademarkNotice` field.
-
-> Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service
-> marks of Esri in the United States and other countries. They identify the products Honua is compatible
-> with; Honua is not affiliated with, sponsored by, or endorsed by Esri.
-
-The classifier recognises the attribution by its two clauses: "are trademarks, registered trademarks, or
-service marks of Esri" and "not affiliated with, sponsored by, or endorsed by Esri". Line breaks and
-markdown emphasis do not matter.
+Compatibility statements use protocol names, neutral client categories and tested versions. Do not add
+third-party product names or boilerplate attribution that repeats them.
 
 ## Never allowed
 
 - A mark inside a Honua product, package, repository, namespace, module, assembly, class, file, directory,
-  test or fixture name (for example `honua-esri-*`, `Honua.Esri.*`, `EsriFooService`, `test_esri_*`). New
+  test or fixture name. New
   names never carry a mark. Existing ones are the burn-down backlog in the inventory.
-- Product or feature names built on Esri's "Arc" naming family.
+- Product or feature names derived from a third-party brand.
 - Marketing copy, headings, titles, taglines or social posts that lead with a mark or use it as the hook.
-- Esri logos, icons or trade dress anywhere in Honua material.
-- Any claim of endorsement, certification by Esri, partnership, sponsorship or affiliation.
+- Third-party logos, icons or trade dress anywhere in Honua material.
+- Any claim of endorsement, certification by a third party, partnership, sponsorship or affiliation.
 - Desktop-client certification detail in a public repository (R30): see `confidential` above.
-- Using a mark as a noun or verb for a generic concept, for example "an arcgis" for a feature service or
-  "esri-style" for a symbol.
+- Using a mark as a noun or verb for a generic concept.
 
 ## The classifier and the lint
 
@@ -363,7 +312,7 @@ honua-release pull request:
 {
   "repo": "honua-server",
   "paths": ["src/Honua.Server/GeoServices/Legacy/**"],
-  "tokens": ["EsriShim"],
+  "tokens": ["VendorShim"],
   "reason": "why this use cannot be renamed or attributed",
   "owner": "@github-handle accountable for revisiting it",
   "issue": "honua-io/<repo>#<n>"
@@ -383,12 +332,11 @@ coordinates and exact tarball filenames that cannot change without selecting dif
 bytes. It does not cover substrings, prose marks, other paths, endorsement claims or confidential
 hits. Versioned filenames must be reviewed again when their version changes.
 
-### The `/arcgis` site-root alias (R35)
+### Legacy site-root alias (R35)
 
-honua-server keeps `/arcgis` as a documented site-root alias for client compatibility, because some
-clients hard-code the vendor path convention. `/rest` is the canonical root. The allowlist entry covers
-the token `arcgis` in the two route tables that register the alias, and nothing else. The compatibility
-matrix lists the alias as a compatibility feature.
+honua-server keeps a legacy site-root alias for client compatibility. `/rest` is the canonical root. The
+allowlist entry is limited to the two route tables that register that alias. The compatibility matrix lists
+it as a compatibility feature.
 
 ## Inventory
 
