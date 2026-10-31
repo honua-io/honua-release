@@ -883,6 +883,89 @@ def proven_complete(record, values, label):
         require(type(count) is int and count == len(values), 'enumeration is incomplete: ' + label)
 
 
+def audited_map_sources(records, action_results, custody, agent_principal, map_id):
+    """Join saved map sources to complete catalog and authenticated publish audit events."""
+    from datetime import datetime, timedelta, timezone
+    facts = custody or {}
+    user, key = facts.get('agentUserId'), facts.get('agentKeyId')
+    require(isinstance(user, str) and user and isinstance(key, str) and key == str(agent_principal)
+            and facts.get('agentKeyOwnerUserId') == user, 'customer identity custody is incomplete')
+    require(all(k in records for k in ('p24-maps-before', 'p24-version', 'p24-catalog', 'p24-audit')),
+            'audited source records are incomplete')
+    before, version, catalog, audit = (records[k] for k in ('p24-maps-before', 'p24-version', 'p24-catalog', 'p24-audit'))
+    require(before.phase == 'seed' and before.principal == 'controller' and before.status == 200
+            and version.phase == catalog.phase == audit.phase == 'observe'
+            and version.principal == catalog.principal == audit.principal == 'controller'
+            and version.status == catalog.status == audit.status == 200,
+            'audited source records lack controller custody')
+    require_address(version, {'role': 'created:map', 'at': {'pathSegment': 4}}, {'created:map': map_id})
+    require(catalog.kind == 'mcp' and catalog.request_arguments == {'tool': 'honua_list_layers',
+            'arguments': {'offset': 0, 'limit': 500}}, 'audited catalog request differs')
+    require(audit.kind == 'http' and audit.path ==
+            '/api/v1/admin/observability/audit?action=operation.completed&resourceType=operation_instance&pageSize=200',
+            'audited event request differs')
+    def instant(value):
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            require(parsed.tzinfo is not None, 'audit time has no timezone')
+            return parsed.astimezone(timezone.utc)
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ProjectionError('invalid audit timestamp') from exc
+    # Recorder timestamps have whole-second precision; include the entire final second.
+    start, end = instant(before.recorded_at), instant(audit.recorded_at) + timedelta(seconds=1)
+    require(start <= end, 'audit window is inverted')
+    data = pointer_get(catalog.json, '/result/structuredContent')
+    rows = data.get('layers') if isinstance(data, dict) else None
+    require(isinstance(rows, list) and data.get('offset') == 0 and data.get('hasMore') is False
+            and data.get('totalCount') == data.get('layerCount') == len(rows), 'audited catalog is incomplete')
+    page = audit.json
+    require(isinstance(page, dict) and isinstance(page.get('items'), list) and page.get('nextCursor') is None,
+            'audited events are incomplete')
+    envelope = pointer_get(version.json, '/data/envelope/body')
+    layers, bindings = envelope.get('layers'), envelope.get('sourceBindings')
+    require(isinstance(layers, list) and isinstance(bindings, list), 'saved map has no source bindings')
+    output = {}
+    for name in ('parcels', 'flood_zones', 'shelters'):
+        selected = [r for r in layers if isinstance(r, dict) and r.get('id') == name]
+        require(len(selected) == 1, 'saved map layer is missing or ambiguous')
+        source = selected[0].get('sourceId')
+        matches = [r for r in rows if isinstance(r, dict) and r.get('studioSourceId') == source]
+        linked = [r for r in bindings if isinstance(r, dict) and r.get('sourceId') == source]
+        require(len(matches) == len(linked) == 1, 'saved source is missing or ambiguous in catalog')
+        row, binding = matches[0], linked[0]
+        service, lid = row.get('serviceName'), row.get('layerId')
+        require(isinstance(service, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
+                and type(lid) is int and lid >= 0 and binding.get('protocol') == 'geoservices_feature_service'
+                and binding.get('locator') == {'url': f'/rest/services/{service}/FeatureServer/{lid}', 'layerId': lid},
+                'saved source locator differs from catalog')
+        confirmed = []
+        for response in action_results:
+            if response.get('tool') != 'honua_publish_service' or response.get('status') != 'pass':
+                continue
+            try:
+                result = pointer_get(response['json'], '/result/structuredContent')
+            except (KeyError, ProjectionError):
+                continue
+            if not (isinstance(result, dict) and result.get('status') == 'Completed'
+                    and result.get('operationId') == 'service.publish' and result.get('serviceName') == service
+                    and str(result.get('layerId')) == str(lid) and isinstance(result.get('operationInstanceId'), str)):
+                continue
+            events = [event for event in page['items'] if isinstance(event, dict)
+                and event.get('resourceType') == 'operation_instance'
+                and event.get('resourceId') == result['operationInstanceId']
+                and event.get('action') == 'operation.completed' and event.get('outcome') == 'Success'
+                and event.get('actor') in (user, key, 'api-key:' + key)
+                and event.get('details', '').split(';')[:2] == ['operationId=service.publish', 'status=Completed']
+                and start <= instant(event.get('timestamp')) <= end]
+            if len(events) == 1:
+                confirmed.append(result['operationInstanceId'])
+        require(len(confirmed) == 1, 'saved layer lacks one customer publish audit')
+        output[name] = {'service': service, 'layerId': lid}
+    require(len({(v['service'], v['layerId']) for v in output.values()}) == 3,
+            'audited map layers collide')
+    return output
+
+
 def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
@@ -890,11 +973,22 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         name = binding.role
         if isinstance(name, str) and name.startswith('scan:'):
             continue  # resolved by the runner from its own raw sources (scan_roles)
-        require(isinstance(name, str) and name.split(':', 1)[0] in ('seeded', 'created', 'recorded', 'child')
+        require(isinstance(name, str) and name.split(':', 1)[0] in ('seeded', 'created', 'recorded', 'child', 'audited')
                 and name not in roles, 'invalid or duplicate logical role: ' + str(name))
         require(binding.step in records, 'role binds an unrecorded step: ' + name)
         record = records[binding.step]
         require(record.json is not None and record.status in (200, 201), 'role source read failed: ' + name)
+        if name.startswith('audited:'):
+            parts = name.split(':')
+            require(len(parts) == 3 and parts[1] in ('service', 'layer')
+                    and parts[2] in ('parcels', 'flood_zones', 'shelters')
+                    and binding.step == 'p24-version' and binding.parent == 'created:map'
+                    and binding.before == 'p24-maps-before' and binding.parent in roles
+                    and binding.pointer is None and binding.items is None,
+                    'invalid audited map source role')
+            sources = audited_map_sources(records, action_results, custody, agent_principal, roles[binding.parent])
+            roles[name] = sources[parts[2]]['service' if parts[1] == 'service' else 'layerId']
+            continue
         if name.startswith('recorded:'):
             require(record.phase in ('seed', 'between') and binding.pointer is not None and binding.items is None,
                     'recorded role must point into a seed- or between-phase response: ' + name)

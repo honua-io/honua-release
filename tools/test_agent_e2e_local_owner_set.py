@@ -75,3 +75,45 @@ def test_studio_view_reprojects_fixture_and_rejects_wrong_crs(bounds):
     view['crs'] = 'EPSG:4326'
     view['bbox'][0] = view['bbox'][2] - (view['bbox'][2] - view['bbox'][0]) / 2
     assert not studio_view_contains_fixture(view, bounds)
+
+
+def test_audited_map_sources_require_customer_publish_and_reject_claims():
+    from types import SimpleNamespace
+    from agent_e2e_local_projections import audited_map_sources
+    now = '2026-10-31T22:00:00+00:00'
+    later = '2026-10-31T22:10:00+00:00'
+    names = ('parcels', 'flood_zones', 'shelters')
+    rows = [{'serviceId': 'svc-' + n, 'serviceName': n, 'layerId': i,
+             'studioSourceId': f'svc-{n}/{i}'} for i, n in enumerate(names, 1)]
+    body = {'layers': [{'id': n, 'sourceId': row['studioSourceId']} for n, row in zip(names, rows)],
+            'sourceBindings': [{'sourceId': row['studioSourceId'], 'protocol': 'geoservices_feature_service',
+                'locator': {'url': f"/rest/services/{row['serviceName']}/FeatureServer/{row['layerId']}",
+                            'layerId': row['layerId']}} for row in rows]}
+    record = lambda value, **kw: SimpleNamespace(step='test', json=value, status=200, phase=kw.get('phase', 'observe'),
+        principal='controller', kind=kw.get('kind', 'http'), path=kw.get('path', '/x'),
+        recorded_at=kw.get('at', later), request_arguments=kw.get('arguments'))
+    records = {'p24-maps-before': record({}, phase='seed', at=now),
+      'p24-version': record({'data': {'envelope': {'body': body}}}, path='/api/v1/studio/content-items/map/versions/ver'),
+      'p24-catalog': record({'result': {'structuredContent': {'layers': rows, 'totalCount': 3, 'offset': 0,
+          'layerCount': 3, 'hasMore': False}}}, kind='mcp', path='/mcp#tools/call',
+          arguments={'tool': 'honua_list_layers', 'arguments': {'offset': 0, 'limit': 500}}),
+      'p24-audit': record({'items': [{'actor': USER, 'resourceType': 'operation_instance',
+          'resourceId': f'op-{i}', 'action': 'operation.completed', 'outcome': 'Success',
+          'details': 'operationId=service.publish;status=Completed', 'timestamp': '2026-10-31T22:05:00+00:00'}
+          for i in range(1, 4)], 'nextCursor': None}, path='/api/v1/admin/observability/audit?action=operation.completed&resourceType=operation_instance&pageSize=200')}
+    receipts = [{'tool': 'honua_publish_service', 'status': 'pass', 'json': {'result': {'structuredContent': {
+        'status': 'Completed', 'operationId': 'service.publish', 'operationInstanceId': f'op-{i}',
+        'serviceName': n, 'layerId': str(i)}}}} for i, n in enumerate(names, 1)]
+    result = audited_map_sources(records, receipts, CUSTODY, KEY, 'map')
+    assert result['shelters'] == {'service': 'shelters', 'layerId': 3}
+    receipts[-1]['json']['result']['structuredContent']['serviceName'] = 'uncreated'
+    with pytest.raises(ProjectionError):
+        audited_map_sources(records, receipts, CUSTODY, KEY, 'map')
+    receipts[-1]['json']['result']['structuredContent']['serviceName'] = 'shelters'
+    records['p24-audit'].json['items'][-1]['actor'] = 'other-customer'
+    with pytest.raises(ProjectionError):
+        audited_map_sources(records, receipts, CUSTODY, KEY, 'map')
+    records['p24-audit'].json['items'][-1]['actor'] = USER
+    records['p24-audit'].json['items'][-1]['timestamp'] = '2026-10-31T21:59:59+00:00'
+    with pytest.raises(ProjectionError):
+        audited_map_sources(records, receipts, CUSTODY, KEY, 'map')
