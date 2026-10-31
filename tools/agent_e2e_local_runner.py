@@ -1122,6 +1122,9 @@ def main(argv=None):
             except (ValueError, OSError) as exc:
                 receipt['status'] = 'infrastructure'
                 receipt.setdefault('infrastructure', []).append({'phase': 'evidence-export', 'reason': str(exc)[:200]})
+            finally:
+                # The private case directory holds unredacted credentials and action bodies.
+                shutil.rmtree(case_dir, ignore_errors=True)
     args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
     return 0 if receipt['status'] == 'pass' else 1
 
