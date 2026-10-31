@@ -106,7 +106,8 @@ def runtime_class():
                     result = execute(kind, action)
                 except BaseException as exc:
                     if gate is not None:
-                        gate.leave({'tool': action.get('tool'), 'outcome': 'error', 'error': type(exc).__name__})
+                        gate.leave({'tool': action.get('tool'), 'outcome': 'refused' if isinstance(exc, ValueError) else 'error',
+                                'error': type(exc).__name__})
                     raise
                 if gate is not None:
                     gate.leave({'tool': action.get('tool'), 'outcome': result.get('status')})

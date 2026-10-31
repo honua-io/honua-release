@@ -795,7 +795,8 @@ def screen_backend(backend, ctx) -> None:
             result = original(kind, action)
         except BaseException as exc:
             if gate is not None:
-                gate.leave({'tool': action.get('tool'), 'outcome': 'error', 'error': type(exc).__name__})
+                gate.leave({'tool': action.get('tool'), 'outcome': 'refused' if isinstance(exc, ValueError) else 'error',
+                                'error': type(exc).__name__})
             raise
         if gate is not None:
             gate.leave({'tool': action.get('tool'), 'outcome': result.get('status')})
@@ -918,8 +919,9 @@ class Gate:
             return True
 
     def leave(self, outcome) -> None:
-        """An exception means the upstream outcome is unknown (the product may still apply it): such a
-        call is never 'settled' by returning; it stays unknown until a probe resolves it."""
+        """A transport exception means the upstream outcome is unknown (the product may still apply it):
+        such a call is never 'settled' by returning; it stays unknown until a probe resolves it. A
+        ValueError is the backend's own refusal before anything reached the product (settled)."""
         with self.cond:
             self.inflight -= 1
             if outcome.get('outcome') == 'error':
@@ -1209,6 +1211,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         row = {'actions': recovered, 'failure': {
             'category': 'post-action-undetermined' if recovered else 'infrastructure',
             'reason': f'{type(exc).__name__}: {str(exc)[:200]}'}}
+    if 'shutdown' not in row:
+        # Every finalization (normal end, model end, error) takes the same ordered shutdown as an overrun:
+        # close the gate, kill any CLI, revoke, drain, resolve unknown outcomes; only then observe.
+        row = dict(row, shutdown=shutdown_stage(ctx, None))
     actions = logged_actions(row)
     answer = row.get('finalAnswer') if isinstance(row.get('finalAnswer'), str) else None
     observations = []

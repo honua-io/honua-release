@@ -510,3 +510,43 @@ def test_overrun_with_an_unknown_mutation_outcome_never_completes(tmp_path, monk
         assert result['outcome'] == 'undetermined' and 'never resolved' in result['cause']
     finally:
         server.shutdown()
+
+
+def test_unknown_outcome_before_the_deadline_still_blocks_completion(tmp_path, monkeypatch):
+    """Astra 6th review: the agent's call times out well before the deadline, the session ends
+    normally, and the accepted mutation lands later. Ordinary completion goes through the same
+    shutdown, so the stage is undetermined and the gate is closed when it finalizes."""
+    import time as _time
+    corpus = pytest.importorskip('test_agent_e2e_local_runner')
+    import agent_e2e_local_runner as runner
+    original = corpus.Candidate.mcp
+
+    def slow_mcp(self, message, principal):
+        if message.get('method') == 'tools/call' and message['params']['name'] == 'honua_update_features':
+            _time.sleep(6)
+        return original(self, message, principal)
+    monkeypatch.setattr(corpus.Candidate, 'mcp', slow_mcp)
+    original_client = runner.LocalRuntime.mcp_client
+
+    def short_client(self, stack):
+        client = original_client(self, stack)
+        client.deadline = client.clock() + 2
+        return client
+    monkeypatch.setattr(runner.LocalRuntime, 'mcp_client', short_client)
+    seen = {}
+
+    def script(execute, corpus):
+        try:
+            seen['update'] = execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_update_features',
+                                                    'arguments': {'serviceId': 'p10'}})
+        except Exception as exc:  # noqa: BLE001
+            seen['update'] = type(exc).__name__
+    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, deadline=300.0)
+    try:
+        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        assert ctx.remaining() > 60, 'the stage ended well before its deadline'
+        assert ctx.gate.closed, 'the gate is closed before the stage finalizes'
+        assert result['shutdown']['unresolvedOutcomes'] and result['shutdown']['complete'] is False, seen
+        assert result['outcome'] == 'undetermined' and 'never resolved' in result['cause']
+    finally:
+        server.shutdown()
