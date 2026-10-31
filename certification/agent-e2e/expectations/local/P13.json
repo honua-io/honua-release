@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P13",
-  "derivation": "Partial, non-runnable expectation: the shelters content is derived from frozen town fixtures. Restore history, shared inventory and other town layers remain unresolved.",
+  "derivation": "Partial, non-runnable expectations: target v1 identifiers and content hash are bound to the seeded Studio version; shelters content comes from frozen town fixtures. Shared inventory and other town layers remain unresolved.",
   "variants": {
     "A": {
       "source-content.unchanged": {
@@ -101,6 +101,17 @@
             }
           }
         ]
+      },
+      "version.restored": {
+        "resourceId": {
+          "$role": "seeded:map:target"
+        },
+        "restoredVersionId": {
+          "$role": "seeded:version:v1"
+        },
+        "documentSha256": {
+          "$role": "seeded:hash:v1"
+        }
       }
     },
     "B": {
@@ -201,6 +212,17 @@
             }
           }
         ]
+      },
+      "version.restored": {
+        "resourceId": {
+          "$role": "seeded:map:target"
+        },
+        "restoredVersionId": {
+          "$role": "seeded:version:v1"
+        },
+        "documentSha256": {
+          "$role": "seeded:hash:v1"
+        }
       }
     }
   }
