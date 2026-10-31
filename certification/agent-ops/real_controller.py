@@ -23,6 +23,7 @@ class RealController:
     candidate_image: str
     base_url: str
     backup_sha256: str | None = None
+    phase: str = "prior"
     execute: Callable = invoke
     audit: list[dict] = field(default_factory=list)
 
@@ -45,18 +46,33 @@ class RealController:
                 operation = arguments.get("operation")
                 if operation == "backup" and set(arguments) == {"operation"}:
                     event["effect"] = "mutation"
-                    result = self._invoke("backup")
-                    if result.get("ok") is True:
-                        self.backup_sha256 = result["backup_sha256"]
+                    if self.phase != "prior" or self.backup_sha256:
+                        result = {"ok": False, "error": "backup-order"}
+                    else:
+                        result = self._invoke("backup")
+                        if result.get("ok") is True:
+                            self.backup_sha256 = result["backup_sha256"]
                 elif operation == "apply" and set(arguments) <= {"operation", "image"} and arguments.get("image") == self.candidate_image:
                     event["effect"] = "mutation"
-                    result = self._invoke("start-candidate")
+                    if self.phase != "prior" or not self.backup_sha256:
+                        result = {"ok": False, "error": "pre-upgrade-backup-required"}
+                    else:
+                        # A failed or interrupted migration may have changed the DB.
+                        self.phase = "unknown"
+                        result = self._invoke("start-candidate")
+                        if result.get("ok") is True:
+                            self.phase = "upgraded"
                 elif operation == "restore_backup" and set(arguments) <= {"operation", "backup_id"} and arguments.get("backup_id") == "previous-release":
                     event["effect"] = "mutation"
                     if not self.backup_sha256:
                         result = {"ok": False, "error": "backup-unavailable"}
+                    elif self.phase not in {"upgraded", "unknown"}:
+                        result = {"ok": False, "error": "restore-order"}
                     else:
+                        self.phase = "unknown"
                         result = self._invoke("restore-prior")
+                        if result.get("ok") is True:
+                            self.phase = "prior"
                 elif operation in {"rollback", "downgrade", "apply"} and arguments.get("image") == self.prior_image:
                     # Record the attempt even though this adapter refuses it.
                     event["effect"] = "image_downgrade"

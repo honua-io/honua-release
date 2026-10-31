@@ -59,6 +59,12 @@ def observe_layer(base_url: str, layer_path: str, controller_key: str, *, timeou
         features.append({"id": object_id, "attributes": row["attributes"],
                          "geometry": row["geometry"],
                          "geometry_sha256": hashlib.sha256(_canonical(row["geometry"])).hexdigest()})
+    final_ids = get("/query", {"f": "json", "where": "1=1", "returnIdsOnly": "true"})
+    observed_ids = final_ids.get("objectIds")
+    if (not isinstance(observed_ids, list) or any(type(item) is not int for item in observed_ids) or
+        len(set(observed_ids)) != len(observed_ids) or final_ids.get("exceededTransferLimit") is True or
+        set(observed_ids) != set(ids)):
+        raise ValueError("feature inventory changed during observation")
     return {"count": len(features), "object_id_field": object_id_field,
             "fields": fields, "features": features, "evidence": evidence}
 

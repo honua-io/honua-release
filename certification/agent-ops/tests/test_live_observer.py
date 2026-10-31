@@ -10,6 +10,8 @@ from live_observer import observe_layer
 class Handler(BaseHTTPRequestHandler):
     corrupt = False
     credentials = []
+    add_during_read = False
+    id_reads = 0
 
     def log_message(self, *_args):
         pass
@@ -21,7 +23,8 @@ class Handler(BaseHTTPRequestHandler):
         if not path.path.endswith("/query"):
             body = {"objectIdField": "id", "fields": [{"name": "id", "type": "integer"}]}
         elif "returnIdsOnly" in params:
-            body = {"objectIds": [1, 2]}
+            type(self).id_reads += 1
+            body = {"objectIds": [1, 2, 3] if self.add_during_read and self.id_reads > 1 else [1, 2]}
         else:
             oid = int(params["objectIds"][0])
             body = {"features": [] if self.corrupt and oid == 2 else [{"attributes": {"id": oid, "name": "item"}, "geometry": {"x": oid, "y": 0}}]}
@@ -33,6 +36,8 @@ class Handler(BaseHTTPRequestHandler):
 def test_controller_reads_all_features_and_fails_on_missing():
     Handler.corrupt = False
     Handler.credentials = []
+    Handler.add_during_read = False
+    Handler.id_reads = 0
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -42,11 +47,16 @@ def test_controller_reads_all_features_and_fails_on_missing():
         assert result["count"] == 2
         assert [f["id"] for f in result["features"]] == [1, 2]
         assert all(len(f["geometry_sha256"]) == 64 for f in result["features"])
-        assert len(result["evidence"]) == 4
+        assert len(result["evidence"]) == 5
         assert set(Handler.credentials) == {"controller-secret"}
         assert "controller-secret" not in json.dumps(result)
         Handler.corrupt = True
         with pytest.raises(ValueError, match="missing or ambiguous"):
+            observe_layer(base, "/layer", "controller-secret")
+        Handler.corrupt = False
+        Handler.id_reads = 0
+        Handler.add_during_read = True
+        with pytest.raises(ValueError, match="inventory changed"):
             observe_layer(base, "/layer", "controller-secret")
     finally:
         server.shutdown()
