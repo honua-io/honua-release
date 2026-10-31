@@ -1,17 +1,32 @@
-"""P06 read-only service: unsupported until model-created services can be located.
+"""P06 read-only service: unsupported until variable-length model pagination can be verified.
 
-The runner needs a per-role source selector for multiple services authored by the same tool.
-The survey fixture is seeded alongside the imported town; no publication is
-created for the agent. No model-authored identity is treated as evidence.
+The runner needs a projection that aggregates all sealed model query replays for
+the same service and layer. Imported typed GeoJSON fields also depend on
+honua-server #6815. The controller never publishes the agent's services.
 """
 from pathlib import Path
 import hashlib
 import json
+import re
+from urllib.parse import quote
 
-from agent_e2e_local_api import Scenario, Seeded
+from agent_e2e_local_api import Observation, Scenario, Seeded
+from agent_e2e_local_expectations import load_roles
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPUS = ROOT / 'certification/agent-e2e/corpus'
+TARGETS = ('parcels', 'shelters', 'survey_points')
+FIELDS = {'parcels': ('source_id', 'name', 'owner', 'value'),
+          'shelters': ('source_id', 'name', 'capacity', 'is_open'),
+          'survey_points': ('source_id', 'name', 'reading')}
+
+
+def source_query(binding, name):
+    schema, table = binding['schema'], binding['table']
+    if not all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v) for v in (schema, table)):
+        raise ValueError('invalid fixture table identity')
+    return ('SELECT ' + ', '.join(FIELDS[name]) + ", 'Feature' AS feature_type, ST_SRID(geometry) AS srid, "
+            'ST_AsGeoJSON(geometry)::json AS geometry FROM ' + schema + '.' + table + ' ORDER BY source_id')
 
 
 class P06(Scenario):
@@ -50,6 +65,22 @@ class P06(Scenario):
             layers[name] = completed_import(recorder, accepted, table=table,
                 feature_count=len(json.loads(raw)['features']), step='p06-' + step + '-complete',
                 before_tables=before, connection=connection)
+        if not stack.extra.get('p06DiscoveryOnly'):
+            stack.extra['addPrincipal']('p06-viewer', ['read:*'])
+            for name in TARGETS:
+                binding = layers[name]
+                schema, table = binding['schema'], binding['table']
+                if not all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v) for v in (schema, table)):
+                    raise ValueError('invalid fixture table identity')
+                step = name.replace('_', '-')
+                identity = recorder.sql('p06-' + step + '-table',
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = '" + schema +
+                    "' AND table_name = '" + table + "'")
+                if identity != [{'table_name': table}]:
+                    raise ValueError('fixture table was not independently observed')
+                rows = recorder.sql('p06-' + step + '-source-before', source_query(binding, name))
+                if not isinstance(rows, list) or not rows:
+                    raise ValueError('fixture source snapshot unavailable')
         before = recorder.json('p06-services-before', 'GET', '/api/v1/admin/services')
         body = before['observation']['body']
         if before['observation']['httpStatus'] != 200 or not isinstance(body, dict) or not isinstance(body.get('data'), list):
@@ -58,14 +89,53 @@ class P06(Scenario):
         stack.extra['p06Seed'] = state
         return Seeded(state)
 
+    def roles(self, stack, seeded, variant, run=None):
+        return load_roles(self.id)
+
     def observe(self, stack, seeded, variant, run=None):
         recorder = stack.extra['recorder']
+        for name in TARGETS:
+            recorder.sql('p06-' + name.replace('_', '-') + '-source-after', source_query(seeded.state['layers'][name], name))
         recorder.json('p06-services-after', 'GET', '/api/v1/admin/services')
         actions = [action for action in recorder.actions()
                    if action.kind == 'tool_call' and action.tool == 'honua_publish_service']
-        for ordinal, action in enumerate(actions, 1):
-            recorder.action_result(f'p06-publish-{ordinal:03}', action)
-        return []
+        for name in TARGETS:
+            table = seeded.state['layers'][name]['table']
+            matching = [action for action in actions if isinstance(action.arguments, dict)
+                        and action.arguments.get('table') == table]
+            if not matching:
+                continue
+            label = name.replace('_', '-')
+            report = recorder.action_result('p06-' + label + '-publish', matching[-1])
+            message = report.json if report.status == 200 else None
+            result = message.get('result', {}) if isinstance(message, dict) else {}
+            content = result.get('structuredContent') if isinstance(result, dict) else None
+            if not isinstance(content, dict) or result.get('isError', False) is not False or content.get('status') != 'Completed':
+                continue
+            service, layer = content.get('serviceName'), content.get('layerId')
+            if not isinstance(service, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', service):
+                continue
+            if not isinstance(layer, (int, str)) or not str(layer).isdigit():
+                continue
+            description = recorder.mcp_call('p06-' + label + '-describe', 'honua_describe_layer',
+                              {'serviceId': service, 'layerId': int(layer)})
+            described = description.get('structuredContent') if isinstance(description, dict) else None
+            if not isinstance(described, dict) or description.get('isError', False) is not False:
+                continue
+            service_id = described.get('serviceId')
+            if not isinstance(service_id, str) or not service_id:
+                continue
+            offsets = (0, 1000, 2000) if name == 'survey_points' else (0,)
+            for offset in offsets:
+                recorder.mcp_call('p06-' + label + '-query-' + str(offset), 'honua_query_features',
+                    {'serviceId': service_id, 'layerId': int(layer), 'where': '1=1',
+                     'limit': 1000, 'resultOffset': offset, 'returnGeometry': False})
+            path = '/rest/services/' + quote(service, safe='') + '/FeatureServer/' + str(int(layer))
+            recorder.json('p06-' + label + '-read', 'GET', path + '?f=json')
+            recorder.json('p06-' + label + '-write', 'POST', path + '/applyEdits?f=json',
+                          {'adds': [], 'updates': [], 'deletes': []}, principal='p06-viewer')
+        return [Observation(name, None, {'projection': 'extract/v1'})
+                for name in ('service.query', 'service.write-denied', 'source-content.unchanged')]
 
 
 scenario = P06()

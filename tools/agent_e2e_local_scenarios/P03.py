@@ -24,7 +24,11 @@ class P03(Scenario):
                 raise ValueError('case already seeded for another variant')
             return Seeded(previous)
         from agent_e2e_local_scenarios.P06 import P06
-        town = P06().seed(stack, variant)
+        stack.extra['p06DiscoveryOnly'] = True
+        try:
+            town = P06().seed(stack, variant)
+        finally:
+            stack.extra.pop('p06DiscoveryOnly', None)
         recorder = stack.extra['recorder']
         for name in LAYERS:
             table = town.state['layers'][name]['table']
