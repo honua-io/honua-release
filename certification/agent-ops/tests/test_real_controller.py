@@ -41,3 +41,14 @@ def test_missing_backup_and_failed_action_are_audited():
     assert c.phase == 'unknown'
     assert c.audit[-1]['effect'] == 'mutation'
     assert c.audit[-1]['ok'] is False
+
+
+def test_malformed_action_is_audited():
+    import pytest
+    c = RealController('ops-' + '1' * 32, Path('/tmp/compose'), Path('/tmp'),
+                       'prior', 'candidate', 'http://127.0.0.1')
+    with pytest.raises(ValueError):
+        c.apply('bad', None)
+    assert c.audit[-1]['ok'] is False
+    assert c.audit[-1]['error_type'] == 'ValueError'
+    assert c.audit[-1]['arguments'] is None

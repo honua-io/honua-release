@@ -230,6 +230,8 @@ jobs:
       actions: read
       packages: read
     steps:
+      - name: Refuse live trials until real evidence is wired
+        run: echo "not-real: live trial execution and independent observations are not wired" && exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Refuse off trunk
         run: test "$GITHUB_REF" = refs/heads/trunk

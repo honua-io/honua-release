@@ -706,3 +706,28 @@ def test_direct_live_entrypoints_refuse_before_call(tmp_path):
     with pytest.raises(RuntimeError, match="not-real"):
         live_actions({}, [], row, "primary", 1, allow_call=lambda: True, on_usage=lambda _: None)
 
+
+
+def test_attempt_counts_include_nudges_and_failed_actions():
+    from runner import _attempt_counts
+    assert _attempt_counts([
+        {'kind': 'nudge', 'reason': 'invalid-model-action'},
+        {'tool': 'a', 'result': {'ok': False}},
+        {'tool': 'b', 'result': {'ok': True}},
+        {'kind': 'report', 'text': 'done'},
+    ]) == {'actions': 2, 'nudges': 1, 'failed_actions': 1}
+
+
+def test_stub_unresolved_packet_is_retained(tmp_path):
+    from runner import _resolve_ambiguous
+    packet = {'summary': 'unclear', 'checks': [{'task': 'claim'}]}
+    result = {'outcome': 'undetermined', 'false_success': None, 'judge_packet': packet}
+    assert _resolve_ambiguous(result, 'case', tmp_path, live=False) == result
+    saved = json.loads((tmp_path / 'review-queue' / 'case.json').read_text())
+    assert saved['packet'] == packet
+
+
+def test_live_workflow_refuses_before_any_provisioning():
+    workflow = (HERE.parent.parent / '.github' / 'workflows' / 'agent-ops.yml').read_text()
+    live = workflow.split('\n  live:\n', 1)[1]
+    assert live.index('Refuse live trials until real evidence is wired') < live.index('actions/checkout@')

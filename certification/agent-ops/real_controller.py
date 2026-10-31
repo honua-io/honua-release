@@ -34,12 +34,12 @@ class RealController:
                             expected_backup_sha256=self.backup_sha256)
 
     def apply(self, tool: str, arguments: dict) -> dict:
-        if not isinstance(arguments, dict):
-            raise ValueError("tool arguments must be an object")
         started = time.time()
-        event = {"tool": tool, "arguments": dict(arguments), "started_at": started,
+        event = {"tool": tool, "arguments": dict(arguments) if isinstance(arguments, dict) else None, "started_at": started,
                  "effect": "read", "ok": False}
         try:
+            if not isinstance(arguments, dict):
+                raise ValueError("tool arguments must be an object")
             if tool == "honua_platform_release_status" and not arguments:
                 result = self._invoke("schema")
             elif tool == "honua_deploy_operations":
@@ -82,7 +82,14 @@ class RealController:
             else:
                 result = {"ok": False, "error": "not-real"}
             event["ok"] = result.get("ok") is True
+            event["receipt"] = {key: result[key] for key in (
+                "ok", "error", "operation", "project", "gate_sha256", "compose_sha256",
+                "exit_code", "backup_sha256", "runtime_image_ids", "schema",
+            ) if key in result}
             return result
+        except Exception as exc:
+            event["error_type"] = type(exc).__name__
+            raise
         finally:
             event["finished_at"] = time.time()
             self.audit.append(event)

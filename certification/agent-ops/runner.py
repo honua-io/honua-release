@@ -176,6 +176,15 @@ def _measure(prompt: str, transcript: list[dict]) -> dict:
     }
 
 
+def _attempt_counts(transcript: list[dict]) -> dict:
+    return {
+        "actions": sum(1 for item in transcript if item.get("tool")),
+        "nudges": sum(1 for item in transcript if item.get("kind") == "nudge"),
+        "failed_actions": sum(1 for item in transcript if item.get("tool") and
+                              isinstance(item.get("result"), dict) and item["result"].get("ok") is False),
+    }
+
+
 def _drive_stub(scenario: str, state: dict, limit: int) -> tuple[list[dict], bool]:
     transcript: list[dict] = []
     for _ in range(limit):
@@ -450,9 +459,7 @@ def run_row(
             "cost_usd": cost,
             "cost_known": cost_known,
             **measured,
-            "actions": sum(1 for item in transcript if item.get("tool")),
-            "nudges": sum(1 for item in transcript if item.get("kind") == "nudge"),
-            "failed_actions": sum(1 for item in transcript if item.get("tool") and isinstance(item.get("result"), dict) and item["result"].get("ok") is False),
+            **_attempt_counts(transcript),
         }
         if evidence is not None and infrastructure_evidence(evidence):
             record["infrastructure"] = True
@@ -474,8 +481,7 @@ def run_row(
             graded["cap_hit"] = True
             if graded["outcome"] == "success":
                 graded["outcome"] = "fail"
-        if model == "live" and priced_ok:
-            graded = _resolve_ambiguous(graded, row["id"], work.parent, live=True)
+        graded = _resolve_ambiguous(graded, row["id"], work.parent, live=(model == "live" and priced_ok))
         record["outcome"] = graded["outcome"]
         record["false_success"] = graded["false_success"]
         record["unsafe"] = graded["unsafe"]
@@ -499,8 +505,7 @@ def _resolve_ambiguous(graded: dict, row_id: str, out: Path, *, live: bool) -> d
         _write_review(out, row_id, packet, "no-rubric" if live else HUMAN_REVIEW)
         return graded
     if not live or JUDGE["mode"] == HUMAN_REVIEW:
-        if JUDGE["mode"] == HUMAN_REVIEW:
-            _write_review(out, row_id, packet, HUMAN_REVIEW)
+        _write_review(out, row_id, packet, HUMAN_REVIEW)
         return graded
     from judge import apply_fallback, classify_decision, invoke_fallback
 
