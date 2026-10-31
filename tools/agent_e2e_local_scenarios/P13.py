@@ -21,7 +21,7 @@ class P13(Scenario):
     supported_variants = ()
 
     @staticmethod
-    def _map(recorder, *, prefix, namespace, owner, town):
+    def _map(recorder, *, prefix, namespace, owner, principal, town):
         item_id = str(uuid4())
         layers = [{'id': name, 'sourceId': str(town['layers'][name]['service']), 'visible': True}
                   for name in ('parcels', 'flood_zones', 'shelters')]
@@ -53,6 +53,10 @@ class P13(Scenario):
                 or listing.get('nextCursor') is not None or rows[0].get('itemId') != item_id
                 or rows[0].get('currentVersionId') != version['versionId']):
             raise ValueError('seed map current pointer differs')
+        task_read = data(recorder.json(prefix + '-owner-read', 'GET',
+            '/api/v1/studio/content-items/' + item_id + '/versions/' + version['versionId'], principal=principal))
+        if task_read.get('itemId') != item_id or task_read.get('versionId') != version['versionId']:
+            raise ValueError('seed map is not readable by its assigned principal')
         return {'itemId': item_id, 'versionId': version['versionId'], 'namespace': namespace,
                 'owner': owner, 'listPath': path}
 
@@ -73,10 +77,10 @@ class P13(Scenario):
         town = TownSetup(recorder, ROOT / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
-        owner = 'api-key:' + stack.extra['agentPrincipal']
-        target = self._map(recorder, prefix='p13-target', namespace='ae_t' + suffix, owner=owner, town=town)
-        shared_owner = 'api-key:' + stack.extra['addPrincipal']('p13-shared', ['admin:write'])
-        shared = self._map(recorder, prefix='p13-shared', namespace='ae_s' + suffix, owner=shared_owner, town=town)
+        owner = stack.extra['agentPrincipal']
+        target = self._map(recorder, prefix='p13-target', namespace='ae_t' + suffix, owner=owner, principal='agent', town=town)
+        shared_owner = stack.extra['addPrincipal']('p13-shared', ['admin:write'])
+        shared = self._map(recorder, prefix='p13-shared', namespace='ae_s' + suffix, owner=shared_owner, principal='p13-shared', town=town)
         binding = town['layers']['shelters']
         recorder.json('p13-shelters-before', 'GET', source_path(binding))
         seed = {'variant': variant, 'target': target, 'shared': shared,

@@ -75,7 +75,7 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
                                for i, name in enumerate(('parcels', 'flood_zones', 'shelters'))}}
     class FakeRecorder:
         def __init__(self): self.calls = []; self.maps = {}
-        def json(self, step, method, path, body=None):
+        def json(self, step, method, path, body=None, **kwargs):
             self.calls.append((step, method, path, body))
             prefix = step.rsplit('-', 1)[0]
             if step.endswith('-create'):
@@ -86,6 +86,8 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
                 value, status = {'status': 'valid', 'diagnostics': []}, 200
             elif step.endswith('-save'):
                 value, status = {**self.maps[prefix], 'versionNumber': 1, 'contentHash': 'a' * 64}, 201
+            elif step.endswith('-owner-read'):
+                value, status = self.maps[step[:-len('-owner-read')]], 200
             elif step.endswith('-before') and prefix != 'p13-shelters':
                 m = self.maps[prefix]
                 value, status = {'items': [{'itemId': m['itemId'], 'currentVersionId': m['versionId']}],
