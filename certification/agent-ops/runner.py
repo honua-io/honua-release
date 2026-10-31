@@ -438,6 +438,8 @@ def run_row(
                     }
                 if not completed:
                     evidence = live_evidence
+                    if isinstance(live_evidence, dict) and live_evidence.get('kind') == 'action_cap':
+                        cap_exhausted = True
         elif evidence is None and model == "stub":
             transcript, cap_exhausted = _drive_stub(row["scenario"], state, ARMS[arm]["max_actions"])
         measured = _measure(row["prompt"], transcript)

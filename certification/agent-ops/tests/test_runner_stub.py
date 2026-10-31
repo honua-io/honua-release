@@ -800,3 +800,24 @@ def test_live_session_retains_failed_action_when_executor_crashes(monkeypatch):
                              execute_action=crash)
     assert runner._attempt_counts(transcript)['failed_actions'] == 1
     assert 'private detail' not in str(transcript)
+
+
+def test_live_session_action_cap_does_not_mark_completion(monkeypatch):
+    import client
+    import runner
+    class Endpoint:
+        configured = True
+        def validated_base_url(self): return 'http://127.0.0.1:1234'
+    class Model:
+        def __init__(self, endpoint): pass
+        def complete(self, messages, certification):
+            return json.dumps({'kind': 'tool_call', 'tool': 'example', 'arguments': {}}), {}, 0, {}
+    monkeypatch.setattr(client, 'build_endpoint', lambda arm: Endpoint())
+    monkeypatch.setattr(client, 'OperateClient', Model)
+    transcript = []
+    priced, complete, evidence = runner._live_session(
+        {'image_digest': 'sha256:test'}, transcript, {'id': 'trial', 'prompt': 'operate'},
+        'primary', 1, allow_call=lambda: True, on_usage=lambda pair: None,
+        execute_action=lambda name, arguments: {'ok': True})
+    assert priced and not complete and evidence['kind'] == 'action_cap'
+    assert runner._attempt_counts(transcript)['actions'] == 1
