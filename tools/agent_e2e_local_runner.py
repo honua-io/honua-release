@@ -1310,6 +1310,7 @@ class LocalRuntime:
                       workdir=str(case_dir), candidate_digest=candidate_digest,
                       extra={'workspaceId': workspace, 'needsApprover': needs_approver})
         try:
+            self._ensure_reader(stack)
             self._prepare(stack, list(agent_permissions))
             if needs_approver:
                 stack = self._mint_approver(stack)
@@ -1389,13 +1390,40 @@ class LocalRuntime:
     def _ensure_reader(self, stack):
         if stack.compose_project in self._readers:
             return
-        setup = (f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{self.READER_ROLE}') THEN "
-                 f"CREATE ROLE {self.READER_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT; END IF; END $$; "
-                 f"ALTER ROLE {self.READER_ROLE} INHERIT; "
-                 f"GRANT pg_read_all_data TO {self.READER_ROLE}; "
-                 f"ALTER ROLE {self.READER_ROLE} SET default_transaction_read_only = on; "
-                 f"ALTER ROLE {self.READER_ROLE} SET statement_timeout = '15s'; "
-                 f"ALTER ROLE {self.READER_ROLE} SET search_path = {SQL_SEARCH_PATH};")
+        # A pre-existing role is an untrusted database principal. Never repair it:
+        # verify the same attributes and privileges that a new role receives.
+        setup = f"""
+        DO $reader$ DECLARE r pg_catalog.pg_roles%ROWTYPE; BEGIN
+          SELECT * INTO r FROM pg_catalog.pg_roles WHERE rolname = '{self.READER_ROLE}';
+          IF NOT FOUND THEN
+            CREATE ROLE {self.READER_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
+            GRANT pg_read_all_data TO {self.READER_ROLE};
+            ALTER ROLE {self.READER_ROLE} SET default_transaction_read_only = on;
+            ALTER ROLE {self.READER_ROLE} SET statement_timeout = '15s';
+            ALTER ROLE {self.READER_ROLE} SET search_path = {SQL_SEARCH_PATH};
+            SELECT * INTO r FROM pg_catalog.pg_roles WHERE rolname = '{self.READER_ROLE}';
+          END IF;
+          IF NOT r.rolcanlogin OR r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR NOT r.rolinherit
+             OR r.rolreplication OR r.rolbypassrls OR r.rolconnlimit <> -1 OR r.rolvaliduntil IS NOT NULL
+             OR EXISTS (SELECT 1 FROM pg_catalog.pg_authid a WHERE a.oid = r.oid AND a.rolpassword IS NOT NULL)
+             OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_auth_members m
+                 JOIN pg_catalog.pg_roles granted ON granted.oid = m.roleid
+                 WHERE m.member = r.oid AND granted.rolname = 'pg_read_all_data' AND NOT m.admin_option) <> 1
+             OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid) <> 1
+             OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.roleid = r.oid)
+             OR EXISTS (SELECT 1 FROM pg_catalog.pg_user_mapping u WHERE u.umuser = r.oid)
+             OR EXISTS (SELECT 1 FROM pg_catalog.pg_shdepend d WHERE d.refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass
+                        AND d.refobjid = r.oid AND d.deptype IN ('a', 'o'))
+             OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_db_role_setting d
+                 WHERE d.setrole = r.oid AND d.setdatabase <> 0) <> 0
+             OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_db_role_setting d
+                 WHERE d.setrole = r.oid AND d.setdatabase = 0 AND
+                 d.setconfig @> ARRAY['default_transaction_read_only=on', 'statement_timeout=15s',
+                                     'search_path=pg_catalog, public, pg_temp']::pg_catalog.text[]
+                 AND pg_catalog.cardinality(d.setconfig) = 3) <> 1
+          THEN RAISE EXCEPTION 'existing corpus reader does not match the reviewed role'; END IF;
+        END $reader$;
+        """
         code, _ = self.psql(stack, setup, read_only=False)
         if code != 0:
             raise RuntimeError('could not prepare the read-only controller database role')

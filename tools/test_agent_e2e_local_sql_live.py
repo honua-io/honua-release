@@ -222,3 +222,66 @@ def test_foreign_descendants_refused_without_executing_remote_side_effect(databa
         recorder.table_rows('foreign-descendant-' + ('partition' if partitioned else 'inheritance'),
                             'honua_data', parent, ['x'])
     assert marker() == before
+    code, _ = runtime.psql(stack, 'DROP USER MAPPING FOR corpus_reader SERVER review_loopback; '
+                          'REVOKE USAGE ON FOREIGN SERVER review_loopback FROM corpus_reader', read_only=False)
+    assert code == 0
+
+
+def test_preexisting_reader_with_unreviewed_membership_is_refused_without_repair(database):
+    runtime, stack, recorder = database
+    runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
+    code, _ = runtime.psql(stack, 'CREATE ROLE unexpected_reader_grant; GRANT unexpected_reader_grant TO corpus_reader', read_only=False)
+    assert code == 0
+    probe = runner.LocalRuntime(None, model='m', release_id='r')
+    try:
+        with pytest.raises(RuntimeError, match='read-only controller database role'):
+            probe._ensure_reader(stack)
+        code, raw = runtime.psql(stack, "SELECT pg_catalog.pg_has_role('corpus_reader', 'unexpected_reader_grant', 'MEMBER')", read_only=False)
+        assert code == 0 and raw.strip() == b't'
+    finally:
+        code, _ = runtime.psql(stack, 'REVOKE unexpected_reader_grant FROM corpus_reader; DROP ROLE unexpected_reader_grant', read_only=False)
+        assert code == 0
+
+
+@pytest.mark.parametrize('kind', ['foreign', 'materialized'])
+def test_direct_unsafe_relations_refused_without_state_change(database, kind):
+    runtime, stack, recorder = database
+    if kind == 'foreign':
+        sql = ("CREATE EXTENSION IF NOT EXISTS postgres_fdw; "
+               "CREATE SERVER IF NOT EXISTS direct_probe FOREIGN DATA WRAPPER postgres_fdw OPTIONS (dbname 'honua'); "
+               "CREATE FOREIGN TABLE honua_data.direct_foreign (x integer) SERVER direct_probe OPTIONS (table_name 'missing')")
+        table = 'direct_foreign'
+    else:
+        sql = 'CREATE MATERIALIZED VIEW honua_data.direct_materialized AS SELECT 7 AS x'
+        table = 'direct_materialized'
+    code, _ = runtime.psql(stack, sql, read_only=False)
+    assert code == 0
+    before = state(runtime, stack)
+    with pytest.raises(ValueError):
+        recorder.table_rows('direct-unsafe-' + kind, 'honua_data', table, ['x'])
+    assert state(runtime, stack) == before
+
+
+@pytest.mark.parametrize('setup,cleanup', [
+    ('ALTER ROLE corpus_reader BYPASSRLS', 'ALTER ROLE corpus_reader NOBYPASSRLS'),
+    ('GRANT SELECT ON honua_data.shelters TO corpus_reader', 'REVOKE SELECT ON honua_data.shelters FROM corpus_reader'),
+    ('CREATE TABLE honua_data.reader_owned (x int); ALTER TABLE honua_data.reader_owned OWNER TO corpus_reader',
+     'DROP TABLE honua_data.reader_owned'),
+    ("CREATE EXTENSION IF NOT EXISTS postgres_fdw; CREATE SERVER mapping_probe FOREIGN DATA WRAPPER postgres_fdw; "
+     "CREATE USER MAPPING FOR corpus_reader SERVER mapping_probe", 'DROP SERVER mapping_probe CASCADE'),
+])
+def test_existing_reader_rejects_extra_authority_without_repair(database, setup, cleanup):
+    runtime, stack, _ = database
+    runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
+    code, _ = runtime.psql(stack, setup, read_only=False)
+    assert code == 0
+    try:
+        with pytest.raises(RuntimeError):
+            runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
+        # The dirty role remains dirty; a failed check must not repair it.
+        with pytest.raises(RuntimeError):
+            runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
+    finally:
+        code, _ = runtime.psql(stack, cleanup, read_only=False)
+        assert code == 0
+    runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
