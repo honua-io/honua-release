@@ -467,3 +467,46 @@ def test_services_tool_catalog_never_carries_a_known_secret(tmp_path, monkeypatc
         assert views and all(corpus.ADMIN not in v for v in views) and row['catalogRedactions'] >= 1
     finally:
         server.shutdown()
+
+
+def test_overrun_with_an_unknown_mutation_outcome_never_completes(tmp_path, monkeypatch):
+    """Astra 5th review: the product accepts a mutation, the agent's HTTP call times out
+    (ActionOutcomeUnknown), the stage overruns; the pending mutation must block finalization."""
+    import time as _time
+    corpus = pytest.importorskip('test_agent_e2e_local_runner')
+    import agent_e2e_local_runner as runner
+    original = corpus.Candidate.mcp
+    landed = {}
+
+    def slow_mcp(self, message, principal):
+        if message.get('method') == 'tools/call' and message['params']['name'] == 'honua_update_features':
+            _time.sleep(8)
+            landed['at'] = _time.monotonic()
+        return original(self, message, principal)
+    monkeypatch.setattr(corpus.Candidate, 'mcp', slow_mcp)
+    original_client = runner.LocalRuntime.mcp_client
+
+    def short_client(self, stack):
+        client = original_client(self, stack)
+        client.deadline = client.clock() + 2      # the agent's HTTP call times out after acceptance
+        return client
+    monkeypatch.setattr(runner.LocalRuntime, 'mcp_client', short_client)
+    outcome = {}
+
+    def script(execute, corpus):
+        outcome['started'] = round(DEADLINE['at'] - _time.monotonic(), 1)
+        before_deadline(12.0)
+        try:
+            outcome['update'] = execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_update_features',
+                                                       'arguments': {'serviceId': 'p10'}})
+        except Exception as exc:  # noqa: BLE001
+            outcome['update'] = type(exc).__name__
+        past_deadline()
+    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, deadline=60.0)
+    try:
+        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        assert result['shutdown']['unresolvedOutcomes'], (outcome, result['shutdown'])
+        assert result['shutdown']['complete'] is False
+        assert result['outcome'] == 'undetermined' and 'never resolved' in result['cause']
+    finally:
+        server.shutdown()

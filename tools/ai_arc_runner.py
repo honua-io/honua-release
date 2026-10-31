@@ -907,7 +907,7 @@ class Gate:
     the shutdown can wait for them to settle and record their outcomes."""
 
     def __init__(self):
-        self.closed, self.inflight, self.settled = False, 0, []
+        self.closed, self.inflight, self.settled, self.unknown = False, 0, [], []
         self.cond = threading.Condition()
 
     def enter(self) -> bool:
@@ -918,9 +918,13 @@ class Gate:
             return True
 
     def leave(self, outcome) -> None:
+        """An exception means the upstream outcome is unknown (the product may still apply it): such a
+        call is never 'settled' by returning; it stays unknown until a probe resolves it."""
         with self.cond:
             self.inflight -= 1
-            if self.closed:
+            if outcome.get('outcome') == 'error':
+                self.unknown.append(outcome)
+            elif self.closed:
                 self.settled.append(outcome)
             self.cond.notify_all()
 
@@ -1004,14 +1008,23 @@ def shutdown_stage(ctx, worker=None) -> dict:
             revoked.extend(item.revoke())
     facts['revoked'] = revoked
     facts['revocationFailed'] = any(r.get('status') not in (200, 204) for r in revoked)
+    drain_deadline = time.monotonic() + DRAIN_SECONDS
     facts['inflightRemaining'] = ctx.gate.drain(DRAIN_SECONDS)
     facts['settled'] = list(ctx.gate.settled)
+    # Calls whose outcome is unknown (e.g. the HTTP call timed out after the product accepted it) block
+    # finalization until a controller probe resolves them to a terminal state within the drain bound.
+    unresolved = list(ctx.gate.unknown)
+    for item in list(ctx.live):
+        if unresolved and hasattr(item, 'settle'):
+            unresolved = item.settle(unresolved, max(0.0, drain_deadline - time.monotonic()))
+    facts['unresolvedOutcomes'] = unresolved
     if worker is not None:
         worker.join(GRACE_SECONDS)
     facts['workerExited'] = worker is None or not worker.is_alive()
     close_live(ctx)
     facts['complete'] = (all(k['exited'] for k in facts['killed']) and not facts['revocationFailed']
-                         and facts['inflightRemaining'] == 0 and facts['workerExited'])
+                         and facts['inflightRemaining'] == 0 and not facts['unresolvedOutcomes']
+                         and facts['workerExited'])
     return facts
 
 
@@ -1154,6 +1167,7 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
             k for k, bad in (('session still running', not shutdown.get('workerExited')),
                              ('revocation failed', shutdown.get('revocationFailed')),
                              ('in-flight work unsettled', shutdown.get('inflightRemaining')),
+                             ('an action outcome never resolved', shutdown.get('unresolvedOutcomes')),
                              ('CLI did not exit', not all(x.get('exited') for x in shutdown.get('killed') or [])))
             if bad)
     return {'assertions': scored, 'excluded': [a['assertion'] for a in scored if a['status'] == 'excluded'],
