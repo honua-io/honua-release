@@ -438,6 +438,7 @@ class CliModelSession:
         screen_model_input(prompt)
         log_dir = Path(log_dir)
         log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        log_dir = log_dir.resolve()
         legacy = servers is None
         if legacy: servers = {'honua': {'tool_view': tool_view, 'execute': execute}}
         if not isinstance(servers, dict) or not servers or set(servers) - SERVER_NAMES:
