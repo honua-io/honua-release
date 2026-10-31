@@ -675,6 +675,8 @@ components:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
+    # 2026-10-31 ADVANCE: Console #473 and #488, built and smoke-tested by Container run 41238153712.
+    # Anonymous GHCR manifest retrieval confirmed the index and platform digests below.
     # 2026-10-22 ADVANCE (rc re-pin #2): fbe0195d -> a0c04a68 (trunk 2026-10-22T12:11Z). It carries
     # honua-console#452 (omni-prompt confirm-chip specs retired, #450) and #455; check runs at a0c04a68:
     # 14 success, 1 skipped. Public multi-architecture candidate tag candidate-a0c04a684cf1-39777045127-1
@@ -696,18 +698,18 @@ components:
     #     ghcr.io/honua-io/honua-console@sha256:686b104fc3f106df694782c243423c1c7110d568779abf5829514ab97349a908
     #   skipped 720dd90: no published SHA-bound image
     #   skipped 631594c: no published SHA-bound image
-    # The index and per-architecture digests below were re-read from GHCR with the resolver's own
+    # The earlier index and platform digests were re-read from GHCR with the resolver's own
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    sha: "a0c04a684cf1721ac87027c8090bfb0a8ba1bc95"   # trunk commit (2026-10-22, re-pin #2)
-    # Public multi-architecture candidate built from this SHA by Console Container run 39777045127.
-    image: "ghcr.io/honua-io/honua-console:candidate-a0c04a684cf1-39777045127-1"
-    digest: "sha256:6612319d53ed9d3fab1a62848b6402d4340f57c227296003614ac88fe48de4f3"
-    artifactSourceRevision: "a0c04a684cf1721ac87027c8090bfb0a8ba1bc95"
+    sha: "3f113f855ea2966768ecce09276c5282c74093e9"   # trunk commit (2026-10-31)
+    # Public multi-architecture image built from this SHA by Console Container run 41238153712.
+    image: "ghcr.io/honua-io/honua-console:nightly-3f113f855ea2"
+    digest: "sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4"
+    artifactSourceRevision: "3f113f855ea2966768ecce09276c5282c74093e9"
     architectures: [amd64, arm64]
-    # Read from this pinned index with docker buildx imagetools inspect on 2026-10-22.
+    # Read from the public pinned index on 2026-10-31.
     platformDigests:
-      amd64: sha256:68e5b93c4fa7473ce824aeceb3f1e45d3c464e7fec507fb906944c16d5dd3e51
-      arm64: sha256:bdd6ddcb297df1aadce7ced075f131e927ef638ad210c3420caa4387f753b965
+      amd64: sha256:b87469923bf3d006eaa42f976a9054307edcaeed0e5405256a9590dc2ac8c9d0
+      arm64: sha256:f1387895e433889b7dab2cc63aa521dfc0b1fd6e3b8c25ccaea48478e062c039
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
