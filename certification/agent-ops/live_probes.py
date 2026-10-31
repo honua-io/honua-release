@@ -210,8 +210,10 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
                             for a, b in zip(successes, successes[1:]))])
     writes = [row for row in samples if row.get("kind") in ("write", "writer") and row.get("ok")]
     ids = [row.get("object_id") for row in writes]
-    if (any(type(oid) is not int or oid < 0 for oid in ids) or len(ids) != len(set(ids)) or
-        any(not isinstance(row.get("marker"), str) or not row["marker"] for row in writes)):
+    markers = [row.get("marker") for row in writes]
+    if (any(type(oid) is not int or oid < 0 for oid in ids) or
+        any(not isinstance(marker, str) or not marker for marker in markers) or
+        len(markers) != len(set(markers))):
         raise ValueError("invalid committed-write evidence")
     import base64
     import hashlib
@@ -262,10 +264,14 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
         observed.update({oid: found.get(oid) for oid in batch})
     if set(observed) != set(ids):
         raise ValueError("missing committed-write readback")
-    lost = [row["object_id"] for row in writes if observed[row["object_id"]] != row["marker"]]
+    lost_rows = [row for row in writes if observed[row["object_id"]] != row["marker"]]
+    lost = [row["object_id"] for row in lost_rows]
     return {"downtime_upper_bound_s": max(gaps["read"], gaps["write"]),
             "probe_gaps_s": gaps, "committed_writes": len(writes),
-            "lost_writes": lost, "rpo_zero": not lost}
+            "lost_writes": lost,
+            "lost_write_markers": [{"object_id": row["object_id"], "marker": row["marker"]}
+                                   for row in lost_rows],
+            "rpo_zero": not lost}
 
 
 def readback_writes(base_url: str, layer_path: str, controller_key: str,
@@ -281,8 +287,11 @@ def readback_writes(base_url: str, layer_path: str, controller_key: str,
     require_loopback(base_url)
     require_layer_path(layer_path)
     if (not controller_key or not object_id_field or not marker_field or not ids or
-        any(type(oid) is not int or oid < 0 for oid in ids) or len(set(ids)) != len(ids)):
+        any(type(oid) is not int or oid < 0 for oid in ids)):
         raise ValueError("invalid readback request")
+    # A restore can rewind a sequence and reuse an object ID. Query each ID
+    # once, then compare its current marker with every acknowledged write.
+    ids = list(dict.fromkeys(ids))
     evidence = []
     started_monotonic = time.monotonic()
     for offset in range(0, len(ids), 100):

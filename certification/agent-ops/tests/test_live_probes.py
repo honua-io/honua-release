@@ -82,6 +82,19 @@ def test_real_http_samples_and_missing_committed_write():
         assert result["committed_writes"] >= 4
         assert {row["kind"] for row in record["samples"]} == {"read", "write", "writer"}
         assert all(row["finished_at"] >= row["started_at"] for row in record["samples"])
+        # Restore can rewind a sequence: two acknowledged writes may have the
+        # same ID but distinct markers, only one of which remains observable.
+        reused = copy.deepcopy(record)
+        acknowledged = [row for row in reused['samples'] if row['kind'] in ('write', 'writer') and row['ok']]
+        acknowledged[1]['object_id'] = acknowledged[0]['object_id']
+        reused_ids = [row['object_id'] for row in acknowledged]
+        reused_readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
+                                          "controller", "objectid", "note", reused_ids)
+        reused_result = assess_traffic(reused, reused_readback)
+        assert reused_result['lost_writes'] == [acknowledged[0]['object_id']]
+        assert reused_result['lost_write_markers'] == [
+            {'object_id': acknowledged[1]['object_id'], 'marker': acknowledged[1]['marker']}]
+        assert not reused_result['rpo_zero']
         lost = ids[0]
         del FeatureHandler.features[lost]
         readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",

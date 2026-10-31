@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import base64
 import os
+import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -13,6 +15,7 @@ from real_controller import RealController
 from live_probes import ProbeTraffic, assess_traffic, readback_writes
 from real_seed import _verify_runtime, prepare_town
 from real_credentials import mint_operator
+from live_fault import MigrationFault
 from state import _projected_layer, messy_table
 
 
@@ -121,11 +124,15 @@ def main() -> None:
                 sorted(messy_table('Kestrel'), key=lambda row: row['permit_id'])):
             raise RuntimeError('mixed-schema fields or values mismatch')
         path = f"/rest/services/maui-inspections/FeatureServer/{publication['layerId']}"
-        traffic = ProbeTraffic(base, path, '', 'note',
-                               {'x': -156.47, 'y': 20.89, 'spatialReference': {'wkid': 4326}},
-                               write_attributes={'name': 'ops probe', 'category': 'park', 'status': 'ok',
-                                                 'reported_at': int(time.time() * 1000)}, writer_interval=0.2)
+        def new_traffic():
+            return ProbeTraffic(base, path, '', 'note',
+                                {'x': -156.47, 'y': 20.89, 'spatialReference': {'wkid': 4326}},
+                                write_attributes={'name': 'ops probe', 'category': 'park', 'status': 'ok',
+                                                  'reported_at': int(time.time() * 1000)}, writer_interval=2.0)
+        traffic = new_traffic()
         candidate = os.environ.get('OPS_SMOKE_CANDIDATE_IMAGE')
+        if os.environ.get('OPS_SMOKE_FAULT_MIGRATION') and not candidate:
+            raise RuntimeError('fault smoke requires a candidate image')
         before_db = None
         backup = None
         if candidate:
@@ -140,24 +147,24 @@ def main() -> None:
                                         compose_file=Path(os.environ['E2E_COMPOSE_FILE']), output=action_out,
                                         prior_image=os.environ['HONUA_SERVER_IMAGE'], candidate_image=candidate,
                                         base_url=base)
-            # Exercise the same structured action interface a model would use.
+            # Exercise the internal structured Compose adapter; this is not an MCP tool.
             # A rejected action must also appear in the controller's audit.
-            rejected = controller.apply('honua_deploy_operations', {'operation': 'apply', 'image': candidate})
+            rejected = controller.apply('ops_compose_action', {'operation': 'apply', 'image': candidate})
             if rejected.get('ok') is not False or rejected.get('error') != 'pre-upgrade-backup-required':
                 raise RuntimeError('unsafe pre-backup update was not rejected')
-            backup = controller.apply('honua_deploy_operations', {'operation': 'backup'})
+            backup = controller.apply('ops_compose_action', {'operation': 'backup'})
             evidence['backup'] = backup
             if not backup['ok']:
                 raise RuntimeError('live pre-upgrade backup failed')
         traffic.start()
         try:
-            time.sleep(1)
+            time.sleep(1.25)
             if controller:
-                upgraded = controller.apply('honua_deploy_operations', {'operation': 'apply', 'image': candidate})
+                upgraded = controller.apply('ops_compose_action', {'operation': 'apply', 'image': candidate})
                 evidence['upgrade'] = upgraded
                 if not upgraded['ok']:
                     raise RuntimeError('live upgrade failed')
-            time.sleep(1)
+            time.sleep(1.25)
         finally:
             samples = traffic.stop()
             evidence['traffic'] = samples
@@ -177,7 +184,7 @@ def main() -> None:
                 return {name: (value['fields'], value['rows']) for name, value in snapshot.items()}
             if data_only(before_db) != data_only(after_upgrade):
                 raise RuntimeError('seeded data changed on upgrade')
-            restored = controller.apply('honua_deploy_operations', {'operation': 'restore_backup', 'backup_id': 'previous-release'})
+            restored = controller.apply('ops_compose_action', {'operation': 'restore_backup', 'backup_id': 'previous-release'})
             evidence['restore'] = restored
             if not restored['ok']:
                 raise RuntimeError('live backup restore failed')
@@ -188,6 +195,55 @@ def main() -> None:
             evidence['action_audit'] = controller.audit
             if [event['ok'] for event in controller.audit] != [False, True, True, True]:
                 raise RuntimeError('controller action audit is incomplete')
+            pending = os.environ.get('OPS_SMOKE_FAULT_MIGRATION')
+            if pending:
+                inspected = subprocess.run(['docker', 'image', 'inspect', '--format', '{{.Id}}', candidate],
+                                           capture_output=True, text=True, timeout=15, check=True)
+                fault = MigrationFault(controller.project, controller.compose_file,
+                                       pending_migrations=(pending,), candidate_image_id=inspected.stdout.strip(),
+                                       timeout=100)
+                evidence['fault_arm'] = fault.arm()
+                fault_result = {}
+                def fire_fault():
+                    try:
+                        fault_result['receipt'] = fault.wait_and_fire()
+                    except Exception as exc:
+                        fault_result['error_type'] = type(exc).__name__
+                worker = threading.Thread(target=fire_fault)
+                worker.start()
+                fault_traffic = new_traffic()
+                fault_traffic.start()
+                try:
+                    time.sleep(1.25)
+                    try:
+                        evidence['interrupted_upgrade'] = controller.apply(
+                            'ops_compose_action', {'operation': 'apply', 'image': candidate})
+                    finally:
+                        worker.join(110)
+                        if worker.is_alive():
+                            raise RuntimeError('fault worker did not finish')
+                        evidence['fault'] = fault_result
+                    if evidence['interrupted_upgrade'].get('ok') is not False or not fault_result.get('receipt'):
+                        raise RuntimeError('migration fault did not fire during the update')
+                    evidence['fault_restore'] = controller.apply(
+                        'ops_compose_action', {'operation': 'restore_backup', 'backup_id': 'previous-release'})
+                    if not evidence['fault_restore'].get('ok'):
+                        raise RuntimeError('restore after migration interruption failed')
+                    time.sleep(1.25)
+                finally:
+                    fault_samples = fault_traffic.stop()
+                    evidence['fault_traffic'] = fault_samples
+                fault_ids = [row['object_id'] for row in fault_samples['samples']
+                             if row['kind'] in ('write', 'writer') and row['ok']]
+                fault_readback = readback_writes(base, path, key, 'objectid', 'note', fault_ids)
+                evidence['fault_readback'] = fault_readback
+                # Writes acknowledged after the backup can be lost by restore;
+                # retain that observation instead of assuming an RPO of zero.
+                evidence['fault_assessment'] = assess_traffic(fault_samples, fault_readback)
+                evidence['fault_restored_database'] = observe_database(
+                    os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
+                if data_only(before_db) != data_only(evidence['fault_restored_database']):
+                    raise RuntimeError('seeded data changed after interrupted migration restore')
         evidence['status'] = 'operations-pass'
         evidence['cleanup'] = 'pending'
         print('real Compose operations completed: town layers, anonymous public traffic, controller readback' +

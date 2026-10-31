@@ -103,6 +103,7 @@ jobs:
         env:
           OPS_SMOKE_OUT: ${{ runner.temp }}/ops-real-smoke
           OPS_SMOKE_CANDIDATE_IMAGE: ${{ vars.OPS_SMOKE_CANDIDATE_IMAGE }}
+          OPS_SMOKE_FAULT_MIGRATION: ${{ vars.OPS_SMOKE_FAULT_MIGRATION }}
         run: bash certification/agent-ops/real_smoke.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

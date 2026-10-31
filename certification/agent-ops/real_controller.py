@@ -3,6 +3,8 @@
 A complete runner must seed and observe the real customer corpus, provision a
 separate agent identity, capture all attempted actions, and grade independent
 readback before it can use these actions as evaluation evidence.
+The names accepted here are internal adapter operations, not customer MCP tools.
+In particular the server's honua_deploy_operations MCP tool is read-only.
 """
 from __future__ import annotations
 
@@ -112,7 +114,7 @@ class RealController:
 
     def apply(self, tool: str, arguments: dict) -> dict:
         started = time.time()
-        known = {'honua_platform_release_status', 'honua_deploy_operations'}
+        known = {'ops_compose_schema', 'ops_compose_action'}
         tool_name = tool if isinstance(tool, str) and tool in known else 'unknown-tool'
         tool_digest = hashlib.sha256(str(tool).encode()).hexdigest()
         event = {"tool": tool_name, "tool_sha256": tool_digest, "arguments": None,
@@ -123,9 +125,9 @@ class RealController:
             event['arguments_sha256'] = hashlib.sha256(encoded).hexdigest()
             if not isinstance(arguments, dict):
                 raise ValueError("tool arguments must be an object")
-            if tool == "honua_platform_release_status" and not arguments:
+            if tool == "ops_compose_schema" and not arguments:
                 result = self._invoke("schema")
-            elif tool == "honua_deploy_operations":
+            elif tool == "ops_compose_action":
                 operation = arguments.get("operation")
                 if operation == "backup" and set(arguments) == {"operation"}:
                     event["effect"] = "mutation"
