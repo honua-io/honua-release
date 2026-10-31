@@ -60,6 +60,23 @@ def _sri(data: bytes) -> str:
     return "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode()
 
 
+def _oci_digest(body: bytes) -> str:
+    return "sha256:" + hashlib.sha256(body).hexdigest()
+
+
+OCI_INDEX = "application/vnd.oci.image.index.v1+json"
+OCI_IMAGE = "application/vnd.oci.image.manifest.v1+json"
+AMD64_MANIFEST = json.dumps({"mediaType": OCI_IMAGE, "schemaVersion": 2, "config": {}, "layers": []}).encode()
+ARM64_MANIFEST = json.dumps({"mediaType": OCI_IMAGE, "schemaVersion": 2, "layers": ["arm64"]}).encode()
+SERVER_INDEX = json.dumps({"mediaType": OCI_INDEX, "schemaVersion": 2, "manifests": [
+    {"digest": _oci_digest(AMD64_MANIFEST), "platform": {"architecture": "amd64", "os": "linux"}},
+    {"digest": "sha256:" + "0" * 64, "platform": {"architecture": "unknown", "os": "unknown"},
+     "annotations": {"vnd.docker.reference.type": "attestation-manifest"}},
+    {"digest": _oci_digest(ARM64_MANIFEST), "platform": {"architecture": "arm64", "os": "linux"}},
+]}).encode()
+SERVER_TAGS = {"2026.1-rc", "nightly-a4bde4b"}
+
+
 SDK_TARBALL = _npm_tarball("@honua/sdk-js", "0.1.9-beta.0")
 MCP_TARBALL = _npm_tarball("@honua/mcp-server", "0.1.4-beta.0")
 
@@ -103,7 +120,10 @@ def _manifest() -> dict:
 
 class World:
     def __init__(self, *, nuget_versions=None, dependencies=None, grpc_body=GRPC, bsr_body=BSR, sdk_next_status=404,
-                 sdk_git_head=SDK_SOURCE, sdk_tarball=SDK_TARBALL):
+                 sdk_git_head=SDK_SOURCE, sdk_tarball=SDK_TARBALL, oci_private=(), oci_manifest_status=200):
+        self.oci_private = set(oci_private)
+        self.oci_manifest_status = oci_manifest_status
+        self.headers = {}
         self.sdk_next_status = sdk_next_status
         self.sdk_git_head = sdk_git_head
         self.sdk_tarball = sdk_tarball
@@ -114,10 +134,29 @@ class World:
         self.tarball = _tarball(self.dependencies)
         self.seen = []
 
-    def get(self, url: str) -> preflight.Response:
+    def get(self, url: str, headers: dict | None = None) -> preflight.Response:
         self.seen.append(url)
+        self.headers[url] = dict(headers or {})
+        if url.startswith("https://ghcr.io/v2/"):
+            return self._oci(url, headers or {})
         status, body = self._response(url)
         return preflight.Response(status, body, url)
+
+    def _oci(self, url: str, headers: dict) -> preflight.Response:
+        repo, _, reference = url.removeprefix("https://ghcr.io/v2/").partition("/manifests/")
+        if headers.get("Authorization") != "Bearer anonymous-token" or repo in self.oci_private:
+            return preflight.Response(401, b'{"errors":[{"code":"UNAUTHORIZED"}]}', url)
+        if self.oci_manifest_status != 200:
+            return preflight.Response(self.oci_manifest_status, b'{"errors":[]}', url)
+        documents = {_oci_digest(body): body for body in (SERVER_INDEX, AMD64_MANIFEST, ARM64_MANIFEST)}
+        body = SERVER_INDEX if repo == "honua-io/honua-server" and reference in SERVER_TAGS else documents.get(reference)
+        if body is None:
+            return preflight.Response(404, b'{"errors":[{"code":"MANIFEST_UNKNOWN"}]}', url)
+        media_type = json.loads(body)["mediaType"]
+        return preflight.Response(200, body, url, {
+            "Content-Type": media_type,
+            "Docker-Content-Digest": _oci_digest(body),
+        })
 
     def _response(self, url: str) -> tuple[int, bytes]:
         if url.endswith("/index.json") and "/v3-flatcontainer/" in url:
@@ -193,7 +232,10 @@ class World:
         if url.endswith("create-honua-app-0.1.4.tgz"):
             return 200, self.tarball
         if url.startswith("https://ghcr.io/token"):
-            return 403, b'{"errors":[{"code":"DENIED"}]}'
+            repo = url.split("scope=repository:")[1].removesuffix(":pull")
+            if repo == "honua-io/charts/honua" or repo in self.oci_private:
+                return 403, b'{"errors":[{"code":"DENIED"}]}'
+            return 200, b'{"token":"anonymous-token"}'
         if url == "https://api.github.com/repos/honua-io/honua-qgis-plugin":
             return 404, b'{"message":"Not Found"}'
         if url == "https://plugins.qgis.org/plugins/honua_gis_assistant/":
@@ -747,14 +789,14 @@ class _QgisTransport:
         self.page_status = page_status
         self.seen = []
 
-    def get(self, url: str) -> preflight.Response:
+    def get(self, url: str, headers: dict | None = None) -> preflight.Response:
         self.seen.append(url)
         if url == preflight.QGIS_REPO_URL:
             status, body = self.api_results.pop(0)
             return preflight.Response(status, body, url)
         if url == preflight.QGIS_PUBLIC_REPO_URL:
             return preflight.Response(self.page_status, b"html", url)
-        return self.inner.get(url)
+        return self.inner.get(url, headers)
 
 
 def _qgis_receipt(transport: _QgisTransport) -> dict:
@@ -900,3 +942,167 @@ def test_transport_preserves_persistent_qgis_timeout_as_failure(monkeypatch):
     response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua_gis_assistant/")
     assert response.status == 522 and len(calls) == len(preflight.REQUEST_DELAYS)
     assert sleeps == list(preflight.REQUEST_DELAYS[1:])
+
+
+def _image_manifest(**server) -> dict:
+    manifest = _manifest()
+    manifest["components"]["honua-server"] = {
+        "image": "ghcr.io/honua-io/honua-server:nightly-a4bde4b",
+        "digest": _oci_digest(SERVER_INDEX),
+        "platformDigests": {"amd64": _oci_digest(AMD64_MANIFEST), "arm64": _oci_digest(ARM64_MANIFEST)},
+        "awsLambdaImage": "ghcr.io/honua-io/honua-server@" + _oci_digest(SERVER_INDEX),
+        "awsLambdaDigest": _oci_digest(AMD64_MANIFEST),
+        **server,
+    }
+    return manifest
+
+
+def _image_receipt(world=None, manifest=None) -> dict:
+    world = world or World()
+    return preflight.build_receipt(
+        world,
+        manifest or _image_manifest(),
+        observed_at="2026-10-30T00:00:00Z",
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+    )
+
+
+def test_public_image_is_published_by_anonymous_manifest_digest():
+    world = World()
+    manifest = _image_manifest()
+    receipt = _image_receipt(world, manifest)
+    preflight.audit(receipt, manifest)
+    server = _channel(receipt, "oci:ghcr.io/honua-io/honua-server:nightly-a4bde4b")
+    assert server["disposition"] == "published"
+    assert server["evidence_class"] == "anonymous-oci-manifest"
+    assert server["digest"] == _oci_digest(SERVER_INDEX)
+    assert server["platform_digests"] == {"linux/amd64": _oci_digest(AMD64_MANIFEST)}
+    assert server["manifest_fields"] == ["components.honua-server.image"]
+    assert "files" not in server
+    lambda_ref = "oci:ghcr.io/honua-io/honua-server@" + _oci_digest(SERVER_INDEX)
+    assert _channel(receipt, lambda_ref)["pins"] == {
+        "index_digest": _oci_digest(SERVER_INDEX),
+        "linux_amd64_digest": _oci_digest(AMD64_MANIFEST),
+    }
+    channel_tag = _channel(receipt, "oci:ghcr.io/honua-io/honua-server:2026.1-rc")
+    assert channel_tag["floating_channel_tag"] is True
+    assert channel_tag["observed_digest"] == _oci_digest(SERVER_INDEX)
+    assert channel_tag["platforms"] == ["linux/amd64"]
+    # The token request is unauthenticated; only the manifest reads carry the anonymous bearer.
+    token_url = preflight.ghcr_token_url("honua-io/honua-server")
+    assert world.headers[token_url] == {}
+    manifest_url = preflight.ghcr_manifest_url("honua-io/honua-server", "nightly-a4bde4b")
+    assert world.headers[manifest_url]["Authorization"] == "Bearer anonymous-token"
+    assert OCI_INDEX in world.headers[manifest_url]["Accept"]
+    # The Helm chart keeps its existing blocked row.
+    helm = _channel(receipt, "helm:oci://ghcr.io/honua-io/charts/honua")
+    assert helm["disposition"] == "blocked-on-candidate" and helm["http_status"] == 403
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_private_image_token_denial_fails_closed(status):
+    world = World(oci_private={"honua-io/honua-server"})
+    original = world._response
+
+    def denied(url: str):
+        if url == preflight.ghcr_token_url("honua-io/honua-server"):
+            return status, b'{"errors":[{"code":"DENIED"}]}'
+        return original(url)
+
+    world._response = denied
+    with pytest.raises(preflight.PreflightError, match=f"denied an anonymous pull token .*HTTP {status}"):
+        _image_receipt(world)
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_manifest_denied_after_token_fails_closed(status):
+    with pytest.raises(preflight.PreflightError, match=f"returned HTTP {status}; customers cannot pull it"):
+        _image_receipt(World(oci_manifest_status=status))
+
+
+def test_image_index_digest_other_than_its_pin_fails():
+    manifest = _image_manifest(digest="sha256:" + "e" * 64)
+    with pytest.raises(preflight.PreflightError, match="index_digest is sha256:[0-9a-f]{64}, not the manifest pin"):
+        _image_receipt(manifest=manifest)
+
+
+def test_image_linux_amd64_digest_other_than_its_pin_fails():
+    manifest = _image_manifest(awsLambdaDigest="sha256:" + "f" * 64)
+    with pytest.raises(preflight.PreflightError, match="linux_amd64_digest is .* not the manifest pin"):
+        _image_receipt(manifest=manifest)
+
+
+def test_inline_digest_ref_the_registry_does_not_serve_fails():
+    manifest = _image_manifest(awsLambdaImage="ghcr.io/honua-io/honua-server@sha256:" + "a" * 64)
+    with pytest.raises(preflight.PreflightError, match="returned HTTP 404"):
+        _image_receipt(manifest=manifest)
+
+
+def test_image_index_without_linux_amd64_fails():
+    world = World()
+    original = world._oci
+    arm_only = json.dumps({"mediaType": OCI_INDEX, "manifests": [
+        {"digest": _oci_digest(ARM64_MANIFEST), "platform": {"architecture": "arm64", "os": "linux"}},
+    ]}).encode()
+
+    def oci(url, headers):
+        if url.endswith("/manifests/2026.1-rc"):
+            return preflight.Response(200, arm_only, url, {"Content-Type": OCI_INDEX})
+        return original(url, headers)
+
+    world._oci = oci
+    with pytest.raises(preflight.PreflightError, match="exactly one linux/amd64 manifest"):
+        _image_receipt(world)
+
+
+def test_oci_drift_compares_pinned_digests_but_not_the_floating_channel_tag():
+    receipt = _image_receipt()
+    moved = json.loads(json.dumps(receipt))
+    channel_tag = _channel(moved, "oci:ghcr.io/honua-io/honua-server:2026.1-rc")
+    channel_tag["observed_digest"] = "sha256:" + "1" * 64
+    channel_tag["observed_platform_digests"] = {"linux/amd64": "sha256:" + "2" * 64}
+    preflight.compare(receipt, moved)
+    repinned = json.loads(json.dumps(receipt))
+    server = _channel(repinned, "oci:ghcr.io/honua-io/honua-server:nightly-a4bde4b")
+    server["digest"] = server["pins"]["index_digest"] = "sha256:" + "3" * 64
+    with pytest.raises(preflight.PreflightError, match="drifted at oci:ghcr.io/honua-io/honua-server:nightly-a4bde4b"):
+        preflight.compare(receipt, repinned)
+
+
+def test_oci_row_whose_digest_breaks_its_pin_fails_audit():
+    receipt = _image_receipt()
+    _channel(receipt, "oci:ghcr.io/honua-io/honua-server:nightly-a4bde4b")["digest"] = "sha256:" + "4" * 64
+    with pytest.raises(preflight.PreflightError, match="does not match its pin"):
+        preflight.audit(receipt)
+
+
+def test_receipt_missing_a_manifest_image_row_fails_the_manifest_audit():
+    manifest = _image_manifest()
+    receipt = _image_receipt(manifest=manifest)
+    receipt["channels"] = [
+        channel for channel in receipt["channels"]
+        if channel["id"] != "oci:ghcr.io/honua-io/honua-server:nightly-a4bde4b"
+    ]
+    with pytest.raises(preflight.PreflightError, match="does not record the manifest digest pins"):
+        preflight.audit(receipt, manifest)
+
+
+def test_transport_sends_the_bearer_only_to_ghcr_v2():
+    with pytest.raises(preflight.PreflightError, match="refusing to send Authorization"):
+        preflight.UrllibTransport()._get_once("https://registry.npmjs.org/x", {"Authorization": "Bearer t"})
+    with pytest.raises(preflight.PreflightError, match="refusing to send Authorization"):
+        preflight.UrllibTransport()._get_once("https://ghcr.io/token?scope=x", {"Authorization": "Bearer t"})
+    with pytest.raises(preflight.PreflightError, match="non-bearer"):
+        preflight.UrllibTransport()._get_once("https://ghcr.io/v2/x/manifests/y", {"Authorization": "Basic dTpw"})
+
+
+def test_committed_receipt_pulls_every_manifest_image_anonymously():
+    manifest = yaml.safe_load((preflight.REPO_ROOT / "platform-manifest.yaml").read_text())
+    receipt = preflight.load_receipt(preflight.RECEIPT_PATH)
+    images = preflight.oci_image_refs(manifest)
+    assert {image["ref"] for image in images} >= set(preflight.OCI_CHANNEL_TAGS)
+    for image in images:
+        channel = _channel(receipt, f"oci:{image['ref']}")
+        assert channel["disposition"] == "published"
+        assert channel["evidence_class"] == "anonymous-oci-manifest"
+    assert _channel(receipt, "helm:oci://ghcr.io/honua-io/charts/honua")["disposition"] == "blocked-on-candidate"
