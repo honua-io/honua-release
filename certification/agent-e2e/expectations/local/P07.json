@@ -30,7 +30,7 @@
         "object": {
           "resourceIds": {
             "body": "p07-catalog",
-            "pointer": "/result/structuredContent/layers/*/serviceId"
+            "pointer": "/result/structuredContent/layers/*/serviceName"
           }
         }
       },

@@ -79,7 +79,7 @@ def test_p07_catalog_rejects_missing_layer(variant):
     action_id = 'sha256:' + 'a' * 64
     def score(names):
         response = {'jsonrpc': '2.0', 'id': 1, 'result': {'isError': False, 'structuredContent':
-                    {'layers': [{'serviceId': name} for name in names]}}}
+                    {'layers': [{'serviceName': name} for name in names]}}}
         raw = json.dumps(response).encode()
         record = Record('p07-catalog', 'observe', 'mcp', 'controller', 'admin', 'POST',
                         '/mcp#tools/call', 200, raw, 'sha256:' + hashlib.sha256(raw).hexdigest(),
