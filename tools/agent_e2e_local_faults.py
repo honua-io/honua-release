@@ -16,11 +16,13 @@ Plans (``Scenario.fault_plan(variant)``):
    "id": "<short id>",
    "after": {"tool": ...} | null,            # optional trigger; null = armed from the start
    "match": {"tool": "<tool name>"},         # required: the call whose response is lost
-   "commit": {"pointer": "/result/structuredContent/mapId"}}
-                                             # required: where the upstream reply names the created resource.
-  It fires only on a confirmed commit: HTTP 2xx, a JSON-RPC result that is not an error, and a non-empty
-  scalar at the commit pointer. A rejected, erroring or noncommitted (e.g. accepted-but-pending) reply is
-  forwarded to the model unchanged and the fault stays armed for the next matching call.
+   "commit": {"pointer": "/result/structuredContent/mapId",
+              "confirm": {"path": "/api/v1/studio/content-items/{id}", "attempts": 30, "intervalSeconds": 1}}}
+  It fires only on a VERIFIED commit: the upstream reply is a non-error JSON-RPC result (2xx) naming the
+  resource at the commit pointer, AND a runner controller read of the confirm path (with {id} substituted)
+  answers 200, polled up to "attempts" times so an accepted-but-pending (e.g. 202) creation is only counted
+  once it exists. A rejected or erroring reply, or one whose resource never appears, is forwarded to the model
+  unchanged, listed in receipt.faultSkipped with the reason, and the fault stays armed.
 The fired event records the upstream status, outcome and response digest next to the injected 503;
 the upstream bytes stay in the action log as that action's captured response.
 """
@@ -49,23 +51,35 @@ def validate_fault_plan(plan):
                                                             or not isinstance(match['tool'], str) or not match['tool'])):
         raise ValueError('fault plan match must be {"tool": ...} (null only for http_503_once)')
     commit = plan.get('commit')
-    if lost != (commit is not None) or (lost and (not isinstance(commit, dict) or set(commit) != {'pointer'}
+    if lost != (commit is not None) or (lost and (not isinstance(commit, dict) or set(commit) != {'pointer', 'confirm'}
                                                   or not isinstance(commit['pointer'], str)
                                                   or not commit['pointer'].startswith('/'))):
-        raise ValueError('response_lost_after_commit needs {"commit": {"pointer": "/result/..."}} (and only it)')
+        raise ValueError('response_lost_after_commit needs {"commit": {"pointer": "/result/...", "confirm": {...}}}')
+    if lost:
+        confirm = commit['confirm']
+        if (not isinstance(confirm, dict) or set(confirm) - {'path', 'attempts', 'intervalSeconds'}
+                or not isinstance(confirm.get('path'), str) or not confirm['path'].startswith('/api/')
+                or confirm['path'].count('{id}') != 1
+                or not (type(confirm.get('attempts', 30)) is int and 1 <= confirm.get('attempts', 30) <= 120)
+                or not (type(confirm.get('intervalSeconds', 1)) in (int, float) and 0 <= confirm.get('intervalSeconds', 1) <= 10)):
+            raise ValueError('commit.confirm needs a controller read path with one {id}, attempts 1-120, interval 0-10 s')
     identity = plan.get('id', plan['kind'])
     if not isinstance(identity, str) or not re.fullmatch(r'[a-z0-9_.-]{1,40}', identity):
         raise ValueError('invalid fault plan id')
     out = {'kind': plan['kind'], 'id': identity, 'after': None if after is None else dict(after),
            'match': None if match is None else dict(match)}
     if lost:
-        out['commit'] = dict(commit)
+        out['commit'] = {'pointer': commit['pointer'],
+                         'confirm': {'path': commit['confirm']['path'], 'attempts': commit['confirm'].get('attempts', 30),
+                                     'intervalSeconds': commit['confirm'].get('intervalSeconds', 1)}}
     return out
 
 
 class FaultInjector:
-    def __init__(self, plan):
+    def __init__(self, plan, confirm=None):
         self.plan = validate_fault_plan(plan)
+        # confirm(path) -> (http status, recorded step): a runner controller read, recorded in the vault.
+        self.confirm = confirm
         self.triggered = self.plan['after'] is None
         self.events: list[dict] = []
         self.skipped: list[dict] = []
@@ -99,15 +113,35 @@ class FaultInjector:
             if (self.plan['kind'] != 'response_lost_after_commit' or not self.triggered or self.events
                     or not self._matches(self.plan['match'], kind, action)):
                 return None
+            digest = 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest()
+
+            def skip(reason, **extra):
+                # Not a verified commit: deliver the original reply and leave the fault armed.
+                self.skipped.append({'actionDigest': digest, 'upstreamStatus': upstream_status,
+                                     'upstreamOutcome': execution.get('status'), 'reason': reason, **extra})
+                return None
             committed = self._committed_resource(execution, upstream_status, upstream_raw)
             if committed is None:
-                # Not a confirmed commit: leave the fault unfulfilled and record why it did not fire.
-                self.skipped.append({'actionDigest': 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest(),
-                                     'upstreamStatus': upstream_status, 'upstreamOutcome': execution.get('status')})
-                return None
+                return skip('reply is an error or names no resource at the commit pointer')
+            if self.confirm is None:
+                return skip('no runner controller read is available to verify the commit')
+            from urllib.parse import quote
+            confirm = self.plan['commit']['confirm']
+            path = confirm['path'].replace('{id}', quote(str(committed), safe=''))
+            checks = []
+            for attempt in range(confirm['attempts']):
+                status, step = self.confirm(path)
+                checks.append({'step': step, 'status': status})
+                if status == 200:
+                    break
+                if attempt + 1 < confirm['attempts']:
+                    time.sleep(confirm['intervalSeconds'])
+            if not checks or checks[-1]['status'] != 200:
+                return skip('the resource never appeared to a controller read', confirmation={'path': path, 'checks': checks})
             event = {'kind': self.plan['kind'], 'id': self.plan['id'], 'at': {'after': self.plan['after']},
-                     'actionDigest': 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest(),
+                     'actionDigest': digest,
                      'tool': action.get('tool'), 'forwarded': True, 'committedResourceId': committed,
+                     'confirmation': {'path': path, 'checks': checks},
                      'upstreamOutcome': execution.get('status'), 'upstreamStatus': upstream_status,
                      'upstreamResponseSha256': (None if upstream_raw is None
                                                 else 'sha256:' + hashlib.sha256(upstream_raw).hexdigest()),

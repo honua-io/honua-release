@@ -362,7 +362,7 @@ class ControllerRecorder:
         return record
 
     # -- HTTP --------------------------------------------------------------
-    def _request(self, step, principal, method, path, body, content_type):
+    def _request(self, step, principal, method, path, body, content_type, origin='controller'):
         """One loopback request; every response (any status, any bytes) is retained."""
         import urllib.error
         import urllib.parse
@@ -408,7 +408,7 @@ class ControllerRecorder:
         # enumerations with different body-defined scopes are different requests.
         record = self._store(Record(step, self.phase, 'http', principal, identity, method, path, status, raw,
                                     'sha256:' + hashlib.sha256(raw).hexdigest(), request_arguments_raw=body,
-                                    content_type=content_type))
+                                    content_type=content_type, origin=origin))
         return {'observation': {'httpStatus': status, 'body': record.json, 'responseDigest': record.sha256,
                                 'rawBodyBase64': base64.b64encode(raw).decode('ascii')},
                 'reference': {'key': step, 'sha256': record.sha256}}
@@ -451,6 +451,19 @@ class ControllerRecorder:
                                     status, raw, 'sha256:' + hashlib.sha256(raw).hexdigest(),
                                     request_arguments_raw=query.encode(), content_type='application/json'))
         return record.json
+
+    def confirmation_read(self, step, path):
+        """Runner only (the fault injector): a controller GET made DURING the session to verify that a
+        model-requested creation committed. Recorded with phase 'session-confirm' and origin
+        'fault-confirmation', so no frozen read rule accepts it as observed state."""
+        require(self.phase == 'session', 'confirmation reads happen only while the session runs')
+        self.phase = 'session-confirm'
+        try:
+            answer = self._request(step, 'controller', 'GET', path, None, 'application/json',
+                                   origin='fault-confirmation')
+        finally:
+            self.phase = 'session'
+        return answer['observation']['httpStatus']
 
     # -- MCP ---------------------------------------------------------------
     def _mcp(self, step, principal, rpc, *, replay_of=None, arguments=None, label):

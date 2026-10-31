@@ -821,7 +821,16 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         recorder = stack.extra['recorder']
         if fault_plan is not None:
             from agent_e2e_local_faults import FaultInjector
-            stack.extra['faultInjector'] = FaultInjector(fault_plan)
+            confirmations = []
+
+            def confirm(path):
+                step = f'runner-fault-confirm-{len(confirmations) + 1}'
+                confirmations.append(step)
+                try:
+                    return recorder.confirmation_read(step, path), step
+                except Exception:  # an unanswered confirmation is not a confirmed commit
+                    return 0, step
+            stack.extra['faultInjector'] = FaultInjector(fault_plan, confirm=confirm)
             receipt['faultPlan'] = fault_plan
         files = frozen_customer_files(scenario, variant)
         if files:
