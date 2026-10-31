@@ -52,8 +52,11 @@ credential or exceeding the audit bound fails closed and is not exported.
 The published `v2026.1.0` Linux binary was checksum-verified on this machine;
 its live stdio catalog exposed 35 tools but omitted `provision_infrastructure`,
 `install_handoff`, and `verify_install_handoff`. AWS setup refuses before any
-model call unless all six required setup/handoff tools are advertised. The g43
-lane must supply a binary containing those product tools.
+model call unless all six required setup/handoff tools are advertised. A source
+build of honua-devops commit `09a8984b519bfeeaf5ac63e5a3174e662e3866d1` produced
+an apphost with SHA-256 `e069ea642da95e53a59d997e93e7c197360cd07942ef01dbb3d1fe8f532169d5`.
+Its read-only stdio catalog exposed 28 tools, including all six required tools
+and `install_honua`. No credentials or model calls were used for that check.
 
 For a local-Docker target, the release runner supplies a fresh remote VM and
 constructs `RemoteQuickstartShell` with its host, user, SSH identity, pinned
