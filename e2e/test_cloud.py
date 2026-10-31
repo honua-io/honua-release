@@ -5242,7 +5242,8 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         # Never a bearer token: an OIDC-enabled cell routes bearers to the JWT handler (#795).
         assert argv[argv.index("--api-key-header") + 1] == "x-api-key"
         row = report["cells"][0]
-        assert report["status"] == row["status"] == "pass"
+        assert report["status"] == row["status"] == "fail"
+        assert "first attempt" in report["why"] and "does not qualify" in report["why"]
         assert row["cell"] == cell
         assert [r["modelAttempt"] for r in report["harnessSetup"]] == [1, 2]
         assert [(a["number"], a["status"], a["failureAttribution"], a["lockDigest"], a["driver"])
@@ -5252,6 +5253,34 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         assert not list((directory / "model-journey").glob("receipt-*.json"))
     finally:
         shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990002", ignore_errors=True)
+
+
+@pytest.mark.parametrize("attribution,run_id", [("model", "990006"), ("undetermined", "990007"), (None, "990008")])
+def test_model_canary_does_not_retry_a_model_or_undetermined_failure(monkeypatch, attribution, run_id):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    _model_cell(monkeypatch, run_id, deterministic_status="pass")
+    try:
+        calls = []
+
+        def fake_run(argv, *, env, cwd, check):
+            calls.append(argv)
+            number = int(argv[argv.index("--attempt") + 1])
+            Path(argv[argv.index("--output") + 1]).write_text(
+                json.dumps(_canary_receipt(number, "fail", attribution)))
+            return subprocess.CompletedProcess(argv, 1)
+
+        report = run_cloud.model_canary_phase(
+            {"cell": "aws-ecs/redis-off", "endpoint": "http://cell.example"}, admin_key="k",
+            lock_digest=LOCK, run=fake_run)
+        assert len(calls) == 1
+        assert report["status"] == "fail"
+        if attribution is None:
+            assert "unattributed" in report["why"]
+        else:
+            assert [(a["number"], a["failureAttribution"]) for a in report["cells"][0]["attempts"]] == [
+                (1, attribution)]
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / run_id, ignore_errors=True)
 
 
 def test_model_canary_without_a_lock_runs_once_unbound_and_records_an_honest_blocked_row(monkeypatch):

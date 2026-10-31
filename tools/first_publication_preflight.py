@@ -5,6 +5,11 @@ The probe sends no registry credential. A row is `published` only when this proc
 downloaded the bytes and hashed them. An index listing is not a byte receipt. A
 missing public coordinate stays a named blocker; this tool does not invent a digest,
 a chart, or a plugin ZIP for it.
+
+Container images are probed the way an anonymous `docker pull` is: an anonymous GHCR pull
+token, then the manifest bytes, whose sha256 is the recorded digest. A multi-arch index must
+also resolve its linux/amd64 manifest. A pinned digest that the registry no longer serves, or an
+image whose anonymous token or manifest is denied, fails the preflight.
 """
 from __future__ import annotations
 
@@ -120,6 +125,28 @@ HELM_BOUNDARY = (
     "refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image "
     "before it will push a chart. This repo does not invent that server SemVer or an appVersion."
 )
+# Anonymous container pulls. Every ghcr.io/honua-io/... string in platform-manifest.yaml is probed,
+# plus the published channel tags below. A channel tag floats (each RC moves it), so its digest is
+# recorded as observed_* and left out of drift; its anonymous pullability is still compared.
+GHCR_IMAGE_PREFIX = "ghcr.io/honua-io/"
+OCI_CHANNEL_TAGS = ("ghcr.io/honua-io/honua-server:2026.1-rc",)
+OCI_EVIDENCE = "anonymous-oci-manifest"
+OCI_INDEX_TYPES = frozenset({
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+})
+OCI_IMAGE_TYPES = frozenset({
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+})
+OCI_ACCEPT = ", ".join(sorted(OCI_INDEX_TYPES | OCI_IMAGE_TYPES))
+# Sibling manifest fields that pin an image field: (index digest, linux/amd64 manifest digest).
+# awsLambdaDigest pins the linux/amd64 child of the Lambda index, not the index itself.
+OCI_PIN_FIELDS = {
+    "image": ("digest", ("platformDigests", "amd64")),
+    "awsLambdaImage": (None, ("awsLambdaDigest",)),
+}
+OCI_FLOATING_FIELDS = ("observed_digest", "observed_platform_digests", "observed_urls")
 QGIS_REPO_URL = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
 QGIS_PUBLIC_REPO_URL = "https://github.com/honua-io/honua-qgis-plugin"
 # plugins.qgis.org keys a plugin by its ZIP's top-level package folder, not its display name.
@@ -144,10 +171,11 @@ class PreflightError(ValueError):
 
 
 class Response:
-    def __init__(self, status: int, body: bytes, url: str):
+    def __init__(self, status: int, body: bytes, url: str, headers: dict | None = None):
         self.status = status
         self.body = body
         self.url = url
+        self.headers = {key.lower(): value for key, value in (headers or {}).items()}
 
 
 # A registry 5xx/429 or a dropped connection is an outage, not an answer about the package.
@@ -159,13 +187,13 @@ _sleep = time.sleep
 
 
 class UrllibTransport:
-    def get(self, url: str) -> Response:
+    def get(self, url: str, headers: dict | None = None) -> Response:
         last: Response | None = None
         for delay in REQUEST_DELAYS:
             if delay:
                 _sleep(delay)
             try:
-                response = self._get_once(url)
+                response = self._get_once(url, headers)
             except _TransientProbeFailure as exc:
                 if delay == REQUEST_DELAYS[-1]:
                     raise PreflightError(f"registry probe failed for {url}: {exc.__cause__}") from exc.__cause__
@@ -176,26 +204,52 @@ class UrllibTransport:
         assert last is not None
         return last
 
-    def _get_once(self, url: str) -> Response:
+    def _get_once(self, url: str, headers: dict | None = None) -> Response:
         _require_host(url)
-        request = urllib.request.Request(url, headers=dict(ANONYMOUS_HEADERS))
-        if request.has_header("Authorization"):
+        bearer = _ghcr_bearer_headers(url, headers)
+        request = urllib.request.Request(url, headers={**ANONYMOUS_HEADERS, **(headers or {})})
+        if request.has_header("Authorization") and not bearer:
             raise PreflightError(f"refusing to send Authorization to {url}")
+        # The anonymous GHCR pull token goes only to ghcr.io/v2/ and never follows a redirect.
+        opener = urllib.request.build_opener(_NoRedirect).open if bearer else urllib.request.urlopen
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with opener(request, timeout=60) as response:
                 final = response.geturl()
                 _require_host(final)
-                return Response(response.status, response.read(), final)
+                return Response(response.status, response.read(), final, _header_map(response))
         except urllib.error.HTTPError as exc:
             final = exc.geturl() or url
             _require_host(final)
-            return Response(exc.code, exc.read(), final)
+            return Response(exc.code, exc.read(), final, _header_map(exc))
         except (urllib.error.URLError, TimeoutError) as exc:
             raise _TransientProbeFailure() from exc
 
 
 class _TransientProbeFailure(Exception):
     """A connection-level failure; UrllibTransport.get retries it and then reports the cause."""
+
+
+def _header_map(response) -> dict:
+    headers = getattr(response, "headers", None)
+    return dict(headers.items()) if headers is not None and hasattr(headers, "items") else {}
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # noqa: ARG002
+        return None
+
+
+def _ghcr_bearer_headers(url: str, headers: dict | None) -> bool:
+    """True only for an anonymous GHCR bearer sent to ghcr.io/v2/. Anything else is refused."""
+    auth = [value for key, value in (headers or {}).items() if key.lower() == "authorization"]
+    if not auth:
+        return False
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "ghcr.io" or not parsed.path.startswith("/v2/"):
+        raise PreflightError(f"refusing to send Authorization to {url}")
+    if len(auth) != 1 or not str(auth[0]).startswith("Bearer "):
+        raise PreflightError(f"refusing a non-bearer Authorization for {url}")
+    return True
 
 
 def _require_host(url: str) -> None:
@@ -622,6 +676,168 @@ def _template_pins(body: bytes) -> list[dict]:
     return pins
 
 
+def _parse_oci_ref(ref: str) -> tuple[str, str, str | None]:
+    """ghcr.io/<repo>[:tag][@sha256:...] -> (repo, reference, pinned digest or None)."""
+    if not ref.startswith(GHCR_IMAGE_PREFIX):
+        raise PreflightError(f"{ref} is not a {GHCR_IMAGE_PREFIX} image reference")
+    name, _, digest = ref.removeprefix("ghcr.io/").partition("@")
+    repo, _, tag = name.rpartition(":") if ":" in name else (name, "", "")
+    if digest and not _is_oci_digest(digest):
+        raise PreflightError(f"{ref} has a digest that is not sha256:<64 hex>")
+    reference = digest or tag
+    if not repo or not reference or not re.fullmatch(r"[a-z0-9]+(?:[._/-][a-z0-9]+)*", repo):
+        raise PreflightError(f"{ref} is not a tag- or digest-qualified GHCR reference")
+    return repo, reference, digest or None
+
+
+def _is_oci_digest(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+
+
+def _dig(entry: dict, path: tuple[str, ...]):
+    for key in path:
+        if not isinstance(entry, dict):
+            return None
+        entry = entry.get(key)
+    return entry
+
+
+def oci_image_refs(manifest: dict) -> list[dict]:
+    """Every ghcr.io/honua-io/... string in the manifest, with its sibling digest pins."""
+    found: dict[str, dict] = {}
+
+    def walk(value, path: tuple[str, ...], parent: dict | None) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                walk(item, path + (str(key),), value)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, path + (str(index),), None)
+        elif isinstance(value, str) and value.startswith(GHCR_IMAGE_PREFIX):
+            index_field, platform_field = OCI_PIN_FIELDS.get(path[-1], (None, None))
+            pins = {}
+            if index_field and parent is not None:
+                pins["index_digest"] = parent.get(index_field)
+            if platform_field and parent is not None:
+                pins["linux_amd64_digest"] = _dig(parent, platform_field)
+            pins = {key: pin for key, pin in pins.items() if pin is not None}
+            for key, pin in pins.items():
+                if not _is_oci_digest(pin):
+                    raise PreflightError(f"{'.'.join(path)} {key} pin is not sha256:<64 hex>")
+            row = {"ref": value, "fields": [".".join(path)], "pins": pins, "floating": False}
+            previous = found.get(value)
+            if previous is not None:
+                if previous["pins"] != pins:
+                    raise PreflightError(f"{value} is pinned to different digests in the manifest")
+                previous["fields"].append(row["fields"][0])
+            else:
+                found[value] = row
+
+    walk(manifest, (), None)
+    for ref in OCI_CHANNEL_TAGS:
+        found.setdefault(ref, {"ref": ref, "fields": [], "pins": {}, "floating": True})
+    return [found[ref] for ref in sorted(found)]
+
+
+def ghcr_token_url(repo: str) -> str:
+    return f"https://ghcr.io/token?service=ghcr.io&scope=repository:{repo}:pull"
+
+
+def ghcr_manifest_url(repo: str, reference: str) -> str:
+    return f"https://ghcr.io/v2/{repo}/manifests/{reference}"
+
+
+def _oci_manifest(transport, repo: str, reference: str, token: str, ref: str) -> tuple[str, str, dict]:
+    """Fetch one manifest and return (sha256 digest of its bytes, media type, document)."""
+    url = ghcr_manifest_url(repo, reference)
+    response = transport.get(url, {"Accept": OCI_ACCEPT, "Authorization": f"Bearer {token}"})
+    if response.status != 200:
+        raise PreflightError(
+            f"anonymous pull of {ref} manifest {reference} returned HTTP {response.status}; "
+            "customers cannot pull it"
+        )
+    document = _parse_json(response.body, url)
+    digest = "sha256:" + _sha256(response.body)
+    served = response.headers.get("docker-content-digest")
+    if served and served != digest:
+        raise PreflightError(f"{ref} manifest bytes hash to {digest}, but GHCR named {served}")
+    if reference.startswith("sha256:") and digest != reference:
+        raise PreflightError(f"{ref} manifest fetched by {reference} hashes to {digest}")
+    media_type = str(response.headers.get("content-type") or document.get("mediaType") or "").split(";")[0].strip()
+    if media_type not in OCI_INDEX_TYPES | OCI_IMAGE_TYPES:
+        raise PreflightError(f"{ref} manifest {reference} has media type {media_type or '(none)'}")
+    return digest, media_type, document
+
+
+def _oci_published(transport, image: dict) -> dict:
+    """Pull an image's manifest anonymously, bind it to its pins, and resolve linux/amd64."""
+    ref = image["ref"]
+    repo, reference, inline = _parse_oci_ref(ref)
+    token_url = ghcr_token_url(repo)
+    response = transport.get(token_url)
+    if response.status != 200:
+        raise PreflightError(
+            f"GHCR denied an anonymous pull token for {repo} (HTTP {response.status}); {ref} is not public"
+        )
+    token = str(_parse_json(response.body, token_url).get("token") or "")
+    if not token:
+        raise PreflightError(f"GHCR returned no anonymous pull token for {repo}")
+    digest, media_type, document = _oci_manifest(transport, repo, reference, token, ref)
+    pins = dict(image["pins"])
+    if inline:
+        if pins.get("index_digest", inline) != inline:
+            raise PreflightError(f"{ref} carries {inline} but its manifest digest field pins {pins['index_digest']}")
+        pins["index_digest"] = inline
+    urls = [token_url, ghcr_manifest_url(repo, reference)]
+    child_urls = []
+    platforms = {}
+    if media_type in OCI_INDEX_TYPES:
+        children = [
+            item for item in document.get("manifests") or []
+            if isinstance(item, dict)
+            and (item.get("platform") or {}).get("os") == "linux"
+            and (item.get("platform") or {}).get("architecture") == "amd64"
+        ]
+        if len(children) != 1 or not _is_oci_digest(children[0].get("digest")):
+            raise PreflightError(f"{ref} index does not name exactly one linux/amd64 manifest")
+        child = str(children[0]["digest"])
+        child_digest, child_type, _ = _oci_manifest(transport, repo, child, token, ref)
+        if child_type not in OCI_IMAGE_TYPES:
+            raise PreflightError(f"{ref} linux/amd64 entry {child} is not an image manifest")
+        platforms["linux/amd64"] = child_digest
+        child_urls.append(ghcr_manifest_url(repo, child))
+    elif "linux_amd64_digest" in pins and "index_digest" not in pins:
+        # A single-platform manifest is its own linux/amd64 manifest.
+        platforms["linux/amd64"] = digest
+    for key, pin in sorted(pins.items()):
+        observed = digest if key == "index_digest" else platforms.get("linux/amd64")
+        if observed != pin:
+            raise PreflightError(
+                f"{ref} {key} is {observed}, not the manifest pin {pin}"
+            )
+    fields = {
+        "evidence_class": OCI_EVIDENCE,
+        "http_status": 200,
+        "image": ref,
+        "manifest_fields": image["fields"],
+        "media_type": media_type,
+        "pins": pins,
+    }
+    if image["floating"]:
+        # Every digest-derived field of a floating tag is observed_*, so an RC push is not drift.
+        fields.update(
+            floating_channel_tag=True,
+            observed_digest=digest,
+            observed_platform_digests=platforms,
+            observed_urls=child_urls,
+            platforms=sorted(platforms),
+            urls=urls,
+        )
+    else:
+        fields.update(digest=digest, platform_digests=platforms, urls=urls + child_urls)
+    return _channel(f"oci:{ref}", ref, "published", **fields)
+
+
 def _channel(channel_id: str, publication: str, disposition: str, **fields) -> dict:
     channel = {"disposition": disposition, "id": channel_id, "publication": publication}
     channel.update(fields)
@@ -973,6 +1189,9 @@ def build_receipt(
         urls=[helm_url],
     ))
 
+    for image in oci_image_refs(manifest):
+        channels.append(_oci_published(transport, image))
+
     qgis_repo_url = QGIS_REPO_URL
     qgis_plugin_url = QGIS_PLUGIN_URL
     qgis_repo = _probe_qgis_repo(transport)
@@ -1031,11 +1250,15 @@ def build_receipt(
         "deferred_experimental_components": dict(sorted(deferred.items())),
         "issue": ISSUE,
         "method": (
-            "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this "
+            "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR "
+            "pull token issued to an unauthenticated request. published rows are sha256 of bytes this "
             "probe downloaded. listed rows are registry indexes only. Blocked rows name the publication "
             "and the operator boundary and do not carry package bytes. deferred-experimental rows are "
             "channels of a component the platform manifest lists under experimental:; they are not "
-            "GA evidence and not release blockers."
+            "GA evidence and not release blockers. anonymous-oci-manifest rows are container images "
+            "pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a "
+            "multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. "
+            "A floating channel tag records observed_* digests that are not compared for drift."
         ),
         "observed_at": observed_at,
         "schema": SCHEMA,
@@ -1229,6 +1452,19 @@ def audit(receipt: dict, manifest: dict | None = None) -> None:
                 raise PreflightError(
                     f"{channel_id} receipt does not record the clientArtifacts.{row} version, sourceSha and integrity"
                 )
+    for ref in OCI_CHANNEL_TAGS:
+        required.add(f"oci:{ref}")
+    if manifest is not None:
+        for image in oci_image_refs(manifest):
+            channel_id = f"oci:{image['ref']}"
+            required.add(channel_id)
+            channel = by_id.get(channel_id) or {}
+            expected = dict(image["pins"])
+            _, _, inline = _parse_oci_ref(image["ref"])
+            if inline:
+                expected["index_digest"] = inline
+            if channel.get("pins") != expected or channel.get("manifest_fields") != image["fields"]:
+                raise PreflightError(f"{channel_id} receipt does not record the manifest digest pins")
     missing = required.difference(ids)
     if missing:
         raise PreflightError(f"preflight receipt omits {sorted(missing)}")
@@ -1239,7 +1475,9 @@ def audit(receipt: dict, manifest: dict | None = None) -> None:
     for channel in channels:
         disposition = channel.get("disposition")
         files = channel.get("files") or []
-        if disposition == "published":
+        if disposition == "published" and channel.get("evidence_class") == OCI_EVIDENCE:
+            _audit_oci(channel)
+        elif disposition == "published":
             if channel.get("evidence_class") != "downloaded-bytes" or not files:
                 raise PreflightError(f"{channel['id']} is published without downloaded bytes")
         elif disposition == "listed":
@@ -1299,16 +1537,46 @@ def audit(receipt: dict, manifest: dict | None = None) -> None:
         )
 
 
+def _audit_oci(channel: dict) -> None:
+    channel_id = channel["id"]
+    if not channel_id.startswith(f"oci:{GHCR_IMAGE_PREFIX}") or channel.get("image") != channel_id.removeprefix("oci:"):
+        raise PreflightError(f"{channel_id} is an OCI row without its GHCR image reference")
+    if channel.get("files") or channel.get("http_status") != 200:
+        raise PreflightError(f"{channel_id} OCI row must be an HTTP 200 manifest without package files")
+    floating = channel.get("floating_channel_tag") is True
+    digest = channel.get("observed_digest" if floating else "digest")
+    platforms = channel.get("observed_platform_digests" if floating else "platform_digests")
+    if not _is_oci_digest(digest) or not isinstance(platforms, dict):
+        raise PreflightError(f"{channel_id} OCI row has no sha256 manifest digest")
+    if not all(_is_oci_digest(value) for value in platforms.values()):
+        raise PreflightError(f"{channel_id} OCI row has a platform digest that is not sha256:<64 hex>")
+    if channel.get("media_type") in OCI_INDEX_TYPES and "linux/amd64" not in platforms:
+        raise PreflightError(f"{channel_id} is a multi-arch index without a resolved linux/amd64 manifest")
+    if floating and (channel.get("pins") or channel.get("platforms") != sorted(platforms)):
+        raise PreflightError(f"{channel_id} floating channel tag must not carry pins")
+    for key, pin in (channel.get("pins") or {}).items():
+        observed = digest if key == "index_digest" else platforms.get("linux/amd64")
+        if observed != pin:
+            raise PreflightError(f"{channel_id} {key} {observed} does not match its pin {pin}")
+
+
 def project(receipt: dict) -> dict:
-    return {key: value for key, value in receipt.items() if key != "observed_at"}
+    """The drift-compared view: no observed_at, and no observed digests of floating channel tags."""
+    projected = {key: value for key, value in receipt.items() if key != "observed_at"}
+    projected["channels"] = [
+        {key: value for key, value in channel.items() if key not in OCI_FLOATING_FIELDS}
+        if channel.get("floating_channel_tag") is True else channel
+        for channel in receipt.get("channels") or []
+    ]
+    return projected
 
 
 def compare(live: dict, committed: dict) -> None:
     audit(live)
     audit(committed)
     if project(live) != project(committed):
-        live_ids = {channel["id"]: channel for channel in live["channels"]}
-        committed_ids = {channel["id"]: channel for channel in committed["channels"]}
+        live_ids = {channel["id"]: channel for channel in project(live)["channels"]}
+        committed_ids = {channel["id"]: channel for channel in project(committed)["channels"]}
         for channel_id in sorted(set(live_ids) | set(committed_ids)):
             if live_ids.get(channel_id) != committed_ids.get(channel_id):
                 raise PreflightError(f"first-publication receipt drifted at {channel_id}")

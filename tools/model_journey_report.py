@@ -7,13 +7,18 @@ the `genuine-model` driver. This tool writes a row for one approved AWS GA cell 
 the canary receipts of one run, in attempt order. Nightly selects ECS Redis-off; GA uses all four.
 
 It fails closed: an attempt bound to another lock digest, another cell, a different mode, out of
-order, or a failed attempt without a model/infrastructure attribution makes the row `fail`. Each
-attempt keeps its own lockDigest so promotion compares the lock the canary actually ran against.
+order, or a failed attempt without a model, infrastructure, or undetermined attribution makes the
+row `fail`. Each attempt keeps its own lockDigest so promotion compares the lock the canary actually
+ran against.
+
+Qualification reads the first attempt. A later attempt is recorded only after an infrastructure
+failure on that first attempt, and the later attempt does not qualify the row. An undetermined
+failure counts as a qualification failure.
 
 Without a lock digest (a manual dispatch before any nightly lock exists) the harness runs live only
 when bound to the manifest-pinned server image its green deterministic receipt verified (2026-10-22
-ruling: RC gates bind any build; honua-release#1047). Such a row passes or fails on its attempts like
-a lock-bound row, records that image binding, and keeps a null lockDigest, so it counts for no lock
+ruling: RC gates bind any build; honua-release#1047). Such a row passes or fails on its first attempt
+like a lock-bound row, records that image binding, and keeps a null lockDigest, so it counts for no lock
 (the nightly mint and promotion compare every attempt's lockDigest with the lock). A harness that
 could not bind writes its own `blocked` receipt and the row is `blocked`. An unbound attempt that
 names no pinned image, or a mix of blocked and executed attempts, is a `fail`.
@@ -49,7 +54,7 @@ def _image_binding(receipts: list[dict], *, passed: bool) -> dict:
         images.append({"reference": reference, "digest": digest})
     if any(image != images[0] for image in images):
         raise ValueError("unbound attempts name different server images")
-    deterministic = ((receipts[-1].get("linkedEvidence") or {}).get("deterministicReceipt") or {})
+    deterministic = ((receipts[0].get("linkedEvidence") or {}).get("deterministicReceipt") or {})
     if passed and deterministic.get("candidateVerified") is not True:
         raise ValueError("an image-bound pass lacks the deterministic receipt that verified the candidate image")
     return {"kind": "server-image", **images[0]}
@@ -80,7 +85,7 @@ def _attempt(path: Path, number: int, cell: str, lock_digest: str | None) -> dic
             raise ValueError(f"attempt {number}: model outcome does not qualify the declared profile")
         if attribution is not None:
             raise ValueError(f"attempt {number}: a pass carries a failure attribution")
-    elif attribution not in ("model", "infrastructure"):
+    elif attribution not in ("model", "infrastructure", "undetermined"):
         raise ValueError(f"attempt {number}: failed attempt is unattributed")
     completed = receipt.get("completedAt")
     if not isinstance(completed, str) or not completed.endswith("Z"):
@@ -90,6 +95,24 @@ def _attempt(path: Path, number: int, cell: str, lock_digest: str | None) -> dic
             "failureAttribution": attribution, "profile": profile, "executionOutcome": outcome,
             "functionalGpExecuted": executed, "completedAt": completed, "lockDigest": receipt["lockDigest"],
             "receipt": path.name, "receiptSha256": hashlib.sha256(data).hexdigest()}
+
+
+def _first_attempt_failure(attempts: list[dict]) -> str | None:
+    """Why the first attempt does not qualify, or None when it passed and stands alone."""
+    first = attempts[0]
+    if first["status"] == "pass":
+        return None
+    cause = first["failureAttribution"]
+    if len(attempts) > 1 and cause != "infrastructure":
+        raise ValueError("a later attempt is recorded only after an infrastructure failure on the first attempt")
+    named = "undetermined, which counts as a failure" if cause == "undetermined" else str(cause)
+    why = ("genuine-model qualification reads the first attempt, which did not pass "
+           f"within the recorded attempts ({named})")
+    if len(attempts) > 1:
+        second = attempts[1]
+        why += (f"; attempt {second['number']} ({second['status']}) is reported separately "
+                "and does not qualify")
+    return why
 
 
 def build(receipts: list[Path], *, cell: str, lock_digest: str | None, candidate_digest: str,
@@ -117,10 +140,11 @@ def build(receipts: list[Path], *, cell: str, lock_digest: str | None, candidate
             raise ValueError("attempts are not in completion order")
         raw = [json.loads(path.read_bytes()) for path in receipts] if lock_digest is None else []
         # ga-cells-single-tenant-2026-10-27: named, never hidden (the receipt keeps stage 8 blocked).
-        declared = json.loads(receipts[-1].read_bytes()).get("declaredNotApplicable")
+        # The declaration has to be on the qualifying attempt. A later receipt cannot supply it.
+        declared = json.loads(receipts[0].read_bytes()).get("declaredNotApplicable")
         note = ""
         if declared is not None:
-            if (not isinstance(declared, dict) or attempts[-1]["status"] != "pass" or declared.get("cell") != cell
+            if (not isinstance(declared, dict) or attempts[0]["status"] != "pass" or declared.get("cell") != cell
                     or declared.get("notApplicable") != ["8.tenant-isolation"]):
                 raise ValueError("the passing attempt's not-applicable declaration does not match this cell")
             note = (f"; {', '.join(declared['notApplicable'])} declared not applicable under ruling "
@@ -132,16 +156,17 @@ def build(receipts: list[Path], *, cell: str, lock_digest: str | None, candidate
         elif lock_digest is None:
             if any(receipt.get("status") == "blocked" for receipt in raw):
                 raise ValueError("an unbound run mixes a blocked refusal with executed attempts")
-            binding = _image_binding(raw, passed=attempts[-1]["status"] == "pass")
+            binding = _image_binding(raw, passed=attempts[0]["status"] == "pass")
             row["binding"] = binding
-            if attempts[-1]["status"] != "pass":
-                raise ValueError("genuine-model journey did not pass within the recorded attempts "
-                                 f"(bound to the pinned server image {binding['reference']}; no lock)")
+            failure = _first_attempt_failure(attempts)
+            if failure is not None:
+                raise ValueError(failure + f" (bound to the pinned server image {binding['reference']}; no lock)")
             row.update(status="pass", why=IMAGE_BOUND_WHY.format(reference=binding["reference"]))
-        elif attempts[-1]["status"] != "pass":
-            raise ValueError("genuine-model journey did not pass within the recorded attempts")
         else:
-            row.update(status="pass", why="genuine-model journey passed for the exact lock")
+            failure = _first_attempt_failure(attempts)
+            if failure is not None:
+                raise ValueError(failure)
+            row.update(status="pass", why="genuine-model journey passed on the first attempt for the exact lock")
         if note and row["status"] == "pass":
             row["why"] += note
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:

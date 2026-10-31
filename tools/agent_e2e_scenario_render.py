@@ -43,3 +43,9 @@ def observe(*, png, http_status, browser):
             'nonBackgroundPixels': counted, 'loadedLayerIds': list(browser['loadedLayerIds']),
             'browserErrors': list(browser['browserErrors']), 'regions': browser['regions'],
             'visibleLabelSourceIds': list(browser['visibleLabelSourceIds'])}
+
+
+def handoff_observations(http):
+    """Candidate API reads for the customer handoff. The model transcript is not an input."""
+    from agent_e2e_scenario_handoff import observe_handoff
+    return observe_handoff(http)

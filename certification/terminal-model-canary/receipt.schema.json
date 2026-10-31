@@ -78,8 +78,8 @@
       ]
     },
     "failureAttribution": {
-      "description": "Where an attempt that did not pass failed; null exactly when it passed.",
-      "enum": ["model", "infrastructure", null]
+      "description": "Where an attempt that did not pass failed: model, infrastructure, or undetermined. Null exactly when it passed. Undetermined counts as a qualification failure.",
+      "enum": ["model", "infrastructure", "undetermined", null]
     },
     "scope": {
       "type": "object",
@@ -188,7 +188,7 @@
           "stageNumber": {"type": "integer", "minimum": 1},
           "stageId": {"type": "string", "minLength": 1},
           "attribution": {"enum": ["MODEL_SELECTED", "HARNESS_DRIVEN"]},
-          "kind": {"enum": ["terminal_command", "tool_call", "setup", "error_injection", "approval", "verification", "teardown"]},
+          "kind": {"enum": ["terminal_command", "tool_call", "resource_read", "setup", "error_injection", "approval", "verification", "teardown"]},
           "status": {"enum": ["pass", "fail", "blocked", "pending"]},
           "request": {"$ref": "#/$defs/payloadSummary"},
           "result": {"$ref": "#/$defs/payloadSummary"},
@@ -209,7 +209,7 @@
             "if": {"properties": {"attribution": {"const": "MODEL_SELECTED"}}},
             "then": {
               "properties": {
-                "kind": {"enum": ["terminal_command", "tool_call"]},
+                "kind": {"enum": ["terminal_command", "tool_call", "resource_read"]},
                 "selectionEvidence": {"type": "object"}
               }
             },
@@ -377,7 +377,7 @@
       {"required": ["serverImage"], "properties": {"serverImage": {"type": "object"}}}
     ]
   },
-  "else": {"properties": {"failureAttribution": {"enum": ["model", "infrastructure"]}}},
+  "else": {"properties": {"failureAttribution": {"enum": ["model", "infrastructure", "undetermined"]}}},
   "$defs": {
     "payloadSummary": {
       "description": "Digest of the redacted payload; arbitrary model/tool content is never retained.",

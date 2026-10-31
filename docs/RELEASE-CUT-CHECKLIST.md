@@ -41,8 +41,10 @@ can override a gate.
 - [ ] Bind protocol requirements, producer revisions and ledger digest to this train's candidate through
   the producer workflow; do not hand re-pin the ledger after a cut.
 - [ ] Run the deterministic journey on {All-ECS, Lambda + Batch} × {Redis off, on}, plus the genuine
-  model on ECS with Redis off. Each required cell passes within two recorded attempts; every failure is
-  attributed to model or infrastructure. Under the October 16 owner amendment, EKS/Helm is informational
+  model on ECS with Redis off. Each deterministic cell passes within two recorded attempts; a first
+  failure is attributed to model or infrastructure and the last attempt passes. The genuine-model cell
+  qualifies on its first attempt. `undetermined` counts as a failure. An infrastructure retry is
+  recorded separately and does not qualify. Under the October 16 owner amendment, EKS/Helm is informational
   Preview, superseding decisions 12/18. Preserve unknown/failing EKS observations; no EKS success replaces
   an ECS/Lambda requirement. Redis-on executes full workflows; a Redis-off typed refusal never proves GP
   executed. Enforce the cost ceiling before teardown; overruns fail and tear down.
