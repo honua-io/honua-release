@@ -409,54 +409,21 @@ def test_governance_seed_is_idempotent_and_scoped_to_the_case(tmp_path, monkeypa
                    for _, _, method, path in candidate.calls)
 
 
-@pytest.mark.parametrize('wrong', (None, 'foreign-diff', 'self-approver', 'ambiguous', 'private-intent'))
-def test_p14_approves_only_one_matching_pending_proposal_with_distinct_principal(tmp_path, monkeypatch, wrong):
+@pytest.mark.parametrize('visibility', ('public', 'team'))
+def test_p14_does_not_approve_or_enumerate_without_a_reviewed_locator(tmp_path, monkeypatch, visibility):
     stack, candidate, vault = stack_fixture(tmp_path, monkeypatch)
     scenario = runner.load_scenario('P14')
     seeded = scenario.seed(stack, 'A')
     rec = stack.extra['recorder']
-    seal_publication(rec, vault, tmp_path, seeded.state,
-                     visibility='team' if wrong == 'private-intent' else 'public')
-    state = seeded.state
-    expected_diff = [f'{key}={value}' for key, value in (
-        ('itemId', state['itemId']), ('versionId', state['versionId']), ('contentHash', state['contentHash']),
-        ('route', '/chosen-by-model'), ('visibility', 'public'))]
-    if wrong == 'foreign-diff':
-        expected_diff[0] = 'itemId=' + OTHER_ITEM
-    original = candidate.http
-    def http(recorder, principal, method, path, raw, headers):
-        if path == '/api/v1/admin/proposals' and method == 'GET':
-            rows = [{'proposalId': 'p-one', 'status': 'AwaitingApproval', 'requestedBy': 'agent-id'}]
-            if wrong == 'ambiguous':
-                rows.append({'proposalId': 'p-two', 'status': 'AwaitingApproval', 'requestedBy': 'agent-id'})
-            return 200, json.dumps({'proposals': rows}).encode()
-        if path in ('/api/v1/admin/proposals/p-one', '/api/v1/admin/proposals/p-two'):
-            return 200, json.dumps({'proposalId': path.rsplit('/', 1)[-1], 'kind': 'StudioDraftMutation',
-                'status': 'AwaitingApproval', 'requestedBy': 'agent-id', 'diff': expected_diff}).encode()
-        if path == '/api/v1/admin/proposals/p-one/approve' and method == 'POST':
-            assert principal == 'approver'
-            return 200, b'{}'
-        return original(recorder, principal, method, path, raw, headers)
-    rec._http_factory = http
-    if wrong == 'self-approver':
-        rec.principals['approver'] = (rec.principals['approver'][0], 'agent-id')
+    seal_publication(rec, vault, tmp_path, seeded.state, visibility=visibility)
     approved = []
-    def approve(proposal_id):
-        approved.append(proposal_id)
-        return rec.json('p14-approval', 'POST', '/api/v1/admin/proposals/' + proposal_id + '/approve', principal='approver')
-    stack.extra['approve'] = approve
+    stack.extra['approve'] = approved.append
     rec.set_phase('session')
     rec.after_session = 1
     with rec.between():
-        if wrong == 'self-approver':
-            with pytest.raises(ValueError, match='distinct native approval'):
-                scenario.between_sessions(stack, seeded, 'A', 1)
-        else:
-            scenario.between_sessions(stack, seeded, 'A', 1)
-    assert approved == (['p-one'] if wrong is None else [])
-    if approved:
-        assert rec.records['p14-approval'].principal == 'approver'
-        assert rec.records['p14-approval'].phase == 'between'
+        scenario.between_sessions(stack, seeded, 'A', 1)
+    assert approved == []
+    assert not any(path == '/api/v1/admin/proposals' for _, _, _, path in candidate.calls)
 
 
 @pytest.mark.parametrize('sid', ('P14', 'P16', 'P17'))
