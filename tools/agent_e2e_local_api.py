@@ -27,7 +27,15 @@ class Observation:
 
 @dataclass(frozen=True)
 class RunRecord:
-    """Controller-recorded session facts; hints are never evidence by themselves."""
+    """Controller-recorded session facts; hints are never evidence by themselves.
+
+    A model-selected tool request may be replayed only from the harness action
+    log after verifying its digest. Replay uses controller credentials against
+    live state, and the response is checked against fixture-derived expectations.
+    Evidence must record the replayed request digest. Any persisted artifact
+    produced by the task must also be read and checked against live state.
+    Model prose is never a source of replay arguments or observation evidence.
+    """
     agent_principal: str
     sessions: int
     fault_events: tuple[dict, ...]
