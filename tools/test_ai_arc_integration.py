@@ -213,15 +213,34 @@ def test_services_compose_the_real_corpus_runtime_with_scoring_protections(tmp_p
         common = dict(scenarios=('P10',), variant='A', candidate_digest=corpus.DIGEST, base_url=base,
                       admin_key=corpus.ADMIN, project='arc-abcdef123456', arm=R.arm_by_id(ARC, 'A1'), limits=limits,
                       load_scenario=lambda sid: corpus.FakeP10())
-        row, cases = ai_arc_services.run_services(**common, out_dir=tmp_path / 'good', cli=Cli(corpus.CORRECT_WHERE))
+        row, cases = ai_arc_services.run_services(**common, out_dir=tmp_path / 'good', cli=Cli(corpus.CORRECT_WHERE),
+                                                  handoff='Our data was loaded earlier.')
         assert cases[0]['receipt']['status'] == 'pass', cases[0]['receipt']
-        assert row['actions'][0]['tool'] == 'honua_query_features'
+        assert row['actions'][0]['tool'] == 'honua_query_features' and row['actions'][0]['status'] == 'pass'
+        assert row['answers'] == ['Two shelters match: Centre and the North refuge.'], 'the private answer is carried'
+        kept = tmp_path / 'good' / 'P10'
+        assert list(kept.glob('private/session-*/action-*.json')) and (kept / 'case-receipt.json').is_file()
         rows = ai_arc_services.case_assertions(cases)
         assert {r['assertion'] for r in rows} >= {'P10:filter.exact', 'P10:finalAnswerCheck'}
         exported = [p for p in (tmp_path / 'good').rglob('*') if p.is_file()]
         assert exported and all(b'secret-' not in p.read_bytes() for p in exported), 'minted keys are redacted'
         row, cases = ai_arc_services.run_services(**common, out_dir=tmp_path / 'wrong', cli=Cli('capacity > 0'))
         assert cases[0]['receipt']['status'] == 'fail', 'a wrong query fails on the runner-owned evidence'
+        # Pre-model screen: a known deployment credential in any response field never reaches the model.
+        seen = []
+
+        class Peek(Cli):
+            def run(self, *, execute, **kw):
+                # After the seed: the product now returns a deployment credential in an opaque field.
+                state.features = [dict(f, properties={**f['properties'], 'zz_opaque': corpus.ADMIN})
+                                  for f in state.features]
+                seen.append(json.dumps(execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_query_features',
+                                                             'arguments': {'serviceId': 'p10-shelters', 'layerId': 0,
+                                                                           'where': corpus.CORRECT_WHERE}}),
+                                       default=str))
+                return super().run(execute=execute, **kw)
+        row, cases = ai_arc_services.run_services(**common, out_dir=tmp_path / 'leak', cli=Peek(corpus.CORRECT_WHERE))
+        assert row['withheld'] >= 1 and all(corpus.ADMIN not in text for text in seen)
     finally:
         server.shutdown()
 

@@ -33,25 +33,33 @@ def slots(hosts: list[str], per_host: int) -> list[tuple[str, int]]:
 
 
 def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, common: list[str],
-                 reserve_rows=(), launch=None, wait_poll=30.0, max_wait=None, provisioner=None) -> list[dict]:
-    """Run every scheduled row once; returns [{runId, status, receipt}]. ``launch(row, slot) -> int``."""
+                 reserve_rows=(), launch=None, wait_poll=30.0, max_wait=None, provisioner=None, arc=None) -> list[dict]:
+    """Run every scheduled row once; returns [{runId, status, receipt}]. ``launch(row, slot) -> int``.
+
+    After an undetermined (or missing) run nothing new starts until that run has an adjudication that
+    passes the same checks the aggregate applies. A harness-fault finding consumes the next sealed
+    reserve case (routed to the reserve manifest); a third one stops the campaign: the target fails.
+    The campaign state (pending adjudications, voids) is written on every exit."""
     out = Path(out)
+    arc = arc or arc_runner.load_arc()
+    arm_spec = arc_runner.arm_by_id(arc, arm)
     (out / 'adjudications').mkdir(parents=True, exist_ok=True)
-    free = slots(hosts, per_host) if target == 'local-docker' else [(None, 0)] * per_host
+    free = slots(hosts, per_host) if target == 'local-docker' else [(None, i) for i in range(per_host)]
     lock = threading.Condition()
-    results, pending_adjudication = [], []
+    results, pending, voids, threads, rejected = [], [], [], [], {}
     queue, reserves = list(schedule_rows), list(reserve_rows)
-    voids, threads = [], []
+
+    def run_dir(row):
+        return out / 'runs' / row['runId'].replace(':', '-')
 
     def default_launch(row, slot):
         host, index = slot
         command = [sys.executable, str(ROOT / 'tools/ai_arc_runner.py'), 'trial', '--target', target, '--arm', arm,
-                   '--run-id', row['runId'], '--variant', row['variant'], *common,
-                   '--output', str(out / 'runs' / row['runId'].replace(':', '-')),
+                   '--run-id', row['runId'], '--variant', row['variant'], *common, '--output', str(run_dir(row)),
                    '--evidence-dir', str(Path(str(out) + '-evidence') / row['runId'].replace(':', '-')),
                    '--evidence-artifact', f"ai-arc-evidence-{arm}-{target}"]
         if row.get('caseId'):
-            command += ['--case-id', row['caseId']]
+            command += ['--case-id', row['caseId'], '--goal-set', row['set']]
         if host:
             command += ['--docker-host', 'ssh://' + host, '--slot-index', str(index)]
         if provisioner and target != 'local-docker':
@@ -71,58 +79,81 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                 subprocess.run([provisioner, 'release', target, row['runId']], timeout=3600, check=False)
     launch = launch or default_launch
 
-    def worker(row, slot):
-        launch(row, slot)
-        path = out / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
-        receipt = json.loads(path.read_text()) if path.is_file() else None
-        with lock:
-            results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
-                            'receipt': str(path) if receipt else None})
-            if receipt is None or receipt['status'] == 'undetermined':
-                pending_adjudication.append(row['runId'])
-            free.append(slot)
-            lock.notify_all()
+    def save_state():
+        (out / 'voids.json').write_text(json.dumps(voids, indent=2) + '\n')
+        (out / 'campaign-state.json').write_text(json.dumps({'pending': pending, 'voids': voids,
+                                                             'rejectedAdjudications': rejected,
+                                                             'reservesLeft': [r['runId'] for r in reserves],
+                                                             'finished': [r['runId'] for r in results]}, indent=2) + '\n')
+        if pending:
+            (out / 'PENDING-ADJUDICATION').write_text('\n'.join(pending) + '\n')
+        else:
+            (out / 'PENDING-ADJUDICATION').unlink(missing_ok=True)
 
-    def adjudicate(run_id, waited):
+    def worker(row, slot):
+        try:
+            launch(row, slot)
+        finally:
+            path = run_dir(row) / 'trial-receipt.json'
+            receipt = json.loads(path.read_text()) if path.is_file() else None
+            with lock:
+                results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
+                                'receipt': str(path) if receipt else None})
+                if receipt is None or receipt['status'] == 'undetermined':
+                    pending.append(row['runId'])
+                free.append(slot)
+                save_state()
+                lock.notify_all()
+
+    def adjudicate(run_id):
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
         if not path.is_file():
             return False
         decision = json.loads(path.read_text())
-        if decision.get('finding') == 'harness-fault':
-            if len(voids) >= 2 or not reserves:
-                raise RuntimeError('void cap or sealed reserve exhausted: the target fails')
-            reserve = reserves.pop(0)
-            voids.append({'runId': run_id, 'adjudication': decision['adjudication'],
-                          'reviewerFamily': decision['reviewerFamily'], 'finding': 'harness-fault',
-                          'adjudicatedAt': decision['adjudicatedAt'], 'replacementRunId': reserve['runId']})
-            queue.insert(0, reserve)
+        if decision.get('finding') != 'harness-fault':
+            return True       # the run stays counted as it stands
+        receipt_path = out / 'runs' / run_id.replace(':', '-') / 'trial-receipt.json'
+        original = json.loads(receipt_path.read_text()) if receipt_path.is_file() else None
+        try:
+            arc_runner.check_adjudication(arc, arm_spec, decision, original)
+        except ValueError as exc:
+            rejected[run_id] = str(exc)
+            return False      # an invalid adjudication never resumes the campaign
+        if len(voids) >= arc_runner.MAX_VOIDS or not reserves:
+            raise RuntimeError('void cap or sealed reserve exhausted: the target fails')
+        reserve = reserves.pop(0)
+        voids.append({'runId': run_id, 'adjudication': decision['adjudication'],
+                      'reviewerFamily': decision['reviewerFamily'], 'finding': 'harness-fault',
+                      'adjudicatedAt': decision['adjudicatedAt'], 'replacementRunId': reserve['runId']})
+        queue.insert(0, reserve)
         return True
 
     started = time.monotonic()
-    with lock:
-        while queue or len(results) < len([t for t in threads]):
-            while pending_adjudication:
-                if adjudicate(pending_adjudication[0], time.monotonic() - started):
-                    pending_adjudication.pop(0)
+    try:
+        with lock:
+            while queue or pending or len(results) < len(threads):
+                if pending:
+                    if adjudicate(pending[0]):
+                        pending.pop(0)
+                        save_state()
+                        continue
+                    save_state()
+                    if max_wait is not None and time.monotonic() - started > max_wait:
+                        raise TimeoutError('runs await a valid adjudication: ' + ', '.join(pending))
+                    lock.wait(wait_poll)
                     continue
-                (out / 'PENDING-ADJUDICATION').write_text('\n'.join(pending_adjudication) + '\n')
-                if max_wait is not None and time.monotonic() - started > max_wait:
-                    raise TimeoutError('runs await adjudication: ' + ', '.join(pending_adjudication))
-                lock.wait(wait_poll)
-            if not queue:
-                lock.wait(wait_poll)
-                continue
-            if not free:
-                lock.wait(wait_poll)
-                continue
-            row, slot = queue.pop(0), free.pop(0)
-            thread = threading.Thread(target=worker, args=(row, slot), daemon=True)
-            threads.append(thread)
-            thread.start()
-    for thread in threads:
-        thread.join()
-    (out / 'PENDING-ADJUDICATION').unlink(missing_ok=True)
-    (out / 'voids.json').write_text(json.dumps(voids, indent=2) + '\n')
+                if not queue or not free:
+                    lock.wait(wait_poll)
+                    continue
+                row, slot = queue.pop(0), free.pop(0)
+                thread = threading.Thread(target=worker, args=(row, slot), daemon=True)
+                threads.append(thread)
+                thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        with lock:
+            save_state()
     return results
 
 
@@ -133,8 +164,7 @@ def main(argv=None) -> int:
     parser.add_argument('--hosts', default='', help='comma-separated VM host aliases (local-docker)')
     parser.add_argument('--per-host', type=int, default=3)
     parser.add_argument('--trials', type=int)
-    parser.add_argument('--goal-set')
-    parser.add_argument('--reserve-set')
+    parser.add_argument('--held-out', action='store_true', help='sealed primary and reserve manifests (key in env)')
     parser.add_argument('--lock-path', required=True)
     parser.add_argument('--lock-digest', required=True)
     parser.add_argument('--quickstart')
@@ -146,21 +176,19 @@ def main(argv=None) -> int:
         parser.error('output directory exists; every previous campaign is preserved')
     arc = arc_runner.load_arc()
     arm = arc_runner.arm_by_id(arc, args.arm)
-    goal_set = arc_runner.load_goal_set(args.goal_set)
-    rows = arc_runner.schedule(arc, args.target, arm, goal_set, args.trials)
-    reserve = arc_runner.load_goal_set(args.reserve_set, expect_set='reserve') if args.reserve_set else None
-    reserve_rows = ([{'runId': f'{args.target}:{arm["id"]}:{c["caseId"]}', 'variant': 'H', 'caseId': c['caseId']}
-                     for c in reserve['cases'].values() if c['target'] == args.target] if reserve else [])
+    primary = arc_runner.load_goal_set('primary') if args.held_out else None
+    reserve = arc_runner.load_goal_set('reserve') if args.held_out else None
+    rows = arc_runner.schedule(arc, args.target, arm, primary, args.trials)
+    reserve_rows = arc_runner.reserve_rows(args.target, arm, reserve)
     args.out.mkdir(parents=True)
     (args.out / 'schedule.json').write_text(json.dumps(rows, indent=2) + '\n')
     common = ['--lock-path', args.lock_path, '--lock-digest', args.lock_digest]
-    for flag, value in (('--quickstart', args.quickstart), ('--quickstart-revision', args.quickstart_revision),
-                        ('--goal-set', args.goal_set)):
+    for flag, value in (('--quickstart', args.quickstart), ('--quickstart-revision', args.quickstart_revision)):
         if value:
             common += [flag, value]
     results = run_campaign(target=args.target, arm=args.arm, schedule_rows=rows, out=args.out,
                            hosts=[h for h in args.hosts.split(',') if h], per_host=args.per_host, common=common,
-                           reserve_rows=reserve_rows, provisioner=args.slot_provisioner)
+                           reserve_rows=reserve_rows, provisioner=args.slot_provisioner, arc=arc)
     print(json.dumps({'runs': len(results), 'statuses': sorted(r['status'] for r in results)}))
     return 0
 

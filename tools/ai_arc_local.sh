@@ -11,7 +11,7 @@
 set -euo pipefail
 PYTHON="${PYTHON:-python3}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-arm="" target="" lock="" out=""
+arm="" target="" lock="" out="" held=""
 pass=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -19,7 +19,8 @@ while [ $# -gt 0 ]; do
     --target) target="$2"; pass+=("$1" "$2"); shift 2 ;;
     --lock-path) lock="$2"; pass+=("$1" "$2"); shift 2 ;;
     --out) out="$2"; pass+=("$1" "$2"); shift 2 ;;
-    --quickstart|--quickstart-revision|--hosts|--trials|--per-host|--goal-set|--reserve-set) pass+=("$1" "$2"); shift 2 ;;
+    --quickstart|--quickstart-revision|--hosts|--trials|--per-host) pass+=("$1" "$2"); shift 2 ;;
+    --held-out) pass+=("$1"); held=--held-out; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -28,5 +29,6 @@ digest="sha256:$(sha256sum "$lock" | cut -d' ' -f1)"
 "$PYTHON" "$ROOT/tools/ai_arc_campaign.py" "${pass[@]}" --lock-digest "$digest"
 "$PYTHON" "$ROOT/tools/ai_arc_runner.py" aggregate --target "$target" --arm "$arm" \
   --schedule "$out/schedule.json" --trials-dir "$out/runs" --voids "$out/voids.json" \
+  --evidence-root "$out-evidence" ${held:-} \
   --lock-path "$lock" --lock-digest "$digest" \
   --output "$out/ai-arc-aggregate-$target-$arm.json" --report "$out/ai-arc-report-$target-$arm.json"

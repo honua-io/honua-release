@@ -127,6 +127,40 @@
           "credentials.short-lived",
           "handoff.verified"
         ]
+      },
+      "setupRequired": {
+        "local-docker": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required"
+        ],
+        "aws-ecs": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required",
+          "topology.matches-goal",
+          "deploy-identity.least-privilege",
+          "credentials.short-lived",
+          "handoff.verified"
+        ],
+        "aws-eks": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required",
+          "topology.matches-goal",
+          "deploy-identity.least-privilege",
+          "credentials.short-lived",
+          "handoff.verified"
+        ],
+        "aws-lambda": [
+          "install.identity",
+          "deployment.ready",
+          "authentication.required",
+          "topology.matches-goal",
+          "deploy-identity.least-privilege",
+          "credentials.short-lived",
+          "handoff.verified"
+        ]
       }
     },
     {
@@ -182,110 +216,66 @@
         "ops"
       ],
       "versionRole": "candidate",
-      "corpusScenarios": [
-        "P04",
-        "P06",
-        "P15",
-        "P16"
-      ],
       "required": {
         "local-docker": [
           "candidate.serving",
-          "P04:features.exact",
-          "P04:geometry.crs",
-          "P04:source-content.unchanged",
-          "P04:finalAnswerCheck",
-          "P06:service.query",
-          "P06:pagination.complete",
-          "P06:service.write-denied",
-          "P06:source-content.unchanged",
-          "P06:finalAnswerCheck",
-          "P15:publication.private",
-          "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
-          "P15:custody.worker-replaced",
-          "P15:source-content.unchanged",
-          "P15:finalAnswerCheck",
-          "P16:key.read-only",
-          "P16:key.revoked",
-          "P16:secrets.absent",
-          "P16:custody.bootstrap-revoked",
-          "P16:custody.worker-replaced",
-          "P16:finalAnswerCheck"
+          "P10:filter.exact",
+          "P10:source-content.unchanged",
+          "P10:finalAnswerCheck",
+          "P07:catalog.exact",
+          "P07:tenant.denied",
+          "P07:finalAnswerCheck",
+          "P13:version.restored",
+          "P13:shared.preserved",
+          "P13:source-content.unchanged",
+          "P13:finalAnswerCheck"
         ],
         "aws-ecs": [
           "candidate.serving",
-          "P04:features.exact",
-          "P04:geometry.crs",
-          "P04:source-content.unchanged",
-          "P04:finalAnswerCheck",
-          "P06:service.query",
-          "P06:pagination.complete",
-          "P06:service.write-denied",
-          "P06:source-content.unchanged",
-          "P06:finalAnswerCheck",
-          "P15:publication.private",
-          "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
-          "P15:custody.worker-replaced",
-          "P15:source-content.unchanged",
-          "P15:finalAnswerCheck",
-          "P16:key.read-only",
-          "P16:key.revoked",
-          "P16:secrets.absent",
-          "P16:custody.bootstrap-revoked",
-          "P16:custody.worker-replaced",
-          "P16:finalAnswerCheck"
+          "P10:filter.exact",
+          "P10:source-content.unchanged",
+          "P10:finalAnswerCheck",
+          "P07:catalog.exact",
+          "P07:tenant.denied",
+          "P07:finalAnswerCheck",
+          "P13:version.restored",
+          "P13:shared.preserved",
+          "P13:source-content.unchanged",
+          "P13:finalAnswerCheck"
         ],
         "aws-eks": [
           "candidate.serving",
-          "P04:features.exact",
-          "P04:geometry.crs",
-          "P04:source-content.unchanged",
-          "P04:finalAnswerCheck",
-          "P06:service.query",
-          "P06:pagination.complete",
-          "P06:service.write-denied",
-          "P06:source-content.unchanged",
-          "P06:finalAnswerCheck",
-          "P15:publication.private",
-          "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
-          "P15:custody.worker-replaced",
-          "P15:source-content.unchanged",
-          "P15:finalAnswerCheck",
-          "P16:key.read-only",
-          "P16:key.revoked",
-          "P16:secrets.absent",
-          "P16:custody.bootstrap-revoked",
-          "P16:custody.worker-replaced",
-          "P16:finalAnswerCheck"
+          "P10:filter.exact",
+          "P10:source-content.unchanged",
+          "P10:finalAnswerCheck",
+          "P07:catalog.exact",
+          "P07:tenant.denied",
+          "P07:finalAnswerCheck",
+          "P13:version.restored",
+          "P13:shared.preserved",
+          "P13:source-content.unchanged",
+          "P13:finalAnswerCheck"
         ],
         "aws-lambda": [
           "candidate.serving",
-          "P04:features.exact",
-          "P04:geometry.crs",
-          "P04:source-content.unchanged",
-          "P04:finalAnswerCheck",
-          "P06:service.query",
-          "P06:pagination.complete",
-          "P06:service.write-denied",
-          "P06:source-content.unchanged",
-          "P06:finalAnswerCheck",
-          "P15:publication.private",
-          "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
-          "P15:custody.worker-replaced",
-          "P15:source-content.unchanged",
-          "P15:finalAnswerCheck",
-          "P16:key.read-only",
-          "P16:key.revoked",
-          "P16:secrets.absent",
-          "P16:custody.bootstrap-revoked",
-          "P16:custody.worker-replaced",
-          "P16:finalAnswerCheck"
+          "P10:filter.exact",
+          "P10:source-content.unchanged",
+          "P10:finalAnswerCheck",
+          "P07:catalog.exact",
+          "P07:tenant.denied",
+          "P07:finalAnswerCheck",
+          "P13:version.restored",
+          "P13:shared.preserved",
+          "P13:source-content.unchanged",
+          "P13:finalAnswerCheck"
         ]
-      }
+      },
+      "scenarios": [
+        "P10",
+        "P07",
+        "P13"
+      ],
+      "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack."
     },
     {
       "id": "studio",
@@ -294,13 +284,9 @@
         "services"
       ],
       "versionRole": "candidate",
-      "corpusScenarios": [
-        "P08",
-        "P09"
-      ],
       "drivers": [
-        "arm-browser",
-        "studio-assistant"
+        "assistant",
+        "arm-browser"
       ],
       "required": {
         "local-docker": [
@@ -309,20 +295,10 @@
           "assistant:P08:render.actual",
           "assistant:P08:source-content.unchanged",
           "assistant:P08:finalAnswerCheck",
-          "assistant:P09:map.style",
-          "assistant:P09:render.actual",
-          "assistant:P09:state.saved",
-          "assistant:P09:source-content.unchanged",
-          "assistant:P09:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
-          "arm-browser:P08:finalAnswerCheck",
-          "arm-browser:P09:map.style",
-          "arm-browser:P09:render.actual",
-          "arm-browser:P09:state.saved",
-          "arm-browser:P09:source-content.unchanged",
-          "arm-browser:P09:finalAnswerCheck"
+          "arm-browser:P08:finalAnswerCheck"
         ],
         "aws-ecs": [
           "candidate.serving",
@@ -330,20 +306,10 @@
           "assistant:P08:render.actual",
           "assistant:P08:source-content.unchanged",
           "assistant:P08:finalAnswerCheck",
-          "assistant:P09:map.style",
-          "assistant:P09:render.actual",
-          "assistant:P09:state.saved",
-          "assistant:P09:source-content.unchanged",
-          "assistant:P09:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
-          "arm-browser:P08:finalAnswerCheck",
-          "arm-browser:P09:map.style",
-          "arm-browser:P09:render.actual",
-          "arm-browser:P09:state.saved",
-          "arm-browser:P09:source-content.unchanged",
-          "arm-browser:P09:finalAnswerCheck"
+          "arm-browser:P08:finalAnswerCheck"
         ],
         "aws-eks": [
           "candidate.serving",
@@ -351,20 +317,10 @@
           "assistant:P08:render.actual",
           "assistant:P08:source-content.unchanged",
           "assistant:P08:finalAnswerCheck",
-          "assistant:P09:map.style",
-          "assistant:P09:render.actual",
-          "assistant:P09:state.saved",
-          "assistant:P09:source-content.unchanged",
-          "assistant:P09:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
-          "arm-browser:P08:finalAnswerCheck",
-          "arm-browser:P09:map.style",
-          "arm-browser:P09:render.actual",
-          "arm-browser:P09:state.saved",
-          "arm-browser:P09:source-content.unchanged",
-          "arm-browser:P09:finalAnswerCheck"
+          "arm-browser:P08:finalAnswerCheck"
         ],
         "aws-lambda": [
           "candidate.serving",
@@ -372,22 +328,16 @@
           "assistant:P08:render.actual",
           "assistant:P08:source-content.unchanged",
           "assistant:P08:finalAnswerCheck",
-          "assistant:P09:map.style",
-          "assistant:P09:render.actual",
-          "assistant:P09:state.saved",
-          "assistant:P09:source-content.unchanged",
-          "assistant:P09:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
-          "arm-browser:P08:finalAnswerCheck",
-          "arm-browser:P09:map.style",
-          "arm-browser:P09:render.actual",
-          "arm-browser:P09:state.saved",
-          "arm-browser:P09:source-content.unchanged",
-          "arm-browser:P09:finalAnswerCheck"
+          "arm-browser:P08:finalAnswerCheck"
         ]
-      }
+      },
+      "scenarios": [
+        "P08"
+      ],
+      "scenarioNote": "Studio's built-in assistant (Bedrock Sonnet 4.6, required) authors the map with the scripted customer; the CLI arm authors it in the Studio UI through g41's origin-locked browser. Both drivers' assertions are required."
     }
   ],
   "handoffs": {
@@ -616,13 +566,24 @@
     },
     "default": "full",
     "catalog": [
-      "candidate.serving",
       "upgrade.candidate-serving",
       "rollback.prior-serving",
       "restore.migration-142",
       "diagnosis.recovered",
       "approval.separate",
       "data.preserved"
-    ]
+    ],
+    "invariant": "candidate.serving is required from ops onward under every scope (version pair), and is never part of the scored/unscored catalog",
+    "executedSubsetRule": {
+      "mustScore": [
+        "diagnosis.recovered",
+        "approval.separate"
+      ],
+      "neverScore": [
+        "upgrade.candidate-serving",
+        "rollback.prior-serving",
+        "restore.migration-142"
+      ]
+    }
   }
 }

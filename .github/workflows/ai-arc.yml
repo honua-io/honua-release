@@ -126,14 +126,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/arc-inputs"
           curl -fsS "https://raw.githubusercontent.com/honua-io/honua-server/${REVISION}/docs/get-started/quickstart.md" \
             -o "$RUNNER_TEMP/arc-inputs/quickstart.md"
-      - name: Open the sealed held-out primary and reserve manifests
-        if: ${{ inputs.goal_set == 'held-out' }}
-        env:
-          AI_ARC_HELDOUT_KEY: ${{ secrets.AI_ARC_HELDOUT_KEY }}
-        run: |
-          set -euo pipefail
-          python3 tools/ai_arc_runner.py decrypt-goals --set primary --output "$RUNNER_TEMP/arc-inputs/primary.json"
-          python3 tools/ai_arc_runner.py decrypt-goals --set reserve --output "$RUNNER_TEMP/arc-inputs/reserve.json"
       - name: Run the campaign (first attempts; pauses for adjudication after an undetermined run)
         env:
           TARGET: ${{ matrix.target }}
@@ -143,6 +135,8 @@ jobs:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
           REVISION: ${{ inputs.quickstart_revision }}
           GOAL_SET: ${{ inputs.goal_set }}
+          # Decrypted in memory by each run (never written to disk); custody is the committed ciphertext.
+          AI_ARC_HELDOUT_KEY: ${{ inputs.goal_set == 'held-out' && secrets.AI_ARC_HELDOUT_KEY || '' }}
         run: |
           set -euo pipefail
           args=(--target "$TARGET" --arm "$ARM" --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST"
@@ -151,8 +145,7 @@ jobs:
           [ "$TARGET" != local-docker ] || args+=(--hosts "$HOSTS" --per-host 3)
           [ "$TARGET" = local-docker ] || [ -z "${HONUA_ARC_SLOT_PROVISIONER:-}" ] || args+=(--slot-provisioner "$HONUA_ARC_SLOT_PROVISIONER")
           [ -z "$TRIALS" ] || args+=(--trials "$TRIALS")
-          [ "$GOAL_SET" != held-out ] || args+=(--goal-set "$RUNNER_TEMP/arc-inputs/primary.json"
-                                               --reserve-set "$RUNNER_TEMP/arc-inputs/reserve.json")
+          [ "$GOAL_SET" != held-out ] || args+=(--held-out)
           python3 tools/ai_arc_campaign.py "${args[@]}"
       - name: One aggregate for this target x arm (derived from the run receipts)
         if: always()
@@ -161,16 +154,17 @@ jobs:
           ARM: ${{ inputs.arm }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
           GOAL_SET: ${{ inputs.goal_set }}
+          AI_ARC_HELDOUT_KEY: ${{ inputs.goal_set == 'held-out' && secrets.AI_ARC_HELDOUT_KEY || '' }}
         run: |
           set -euo pipefail
           dir="artifacts/$TARGET"
           args=(aggregate --target "$TARGET" --arm "$ARM" --schedule "$dir/schedule.json" --trials-dir "$dir/runs"
-                --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --goal-set-name "$GOAL_SET"
-                --voids "$dir/voids.json"
+                --evidence-root "artifacts/$TARGET-evidence"
+                --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --voids "$dir/voids.json"
                 --output "$dir/ai-arc-aggregate-$TARGET-$ARM.json" --report "$dir/ai-arc-report-$TARGET-$ARM.json")
-          [ "$GOAL_SET" != held-out ] || args+=(--reserve-set "$RUNNER_TEMP/arc-inputs/reserve.json")
+          [ "$GOAL_SET" != held-out ] || args+=(--held-out)
           python3 tools/ai_arc_runner.py "${args[@]}"
-      - name: Forget decrypted inputs
+      - name: Forget run inputs
         if: always()
         run: rm -rf "$RUNNER_TEMP/arc-inputs"
       - name: Retain receipts and the aggregate (small; what the admission gate reads)
@@ -181,6 +175,7 @@ jobs:
           path: |
             artifacts/${{ matrix.target }}/schedule.json
             artifacts/${{ matrix.target }}/voids.json
+            artifacts/${{ matrix.target }}/campaign-state.json
             artifacts/${{ matrix.target }}/runs/*/trial-receipt.json
             artifacts/${{ matrix.target }}/ai-arc-aggregate-*.json
             artifacts/${{ matrix.target }}/ai-arc-report-*.json

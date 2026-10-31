@@ -1,16 +1,18 @@
 """Stage 3 (services) on the arc's own installed stack, through the #1152 corpus runner.
 
-Each services scenario runs as one #1152 case, unchanged: ``execute_case`` seeds through the
-runner-owned recorder, stages the scenario's customer files, runs one fresh model session with the
-scenario's pack prompt on the server /mcp (the #1160 CLI session for the arm), then scores every
-pack assertion with the vault's sealed records, the model action log, the frozen projections and
-logical roles, and scores the final answer against the scenario's handoff projection. The only
-difference from a corpus case is the stack: ``ArcCorpusRuntime.setup`` adopts the arc's installed
-deployment (through the runner-owned tunnel) instead of composing a fresh one, and ``teardown``
-leaves it for the next stage.
+Each services scenario (the spec's data list) runs as one #1152 case: ``execute_case`` seeds through
+the runner-owned recorder, stages the scenario's customer files, runs one fresh model session with
+the plain handoff plus the scenario's pack prompt on the server /mcp (the #1160 CLI session for the
+arm), then scores every pack assertion with the vault's sealed records, the model action log, the
+frozen projections and logical roles, and scores the final answer against the scenario's handoff
+projection. ``ArcCorpusRuntime`` adopts the arc's installed deployment (through the runner-owned
+tunnel) instead of composing a fresh one, leaves it for the next stage, screens every product
+response for known credentials before the model sees it, captures the private final answer, and
+shares ONE stage budget (tool calls and wall-clock) across the cases.
 
-Private evidence (minted keys in recorded bodies, action bytes) stays in a 0700 directory outside
-the uploaded trial tree; only ``export_case_evidence``'s redacted copy is exported.
+Private evidence stays in a 0700 directory outside the upload. Before it is removed the runner
+keeps, in the stage's private evidence: each full case receipt, the action log and the CLI wire log
+(redacted again on export), plus #1152's own redacted controller-record export.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -29,12 +32,15 @@ def runtime_class():
     class ArcCorpusRuntime(runner.LocalRuntime):
         """#1152 LocalRuntime on an adopted arc stack."""
 
-        def __init__(self, *, base_url, admin_key, project, candidate_digest, agent, model, limits, private_root):
+        def __init__(self, *, base_url, admin_key, project, candidate_digest, agent, model, limits, private_root,
+                     extra_secrets=()):
             super().__init__(None, model=model, release_id='honua-ai-arc', agent=agent,
                              max_model_calls=limits['maxTurns'], max_actions=limits['maxToolCalls'])
             self.arc = {'base_url': base_url, 'admin_key': admin_key, 'project': project,
                         'candidate': candidate_digest, 'private_root': private_root}
             self.timeout = limits['maxSeconds']
+            self.extra_secrets = list(extra_secrets)
+            self.answers, self.withheld = {}, 0
 
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
             if candidate_digest != self.arc['candidate']:
@@ -57,6 +63,28 @@ def runtime_class():
                 stack = self._mint_approver(stack)
             return stack
 
+        def raw_execute(self, stack, names):
+            execute = super().raw_execute(stack, names)
+
+            def screened(kind, action):
+                from ai_arc_runner import WITHHELD, _as_text, secret_forms
+                result = execute(kind, action)
+                raw = json.dumps(result, ensure_ascii=False, default=_as_text).encode()
+                if any(form in raw for form in secret_forms([*self._secrets, *self.extra_secrets])):
+                    self.withheld += 1
+                    return dict(WITHHELD)
+                return result
+            return screened
+
+        def session(self, stack, prompt, number, **kwargs):
+            try:
+                output = super().session(stack, prompt, number, **kwargs)
+            except runner.SessionInterrupted as exc:
+                self.answers[stack.compose_project] = None
+                raise
+            self.answers[stack.compose_project] = output.get('finalAnswer')
+            return output
+
         def restart_server(self, stack, prefix):
             raise ValueError('a server restart is not available on an adopted arc stack')
 
@@ -74,51 +102,86 @@ def private_actions(case_dir: Path) -> list[dict]:
             action = json.loads(path.read_bytes())
         except ValueError:
             continue
-        rows.append({'sequence': len(rows) + 1, 'kind': action.get('kind'), 'tool': action.get('tool'),
+        rows.append({'kind': action.get('kind'), 'tool': action.get('tool'),
                      'arguments': action.get('arguments') if isinstance(action.get('arguments'), dict) else {}})
     return rows
 
 
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
-                 cli=None, load_scenario=None):
-    """Run each services scenario once on the adopted stack. Returns (row, cases)."""
+                 handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None):
+    """Run each services scenario once on the adopted stack under one shared stage budget.
+
+    Returns (row, cases). ``row`` carries every action (with its recorded status), the private final
+    answers, nudges and the first case failure; ``out_dir`` receives the retained case evidence."""
     import agent_e2e_local_runner as runner
     try:
         import agent_e2e_cli_sessions  # noqa: F401  (registers claude-cli / codex-cli with #1152)
     except ImportError as exc:
         raise RuntimeError('CLI corpus sessions (#1160) are not installed') from exc
+    deadline = deadline or (time.monotonic() + limits['maxSeconds'])
     private_root = tempfile.mkdtemp(prefix='honua-arc-services-')
     os.chmod(private_root, 0o700)
     cls = runtime_class()
-    per_case = dict(limits, maxSeconds=max(60, int(limits['maxSeconds'] / max(1, len(scenarios)))))
     runtime = cls(base_url=base_url, admin_key=admin_key, project=project, candidate_digest=candidate_digest,
-                  agent=arm['agent'], model=arm['model'], limits=per_case, private_root=private_root)
+                  agent=arm['agent'], model=arm['model'], limits=limits, private_root=private_root,
+                  extra_secrets=extra_secrets)
     if cli is not None:
         runtime.cli = cli    # test seam: #1160's CorpusCliSession uses runtime.cli when present
     load_scenario = load_scenario or runner.load_scenario
-    cases, actions, answers = [], [], []
+    out_dir = Path(out_dir)
+    cases, actions, answers, nudges, failure = [], [], [], 0, None
     try:
-        for sid in scenarios:
+        for index, sid in enumerate(scenarios):
+            remaining_actions = limits['maxToolCalls'] - len(actions)
+            remaining_time = int(deadline - time.monotonic())
+            if remaining_actions <= 0 or remaining_time <= 0:
+                cases.append({'scenario': sid, 'receipt': {'status': 'fail', 'assertions': [],
+                                                           'failure': {'reason': 'stage budget exhausted'}}})
+                failure = failure or {'category': 'model', 'reason': 'stage budget exhausted before ' + sid}
+                continue
+            runtime.max_actions, runtime.timeout = remaining_actions, remaining_time
             scenario = load_scenario(sid)
             case = runner.select_case(runner.PACK, sid, variant)
+            if handoff and index == 0:
+                # The plain customer handoff from the earlier stages, then the scenario's own request.
+                case = dict(case, prompts={**case['prompts'], variant: handoff + '\n\n' + case['prompts'][variant]})
             before = set(runtime.workdirs)
             receipt = runner.execute_case(case_id=f'{sid}:{variant}:local-docker', scenario=scenario,
                                           variant=variant, case=case, candidate_digest=candidate_digest,
                                           runtime=runtime)
-            for case_dir in [d for d in runtime.workdirs if d not in before]:
-                for row in private_actions(Path(case_dir)):
-                    actions.append({**row, 'sequence': len(actions) + 1, 'scenario': sid})
+            new_dirs = [d for d in runtime.workdirs if d not in before]
+            statuses = [a.get('status') for s in receipt.get('sessions', []) for a in s.get('actions', [])]
+            for case_dir in new_dirs:
+                rows = private_actions(Path(case_dir))
+                for offset, row in enumerate(rows):
+                    actions.append({**row, 'scenario': sid,
+                                    'status': statuses[offset] if offset < len(statuses) else 'unknown'})
+                keep = out_dir / sid
+                for pattern in ('session-*/action-*.json', 'session-*/cli-wire/*'):
+                    for path in Path(case_dir).glob(pattern):
+                        target = keep / 'private' / path.relative_to(case_dir)
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(path, target)
                 try:
-                    runner.export_case_evidence(case_dir, Path(out_dir) / sid, runtime._secrets)
+                    runner.export_case_evidence(case_dir, keep / 'export', runtime._secrets)
                 except ValueError as exc:
                     receipt['status'] = 'fail'
                     receipt['exportFailure'] = str(exc)[:200]
-            answers.extend(s.get('finalAnswer') for s in receipt.get('sessions', []) if s.get('finalAnswer'))
+            (out_dir / sid).mkdir(parents=True, exist_ok=True)
+            (out_dir / sid / 'case-receipt.json').write_text(json.dumps(receipt, sort_keys=True))
+            answer = runtime.answers.get(f'{project}-{sid.lower()}')
+            if isinstance(answer, str):
+                answers.append(answer)
+            nudges += int(receipt.get('nudges') or 0)
+            if receipt.get('failure') and failure is None:
+                failure = {'category': receipt['failure'].get('category', 'model'),
+                           'reason': f"{sid}: {receipt['failure'].get('reason')}"}
             cases.append({'scenario': sid, 'receipt': receipt})
     finally:
         secrets = list(runtime._secrets)
         shutil.rmtree(private_root, ignore_errors=True)
-    return {'actions': actions, 'answers': answers, 'secrets': secrets}, cases
+    return {'actions': actions, 'answers': answers, 'secrets': secrets, 'nudges': nudges, 'failure': failure,
+            'withheld': runtime.withheld}, cases
 
 
 def case_assertions(cases: list[dict]) -> list[dict]:
