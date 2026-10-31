@@ -124,7 +124,8 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
         recorder.json('runner-custody-mint-agent', 'POST', '/keys/agent')
     if sid == 'P15':
         from agent_e2e_p10_observer import source_path
-        recorder.json('p15-source-before', 'GET', source_path({'service': 'town', 'layerId': 3}))
+        service = 'other' if wrong == 'other-source' else 'town'
+        recorder.json('p15-source-before', 'GET', source_path({'service': service, 'layerId': 3}))
     if sid == 'P18':
         baseline_item = FOREIGN_ITEM if wrong == 'other-baseline' else ITEM
         baseline_version = FOREIGN_VERSION if wrong == 'other-baseline' else VERSION
@@ -221,6 +222,11 @@ def test_p18_recorded_map_projection_detects_a_real_envelope_change(tmp_path, mo
 def test_p18_refuses_a_foreign_baseline_for_another_resource(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='same controller-read version'):
         recorded_case(tmp_path, monkeypatch, 'P18', 'A', 'other-baseline')
+
+
+def test_p15_refuses_a_baseline_for_another_layer(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match='same controller-read layer'):
+        recorded_case(tmp_path, monkeypatch, 'P15', 'A', 'other-source')
 
 
 @pytest.mark.parametrize('sid', ('P15', 'P18', 'P20'))

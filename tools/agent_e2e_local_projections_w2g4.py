@@ -143,7 +143,12 @@ def observe_partial(scenario_id, stack, seeded, variant):
                 (f'{prefix}-owner-identity', f'{prefix}-agent-identity'), item_role, version_role)
         if scenario_id == 'P15':
             from agent_e2e_p10_observer import source_path
-            recorder.json('p15-source-after', 'GET', source_path(seeded.state['shelters']))
+            source = source_path(seeded.state['shelters'])
+            before = recorder.records.get('p15-source-before')
+            if (before is None or before.phase != 'seed' or before.path != source or
+                    before.principal != 'controller' or before.status != 200 or not before.intact()):
+                raise ValueError('source baseline is not the same controller-read layer')
+            recorder.json('p15-source-after', 'GET', source)
             selected['source-content.unchanged'] = {'protectedContent': [{
                 'label': 'shelters', 'before': 'p15-source-before', 'after': 'p15-source-after'}]}
         if scenario_id == 'P18':
@@ -152,7 +157,7 @@ def observe_partial(scenario_id, stack, seeded, variant):
             # mutations.absent for the case as a whole.
             before = recorder.records.get('p18-map-before')
             if (before is None or before.phase != 'seed' or before.path != path or
-                    before.principal != 'controller' or before.status != 200):
+                    before.principal != 'controller' or before.status != 200 or not before.intact()):
                 raise ValueError('foreign map baseline is not the same controller-read version')
             recorder.json('p18-map-after', 'GET', path)
             selected['mutations.absent'] = {'protectedContent': [{
