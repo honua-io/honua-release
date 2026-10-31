@@ -49,17 +49,17 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "3f83a15351dc7c56edba771eab982a58bf51f973.tar.gz",
-          "sha256": "6097693ebbe990dbd5437401bb192faaa202f6efc2ca0e2d77670b51c0f6f552",
-          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/3f83a15351dc7c56edba771eab982a58bf51f973"
+          "filename": "fd00eadfe53b611cfdc3d10afd160e6010671ca6.tar.gz",
+          "sha256": "f09493329774a1e6fe639a18a02930ed4bdc8d8231aec73c0b83c73c725cba4e",
+          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/fd00eadfe53b611cfdc3d10afd160e6010671ca6"
         }
       ],
       "id": "iac:git-archive",
-      "publication": "honua-iac Git archive 3f83a15351dc7c56edba771eab982a58bf51f973",
+      "publication": "honua-iac Git archive fd00eadfe53b611cfdc3d10afd160e6010671ca6",
       "registry_http_status": 404,
       "urls": [
         "https://registry.terraform.io/v1/modules/honua-io",
-        "https://github.com/honua-io/honua-iac/archive/3f83a15351dc7c56edba771eab982a58bf51f973.tar.gz"
+        "https://github.com/honua-io/honua-iac/archive/fd00eadfe53b611cfdc3d10afd160e6010671ca6.tar.gz"
       ]
     },
     {
@@ -637,28 +637,28 @@
       ]
     },
     {
-      "digest": "sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4",
+      "digest": "sha256:38a1c2b38c09697f90716a3abbab5471e2ea5b79ed494c2a77fb7a80faa52da1",
       "disposition": "published",
       "evidence_class": "anonymous-oci-manifest",
       "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-console:nightly-3f113f855ea2",
-      "image": "ghcr.io/honua-io/honua-console:nightly-3f113f855ea2",
+      "id": "oci:ghcr.io/honua-io/honua-console:nightly-2f9917a3aec0",
+      "image": "ghcr.io/honua-io/honua-console:nightly-2f9917a3aec0",
       "manifest_fields": [
         "components.honua-console.image"
       ],
       "media_type": "application/vnd.oci.image.index.v1+json",
       "pins": {
-        "index_digest": "sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4",
-        "linux_amd64_digest": "sha256:b87469923bf3d006eaa42f976a9054307edcaeed0e5405256a9590dc2ac8c9d0"
+        "index_digest": "sha256:38a1c2b38c09697f90716a3abbab5471e2ea5b79ed494c2a77fb7a80faa52da1",
+        "linux_amd64_digest": "sha256:81b172318381bf2559d2f5fe3160eda14eb6b1518454ce8760cdb043c1eab2cf"
       },
       "platform_digests": {
-        "linux/amd64": "sha256:b87469923bf3d006eaa42f976a9054307edcaeed0e5405256a9590dc2ac8c9d0"
+        "linux/amd64": "sha256:81b172318381bf2559d2f5fe3160eda14eb6b1518454ce8760cdb043c1eab2cf"
       },
-      "publication": "ghcr.io/honua-io/honua-console:nightly-3f113f855ea2",
+      "publication": "ghcr.io/honua-io/honua-console:nightly-2f9917a3aec0",
       "urls": [
         "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-console:pull",
-        "https://ghcr.io/v2/honua-io/honua-console/manifests/nightly-3f113f855ea2",
-        "https://ghcr.io/v2/honua-io/honua-console/manifests/sha256:b87469923bf3d006eaa42f976a9054307edcaeed0e5405256a9590dc2ac8c9d0"
+        "https://ghcr.io/v2/honua-io/honua-console/manifests/nightly-2f9917a3aec0",
+        "https://ghcr.io/v2/honua-io/honua-console/manifests/sha256:81b172318381bf2559d2f5fe3160eda14eb6b1518454ce8760cdb043c1eab2cf"
       ]
     },
     {

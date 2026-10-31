@@ -675,7 +675,7 @@ components:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    # 2026-10-31 ADVANCE: Console #473 and #488, built and smoke-tested by Container run 41238153712.
+    # 2026-10-31 ADVANCE: Console #473, #488 and #493, built and smoke-tested by Container run 41246051095.
     # Anonymous GHCR manifest retrieval confirmed the index and platform digests below.
     # 2026-10-22 ADVANCE (rc re-pin #2): fbe0195d -> a0c04a68 (trunk 2026-10-22T12:11Z). It carries
     # honua-console#452 (omni-prompt confirm-chip specs retired, #450) and #455; check runs at a0c04a68:
@@ -700,16 +700,16 @@ components:
     #   skipped 631594c: no published SHA-bound image
     # The earlier index and platform digests were re-read from GHCR with the resolver's own
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    sha: "3f113f855ea2966768ecce09276c5282c74093e9"   # trunk commit (2026-10-31)
-    # Public multi-architecture image built from this SHA by Console Container run 41238153712.
-    image: "ghcr.io/honua-io/honua-console:nightly-3f113f855ea2"
-    digest: "sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4"
-    artifactSourceRevision: "3f113f855ea2966768ecce09276c5282c74093e9"
+    sha: "2f9917a3aec0eff9751bdfcb0f17b542ec98989f"   # trunk commit (2026-10-31)
+    # Public multi-architecture image built from this SHA by Console Container run 41246051095.
+    image: "ghcr.io/honua-io/honua-console:nightly-2f9917a3aec0"
+    digest: "sha256:38a1c2b38c09697f90716a3abbab5471e2ea5b79ed494c2a77fb7a80faa52da1"
+    artifactSourceRevision: "2f9917a3aec0eff9751bdfcb0f17b542ec98989f"
     architectures: [amd64, arm64]
     # Read from the public pinned index on 2026-10-31.
     platformDigests:
-      amd64: sha256:b87469923bf3d006eaa42f976a9054307edcaeed0e5405256a9590dc2ac8c9d0
-      arm64: sha256:f1387895e433889b7dab2cc63aa521dfc0b1fd6e3b8c25ccaea48478e062c039
+      amd64: sha256:81b172318381bf2559d2f5fe3160eda14eb6b1518454ce8760cdb043c1eab2cf
+      arm64: sha256:3b07040cb40e12a39c2a9a3fe321f4942e43fd38cd5e9bad31e230f1b373ecb9
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
@@ -978,11 +978,11 @@ components:
     # publisher attestations present, honua-iac leaves the sdk-attestation-exception-2026-10-27 set.
     # RC.2: v0.6.0 adds topology-scoped deploy identities (#349) and Docker evaluation hosts (#352).
     # The topology input is required; its feature flags are optional, so the pre-1.0 policy calls for a minor bump.
-    version: "0.6.0"                   # annotated v0.6.0; Git-source distribution
-    sha: "3f83a15351dc7c56edba771eab982a58bf51f973"   # v0.6.0^{}; release notes honua-iac#353
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/3f83a15351dc7c56edba771eab982a58bf51f973.tar.gz"
-    artifactSourceRevision: "3f83a15351dc7c56edba771eab982a58bf51f973"   # the tarball's pax comment (git get-tar-commit-id)
-    artifactSha256: "sha256:6097693ebbe990dbd5437401bb192faaa202f6efc2ca0e2d77670b51c0f6f552"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
+    version: "0.6.1"                   # annotated v0.6.1; Git-source distribution
+    sha: "fd00eadfe53b611cfdc3d10afd160e6010671ca6"   # v0.6.1^{}
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/fd00eadfe53b611cfdc3d10afd160e6010671ca6.tar.gz"
+    artifactSourceRevision: "fd00eadfe53b611cfdc3d10afd160e6010671ca6"   # the tarball's pax comment (git get-tar-commit-id)
+    artifactSha256: "sha256:f09493329774a1e6fe639a18a02930ed4bdc8d8231aec73c0b83c73c725cba4e"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
