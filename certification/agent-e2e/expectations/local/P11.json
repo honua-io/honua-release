@@ -213,5 +213,54 @@
         ]
       }
     }
+  },
+  "projections": {
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "shelters",
+            "before": "p11-shelters-before",
+            "after": "p11-shelters-after",
+            "resource": [
+              "seeded:service:shelters",
+              "seeded:layer:shelters"
+            ]
+          }
+        ]
+      },
+      "reads": {
+        "p11-shelters-before": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p11-shelters-after": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        }
+      }
+    }
+  },
+  "roles": [
+    {
+      "role": "seeded:service:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/layerId"
+    }
+  ],
+  "customerFiles": {
+    "A": [],
+    "B": []
   }
 }

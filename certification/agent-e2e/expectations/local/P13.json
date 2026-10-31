@@ -111,7 +111,21 @@
         },
         "documentSha256": {
           "$role": "seeded:hash:v1"
-        }
+        },
+        "initialVersionId": {
+          "$role": "seeded:version:v1"
+        },
+        "changedStyleSame": false,
+        "changedAuthorMatches": true,
+        "originalVersionId": {
+          "$role": "seeded:version:v1"
+        },
+        "listedItemId": {
+          "$role": "seeded:map:target"
+        },
+        "targetReadStatus": 200,
+        "versionReadStatus": 200,
+        "historyReadStatus": 200
       }
     },
     "B": {
@@ -222,8 +236,171 @@
         },
         "documentSha256": {
           "$role": "seeded:hash:v1"
+        },
+        "initialVersionId": {
+          "$role": "seeded:version:v1"
+        },
+        "changedStyleSame": false,
+        "changedAuthorMatches": true,
+        "originalVersionId": {
+          "$role": "seeded:version:v1"
+        },
+        "listedItemId": {
+          "$role": "seeded:map:target"
+        },
+        "targetReadStatus": 200,
+        "versionReadStatus": 200,
+        "historyReadStatus": 200
+      }
+    }
+  },
+  "projections": {
+    "version.restored": {
+      "spec": {
+        "object": {
+          "resourceId": {
+            "target": "p13-target-v1",
+            "role": "seeded:map:target"
+          },
+          "restoredVersionId": {
+            "body": "p13-target-after",
+            "pointer": "/data/items/0/currentVersionId"
+          },
+          "documentSha256": {
+            "body": "p13-target-v1",
+            "pointer": "/data/contentHash"
+          },
+          "initialVersionId": {
+            "body": "p13-target-versions",
+            "pointer": "/data/versions/0/versionId"
+          },
+          "changedStyleSame": {
+            "eq": [
+              {
+                "body": "p13-target-v1",
+                "pointer": "/data/envelope/body/layers/2/style"
+              },
+              {
+                "body": "p13-target-versions",
+                "pointer": "/data/versions/1/envelope/body/layers/2/style"
+              }
+            ]
+          },
+          "changedAuthorMatches": {
+            "eq": [
+              {
+                "body": "p13-target-versions",
+                "pointer": "/data/versions/1/createdBy"
+              },
+              {
+                "run": "agentPrincipal"
+              }
+            ]
+          },
+          "originalVersionId": {
+            "target": "p13-target-v1",
+            "role": "seeded:version:v1"
+          },
+          "listedItemId": {
+            "body": "p13-target-after",
+            "pointer": "/data/items/0/itemId"
+          },
+          "targetReadStatus": {
+            "status": "p13-target-after"
+          },
+          "versionReadStatus": {
+            "status": "p13-target-v1"
+          },
+          "historyReadStatus": {
+            "status": "p13-target-versions"
+          }
+        }
+      },
+      "reads": {
+        "p13-target-after": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/content-items\\?.+",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p13-target-versions": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/content-items/[0-9a-fA-F-]+/versions",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p13-target-v1": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/content-items/[0-9a-fA-F-]+/versions/[0-9a-fA-F-]+",
+          "principal": "controller",
+          "phase": "observe"
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "shelters",
+            "before": "p13-shelters-before",
+            "after": "p13-shelters-after",
+            "resource": [
+              "seeded:service:shelters",
+              "seeded:layer:shelters"
+            ]
+          }
+        ]
+      },
+      "reads": {
+        "p13-shelters-before": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p13-shelters-after": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         }
       }
     }
+  },
+  "roles": [
+    {
+      "role": "seeded:map:target",
+      "step": "p13-target-save",
+      "pointer": "/data/itemId"
+    },
+    {
+      "role": "seeded:version:v1",
+      "step": "p13-target-save",
+      "pointer": "/data/versionId"
+    },
+    {
+      "role": "seeded:hash:v1",
+      "step": "p13-target-save",
+      "pointer": "/data/contentHash"
+    },
+    {
+      "role": "seeded:service:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/layerId"
+    }
+  ],
+  "customerFiles": {
+    "A": [],
+    "B": []
   }
 }
