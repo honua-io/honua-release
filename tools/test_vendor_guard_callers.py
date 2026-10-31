@@ -34,6 +34,12 @@ class VendorGuardCallerExamplesTests(unittest.TestCase):
             "contents": "write",
         })
 
+    def test_delta_caller_matches_pr_and_merge_group_events_with_read_only_token(self) -> None:
+        caller = load_yaml(EXAMPLES / "delta-caller.yml.example")
+        called = load_yaml(ROOT / ".github/workflows/guard-vendor-delta.yml")
+        self.assertEqual(caller["on"], {k: v for k, v in called["on"].items() if k != "workflow_call"})
+        self.assertEqual(caller["permissions"], {"contents": "read"})
+
     def test_audit_caller_exposes_shard_recovery_with_read_only_permissions(self) -> None:
         caller = load_yaml(EXAMPLES / "audit-caller.yml.example")
         called = load_yaml(ROOT / ".github/workflows/audit-vendor-github.yml")
@@ -47,6 +53,7 @@ class VendorGuardCallerExamplesTests(unittest.TestCase):
         for file, job, workflow in (
             ("event-caller.yml.example", "remediate-text", "guard-vendor-event.yml"),
             ("event-caller.yml.example", "remediate-commit-comment", "guard-vendor-commit-comment.yml"),
+            ("delta-caller.yml.example", "inspect", "guard-vendor-delta.yml"),
             ("audit-caller.yml.example", "audit", "audit-vendor-github.yml"),
         ):
             uses = load_yaml(EXAMPLES / file)["jobs"][job]["uses"]

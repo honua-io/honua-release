@@ -187,10 +187,10 @@ already-pinned check.
 ### Install the event and audit callers
 
 The reviewable examples in [`docs/examples/vendor-guard/`](examples/vendor-guard/)
-provide separate per-repository caller workflows for event detection and the
-scheduled REST audit. Their full SHA pins the reviewed reusable workflows and
+provide per-repository callers for changed-content checks, event remediation,
+and the scheduled REST audit. Their full SHA pins the reviewed reusable workflows and
 trusted scanner code; **the pinned commit must first be available on GitHub**.
-Update both pins together to a reviewed, reachable full commit SHA before
+Update every caller pin together to a reviewed, reachable full commit SHA before
 installation. Copy the examples to `.github/workflows/` on each target default
 branch and verify Actions, workflow access policies, event-remediation write
 permissions, audit read permissions, and actual event delivery there. Installing these examples is a per-repository
