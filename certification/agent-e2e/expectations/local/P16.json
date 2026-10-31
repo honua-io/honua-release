@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P16",
+  "derivation": "Blocked by the credential boundary: recorder principals are runner-minted seed credentials; there is no runner hook to consume a model-created operation secret and register the same issued key for before/after probes. Controller metadata reads cannot prove issued-key access. Frozen secret-scan artifact identities also have no binding to the runner artifact inventory. Existing non-null expectations describe the correct security predicates with logical identities, never observed model outputs.",
+  "variants": {
+    "A": {
+      "key.read-only": null,
+      "key.revoked": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 401
+          }
+        ]
+      },
+      "secrets.absent": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
+    },
+    "B": {
+      "key.read-only": null,
+      "key.revoked": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 401
+          }
+        ]
+      },
+      "secrets.absent": null,
+      "custody.bootstrap-revoked": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      }
+    }
+  },
+  "customerFiles": {
+    "A": [],
+    "B": []
+  }
+}
