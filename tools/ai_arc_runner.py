@@ -544,6 +544,7 @@ class LocalSetup(StageModule):
         expected = {'image': ctx.install['image'], 'imageDigest': ctx.install['imageDigest'],
                     'sourceSha': ctx.install['sourceRevision']}
         facts = ai_arc_local.observe_serving(ctx.slot.vm, expected, ctx.options['http'], ctx.slot.controller['base_url'])
+        ctx.slot.facts['consoleObserved'] = facts.get('console', False)   # a Console origin is attached by g41's adapter
         return [assert_row('install.identity', facts['identity'], facts['evidence']),
                 assert_row('deployment.ready', facts['ready'], facts['evidence']),
                 assert_row('authentication.required', facts['authRequired'], facts['evidence'])]
@@ -710,7 +711,17 @@ class ServicesStage(StageModule):
 
 
 class StudioStage(DelegatingStage):
-    """Studio's built-in assistant (required, scripted customer) and the arm in the Studio UI."""
+    """Studio is the map editor embedded in Honua Console. Required: Console's built-in AI assistant
+    (Studio AI proxy, Bedrock Sonnet 4.6) driven by a scripted customer signed in to Console as the
+    customer principal; the CLI arm reaches Console through #1162's origin-locked browser with real
+    sign-in. Scored from saved map/style documents (controller reads) and an independent render through
+    the server's map rendering API. Unavailable on a slot where no Console is observed serving."""
+
+    def precondition(self, ctx):
+        if not ctx.slot.facts.get('consoleBaseUrl'):
+            return ('Honua Console is not serving on this slot: ' +
+                    ctx.arc['consoleDeployment'].get(ctx.target, 'no Console deployment for this target'))
+        return None
     stage, lane = 'studio', 'g41 feat/agent-studio-browser'
     adapter = 'agent_e2e_studio_arc'
     missing = ('Studio stage adapter (g41 origin-locked browser for the arm plus the built-in assistant '

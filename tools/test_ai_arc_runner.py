@@ -228,9 +228,9 @@ def test_adapter_exception_is_still_classified(tmp_path):
 
 def test_studio_requires_both_drivers_and_the_observed_assistant(tmp_path):
     only_arm = lambda ctx, row: [{'assertion': a, 'status': 'pass'} for a in required('studio')  # noqa: E731
-                                 if not a.startswith('assistant:')]
+                                 if not a.startswith('console-assistant:')]
     receipt, _ = run(tmp_path, mods=modules(studio=FakeStage('studio', observe=only_arm)))
-    assert receipt['stages'][3]['outcome'] == 'fail' and 'assistant:' in receipt['stages'][3]['cause']
+    assert receipt['stages'][3]['outcome'] == 'fail' and 'console-assistant:' in receipt['stages'][3]['cause']
 
 
 def test_handoff_is_plain_customer_continuity_and_no_harness_terms(tmp_path):
@@ -778,3 +778,13 @@ def test_finalize_stage_matrix(tmp_path, monkeypatch, exit_reason, revocation, p
         assert setup['outcome'] == 'pass', setup['cause']
     else:
         assert setup['outcome'] in ('fail', 'undetermined')
+
+
+def test_studio_is_unavailable_without_a_serving_console(tmp_path):
+    ctx = R.StageContext(arc=ARC, target='aws-ecs', arm=A1, variant='A', run_dir=tmp_path, private_dir=tmp_path,
+                         slot=R.Slot('aws-ecs', 'aws-cell', 'arc-abcdef1234', controller={'base_url': 'x'}),
+                         candidate=CAND_IN, install=ARC['versionPair']['install'], limits=ARC['limits']['studio'],
+                         deadline=time.monotonic() + 60)
+    reason = R.StudioStage().unavailable(ctx)
+    assert reason and 'Console' in reason and 'aws-ecs module deploys no Console' in reason
+    assert next(s for s in ARC['stages'] if s['id'] == 'studio')['drivers'] == ['console-assistant', 'arm-browser']

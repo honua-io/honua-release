@@ -86,7 +86,8 @@
     "drivers": [
       "assistant",
       "arm-browser"
-    ]
+    ],
+    "surface": "Honua Console built-in AI assistant (Studio AI proxy)"
   },
   "stages": [
     {
@@ -280,22 +281,22 @@
     },
     {
       "id": "studio",
-      "title": "Make maps with Studio",
+      "title": "Make maps with Studio (in Honua Console)",
       "dependsOn": [
         "services"
       ],
       "versionRole": "candidate",
       "drivers": [
-        "assistant",
+        "console-assistant",
         "arm-browser"
       ],
       "required": {
         "local-docker": [
           "candidate.serving",
-          "assistant:P08:map.composition",
-          "assistant:P08:render.actual",
-          "assistant:P08:source-content.unchanged",
-          "assistant:P08:finalAnswerCheck",
+          "console-assistant:P08:map.composition",
+          "console-assistant:P08:render.actual",
+          "console-assistant:P08:source-content.unchanged",
+          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -303,10 +304,10 @@
         ],
         "aws-ecs": [
           "candidate.serving",
-          "assistant:P08:map.composition",
-          "assistant:P08:render.actual",
-          "assistant:P08:source-content.unchanged",
-          "assistant:P08:finalAnswerCheck",
+          "console-assistant:P08:map.composition",
+          "console-assistant:P08:render.actual",
+          "console-assistant:P08:source-content.unchanged",
+          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -314,10 +315,10 @@
         ],
         "aws-eks": [
           "candidate.serving",
-          "assistant:P08:map.composition",
-          "assistant:P08:render.actual",
-          "assistant:P08:source-content.unchanged",
-          "assistant:P08:finalAnswerCheck",
+          "console-assistant:P08:map.composition",
+          "console-assistant:P08:render.actual",
+          "console-assistant:P08:source-content.unchanged",
+          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -325,10 +326,10 @@
         ],
         "aws-lambda": [
           "candidate.serving",
-          "assistant:P08:map.composition",
-          "assistant:P08:render.actual",
-          "assistant:P08:source-content.unchanged",
-          "assistant:P08:finalAnswerCheck",
+          "console-assistant:P08:map.composition",
+          "console-assistant:P08:render.actual",
+          "console-assistant:P08:source-content.unchanged",
+          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -338,7 +339,8 @@
       "scenarios": [
         "P08"
       ],
-      "scenarioNote": "Studio's built-in assistant (Bedrock Sonnet 4.6, required) authors the map with the scripted customer; the CLI arm authors it in the Studio UI through g41's origin-locked browser. Both drivers' assertions are required."
+      "scenarioNote": "Studio is the map editor embedded in Honua Console (GA; honua-console, with the honua-studio editor runtime). Required path: Console's built-in AI assistant (calls the server's Studio AI proxy on Bedrock Sonnet 4.6), driven by a scripted customer turn-taker signed in to Console as the customer principal. CLI arms reach Console through #1162's origin-locked browser with real sign-in. Scoring: saved map and style documents via controller reads, plus an independent render through the server's map rendering API (never DOM markers). stages.studio.assistant is the model the Console assistant was observed to use (AI proxy response/audit).",
+      "requiresConsole": true
     }
   ],
   "handoffs": {
@@ -570,5 +572,10 @@
         "restore.migration-142"
       ]
     }
+  },
+  "consoleDeployment": {
+    "local-docker": "GAP: the published quickstart (honua-server docs/get-started/quickstart.md) composes no console service; honua-server docker-compose.yml has an opt-in console profile whose default image is ghcr.io/honua-io/honua-console:pending",
+    "aws-ecs": "GAP: the honua-iac aws-ecs module deploys no Console service (it only renders CORS origins for a Console origin)",
+    "rule": "The Studio stage is stage-unavailable on a slot where no Console is observed serving; it is never scored without one."
   }
 }
