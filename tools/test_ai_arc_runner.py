@@ -488,3 +488,41 @@ def test_ops_scope_is_full_unless_founder_approved(tmp_path, monkeypatch):
                                 'scoredOps': {'local-docker': ['made-up']}}))
     with pytest.raises(ValueError):
         R.ops_scope(ARC, 'local-docker')
+
+
+def test_twenty_run_campaign_artifact_stays_under_the_gate_caps(tmp_path):
+    """The gate reads zips up to 25 MB and JSON members up to 1 MB: receipts and the aggregate only."""
+    import io
+    import zipfile
+    big = 'x' * 200_000
+    raws, ids = [], []
+    for n in range(1, 21):
+        session = FakeSession(['It is running and ready. ' + big[:50]] * 4)
+        mods = modules(setup=FakeStage('setup', extra_row={'provenance': [{'agent': 'claude-cli',
+                                                                           'mcpMethods': {'s': ['x'] * 50}}]}))
+        receipt, _ = run(tmp_path, name=f'{n:03d}', mods=mods, session=session)
+        ev = tmp_path / f'{n:03d}.evidence'
+        assert receipt['evidenceArtifact']['name'] == ev.name
+        raws.append((tmp_path / f'{n:03d}' / 'trial-receipt.json').read_bytes())
+        ids.append(receipt['runId'])
+    result, report = agg(ids, raws)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for n, raw in enumerate(raws, 1):
+            assert len(raw) < 1_000_000
+            archive.writestr(f'runs/{n:03d}/trial-receipt.json', raw)
+        for name, doc in (('aggregate.json', result), ('report.json', report)):
+            raw = json.dumps(doc).encode()
+            assert len(raw) < 1_000_000
+            archive.writestr(name, raw)
+    assert len(buffer.getvalue()) < 25_000_000
+    assert result['scheduled'] == 20 and len(result['runs']) == 20
+
+
+def test_operator_release_is_never_exported(tmp_path):
+    private, out = tmp_path / 'p', tmp_path / 'o'
+    R.write_private(private / 'operator' / 'operator' / 'Honua.DevOps.Agent', b'\x7fELF' + b'0' * 1000)
+    R.write_private(private / 'operator' / 'honua-devops-linux-x64.tar.gz', b'archive')
+    R.write_private(private / 'setup' / 'observations.json', b'{}')
+    R.export_private(private, out, [])
+    assert sorted(str(p.relative_to(out)) for p in out.rglob('*') if p.is_file()) == ['setup/observations.json']

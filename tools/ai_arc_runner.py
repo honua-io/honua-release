@@ -930,7 +930,8 @@ def run_status(stages: list[dict]) -> str:
 
 def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, out_dir: Path, slot: Slot,
               candidate: dict, session, modules: dict | None = None, options: dict | None = None,
-              goal_set: dict | None = None, case_id: str | None = None, private_root: Path | None = None) -> dict:
+              goal_set: dict | None = None, case_id: str | None = None, private_root: Path | None = None,
+              evidence_dir: Path | None = None, evidence_artifact: str | None = None) -> dict:
     """Run the four stages once on one slot. ``out_dir`` must not exist (first attempt only)."""
     import shutil
     import tempfile
@@ -1003,10 +1004,19 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
             except Exception:
                 pass
         receipt['teardown'] = slot.vm.teardown() if slot.vm else {'status': 'clean', 'steps': []}
-        export_private(private, out_dir / 'evidence', slot.harness_secrets)
+        evidence_dir = Path(evidence_dir or out_dir.parent / (out_dir.name + '.evidence'))
+        export_private(private, evidence_dir, slot.harness_secrets)
+        receipt['evidenceArtifact'] = {'name': evidence_artifact or evidence_dir.name,
+                                       'files': [{'path': str(p.relative_to(evidence_dir)), 'sha256': sha256(p.read_bytes()),
+                                                  'bytes': p.stat().st_size}
+                                                 for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
         shutil.rmtree(private, ignore_errors=True)
     receipt['slotFacts'] = {k: v for k, v in slot.facts.items() if k in ('quickstart', 'vm', 'operator')}
     return finish_trial(receipt, out_dir)
+
+
+EXPORT_SKIP = ('operator',)
+MAX_RECEIPT_BYTES = 1_000_000
 
 
 def export_private(private: Path, out_dir: Path, secrets) -> None:
@@ -1020,6 +1030,8 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
     for path in sorted(Path(private).rglob('*')):
         if not path.is_file() or path.is_symlink():
             continue
+        if path.relative_to(private).parts[0] in EXPORT_SKIP:
+            continue   # the installed operator release is recorded by tag and sha256, never uploaded
         raw = path.read_bytes()
         if path.suffix == '.json' and b'bodyBase64' in raw:
             try:
@@ -1057,10 +1069,11 @@ def finish_trial(receipt: dict, out_dir: Path) -> dict:
     receipt['nudges'] = sum(int(row.get('nudges') or 0) for row in stages)
     receipt['teardownClean'] = receipt.get('teardown', {}).get('status') == 'clean'
     receipt['costUsd'] = None
-    receipt['evidence'] = [{'path': str(p.relative_to(out_dir)), 'sha256': sha256(p.read_bytes())}
-                           for p in sorted(out_dir.rglob('*')) if p.is_file() and p.name != 'trial-receipt.json']
     receipt['finishedAt'] = now()
-    write_private(out_dir / 'trial-receipt.json', json.dumps(receipt, indent=2, sort_keys=True).encode() + b'\n')
+    raw = json.dumps(receipt, indent=2, sort_keys=True).encode() + b'\n'
+    if len(raw) > MAX_RECEIPT_BYTES:
+        raise ValueError('run receipt exceeds the 1 MB member bound the admission gate reads')
+    write_private(out_dir / 'trial-receipt.json', raw)
     return receipt
 
 
@@ -1365,6 +1378,8 @@ def main(argv=None) -> int:
     trial.add_argument('--variant', choices=('A', 'B', 'H'), required=True)
     trial.add_argument('--case-id')
     trial.add_argument('--output', type=Path, required=True)
+    trial.add_argument('--evidence-dir', type=Path, help='where redacted bulky evidence goes (its own artifact)')
+    trial.add_argument('--evidence-artifact', help='name of the artifact that will carry --evidence-dir')
     trial.add_argument('--docker-host', help='ssh://<alias> of the ephemeral VM Docker host')
     trial.add_argument('--slot-index', type=int, default=0, help='0..2: up to three concurrent slots per host')
     trial.add_argument('--ssh-user', default='ubuntu')
@@ -1429,7 +1444,8 @@ def main(argv=None) -> int:
                    'deploy_identity_contract': args.deploy_identity_contract, 'http': local_http}
         receipt = run_trial(arc=arc, target=args.target, arm=arm, variant=args.variant, run_id=args.run_id,
                             out_dir=args.output, slot=slot, candidate=candidate, session=ArcSession(arm),
-                            options=options, goal_set=goal_set, case_id=args.case_id)
+                            options=options, goal_set=goal_set, case_id=args.case_id,
+                            evidence_dir=args.evidence_dir, evidence_artifact=args.evidence_artifact)
         print(json.dumps({'runId': receipt['runId'], 'status': receipt['status'],
                           'reachedStage': receipt['reachedStage'], 'arcCause': receipt['arcCause']}))
         return 0

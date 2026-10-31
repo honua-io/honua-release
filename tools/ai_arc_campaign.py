@@ -47,7 +47,9 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         host, index = slot
         command = [sys.executable, str(ROOT / 'tools/ai_arc_runner.py'), 'trial', '--target', target, '--arm', arm,
                    '--run-id', row['runId'], '--variant', row['variant'], *common,
-                   '--output', str(out / 'runs' / row['runId'].replace(':', '-'))]
+                   '--output', str(out / 'runs' / row['runId'].replace(':', '-')),
+                   '--evidence-dir', str(Path(str(out) + '-evidence') / row['runId'].replace(':', '-')),
+                   '--evidence-artifact', f"ai-arc-evidence-{arm}-{target}"]
         if row.get('caseId'):
             command += ['--case-id', row['caseId']]
         if host:

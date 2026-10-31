@@ -5,8 +5,9 @@ run-name: AI arc ${{ inputs.arm }} (${{ inputs.targets }}, ${{ inputs.goal_set }
 # agent arm working on ONE deployment through setup, ops, services and Studio; see
 # certification/ai-arc/README.md. One campaign job per target schedules the runs (three concurrent
 # slots per VM host for local-docker) and pauses for adjudication after any undetermined run before
-# starting another (prereg void policy). The aggregate job writes one candidate-bound
-# honua.ai-arc.aggregate/v1 receipt per target x arm for tools/rc_gate_window.py. Every run is a
+# starting another (prereg void policy), then writes the target x arm honua.ai-arc.aggregate/v1
+# receipt. Receipts and aggregate go in the small ai-arc-campaign-<arm>-<target> artifact the
+# admission gate reads; bulky redacted evidence goes in ai-arc-evidence-<arm>-<target>. Every run is a
 # first attempt. This workflow creates no AWS resources. Agent CLIs need subscription sign-in, so
 # campaign jobs run on the controller's runner.
 
@@ -153,69 +154,41 @@ jobs:
           [ "$GOAL_SET" != held-out ] || args+=(--goal-set "$RUNNER_TEMP/arc-inputs/primary.json"
                                                --reserve-set "$RUNNER_TEMP/arc-inputs/reserve.json")
           python3 tools/ai_arc_campaign.py "${args[@]}"
-      - name: Forget decrypted inputs
+      - name: One aggregate for this target x arm (derived from the run receipts)
         if: always()
-        run: rm -rf "$RUNNER_TEMP/arc-inputs"
-      - name: Retain campaign evidence (private evidence is redacted before it reaches this tree)
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ai-arc-campaign-${{ inputs.arm }}-${{ matrix.target }}
-          path: artifacts/
-          if-no-files-found: error
-
-  aggregate:
-    if: always() && needs.targets.result == 'success'
-    needs: [targets, campaign]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
-      - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          pattern: ai-arc-campaign-${{ inputs.arm }}-*
-          path: campaigns
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          name: ${{ inputs.lock_artifact }}
-          path: candidate-lock
-          run-id: ${{ inputs.lock_run_id }}
-          github-token: ${{ github.token }}
-      - name: Open the sealed reserve manifest (void replacements)
-        if: ${{ inputs.goal_set == 'held-out' }}
         env:
-          AI_ARC_HELDOUT_KEY: ${{ secrets.AI_ARC_HELDOUT_KEY }}
-        run: python tools/ai_arc_runner.py decrypt-goals --set reserve --output "$RUNNER_TEMP/reserve.json"
-      - name: One receipt per target x arm
-        env:
+          TARGET: ${{ matrix.target }}
           ARM: ${{ inputs.arm }}
-          TARGETS: ${{ inputs.targets }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
           GOAL_SET: ${{ inputs.goal_set }}
         run: |
           set -euo pipefail
-          mkdir -p receipts
-          IFS=',' read -ra names <<< "$TARGETS"
-          for target in "${names[@]}"; do
-            dir="campaigns/ai-arc-campaign-$ARM-$target/$target"
-            args=(aggregate --target "$target" --arm "$ARM" --schedule "$dir/schedule.json" --trials-dir "$dir/runs"
-                  --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --goal-set-name "$GOAL_SET"
-                  --voids "$dir/voids.json"
-                  --output "receipts/ai-arc-aggregate-$target-$ARM.json" --report "receipts/ai-arc-report-$target-$ARM.json")
-            [ "$GOAL_SET" != held-out ] || args+=(--reserve-set "$RUNNER_TEMP/reserve.json")
-            python tools/ai_arc_runner.py "${args[@]}"
-          done
-          rm -f "$RUNNER_TEMP/reserve.json"
-      - name: Retain the aggregate receipts
+          dir="artifacts/$TARGET"
+          args=(aggregate --target "$TARGET" --arm "$ARM" --schedule "$dir/schedule.json" --trials-dir "$dir/runs"
+                --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --goal-set-name "$GOAL_SET"
+                --voids "$dir/voids.json"
+                --output "$dir/ai-arc-aggregate-$TARGET-$ARM.json" --report "$dir/ai-arc-report-$TARGET-$ARM.json")
+          [ "$GOAL_SET" != held-out ] || args+=(--reserve-set "$RUNNER_TEMP/arc-inputs/reserve.json")
+          python3 tools/ai_arc_runner.py "${args[@]}"
+      - name: Forget decrypted inputs
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/arc-inputs"
+      - name: Retain receipts and the aggregate (small; what the admission gate reads)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ai-arc-aggregate-${{ inputs.arm }}
-          path: receipts/
+          name: ai-arc-campaign-${{ inputs.arm }}-${{ matrix.target }}
+          path: |
+            artifacts/${{ matrix.target }}/schedule.json
+            artifacts/${{ matrix.target }}/voids.json
+            artifacts/${{ matrix.target }}/runs/*/trial-receipt.json
+            artifacts/${{ matrix.target }}/ai-arc-aggregate-*.json
+            artifacts/${{ matrix.target }}/ai-arc-report-*.json
           if-no-files-found: error
+      - name: Retain redacted bulky evidence (referenced by digest from each run receipt)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-arc-evidence-${{ inputs.arm }}-${{ matrix.target }}
+          path: artifacts/${{ matrix.target }}-evidence/
+          if-no-files-found: warn

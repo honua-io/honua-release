@@ -70,8 +70,8 @@ A stage passes only when all of these hold:
 
 ## Artifacts (stable names; #1161 matches them)
 
-- `ai-arc-campaign-<arm>-<target>`: one per campaign job. `<target>/schedule.json`, `<target>/voids.json`, and `<target>/runs/<runId with ':' as '-'>/trial-receipt.json` with that run's redacted `evidence/`.
-- `ai-arc-aggregate-<arm>`: `ai-arc-aggregate-<target>-<arm>.json` (`honua.ai-arc.aggregate/v1`) and `ai-arc-report-<target>-<arm>.json`, one pair per target.
+- `ai-arc-campaign-<arm>-<target>`: small, and the only artifact the admission gate reads. It holds `schedule.json`, `voids.json`, `runs/<runId with ':' as '-'>/trial-receipt.json` (each under 1 MB, enforced), `ai-arc-aggregate-<target>-<arm>.json` (`honua.ai-arc.aggregate/v1`) and `ai-arc-report-<target>-<arm>.json`.
+- `ai-arc-evidence-<arm>-<target>`: redacted bulky evidence, one directory per run (CLI wire logs, observations, final answers, corpus controller records). Each run receipt's `evidenceArtifact` names this artifact and lists every file's path, sha256 and size. The installed operator release is never uploaded; its tag, commit and archive and binary sha256 are in the receipt.
 
 `gating-scope.json` is owned here and ships unapproved (`gating` empty, `approvedBy` null). The release session fills it after the founder's decision, and #1161 only reads it.
 
