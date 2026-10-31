@@ -41,6 +41,12 @@
           "capacity": 80,
           "geometry": {
             "type": "Point",
+            "crs": {
+              "type": "name",
+              "properties": {
+                "name": "EPSG:3857"
+              }
+            },
             "coordinates": [
               -19100,
               -4700
@@ -52,6 +58,12 @@
           "capacity": 40,
           "geometry": {
             "type": "Point",
+            "crs": {
+              "type": "name",
+              "properties": {
+                "name": "EPSG:3857"
+              }
+            },
             "coordinates": [
               -18800,
               -4700
