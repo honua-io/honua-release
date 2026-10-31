@@ -84,11 +84,12 @@ class CaseConsole:
             raise ValueError('Console image is not the pinned digest')
         self.name = stack.compose_project + '-console-' + secrets.token_hex(16)
         self._project = stack.compose_project
+        self._docker_host = 'ssh://' + self.host
         self._attempted = False
         self._created = False
         self._tunnel = None
         self.url = None
-        env = dict(os.environ, HONUA_ADMIN_API_KEY=stack.admin_key)
+        env = dict(os.environ, DOCKER_HOST=self._docker_host, HONUA_ADMIN_API_KEY=stack.admin_key)
         command = ['docker', 'run', '--detach', '--name', self.name,
                    '--label', 'honua.corpus.case=' + stack.compose_project,
                    '--network', stack.compose_project + '_default', '--publish', '127.0.0.1::8080',
@@ -144,10 +145,13 @@ class CaseConsole:
         if self._attempted and not self._created:
             probe = subprocess.run(['docker', 'inspect', '--format',
                                     '{{index .Config.Labels "honua.corpus.case"}}', self.name],
+                                   env=dict(os.environ, DOCKER_HOST=self._docker_host),
                                    capture_output=True, text=True, timeout=20, check=False)
             self._created = probe.returncode == 0 and probe.stdout.strip() == self._project
         if self._created:
-            result = subprocess.run(['docker', 'rm', '-f', self.name], capture_output=True, timeout=30, check=False)
+            result = subprocess.run(['docker', 'rm', '-f', self.name],
+                                    env=dict(os.environ, DOCKER_HOST=self._docker_host),
+                                    capture_output=True, timeout=30, check=False)
             if result.returncode:
                 raise RuntimeError('could not remove the case Console')
             self._created = False

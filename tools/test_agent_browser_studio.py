@@ -418,6 +418,23 @@ def test_console_attachment_requires_approved_host_and_pinned_image(tmp_path, mo
         CaseConsole(stack, 'ghcr.io/honua-io/honua-console:latest')
 
 
+def test_console_cleanup_keeps_its_original_remote_host(monkeypatch):
+    from agent_browser_studio import CaseConsole
+    calls = []
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://some-other-host')
+    monkeypatch.setattr('agent_browser_studio.subprocess.run',
+                        lambda command, **kwargs: calls.append((command, kwargs['env']['DOCKER_HOST']))
+                        or SimpleNamespace(returncode=0))
+    console = CaseConsole.__new__(CaseConsole)
+    console._tunnel = None
+    console._attempted = True
+    console._created = True
+    console.name = 'case-console'
+    console._docker_host = 'ssh://honua-eval-4'
+    console.close()
+    assert calls == [(['docker', 'rm', '-f', 'case-console'], 'ssh://honua-eval-4')]
+
+
 def test_p24_uploads_only_runner_admitted_customer_files(tmp_path):
     source = tmp_path / 'admitted.geojson'
     source.write_bytes(b'{"type":"FeatureCollection","features":[]}')
