@@ -1,7 +1,61 @@
 {
   "schemaVersion": 1,
   "scenario": "P10",
-  "derivation": "filter.exact from corpus/oracles/town-<variant>.json (openCapacityOver50Ids) via oracle.fixture_expectation; source-content.unchanged is the frozen shelters layer of corpus/town-<variant>/shelters.3857.geojson sorted by source_id (same values as expectations/p10-local-docker.json).",
+  "derivation": "filter.exact from corpus/oracles/town-<variant>.json (openCapacityOver50Ids) via oracle.fixture_expectation; source-content.unchanged is the frozen shelters layer of corpus/town-<variant>/shelters.3857.geojson sorted by source_id (same values as expectations/p10-local-docker.json). Projections and their controller reads are frozen here; the runner scores only these.",
+  "projections": {
+    "filter.exact": {
+      "spec": {
+        "object": {
+          "resourceIds": {
+            "featureQueryIds": "p10-replay-query",
+            "service": {
+              "role": "seeded:service:shelters"
+            },
+            "layer": {
+              "role": "seeded:layer:shelters"
+            }
+          }
+        }
+      },
+      "reads": {
+        "p10-replay-query": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "replayOfModelAction": true
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "shelters",
+            "before": "p10-source-before",
+            "after": "p10-source-after"
+          }
+        ]
+      },
+      "reads": {
+        "p10-source-before": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p10-source-after": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        }
+      }
+    }
+  },
   "variants": {
     "A": {
       "filter.exact": {

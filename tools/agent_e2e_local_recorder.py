@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,18 @@ class Record:
     request_arguments_raw: bytes | None = None
     origin: str = 'controller'     # 'controller' read, or 'session-result': the server's own response to
                                    # a sealed model action, captured by the runner gateway or proxy
+    content_type: str | None = None
+    recorded_at: str = ''
+
+    def metadata(self, case_id) -> dict:
+        """Everything about the record the ledger binds: request identity, principal, phase, status, body."""
+        return {'case': case_id, 'step': self.step, 'phase': self.phase, 'kind': self.kind,
+                'principal': self.principal, 'principalId': self.principal_id, 'method': self.method,
+                'path': self.path, 'status': self.status, 'bodySha256': 'sha256:' + hashlib.sha256(self.raw).hexdigest(),
+                'replayOf': self.replay_of, 'origin': self.origin, 'contentType': self.content_type,
+                'recordedAt': self.recorded_at,
+                'requestArgumentsSha256': (None if self.request_arguments_raw is None else
+                                           'sha256:' + hashlib.sha256(self.request_arguments_raw).hexdigest())}
 
     @property
     def json(self) -> Any:
@@ -134,6 +147,77 @@ def parse_jsonrpc(raw: bytes) -> dict:
     return responses[0]
 
 
+_GENESIS = 'sha256:' + hashlib.sha256(b'honua-corpus-action-log/v1').hexdigest()
+
+
+def _link(chain, entry):
+    return 'sha256:' + hashlib.sha256((chain + '\n' + json.dumps(list(entry), separators=(',', ':')))
+                                      .encode()).hexdigest()
+
+
+class EvidenceVault:
+    """Runtime-owned evidence authority for one case: the only record store and action inventory
+    that scoring trusts. Scenarios never receive it. The recorder delivers each record here at the
+    moment it is retained (one write per step, metadata and body bound by one digest); the runtime
+    alone seals model actions, from its own ActionLog, into an append-only hash chain.
+    """
+
+    def __init__(self, case_id):
+        self.case_id = case_id
+        self._records = {}
+        self._digests = {}
+        self._actions = []          # (entry, action_bytes, chain)
+        self._chain = _GENESIS
+        self._sessions = set()
+
+    def digest(self, record):
+        return 'sha256:' + hashlib.sha256(json.dumps(record.metadata(self.case_id), sort_keys=True,
+                                                     separators=(',', ':')).encode()).hexdigest()
+
+    def deliver(self, record):
+        require(isinstance(record, Record) and record.step not in self._records, 'vault step already delivered')
+        require(record.intact(), 'recorded digest differs from the retained bytes')
+        self._records[record.step] = record
+        self._digests[record.step] = self.digest(record)
+
+    def records(self):
+        """Records whose metadata and bytes still match what was delivered."""
+        out = {}
+        for step, record in self._records.items():
+            require(self.digest(record) == self._digests[step] and record.intact(), 'vault record altered: ' + step)
+            out[step] = record
+        return out
+
+    def ledger(self):
+        return dict(self._digests)
+
+    def append_actions(self, session, rows):
+        """Runtime only: seal one session's model actions, in order, from the runner's own ActionLog."""
+        require(type(session) is int and session > 0 and session not in self._sessions, 'session already sealed')
+        self._sessions.add(session)
+        for expected, row in enumerate(rows, start=1):
+            require(row['session'] == session and row['sequence'] == expected, 'action log is out of order')
+            raw = Path(row['logPath']).read_bytes()
+            require('sha256:' + hashlib.sha256(raw).hexdigest() == row['digest'], 'action log digest mismatch')
+            entry = (session, expected, row['digest'], str(row['logPath']), row['status'],
+                     row.get('resultRawSha256'), row.get('resultRawPath'), row.get('resultHttpStatus'))
+            self._chain = _link(self._chain, entry)
+            self._actions.append((entry, raw, self._chain))
+
+    def entries(self):
+        chain = _GENESIS
+        for entry, raw, link in self._actions:
+            chain = _link(chain, entry)
+            require(chain == link and 'sha256:' + hashlib.sha256(raw).hexdigest() == entry[2],
+                    'harness action log chain is broken')
+        require(chain == self._chain, 'harness action log head differs')
+        return [(entry, raw) for entry, raw, _ in self._actions]
+
+    def model_actions(self):
+        """digest -> the model's logged action (for replay-provenance checks)."""
+        return {entry[2]: json.loads(raw) for entry, raw in self.entries()}
+
+
 class ControllerRecorder:
     """Retains every controller read once; step names are unique across the case.
 
@@ -143,23 +227,23 @@ class ControllerRecorder:
     """
 
     def __init__(self, *, base_url, workdir, candidate_digest, attempt_id, principals,
-                 http_factory=None, mcp_factory=None, on_store=None):
+                 http_factory=None, mcp_factory=None, vault=None):
         self.base_url = base_url.rstrip('/')
         self.root = Path(workdir) / 'controller-records'
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.identity = {'candidateKey': candidate_digest, 'attemptId': attempt_id}
         self.principals = dict(principals)
         self._records: dict[str, Record] = {}
-        self._ledger = {}
-        # The runtime keeps its own copy of every step digest outside the stack; scoring trusts that.
-        self._on_store = on_store
         self.phase = 'seed'
         self._pending = {}
         self._http_factory = http_factory
         self._mcp_factory = mcp_factory
-        self._actions: list[tuple] = []        # sealed (session, sequence, digest, path, status, chain)
-        self._chain = 'sha256:' + hashlib.sha256(b'honua-corpus-action-log/v1').hexdigest()
-        self._sessions: set[int] = set()
+        vault = vault if vault is not None else EvidenceVault(attempt_id)
+        # Only these two capabilities of the runtime-owned vault are kept: deliver a new record, and
+        # read the sealed action inventory. The recorder can neither seal actions nor rewrite records.
+        self._deliver = vault.deliver
+        self._sealed_entries = vault.entries
+        self._case = vault.case_id
 
     @property
     def records(self):
@@ -167,14 +251,6 @@ class ControllerRecorder:
         from types import MappingProxyType
         return MappingProxyType(self._records)
 
-    def sealed_records(self, ledger=None):
-        """Records whose bytes still match the (runtime-held) ledger; anything else is not evidence."""
-        out = {}
-        for step, digest in (self._ledger if ledger is None else ledger).items():
-            record = self._records.get(step)
-            if record is not None and record.sha256 == digest and record.intact():
-                out[step] = record
-        return out
 
     # -- lifecycle ---------------------------------------------------------
     def between(self):
@@ -202,7 +278,7 @@ class ControllerRecorder:
 
     def _claim(self, step):
         require(isinstance(step, str) and STEP.fullmatch(step), 'invalid recorder step name')
-        require(step not in self._records and step not in self._ledger and step not in self._pending,
+        require(step not in self._records and step not in self._pending,
                 'recorder step already used: ' + step)
         require(self.phase != 'session', 'controller reads are closed while the model session runs')
 
@@ -211,11 +287,11 @@ class ControllerRecorder:
         return self.principals[name]
 
     def _store(self, record: Record):
+        import dataclasses
         require(record.intact(), 'recorded digest differs from the retained bytes')
+        record = dataclasses.replace(record, recorded_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+        self._deliver(record)
         self._records[record.step] = record
-        self._ledger[record.step] = record.sha256
-        if self._on_store is not None:
-            self._on_store(record.step, record.sha256)
         row = {**record.index(), 'bodyBase64': base64.b64encode(record.raw).decode('ascii')}
         if record.request_arguments_raw is not None:
             row['requestArgumentsSha256'] = 'sha256:' + hashlib.sha256(record.request_arguments_raw).hexdigest()
@@ -243,6 +319,7 @@ class ControllerRecorder:
             token = os.environ.get(env)
             require(isinstance(token, str) and token, 'recorder credential is not available')
             headers['X-API-Key'] = token
+        content_type = None
         if self._http_factory is not None:
             status, raw = self._http_factory(self, principal, method, path, body, headers)
         else:
@@ -259,12 +336,13 @@ class ControllerRecorder:
                     response = error
                 with response:
                     status, raw = response.status if hasattr(response, 'status') else response.code, response.read(16 * 1024 * 1024 + 1)
+                    content_type = response.headers.get('Content-Type')
             finally:
                 self._pending.pop(step, None)
             require(len(raw) <= 16 * 1024 * 1024, 'recorded response exceeds bound')
         require(token is None or token.encode() not in raw, 'response disclosed the requesting credential')
         record = self._store(Record(step, self.phase, 'http', principal, identity, method, path, status, raw,
-                                    'sha256:' + hashlib.sha256(raw).hexdigest()))
+                                    'sha256:' + hashlib.sha256(raw).hexdigest(), content_type=content_type))
         return {'observation': {'httpStatus': status, 'body': record.json, 'responseDigest': record.sha256,
                                 'rawBodyBase64': base64.b64encode(raw).decode('ascii')},
                 'reference': {'key': step, 'sha256': record.sha256}}
@@ -341,36 +419,20 @@ class ControllerRecorder:
         return self._mcp(step, principal, lambda c: c.read_resource(uri), arguments={'uri': uri}, label='resources/read')
 
     # -- replay of the harness action log ----------------------------------
-    @staticmethod
-    def _link(chain, entry):
-        return 'sha256:' + hashlib.sha256((chain + '\n' + json.dumps(list(entry), separators=(',', ':')))
-                                          .encode()).hexdigest()
-
-    def append_actions(self, session, rows):
-        """Runner only: seal one session's model actions, in order, into an append-only chain."""
-        require(type(session) is int and session > 0 and session not in self._sessions, 'session already sealed')
-        self._sessions.add(session)
-        for expected, row in enumerate(rows, start=1):
-            require(row['session'] == session and row['sequence'] == expected, 'action log is out of order')
-            read_logged_action(row['logPath'], row['digest'])
-            entry = (session, expected, row['digest'], str(row['logPath']), row['status'],
-                     row.get('resultRawSha256'), row.get('resultRawPath'), row.get('resultHttpStatus'))
-            self._chain = self._link(self._chain, entry)
-            self._actions.append(entry + (self._chain,))
-
     def _verified_entries(self):
-        chain = 'sha256:' + hashlib.sha256(b'honua-corpus-action-log/v1').hexdigest()
-        for entry in self._actions:
-            chain = self._link(chain, entry[:8])
-            require(chain == entry[8], 'harness action log chain is broken')
-        require(chain == self._chain, 'harness action log head differs')
-        return [entry[:8] for entry in self._actions]
+        return [entry for entry, _raw in self._sealed_entries()]
+
+    def _sealed_action(self, action):
+        member = (action.session, action.sequence, action.digest, str(action.path), action.status)
+        found = [(entry, raw) for entry, raw in self._sealed_entries() if entry[:5] == member]
+        require(len(found) == 1, 'action is not in this case\'s harness action log')
+        return found[0]
 
     def actions(self):
         """Digest-verified model actions of this case, in execution order (the harness's own log)."""
         out = []
-        for session, sequence, digest, path, status, *_ in self._verified_entries():
-            action = read_logged_action(path, digest)
+        for (session, sequence, digest, path, status, *_), raw in self._sealed_entries():
+            action = json.loads(raw)
             out.append(LoggedAction(session, sequence, digest, action.get('kind'), action.get('tool'),
                                     action.get('arguments'), action.get('uri'), status, path))
         return tuple(out)
@@ -379,10 +441,8 @@ class ControllerRecorder:
         """Re-execute one sealed model tool call of this case verbatim with controller credentials."""
         require(self.phase == 'observe', 'replay happens after the session')
         require(principal == 'controller', 'replay runs with controller credentials')
-        member = (action.session, action.sequence, action.digest, str(action.path), action.status)
-        require(member in [entry[:5] for entry in self._verified_entries()],
-                'replay target is not in this case\'s harness action log')
-        logged = read_logged_action(action.path, action.digest)
+        _entry, raw = self._sealed_action(action)
+        logged = json.loads(raw)  # the vault's own copy of the model's bytes, not the file
         require(logged.get('kind') == 'tool_call' and isinstance(logged.get('arguments'), dict)
                 and isinstance(logged.get('tool'), str), 'only a logged tool call can be replayed')
         tool, arguments = logged['tool'], json.loads(json.dumps(logged['arguments']))
@@ -399,14 +459,12 @@ class ControllerRecorder:
         """
         require(self.phase == 'observe', 'action results are registered after the session')
         self._claim(step)
-        entries = [entry for entry in self._verified_entries()
-                   if entry[:5] == (action.session, action.sequence, action.digest, str(action.path), action.status)]
-        require(len(entries) == 1, 'action is not in this case\'s harness action log')
-        _session, _sequence, digest, path, _status, raw_sha, raw_path, http_status = entries[0]
+        entry, action_raw = self._sealed_action(action)
+        _session, _sequence, digest, path, _status, raw_sha, raw_path, http_status = entry
         require(isinstance(raw_sha, str) and isinstance(raw_path, str), 'no server response was captured for the action')
         raw = Path(raw_path).read_bytes()
         require('sha256:' + hashlib.sha256(raw).hexdigest() == raw_sha, 'captured action response digest mismatch')
-        logged = read_logged_action(path, digest)
+        logged = json.loads(action_raw)
         label = 'tools/call' if logged.get('kind') == 'tool_call' else 'resources/read'
         arguments = ({'tool': logged.get('tool'), 'arguments': logged.get('arguments')} if label == 'tools/call'
                      else {'uri': logged.get('uri')})

@@ -92,3 +92,32 @@ def load_expected(scenario_id, variant):
     for assertion, value in assertions.items():
         check_exclusion(scenario_id, assertion, value)
     return _resolve(assertions, variant)
+
+
+READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replayOfModelAction'}
+
+
+def load_projections(scenario_id, variant):
+    """Frozen per-assertion projections: {assertion: {"spec": ..., "reads": {step: rule}}}.
+
+    The document's top-level "projections" applies to every variant; a variant may override an
+    assertion under "variantProjections". Every read rule pins kind, method, a full-match path
+    regex, principal and phase (origin defaults to controller).
+    """
+    if variant not in ('A', 'B'):
+        raise ValueError('only development variants A and B are enabled')
+    document = load_document(scenario_id)
+    rows = dict(document.get('projections') or {})
+    rows.update((document.get('variantProjections') or {}).get(variant) or {})
+    out = {}
+    for assertion, row in rows.items():
+        if not isinstance(row, dict) or set(row) != {'spec', 'reads'} or not isinstance(row['spec'], dict) \
+                or not isinstance(row['reads'], dict) or not row['reads']:
+            raise ValueError('malformed frozen projection: ' + assertion)
+        for step, rule in row['reads'].items():
+            if not isinstance(rule, dict) or set(rule) - READ_FIELDS or \
+                    not {'kind', 'method', 'path', 'principal', 'phase'} <= set(rule):
+                raise ValueError(f'frozen read {step} for {assertion} must pin kind, method, path, principal, phase')
+            re.compile(rule['path'])
+        out[assertion] = {'spec': row['spec'], 'reads': row['reads']}
+    return out

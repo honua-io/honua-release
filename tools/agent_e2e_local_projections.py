@@ -127,7 +127,8 @@ def canonical(value):
 
 
 class Context:
-    def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=()):
+    def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=(), model_actions=None):
+        self.model_actions = dict(model_actions or {})
         self.records, self.roles = records, dict(roles or {})
         self.custody, self.run_facts = dict(custody or {}), dict(run_facts or {})
         self.credentials = tuple(value for value in credentials if isinstance(value, str) and len(value) >= 8)
@@ -292,6 +293,11 @@ def evaluate(spec, ctx, *, item=None, step=None):
         record = ctx.record(named(spec['featureQueryIds']))
         require(record.kind == 'mcp' and record.status == 200 and isinstance(record.json, dict),
                 'feature query response missing or failed')
+        # Query results measure the model's work only when the query is the model's own request.
+        logged = ctx.model_actions.get(record.replay_of) if record.replay_of else None
+        require(isinstance(logged, dict) and logged.get('kind') == 'tool_call'
+                and record.request_arguments == {'tool': logged.get('tool'), 'arguments': logged.get('arguments')},
+                'feature query is not a replay of a sealed model action')
         result = record.json.get('result')
         require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
         value = result.get('structuredContent')
@@ -360,8 +366,23 @@ def resolve_roles(bindings, records, *, agent_principal):
                 and baseline_record.kind == record.kind and baseline_record.path == record.path
                 and baseline_record.principal == record.principal,
                 'created role baseline is not a seed-phase read of the same enumeration: ' + name)
+        require(baseline_record.method == record.method
+                and baseline_record.request_arguments == record.request_arguments,
+                'created role baseline enumerates a different request scope: ' + name)
         baseline = pointer_get(baseline_record.json, binding.items)
         require(isinstance(baseline, list), 'created role baseline is not a list: ' + name)
+        require((binding.total is None) != (binding.next_page is None),
+                'created role needs exactly one completeness proof (total or next_page): ' + name)
+        for listing, values in ((record, rows), (baseline_record, baseline)):
+            if binding.total is not None:
+                count = pointer_get(listing.json, binding.total)
+                require(type(count) is int and count == len(values), 'created role enumeration is incomplete: ' + name)
+            else:
+                try:
+                    cursor = pointer_get(listing.json, binding.next_page)
+                except ProjectionError:
+                    cursor = None
+                require(cursor in (None, ''), 'created role enumeration has further pages: ' + name)
         excluded = {str(pointer_get(row, binding.id)) for row in baseline}
         matches = []
         for row in rows:

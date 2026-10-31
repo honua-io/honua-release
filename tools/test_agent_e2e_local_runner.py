@@ -474,7 +474,8 @@ def test_created_role_requires_exactly_one_new_owned_resource():
     before = [{'id': 'm1', 'owner': 'other'}]
     records = {'before': record('before', 'seed', before),
                'after': record('after', 'observe', before + [{'id': 'm2', 'owner': 'agent'}, {'id': 'm3', 'owner': 'x'}])}
-    binding = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before')
+    binding = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before',
+                          next_page='/next')
     assert resolve_roles([binding], records, agent_principal='agent') == {'created:map': 'm2'}
     records['after'] = record('after', 'observe', before + [{'id': 'm2', 'owner': 'agent'}, {'id': 'm4', 'owner': 'agent'}])
     with pytest.raises(ValueError, match='matched 2'):
@@ -603,7 +604,6 @@ class TamperingP10(FakeP10):
             raw = json.dumps(message).encode()
             forged = dataclasses.replace(record, raw=raw, sha256='sha256:' + hashlib.sha256(raw).hexdigest())
             recorder._records['p10-replay-query'] = forged
-            recorder._ledger['p10-replay-query'] = forged.sha256
         elif self.how == 'score-seed-read':
             rows[0] = Observation('filter.exact', None, {'projection': 'extract/v1', 'spec': {'object': {
                 'resourceIds': {'sorted': {'map': {'body': 'p10-source-before', 'pointer': '/features'},
@@ -615,7 +615,8 @@ def test_finding1_scored_values_are_bound_to_runner_ledger_bytes(candidate, tmp_
     # A wrong query: a forged record that "fixes" the result must not pass.
     (tmp_path / 'a').mkdir()
     receipt, _, _ = run_case(candidate, tmp_path / 'a', [tool('is_open = true'), FINAL], scenario=TamperingP10('forge-record'))
-    assert receipt['assertions'][0]['status'] == 'fail' and 'unrecorded step' in receipt['assertions'][0]['reason']
+    # Scoring reads the runtime vault, which still holds the bytes the controller actually received.
+    assert receipt['assertions'][0]['status'] == 'fail' and 'differs' in receipt['assertions'][0]['reason']
     # A correct query: mutating the parsed view does not change the score.
     (tmp_path / 'b').mkdir()
     receipt, _, _ = run_case(candidate, tmp_path / 'b', [tool(CORRECT_WHERE), FINAL], scenario=TamperingP10('mutate-parsed'))
@@ -623,7 +624,7 @@ def test_finding1_scored_values_are_bound_to_runner_ledger_bytes(candidate, tmp_
     # A seed-phase read is never scored as post-session state.
     (tmp_path / 'c').mkdir()
     receipt, _, _ = run_case(candidate, tmp_path / 'c', [tool(CORRECT_WHERE), FINAL], scenario=TamperingP10('score-seed-read'))
-    assert receipt['assertions'][0]['status'] == 'fail' and 'pre-session read' in receipt['assertions'][0]['reason']
+    assert receipt['assertions'][0]['status'] == 'fail' and 'frozen projection' in receipt['assertions'][0]['reason']
 
 
 def test_finding1_bytes_altered_after_recording_fail():
@@ -669,21 +670,25 @@ def test_finding3_created_roles_require_owner_and_post_seed_creation():
                     RoleBinding('created:map', 'after', items='/items', id='/id', before='before')):
         with pytest.raises(ValueError, match='both'):
             resolve_roles([binding], records, agent_principal='agent')
-    both = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before')
+    both = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before',
+                       next_page='/next')
     with pytest.raises(ValueError, match='matched 0'):
         resolve_roles([both], records, agent_principal='agent')
     # The baseline must be the same enumeration, read before the session.
     records['other'] = record('other', 'seed', [], path='/other')
     with pytest.raises(ValueError, match='same enumeration'):
-        resolve_roles([RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='other')],
+        resolve_roles([RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='other',
+                                   next_page='/next')],
                       records, agent_principal='agent')
 
 
 def test_finding4_replay_requires_membership_in_this_cases_action_log(candidate, tmp_path):
     import os
     from agent_e2e_local_recorder import LoggedAction, action_bytes
+    from agent_e2e_local_recorder import EvidenceVault
     os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
-    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST,
+    vault = EvidenceVault('corpus-test')
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST, vault=vault,
                                   attempt_id='corpus-test', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')})
     action = {'kind': 'tool_call', 'tool': 'honua_query_features',
               'arguments': {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE}}
@@ -694,20 +699,23 @@ def test_finding4_replay_requires_membership_in_this_cases_action_log(candidate,
     recorder.set_phase('observe')
     with pytest.raises(ValueError, match='not in this case'):   # empty harness log: a nonmember
         recorder.replay('replay-empty', logged)
-    recorder.append_actions(1, [{'session': 1, 'sequence': 1, 'digest': digest, 'logPath': str(path), 'status': 'pass'}])
+    assert not hasattr(recorder, 'append_actions')                 # scenarios cannot extend the inventory
+    vault.append_actions(1, [{'session': 1, 'sequence': 1, 'digest': digest, 'logPath': str(path), 'status': 'pass'}])
     foreign = LoggedAction(2, 1, digest, 'tool_call', action['tool'], action['arguments'], None, 'pass', str(path))
     with pytest.raises(ValueError, match='not in this case'):   # a session this case never ran
         recorder.replay('replay-foreign', foreign)
     recorder.replay('replay-member', recorder.actions()[0])
     assert recorder.records['replay-member'].replay_of == digest
+    # Rewriting the private file cannot change what is replayed: the vault holds the sealed bytes.
     path.write_bytes(action_bytes({**action, 'arguments': {**action['arguments'], 'where': '1=1'}}))
-    with pytest.raises(ValueError, match='digest'):              # altered entry bytes
-        recorder.replay('replay-altered', logged)
-    recorder._actions[0] = recorder._actions[0][:2] + ('sha256:' + 'f' * 64,) + recorder._actions[0][3:]
+    recorder.replay('replay-after-file-edit', recorder.actions()[0])
+    assert recorder.records['replay-after-file-edit'].request_arguments['arguments']['where'] == CORRECT_WHERE
+    entry, raw, link = vault._actions[0]
+    vault._actions[0] = ((entry[0], entry[1], 'sha256:' + 'f' * 64) + entry[3:], raw, link)
     with pytest.raises(ValueError, match='chain'):                # altered log entry
         recorder.actions()
     with pytest.raises(ValueError):                               # sessions are sealed once
-        recorder.append_actions(1, [])
+        vault.append_actions(1, [])
 
 
 def test_finding5_model_visible_bytes_offer_only_admitted_actions(candidate, tmp_path):
@@ -991,8 +999,10 @@ def test_import_report_comes_from_the_captured_server_response_to_the_sealed_act
 def test_action_result_refuses_unsealed_or_altered_responses(candidate, tmp_path):
     import os
     from agent_e2e_local_recorder import LoggedAction, action_bytes
+    from agent_e2e_local_recorder import EvidenceVault
     os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
-    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST,
+    vault = EvidenceVault('corpus-test')
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST, vault=vault,
                                   attempt_id='corpus-test', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')})
     action = {'kind': 'tool_call', 'tool': 'honua_ingest_dataset', 'arguments': {}}
     path, response = tmp_path / 'action-0001.json', tmp_path / 'action-0001.response'
@@ -1006,7 +1016,7 @@ def test_action_result_refuses_unsealed_or_altered_responses(candidate, tmp_path
     recorder.set_phase('observe')
     with pytest.raises(ValueError, match='not in this case'):
         recorder.action_result('report-unsealed', logged)
-    recorder.append_actions(1, [row])
+    vault.append_actions(1, [row])
     response.write_bytes(b'{"jsonrpc":"2.0","id":"1","result":{"content":[],"forged":true}}')
     with pytest.raises(ValueError, match='digest mismatch'):
         recorder.action_result('report-altered', logged)
@@ -1042,3 +1052,170 @@ def test_exclusions_are_listed_never_passed_and_only_by_registered_rulings(candi
     assert summary['overall']['total'] == 1 and summary['overall']['passed'] == 1
     assert summary['overall']['excludedCases'] == ['P10:B:local-docker']
     assert [c['caseId'] for c in summary['cases']] == ['P10:A:local-docker', 'P10:B:local-docker']
+
+
+# ---- Astra re-review 5722009491 -----------------------------------------------------------------
+
+class OwnQueryP10(FakeP10):
+    """A scenario that runs its own (correct) controller query instead of replaying the model's."""
+
+    def __init__(self, how):
+        self.how = how
+
+    def observe(self, stack, seeded, variant, run=None):
+        from agent_e2e_local_recorder import LoggedAction, action_bytes
+        from agent_e2e_p10_observer import source_path
+        recorder = stack.extra['recorder']
+        recorder.json('p10-source-after', 'GET', source_path({'service': 'p10-shelters', 'layerId': 0}))
+        arguments = {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE}
+        if self.how == 'own-query':
+            recorder.mcp_call('p10-replay-query', 'honua_query_features', arguments)
+        elif self.how == 'fabricated-action':
+            action = {'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': arguments}
+            path = Path(stack.workdir) / 'fabricated.json'
+            path.write_bytes(action_bytes(action))
+            fake = LoggedAction(1, 2, 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest(), 'tool_call',
+                                action['tool'], arguments, None, 'pass', str(path))
+            try:
+                recorder.replay('p10-replay-query', fake)
+            except ValueError:
+                pass
+        return [Observation('filter.exact', None, {'projection': 'extract/v1'}),
+                Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
+
+
+@pytest.mark.parametrize('how', ['own-query', 'fabricated-action'])
+def test_rereview1_2_wrong_model_query_cannot_pass_through_scenario_queries(candidate, tmp_path, how):
+    receipt, _, _ = run_case(candidate, tmp_path, [tool('is_open = true'), FINAL], scenario=OwnQueryP10(how))
+    assert receipt['assertions'][0]['status'] == 'fail', receipt['assertions'][0]
+    assert receipt['status'] == 'fail'
+
+
+def test_rereview1_vault_binds_record_metadata_not_only_bytes(tmp_path):
+    import dataclasses
+    from agent_e2e_local_recorder import EvidenceVault
+    vault = EvidenceVault('case-1')
+    record = _record('r', phase='seed', body={'resourceIds': ['s3']})
+    vault.deliver(record)
+    assert vault.records()['r'] is record
+    for change in ({'phase': 'observe'}, {'principal': 'agent'}, {'status': 201}, {'path': '/y'},
+                   {'replay_of': 'sha256:' + 'a' * 64}, {'origin': 'session-result'}):
+        vault._records['r'] = dataclasses.replace(record, **change)
+        with pytest.raises(ValueError, match='altered'):
+            vault.records()
+    vault._records['r'] = record
+    with pytest.raises(ValueError):
+        vault.deliver(record)  # one write per step
+
+
+def test_rereview1_frozen_read_rules_reject_a_different_request(candidate, tmp_path):
+    frozen = runner.frozen_projections(P10(), 'A')
+    assert set(frozen) == {'filter.exact', 'source-content.unchanged'}
+    record = _record('p10-source-after', body={'features': []}, path='/rest/services/x/FeatureServer/0/query?f=json&where=1%3D0')
+    with pytest.raises(ValueError, match='path'):
+        runner.check_reads('p10-source-after', record, frozen['source-content.unchanged']['reads']['p10-source-after'], {})
+
+
+def test_rereview3_created_roles_need_complete_identical_enumerations():
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+
+    def record(step, phase, body, arguments=None, kind='mcp'):
+        raw = json.dumps({'jsonrpc': '2.0', 'id': '1', 'result': body}).encode()
+        return Record(step, phase, kind, 'controller', None, 'POST', '/mcp#tools/call', 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest(), None,
+                      None if arguments is None else json.dumps(arguments).encode())
+    scope = {'tool': 'honua_list_maps', 'arguments': {'owner': 'agent'}}
+    rows = [{'id': 'm1', 'owner': 'agent'}]
+    binding = RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before', total='/result/total')
+    complete = {'before': record('before', 'seed', {'items': [], 'total': 0}, scope),
+                'after': record('after', 'observe', {'items': rows, 'total': 1}, scope)}
+    assert resolve_roles([binding], complete, agent_principal='agent') == {'created:map': 'm1'}
+    incomplete = {**complete, 'before': record('before', 'seed', {'items': [], 'total': 3}, scope)}
+    with pytest.raises(ValueError, match='incomplete'):   # the pre-existing m1 may be on an unread page
+        resolve_roles([binding], incomplete, agent_principal='agent')
+    other_scope = {**complete, 'before': record('before', 'seed', {'items': [], 'total': 0},
+                                                {'tool': 'honua_list_maps', 'arguments': {'owner': 'someone'}})}
+    with pytest.raises(ValueError, match='different request scope'):
+        resolve_roles([binding], other_scope, agent_principal='agent')
+    paged = RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before',
+                        next_page='/result/next')
+    more = {**complete, 'after': record('after', 'observe', {'items': rows, 'next': 'cursor-2'}, scope)}
+    with pytest.raises(ValueError, match='further pages'):
+        resolve_roles([paged], more, agent_principal='agent')
+    with pytest.raises(ValueError, match='completeness'):
+        resolve_roles([RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before')],
+                      complete, agent_principal='agent')
+
+
+class CrashingSession:
+    agent_type = 'test-crash'
+
+    def __init__(self, runtime, stack):
+        pass
+
+    def run(self, context):
+        context.execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_query_features',
+                                      'arguments': {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE}})
+        raise RuntimeError('adapter crashed')
+
+
+class LostResponseSession(McpSpeakingSession):
+    agent_type = 'test-lost'
+
+    def run(self, context):
+        import os
+        from agent_e2e_local_api import SessionResult
+        from agent_e2e_mcp import Client, McpError
+        endpoint = context.mcp_proxy()
+        os.environ['TEST_PROXY_TOKEN'] = endpoint.token.removeprefix('Bearer ')
+        client = Client(endpoint.url, credential_env='TEST_PROXY_TOKEN', credential_kind='bearer', timeout=60)
+        client.initialize()
+        with pytest.raises(McpError):
+            client.call_tool('honua_query_features', {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE})
+        return SessionResult(agent_type=self.agent_type, model_id='test-model', final_answer='Done: two shelters.')
+
+
+@pytest.mark.parametrize('name,factory', [('test-crash', CrashingSession), ('test-lost', LostResponseSession)])
+def test_rereview4_session_crash_or_lost_response_is_a_recorded_failure(candidate, tmp_path, monkeypatch, name, factory):
+    import agent_e2e_local_mcp_proxy
+    forward = agent_e2e_local_mcp_proxy.RecordingMcpProxy.forward
+
+    def lossy(self, body, headers, *, method='POST'):
+        if body and b'"tools/call"' in body:
+            raise OSError('connection reset after send')
+        return forward(self, body, headers, method=method)
+    monkeypatch.setattr(agent_e2e_local_mcp_proxy.RecordingMcpProxy, 'forward', lossy)
+    runner.SESSIONS[name] = factory
+    try:
+        runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+        runtime.agent = name
+        receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=FakeP10(), variant='A', case=case('A'),
+                                      candidate_digest=DIGEST, runtime=runtime)
+    finally:
+        del runner.SESSIONS[name]
+    assert receipt['status'] == 'fail' and receipt['failure']['category'] == 'post-action-undetermined', receipt
+    actions = receipt['sessions'][0]['actions']
+    assert len(actions) == 1 and Path(json.loads(json.dumps(actions))[0].get('digest', '')).name
+    assert not receipt['infrastructure']
+    if name == 'test-lost':
+        assert actions[0]['status'] == 'unknown'
+
+
+def test_rereview5_session_registration_works_through_the_script_entrypoint(tmp_path):
+    import os
+    import subprocess
+    import sys
+    (tmp_path / 'fake_sessions_entry.py').write_text(
+        'import agent_e2e_local_runner as runner\n'
+        'class S:\n    agent_type = "fake-cli"\n    def __init__(self, runtime, stack): pass\n'
+        'runner.register_session("fake-cli", S)\n')
+    env = {**os.environ, 'PYTHONPATH': str(tmp_path), 'HONUA_CORPUS_SESSION_MODULES': 'fake_sessions_entry'}
+    script = str(ROOT / 'tools/agent_e2e_local_runner.py')
+    listed = subprocess.run([sys.executable, script, 'agents'], capture_output=True, text=True, env=env, timeout=120)
+    assert listed.returncode == 0 and 'fake-cli' in json.loads(listed.stdout), listed.stderr
+    out = tmp_path / 'receipt.json'
+    subprocess.run([sys.executable, script, 'case', '--scenario', 'P10', '--variant', 'A', '--model', 'm',
+                    '--agent', 'fake-cli', '--image-ref', 'x', '--output', str(out)], env=env, timeout=120)
+    reason = json.loads(out.read_text())['infrastructure'][0]['reason']
+    assert 'unknown agent session' not in reason and 'image reference' in reason

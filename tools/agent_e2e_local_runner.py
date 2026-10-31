@@ -38,6 +38,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+if __name__ == '__main__':
+    # One module identity: an adapter that imports agent_e2e_local_runner (e.g. to call
+    # register_session) must reach this same registry when the file runs as a script.
+    sys.modules.setdefault('agent_e2e_local_runner', sys.modules[__name__])
 
 from agent_e2e_local_api import API_VERSION, Observation, RunRecord, Stack  # noqa: E402
 from agent_e2e_local_faults import validate_fault_plan  # noqa: E402
@@ -77,9 +81,44 @@ def _canary():
 
 # --------------------------------------------------------------------------- scoring
 
+def check_reads(step, record, rule, model_actions):
+    """A record must be exactly the read the frozen projection declares for that step."""
+    for field, actual in (('kind', record.kind), ('method', record.method), ('principal', record.principal),
+                          ('phase', record.phase), ('origin', record.origin)):
+        wanted = rule.get(field, 'controller' if field == 'origin' else None)
+        if wanted is None:
+            raise ValueError(f'frozen read for {step} does not pin {field}')
+        if actual != wanted:
+            raise ValueError(f'{step}: recorded {field} {actual!r} differs from the frozen read {wanted!r}')
+    if not isinstance(rule.get('path'), str) or not re.fullmatch(rule['path'], record.path):
+        raise ValueError(f'{step}: recorded request path is not the frozen read')
+    if rule.get('replayOfModelAction'):
+        logged = model_actions.get(record.replay_of) if record.replay_of else None
+        if logged is None or logged.get('kind') != 'tool_call':
+            raise ValueError(f'{step}: not a replay of a sealed model action of this case')
+        if record.request_arguments != {'tool': logged.get('tool'), 'arguments': logged.get('arguments')}:
+            raise ValueError(f'{step}: replayed request differs from the model action')
+    elif record.replay_of is not None and rule.get('origin', 'controller') == 'controller':
+        raise ValueError(f'{step}: an unexpected replay record')
+
+
+def frozen_projections(scenario, variant):
+    """The scenario's frozen per-assertion projections (expectations/local/<ID>.json "projections")."""
+    from agent_e2e_local_expectations import load_projections
+    try:
+        return load_projections(scenario.id, variant)
+    except (OSError, ValueError):
+        return {}
+
+
 def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None,
-                     credentials=(), scenario_id=None):
+                     credentials=(), scenario_id=None, model_actions=None, frozen=None):
     """Score each pack assertion from the runner's own recorded responses, failing closed.
+
+    With ``frozen`` (always, on the runner path) each assertion is scored only by its frozen
+    projection from the expectation file, and every record it reads must match the frozen read
+    declaration (kind, method, path, principal, phase, origin; replay of a sealed model action
+    where declared). A scenario's Observation must carry the identical spec or none.
 
     An assertion whose frozen expectation is a registered exclusion marker is reported as
     ``excluded`` with its ruling; it is never observed, never a pass and never dropped.
@@ -93,7 +132,8 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 or observation.assertion_id in by_id:
             raise ValueError('unexpected or duplicate observation')
         by_id[observation.assertion_id] = observation
-    ctx = projections.Context(records, roles, custody, run_facts, credentials)
+    model_actions = dict(model_actions or {})
+    ctx = projections.Context(records, roles, custody, run_facts, credentials, model_actions=model_actions)
     results = []
     for assertion in assertions:
         ruling = check_exclusion(scenario_id, assertion, expected[assertion])
@@ -107,9 +147,19 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
         try:
             evidence = obs.evidence
             if not isinstance(evidence, dict) or evidence.get('projection') != 'extract/v1' \
-                    or not isinstance(evidence.get('spec'), dict) or set(evidence) - {'projection', 'spec', 'note'}:
+                    or set(evidence) - {'projection', 'spec', 'note'}:
                 raise ValueError('observation is not a runner projection over recorded responses')
-            spec = evidence['spec']
+            reads = None
+            if frozen is not None:
+                if assertion not in frozen:
+                    raise ValueError('no frozen projection for this assertion')
+                spec, reads = frozen[assertion]['spec'], frozen[assertion]['reads']
+                if 'spec' in evidence and projections.canonical(evidence['spec']) != projections.canonical(spec):
+                    raise ValueError('observation spec differs from the frozen projection')
+            elif isinstance(evidence.get('spec'), dict):
+                spec = evidence['spec']
+            else:
+                raise ValueError('observation is not a runner projection over recorded responses')
             steps = projections.referenced_steps(spec)
             text = json.dumps(spec)
             if not steps and '"custody"' not in text and '"run"' not in text:
@@ -123,6 +173,10 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 # Post-session state only; seed-phase reads count solely as protected-content baselines.
                 if record.phase != 'observe' and step not in projections.baseline_steps(spec):
                     raise ValueError('projection scores a pre-session read: ' + step)
+                if reads is not None:
+                    if step not in reads:
+                        raise ValueError('projection reads a step its frozen declaration does not list: ' + step)
+                    check_reads(step, record, reads[step], model_actions)
             observed = projections.evaluate(spec, ctx)
             if obs.observed is not None and projections.canonical(obs.observed) != projections.canonical(observed):
                 raise ValueError('scenario-supplied value differs from the runner projection')
@@ -679,7 +733,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         try:
             observations = observe_scenario(scenario, stack, seeded, variant, run)
             bindings = (scenario.roles(stack, seeded, variant, run) if hasattr(scenario, 'roles') else [])
-            sealed = recorder.sealed_records(runtime.ledger(stack) if hasattr(runtime, 'ledger') else None)
+            vault = runtime.vault(stack)
+            sealed = vault.records()
+            model_actions = vault.model_actions()
             roles = projections.resolve_roles(bindings, sealed, agent_principal=run.agent_principal)
             custody = runtime.custody(stack)  # includes runner facts recorded during observe (e.g. restarts)
         except Exception as exc:
@@ -688,13 +744,14 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                                      {'assertion': a, 'status': 'fail',
                                       'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}
                                      for a in case['assertions']]
-            observations, roles = None, {}
+            observations, roles, model_actions = None, {}, {}
         if observations is not None:
             receipt['assertions'] = score_assertions(case['assertions'], observations, expected,
                                                      records=sealed, roles=roles, custody=custody,
                                                      run_facts=run_facts,
                                                      credentials=tuple(getattr(runtime, '_secrets', ())),
-                                                     scenario_id=scenario.id)
+                                                     scenario_id=scenario.id, model_actions=model_actions,
+                                                     frozen=frozen_projections(scenario, variant))
         receipt['roles'] = {name: value for name, value in sorted(roles.items())}
         handoff = None
         if observations is not None and hasattr(scenario, 'handoff'):
@@ -702,7 +759,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                 spec = scenario.handoff(stack, seeded, variant, run)
                 if spec is not None:
                     handoff = projections.evaluate(spec, projections.Context(sealed, roles, custody,
-                                                                             run_facts))
+                                                                             run_facts, model_actions=model_actions))
             except (ValueError, KeyError, TypeError) as exc:
                 receipt['handoffError'] = str(exc)[:200]
         receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1], handoff, receipt['assertions'])
@@ -849,10 +906,17 @@ def register_session(name, factory):
 
 
 def _load_optional_sessions():
-    path = Path(__file__).resolve().parent / 'agent_e2e_cli_sessions.py'
-    if path.is_file():
-        import importlib
-        importlib.import_module('agent_e2e_cli_sessions')
+    """Import session adapters: tools/agent_e2e_cli_sessions.py when present, plus any module named in
+    HONUA_CORPUS_SESSION_MODULES (comma-separated). Each registers through register_session()."""
+    import importlib
+    names = []
+    if (Path(__file__).resolve().parent / 'agent_e2e_cli_sessions.py').is_file():
+        names.append('agent_e2e_cli_sessions')
+    names += [n.strip() for n in os.environ.get('HONUA_CORPUS_SESSION_MODULES', '').split(',') if n.strip()]
+    for name in names:
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*', name):
+            raise ValueError('invalid session module name')
+        importlib.import_module(name)
 
 
 class LocalRuntime:
@@ -872,7 +936,7 @@ class LocalRuntime:
         self._secrets = []
         self._hints = []
         self.workdirs = []
-        self._ledgers = {}
+        self._vaults = {}
 
     def redact(self, text):
         for value in self._secrets:
@@ -950,19 +1014,15 @@ class LocalRuntime:
         return answer
 
     def _recorder(self, stack, principals):
-        ledger = self._ledgers.setdefault(stack.compose_project, {})
-
-        def on_store(step, digest):
-            if step in ledger:
-                raise ValueError('recorder step stored twice')
-            ledger[step] = digest
+        from agent_e2e_local_recorder import EvidenceVault
+        vault = self._vaults.setdefault(stack.compose_project, EvidenceVault(stack.compose_project))
         return ControllerRecorder(base_url=stack.base_url, workdir=stack.workdir,
                                   candidate_digest=stack.candidate_digest, attempt_id=stack.compose_project,
-                                  principals=principals, on_store=on_store)
+                                  principals=principals, vault=vault)
 
-    def ledger(self, stack):
-        """Runtime-held step digests for this case (outside anything a scenario receives)."""
-        return dict(self._ledgers.get(stack.compose_project, {}))
+    def vault(self, stack):
+        """The runtime-held evidence authority for this case (never handed to a scenario)."""
+        return self._vaults[stack.compose_project]
 
     def _prepare(self, stack, permissions):
         """Case custody, recorded: bootstrap key mints the agent key, then is revoked and probed."""
@@ -1184,16 +1244,28 @@ class LocalRuntime:
             workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
             attachments=tuple(stack.extra.get('customerFiles', ())))
         agent = self.agent_session(stack)
+        vault = self.vault(stack)
+
+        def empty_progress():
+            return {'actions': list(action_log.rows), 'modelVisibleDigests': [], 'usage': [], 'provenance': [],
+                    'nudges': 0, 'clarifications': [], 'tokens': 0, 'messageIds': [], 'agentType': agent.agent_type}
         try:
             result = agent.run(context)
         except SessionInterrupted as exc:
             exc.progress['actions'] = list(action_log.rows)
-            stack.extra['recorder'].append_actions(number, action_log.rows)
+            vault.append_actions(number, action_log.rows)
             raise
+        except Exception as exc:
+            # Any other session exit keeps the write-ahead action log: once an action was dispatched
+            # the case is a failure (incomplete), never infrastructure.
+            vault.append_actions(number, action_log.rows)
+            category = 'post-action-undetermined' if action_log.rows else 'infrastructure'
+            raise SessionInterrupted(category, empty_progress(),
+                                     f'session ended abnormally ({type(exc).__name__}): {str(exc)[:200]}') from exc
         finally:
             for proxy in proxies:
                 proxy.stop()
-        stack.extra['recorder'].append_actions(number, action_log.rows)
+        vault.append_actions(number, action_log.rows)
         stack.extra['agentType'] = result.agent_type
         output = {'actions': list(action_log.rows), 'modelVisibleDigests': list(result.model_visible_digests),
                   'usage': list(result.usage), 'provenance': list(result.provenance), 'nudges': result.nudges,
@@ -1206,6 +1278,11 @@ class LocalRuntime:
         if result.failure is not None or not isinstance(result.final_answer, str):
             failure = result.failure or {'category': 'model', 'reason': 'session returned no final answer'}
             raise SessionInterrupted(failure.get('category', 'model'), output, failure.get('reason', ''))
+        unknown = [row['sequence'] for row in action_log.rows if row['status'] == 'unknown']
+        if unknown:
+            # An action whose outcome the runner could not observe makes the case undetermined: a failure.
+            raise SessionInterrupted('post-action-undetermined', output,
+                                     f'outcome of action(s) {unknown} unknown; the session still answered')
         return output
 
     def stage_customer_files(self, stack, paths):
@@ -1442,12 +1519,17 @@ def main(argv=None):
     case.add_argument('--agent', default='bedrock-proxy',
                       help='model session: bedrock-proxy (shipped canary path) or a registered session name')
     case.add_argument('--output', type=Path, required=True)
+    sub.add_parser('agents', help='list registered model sessions')
     collect = sub.add_parser('aggregate')
     collect.add_argument('--scenarios', required=True)
     collect.add_argument('--variants', required=True)
     collect.add_argument('--artifacts', type=Path, required=True)
     collect.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.operation == 'agents':
+        _load_optional_sessions()
+        print(json.dumps(sorted(SESSIONS)))
+        return 0
     if args.operation == 'inventory':
         cases = build_inventory(PACK, args.scenarios.split(','), args.variants.split(','))
         print(json.dumps([{'scenario': row.split(':')[0], 'variant': row.split(':')[1]} for row in cases],
@@ -1470,6 +1552,8 @@ def main(argv=None):
                'assertions': [], 'finalAnswerCheck': None, 'infrastructure': []}
     runtime = None
     try:
+        if args.agent not in SESSIONS:
+            raise ValueError('unknown agent session: ' + args.agent)
         data = select_case(PACK, args.scenario, args.variant)
         candidate, release, image = _candidate_binding(args.image_ref, args.lock_digest, args.lock_path)
         receipt['candidateDigest'] = candidate
@@ -1482,8 +1566,6 @@ def main(argv=None):
                                max_actions=limits['maxActions'], max_tokens=args.max_tokens,
                                signing_manifest_sha256=os.environ.get('TERMINAL_MODEL_SIGNING_MANIFEST_SHA256'),
                                agent=args.agent)
-        if args.agent not in SESSIONS:
-            raise ValueError('unknown agent session: ' + args.agent)
         receipt = execute_case(case_id=case_id, scenario=scenario, variant=args.variant, case=data,
                                candidate_digest=candidate, runtime=runtime)
         receipt['serverImage'] = image

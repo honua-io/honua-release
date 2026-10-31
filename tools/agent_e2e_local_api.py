@@ -13,7 +13,8 @@ Recorder (``stack.extra['recorder']``; runner-owned, tools/agent_e2e_local_recor
   recorder.mcp_call(step, tool, arguments, *, principal='controller') -> MCP result
   recorder.mcp_read(step, uri, *, principal='controller') -> MCP result
   recorder.replay(step, action, *, principal='controller') -> MCP result
-  recorder.actions() -> tuple[LoggedAction, ...]   # digest-verified harness action log
+  recorder.actions() -> tuple[LoggedAction, ...]   # read-only view of the runtime-sealed action log
+  recorder.action_result(step, action) -> Record    # the server's captured response to a sealed action
   recorder.phase -> 'seed' | 'session' | 'observe'
 Every call is retained once under its unique ``step`` (``[a-z0-9-]{1,80}``) with the
 principal, method, path, HTTP status, raw body bytes and their sha256. ``answer`` is the
@@ -22,12 +23,15 @@ Principals: 'controller' (bootstrap admin), 'agent' (the model's own credential,
 probes), 'anonymous', 'approver' (when needs_approver()), 'other-tenant' when the stack
 provides one. A scenario never receives a credential value.
 
-Observation (v1.1 form): ``Observation(assertion_id, None, {'projection': 'extract/v1',
-'spec': <spec>})``. The runner evaluates ``spec`` over its own recorded responses
-(tools/agent_e2e_local_projections.py lists the operations) and scores the result
-with corpus/oracle.verify against the expectation after logical-role substitution.
-``observed`` must be None (or equal the runner's projection). Any other evidence form
-fails closed.
+Observation (v1.1 form): ``Observation(assertion_id, None, {'projection': 'extract/v1'})``.
+The projection that scores an assertion is FROZEN in the expectation file ("projections":
+{assertion: {"spec": ..., "reads": {step: {kind, method, path regex, principal, phase, origin?,
+replayOfModelAction?}}}}), never taken from the scenario at runtime; an Observation may repeat the
+identical spec or omit it. The runner evaluates the frozen spec over records from its own
+EvidenceVault (tools/agent_e2e_local_recorder.py; metadata and bytes bound by one digest per step),
+checks each read against its frozen rule, and scores with corpus/oracle.verify after logical-role
+substitution. A query result counts only as a replay of a sealed model action (replayOfModelAction).
+``observed`` must be None. Any other evidence form fails closed.
 
 Roles: expectations may contain ``{"$role": "<name>"}``. ``seeded:*`` roles bind to a
 value in a seed-phase response; ``created:*`` roles bind to the single live item
@@ -40,6 +44,14 @@ Runner helpers in ``stack.extra`` (controller side, never visible to the model):
   restartServer(prefix) -> fact            observe phase: restart the case server container; the
                                            runner records container start times and readiness reads
                                            under custody['restart:<prefix>']
+
+Other hooks (base-class defaults below): between_sessions() (approve, or request a recorded
+`docker compose restart server` before the next session), fault_plan() (agent_e2e_local_faults:
+one HTTP 503 on the model's request path after a trigger; fired events in RunRecord.fault_events),
+needs_approver() (a distinct approver key: stack.approver_key and stack.extra['approve'](proposal)),
+customer_files() (manifest-checked corpus files attached to the customer turn by digest).
+Exclusions: an expectation value {"$excluded": "<ruling>"} (registered rulings only, in
+agent_e2e_local_expectations.EXCLUSION_RULINGS) is listed as excluded in receipts, never a pass.
 
 Final answer: a scenario may define ``handoff(stack, seeded, variant, run) -> spec | None``; the runner
 evaluates the spec like an observation and passes the result to agent_e2e_handoff.score_final_answer
@@ -119,7 +131,11 @@ class RoleBinding:
     created:<kind>[:<name>]: ``step`` is an observe-phase enumeration, ``items`` selects its
     rows and ``id`` the identity inside a row. BOTH ``owner`` (row pointer whose value must equal
     RunRecord.agent_principal) and ``before`` (a complete seed-phase enumeration of the same path by
-    the same principal; ids present there are excluded) are required. Exactly one row must remain.
+    the same principal; ids present there are excluded) are required. Both enumerations must be
+    the identical request (kind, method, path, principal and, for MCP, tool arguments) and provably
+    complete: exactly one of ``total`` (pointer to a count equal to the rows) or ``next_page``
+    (pointer to a cursor that must be absent or null) is required and checked on both. Exactly one
+    row must remain.
     """
     role: str
     step: str
@@ -128,6 +144,8 @@ class RoleBinding:
     id: str | None = None
     owner: str | None = None
     before: str | None = None
+    total: str | None = None        # created: pointer to the enumeration's total count (must equal len(items))
+    next_page: str | None = None    # created: pointer to the next-page cursor (must be absent or null)
 
 
 @dataclass(frozen=True)
