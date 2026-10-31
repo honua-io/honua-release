@@ -32,7 +32,9 @@
       "publication.public": null,
       "render.actual": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
       "source-content.unchanged": null
     },
     "B": {
@@ -64,7 +66,9 @@
       "publication.public": null,
       "render.actual": null,
       "custody.bootstrap-revoked": null,
-      "custody.worker-replaced": null,
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
       "source-content.unchanged": null
     }
   }
