@@ -150,8 +150,14 @@ class RecordingMcpProxy:
             result = rpc.get('result')
             failed = status != 200 or 'error' in rpc or (isinstance(result, dict) and result.get('isError') is True)
             execution = {'status': 'fail' if failed else 'ok', 'result': result if result is not None else rpc.get('error')}
+            lost = None
             if self.injector is not None:
+                lost = self.injector.lose(kind, action, execution, status, raw)
                 self.injector.observe(kind, action, execution)
+            if lost is not None:
+                from agent_e2e_local_faults import UNAVAILABLE
+                reply.update(status=503, raw=UNAVAILABLE, ctype='application/json', session=None)
+                return {'status': 'fail', 'httpStatus': 503, '_rawResponse': (status, raw)}
             execution['_rawResponse'] = (status, raw)
             return execution
         from agent_e2e_local_runner import ActionBoundExceeded, ActionOutcomeUnknown

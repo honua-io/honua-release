@@ -84,7 +84,8 @@ class P10(Scenario):
                 'featureQueryIds': 'p10-replay-query', 'service': service, 'layer': layer}}}}),
             Observation('source-content.unchanged', None, {'projection': 'extract/v1', 'spec': {'protectedContent': [
                 {'label': 'shelters', 'before': 'p10-source-before', 'after': 'p10-source-after',
-                 'resource': [SERVICE_ROLE, LAYER_ROLE]}]}}),
+                 'resource': [{'role': SERVICE_ROLE, 'at': {'pathSegment': 2}},
+                              {'role': LAYER_ROLE, 'at': {'pathSegment': 4}}]}]}}),
         ]
 
     def handoff(self, stack, seeded, variant, run=None):
