@@ -1,6 +1,6 @@
-"""P03 remains unsupported pending connection owner normalization.
+"""P03: customer database discovery with verified owner binding.
 
-The server records the owner as api-key:<id>, but the runner compares the bare key ID; it needs a verified owner normalization before enabling this case.
+A restricted database handoff and fixture identities come from controller setup; the runner binds the created connection to the agent and verifies live discovery.
 """
 import re
 from urllib.parse import quote
@@ -13,7 +13,7 @@ LAYERS = ('flood_zones', 'parcels', 'shelters', 'survey_points')
 
 class P03(Scenario):
     id = 'P03'
-    supported_variants = ()
+    supported_variants = ('A', 'B')
 
     def seed(self, stack, variant):
         if variant not in ('A', 'B'):
