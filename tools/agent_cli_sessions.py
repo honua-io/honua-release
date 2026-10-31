@@ -120,17 +120,24 @@ class RecordingProxy:
             def do_DELETE(self): self.send_error(405)
 
             def do_POST(self):
-                started = time.monotonic()
+                self.started = time.monotonic()
+                self.event_written = False
                 event = {'httpMethod': 'POST', 'status': 500}
                 try:
                     self.handle_post(event)
                 finally:
-                    event['elapsedMs'] = round((time.monotonic() - started) * 1000, 3)
-                    proxy.record_event(event)
+                    self.record_event(event)
+
+            def record_event(self, event):
+                if self.event_written: return
+                event['elapsedMs'] = round((time.monotonic() - self.started) * 1000, 3)
+                proxy.record_event(event)
+                self.event_written = True
 
             def handle_post(self, event):
                 if self.path != proxy.path or self.headers.get('Origin'):
                     event['status'] = 403
+                    self.record_event(event)
                     self.send_error(403)
                     return
                 try:
@@ -142,10 +149,11 @@ class RecordingProxy:
                         raise ValueError('invalid JSON-RPC')
                     method = request.get('method')
                     event['method'] = method if isinstance(method, str) and re.fullmatch(r'[A-Za-z0-9_./-]{1,256}', method) else 'invalid'
-                    proxy.events.append({'method': method if method in ('initialize', 'notifications/initialized',
+                    method_event = {'method': method if method in ('initialize', 'notifications/initialized',
                         'tools/list', 'tools/call', 'prompts/list', 'resources/list',
                         'resources/templates/list', 'resources/read', 'ping') else 'other',
-                        'requestBytes': length})
+                        'requestBytes': length}
+                    proxy.events.append(method_event)
                     if 'id' not in request:
                         if not isinstance(method, str) or not method.startswith('notifications/'):
                             raise ValueError('unsupported notification')
@@ -153,6 +161,7 @@ class RecordingProxy:
                             proxy.failure = 'MCP client cancelled a request'
                             proxy.failure_category = 'post-action-undetermined' if proxy.actions else 'infrastructure'
                         event['status'] = 202
+                        self.record_event(event)
                         self.send_response(202)
                         self.end_headers()
                         return
@@ -172,7 +181,8 @@ class RecordingProxy:
                 proxy.visible.append(digest(raw))
                 event['status'] = 200
                 event['responseBytes'] = len(raw)
-                if proxy.events: proxy.events[-1]['responseBytes'] = len(raw)
+                self.record_event(event)
+                if 'method_event' in locals(): method_event['responseBytes'] = len(raw)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(raw)))

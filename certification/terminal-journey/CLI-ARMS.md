@@ -30,6 +30,15 @@ it is dispatched; a shared ledger orders actions across multiple servers. The
 CLI transcript can detect forbidden attempts and supply the final answer/usage,
 but cannot supply actions, resource hints, or independent observations.
 
+Each stage needs a distinct private log directory. The runner retains raw CLI
+stdout, stderr and Claude MCP debug output there with mode 0600, plus a
+per-request proxy log with method, HTTP status, JSON-RPC error and timing. These
+private diagnostics may contain customer or provider data and are not public
+receipts. Preserve `CliFailure.progress` and its category on failure. Claude
+and Codex MCP tool timeouts and the arc stage deadline default to at least 45
+minutes; cancellations after dispatch are undetermined. Unsafe IAM refusals
+are recorded explicitly in the action ledger.
+
 The developing arc runner's generic `run_command` / `read_file` / `write_file`
 surface includes commands outside this lane's explicit allowlist. The CLI
 session refuses that unmanaged surface before launching a model. The arc runner
