@@ -332,3 +332,16 @@ def test_codex_0166_resource_listing_is_bookkeeping_but_other_builtins_are_not()
     diag = b'event.name="codex.tool_call_received" tool_namespace="functions" tool_name="list_mcp_resources"\n'
     assert not codex_forbidden_diagnostics(diag, names, v)
     assert codex_forbidden_diagnostics(diag.replace(b'list_mcp_resources', b'exec_command'), names, v)
+
+
+@pytest.mark.parametrize('agent, model', [('claude-cli', 'claude-opus-5-5'), ('codex-cli', 'gpt-6.1-sol')])
+def test_a_cli_other_than_the_pinned_version_refuses_before_any_dispatch(tmp_path, agent, model):
+    """Astra #1177 re-review item 2: the installed CLI ('fake-cli 1.0') is not the pinned one."""
+    calls = []
+    cli = CliModelSession(agent, model, binary=fake_cli(tmp_path, agent), auth_root=tmp_path,
+                          expected_version='codex-cli 0.166.0' if agent == 'codex-cli' else '2.1.316 (Claude Code)')
+    with pytest.raises(CliFailure, match='not the pinned') as failure:
+        cli.run(prompt='Customer goal only', tool_view=TOOLS, execute=lambda k, a: calls.append(a),
+                log_dir=tmp_path / 'log')
+    assert calls == [] and failure.value.category == 'infrastructure'
+    assert not (tmp_path / 'log' / 'cli-stdout.jsonl').exists(), 'the CLI was never launched'

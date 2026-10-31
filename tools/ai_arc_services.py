@@ -284,8 +284,12 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     runtime.gate = gate
     if register is not None:
         register(Canceller(runtime))
-    if cli is not None:
-        runtime.cli = cli    # test seam: #1160's CorpusCliSession uses runtime.cli when present
+    if cli is None:
+        # #1160's corpus CLI session, pinned to the arm's CLI version (refuses before dispatch otherwise).
+        import agent_e2e_cli_sessions as cli_sessions
+        cli = cli_sessions.CliModelSession(arm['agent'], arm['model'])
+        cli.expected_version = arm.get('cliVersion')
+    runtime.cli = cli        # test seam: #1160's CorpusCliSession uses runtime.cli when present
     load_scenario = load_scenario or runner.load_scenario
     out_dir = Path(out_dir)
     cases, actions, answers, nudges, failure = [], [], [], 0, None

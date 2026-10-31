@@ -474,10 +474,12 @@ def internal_events(agent, version, stdout, stderr):
 
 
 class CliModelSession:
-    def __init__(self, agent, model, *, binary=None, auth_root=None):
+    def __init__(self, agent, model, *, binary=None, auth_root=None, expected_version=None):
         if agent not in MODELS or model not in MODELS[agent]:
             raise ValueError('unsupported CLI/model pairing')
         self.agent, self.model = agent, model
+        # When set (the arc pins it per arm), a different installed CLI refuses before any dispatch.
+        self.expected_version = expected_version
         self.binary = str(Path(binary or shutil.which('claude' if agent == 'claude-cli' else 'codex') or '').resolve())
         if not Path(self.binary).is_file(): raise ValueError('CLI executable missing')
         self.auth_root = auth_root
@@ -535,6 +537,10 @@ class CliModelSession:
             else: env['RUST_LOG'] = 'codex=debug'
             version = subprocess.run([self.binary, '--version'], env=env, cwd=home,
                                      capture_output=True, check=True, timeout=20).stdout.decode().strip()
+            out['cliVersion'] = version
+            if self.expected_version is not None and version != self.expected_version:
+                raise CliFailure(f'CLI version {version[:60]!r} is not the pinned {self.expected_version!r}', out,
+                                 'infrastructure')
             if 'update_plan' in INTERNAL_TOOLS.get(self.agent, {}).get(version, ()):
                 contract += ' You may use update_plan solely for internal bookkeeping; it is not a Honua action.'
                 out['systemContractSha256'] = digest(contract.encode())

@@ -558,7 +558,11 @@ class LocalSetup(StageModule):
                     'sourceSha': ctx.install['sourceRevision']}
         facts = ai_arc_local.observe_serving(ctx.slot.vm, expected, ctx.options['http'], ctx.slot.controller['base_url'])
         ctx.slot.facts['consoleObserved'] = facts.get('console', False)
-        if facts.get('console') and facts.get('consolePort'):
+        want = f"{ctx.arc['console']['image']}@{ctx.arc['console']['imageDigest']}"
+        if facts.get('console') and want not in (facts.get('consoleRepoDigests') or []):
+            # A Console other than the arc's release digest is never Studio's surface (fail closed).
+            ctx.slot.facts['consoleRejected'] = {'expected': want, 'observed': facts.get('consoleRepoDigests')}
+        elif facts.get('console') and facts.get('consolePort'):
             # The customer's Compose install includes Console: reach it through a runner-owned tunnel.
             console = ai_arc_local.Tunnel(ctx.slot.vm, facts['consolePort'])
             ctx.slot.closers.append(console.close)
@@ -751,13 +755,16 @@ class StudioStage(DelegatingStage):
 
     def precondition(self, ctx):
         gap = ctx.arc['consoleDeployment'].get(ctx.target, 'no Console deployment for this target')
+        if ctx.slot.facts.get('consoleRejected'):
+            return ('the Console on this slot is not the arc Console release '
+                    f"({ctx.arc['console']['imageDigest'][:19]}...)")
         if not ctx.slot.facts.get('consoleBaseUrl') and ctx.slot.vm is not None and ctx.options.get('console_compose'):
             # The published package quickstart composes no Console: add it as honua-server's own compose
             # does (pinned image, #6828), as harness slot preparation for this stage.
             import ai_arc_local
             try:
                 staged = ai_arc_local.stage_console(ctx.slot.vm, Path(ctx.options['console_compose']).read_text(),
-                                                    ctx.options.get('console_compose_revision'))
+                                                    ctx.options.get('console_compose_revision'), ctx.arc['console'])
             except Exception as exc:  # noqa: BLE001
                 return f'Honua Console could not be added to the slot ({type(exc).__name__}): ' + gap
             tunnel = ai_arc_local.Tunnel(ctx.slot.vm, staged['port'])
@@ -800,11 +807,20 @@ def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
 
 # --------------------------------------------------------------------------- the arm's session
 
+def pinned_cli_factory(arm: dict):
+    """CLI sessions that refuse to start unless the installed CLI is the arm's pinned version."""
+    def factory(agent, model):
+        from agent_cli_sessions import CliModelSession
+        return CliModelSession(agent, model, expected_version=arm['cliVersion'])
+    return factory
+
+
 class ArcSession:
     """The arm, through #1160's arc stage adapter (stage-scoped product MCP servers only)."""
 
     def __init__(self, arm: dict, cli_factory=None):
-        self.arm, self.cli_factory = arm, cli_factory
+        self.arm = arm
+        self.cli_factory = cli_factory or pinned_cli_factory(arm)
 
     def run_stage(self, *, stage, target, prompt, backends, log_dir, max_actions, max_turns, timeout):
         try:
@@ -1255,7 +1271,8 @@ def candidate_serving(ctx: StageContext) -> dict:
     try:
         facts = ai_arc_local.observe_serving(ctx.slot.vm, {'image': ctx.candidate['image'],
                                                            'imageDigest': ctx.candidate['imageDigest'],
-                                                           'sourceSha': ctx.candidate['sourceRevision']},
+                                                           'sourceSha': ctx.candidate['sourceRevision'],
+                                                           'development': bool(ctx.candidate.get('development'))},
                                              ctx.options['http'], ctx.slot.controller['base_url'])
     except Exception as exc:
         return {'assertion': 'candidate.serving', 'status': 'fail', 'reason': type(exc).__name__}
@@ -1564,12 +1581,13 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     modules = modules or default_modules(arc, target)
     install = arc['versionPair']['install']
     bound = {'imageDigest': candidate['imageDigest'], 'sourceSha': candidate['sourceRevision'],
-             'platformLockDigest': candidate['platformLockDigest']}
+             'platformLockDigest': candidate['platformLockDigest'],
+             **({'development': True} if candidate.get('development') else {})}
     receipt = {'schema': TRIAL_SCHEMA, 'runId': run_id, 'attempt': 1, 'prereg': arc['prereg']['id'],
                'preregDigest': sha256(PREREG_PATH.read_bytes()), 'arcSha256': arc.get('_sha256'),
                'harnessDigests': harness_digests(), 'target': target, 'tier': arc['targets'][target]['tier'],
                'arm': arm['id'], 'armName': arm['name'], 'required': arm['required'], 'agent': arm['agent'],
-               'modelId': arm['model'], 'family': arm['family'], 'variant': variant,
+               'modelId': arm['model'], 'family': arm['family'], 'variant': variant, 'cliVersion': arm['cliVersion'],
                'goalSet': {'name': (goal_set or {}).get('name', 'development'), 'set': (goal_set or {}).get('set'),
                            'manifestSha256': (goal_set or {}).get('sha256'),
                            'sealedSha256': (goal_set or {}).get('sealedSha256'), 'caseId': case_id,
@@ -1578,7 +1596,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                'hostKind': slot.kind, 'host': slot.vm.host if slot.vm else None,
                'phases': {'install': {'release': install['release'], 'sourceSha': install['sourceRevision'],
                                       'imageDigest': install['imageDigest']}, 'candidate': bound},
-               'candidate': bound, 'exclusions': list(arc['exclusions']), 'opsScope': ops_scope(arc, target),
+               'candidate': bound, 'candidateKind': 'development-image' if candidate.get('development') else 'release-lock',
+               'exclusions': list(arc['exclusions']), 'opsScope': ops_scope(arc, target),
                'startedAt': now(), 'stages': []}
     outcomes, previous_answer = {}, None
     stage_defs = {s['id']: s for s in arc['stages']}
@@ -1628,7 +1647,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                                                   'bytes': p.stat().st_size}
                                                  for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
         shutil.rmtree(private, ignore_errors=True)
-    receipt['slotFacts'] = {k: v for k, v in slot.facts.items() if k in ('quickstart', 'vm', 'operator')}
+    receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
+                            if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth')}
     return finish_trial(receipt, out_dir)
 
 
@@ -1860,6 +1880,10 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
                 or str(stage_row.get('cause', '')).startswith('stage wall-clock limit reached')):
             continue
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
+        pinned = arm_by_id(arc, arm_id)['cliVersion']
+        seen = [p.get('cliVersion') for p in (stage_row.get('modelVisible') or {}).get('provenance') or []]
+        if any(v != pinned for v in seen):
+            raise ValueError(f"{stage_row['stage']}: the session ran a CLI other than the pinned {pinned}")
         if outcome == 'pass':
             if stage_row['stage'] == 'studio' and stage_row.get('assistantModel') != arc['studioAssistant']['model']:
                 raise ValueError('studio passed without the required built-in assistant observed')
@@ -2001,6 +2025,8 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
     reasons = []
     if goal_name != 'held-out':
         reasons.append('development goals (A/B), not the sealed held-out set')
+    if candidate.get('development'):
+        reasons.append('a development image built from trunk, not a release candidate')
     if any(c['status'] in ('missing', 'undetermined') for c in cases):
         reasons.append('a counted run is missing or undetermined')
     stages = {stage: {'pass': stage_pass[stage], 'n': n} for stage in STAGES}
@@ -2070,16 +2096,31 @@ def local_http(method: str, url: str, admin_key: str | None, timeout: int = 20) 
     return {'status': status, 'sha256': sha256(body), 'json': document, 'location': location}
 
 
+DEV_CANDIDATE_SCHEMA = 'honua.ai-arc.dev-candidate/v1'
+
+
 def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str | None = None) -> dict:
     raw = Path(lock_path).read_bytes()
     if sha256(raw) != lock_digest:
         raise SystemExit('platform lock bytes differ from --lock-digest')
-    component = json.loads(raw)['components']['honua-server']
+    lock = json.loads(raw)
+    component = lock['components']['honua-server']
     revision = (component.get('source') or {}).get('revision')
-    digests = [a.get('digest') for a in component.get('artifacts', []) if a.get('kind') == 'image']
+    images = [a for a in component.get('artifacts', []) if a.get('kind') == 'image']
+    digests = [a.get('digest') for a in images]
     digest = candidate_digest or (digests[0] if len(digests) == 1 else None)
     if digest not in digests or not SHA.fullmatch(revision or ''):
         raise SystemExit('platform lock does not bind one candidate image and source')
+    if lock.get('schema') == DEV_CANDIDATE_SCHEMA:
+        # A development image built from trunk on the eval hosts (no published trunk image yet): bound
+        # by its local image id and source revision label; never a release candidate, never certifying.
+        artifact = images[digests.index(digest)]
+        if lock.get('development') is not True or not re.fullmatch(r'honua-arc-dev/honua-server:[0-9a-f]{12}',
+                                                                    str(artifact.get('reference', ''))):
+            raise SystemExit('development candidate lock is malformed')
+        return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
+                'image': artifact['reference'].split(':')[0], 'reference': artifact['reference'],
+                'development': True}
     return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
             'image': 'ghcr.io/honua-io/honua-server'}
 
@@ -2187,7 +2228,8 @@ def main(argv=None) -> int:
         return 0
     candidate = candidate_from_lock(args.lock_path, args.lock_digest)
     bound = {'imageDigest': candidate['imageDigest'], 'sourceSha': candidate['sourceRevision'],
-             'platformLockDigest': candidate['platformLockDigest']}
+             'platformLockDigest': candidate['platformLockDigest'],
+             **({'development': True} if candidate.get('development') else {})}
     rows = json.loads(args.schedule.read_text())
     receipts = [p.read_bytes() for p in sorted(args.trials_dir.rglob('trial-receipt.json'))]
     receipts = [raw for raw in receipts if json.loads(raw).get('target') == args.target

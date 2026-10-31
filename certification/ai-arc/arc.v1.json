@@ -29,7 +29,8 @@
       "agent": "claude-cli",
       "model": "claude-opus-5-5",
       "family": "anthropic",
-      "required": true
+      "required": true,
+      "cliVersion": "2.1.316 (Claude Code)"
     },
     {
       "id": "A2",
@@ -37,7 +38,8 @@
       "agent": "codex-cli",
       "model": "gpt-6.1-sol",
       "family": "openai",
-      "required": true
+      "required": true,
+      "cliVersion": "codex-cli 0.166.0"
     },
     {
       "id": "C1",
@@ -45,7 +47,8 @@
       "agent": "claude-cli",
       "model": "claude-sonnet-5-5",
       "family": "anthropic",
-      "required": false
+      "required": false,
+      "cliVersion": "2.1.316 (Claude Code)"
     },
     {
       "id": "C2",
@@ -53,7 +56,8 @@
       "agent": "claude-cli",
       "model": "claude-sonnet-4-6",
       "family": "anthropic",
-      "required": false
+      "required": false,
+      "cliVersion": "2.1.316 (Claude Code)"
     },
     {
       "id": "C3",
@@ -61,7 +65,8 @@
       "agent": "codex-cli",
       "model": "gpt-6.1-terra",
       "family": "openai",
-      "required": false
+      "required": false,
+      "cliVersion": "codex-cli 0.166.0"
     }
   ],
   "studioAssistant": {
@@ -572,5 +577,11 @@
     "local-docker": "honua-server #6828 (merged) pins Console in the repository docker-compose.yml 'console' profile. The published package quickstart the agent follows composes none, so for stage 4 the harness adds that console service (pinned image, honua-server compose at a pinned revision, --console-compose) as slot preparation, recorded in slotFacts.console.",
     "aws-ecs": "honua-iac #359 and honua-devops #248 (merged) deploy Console on the cell's HTTPS hostname behind the OIDC edge. The arc consumes it when the release cell slot sets console (health: the edge sign-in page /oauth2/sign_in; the customer signs in through the adapter).",
     "rule": "The Studio stage is stage-unavailable on a slot where no Console is observed serving; it is never scored without one."
+  },
+  "console": {
+    "image": "ghcr.io/honua-io/honua-console",
+    "imageDigest": "sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4",
+    "source": "Console #473 + #488 fixed release (honua-iac #361 pin)",
+    "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed."
   }
 }

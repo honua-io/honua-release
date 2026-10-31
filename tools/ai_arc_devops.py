@@ -32,40 +32,123 @@ def arc_stage(ctx):
 
 class OperatorOwner:
     """Owns the operator process from before it starts: registered in the stage's live set first, so
-    finalize_stage stops it whatever fails later in preparation (catalog, harness, deadline). Once
-    closed it refuses to start, and a start that races a close is stopped at once."""
+    finalize_stage stops it whatever fails later in preparation (catalog, harness, deadline).
+
+    Ownership is synchronized with the spawn. ``bind`` marks a start in progress under the lock; a
+    ``close`` that arrives meanwhile waits for the start to end (normally or by exception) and then
+    stops the process and its whole process tree. A start that fails stops what it spawned before the
+    exception propagates. Once closed, or once the stage is finalized, nothing may start."""
+
+    START_WAIT = 45.0          # longer than the operator's own initialize/tools-list timeout (30 s)
 
     def __init__(self, operator, finalized=lambda: False):
-        self.operator, self._closed, self.finalized = operator, False, finalized
+        import threading
+        self.operator, self.finalized = operator, finalized
+        self._closed, self._starting = False, False
+        self._cv = threading.Condition()
+        self.tree = []                                  # pids observed under the operator
+        self._stop_lock, self._stopped = threading.Lock(), False
 
     @property
     def closed(self):
-        # A preparation that overran its deadline keeps running in its worker after finalize_stage:
-        # once the stage is finalized nothing may start, even if this owner was never closed.
         return self._closed or bool(self.finalized())
 
     def bind(self, *args):
-        if self.closed:
-            raise RuntimeError('the stage was finalized before the operator started')
-        self.operator.bind(*args)
-        if self.closed:
+        with self._cv:
+            if self.closed:
+                raise RuntimeError('the stage was finalized before the operator started')
+            self._starting = True
+        failed = None
+        try:
+            self.operator.bind(*args)
+        except BaseException as exc:  # noqa: BLE001
+            failed = exc
+        finally:
+            with self._cv:
+                self._starting = False
+                stop = failed is not None or self.closed
+                self._cv.notify_all()
+        if stop:
             self._stop()
+            if failed is not None:
+                raise failed
             raise RuntimeError('the stage was finalized while the operator started')
 
     def alive(self) -> bool:
         process = getattr(self.operator, 'process', None)
-        return process is not None and process.poll() is None
+        return (process is not None and process.poll() is None) or any(_pid_alive(p) for p in self.tree)
 
     def _stop(self):
-        if getattr(self.operator, 'process', None) is not None:
+        # Serialized and once only: a failing start and a racing close both stop; the second must
+        # neither re-read the (by then reparented) tree nor skip the kill.
+        with self._stop_lock:
+            if not self._stopped:
+                self._stop_once()
+
+    def _stop_once(self):
+        process = getattr(self.operator, 'process', None)
+        if process is None:
+            return
+        self._stopped = True
+        self.tree = sorted(set(self.tree) | set(_descendants(process.pid)))
+        try:
             self.operator.close()
+        except Exception:  # noqa: BLE001
+            process.kill()
+        import os
+        import signal
+        for pid in self.tree:                           # children the operator started (terraform, ...)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if process.poll() is None:
+            process.kill()
+            process.wait(10)
+        import time
+        deadline = time.monotonic() + 10                # SIGKILL is asynchronous: wait for the tree to go
+        while any(_pid_alive(p) for p in self.tree) and time.monotonic() < deadline:
+            time.sleep(0.05)
 
     def close(self):
-        already, self._closed = self._closed, True
+        with self._cv:
+            already, self._closed = self._closed, True
+            self._cv.wait_for(lambda: not self._starting, timeout=self.START_WAIT)
+            starting = self._starting
+        if starting:
+            raise RuntimeError('the operator start did not finish; its process is unaccounted for')
         if not already:
             self._stop()
         if self.alive():
             raise RuntimeError('the operator process is still running after close')
+
+
+def _descendants(pid: int) -> list[int]:
+    """Every live process below ``pid``, from each process's parent id (/proc/*/stat). The per-task
+    ``children`` files are documented as unreliable for running processes, so they are not used."""
+    parents = {}
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
+            parents.setdefault(int(fields[1]), []).append(int(entry.name))
+        except (OSError, IndexError, ValueError):
+            continue
+    out, queue = [], [pid]
+    while queue:
+        children = parents.get(queue.pop(), [])
+        out.extend(children)
+        queue.extend(children)
+    return out
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        state = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0]
+    except (OSError, IndexError):
+        return False
+    return state not in ('Z', 'X')
 
 
 class HarnessBackend:

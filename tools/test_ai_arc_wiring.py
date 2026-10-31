@@ -3,6 +3,7 @@ Console consumption. Each stays fail-closed until its dependency is present."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -303,36 +304,83 @@ def test_an_honest_failure_with_instructions_is_not_a_false_success():
 
 
 
-def test_stage_console_adds_the_source_compose_console_pinned_and_loopback(monkeypatch):
-    import ai_arc_local as L
-    src = """services:
+CONSOLE = ARC['console']
+CONSOLE_REF = f"{CONSOLE['image']}@{CONSOLE['imageDigest']}"
+OLD_6828 = 'ghcr.io/honua-io/honua-console@sha256:6612319d53ed9d3fab1a62848b6402d4340f57c227296003614ac88fe48de4f3'
+REV = 'f80baf784a4fb0910d156451b89701cb4c12a1dc'
+
+
+def _console_compose(image):
+    return """services:
   console:
-    image: ${HONUA_CONSOLE_IMAGE:-ghcr.io/honua-io/honua-console@sha256:%s}
+    image: ${HONUA_CONSOLE_IMAGE:-%s}
     profiles: [console]
     ports: ["${HONUA_BIND_ADDRESS:-127.0.0.1}:${HONUA_CONSOLE_PORT:-5174}:8080"]
     environment: {HONUA_SERVER_BASE_URL: "http://honua:8080"}
     read_only: true
-""" % ('a' * 64)
-    scripts = []
+""" % image
 
-    class Slot:
-        http_port, remote_dir = 18180, '/tmp/honua-arc-p'
-        compose = L.VmSlot.compose
-        project = 'arc-p'
 
-        def ssh(self, script, timeout=300):
-            scripts.append(script)
-            return subprocess.CompletedProcess([], 0, '', '')
-    import subprocess
-    staged = L.stage_console(Slot(), src, 'abc')
-    assert staged['image'] == 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64 and staged['port'] == 18182
-    assert "127.0.0.1:18182:8080" in scripts[0] and 'profiles' not in scripts[0] and 'console.yaml' in scripts[0]
-    import pytest
-    with pytest.raises(ValueError):
-        L.stage_console(Slot(), src.replace('@sha256:' + 'a' * 64, ':latest'))
-    with pytest.raises(ValueError):
-        L.stage_console(Slot(), 'services: {honua: {image: x}}')
+class ConsoleSlot:
+    http_port, remote_dir, project = 18180, '/tmp/honua-arc-p', 'arc-p'
 
+    def __init__(self, reported):
+        self.reported, self.scripts = reported, []
+
+    def compose(self, *args):
+        import ai_arc_local as L
+        return L.VmSlot.compose(self, *args)
+
+    def ssh(self, script, timeout=300):
+        import subprocess
+        self.scripts.append(script)
+        return subprocess.CompletedProcess([], 0, (json.dumps(self.reported) + '\n').encode(), b'')
+
+
+def test_stage_console_runs_the_arc_console_from_the_verified_compose_on_loopback():
+    import ai_arc_local as L
+    src = _console_compose(CONSOLE_REF)
+    slot = ConsoleSlot([CONSOLE_REF])
+    staged = L.stage_console(slot, src, REV, CONSOLE, source_at=lambda rev: src.encode())
+    assert staged['image'] == CONSOLE_REF and staged['port'] == 18182 and staged['observedRepoDigests'] == [CONSOLE_REF]
+    assert staged['revision'] == REV and staged['composeSha256'].startswith('sha256:')
+    assert '127.0.0.1:18182:8080' in slot.scripts[0] and 'profiles' not in slot.scripts[0]
+
+
+@pytest.mark.parametrize('case', ['6828-digest', 'unpinned', 'no-console', 'no-revision', 'not-at-revision',
+                                  'container-reports-other'])
+def test_stage_console_fails_closed_on_any_other_console(case):
+    """Astra #1177 re-review item 3: #6828's compose selects 6612319d..., not the arc's Console release."""
+    import ai_arc_local as L
+    src = _console_compose(CONSOLE_REF)
+    rev, source_at, reported = REV, (lambda rev: src.encode()), [CONSOLE_REF]
+    if case == '6828-digest':
+        src = _console_compose(OLD_6828)
+        source_at = lambda rev: src.encode()  # noqa: E731
+    elif case == 'unpinned':
+        src = _console_compose('ghcr.io/honua-io/honua-console:latest')
+        source_at = lambda rev: src.encode()  # noqa: E731
+    elif case == 'no-console':
+        src = 'services: {honua: {image: x}}\n'
+        source_at = lambda rev: src.encode()  # noqa: E731
+    elif case == 'no-revision':
+        rev = None
+    elif case == 'not-at-revision':
+        source_at = lambda rev: _console_compose(OLD_6828).encode()  # noqa: E731
+    elif case == 'container-reports-other':
+        reported = [OLD_6828]
+    slot = ConsoleSlot(reported)
+    with pytest.raises((ValueError, RuntimeError)):
+        L.stage_console(slot, src, rev, CONSOLE, source_at=source_at)
+    if case != 'container-reports-other':
+        assert slot.scripts == [], 'nothing is started on the slot'
+
+
+def test_a_console_in_the_install_with_another_digest_is_not_studios_surface(tmp_path):
+    ctx = ctx_for(tmp_path, 'local-docker', 'studio')
+    ctx.slot.facts['consoleRejected'] = {'expected': CONSOLE_REF, 'observed': [OLD_6828]}
+    reason = R.StudioStage().unavailable(ctx)
+    assert reason and 'not the arc Console release' in reason
 
 
 EMPTY = {'resources': [], 'accessProbes': [], 'facts': {}}
@@ -536,6 +584,7 @@ def test_an_aws_destroy_that_raises_is_a_failed_teardown():
 
 
 def test_an_operator_owner_closed_by_a_deadline_never_leaves_a_process():
+    import threading
     import ai_arc_devops
     started = []
 
@@ -545,19 +594,49 @@ def test_an_operator_owner_closed_by_a_deadline_never_leaves_a_process():
         def bind(self, *a):
             self.process = subprocess.Popen(['sleep', '300'])
             started.append(self.process)
-            owner.close()               # the stage deadline finalized while the operator was starting
+            time.sleep(0.5)             # the stage deadline finalizes while the operator is starting
 
         def close(self):
             self.process.terminate()
             self.process.wait(10)
     owner = ai_arc_devops.OperatorOwner(Operator())
+    closer = threading.Thread(target=owner.close)
+    threading.Timer(0.1, closer.start).start()
     with pytest.raises(RuntimeError, match='finalized while'):
         owner.bind()
+    closer.join(10)
     assert started[0].poll() is not None and not owner.alive()
     with pytest.raises(RuntimeError, match='finalized before'):
         owner.bind()
     assert len(started) == 1
 
+
+def test_a_start_that_raises_while_shutdown_races_it_leaves_no_process_tree(tmp_path):
+    """Astra #1177 re-review item 1: the real StdioOperator spawns, a close arrives during initialize,
+    and initialize then raises. The owner waits for the start to end and stops the process and the
+    child it spawned."""
+    import threading
+    import ai_arc_devops
+    from agent_e2e_aws_controller import StdioOperator
+    script = tmp_path / 'operator'
+    script.write_text('#!/bin/sh\nsleep 300 &\nsleep 1\necho not-json\nsleep 300\n')
+    script.chmod(0o755)
+    owner = ai_arc_devops.OperatorOwner(StdioOperator(script, tmp_path / 'op'))
+    errors = []
+
+    def close():
+        try:
+            owner.close()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+    timer = threading.Timer(0.3, close)
+    timer.start()
+    with pytest.raises(Exception):
+        owner.bind(dict(os.environ), str(tmp_path), None)
+    timer.join(60)
+    assert owner.closed and not owner.alive(), 'the operator and its child are gone'
+    assert owner.tree, 'the spawned child was observed and stopped'
+    assert not errors
 
 
 def test_an_overrun_preparation_cannot_start_the_operator_after_finalize():
@@ -589,3 +668,52 @@ def test_studio_stays_unavailable_until_the_browser_case_contract_is_composed(tm
     assert 'not composed' in studio.arc_stage(ctx).unavailable(ctx)
     monkeypatch.setitem(sys.modules, 'agent_browser_studio', types.SimpleNamespace(ARC_CONTRACT=studio.COMPOSED_CONTRACT))
     assert studio.arc_stage(ctx).unavailable(ctx) is None
+
+
+# ---------------------------------------------------------------- development candidate (trunk image on the hosts)
+
+def _dev_lock(tmp_path, reference='honua-arc-dev/honua-server:' + 'a' * 12, development=True):
+    lock = {'schema': R.DEV_CANDIDATE_SCHEMA, 'development': development,
+            'components': {'honua-server': {'source': {'revision': 'a' * 40},
+                                            'artifacts': [{'kind': 'image', 'digest': 'sha256:' + 'f' * 64,
+                                                           'reference': reference, 'local': True}]}}}
+    path = tmp_path / 'dev-lock.json'
+    path.write_text(json.dumps(lock))
+    return str(path), R.sha256(path.read_bytes())
+
+
+def test_a_development_lock_binds_a_local_trunk_image_and_is_marked(tmp_path):
+    path, digest = _dev_lock(tmp_path)
+    candidate = R.candidate_from_lock(path, digest)
+    assert candidate['development'] is True and candidate['imageDigest'] == 'sha256:' + 'f' * 64
+    assert candidate['reference'].startswith('honua-arc-dev/honua-server:')
+    for bad in ({'reference': 'ghcr.io/honua-io/honua-server:latest'}, {'development': False}):
+        path, digest = _dev_lock(tmp_path, **bad)
+        with pytest.raises(SystemExit):
+            R.candidate_from_lock(path, digest)
+
+
+@pytest.mark.parametrize('development, image_id, ok', [(True, 'sha256:' + 'f' * 64, True),
+                                                       (True, 'sha256:' + '0' * 64, False),
+                                                       (False, 'sha256:' + 'f' * 64, False)])
+def test_a_development_image_is_identified_by_its_local_id_only_when_declared(development, image_id, ok):
+    import ai_arc_local as L
+
+    class Slot:
+        secrets = {'HONUA_ADMIN_PASSWORD': 'p'}
+
+        def ssh(self, script, timeout=60):
+            if 'image inspect' in script:
+                out = '[]|{"org.opencontainers.image.revision": "%s"}|"%s"' % ('a' * 40, image_id)
+            else:
+                out = json.dumps({'Service': 'honua', 'State': 'running', 'Health': 'healthy',
+                                  'Image': 'honua-arc-dev/honua-server:' + 'a' * 12})
+            return subprocess.CompletedProcess([], 0, out.encode(), b'')
+
+        def compose(self, *a):
+            return 'docker compose ' + ' '.join(a)
+    http = lambda m, u, k: {'status': 200 if (k or 'ready' in u) else 401,  # noqa: E731
+                            'json': {'version': '1.0.0+' + 'a' * 12}}
+    facts = L.observe_serving(Slot(), {'image': 'honua-arc-dev/honua-server', 'imageDigest': 'sha256:' + 'f' * 64,
+                                       'sourceSha': 'a' * 40, 'development': development}, http, 'http://x')
+    assert facts['identity'] is ok, facts['evidence']

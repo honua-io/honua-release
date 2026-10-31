@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import types
 import sys
 import threading
 import time
@@ -1023,3 +1024,57 @@ def test_new_method_dependencies_are_in_the_frozen_harness_digest(tmp_path, monk
     (tmp_path / 'tools/agent_e2e_console_assistant.py').unlink()
     absent = R.harness_digests()['runner']
     assert len({base, changed, absent}) == 3
+
+
+# ---------------------------------------------------------------- Astra #1177 re-review item 2 (CLI pins)
+
+def test_every_arm_pins_its_cli_version_in_the_frozen_arc_spec():
+    for arm in ARC['arms']:
+        assert arm['cliVersion'] == {'claude-cli': '2.1.316 (Claude Code)', 'codex-cli': 'codex-cli 0.166.0'}[arm['agent']]
+    assert R.harness_digests()['arcSpec'] == R.sha256(R.ARC_PATH.read_bytes()), 'the pins are in the frozen arc digest'
+
+
+def test_a_receipt_from_an_unpinned_cli_is_not_admitted(tmp_path):
+    extra = {'provenance': [{'agent': 'claude-cli', 'cliVersion': '2.1.400 (Claude Code)', 'model': A1['model']}]}
+    run(tmp_path, mods=modules(setup=FakeStage('setup', extra_row=extra)))
+    with pytest.raises(ValueError, match='pinned'):
+        agg(tmp_path, ['001'], [(tmp_path / '001' / 'trial-receipt.json').read_bytes()])
+    pinned = {'provenance': [dict(extra['provenance'][0], cliVersion=A1['cliVersion'])]}
+    run(tmp_path, name='002', mods=modules(setup=FakeStage('setup', extra_row=pinned)))
+    agg(tmp_path, ['002'], [(tmp_path / '002' / 'trial-receipt.json').read_bytes()])
+
+
+def test_the_arc_session_and_services_cli_carry_the_arm_pin(monkeypatch):
+    import agent_cli_sessions
+    made = []
+    monkeypatch.setattr(agent_cli_sessions, 'CliModelSession',
+                        lambda agent, model, **kw: made.append((agent, model, kw)) or object())
+    R.ArcSession(A1).cli_factory(A1['agent'], A1['model'])
+    R.pinned_cli_factory(R.arm_by_id(ARC, 'A2'))('codex-cli', 'gpt-6.1-sol')
+    assert [m[2]['expected_version'] for m in made] == [A1['cliVersion'], 'codex-cli 0.166.0']
+
+
+def test_the_services_corpus_session_is_pinned_too(tmp_path, monkeypatch):
+    cli_sessions = pytest.importorskip('agent_e2e_cli_sessions')
+    import ai_arc_services
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    class Cli:
+        def __init__(self, agent, model):
+            seen['cli'] = self
+    monkeypatch.setattr(cli_sessions, 'CliModelSession', Cli)
+    monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: (lambda **kw: types.SimpleNamespace(_secrets=[], **kw)))
+
+    def load(sid):
+        raise Stop()
+    try:
+        ai_arc_services.run_services(scenarios=('P10',), variant='A', candidate_digest='sha256:' + 'd' * 64,
+                                     base_url='http://x', admin_key='k', project='arc-p', arm=A1,
+                                     limits=ARC['limits']['services'], out_dir=tmp_path, load_scenario=load,
+                                     private_root=tmp_path / 'p')
+    except Exception:  # noqa: BLE001  (only the session's construction matters here)
+        pass
+    assert seen['cli'].expected_version == A1['cliVersion']
