@@ -170,3 +170,27 @@ def test_console_in_the_compose_install_is_found_and_tunnelled(tmp_path):
 def test_services_freeze_lists_only_supported_non_excluded_scenarios():
     listed = R.supported_services(ARC)
     assert 'P18' not in listed and all(s.startswith('P') for s in listed)
+
+
+
+def test_a_refused_command_is_an_answer_not_a_session_abort():
+    """Rehearsal finding: Claude Code ran 'docker compose config --no-interpolate'; the shell's parser
+    refused it with an exception, which the CLI proxy treated as a failed session. A pre-dispatch refusal
+    is now returned to the model as an error result it can recover from."""
+    ctx = type('C', (), {})()
+    ctx.slot, ctx.gate = R.Slot('local-docker', 'vm', 'arc-abcdef1234'), R.Gate()
+    sent = []
+
+    class Shell:
+        def prevalidate(self, kind, action):
+            raise ValueError('compose argument is not admitted')
+
+        def execute(self, kind, action):
+            sent.append(action)
+            return {'status': 'ok'}
+    shell = Shell()
+    R.screen_backend(shell, ctx)
+    result = shell.execute('shell_command', {'tool': 'run_quickstart',
+                                             'arguments': {'command': 'docker compose config --no-interpolate'}})
+    assert result['refusal'] == 'not-admitted' and result['result']['isError'] and sent == []
+    assert ctx.gate.settled == [{'tool': 'run_quickstart', 'outcome': 'refused-before-dispatch'}]

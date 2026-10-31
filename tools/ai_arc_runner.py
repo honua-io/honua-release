@@ -837,11 +837,15 @@ def screen_backend(backend, ctx) -> None:
             # The only proven pre-dispatch refusal: the backend's own validation, run before dispatch.
             try:
                 prevalidate(kind, action)
-            except ValueError:
+            except ValueError as exc:
                 if gate is not None:
                     with gate.cond:
                         gate.settled.append({'tool': action.get('tool'), 'outcome': 'refused-before-dispatch'})
-                raise
+                # A refusal is an answer the model can act on (not a session abort); the attempt is still
+                # in the write-ahead ledger and classified for unsafe attempts.
+                return {'status': 'fail', 'refusal': 'not-admitted',
+                        'result': {'content': [{'type': 'text', 'text': 'Not admitted: ' + str(exc)[:200]}],
+                                   'isError': True}}
         if gate is not None and not gate.enter():
             return dict(GATE_CLOSED)
         try:
