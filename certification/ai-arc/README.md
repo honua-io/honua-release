@@ -68,6 +68,13 @@ A stage passes only when all of these hold:
 - a `harness-fault` finding by the other model family, adjudicated after the run ended and before any later run started;
 - a sealed reserve replacement that started after the adjudication.
 
+## Artifacts (stable names; #1161 matches them)
+
+- `ai-arc-campaign-<arm>-<target>`: one per campaign job. `<target>/schedule.json`, `<target>/voids.json`, and `<target>/runs/<runId with ':' as '-'>/trial-receipt.json` with that run's redacted `evidence/`.
+- `ai-arc-aggregate-<arm>`: `ai-arc-aggregate-<target>-<arm>.json` (`honua.ai-arc.aggregate/v1`) and `ai-arc-report-<target>-<arm>.json`, one pair per target.
+
+`gating-scope.json` is owned here and ships unapproved (`gating` empty, `approvedBy` null). The release session fills it after the founder's decision, and #1161 only reads it.
+
 ## Running
 
 - **Workflow** (one run per arm, never dispatched from a lane): `gh workflow run ai-arc.yml -f arm=A1 -f targets=local-docker -f lock_digest=... -f lock_run_id=... -f quickstart_revision=<honua-server sha> -f goal_set=held-out`.
