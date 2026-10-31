@@ -935,3 +935,12 @@ def test_saved_default_fill_render_rejects_wrong_frozen_color():
     with pytest.raises(ProjectionError, match='frozen fill expectation'):
         verify_saved_default_fill(Recorder(), 'version', 'render', service='g41proof-flat',
                                   layer_id=4, expected_rgba=(255, 0, 0, 115), minimum_pixels=4000)
+
+
+def test_fixture_source_read_rejects_embedded_server_error():
+    from agent_browser_studio import snapshot_sources
+    class Recorder:
+        def json(self, *_args):
+            return {'observation': {'httpStatus': 200, 'body': {'error': {'code': 400}}}}
+    with pytest.raises(ProjectionError, match='required fields'):
+        snapshot_sources(Recorder(), 'p08', LAYERS, 'before')

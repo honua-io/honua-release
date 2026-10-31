@@ -967,7 +967,11 @@ def snapshot_sources(recorder, prefix, layers, when):
     from agent_e2e_p10_observer import source_path
     for name, slug in SOURCE_LAYERS:
         raw = f'{prefix}-src-{slug}-{when}-raw'
-        recorder.json(raw, 'GET', source_path(layers[name]))
+        result = recorder.json(raw, 'GET', source_path(layers[name]))['observation']
+        body = result.get('body')
+        require(result.get('httpStatus') == 200 and isinstance(body, dict) and 'error' not in body
+                and isinstance(body.get('features'), list),
+                'published fixture source cannot be read with the required fields')
 
 
 def items_of(body):
