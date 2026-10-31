@@ -771,7 +771,7 @@ def test_live_session_counts_nudge_and_failed_action_without_restarting(monkeypa
         return {'ok': False, 'error': 'rejected'}
     priced, complete, evidence = runner._live_session(
         {'image_digest': 'sha256:test'}, transcript, {'id': 'trial', 'prompt': 'operate'},
-        'primary', 5, allow_call=lambda: True, on_usage=lambda pair: None, execute_action=execute)
+        'primary', 2, allow_call=lambda: True, on_usage=lambda pair: None, execute_action=execute)
     assert priced and complete and evidence is None
     assert len(instances) == 1 and lengths == [2, 4, 6]
     assert actions == [('example', {})]

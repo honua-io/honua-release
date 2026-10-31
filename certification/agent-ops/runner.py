@@ -293,7 +293,12 @@ def _live_session(state: dict, transcript: list[dict], row: dict, arm: str, limi
     priced = False
     retries = 0
     totals = state.setdefault("_bedrock", {"input": 0, "output": 0, "calls": 0, "missing": False})
-    for _ in range(limit):
+    # One invalid reply may cause one retry prompt; that prompt is not an
+    # operator action and must not silently consume the action allowance.
+    for _ in range(limit + 1):
+        if _attempt_counts(transcript)['actions'] >= limit:
+            return priced, False, {"kind": "action_cap", "model_acted": priced,
+                                   "state_changed": any(item.get("tool") for item in transcript)}
         if not allow_call():
             return priced, False, None
         certification = {
