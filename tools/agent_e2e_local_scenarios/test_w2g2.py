@@ -212,3 +212,33 @@ def test_p07_refuses_agent_catalog_that_differs_from_controller(tmp_path):
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     assert [row.assertion_id for row in load_scenario('P07').observe(stack, None, 'A')] == ['tenant.denied']
+
+
+def test_p03_records_the_same_unpaged_inventory_before_and_after(tmp_path):
+    calls = []
+    class Recorder:
+        def json(self, *args): calls.append(args)
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    case = load_scenario('P03')
+    seeded = case.seed(stack, 'A')
+    assert case.seed(stack, 'A') == seeded
+    assert case.observe(stack, seeded, 'A') == []
+    assert calls == [('p03-connections-before', 'GET', '/api/v1/admin/connections'),
+                     ('p03-connections-after', 'GET', '/api/v1/admin/connections')]
+
+
+def test_p05_retains_only_the_last_agent_import_report(tmp_path):
+    from types import SimpleNamespace
+    calls = []
+    class Recorder:
+        def actions(self):
+            return [SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', sequence=1),
+                    SimpleNamespace(kind='tool_call', tool='another_tool', sequence=2),
+                    SimpleNamespace(kind='tool_call', tool='honua_ingest_dataset', sequence=3)]
+        def action_result(self, step, action): calls.append((step, action.sequence))
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    case = load_scenario('P05')
+    assert case.observe(stack, case.seed(stack, 'A'), 'A') == []
+    assert calls == [('p05-import-report', 3)]

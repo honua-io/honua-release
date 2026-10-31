@@ -1,6 +1,6 @@
 """P04 remains unsupported.
 
-Customer files are declared. Independent scoring still needs an owner-bound imported-resource inventory and a frozen projection for polygon features and protected attachment snapshots.
+The runner needs controller reads of un-published imported table contents and before/after attachment bytes; featureServerFeatures requires a published layer.
 """
 from agent_e2e_local_api import Scenario
 

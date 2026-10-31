@@ -1,8 +1,10 @@
-"""P03 remains unsupported.
+"""P03 database discovery remains unsupported.
 
-The tenant assertion is preregistered as excluded. The connection list response has no total or cursor, so the runner cannot prove the complete baseline required to bind a model-created connection. A complete owner-bearing enumeration is needed.
+The local customer surface needs a connection-creation tool and a seeded database
+handoff; the controller records the reviewed unpaged connection inventory before
+and after the session, but cannot substitute its own connection for the agent's.
 """
-from agent_e2e_local_api import Scenario
+from agent_e2e_local_api import Scenario, Seeded
 
 
 class P03(Scenario):
@@ -10,10 +12,21 @@ class P03(Scenario):
     supported_variants = ()
 
     def seed(self, stack, variant):
-        raise NotImplementedError('P03: see module docstring')
+        if variant not in ('A', 'B'):
+            raise ValueError('unsupported variant')
+        previous = stack.extra.get('p03Seed')
+        if previous is not None:
+            if previous['variant'] != variant:
+                raise ValueError('case already seeded for another variant')
+            return Seeded(previous)
+        stack.extra['recorder'].json('p03-connections-before', 'GET', '/api/v1/admin/connections')
+        state = {'variant': variant}
+        stack.extra['p03Seed'] = state
+        return Seeded(state)
 
     def observe(self, stack, seeded, variant, run=None):
-        raise NotImplementedError('P03: see module docstring')
+        stack.extra['recorder'].json('p03-connections-after', 'GET', '/api/v1/admin/connections')
+        return []
 
 
 scenario = P03()

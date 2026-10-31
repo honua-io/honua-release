@@ -1,8 +1,9 @@
-"""P05 remains unsupported.
+"""P05 CSV import remains unsupported.
 
-Customer files are declared and action_result can retain an import report. The runner still needs an owner-bound imported-resource inventory and a projection binding row-number errors to fixture source IDs and live imported features.
+The runner needs a controller read of an agent-imported table before publication;
+a sealed import report is retained when the agent actually invokes the tool.
 """
-from agent_e2e_local_api import Scenario
+from agent_e2e_local_api import Scenario, Seeded
 
 
 class P05(Scenario):
@@ -10,10 +11,17 @@ class P05(Scenario):
     supported_variants = ()
 
     def seed(self, stack, variant):
-        raise NotImplementedError('P05: see module docstring')
+        if variant not in ('A', 'B'):
+            raise ValueError('unsupported variant')
+        return Seeded({'variant': variant})
 
     def observe(self, stack, seeded, variant, run=None):
-        raise NotImplementedError('P05: see module docstring')
+        recorder = stack.extra['recorder']
+        actions = [action for action in recorder.actions()
+                   if action.kind == 'tool_call' and action.tool == 'honua_ingest_dataset']
+        if actions:
+            recorder.action_result('p05-import-report', actions[-1])
+        return []
 
 
 scenario = P05()

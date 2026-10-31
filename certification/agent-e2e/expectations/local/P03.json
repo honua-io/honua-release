@@ -6,12 +6,16 @@
     "A": {
       "connection.verified": null,
       "catalog.exact": null,
-      "tenant.denied": null
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      }
     },
     "B": {
       "connection.verified": null,
       "catalog.exact": null,
-      "tenant.denied": null
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      }
     }
   }
 }
