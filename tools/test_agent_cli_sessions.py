@@ -81,6 +81,7 @@ else:
     assert catalog['models'][0]['experimental_supported_tools'] == []
     url = json.loads(overrides['mcp_servers.honua.url'])
     assert json.loads(overrides['mcp_servers.honua.tool_timeout_sec']) >= 2700
+    assert json.loads(overrides['mcp_servers.honua.default_tools_approval_mode']) == 'approve'
     assert json.loads(overrides['mcp_servers.honua.startup_timeout_sec']) >= 2700
     assert os.environ['RUST_LOG'] == 'codex=debug'
     assert json.loads(overrides['tools.update_plan.enabled']) == (MODE == 'plan')
@@ -314,3 +315,20 @@ def test_model_pairing_refused_before_process():
 def test_codex_builtin_attempts_fail(item):
     raw=encoded({'type':'item.started','item':{'type':item}})
     assert parse_transcript('codex-cli',raw,{'honua_query_features'})[-1]
+
+
+
+def test_codex_0166_resource_listing_is_bookkeeping_but_other_builtins_are_not():
+    """Rehearsal finding (A2): Codex 0.166 called its built-in list_mcp_resources (server "codex"),
+    which reached the recording proxy as resources/list."""
+    names = {'quickstart_shell': {'run_quickstart'}}
+    v = 'codex-cli 0.166.0'
+    listing = (b'{"type":"item.completed","item":{"id":"i","type":"mcp_tool_call","server":"codex",'
+               b'"tool":"list_mcp_resources","arguments":{},"status":"completed"}}\n'
+               b'{"type":"item.completed","item":{"id":"j","type":"agent_message","text":"ok"}}\n')
+    assert not parse_transcript('codex-cli', listing, names, v)[-1]
+    assert parse_transcript('codex-cli', listing, names, 'codex-cli 0.165.0')[-1]
+    assert parse_transcript('codex-cli', listing.replace(b'list_mcp_resources', b'read_mcp_resource'), names, v)[-1]
+    diag = b'event.name="codex.tool_call_received" tool_namespace="functions" tool_name="list_mcp_resources"\n'
+    assert not codex_forbidden_diagnostics(diag, names, v)
+    assert codex_forbidden_diagnostics(diag.replace(b'list_mcp_resources', b'exec_command'), names, v)

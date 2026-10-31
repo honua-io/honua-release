@@ -170,6 +170,35 @@ class VmSlot:
                 'steps': [{'step': 'compose-down-and-remove', 'exitCode': done.returncode}]}
 
 
+def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None = None) -> dict:
+    """Add Console to the slot the way honua-server's own compose does (its 'console' profile service,
+    pinned image default), when the published package quickstart has none. Harness slot preparation for
+    stage 4, recorded as such; the agent never deploys or configures it."""
+    import yaml
+    service = (yaml.safe_load(source_compose).get('services') or {}).get('console')
+    if not isinstance(service, dict):
+        raise ValueError('the source compose defines no console service')
+    image = str(service['image'])
+    match = re.fullmatch(r'\$\{HONUA_CONSOLE_IMAGE:-([^}]+)\}', image)
+    image = match.group(1) if match else image
+    if not re.fullmatch(r'[a-z0-9./-]+@sha256:[0-9a-f]{64}', image):
+        raise ValueError('the Console image is not pinned by digest')
+    port = slot.http_port + 2
+    console = {k: v for k, v in service.items() if k not in ('profiles', 'ports', 'image', 'deploy')}
+    console.update(image=image, ports=[f'127.0.0.1:{port}:8080'])
+    override = yaml.safe_dump({'services': {'console': console}}, sort_keys=True)
+    fence = 'HONUA_CONSOLE_' + pysecrets.token_hex(6)
+    script = ('set -eu\numask 077\ncd -- ' + shlex.quote(slot.remote_dir) + '\n'
+              + f"cat > console.yaml <<'{fence}'\n{override}{fence}\n"
+              + slot.compose('-f', 'compose.yaml', '-f', 'console.yaml', 'up', '-d', '--wait', '--wait-timeout', '240',
+                             'console') + '\n')
+    done = slot.ssh(script, 600)
+    if done.returncode:
+        raise RuntimeError('Console did not start on the slot')
+    return {'image': image, 'port': port, 'source': 'honua-server docker-compose.yml console profile',
+            'revision': revision, 'deployedBy': 'harness (stage-4 slot preparation)'}
+
+
 class Tunnel:
     """Runner-owned ``ssh -L`` from a free loopback port here to the slot's port on the VM."""
 

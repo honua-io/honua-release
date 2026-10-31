@@ -14,6 +14,11 @@ driver's module is present, the stage is unavailable naming what is missing.
 from __future__ import annotations
 
 
+# The #1162 seed_case contract version the arc composes once the adopted stack carries the Console
+# origin and the customer identity; until #1162 declares the same, the stage stays unavailable.
+COMPOSED_CONTRACT = 'honua.studio-browser.arc-seed/v1'
+
+
 def arc_stage(ctx):
     return StudioArc(ctx)
 
@@ -49,6 +54,11 @@ class StudioArc:
                 missing.append(sid)
         if missing:
             return 'Studio scenarios not yet observable for this variant: ' + ','.join(missing)
+        # #1162's seed_case needs a provisioned Console origin and an authenticated customer; the arc's
+        # adopted stack (ai_arc_services) carries neither yet. Importing the driver is not composing it.
+        if not getattr(agent_browser_studio, 'ARC_CONTRACT', None) == COMPOSED_CONTRACT:
+            return ('the #1162 browser case contract (provisioned Console origin and authenticated customer '
+                    'in the adopted stack) is not composed with the arc yet')
         return None
 
     def sign_in_probe(self, ctx):

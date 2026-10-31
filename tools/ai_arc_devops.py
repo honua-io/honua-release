@@ -30,6 +30,44 @@ def arc_stage(ctx):
     return DevopsSetup(GOALS[ctx.target]) if ctx.target in GOALS else None
 
 
+class OperatorOwner:
+    """Owns the operator process from before it starts: registered in the stage's live set first, so
+    finalize_stage stops it whatever fails later in preparation (catalog, harness, deadline). Once
+    closed it refuses to start, and a start that races a close is stopped at once."""
+
+    def __init__(self, operator, finalized=lambda: False):
+        self.operator, self._closed, self.finalized = operator, False, finalized
+
+    @property
+    def closed(self):
+        # A preparation that overran its deadline keeps running in its worker after finalize_stage:
+        # once the stage is finalized nothing may start, even if this owner was never closed.
+        return self._closed or bool(self.finalized())
+
+    def bind(self, *args):
+        if self.closed:
+            raise RuntimeError('the stage was finalized before the operator started')
+        self.operator.bind(*args)
+        if self.closed:
+            self._stop()
+            raise RuntimeError('the stage was finalized while the operator started')
+
+    def alive(self) -> bool:
+        process = getattr(self.operator, 'process', None)
+        return process is not None and process.poll() is None
+
+    def _stop(self):
+        if getattr(self.operator, 'process', None) is not None:
+            self.operator.close()
+
+    def close(self):
+        already, self._closed = self._closed, True
+        if not already:
+            self._stop()
+        if self.alive():
+            raise RuntimeError('the operator process is still running after close')
+
+
 class HarnessBackend:
     """The arc's view of #1165's InstallHarness: one product MCP server (honua_devops)."""
 
@@ -53,6 +91,26 @@ class HarnessBackend:
         self.operator.close()
 
 
+def verified_operator(ctx) -> dict:
+    """The published honua-devops release archive, verified against the arc's pinned sha256 (and the
+    #1165 constants), extracted, and its binary digest observed. A supplied ``operator_binary`` must be
+    byte-identical to the verified archive's binary; otherwise nothing is launched."""
+    import hashlib
+    import agent_e2e_aws_install as aws
+    import ai_arc_operator
+    spec = ctx.arc['operator']
+    asset = ai_arc_operator.pinned_asset(spec)
+    if (spec['tag'], spec['commit'], asset['sha256']) != (aws.DEVOPS_TAG, aws.DEVOPS_SHA, aws.DEVOPS_ARCHIVE_SHA256):
+        raise ai_arc_operator.OperatorError('the arc operator pin differs from the install harness pin')
+    installed = ai_arc_operator.install(spec, ctx.private_dir / 'operator', download=ctx.options.get('operator_download'))
+    supplied = ctx.options.get('operator_binary')
+    if supplied:
+        digest = 'sha256:' + hashlib.sha256(Path(supplied).read_bytes()).hexdigest()
+        if digest != installed['binarySha256']:
+            raise ai_arc_operator.OperatorError('the supplied operator binary is not the verified release binary')
+    return installed
+
+
 class DevopsSetup:
     """StageModule for aws-ecs setup (duck-typed to ai_arc_runner.StageModule)."""
     stage, lane = 'setup', '#1165 honua-devops operator install harness'
@@ -60,12 +118,12 @@ class DevopsSetup:
 
     def __init__(self, goal_id):
         self.goal_id = goal_id
-        self.harness = self.backend = None
+        self.harness = self.backend = self.controller = None
 
     # -- availability ------------------------------------------------------------------------
     def unavailable(self, ctx):
         import agent_e2e_aws_install as aws
-        missing = [k for k in ('slot_receipt', 'bootstrap_outputs', 'operator_binary') if not ctx.options.get(k)]
+        missing = [k for k in ('slot_receipt', 'bootstrap_outputs') if not ctx.options.get(k)]
         if missing:
             return 'the release cell slot is incomplete: ' + ', '.join(missing)
         blockers = aws.blocking_gaps(self.goal_id)
@@ -85,6 +143,12 @@ class DevopsSetup:
         import agent_e2e_aws_install as aws
         from agent_e2e_aws_controller import (ApprovalIssuer, AwsController, ControllerError, HttpProbes,
                                               StdioOperator)
+        # Verify the release binary before any credential exists (Astra #1177 item 3).
+        installed = verified_operator(ctx)
+        binary = installed['binary']
+        ctx.slot.facts['operator'] = {'tag': installed['tag'], 'commit': installed['commit'],
+                                      'archiveSha256': installed['archiveSha256'],
+                                      'binarySha256': installed['binarySha256'], 'verified': 'archive+binary'}
         slot = json.loads(Path(ctx.options['slot_receipt']).read_text())
         goal = aws.load_goal(self.goal_id)
         contract, digest = aws.load_contract(slot['contractPath'], goal['topology'])
@@ -99,6 +163,9 @@ class DevopsSetup:
                 or contract['role_arn'] in signers):
             raise ControllerError('approval-role-separation')
         controller = AwsController(boto3.Session(region_name='us-east-1'), slot, contract)
+        self.controller = controller
+        # The cell is torn down when the arc run ends, whatever fails from here on.
+        ctx.slot.closers.append(self._teardown)
         run_id = slot['runId']
         creds = controller.assume(contract['role_arn'], 'arc-install-' + run_id)
         approver_creds = controller.assume(signers[0], 'arc-approve-' + run_id)
@@ -110,14 +177,17 @@ class DevopsSetup:
         proxy = yaml.safe_load(aws.MANIFEST.read_text())['clientArtifacts']['honua-mcp-server']
         env['HONUA_DEVOPS_MCP_PROXY_PACKAGE'] = '@honua/mcp-server@' + str(proxy['version'])
         env['HONUA_DEVOPS_MCP_PROXY_INTEGRITY'] = proxy['integrity']
+        # platform-manifest.yaml is release-owned (outside the frozen harness digest): record the pin used.
+        ctx.slot.facts['operator']['mcpProxy'] = {'package': env['HONUA_DEVOPS_MCP_PROXY_PACKAGE'],
+                                                  'integrity': proxy['integrity']}
         issuer_env = {k: v for k, v in env.items() if k not in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
                                                                   'AWS_SESSION_TOKEN')}
         issuer_env.update(AWS_ACCESS_KEY_ID=approver_creds.access_key_id,
                           AWS_SECRET_ACCESS_KEY=approver_creds.secret_access_key,
                           AWS_SESSION_TOKEN=approver_creds.session_token)
-        approver = ApprovalIssuer(ctx.options['operator_binary'], issuer_env, work / 'approver',
-                                  signers[0].rsplit('/', 1)[-1])
-        operator = StdioOperator(ctx.options['operator_binary'], work / 'operator')
+        approver = ApprovalIssuer(binary, issuer_env, work / 'approver', signers[0].rsplit('/', 1)[-1])
+        operator = OperatorOwner(StdioOperator(binary, work / 'operator'), lambda: ctx.finalized is not None)
+        ctx.live.append(operator)                 # owned by finalize_stage before it can start
         operator.bind(env, slot['iacRoot'], creds)
         variables = {line.split(' = ', 1)[0]: json.loads(line.split(' = ', 1)[1])
                      for line in Path(slot['variablesFile']).read_text().splitlines()}
@@ -127,27 +197,46 @@ class DevopsSetup:
         self.prefix = aws.name_prefix_for(run_id, goal['topology'])
         self.hostname = slot['hostname']
         self.harness = aws.InstallHarness(
-            goal=goal, operator=operator, probes=HttpProbes(), creds=creds, prefix=self.prefix,
+            goal=goal, operator=operator.operator, probes=HttpProbes(), creds=creds, prefix=self.prefix,
             hostname=self.hostname, module_dir=slot['iacRoot'], secrets=secrets, contract=contract,
             contract_digest=digest, approver=approver, controller=controller, cell_domain=self.hostname)
-        self.backend = HarnessBackend(self.harness, aws.tool_view(operator.catalog(), scenario='aws-install'),
+        self.backend = HarnessBackend(self.harness, aws.tool_view(operator.operator.catalog(), scenario='aws-install'),
                                       operator)
-        # The arc keeps the cell for the later stages; the cell is torn down when the arc run ends.
-        ctx.slot.closers.append(self._teardown)
-        ctx.slot.facts['operator'] = {'tag': aws.DEVOPS_TAG, 'commit': aws.DEVOPS_SHA,
-                                      'archiveSha256': aws.DEVOPS_ARCHIVE_SHA256}
         ctx.slot.facts['operator']['deployIdentity'] = {'sha256': 'sha256:' + digest, 'roleArn': contract['role_arn'],
                                                         'topology': goal['topology'].as_dict()}
         ctx.slot.facts.update(account=aws.ACCOUNT, region='us-east-1', cellHostname=self.hostname)
-        if slot.get('consoleHostname'):
-            # The honua-iac aws-ecs module's Console service (when the cell deploys one).
-            ctx.slot.facts['consoleBaseUrl'] = 'https://' + slot['consoleHostname']
+        if slot.get('console'):
+            # honua-iac #359: Console on the same HTTPS hostname as the server, path-routed behind the OIDC
+            # edge (honua-devops #248 preset). /version.json sits behind the edge, so health is the edge's own
+            # sign-in page (routed /oauth2/*, served unauthenticated); sign-in is the adapter's probe.
+            ctx.slot.facts['consoleBaseUrl'] = 'https://' + slot.get('consoleHostname', self.hostname)
+            ctx.slot.facts['consoleHealthPath'] = '/oauth2/sign_in'
         ctx.slot.controller['admin_key'] = variables['honua_admin_password']
         self.variables = variables
 
     def _teardown(self):
+        """Destroy the cell, then a live inventory read decides: clean only when nothing tagged for the
+        cell remains. Residue or an inventory that cannot be read makes the run's teardown unclean."""
+        controller = self.controller
+        if controller is None:
+            return {'status': 'clean'}
+        try:
+            remaining = controller.destroy()
+        finally:
+            if self.harness is not None:
+                self.harness.observed['teardownRemaining'] = None
+        try:
+            inventory = sorted(controller.inventory())
+        except Exception as exc:  # noqa: BLE001
+            return {'status': 'unknown', 'inventory': f'unreadable ({type(exc).__name__})',
+                    'remaining': sorted(remaining or [])}
         if self.harness is not None:
-            self.harness.observed['teardownRemaining'] = self.harness.aws.destroy()
+            self.harness.observed['teardownRemaining'] = inventory
+        return {'status': 'clean' if not inventory and not remaining else 'residual',
+                'remaining': sorted(set(inventory) | set(remaining or []))}
+
+    def harness_unsafe(self, ctx):
+        return list(self.harness.unsafe) if self.harness is not None else []
 
     def notes(self, ctx):
         import agent_e2e_aws_install as aws

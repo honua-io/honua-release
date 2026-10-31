@@ -36,7 +36,12 @@ QUICKSTART_CONTRACT = ('Complete the customer request using the provided MCP too
 SERVER_NAMES = frozenset(('honua', 'honua_devops', 'studio', 'quickstart_shell'))
 # Version-specific, audited built-ins. These are bookkeeping, not MCP actions.
 INTERNAL_TOOLS = {'claude-cli': {'2.1.316 (Claude Code)': frozenset()},
-                  'codex-cli': {'codex-cli 0.165.0': frozenset(('update_plan',))}}
+                  'codex-cli': {'codex-cli 0.165.0': frozenset(('update_plan',)),
+                                # 0.166 lists the configured MCP servers' resources with a built-in tool
+                                # (reported as server "codex"); the listing goes through the recording
+                                # proxy as resources/list, so it is bookkeeping, not an unrecorded action.
+                                'codex-cli 0.166.0': frozenset(('update_plan', 'list_mcp_resources',
+                                                                'list_mcp_resource_templates'))}}
 _CREDENTIAL_FIELD = re.compile(
     r'^(?:aws_?access_?key_?id|aws_?secret_?access_?key|access_?key_?id|secret_?access_?key|'
     r'session_?token|access_?token|refresh_?token|password|passwd|pwd|api_?key|private_?key)$', re.I)
@@ -354,6 +359,9 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
     for name, item in servers.items():
         overrides[f'mcp_servers.{name}.url'] = item['url']
         overrides[f'mcp_servers.{name}.enabled_tools'] = sorted(item['names'])
+        # Codex 0.166 asks for approval per MCP call; under approval_policy=never that refuses every call.
+        # The harness MCP surface is the guarded boundary, so its enabled tools are pre-approved.
+        overrides[f'mcp_servers.{name}.default_tools_approval_mode'] = 'approve'
         overrides[f'mcp_servers.{name}.startup_timeout_sec'] = tool_timeout
         overrides[f'mcp_servers.{name}.tool_timeout_sec'] = tool_timeout
     args = [binary, 'exec', '--model', model, '--sandbox', 'read-only', '--skip-git-repo-check',
@@ -393,7 +401,9 @@ def parse_transcript(agent, raw, names, version=None):
                 item = event.get('item', {})
                 kind = item.get('type')
                 if kind == 'mcp_tool_call':
-                    if item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
+                    internal = (item.get('server') == 'codex' and item.get('tool', '').startswith('list_mcp_resource')
+                                and item.get('tool') in INTERNAL_TOOLS.get(agent, {}).get(version, ()))
+                    if not internal and item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
                 elif kind == 'todo_list':
                     if 'update_plan' not in INTERNAL_TOOLS.get(agent, {}).get(version, ()): forbidden = True
                 elif kind not in ('agent_message', 'reasoning', 'error', None):

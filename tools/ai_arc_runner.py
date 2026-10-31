@@ -68,11 +68,13 @@ RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc
                 'tools/agent_e2e_local_recorder.py', 'tools/agent_e2e_local_api.py',
                 'tools/agent_e2e_local_mcp_proxy.py', 'tools/agent_e2e_local_faults.py',
                 'tools/g3_compose_quickstart.py', 'tools/ai_arc_devops.py',
-                'certification/agent-ops/arc_ops.py', 'tools/agent_e2e_studio_arc.py')
+                'certification/agent-ops/arc_ops.py', 'certification/agent-ops/arc-executors.json',
+                'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py')
 SCORER_GLOBS = ('tools/agent_e2e_handoff.py', 'certification/agent-e2e/corpus/oracle.py',
                 'tools/agent_e2e_local_projections.py', 'tools/agent_e2e_local_expectations.py',
                 'certification/agent-e2e/pack.v2.AB-only.json',
-                'certification/agent-e2e/expectations/local/*.json', 'tools/agent_e2e_local_scenarios/*.py')
+                'certification/agent-e2e/expectations/local/*.json', 'tools/agent_e2e_local_scenarios/*.py',
+                'certification/agent-e2e/expectations/aws-install/*')
 
 
 def sha256(raw: bytes | str) -> str:
@@ -432,6 +434,10 @@ class StageModule:
         """Resource ids the case owns (for destructive-attempt classification), or None."""
         return ctx.slot.facts.get('scope')
 
+    def harness_unsafe(self, ctx: StageContext) -> list[str]:
+        """Unsafe attempts the stage's own harness classified (retained in the stage context)."""
+        return []
+
 
 class DelegatingStage(StageModule):
     """Stage wiring owned by another lane: its module exports ``arc_stage(ctx) -> StageModule``."""
@@ -495,6 +501,10 @@ class DelegatingStage(StageModule):
 
     def scope(self, ctx):
         return self._inner.scope(ctx)
+
+    def harness_unsafe(self, ctx):
+        hook = getattr(self.__dict__.get('_inner'), 'harness_unsafe', None)
+        return list(hook(ctx)) if hook else []
 
 
 class LocalSetup(StageModule):
@@ -740,14 +750,27 @@ class StudioStage(DelegatingStage):
     the server's map rendering API. Unavailable on a slot where no Console is observed serving."""
 
     def precondition(self, ctx):
-        base = ctx.slot.facts.get('consoleBaseUrl')
         gap = ctx.arc['consoleDeployment'].get(ctx.target, 'no Console deployment for this target')
+        if not ctx.slot.facts.get('consoleBaseUrl') and ctx.slot.vm is not None and ctx.options.get('console_compose'):
+            # The published package quickstart composes no Console: add it as honua-server's own compose
+            # does (pinned image, #6828), as harness slot preparation for this stage.
+            import ai_arc_local
+            try:
+                staged = ai_arc_local.stage_console(ctx.slot.vm, Path(ctx.options['console_compose']).read_text(),
+                                                    ctx.options.get('console_compose_revision'))
+            except Exception as exc:  # noqa: BLE001
+                return f'Honua Console could not be added to the slot ({type(exc).__name__}): ' + gap
+            tunnel = ai_arc_local.Tunnel(ctx.slot.vm, staged['port'])
+            ctx.slot.closers.append(tunnel.close)
+            ctx.slot.facts.update(consoleBaseUrl=tunnel.base_url, console=staged)
+        base = ctx.slot.facts.get('consoleBaseUrl')
         if not base:
             return 'Honua Console is not serving on this slot: ' + gap
         http = ctx.options.get('http')
-        health = http('GET', base.rstrip('/') + '/version.json', None) if http else {'status': None}
-        ctx.slot.facts['consoleHealth'] = {'status': health.get('status'), 'sha256': health.get('sha256')}
-        if health.get('status') != 200 or not isinstance(health.get('json'), dict):
+        path = ctx.slot.facts.get('consoleHealthPath', '/version.json')
+        health = http('GET', base.rstrip('/') + path, None) if http else {'status': None}
+        ctx.slot.facts['consoleHealth'] = {'path': path, 'status': health.get('status'), 'sha256': health.get('sha256')}
+        if health.get('status') != 200 or (path == '/version.json' and not isinstance(health.get('json'), dict)):
             return f"Honua Console health probe failed ({health.get('status')}): " + gap
         return None
 
@@ -1288,12 +1311,15 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
                                   approvals=context.get('approvals') or [], scope=context.get('scope'),
                                   approved_compose=context.get('approvedComposeSha256'),
                                   binding=context.get('binding'))
+    unsafe = safety.merge_harness_unsafe(stage, unsafe, context.get('harnessUnsafe'))
     row = {'failure': context.get('failure'), 'nudges': context.get('nudges', 0), 'actions': actions}
     effective = dict(check, false_success=false_success, undetermined=unresolved or check.get('undetermined'))
     outcome, cause = stage_verdict(arc, target, stage, scored, row, actions, effective, unsafe, limits,
                                    context.get('elapsedSeconds', 0))
     if any(a['status'] == 'undetermined' for a in scored) and not actions:
         outcome, cause = 'undetermined', 'corpus case infrastructure (unreplayed)'
+    if (context.get('failure') or {}).get('category') == 'harness-error':
+        outcome, cause = 'undetermined', 'harness error: ' + str(context['failure'].get('reason', ''))[:200]
     shutdown = context.get('shutdown')
     if shutdown and not shutdown.get('complete'):
         # The session, its credentials or its in-flight work could not be verifiably stopped: the
@@ -1374,6 +1400,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         approvals, scope = module.approvals(ctx), module.scope(ctx)
     except Exception:
         approvals, scope = [], None
+    try:
+        harness_unsafe = [str(r) for r in module.harness_unsafe(ctx)]
+    except Exception:  # noqa: BLE001
+        harness_unsafe = ['unreadable-harness-safety-record']   # conservative: an unknown is an attempt
     elapsed = round(time.monotonic() - started, 1)
     context = {'approvals': approvals, 'scope': sorted(scope) if scope is not None else None,
                'approvedComposeSha256': (ctx.slot.facts.get('quickstart') or {}).get('composeSha256'),
@@ -1384,7 +1414,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                'nudges': int(row.get('nudges') or 0), 'elapsedSeconds': elapsed,
                'utterances': [u for u in row.get('utterances') or [] if isinstance(u, str)],
                'nestedAnswerChecks': bool(row.get('nestedAnswerChecks')),
-               'shutdown': row.get('shutdown')}
+               'shutdown': row.get('shutdown'), 'harnessUnsafe': harness_unsafe}
     secrets = ctx.slot.harness_secrets
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, handoff_r, context_r = red(actions), red(observations), red(handoff), red(context)
@@ -1496,11 +1526,12 @@ def harness_digests() -> dict:
             'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None}
 
 
-def run_status(stages: list[dict]) -> str:
-    """completed | undetermined | blocked | failed; every one but completed is a failed arc."""
+def run_status(stages: list[dict], teardown_clean: bool = True) -> str:
+    """completed | undetermined | blocked | failed; every one but completed is a failed arc.
+    A run whose teardown left residue, could not be inventoried or raised is not completed."""
     first = next((row for row in stages if row['outcome'] != 'pass'), None)
     if first is None:
-        return 'completed'
+        return 'completed' if teardown_clean else 'undetermined'
     if first['outcome'] in ('undetermined', 'stage-unavailable') or any(r['outcome'] == 'undetermined' for r in stages):
         return 'undetermined'
     if any(row['outcome'] == 'blocked' for row in stages):
@@ -1575,19 +1606,16 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
             try:
                 result = run_stage(ctx, modules[stage], session, goal, previous_answer)
             except Exception as exc:  # noqa: BLE001  (a harness defect never loses the run's receipt)
-                result = _empty_stage(stage, 'undetermined', f'harness error: {type(exc).__name__}: {str(exc)[:200]}')
+                result = harness_error_stage(ctx, modules[stage], exc)
             receipt['stages'].append(result)
             outcomes[stage] = result['outcome']
             answer_path = private / stage / 'final-answer.txt'
             if answer_path.is_file():
                 previous_answer = answer_path.read_text(encoding='utf-8')
     finally:
-        for close in reversed(slot.closers):
-            try:
-                close()
-            except Exception:
-                pass
+        closer_steps = run_closers(slot)
         receipt['teardown'] = slot.vm.teardown() if slot.vm else {'status': 'clean', 'steps': []}
+        receipt['teardown'] = merge_teardown(receipt['teardown'], closer_steps)
         # A runner-authored record exists for every run, so a run that never reached a session (for
         # example setup stage-unavailable) still has retained evidence and stays in the denominator.
         write_private(private / 'run-record.json', canonical(
@@ -1602,6 +1630,81 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
         shutil.rmtree(private, ignore_errors=True)
     receipt['slotFacts'] = {k: v for k, v in slot.facts.items() if k in ('quickstart', 'vm', 'operator')}
     return finish_trial(receipt, out_dir)
+
+
+def run_closers(slot) -> list[dict]:
+    """Run every slot closer (each one, even when another raises). A closer may return
+    ``{'status': 'clean'|'residual'|'unknown', ...}``; an exception is a failed teardown, never swallowed."""
+    steps = []
+    for close in reversed(slot.closers):
+        name = getattr(close, '__qualname__', type(close).__name__)[:80]
+        try:
+            outcome = close()
+        except BaseException as exc:  # noqa: BLE001
+            steps.append({'step': name, 'status': 'failed', 'error': f'{type(exc).__name__}: {str(exc)[:160]}'})
+            continue
+        if isinstance(outcome, dict) and outcome.get('status'):
+            steps.append({'step': name, **{k: v for k, v in outcome.items() if k in ('status', 'remaining', 'inventory')}})
+        else:
+            steps.append({'step': name, 'status': 'clean'})
+    return steps
+
+
+def merge_teardown(teardown: dict, closer_steps: list[dict]) -> dict:
+    bad = [s for s in closer_steps if s.get('status') != 'clean']
+    status = teardown.get('status') if not bad else (
+        'residual' if all(s.get('status') == 'residual' for s in bad) else 'failed')
+    return {**teardown, 'status': status, 'steps': list(teardown.get('steps') or []) + closer_steps}
+
+
+def harness_error_stage(ctx, module, exc) -> dict:
+    """A harness defect in a stage: still a complete, aggregatable record. The write-ahead action log,
+    any final answer and the failure are retained as stage evidence; the outcome is undetermined
+    (a failed run, in n), scored from that evidence like every other stage."""
+    stage = module.stage
+    if ctx.finalized is None:
+        try:
+            finalize_stage(ctx, 'harness-error')
+        except BaseException:  # noqa: BLE001
+            pass
+    shutdown = ctx.finalized or {'complete': False, 'errors': [{'step': 'finalize', 'error': 'did not run'}]}
+    try:
+        actions = scan_actions(ctx.private_dir / stage)
+    except Exception:  # noqa: BLE001
+        actions = []
+    answer_path = ctx.private_dir / stage / 'final-answer.txt'
+    answer = answer_path.read_text(encoding='utf-8') if answer_path.is_file() else None
+    try:
+        harness_unsafe = [str(r) for r in module.harness_unsafe(ctx)]
+    except Exception:  # noqa: BLE001
+        harness_unsafe = ['unreadable-harness-safety-record']
+    failure = {'category': 'harness-error', 'reason': f'{type(exc).__name__}: {str(exc)[:200]}'}
+    observations = [{'assertion': 'harness', 'status': 'undetermined', 'reason': failure['reason']}]
+    context = {'approvals': [], 'scope': None, 'approvedComposeSha256': (ctx.slot.facts.get('quickstart') or {}).get(
+                   'composeSha256'),
+               'deploymentHosts': [], 'failure': failure, 'binding': {'slotId': ctx.slot.project},
+               'nudges': 0, 'elapsedSeconds': 0, 'utterances': [], 'nestedAnswerChecks': False,
+               'shutdown': shutdown, 'harnessUnsafe': harness_unsafe}
+    secrets = ctx.slot.harness_secrets
+    red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
+    actions_r, observations_r, context_r = red(actions), red(observations), red(context)
+    answer_r = redact_bytes(answer.encode(), secrets).decode() if answer is not None else None
+    result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
+    result.update(score_stage(ctx.arc, ctx.target, stage, observations_r, actions_r, answer_r, None, context_r,
+                              ctx.limits))
+    evidence = {'actions': stage_file(ctx, stage, 'actions.json', actions_r),
+                'observations': stage_file(ctx, stage, 'observations.json', observations_r),
+                'handoff': stage_file(ctx, stage, 'handoff.json', None),
+                'context': stage_file(ctx, stage, 'context.json', context_r)}
+    if answer_r is not None:
+        evidence['finalAnswer'] = stage_file(ctx, stage, 'final-answer.txt', answer_r.encode('utf-8'))
+        result['finalAnswerSha256'] = evidence['finalAnswer']
+    result['evidence'] = evidence
+    result['actions'] = [{'sequence': i, 'kind': a.get('kind'), 'tool': a.get('tool'), 'status': a.get('status'),
+                          'digest': sha256(canonical({k: a.get(k) for k in ('kind', 'tool', 'arguments')}))}
+                         for i, a in enumerate(actions_r, 1)]
+    result['shutdown'] = shutdown
+    return result
 
 
 EXPORT_SKIP = ('operator',)
@@ -1649,14 +1752,14 @@ def finish_trial(receipt: dict, out_dir: Path) -> dict:
             break
         reached += 1
     receipt['reachedStage'] = reached
-    receipt['status'] = run_status(stages)
+    receipt['teardownClean'] = receipt.get('teardown', {}).get('status') == 'clean'
+    receipt['status'] = run_status(stages, receipt['teardownClean'])
     first_bad = next((row for row in stages if row['outcome'] != 'pass'), None)
     receipt['arcCause'] = None if first_bad is None else {k: first_bad.get(k) for k in ('stage', 'outcome', 'cause')}
     receipt['unsafeAttempts'] = [u for row in stages for u in row.get('unsafe', [])]
     receipt['falseSuccess'] = any(row.get('falseSuccess') for row in stages)
     receipt['falseSuccessUnresolved'] = any(row.get('falseSuccessUnresolved') for row in stages)
     receipt['nudges'] = sum(int(row.get('nudges') or 0) for row in stages)
-    receipt['teardownClean'] = receipt.get('teardown', {}).get('status') == 'clean'
     receipt['costUsd'] = None
     receipt['finishedAt'] = now()
     raw = json.dumps(receipt, indent=2, sort_keys=True).encode() + b'\n'
@@ -1766,7 +1869,13 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         unsafe.extend(stage_row.get('unsafe') or [])
         false_claims |= bool(stage_row.get('falseSuccess'))
         unresolved |= bool(stage_row.get('falseSuccessUnresolved'))
-    status = run_status(stages)
+    teardown = receipt.get('teardown') or {}
+    if bool(receipt.get('teardownClean')) != (teardown.get('status') == 'clean'):
+        raise ValueError('run teardown flag contradicts its teardown record')
+    record = Path(evidence) / 'run-record.json'
+    if not record.is_file() or json.loads(record.read_bytes()).get('teardown') != teardown.get('status'):
+        raise ValueError('run teardown differs from the retained run record')
+    status = run_status(stages, teardown.get('status') == 'clean')
     if receipt.get('status') != status or receipt.get('unsafeAttempts') != unsafe \
             or bool(receipt.get('falseSuccess')) != false_claims \
             or bool(receipt.get('falseSuccessUnresolved')) != unresolved:
@@ -2021,6 +2130,8 @@ def main(argv=None) -> int:
     trial.add_argument('--slot-receipt')
     trial.add_argument('--slot-credentials')
     trial.add_argument('--deploy-identity-contract', help='honua-iac deploy_identity_contract export (absolute path)')
+    trial.add_argument('--console-compose', help='honua-server docker-compose.yml (its console service) at a pinned revision')
+    trial.add_argument('--console-compose-revision')
     trial.add_argument('--bootstrap-outputs', help='aws-ecs: the bootstrap/aws-exec-identity outputs (approval MAC contract)')
     trial.add_argument('--operator-binary', help='aws-ecs: the verified honua-devops binary')
     trial.add_argument('--lock-digest', required=True)
@@ -2065,6 +2176,7 @@ def main(argv=None) -> int:
                    'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials,
                    'deploy_identity_contract': args.deploy_identity_contract,
                    'bootstrap_outputs': args.bootstrap_outputs, 'operator_binary': args.operator_binary,
+                   'console_compose': args.console_compose, 'console_compose_revision': args.console_compose_revision,
                    'http': local_http}
         receipt = run_trial(arc=arc, target=args.target, arm=arm, variant=args.variant, run_id=args.run_id,
                             out_dir=args.output, slot=slot, candidate=candidate, session=ArcSession(arm),

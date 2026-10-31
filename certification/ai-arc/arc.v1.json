@@ -569,8 +569,8 @@
     }
   },
   "consoleDeployment": {
-    "local-docker": "GAP (narrowed): honua-server #6828 (merged, f80baf78) pins the published Console image in the repository docker-compose.yml 'console' profile (source quickstart), but the published package quickstart the arc follows (docs/get-started/quickstart.md) still composes no console service. Stage 4 locally runs only when the quickstart page in use includes Console.",
-    "aws-ecs": "PENDING: honua-devops #248 (merged, f115c114) and honua-iac #359 (open) add Console to the aws-ecs cell; the arc consumes it from the slot's consoleHostname once the cell deploys it.",
+    "local-docker": "honua-server #6828 (merged) pins Console in the repository docker-compose.yml 'console' profile. The published package quickstart the agent follows composes none, so for stage 4 the harness adds that console service (pinned image, honua-server compose at a pinned revision, --console-compose) as slot preparation, recorded in slotFacts.console.",
+    "aws-ecs": "honua-iac #359 and honua-devops #248 (merged) deploy Console on the cell's HTTPS hostname behind the OIDC edge. The arc consumes it when the release cell slot sets console (health: the edge sign-in page /oauth2/sign_in; the customer signs in through the adapter).",
     "rule": "The Studio stage is stage-unavailable on a slot where no Console is observed serving; it is never scored without one."
   }
 }
