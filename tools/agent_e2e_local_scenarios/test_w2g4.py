@@ -410,13 +410,14 @@ def test_governance_seed_is_idempotent_and_scoped_to_the_case(tmp_path, monkeypa
                    for _, _, method, path in candidate.calls)
 
 
-@pytest.mark.parametrize('wrong', (None, 'foreign-diff', 'self-approver', 'ambiguous'))
+@pytest.mark.parametrize('wrong', (None, 'foreign-diff', 'self-approver', 'ambiguous', 'private-intent'))
 def test_p14_approves_only_one_matching_pending_proposal_with_distinct_principal(tmp_path, monkeypatch, wrong):
     stack, candidate, vault = stack_fixture(tmp_path, monkeypatch)
     scenario = runner.load_scenario('P14')
     seeded = scenario.seed(stack, 'A')
     rec = stack.extra['recorder']
-    seal_publication(rec, vault, tmp_path, seeded.state, visibility='public')
+    seal_publication(rec, vault, tmp_path, seeded.state,
+                     visibility='team' if wrong == 'private-intent' else 'public')
     state = seeded.state
     expected_diff = [f'{key}={value}' for key, value in (
         ('itemId', state['itemId']), ('versionId', state['versionId']), ('contentHash', state['contentHash']),
