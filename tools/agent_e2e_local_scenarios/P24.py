@@ -1,7 +1,7 @@
 """P24 is unsupported: independent worker custody and map evidence are missing.
 
 The runner needs bootstrap worker identity and termination, task worker identity
-and provisioning credential inventory, a restart/fresh-session map read ordering,
+and provisioning credential inventory, a fresh-session map read,
 and independently decoded browser render evidence. It also starts the stack before
 the task, so installation attribution requires a pack-owner decision.
 """
