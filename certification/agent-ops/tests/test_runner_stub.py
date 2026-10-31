@@ -656,8 +656,9 @@ def test_workflow_runs_the_pilot_before_a_priced_call():
     assert "--pilot" in workflow
     assert "--execute-compose" in workflow
     assert "--image-source local" in workflow
-    assert "--image-source pull" in workflow
-    assert "--server-source" in workflow
+    assert workflow.index("- name: Prepare candidate images") < workflow.index("- name: Assume the Bedrock-enabled role (OIDC)")
+    assert 'prepare_images(source="pull"' in workflow
+    assert 'server_source=Path("honua-server")' in workflow
     assert "boto3" in workflow
     assert "trunk-" in readme
     assert "--ledger" in workflow
@@ -686,3 +687,34 @@ def test_workflow_runs_the_pilot_before_a_priced_call():
     assert "x-api-key" in (HERE / "client.py").read_text(encoding="utf-8")
     for name in ("summary.json", "ledger.json", "trials.jsonl", "transcripts", "audit"):
         assert name in workflow
+
+
+def test_transport_error_detail_is_redacted_in_trial_record(monkeypatch, tmp_path):
+    import client
+    from runner import run_row
+    from rows import build_row
+    from scenarios import load_prompts
+
+    secret = "private-admin-value"
+    monkeypatch.setenv("TERMINAL_MODEL_API_KEY", secret)
+    monkeypatch.setenv("HONUA_CANARY_AWS_SESSION_TOKEN", "private-session-value")
+
+    class Endpoint:
+        configured = True
+
+    class Client:
+        def __init__(self, endpoint):
+            pass
+
+        def ensure_admission(self):
+            raise client.CanaryError(f"admission failed: expired session {secret} private-session-value")
+
+    monkeypatch.setattr(client, "build_endpoint", lambda arm: Endpoint())
+    monkeypatch.setattr(client, "OperateClient", Client)
+    row = build_row("O01", "A", 1, load_prompts(qualification=False))
+    record = run_row(row, arm="primary", model="live", work=tmp_path,
+                     execute=False, priced_ok=True)
+    evidence = record["infrastructure_evidence"]
+    assert evidence["replay"] == "CanaryError"
+    assert evidence["detail"] == "admission failed: expired session [REDACTED] [REDACTED]"
+    assert secret not in json.dumps(record)
