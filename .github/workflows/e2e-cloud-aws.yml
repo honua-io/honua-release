@@ -17,6 +17,14 @@ on:
     - cron: "17 7 * * *"          # nightly; the train consumes the latest green (Phase 2)
   workflow_dispatch:
     inputs:
+      candidate_ref:
+        description: Immutable candidate snapshot ref
+        type: string
+        default: ""
+      lock_run_id:
+        description: Release train run containing the frozen candidate-manifest artifact
+        type: string
+        default: ""
       prepared_ref:
         description: Unadmitted data-only snapshot at refs/prepared-deployments/<sha>; never a candidate ref
         required: false
@@ -53,7 +61,7 @@ on:
         type: string
         default: ""
       lock_digest:
-        description: "sha256:<hex> of the platform lock the genuine-model canary binds to (empty: the canary runs unbound and records blocked)"
+        description: "sha256:<hex> of the platform lock; supply lock_run_id on dispatch"
         type: string
         default: ""
   workflow_call:
@@ -83,6 +91,8 @@ on:
         type: boolean
         default: false
       bedrock_model: { required: false, type: string, default: "" }
+      trial_id: { required: false, type: string, default: "" }
+      lock_run_id: { required: false, type: string, default: "" }
       # Fix unit J3: the genuine-model canary runs on the Bedrock cell after its journey, bound to this lock.
       lock_digest:
         type: string
@@ -415,6 +425,8 @@ jobs:
       # Bedrock is billed: opt-in for the ECS GA cells (or an explicitly dispatched Lambda Preview cell); never EKS Preview.
       enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && (matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}
       bedrock_model: ${{ inputs.bedrock_model || '' }}
+      trial_id: ${{ inputs.trial_id || '' }}
+      lock_run_id: ${{ inputs.lock_run_id || '' }}
       lock_digest: ${{ inputs.lock_digest || '' }}
       update_rollback_run_id: ${{ inputs.update_rollback_run_id || '' }}
       update_rollback_mode: ${{ inputs.update_rollback_mode || 'rehearsal' }}
@@ -557,7 +569,7 @@ jobs:
       - name: Download all cloud reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "*cloud*report*"
+          pattern: ${{ inputs.trial_id != '' && format('e2e-cloud-aws-gate-report-*-trial-{0}', inputs.trial_id) || '*cloud*report*' }}
           path: reports
         continue-on-error: true
 
@@ -666,7 +678,7 @@ jobs:
       - name: Upload aggregated cloud gate-report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cloud-gate-report
+          name: cloud-gate-report${{ inputs.trial_id != '' && format('-trial-{0}', inputs.trial_id) || '' }}
           path: out/gate-report-cloud.json
 
       - name: Enforce

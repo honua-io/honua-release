@@ -1541,7 +1541,8 @@ def test_cli_binds_the_lock_bytes_and_refuses_an_unbound_or_mismatched_run(tmp_p
                         "--cell", "aws-ecs/redis-off", "--attempt", "2"]) == 1
     bound = json.loads(out.read_text(encoding="utf-8"))
     assert (bound["lockDigest"], bound["cell"], bound["attempt"]) == (digest, "aws-ecs/redis-off", 2)
-    assert bound["status"] == "skipped" and bound["failureAttribution"] == "infrastructure"
+    assert bound["status"] == "fail" and bound["failureAttribution"] == "infrastructure"
+    assert "requires the verified same-job deployment receipt" in bound["notices"][0]
 
     out = tmp_path / "mismatch.json"
     assert canary.main(["--output", str(out), "--lock", str(lock), "--lock-digest", LOCK]) == 1
@@ -2785,6 +2786,9 @@ def _single_tenant_live_run(monkeypatch, tmp_path: Path, *, cell: str = GA_CELL,
     """State-machine unit test of run 41013398407's stage 8; it makes no candidate or model claim."""
     builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
         endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, cell=cell, lock_digest=LOCK)
+    image = builder.receipt["serverImage"]
+    builder.receipt["lockVerification"] = {"lockDigest": LOCK, "serverDigest": image["digest"],
+        "observedReference": image["reference"], "observationSource": "ecs-task-readback"}
     config = tmp_path / "target.json"
     config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "http://127.0.0.1:8000"}))
     deterministic = tmp_path / "deterministic.json"
