@@ -338,3 +338,12 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
     second = Stack('', '', None, 'fake2', '', '', '', {'recorder': recorder, 'databaseHandoff': stack.extra['databaseHandoff']})
     with pytest.raises(ValueError, match='seed draft does not match'):
         case.seed(second, 'A')
+
+
+def test_p02_does_not_enable_canonical_hash_as_raw_scan_evidence():
+    case = importlib.import_module('agent_e2e_local_scenarios.P02').scenario
+    assert case.supported_variants == ()
+    raw = b'{"success":true,"data":[],"timestamp":"2026-01-01T00:00:00Z"}'
+    raw_digest = hashlib.sha256(raw).hexdigest()
+    data_digest = hashlib.sha256(json.dumps([], separators=(',', ':')).encode()).hexdigest()
+    assert raw_digest != data_digest
