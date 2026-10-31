@@ -628,6 +628,10 @@ class InstallHarness:
         if result.get('status') != 'terraform-plan-ready':
             self._note('variable-rejected' if result.get('status') in ('variables-invalid', 'unsupported-size', 'unsupported-stack') else 'operator-refusal')
             return {'status': 'fail', 'result': result}
+        problem = _variable_reason(variables, self.goal, self.prefix, self.cell_domain)
+        if problem:
+            self._note(problem)
+            return {'status': 'fail', 'result': {'error': problem}}
         record = {
             'event': 'plan',
             'topology': None if topology is None else topology.as_dict(),

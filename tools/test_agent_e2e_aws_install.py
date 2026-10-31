@@ -549,3 +549,13 @@ def test_install_intake_accumulates_partial_variables_without_overriding_scope(h
         'installationId': harness.installation_id, 'variablesJson': json.dumps({'redis_enabled': True})}})
     assert wrong['result']['error'] == 'topology-mismatch'
     assert len(harness.operator.calls) == 2
+
+
+def test_install_plan_requires_complete_slot_binding_before_approval(harness):
+    incomplete = variables(harness)
+    del incomplete['name_prefix']
+    result = harness.execute('tool_call', {'tool': 'install_honua', 'arguments': {
+        'stack': 'aws-ecs', 'variablesJson': json.dumps(incomplete)}})
+    assert result['status'] == 'fail'
+    assert result['result']['error'] == 'malformed'
+    assert harness.approval is None and not harness.approver.calls
