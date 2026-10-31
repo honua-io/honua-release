@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P11",
-  "derivation": "Buffer expectation derives from A/B corpus oracles; source features from town fixtures. The viewport predicate is fixture-bound; current projection requires an EPSG:3857 saved view pending support for converting Studio CRS strings to WKIDs.",
+  "derivation": "Buffer expectation and viewport containment derive from A/B corpus oracles; source features derive from town fixtures. The saved map view supplies its own CRS.",
   "variants": {
     "A": {
       "buffer.metric": {
@@ -447,8 +447,7 @@
         "featureArrayCount": 1,
         "queryError": false,
         "offset": 0,
-        "geojsonType": "FeatureCollection",
-        "viewCrs": "EPSG:3857"
+        "geojsonType": "FeatureCollection"
       }
     },
     "B": {
@@ -895,8 +894,7 @@
         "featureArrayCount": 1,
         "queryError": false,
         "offset": 0,
-        "geojsonType": "FeatureCollection",
-        "viewCrs": "EPSG:3857"
+        "geojsonType": "FeatureCollection"
       }
     }
   },
@@ -1579,9 +1577,9 @@
                     "body": "p11-map-version",
                     "pointer": "/data/envelope/body/view/bbox/3"
                   },
-                  "spatialReference": {
-                    "body": "p11-result-esri",
-                    "pointer": "/spatialReference"
+                  "crs": {
+                    "body": "p11-map-version",
+                    "pointer": "/data/envelope/body/view/crs"
                   }
                 }
               },
@@ -1660,10 +1658,6 @@
             "geojsonType": {
               "body": "p11-result-geojson",
               "pointer": "/result/structuredContent/geojson/type"
-            },
-            "viewCrs": {
-              "body": "p11-map-version",
-              "pointer": "/data/envelope/body/view/crs"
             }
           }
         },
@@ -1726,27 +1720,6 @@
                 }
               }
             ]
-          },
-          "p11-result-esri": {
-            "kind": "http",
-            "method": "GET",
-            "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?.+",
-            "principal": "controller",
-            "phase": "observe",
-            "addresses": [
-              {
-                "role": "created:service:buffer",
-                "at": {
-                  "pathSegment": 2
-                }
-              },
-              {
-                "role": "child:layer:published",
-                "at": {
-                  "pathSegment": 4
-                }
-              }
-            ]
           }
         }
       }
@@ -1798,9 +1771,9 @@
                     "body": "p11-map-version",
                     "pointer": "/data/envelope/body/view/bbox/3"
                   },
-                  "spatialReference": {
-                    "body": "p11-result-esri",
-                    "pointer": "/spatialReference"
+                  "crs": {
+                    "body": "p11-map-version",
+                    "pointer": "/data/envelope/body/view/crs"
                   }
                 }
               },
@@ -1879,10 +1852,6 @@
             "geojsonType": {
               "body": "p11-result-geojson",
               "pointer": "/result/structuredContent/geojson/type"
-            },
-            "viewCrs": {
-              "body": "p11-map-version",
-              "pointer": "/data/envelope/body/view/crs"
             }
           }
         },
@@ -1942,27 +1911,6 @@
                 "role": "child:layer:published",
                 "at": {
                   "argument": "/layerId"
-                }
-              }
-            ]
-          },
-          "p11-result-esri": {
-            "kind": "http",
-            "method": "GET",
-            "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?.+",
-            "principal": "controller",
-            "phase": "observe",
-            "addresses": [
-              {
-                "role": "created:service:buffer",
-                "at": {
-                  "pathSegment": 2
-                }
-              },
-              {
-                "role": "child:layer:published",
-                "at": {
-                  "pathSegment": 4
                 }
               }
             ]

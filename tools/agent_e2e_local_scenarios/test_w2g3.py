@@ -17,7 +17,7 @@ from agent_e2e_local_scenarios import P11
 def test_runner_discovers_fail_closed_scenarios(scenario_id):
     scenario = load_scenario(scenario_id)
     assert scenario.id == scenario_id
-    assert scenario.supported_variants == (('A', 'B') if scenario_id == 'P13' else ())
+    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P11', 'P13') else ())
     assert scenario.fault_plan('A') is None
     assert scenario.sessions_required() == 1
 
@@ -435,6 +435,15 @@ def test_p11_frozen_geometry_and_map_reject_wrong_state(variant):
             records=records,roles=roles,scenario_id='P11',frozen=frozen)[0]['status']
     assert score('buffer.metric')=='pass'
     assert score('map.composition')=='pass'
+    geographic=copy.deepcopy(saved)
+    lon=lambda x: math.degrees(x / 6378137.0)
+    lat=lambda y: math.degrees(2 * math.atan(math.exp(y / 6378137.0)) - math.pi / 2)
+    geographic['data']['envelope']['body']['view']={'bbox':[lon(rect[0]),lat(rect[1]),lon(rect[2]),lat(rect[3])], 'crs':'EPSG:4326'}
+    records['p11-map-version']=record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',geographic)
+    assert score('map.composition')=='pass'
+    geographic['data']['envelope']['body']['view']['crs']='EPSG:3857'
+    records['p11-map-version']=record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',geographic)
+    assert score('map.composition')=='fail'
     narrow=copy.deepcopy(saved); narrow['data']['envelope']['body']['view']['bbox'][0]=cx
     records['p11-map-version']=record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',narrow)
     assert score('map.composition')=='fail'

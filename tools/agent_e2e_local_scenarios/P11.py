@@ -1,8 +1,7 @@
-"""P11 remains unsupported: Studio CRS strings need conversion to numeric WKIDs.
+"""Observe the agent's metric buffer, published result and saved map.
 
-The fixture-bound viewport predicate now verifies a saved EPSG:3857 view, but
-without conversion it would reject valid views in other supported coordinate
-systems. Typed attribute reads require honua-server #6815.
+Viewport containment uses the saved view's declared CRS and fixture buffer.
+Typed attribute reads require honua-server #6815.
 """
 from pathlib import Path
 import re
@@ -15,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class P11(Scenario):
     id = 'P11'
-    supported_variants = ()
+    supported_variants = ('A', 'B')
 
     def seed(self, stack, variant):
         from agent_e2e_local_scenarios.w2g3_common import read_town, town_setup
@@ -122,6 +121,12 @@ class P11(Scenario):
                 Observation('buffer.metric', None, {'projection': 'extract/v1'}),
                 Observation('map.composition', None, {'projection': 'extract/v1'}),
                 Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
+
+
+    def handoff(self, stack, seeded, variant, run=None):
+        return {'object': {'resources': {'list': []}, 'facts': {'object': {
+            'counts': {'object': {'features': {'body': 'p11-result-geojson',
+                                               'pointer': '/result/structuredContent/returnedCount'}}}}}}}
 
 
 scenario = P11()
