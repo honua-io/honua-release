@@ -569,8 +569,8 @@
     }
   },
   "consoleDeployment": {
-    "local-docker": "GAP: the published quickstart (honua-server docs/get-started/quickstart.md) composes no console service; honua-server docker-compose.yml has an opt-in console profile whose default image is ghcr.io/honua-io/honua-console:pending",
-    "aws-ecs": "GAP: the honua-iac aws-ecs module deploys no Console service (it only renders CORS origins for a Console origin)",
+    "local-docker": "GAP (narrowed): honua-server #6828 (merged, f80baf78) pins the published Console image in the repository docker-compose.yml 'console' profile (source quickstart), but the published package quickstart the arc follows (docs/get-started/quickstart.md) still composes no console service. Stage 4 locally runs only when the quickstart page in use includes Console.",
+    "aws-ecs": "PENDING: honua-devops #248 (merged, f115c114) and honua-iac #359 (open) add Console to the aws-ecs cell; the arc consumes it from the slot's consoleHostname once the cell deploys it.",
     "rule": "The Studio stage is stage-unavailable on a slot where no Console is observed serving; it is never scored without one."
   }
 }

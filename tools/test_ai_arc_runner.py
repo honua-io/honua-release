@@ -786,7 +786,7 @@ def test_studio_is_unavailable_without_a_serving_console(tmp_path):
                          candidate=CAND_IN, install=ARC['versionPair']['install'], limits=ARC['limits']['studio'],
                          deadline=time.monotonic() + 60)
     reason = R.StudioStage().unavailable(ctx)
-    assert reason and 'Console' in reason and 'aws-ecs module deploys no Console' in reason
+    assert reason and 'Console is not serving' in reason and 'honua-iac #359' in reason
     assert next(s for s in ARC['stages'] if s['id'] == 'studio')['drivers'] == ['console-assistant', 'arm-browser']
 
 
