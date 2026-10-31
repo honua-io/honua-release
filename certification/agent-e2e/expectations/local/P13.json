@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P13",
-  "derivation": "Map and version identities bind to controller seed responses. Town geometry and typed attributes come from A/B corpus GeoJSON. The shared map projection covers identity and current pointer, not the complete shared service inventory.",
+  "derivation": "Map and version identities bind to controller seed responses. Town features derive from A/B corpus GeoJSON. Service protocol and access policy are explicitly set during seed; server default map settings and case-owned map/service inventories are frozen.",
   "variants": {
     "A": {
       "source-content.unchanged": {
@@ -445,6 +445,121 @@
               "workspaceId": {
                 "$role": "seeded:workspace:shared"
               }
+            }
+          },
+          {
+            "resourceId": "service-parcels",
+            "content": {
+              "serviceName": {
+                "$role": "seeded:service:parcels"
+              },
+              "enabledProtocols": [
+                "FeatureServer"
+              ],
+              "accessPolicy": {
+                "allowAnonymous": false,
+                "allowAnonymousWrite": false,
+                "allowedRoles": [],
+                "allowedWriteRoles": []
+              },
+              "timeInfo": null,
+              "mapServer": {
+                "maxImageWidth": 4096,
+                "maxImageHeight": 4096,
+                "defaultImageWidth": 400,
+                "defaultImageHeight": 400,
+                "defaultDpi": 96,
+                "defaultFormat": "png",
+                "defaultTransparent": true,
+                "maxFeaturesPerLayer": 10000
+              }
+            }
+          },
+          {
+            "resourceId": "service-flood_zones",
+            "content": {
+              "serviceName": {
+                "$role": "seeded:service:flood_zones"
+              },
+              "enabledProtocols": [
+                "FeatureServer"
+              ],
+              "accessPolicy": {
+                "allowAnonymous": false,
+                "allowAnonymousWrite": false,
+                "allowedRoles": [],
+                "allowedWriteRoles": []
+              },
+              "timeInfo": null,
+              "mapServer": {
+                "maxImageWidth": 4096,
+                "maxImageHeight": 4096,
+                "defaultImageWidth": 400,
+                "defaultImageHeight": 400,
+                "defaultDpi": 96,
+                "defaultFormat": "png",
+                "defaultTransparent": true,
+                "maxFeaturesPerLayer": 10000
+              }
+            }
+          },
+          {
+            "resourceId": "service-shelters",
+            "content": {
+              "serviceName": {
+                "$role": "seeded:service:shelters"
+              },
+              "enabledProtocols": [
+                "FeatureServer"
+              ],
+              "accessPolicy": {
+                "allowAnonymous": false,
+                "allowAnonymousWrite": false,
+                "allowedRoles": [],
+                "allowedWriteRoles": []
+              },
+              "timeInfo": null,
+              "mapServer": {
+                "maxImageWidth": 4096,
+                "maxImageHeight": 4096,
+                "defaultImageWidth": 400,
+                "defaultImageHeight": 400,
+                "defaultDpi": 96,
+                "defaultFormat": "png",
+                "defaultTransparent": true,
+                "maxFeaturesPerLayer": 10000
+              }
+            }
+          },
+          {
+            "resourceId": "maps-inventory",
+            "content": {
+              "items": [
+                {
+                  "$role": "seeded:map:target"
+                },
+                {
+                  "$role": "seeded:map:shared"
+                }
+              ],
+              "total": 2,
+              "nextCursor": null
+            }
+          },
+          {
+            "resourceId": "services-inventory",
+            "content": {
+              "names": [
+                {
+                  "$role": "seeded:service:flood_zones"
+                },
+                {
+                  "$role": "seeded:service:parcels"
+                },
+                {
+                  "$role": "seeded:service:shelters"
+                }
+              ]
             }
           }
         ]
@@ -893,6 +1008,121 @@
                 "$role": "seeded:workspace:shared"
               }
             }
+          },
+          {
+            "resourceId": "service-parcels",
+            "content": {
+              "serviceName": {
+                "$role": "seeded:service:parcels"
+              },
+              "enabledProtocols": [
+                "FeatureServer"
+              ],
+              "accessPolicy": {
+                "allowAnonymous": false,
+                "allowAnonymousWrite": false,
+                "allowedRoles": [],
+                "allowedWriteRoles": []
+              },
+              "timeInfo": null,
+              "mapServer": {
+                "maxImageWidth": 4096,
+                "maxImageHeight": 4096,
+                "defaultImageWidth": 400,
+                "defaultImageHeight": 400,
+                "defaultDpi": 96,
+                "defaultFormat": "png",
+                "defaultTransparent": true,
+                "maxFeaturesPerLayer": 10000
+              }
+            }
+          },
+          {
+            "resourceId": "service-flood_zones",
+            "content": {
+              "serviceName": {
+                "$role": "seeded:service:flood_zones"
+              },
+              "enabledProtocols": [
+                "FeatureServer"
+              ],
+              "accessPolicy": {
+                "allowAnonymous": false,
+                "allowAnonymousWrite": false,
+                "allowedRoles": [],
+                "allowedWriteRoles": []
+              },
+              "timeInfo": null,
+              "mapServer": {
+                "maxImageWidth": 4096,
+                "maxImageHeight": 4096,
+                "defaultImageWidth": 400,
+                "defaultImageHeight": 400,
+                "defaultDpi": 96,
+                "defaultFormat": "png",
+                "defaultTransparent": true,
+                "maxFeaturesPerLayer": 10000
+              }
+            }
+          },
+          {
+            "resourceId": "service-shelters",
+            "content": {
+              "serviceName": {
+                "$role": "seeded:service:shelters"
+              },
+              "enabledProtocols": [
+                "FeatureServer"
+              ],
+              "accessPolicy": {
+                "allowAnonymous": false,
+                "allowAnonymousWrite": false,
+                "allowedRoles": [],
+                "allowedWriteRoles": []
+              },
+              "timeInfo": null,
+              "mapServer": {
+                "maxImageWidth": 4096,
+                "maxImageHeight": 4096,
+                "defaultImageWidth": 400,
+                "defaultImageHeight": 400,
+                "defaultDpi": 96,
+                "defaultFormat": "png",
+                "defaultTransparent": true,
+                "maxFeaturesPerLayer": 10000
+              }
+            }
+          },
+          {
+            "resourceId": "maps-inventory",
+            "content": {
+              "items": [
+                {
+                  "$role": "seeded:map:target"
+                },
+                {
+                  "$role": "seeded:map:shared"
+                }
+              ],
+              "total": 2,
+              "nextCursor": null
+            }
+          },
+          {
+            "resourceId": "services-inventory",
+            "content": {
+              "names": [
+                {
+                  "$role": "seeded:service:flood_zones"
+                },
+                {
+                  "$role": "seeded:service:parcels"
+                },
+                {
+                  "$role": "seeded:service:shelters"
+                }
+              ]
+            }
           }
         ]
       }
@@ -1256,6 +1486,158 @@
                 }
               }
             }
+          },
+          {
+            "label": "service-parcels",
+            "before": "p13-service-parcels-before",
+            "after": "p13-service-parcels-after",
+            "resource": [
+              "seeded:service:parcels"
+            ],
+            "content": {
+              "object": {
+                "serviceName": {
+                  "body": "$step",
+                  "pointer": "/data/serviceName"
+                },
+                "enabledProtocols": {
+                  "sorted": {
+                    "body": "$step",
+                    "pointer": "/data/enabledProtocols"
+                  }
+                },
+                "accessPolicy": {
+                  "body": "$step",
+                  "pointer": "/data/accessPolicy"
+                },
+                "timeInfo": {
+                  "body": "$step",
+                  "pointer": "/data/timeInfo"
+                },
+                "mapServer": {
+                  "body": "$step",
+                  "pointer": "/data/mapServer"
+                }
+              }
+            }
+          },
+          {
+            "label": "service-flood_zones",
+            "before": "p13-service-flood-zones-before",
+            "after": "p13-service-flood-zones-after",
+            "resource": [
+              "seeded:service:flood_zones"
+            ],
+            "content": {
+              "object": {
+                "serviceName": {
+                  "body": "$step",
+                  "pointer": "/data/serviceName"
+                },
+                "enabledProtocols": {
+                  "sorted": {
+                    "body": "$step",
+                    "pointer": "/data/enabledProtocols"
+                  }
+                },
+                "accessPolicy": {
+                  "body": "$step",
+                  "pointer": "/data/accessPolicy"
+                },
+                "timeInfo": {
+                  "body": "$step",
+                  "pointer": "/data/timeInfo"
+                },
+                "mapServer": {
+                  "body": "$step",
+                  "pointer": "/data/mapServer"
+                }
+              }
+            }
+          },
+          {
+            "label": "service-shelters",
+            "before": "p13-service-shelters-before",
+            "after": "p13-service-shelters-after",
+            "resource": [
+              "seeded:service:shelters"
+            ],
+            "content": {
+              "object": {
+                "serviceName": {
+                  "body": "$step",
+                  "pointer": "/data/serviceName"
+                },
+                "enabledProtocols": {
+                  "sorted": {
+                    "body": "$step",
+                    "pointer": "/data/enabledProtocols"
+                  }
+                },
+                "accessPolicy": {
+                  "body": "$step",
+                  "pointer": "/data/accessPolicy"
+                },
+                "timeInfo": {
+                  "body": "$step",
+                  "pointer": "/data/timeInfo"
+                },
+                "mapServer": {
+                  "body": "$step",
+                  "pointer": "/data/mapServer"
+                }
+              }
+            }
+          },
+          {
+            "label": "maps-inventory",
+            "before": "p13-maps-inventory-before",
+            "after": "p13-maps-inventory-after",
+            "resource": "inventory",
+            "content": {
+              "object": {
+                "items": {
+                  "sorted": {
+                    "map": {
+                      "body": "$step",
+                      "pointer": "/data/items"
+                    },
+                    "to": {
+                      "item": "/itemId"
+                    }
+                  }
+                },
+                "total": {
+                  "body": "$step",
+                  "pointer": "/data/total"
+                },
+                "nextCursor": {
+                  "body": "$step",
+                  "pointer": "/data/nextCursor"
+                }
+              }
+            }
+          },
+          {
+            "label": "services-inventory",
+            "before": "p13-services-inventory-before",
+            "after": "p13-services-inventory-after",
+            "resource": "inventory",
+            "content": {
+              "object": {
+                "names": {
+                  "sorted": {
+                    "map": {
+                      "body": "$step",
+                      "pointer": "/data"
+                    },
+                    "to": {
+                      "item": "/serviceName"
+                    }
+                  }
+                }
+              }
+            }
           }
         ]
       },
@@ -1271,6 +1653,80 @@
           "kind": "http",
           "method": "GET",
           "path": "/api/v1/studio/content-items\\?.+",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p13-service-parcels-before": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[^/?]+/settings",
+          "principal": "controller",
+          "phase": "seed"
+        },
+        "p13-service-parcels-after": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[^/?]+/settings",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p13-service-flood-zones-before": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[^/?]+/settings",
+          "principal": "controller",
+          "phase": "seed"
+        },
+        "p13-service-flood-zones-after": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[^/?]+/settings",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p13-service-shelters-before": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[^/?]+/settings",
+          "principal": "controller",
+          "phase": "seed"
+        },
+        "p13-service-shelters-after": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[^/?]+/settings",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p13-maps-inventory-before": {
+          "kind": "http",
+          "method": "GET",
+          "path": ".*",
+          "exactPath": "/api/v1/studio/content-items?family=map&limit=100",
+          "principal": "controller",
+          "phase": "seed"
+        },
+        "p13-maps-inventory-after": {
+          "kind": "http",
+          "method": "GET",
+          "path": ".*",
+          "exactPath": "/api/v1/studio/content-items?family=map&limit=100",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p13-services-inventory-before": {
+          "kind": "http",
+          "method": "GET",
+          "path": ".*",
+          "exactPath": "/api/v1/admin/services/",
+          "principal": "controller",
+          "phase": "seed"
+        },
+        "p13-services-inventory-after": {
+          "kind": "http",
+          "method": "GET",
+          "path": ".*",
+          "exactPath": "/api/v1/admin/services/",
           "principal": "controller",
           "phase": "observe"
         }
@@ -1292,6 +1748,11 @@
       "role": "seeded:hash:v1",
       "step": "p13-target-save",
       "pointer": "/data/contentHash"
+    },
+    {
+      "role": "seeded:owner:target",
+      "step": "p13-target-save",
+      "pointer": "/data/ownerId"
     },
     {
       "role": "seeded:workspace:shared",

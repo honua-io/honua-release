@@ -42,7 +42,7 @@ class P11(Scenario):
 
     def roles(self, stack, seeded, variant, run=None):
         return [RoleBinding('created:job:buffer', 'p11-jobs-after', items='/items', id='/jobId',
-                            before='p11-jobs-before', next_page='/nextCursor',
+                            before='p11-jobs-before', page_limit={'param':'limit', 'value':100},
                             created_by={'tool':'honua_execute_plan', 'pointer':'/result/structuredContent/jobId'}),
                 *[RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
                             pointer=f'/data/resourceIds/{field}')

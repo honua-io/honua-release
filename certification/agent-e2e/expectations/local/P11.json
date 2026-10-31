@@ -1103,10 +1103,13 @@
       "items": "/items",
       "id": "/jobId",
       "before": "p11-jobs-before",
-      "next_page": "/nextCursor",
       "created_by": {
         "tool": "honua_execute_plan",
         "pointer": "/result/structuredContent/jobId"
+      },
+      "page_limit": {
+        "param": "limit",
+        "value": 100
       }
     },
     {
