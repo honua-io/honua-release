@@ -167,3 +167,9 @@ def observe_point_selections(observer, binding):
                        'rawReferences': [row['reference'] for row in (before, result, after)],
                        'projection': projection})
     return {'producer': 'independent-partial-point-probes', 'checks': checks, 'qualification': False}
+
+
+def handoff_observations(http):
+    """Candidate API reads for the customer handoff. The model transcript is not an input."""
+    from agent_e2e_scenario_handoff import observe_handoff
+    return observe_handoff(http)

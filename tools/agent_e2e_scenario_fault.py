@@ -43,3 +43,9 @@ def arm(*, durable, context, fault, commit, injector):
     durable._persist()
     return {'qualification': False, 'injectionId': observed['injectionId'], 'targetOperationId': commit['resourceId'],
             'observedFailure': {'status': 503, 'count': 1}}
+
+
+def handoff_observations(http):
+    """Candidate API reads for the customer handoff. The model transcript is not an input."""
+    from agent_e2e_scenario_handoff import observe_handoff
+    return observe_handoff(http)
