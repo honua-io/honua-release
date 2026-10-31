@@ -1,4 +1,4 @@
-"""Sequential cases within a remote slot; independent remote slots may run concurrently."""
+"""Run one case per remote slot; independent remote slots may run concurrently."""
 import argparse
 import fcntl
 import hashlib
@@ -61,6 +61,8 @@ def main(argv=None):
     if args.surface == 'corpus':
         import re
         if any(not re.fullmatch(r'P\d\d:[AB]', case) for case in cases): parser.error('only A/B corpus cases are admitted')
+    if len(cases) * args.trials != 1:
+        parser.error('each remote slot admits one case or trial; allocate a fresh slot for each run')
     import yaml
     server = yaml.safe_load((ROOT/'platform-manifest.yaml').read_bytes())['components']['honua-server']
     common = ['--agent', args.agent, '--model', args.model, '--target', args.target, '--timeout', str(args.timeout)]

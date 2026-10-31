@@ -165,6 +165,16 @@ def test_remote_shell_never_invokes_local_docker_or_exposes_secret_output(tmp_pa
     assert '--' in calls[0][0] and 'StrictHostKeyChecking=yes' in calls[0][0]
 
 
+def test_remote_health_preflight_uses_ssh_and_refuses_unhealthy_docker(tmp_path):
+    calls=[]
+    def fake(command,**kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command,0,b'29.0\nserver Up (unhealthy)',b'')
+    shell=remote_shell(tmp_path,fake)
+    with pytest.raises(RuntimeError,match='unhealthy'): shell.check_health()
+    assert calls[0][0]=='ssh'
+
+
 def test_compose_ps_exposes_only_sanitized_status_fields(tmp_path):
     def fake(command,**kwargs):
         raw=json.dumps([{'Name':'slot-server','Service':'server','State':'running','Health':'healthy',
@@ -227,6 +237,7 @@ for line in sys.stdin:
             operator.execute('tool_call',{'tool':'describe_environment','arguments':{'leak':True}})
     finally: operator.close()
     assert operator.audit_sha256 and operator.audit_path.is_file()
+    assert operator.audit_path.stat().st_mode & 0o777 == 0o600
     other=tmp_path/'other'; other.mkdir()
     leaking=StdioMcpBackend(binary,slot_env=env,workdir=other).start()
     leaking.execute('tool_call',{'tool':'describe_environment','arguments':{'leak_audit':True}})

@@ -76,8 +76,9 @@ held `McpEndpoint` URL/header/token. g41 owns its origin lock and independent
 Studio observation; it has not yet landed on this branch.
 
 Independent remote slots can run in parallel. The older corpus/canary command
-runner serializes cases only within the same cell URL, using a per-target lock;
-there is no host-wide campaign lock. Host-local Docker is refused for these
+runner admits one case or trial per cell slot, with a per-target lock; allocate
+a fresh cell for the next case. There is no host-wide campaign lock.
+Host-local Docker is refused for these
 CLI arms. The pre-existing local Sonnet 5.5 P10 smoke was made before the remote
 redirect: it reached the candidate, then failed during MCP discovery with zero
 recorded model actions. The stack was torn down and the attempt retained; no

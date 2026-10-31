@@ -134,7 +134,7 @@ def test_sequential_runner_stops_on_docker_unhealthiness(monkeypatch):
     with pytest.raises(RuntimeError,match='Docker is unhealthy'): arms.docker_healthy()
 
 
-def test_scored_failure_with_failed_cleanup_stops_before_second_trial(tmp_path,monkeypatch):
+def test_scored_failure_with_failed_cleanup_stops_and_retains_receipt(tmp_path,monkeypatch):
     import agent_cli_arms as arms
     import subprocess
     calls=[]
@@ -149,11 +149,24 @@ def test_scored_failure_with_failed_cleanup_stops_before_second_trial(tmp_path,m
     proof=tmp_path/'deployment.json'; proof.write_text('{}')
     with pytest.raises(RuntimeError,match='cleanup failed'):
         arms.main(['--surface','corpus','--agent','claude-cli','--model','claude-sonnet-5-5',
-                   '--cases','P10:A,P10:B','--target','https://slot1.cert.demo.honua.io',
+                   '--cases','P10:A','--target','https://slot1.cert.demo.honua.io',
                    '--target-config',str(config),'--deployment-receipt',str(proof),'--output',str(tmp_path/'run')])
     assert len(calls)==1
     receipt=json.loads((tmp_path/'run/trial-001/P10-A/receipt.json').read_bytes())
     assert receipt['status']=='fail' and receipt['infrastructure']
+
+
+def test_batch_runner_refuses_to_reuse_one_remote_slot_for_two_cases(tmp_path,monkeypatch):
+    import agent_cli_arms as arms
+    def never(*_args,**_kwargs): raise AssertionError('a case started on a reused slot')
+    monkeypatch.setattr(arms.subprocess,'run',never)
+    config=tmp_path/'cell.json'; config.write_text('{}')
+    proof=tmp_path/'deployment.json'; proof.write_text('{}')
+    with pytest.raises(SystemExit):
+        arms.main(['--surface','corpus','--agent','claude-cli','--model','claude-opus-5-5',
+                   '--cases','P10:A,P10:B','--target','https://slot1.cert.demo.honua.io',
+                   '--target-config',str(config),'--deployment-receipt',str(proof),'--output',str(tmp_path/'run')])
+    assert not (tmp_path/'run').exists()
 
 
 def test_remote_recorder_only_admits_verified_exact_origin(tmp_path,monkeypatch):
