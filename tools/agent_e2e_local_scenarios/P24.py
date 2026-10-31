@@ -1,9 +1,9 @@
 """P24 zero to a published map.
 
-Style and source content use controller reads. Render uses the shared independent
-renderer when fixture bindings are available. On a fresh deployment the agent must
-publish the sources, so seed-phase bindings are unavailable and render fails closed.
-Other unsupported facts also fail closed on local Docker. Pack prompts stay in the pack.
+Style and rendering use controller reads. Published sources bind to the customer's
+server audit events, captured server publication receipts, and the saved map. Missing
+or ambiguous evidence fails closed. Other unsupported facts also fail closed on local
+Docker. Pack prompts stay in the pack.
 """
 from __future__ import annotations
 
