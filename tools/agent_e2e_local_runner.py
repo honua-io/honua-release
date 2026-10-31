@@ -1033,7 +1033,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             sealed = vault.records()
             model_actions = vault.model_actions()
             roles = projections.resolve_roles(bindings, sealed, agent_principal=run.agent_principal,
-                                              action_results=vault.action_results())
+                                              action_results=vault.action_results(), custody=custody)
             roles.update(session_roles(session_ids, sessions))
             committed = [e for e in fault_events if e.get('kind') == 'response_lost_after_commit'
                          and e.get('committedResourceId') not in (None, '')]

@@ -809,7 +809,7 @@ def proven_complete(record, values, label):
         require(type(count) is int and count == len(values), 'enumeration is incomplete: ' + label)
 
 
-def resolve_roles(bindings, records, *, agent_principal, action_results=()):
+def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
     for binding in bindings:
@@ -877,7 +877,19 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
         # The server may render the principal with a fixed prefix (connections: "api-key:<id>"); only reviewed
         # formats apply, and the id is the runner's own minted agent key id.
         require(binding.owner_format in (None, '{id}', 'api-key:{id}'), 'unreviewed owner format: ' + name)
-        owner_value = (binding.owner_format or '{id}').replace('{id}', str(agent_principal))
+        owner_values = {(binding.owner_format or '{id}').replace('{id}', str(agent_principal))}
+        if binding.owner_any_of is not None:
+            allowed = {'{agentUser}', 'user:{agentUser}', '{agentKey}', 'api-key:{agentKey}'}
+            formats = binding.owner_any_of
+            require(binding.owner is not None and binding.owner_format is None and isinstance(formats, list)
+                    and formats and all(isinstance(v, str) and v in allowed for v in formats)
+                    and len(set(formats)) == len(formats), 'unreviewed owner set: ' + name)
+            facts = custody or {}
+            user, key = facts.get('agentUserId'), facts.get('agentKeyId')
+            require(isinstance(user, str) and user and isinstance(key, str) and key
+                    and key == str(agent_principal) and facts.get('agentKeyOwnerUserId') == user,
+                    'runner custody does not link the agent key to its user: ' + name)
+            owner_values = {v.replace('{agentUser}', user).replace('{agentKey}', key) for v in formats}
         authored = None
         if binding.created_by is not None:
             spec = binding.created_by
@@ -912,7 +924,7 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
             if authored is not None:
                 if str(identity) not in authored:
                     continue
-            elif str(pointer_get(row, binding.owner)) != owner_value:
+            elif str(pointer_get(row, binding.owner)) not in owner_values:
                 continue
             matches.append(identity)
         require(len(matches) == 1, f'created role {name} matched {len(matches)} live resources')

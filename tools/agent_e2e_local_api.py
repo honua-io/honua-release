@@ -190,6 +190,7 @@ class RoleBinding:
     sources: tuple | None = None    # scan:<name>: the exact raw sources whose sha256 digests the role lists
     owner_format: str | None = None # created: how the server renders the agent principal in ``owner``:
                                     # "{id}" (default) or "api-key:{id}" (reviewed formats only)
+    owner_any_of: list[str] | None = None  # reviewed user/key templates, bound only through runner custody
 
 
 @dataclass(frozen=True)
