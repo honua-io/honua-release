@@ -1,0 +1,31 @@
+name: vendor-terms-commit-comment
+
+# Commit comments are inspected after publication; only the matching comment
+# may be changed or deleted. No commit, repository, issue, or pull request is
+# modified.
+on:
+  commit_comment:
+    types: [created]
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - name: Remove safe offending sentence or comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 tools/vendor_terms_event.py --repo "$REPO_NAME" --repository "$REPOSITORY" --remediate --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"

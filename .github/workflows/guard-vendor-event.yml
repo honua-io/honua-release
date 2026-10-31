@@ -1,38 +1,118 @@
 name: vendor-terms-event
 
-# Events are inspected after publication. Callers must install a triggering
-# workflow in each repository; this workflow does not block or delete comments.
+# GitHub sends these events after publication. Simple prose sentences can be
+# removed while preserving other content; ambiguous bodies and titles fail for
+# manual correction. This workflow never deletes the issue or pull request.
 on:
   issues:
     types: [opened, edited]
-  issue_comment:
-    types: [created, edited]
+  pull_request:
+    types: [opened, edited, reopened]
   pull_request_review:
     types: [submitted, edited]
+  issue_comment:
+    types: [created, edited]
   pull_request_review_comment:
     types: [created, edited]
-  commit_comment:
-    types: [created]
   workflow_call:
 
-permissions:
-  contents: read
-
 jobs:
-  vendor-terms-event:
+  remediate-issue-body:
+    if: github.event_name == 'issues'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
     steps:
-      - name: Check out trusted guard
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-release
           ref: ${{ job.workflow_sha }}
-          path: guard
           persist-credentials: false
-      - name: Inspect event text
+      - name: Remove safe offending sentence
         env:
+          GH_TOKEN: ${{ github.token }}
           REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          python3 guard/tools/vendor_terms_event.py --repo "$REPO_NAME" \
-            --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
+          REPOSITORY: ${{ github.repository }}
+        run: python3 tools/vendor_terms_event.py --repo "$REPO_NAME" --repository "$REPOSITORY" --remediate --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
+
+  remediate-pull-request-body:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - name: Remove safe offending sentence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 tools/vendor_terms_event.py --repo "$REPO_NAME" --repository "$REPOSITORY" --remediate --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
+
+  remediate-pull-request-review:
+    if: github.event_name == 'pull_request_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - name: Remove safe offending sentence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 tools/vendor_terms_event.py --repo "$REPO_NAME" --repository "$REPOSITORY" --remediate --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
+
+  remediate-issue-comment:
+    if: github.event_name == 'issue_comment'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - name: Remove safe offending sentence or comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 tools/vendor_terms_event.py --repo "$REPO_NAME" --repository "$REPOSITORY" --remediate --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
+
+  remediate-pull-request-review-comment:
+    if: github.event_name == 'pull_request_review_comment'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - name: Remove safe offending sentence or comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 tools/vendor_terms_event.py --repo "$REPO_NAME" --repository "$REPOSITORY" --remediate --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"

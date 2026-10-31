@@ -196,8 +196,8 @@ branch and verify Actions, workflow access policies, token read permissions, and
 actual event delivery there. Installing these examples is a per-repository
 change; they do not configure an organization ruleset or install themselves.
 
-The event caller detects text only after publication and cannot block or remove
-it. The audit caller scans only content its repository token can read; scheduled
+The event caller runs after publication, so text can be visible briefly before
+the workflow edits it. The audit caller scans only content its repository token can read; scheduled
 runs cover one of 16 review shards per day. Check run outcomes and rerun every
 missing shard with `workflow_dispatch` and `review_shard` in the range 0–15.
 Disabled Actions, missed schedules, request budgets, repository visibility,
@@ -207,31 +207,36 @@ code and PR metadata checks; these callers do not enforce a branch ruleset.
 
 ### Guard newly changed content
 
-`guard-vendor-event.yml` inspects issue titles and descriptions, issue comments,
-pull request reviews and inline review comments, and commit comments when the
-corresponding GitHub event is delivered. It reports only a generic result and
-does not print the submitted text. Invalid or oversized payloads fail the check.
-Specification and interoperability exceptions follow the same classifier used
-for pull request metadata.
+`guard-vendor-event.yml` inspects issue and pull request titles and descriptions,
+issue comments, pull request reviews, and inline review comments when the
+corresponding GitHub event is delivered. It removes a sentence only when the
+raw text and sentence boundaries can be isolated safely, preserving the rest
+of the body. It deletes a single-sentence offending comment object, or edits a
+multi-sentence comment to retain its other sentences. Commit comments use the
+separate `guard-vendor-commit-comment.yml` workflow. The workflows never delete
+an issue or pull request. They do not print submitted text. Invalid or
+ambiguous payloads fail for manual correction. Exact specification values and
+the exception allowlist are evaluated before an edit or removal.
 The event scanner also checks text joined across HTML markup and common inline
 Markdown formatting. It is not a complete GitHub Markdown renderer, so unusual
 rendering and encoding forms can evade or falsely trigger this detection.
 The vocabulary includes a visual-workflow product name that can also occur as a
 generic programming identifier. A lexical match is an audit signal, not a legal
 conclusion. Code-delta findings can use the documented exception process where
-appropriate; pull-request metadata and event checks do not apply that allowlist,
-so a generic match there still requires manual review or rewording.
+appropriate; the event guard applies the exception allowlist before editing.
 
-This is **post-publication detection**: the text is already visible when the
-event runs. It does not prevent or delete a submission, and a failed comment
-check does not block a pull request merge. Each repository needs a caller
-workflow with the relevant event triggers and a pinned `workflow_call` reference;
-the reusable workflow alone does not install organization-wide coverage. Events
-missed while Actions is disabled or unavailable require a separate audit.
-Commit-comment edits do not produce a supported event, and most activity made
-with a workflow's repository token does not trigger another workflow. Periodic
-API reconciliation is needed to detect those changes; this workflow does not
-provide that reconciliation.
+This is **post-publication detection and remediation**: text is already visible
+when the event runs. GitHub does not provide a pre-post hook for these surfaces.
+The delta check can block a merge only when installed as a required check; it
+cannot prevent an issue, comment, review, or pull request from being created.
+Titles and bodies that cannot be safely sentence-edited fail visibly for a
+manual correction. Each repository needs caller workflows with the relevant
+event triggers and pinned `workflow_call` references; the reusable workflows
+do not install organization-wide coverage. Events missed while Actions is
+disabled or unavailable require a separate audit. Commit-comment edits do not
+produce a supported event, and most activity made with a workflow's repository
+token does not trigger another workflow. Periodic API reconciliation detects
+such changes.
 
 For a read-only REST sweep of currently visible GitHub content, run:
 

@@ -434,7 +434,14 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
         body = ''
     if not isinstance(body, str):
         raise RuntimeError('Pull request description is invalid')
-    classifier = policy.Classifier(repo, policy.load_vocabulary(), [], policy.load_interop(), skip_encoded=False, normalize_rendered=False)
+    classifier = policy.Classifier(
+        repo,
+        policy.load_vocabulary(),
+        policy.load_allowlist(policy.ALLOWLIST),
+        policy.load_interop(),
+        skip_encoded=False,
+        normalize_rendered=False,
+    )
     findings: list[policy.Hit] = []
     for path, text in (('pull-request-title.md', pr['title']), ('pull-request-body.md', body)):
         validate_scan_bounds(text)
@@ -448,7 +455,7 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
         for candidate in dict.fromkeys((text, decode_rendered_text(text), html_visible, markdown_visible)):
             validate_scan_bounds(candidate)
             view_hits = [hit for hit in classifier.classify_text(path, candidate)
-                         if hit.cls not in ('spec', 'spec-interop')]
+                         if hit.cls not in ('spec', 'spec-interop') and hit.exception is None]
             view_hits.extend(classify_fence_labels(classifier, path, candidate))
             view_hits.extend(classify_embedded_names(classifier, path, candidate))
             per_view.append(view_hits)

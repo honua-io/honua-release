@@ -15,6 +15,7 @@ class EventTests(unittest.TestCase):
     def test_extracts_each_supported_event(self):
         cases = {
             "issues": ({"issue": {"title": "Title", "body": "Body"}}, ("Title", "Body")),
+            "pull_request": ({"pull_request": {"title": "Title", "body": "Body"}}, ("Title", "Body")),
             "issue_comment": ({"comment": {"body": "Body"}}, ("", "Body")),
             "pull_request_review": ({"review": {"body": "Body"}}, ("", "Body")),
             "pull_request_review_comment": ({"comment": {"body": "Body"}}, ("", "Body")),
@@ -26,6 +27,7 @@ class EventTests(unittest.TestCase):
 
     def test_missing_optional_bodies_are_empty(self):
         self.assertEqual(guard.event_texts("issues", {"issue": {"title": "Title", "body": None}}), ("Title", ""))
+        self.assertEqual(guard.event_texts("pull_request", {"pull_request": {"title": "Title", "body": None}}), ("Title", ""))
         self.assertEqual(guard.event_texts("pull_request_review", {"review": {"body": None}}), ("", ""))
 
     def test_invalid_or_unsupported_events_fail_closed(self):
@@ -89,18 +91,28 @@ class EventTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertNotIn(str(event), result.stderr)
 
-    def test_workflow_is_read_only_and_covers_the_supported_events(self):
+    def test_workflow_scopes_write_permissions_to_the_event_job(self):
         workflow = Path(guard.__file__).resolve().parent.parent / ".github/workflows/guard-vendor-event.yml"
         config = yaml.load(workflow.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-        self.assertEqual(config["permissions"], {"contents": "read"})
+        self.assertNotIn("permissions", config)
         self.assertEqual(
             set(config["on"]),
-            {"issues", "issue_comment", "pull_request_review", "pull_request_review_comment", "commit_comment",
+            {"issues", "pull_request", "issue_comment", "pull_request_review", "pull_request_review_comment",
              "workflow_call"},
         )
-        steps = config["jobs"]["vendor-terms-event"]["steps"]
-        self.assertEqual(steps[0]["with"]["persist-credentials"], "false")
-        self.assertNotIn("checkout", steps[1]["run"])
+        expected = {
+            "remediate-issue-body": {"contents": "read", "issues": "write"},
+            "remediate-pull-request-body": {"contents": "read", "pull-requests": "write"},
+            "remediate-pull-request-review": {"contents": "read", "pull-requests": "write"},
+            "remediate-issue-comment": {"contents": "read", "issues": "write"},
+            "remediate-pull-request-review-comment": {"contents": "read", "pull-requests": "write"},
+        }
+        for job_name, permissions in expected.items():
+            with self.subTest(job=job_name):
+                job = config["jobs"][job_name]
+                self.assertEqual(job["permissions"], permissions)
+                self.assertEqual(job["steps"][0]["with"]["persist-credentials"], "false")
+                self.assertIn("--remediate", job["steps"][1]["run"])
 
 
 if __name__ == "__main__":
