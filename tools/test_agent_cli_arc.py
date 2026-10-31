@@ -225,6 +225,7 @@ for line in sys.stdin:
  m=json.loads(line)
  if 'id' not in m: continue
  if m.get('params',{}).get('arguments',{}).get('leak_audit'): print(os.environ['AWS_SECRET_ACCESS_KEY'],file=sys.stderr,flush=True)
+ if m.get('params',{}).get('arguments',{}).get('leak_dynamic_audit'): print(json.dumps({'sessionToken':'new-secret'}),file=sys.stderr,flush=True)
  result={'protocolVersion':'2025-03-26','capabilities':{},'serverInfo':{'name':'fake'}} if m['method']=='initialize' else ({'tools':[{'name':'describe_environment','inputSchema':{'type':'object'}}]} if m['method']=='tools/list' else {'content':[{'type':'text','text':os.environ['AWS_SECRET_ACCESS_KEY'] if m.get('params',{}).get('arguments',{}).get('leak') else 'ok'}]})
  print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':result}),flush=True)
 '''); binary.chmod(0o700)
@@ -244,12 +245,38 @@ for line in sys.stdin:
     with pytest.raises(ValueError,match='audit output'):
         leaking.close()
     assert not leaking.audit_path.exists()
+    third=tmp_path/'third'; third.mkdir()
+    dynamic=StdioMcpBackend(binary,slot_env=env,workdir=third).start()
+    dynamic.execute('tool_call',{'tool':'describe_environment','arguments':{'leak_dynamic_audit':True}})
+    with pytest.raises(ValueError,match='credential'):
+        dynamic.close()
+    assert not dynamic.audit_path.exists()
     with pytest.raises(ValueError,match='short-lived'):
         StdioMcpBackend(binary,slot_env={'AWS_ACCESS_KEY_ID':'long-lived','AWS_SECRET_ACCESS_KEY':'secret'},workdir=tmp_path)
 
 
 def test_http_backend_refuses_unrelated_remote_origin():
     with pytest.raises(ValueError): HttpMcpBackend('https://attacker.example/mcp')
+
+
+@pytest.mark.parametrize('value',[
+    {'secretAccessKey':'newly-issued-secret'}, {'session_token':'newly-issued-token'},
+    {'content':[{'type':'text','text':'postgresql://user:password@localhost/db'}]},
+    {'content':[{'type':'text','text':'AWS_SECRET_ACCESS_KEY=newly-issued-secret'}]},
+    {'content':[{'type':'text','text':'ASIA1234567890ABCDEF'}]},
+    {'content':[{'type':'text','text':'{"secretAccessKey":"newly-issued-secret"}'}]},
+])
+def test_dynamic_credentials_are_not_forwarded_to_model(value):
+    from agent_cli_backends import _screen
+    with pytest.raises(ValueError,match='credential'):
+        _screen(value,[])
+
+
+def test_tool_schema_and_redacted_credential_fields_are_allowed():
+    from agent_cli_backends import _screen
+    value={'inputSchema':{'properties':{'password':{'type':'string'}}},
+           'structuredContent':{'password':'[redacted]'}}
+    assert _screen(value,[])==value
 
 
 def test_honua_http_backend_negotiates_and_verifies_full_tool_view():

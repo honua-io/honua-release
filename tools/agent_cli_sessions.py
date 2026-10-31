@@ -72,6 +72,7 @@ class RecordingProxy:
         self.actions, self.visible, self.hints, self.methods = (ledger['actions'] if ledger else []), [], [], []
         self.server_name = server_name
         self.failure = None
+        self.failure_category = None
         self.path = '/' + secrets.token_hex(32)
         self.lock = ledger['lock'] if ledger else threading.Lock()
         proxy = self
@@ -149,6 +150,7 @@ class RecordingProxy:
             valid = self.server_name in (None, 'honua') and action['uri'] == 'honua://catalog/processes'
         else:
             self.failure = 'non-MCP action attempted'
+            self.failure_category = 'model'
             raise ValueError(self.failure)
         if self.server_name is not None:
             action['server'] = self.server_name
@@ -156,6 +158,7 @@ class RecordingProxy:
         with self.lock:
             if not valid or len(self.actions) >= self.max_actions:
                 self.failure = 'unadvertised action or action bound exceeded'
+                self.failure_category = 'model'
                 raise ValueError(self.failure)
             raw = action_bytes(action)
             path = self.log_dir / f'action-{len(self.actions) + 1:04d}.json'
@@ -165,7 +168,13 @@ class RecordingProxy:
             if self.server_name is not None: row['server'] = self.server_name
             if action['kind'] == 'tool_call': row['tool'] = action['tool']
             self.actions.append(row)  # retained even when execution becomes undetermined
-            result = self.execute(action['kind'], action)
+            try:
+                result = self.execute(action['kind'], action)
+            except Exception as exc:
+                self.failure = 'recorded action could not be completed'
+                self.failure_category = ('model' if self.server_name == 'quickstart_shell' and isinstance(exc,ValueError)
+                                         else 'post-action-undetermined')
+                raise
             row['status'] = 'pass' if result.get('status') in ('ok', 'pass') else 'fail'
             row['resultDigest'] = digest(action_bytes(result))
             body = result.get('result', result)
@@ -382,9 +391,9 @@ class CliModelSession:
                     deadline = time.monotonic() + timeout
                     reason = None
                     while process.poll() is None:
-                        proxy_failure = next((p.failure for p in proxies.values() if p.failure), None)
-                        if time.monotonic() >= deadline or stdout.tell() + stderr.tell() > 16_000_000 or proxy_failure:
-                            reason = proxy_failure or 'CLI time/output bound exceeded'
+                        failed_proxy = next((p for p in proxies.values() if p.failure), None)
+                        if time.monotonic() >= deadline or stdout.tell() + stderr.tell() > 16_000_000 or failed_proxy:
+                            reason = failed_proxy.failure if failed_proxy else 'CLI time/output bound exceeded'
                             os.killpg(process.pid, signal.SIGKILL)
                             break
                         time.sleep(0.05)
@@ -399,9 +408,10 @@ class CliModelSession:
                 metadata['transcriptSha256'] = digest(raw)
                 out['provenance'] = [metadata]
                 out['resourceHints'] = [hint for p in proxies.values() for hint in p.hints]
-                proxy_failure = next((p.failure for p in proxies.values() if p.failure), None)
-                if reason or proxy_failure:
-                    raise CliFailure(reason or proxy_failure, out)
+                failed_proxy = next((p for p in proxies.values() if p.failure), None)
+                if reason or failed_proxy:
+                    raise CliFailure(reason or failed_proxy.failure, out,
+                                     failed_proxy.failure_category or 'model' if failed_proxy else 'model')
                 try:
                     final, usage, turns, forbidden = parse_transcript(self.agent, raw,
                                                                        {name: p.names for name, p in proxies.items()})

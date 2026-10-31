@@ -144,6 +144,17 @@ def test_unknown_outcome_retains_dispatch(tmp_path):
     with RecordingProxy(TOOLS, execute, tmp_path, 1, 1) as proxy:
         with pytest.raises(RuntimeError): proxy.rpc('tools/call', {'name':'honua_query_features','arguments':{}})
         assert proxy.actions[0]['status'] == 'unknown'
+        assert proxy.failure_category == 'post-action-undetermined'
+
+
+def test_failed_shell_validation_is_model_failure(tmp_path):
+    def refuse(*_): raise ValueError('command refused')
+    with RecordingProxy({'tools':[{'name':'run_quickstart'}]},refuse,tmp_path,1,1,
+                        server_name='quickstart_shell') as proxy:
+        with pytest.raises(ValueError):
+            proxy.rpc('tools/call',{'name':'run_quickstart','arguments':{'command':'cat /etc/passwd'}})
+        assert proxy.failure_category=='model'
+        assert proxy.actions[0]['kind']=='shell_command'
 
 
 @pytest.mark.parametrize('agent', ['claude-cli','codex-cli'])
