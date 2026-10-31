@@ -1,0 +1,35 @@
+{
+  "city-gis-ecs": {
+    "prompt": "Set up Honua on AWS for a small city GIS team; ECS; no Redis; our domain maps.example.test.",
+    "topology": {
+      "compute": "ecs",
+      "redis": false,
+      "custom_domain": true,
+      "domain": "maps.example.test",
+      "waf": false,
+      "gp_batch": false
+    }
+  },
+  "county-eks": {
+    "prompt": "Set up Honua on AWS for a county assessor. Use EKS and Redis. No custom domain.",
+    "topology": {
+      "compute": "eks",
+      "redis": true,
+      "custom_domain": false,
+      "domain": null,
+      "waf": false,
+      "gp_batch": false
+    }
+  },
+  "town-lambda": {
+    "prompt": "Set up Honua on AWS for a town clerk. Use Lambda. No Redis, no custom domain, and no batch geoprocessing.",
+    "topology": {
+      "compute": "lambda",
+      "redis": false,
+      "custom_domain": false,
+      "domain": null,
+      "waf": false,
+      "gp_batch": false
+    }
+  }
+}

@@ -1,0 +1,267 @@
+name: agent-e2e-aws-install
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/agent-e2e-aws-install.yml
+      - tools/agent_e2e_aws_install.py
+      - tools/agent_e2e_aws_controller.py
+      - tools/test_agent_e2e_aws_install.py
+      - tools/fixtures/agent-e2e-aws-install/**
+      - certification/agent-e2e/expectations/aws-install/**
+  workflow_dispatch:
+    inputs:
+      goal_id:
+        description: Topology goal id
+        required: true
+        type: choice
+        options:
+          - city-gis-ecs
+          - county-eks
+          - town-lambda
+      agent:
+        description: MCP client
+        required: true
+        type: choice
+        options:
+          - claude-cli
+          - codex-cli
+      model:
+        description: Model id for that client (claude-opus-5-5, claude-sonnet-5-5, gpt-6.1-sol, gpt-6.1-terra)
+        required: true
+        type: string
+      lock_digest:
+        description: sha256 digest of the later ops candidate. Setup itself installs 2026.1-rc.1.
+        required: true
+        type: string
+      lock_run_id:
+        description: Optional workflow run id that produced lock_digest. Format is checked; the digest is not downloaded.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-cloud-aws
+  cancel-in-progress: false
+
+jobs:
+  protocol:
+    name: Shipped operator protocol
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Download the pinned release binary
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          python3 tools/agent_e2e_aws_install.py print-pins
+          gh release download v2026.1.2 --repo honua-io/honua-devops \
+            --pattern 'honua-devops-linux-x64.tar.gz*' --dir _honua-devops </dev/null
+          cd _honua-devops
+          sha256sum -c honua-devops-linux-x64.tar.gz.sha256
+          python3 - <<'PYCODE'
+          import hashlib, sys
+          sys.path.insert(0, '../tools')
+          from agent_e2e_aws_install import DEVOPS_ARCHIVE_SHA256
+          from pathlib import Path
+          assert hashlib.sha256(Path('honua-devops-linux-x64.tar.gz').read_bytes()).hexdigest() == DEVOPS_ARCHIVE_SHA256
+          PYCODE
+          tar -xzf honua-devops-linux-x64.tar.gz
+      - name: Test the shipped schemas and issuer without cloud access
+        env:
+          HONUA_TEST_DEVOPS_BINARY: ${{ github.workspace }}/_honua-devops/Honua.DevOps.Agent
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          python -m pip install pytest 'pyyaml>=6.0' 'jsonschema>=4.23' 'boto3>=1.35,<2'
+          python -m pytest tools/test_agent_e2e_aws_install.py -q
+
+  install:
+    name: AWS install eval
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: aws-cell-provision
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      ROLE_ARN: ${{ vars.HONUA_AWS_CELL_PROVISION_ROLE_ARN }}
+      HONUA_AWS_CELL_STATE_BUCKET: ${{ vars.HONUA_AWS_CELL_STATE_BUCKET }}
+      HONUA_AWS_CELL_BACKEND_ROLE_ARN: ${{ vars.HONUA_AWS_CELL_BACKEND_ROLE_ARN }}
+      HONUA_AWS_CELL_ROUTE53_ZONE_ID: ${{ vars.HONUA_AWS_CELL_ROUTE53_ZONE_ID }}
+      HONUA_AWS_INSTALL_OPERATOR_CONTRACT_IDENTITY: ${{ vars.HONUA_AWS_INSTALL_OPERATOR_CONTRACT_IDENTITY }}
+    steps:
+      - name: Checkout honua-release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Preflight the release cell and the product gaps
+        env:
+          GOAL_ID: ${{ inputs.goal_id }}
+          AGENT: ${{ inputs.agent }}
+          MODEL: ${{ inputs.model }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+          LOCK_RUN_ID: ${{ inputs.lock_run_id }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test "$ROLE_ARN" = "arn:aws:iam::585192672263:role/honua-release-cell-provision"
+          test "$GITHUB_REPOSITORY" = "honua-io/honua-release"
+          test "$GITHUB_REF" = "refs/heads/trunk"
+          python3 tools/agent_e2e_aws_install.py preflight \
+            --goal-id "$GOAL_ID" \
+            --agent "$AGENT" \
+            --model "$MODEL" \
+            --lock-digest "$LOCK_DIGEST" \
+            --lock-run-id "$LOCK_RUN_ID" \
+            --output "agent-e2e-aws-install-${RUN_ID}.json" \
+            --run-id "$RUN_ID" \
+            --role-arn "$ROLE_ARN" \
+            --repository "$GITHUB_REPOSITORY" \
+            --lifecycle ephemeral \
+            --dns-parent demo.honua.io
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Resolve pinned sources
+        id: pins
+        run: python3 tools/agent_e2e_aws_install.py print-pins
+
+      - name: Checkout honua-iac
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: ${{ steps.pins.outputs.iac_sha }}
+          path: _honua-iac
+          persist-credentials: false
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Install the shipped operator and verify its release digest
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          DEVOPS_TAG: ${{ steps.pins.outputs.devops_tag }}
+          DEVOPS_ARCHIVE_SHA256: ${{ steps.pins.outputs.devops_archive_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir _honua-devops
+          gh release download "$DEVOPS_TAG" --repo honua-io/honua-devops \
+            --pattern 'honua-devops-linux-x64.tar.gz*' --dir _honua-devops </dev/null
+          cd _honua-devops
+          sha256sum -c honua-devops-linux-x64.tar.gz.sha256
+          echo "$DEVOPS_ARCHIVE_SHA256  honua-devops-linux-x64.tar.gz" | sha256sum -c -
+          tar -xzf honua-devops-linux-x64.tar.gz
+
+      - name: Install controller dependencies
+        run: python -m pip install 'boto3>=1.35,<2' 'pyyaml>=6.0' 'jsonschema>=4.23'
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install the selected MCP client
+        env:
+          AGENT: ${{ inputs.agent }}
+          CLAUDE_CLI_VERSION: ${{ vars.HONUA_CLAUDE_CLI_VERSION }}
+          CODEX_CLI_VERSION: ${{ vars.HONUA_CODEX_CLI_VERSION }}
+        run: |
+          set -euo pipefail
+          if [ "$AGENT" = claude-cli ]; then
+            test -n "$CLAUDE_CLI_VERSION"
+            npm install -g "@anthropic-ai/claude-code@$CLAUDE_CLI_VERSION"
+          else
+            test -n "$CODEX_CLI_VERSION"
+            npm install -g "@openai/codex@$CODEX_CLI_VERSION"
+          fi
+
+      - name: Assume the release-cell provision role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_CELL_PROVISION_ROLE_ARN }}
+          aws-region: us-east-1
+          role-duration-seconds: 3600
+
+      - name: Read the pre-existing topology identity bootstrap
+        env:
+          IDENTITY_BACKEND_HCL: ${{ vars.HONUA_AWS_INSTALL_IDENTITY_BACKEND_HCL }}
+        run: |
+          set -euo pipefail
+          test -n "$IDENTITY_BACKEND_HCL"
+          printf '%s\n' "$IDENTITY_BACKEND_HCL" > bootstrap-backend.hcl
+          python3 tools/agent_e2e_aws_install.py export-bootstrap
+
+      - name: Prepare the empty release-cell slot
+        env:
+          GOAL_ID: ${{ inputs.goal_id }}
+          RUN_ID: ${{ github.run_id }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+        run: |
+          set -euo pipefail
+          python3 tools/agent_e2e_aws_install.py prepare \
+            --goal-id "$GOAL_ID" --run-id "$RUN_ID" --lock-digest "$LOCK_DIGEST" \
+            --role-arn "$ROLE_ARN" --repository "$GITHUB_REPOSITORY"
+
+      - name: Run one AWS install case
+        env:
+          GOAL_ID: ${{ inputs.goal_id }}
+          AGENT: ${{ inputs.agent }}
+          MODEL: ${{ inputs.model }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+          LOCK_RUN_ID: ${{ inputs.lock_run_id }}
+          RUN_ID: ${{ github.run_id }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CODEX_AUTH_JSON: ${{ secrets.HONUA_CODEX_AUTH_JSON }}
+        run: |
+          set -euo pipefail
+          if [ "$AGENT" = codex-cli ]; then
+            test -n "$CODEX_AUTH_JSON"
+            mkdir -p "$HOME/.codex"
+            printf '%s\n' "$CODEX_AUTH_JSON" > "$HOME/.codex/auth.json"
+            chmod 600 "$HOME/.codex/auth.json"
+          else
+            test -n "$CLAUDE_CODE_OAUTH_TOKEN"
+          fi
+          python3 tools/agent_e2e_aws_install.py case \
+            --goal-id "$GOAL_ID" --agent "$AGENT" --model "$MODEL" \
+            --lock-digest "$LOCK_DIGEST" --lock-run-id "$LOCK_RUN_ID" \
+            --output "agent-e2e-aws-install-${RUN_ID}.json" --run-id "$RUN_ID" \
+            --role-arn "$ROLE_ARN" --repository "$GITHUB_REPOSITORY"
+
+      - name: Teardown the release-cell slot with the controller session
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f slot.json ]; then
+            python3 tools/agent_e2e_aws_install.py teardown --slot-file slot.json
+          fi
+
+      - name: Upload the redacted receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-e2e-aws-install-${{ github.run_id }}
+          path: agent-e2e-aws-install-${{ github.run_id }}.json
+          retention-days: 14
+          if-no-files-found: warn

@@ -1,0 +1,98 @@
+{
+  "status": "terraform-plan-ready",
+  "summary": "Terraform plan ready for `aws-ecs` size `small` in `dev`: 1 to add, 0 to change, 0 to destroy",
+  "findings": [
+    "Protected host evidence: host-evidence-unsupported; this legacy plan has no exportable host input witness.",
+    "Deployable root: /home/mike/honua-io/rc2-eval-operator/substrate/infrastructure/terraform/examples/aws.",
+    "Saved plan token: edfccd397efd495c8737895892225491 (expires in 30 minutes).",
+    "Planned through the honua-iac governed exact-plan substrate (`scripts/terraform-exact-plan.sh`); no hand-rolled Terraform argv was used.",
+    "Generated variables were restricted to the selected runtime non-secret small-plan allowlist.",
+    "Topology: {\"compute\":\"ecs\",\"redis\":false,\"custom_domain\":true,\"waf\":false,\"gp_batch\":false}.",
+    "Deploy identity role: arn:aws:iam::123456789012:role/honua-deploy-dev; contract sha256: 70293820e13f5aa2b9391adfb87f16b8738b4c2bcd1708fec808ebd9b1803e03 (bound in saved-plan input tags).",
+    "Exact deploy identity actions_by_service: {\"ecs\":[\"ecs:CreateService\",\"ecs:DescribeServices\"]}",
+    "Approval binds to plan_metadata_digest: 3eed81e28fff37d63eb41f14a29b2f1c77fdb734abde3c35cc1c1497a8595602.",
+    "Saved plan sha256: 3a691c59f9c8be1eb1ce3e7642643a7aedfa7a0314c8d01750546ea83efca6fe.",
+    "Backend: s3 (remote=True) workspace `default`, backend_config_digest 0ea699e4b738a98ed5c9a7ce497ad94b7922fe0d1e86c88e38ba5be3902036a3.",
+    "Prior state lineage 0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9 serial 12.",
+    "Execution identity: arn:aws:sts::123456789012:assumed-role/honua-deploy-dev/session in account 123456789012 (sts-assumed-role).",
+    "IaC revision 3c39cc9c54ba70ec0f6449004647b383e68c1709, Terraform 1.10.5, provider lock abba0b4b7705414a674e111af76e99600390b3483f3a6e5084fee8235e58e08e.",
+    "Release qualified: false (evidence mode: offline-test).",
+    "Planned resource changes (1 shown):",
+    "  will be created: aws_ecs_service.honua",
+    "No replacements or deletions are present in this plan.",
+    "Redacted plan digest (sha256 of the reviewed `terraform show` output): 7bee98f92aafb8c8bbb1a1d379b8dd016ccb2c26d688bf84a3298a423296872b."
+  ],
+  "actions": [
+    "Review the planned resource changes listed above before mutation; replacements and deletions are called out explicitly.",
+    "Issue a honua.devops.provision-approval/v1 receipt binding planMetadataDigest=3eed81e28fff37d63eb41f14a29b2f1c77fdb734abde3c35cc1c1497a8595602.",
+    "Repeat with action=apply, confirmed=true, and confirmation=apply:aws-ecs:dev:edfccd397efd495c8737895892225491. The saved plan, not a newly generated plan, will be applied.",
+    "This plan is NOT release-qualified and the apply wrapper will refuse it with `unqualified-plan-refused`."
+  ],
+  "validationChecks": [
+    "exact-plan wrapper succeeded",
+    "plan metadata validated against terraform-exact-plan.v1.schema.json",
+    "terraform plan succeeded",
+    "saved-plan artifact exists and is token-bound",
+    "no apply process started"
+  ],
+  "risks": [
+    "The saved plan expires at 2026-10-31T17:00:58.3365020+00:00 and the apply wrapper refuses it afterwards with `plan-expired`.",
+    "Saved Terraform plans can contain sensitive values; this artifact is kept in the current user's protected temporary directory and deleted after use or expiry.",
+    "This plan was produced in HONUA_IAC_OFFLINE fixture mode and is stamped `offline-test`; it is not evidence about any real cloud account."
+  ],
+  "provisioningLineage": {
+    "provisioningOperationId": "urn:honua:provisioning:edfccd397efd495c8737895892225491",
+    "planSha256": "3a691c59f9c8be1eb1ce3e7642643a7aedfa7a0314c8d01750546ea83efca6fe",
+    "planMetadataDigest": "3eed81e28fff37d63eb41f14a29b2f1c77fdb734abde3c35cc1c1497a8595602",
+    "evidenceRefs": [
+      {
+        "kind": "plan",
+        "reference": "urn:sha256:3a691c59f9c8be1eb1ce3e7642643a7aedfa7a0314c8d01750546ea83efca6fe",
+        "sha256": "3a691c59f9c8be1eb1ce3e7642643a7aedfa7a0314c8d01750546ea83efca6fe",
+        "byteLength": 25
+      },
+      {
+        "kind": "plan-metadata",
+        "reference": "urn:sha256:cc6827c42527ce3f7f2b58ce6f3d0f4cb218b13228a476e88e6543d1476797e6",
+        "sha256": "cc6827c42527ce3f7f2b58ce6f3d0f4cb218b13228a476e88e6543d1476797e6",
+        "byteLength": 2382
+      },
+      {
+        "kind": "deploy-identity-contract",
+        "reference": "urn:sha256:70293820e13f5aa2b9391adfb87f16b8738b4c2bcd1708fec808ebd9b1803e03",
+        "sha256": "70293820e13f5aa2b9391adfb87f16b8738b4c2bcd1708fec808ebd9b1803e03",
+        "byteLength": 286
+      }
+    ]
+  },
+  "serverOperations": [],
+  "auditEventId": "b462bcff5f6447eaace3584cc1536401",
+  "approvalRequest": {
+    "provisioningOperationId": "urn:honua:provisioning:edfccd397efd495c8737895892225491",
+    "planSha256": "3a691c59f9c8be1eb1ce3e7642643a7aedfa7a0314c8d01750546ea83efca6fe",
+    "planMetadataDigest": "3eed81e28fff37d63eb41f14a29b2f1c77fdb734abde3c35cc1c1497a8595602",
+    "action": "apply",
+    "stack": "aws-ecs",
+    "environment": "dev",
+    "planExpiresAtUtc": "2026-10-31T17:00:58.336502+00:00",
+    "receiptSchemaVersion": "honua.devops.provision-approval/v1"
+  },
+  "confirmationChallenge": "apply:aws-ecs:dev:edfccd397efd495c8737895892225491",
+  "deployIdentity": {
+    "role_arn": "arn:aws:iam::123456789012:role/honua-deploy-dev",
+    "contract_sha256": "70293820e13f5aa2b9391adfb87f16b8738b4c2bcd1708fec808ebd9b1803e03",
+    "actions_by_service": {
+      "ecs": [
+        "ecs:CreateService",
+        "ecs:DescribeServices"
+      ]
+    }
+  },
+  "topology": {
+    "compute": "ecs",
+    "redis": false,
+    "custom_domain": true,
+    "waf": false,
+    "gp_batch": false
+  }
+}

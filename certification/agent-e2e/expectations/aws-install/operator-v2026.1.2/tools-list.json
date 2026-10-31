@@ -1,0 +1,924 @@
+{
+  "tools": [
+    {
+      "name": "verify_install_handoff",
+      "description": "Run the exact emitted pinned proxy command, bind the endpoint and secret reference to retained apply evidence, resolve the key only for the fixed-endpoint authentication probe and child environment, verify HTTPS health without redirects, Admin authentication, MCP initialize, a paged tools/list with view=full against the closed operator roster, and a harmless Admin status call. A bare tools/list uses the server default view and would miss that roster. On complete success only, writes a content-addressed verification receipt and DevOps-produced aws-ecs provision binding joined to the stable provisioningOperationId.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "handoffConfigPath": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "handoffConfigPath",
+          "overwrite"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "get_gitops_proposal",
+      "description": "View an existing GitOps proposal by stable operationId as a projection over the honua-server deploy-control operation, with raw evidence references and governed suggestions. Never scrapes Git or CI.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operationId"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "analyze_customer_requirements",
+      "description": "Analyze customer requirements and generate deployment recommendations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "customerRequirements": {
+            "type": "string"
+          },
+          "scaleProfile": {
+            "type": "string"
+          },
+          "complianceNeeds": {
+            "type": "string"
+          },
+          "budgetProfile": {
+            "type": "string"
+          },
+          "preferredCloud": {
+            "type": "string"
+          },
+          "enableRedis": {
+            "type": "boolean",
+            "default": true
+          },
+          "customDomain": {
+            "type": "boolean",
+            "default": false
+          },
+          "enableGpBatch": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "customerRequirements",
+          "scaleProfile",
+          "complianceNeeds",
+          "budgetProfile",
+          "preferredCloud"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "plan_deliverable_lifecycle",
+      "description": "Plan a deliverable's draft->preview->approved->published lifecycle (issue #77) bound to environments. Read-only planner: produces the lifecycle plan (ordered transitions, per-step target environment, gate, required evidence, edition requirement, and the governed Console approval action) and never generates the artifact, executes promotion, or mutates state. Single-environment draft->preview->approved is Pro; cross-environment approved->published (prod through deploy-control gated-promotion) is Enterprise \u2014 below the required edition the step is surfaced as edition-gated. Preview->Approved is emitted as a governed SuggestedAction (requiresApproval=true) via the Console approval surface; Approved->Published reuses the release-orchestration gated-promotion engine (approval-record + lower-env-evidence + smoke-contract + slo-gate-evidence). dryRun is always true.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workItemId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "currentState": {
+            "type": "string"
+          },
+          "lowerEnvironment": {
+            "type": "string"
+          },
+          "publishEnvironment": {
+            "type": "string"
+          },
+          "previewUrl": {
+            "type": "string"
+          },
+          "edition": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workItemId",
+          "kind",
+          "currentState",
+          "lowerEnvironment",
+          "publishEnvironment",
+          "previewUrl",
+          "edition"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "triage_support_ticket",
+      "description": "Triage a support ticket: read-only diagnosis, guided-fix commands for the customer, or approval-gated operator-scoped remediation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ticketId": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "symptoms": {
+            "type": "string"
+          },
+          "requestedAction": {
+            "type": "string"
+          },
+          "allowedAccessMode": {
+            "type": "string"
+          },
+          "ttlMinutes": {
+            "type": "integer"
+          },
+          "rollbackExpected": {
+            "type": "boolean"
+          },
+          "attachedEvidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticketId",
+          "severity",
+          "environment",
+          "symptoms",
+          "requestedAction",
+          "allowedAccessMode",
+          "ttlMinutes",
+          "rollbackExpected",
+          "attachedEvidence"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "get_support_ticket_console_view",
+      "description": "Build a Console-facing view of a support ticket's L2/L3 trust state: live delegated-session (access mode disabled/read-only/operator-scoped, effective TTL, absolute expiry, customer-visible and active flags), the DiagnosisScorecard (pass/fail, composite score, per-criterion checklist, failure modes, evidence), the escalation rationale (which signal/trigger caused the operator-scoped hand-off, or not-escalated), and audit-journal references. Read-only projection: runs the same diagnosis as triage but never opens a session, posts a diagnosis, or escalates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ticketId": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "symptoms": {
+            "type": "string"
+          },
+          "requestedAction": {
+            "type": "string"
+          },
+          "allowedAccessMode": {
+            "type": "string"
+          },
+          "ttlMinutes": {
+            "type": "integer"
+          },
+          "rollbackExpected": {
+            "type": "boolean"
+          },
+          "attachedEvidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticketId",
+          "severity",
+          "environment",
+          "symptoms",
+          "requestedAction",
+          "allowedAccessMode",
+          "ttlMinutes",
+          "rollbackExpected",
+          "attachedEvidence"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "inspect_metadata_release",
+      "description": "Detect and diagnose the outcome of an additive metadata-release layer-evolution operation by package id (honua-server safe-rollback lifecycle). Read-only: reads the durable server operation and reports whether the post-publish Smoke health gate ran, whether the deploy was rolled back (prior-revision reactivation + reversible down-script \u2014 the metadata + DB-inclusive revert), the rollback class, the failing phase/error, and the smoke evidence. Use after submitting a layer change to confirm the closed loop fired, then propose a human-approved resolve. Never mutates server state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "packageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packageId"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "plan_gp_job_sizing",
+      "description": "Compute the runtime SIZING HINT for a single geoprocessing (GP) job: select the durable job-definition tier (s/m/l/xl from ephemeralStorageGib <=20/<=50/<=100/<=200) from the per-env substrate's pre-provisioned pool and produce the AWS Batch SubmitJob overrides (loose batch.* params batch.vcpus/batch.memory_mib/batch.timeout_seconds/batch.retry_attempts/batch.ephemeral_gib) the server applies at runtime. PURE PLANNING AID: NO terraform, NO infra, NO deploy-control operation recorded \u2014 per-job sizing is a SubmitJob-time concern with zero infra change. ephemeralStorageGib above 200 exceeds the Fargate ceiling / tier pool and is an error; gpuCount>0 is an advisory note (the default Fargate-Spot substrate has no GPU tiers), not a hard reject. Returns the selected tier token, the gp_job_definition_arns.<tier> output path the server resolves, and the SubmitJob override map.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vcpus": {
+            "type": "integer"
+          },
+          "memoryMib": {
+            "type": "integer"
+          },
+          "timeoutSeconds": {
+            "type": "integer"
+          },
+          "retryAttempts": {
+            "type": "integer"
+          },
+          "ephemeralStorageGib": {
+            "type": "integer"
+          },
+          "gpuCount": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "vcpus",
+          "memoryMib",
+          "timeoutSeconds",
+          "retryAttempts",
+          "ephemeralStorageGib",
+          "gpuCount"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "explain_metadata_release_changeset",
+      "description": "Summarize and explain the proposed metadata-release GitOps PR operation from a validated metadata release package without mutating state. Input is the same server-supplied release-package JSON consumed by generate_metadata_release_changeset. Returns a read-only, human-readable summary plus structured sections that explain WHAT the proposed PR would do: the target branch and files grouped by kind (manifests, overlays, scripts, evidence, rollback policy), the semantic Honua resources that change, the server compatibility/coverage verdict, and the rollback posture (classification, known-good revision, approval-gated rollback commands), with overall readiness of ready/warning/blocked/unknown. Strictly read-only: it never writes Git, opens a PR, applies manifests, calls the backend, or creates a server operation. Use this to brief an operator on a proposed change set before any governed PR/approval step.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "releasePackageJson": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "releasePackageJson"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "create_gitops_proposal",
+      "description": "Create a Console-facing GitOps deployment proposal as a stable, evidence-linked projection. Records a durable honua-server deploy-control operation with submitImmediately=false (advisory; never executes) and returns the proposal with server operationId, deterministic idempotency key, raw backend evidence, workflow deep links, and governed submit/rollback suggestions. Stays blocked if no deploy target is configured.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "environmentsCsv": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "changeSummary": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "environmentsCsv",
+          "revision",
+          "action",
+          "changeSummary",
+          "owner"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "build_ai_devops_brief",
+      "description": "Build an advisory AI DevOps brief with affected resources, raw evidence references, suggested actions (with requiresApproval/mutatesState flags), confidence, owner, status, and workflow links. Advisory only with auto-apply disabled; mutating suggestions require an explicit governed submit/rollback.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "recommendedAction": {
+            "type": "string"
+          },
+          "evidenceReference": {
+            "type": "string"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "environment",
+          "title",
+          "summary",
+          "recommendedAction",
+          "evidenceReference",
+          "operationId",
+          "confidence"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "describe_environment",
+      "description": "Discover the connected Honua environment: readiness, edition, manifest scope, deploy targets, and allowed environments. Call first when the operator's request lacks an explicit service, environment, or edition.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "provision_infrastructure",
+      "description": "Provision a Honua cloud cell from the allowlisted honua-iac Terraform roots. 2026.1 supports stack=aws-ecs and size=small. action=plan returns a stable provisioningOperationId, saved-plan digest, and tokenized challenge. Supply a unique idempotencyKey for each intended plan and reuse it for retry/restart; an empty key explicitly starts a new plan. apply/destroy requires that exact saved plan plus approvalReceiptJson containing a signed honua.devops.provision-approval/v1 receipt from a configured trusted issuer, bound to the exact operation, plan, action, stack, and environment. variablesJson accepts only non-secret allowlisted Terraform values. For recovery of a failed or indeterminate destroy, action=destroy with confirmed=false, the original provisioningOperationId and a fresh idempotencyKey produces a fresh plan bound to the retained root and current parent; review it and obtain a fresh signed approval with its recoveryContextSha256. Spent approvals are never reusable. action=inspect-cleanup with provisioningOperationId reads the current operator scope's retained cleanup evidence without planning, changing claims, or running Terraform; Observe/Plan sessions may inspect, and cleanup/readiness is never implied.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "variablesJson": {
+            "type": "string"
+          },
+          "confirmed": {
+            "type": "boolean"
+          },
+          "confirmation": {
+            "type": "string"
+          },
+          "approvalReceiptJson": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "default": ""
+          },
+          "provisioningOperationId": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "stack",
+          "size",
+          "action",
+          "variablesJson",
+          "confirmed",
+          "confirmation",
+          "approvalReceiptJson"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "plan_azure_gp_job_sizing",
+      "description": "Compute the runtime SIZING HINT for a single AZURE geoprocessing (GP) job. The Azure equivalent of plan_gp_job_sizing, but SIMPLER: Azure sizes per-POOL and the MVP is a SINGLE pool, so there is NO tier selection and NO vCPU/memory override (those are fixed by the provisioned pool). Sets the constant azure.batch.pool_id (resolve from the substrate output gp_pool_id; pass poolId to embed it) plus the narrow per-task overrides Azure Batch supports: azure.batch.task_timeout_minutes, azure.batch.max_task_retry_count, and optionally azure.batch.container_image. PURE PLANNING AID: NO terraform, NO infra, NO deploy-control operation recorded \u2014 per-job sizing is a task-add-time concern with zero infra change. task_timeout_minutes<=0 or max_task_retry_count outside 0..100 is an error. Returns the azure.batch.* override map the server applies at task-add time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "taskTimeoutMinutes": {
+            "type": "integer"
+          },
+          "maxTaskRetryCount": {
+            "type": "integer"
+          },
+          "containerImage": {
+            "type": "string"
+          },
+          "poolId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskTimeoutMinutes",
+          "maxTaskRetryCount",
+          "containerImage",
+          "poolId"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "explain_release_package",
+      "description": "Explain a Console release package without computing compatibility or scraping Git/CI. Input is the release-package evidence JSON (server compatibility report, script coverage, PR preview, promotion gates, rollback plan). Returns a structured, evidence-linked explanation: per-section status, promotion gates, required approvals, residual risk, a rollback classification, and a human-readable summary, with overall readiness of ready/warning/blocked/unknown/rollback-required. mode is 'explanation' (read-only, default) or 'proposal' (governed handoff only; never executes). correlationId links the Console action to the server release package and downstream PR/CI/GitOps operations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "releasePackageJson": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "releasePackageJson",
+          "mode",
+          "correlationId"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "plan_azure_gp_substrate",
+      "description": "Plan provisioning/updating the durable PER-ENVIRONMENT AZURE geoprocessing (GP) substrate (Azure Batch account, a SINGLE worker pool, user-assigned task identity, ACR holding the GDAL worker image, and the output blob container), recording a PLAN-FIRST, advisory deploy-control proposal (submitImmediately=false; never executes). The Azure equivalent of plan_gp_substrate. Provisioned RARELY (when GP capability is added/updated in an env), NOT per job. UNLIKE AWS, Azure sizes per-POOL and the MVP is a SINGLE pool, so there is NO tier selector. Per-env config: poolVmSize (e.g. Standard_D4s_v5, shared by the pool), maxNodes (pool autoscale ceiling; 0=>8), image (empty=ACR default), acrName, createWorkerGdalAcr. Binds to substrate OUTPUTS the server consumes (gp_batch_account_url, gp_pool_id, gp_batch_account_id, gp_task_identity_id, gp_task_identity_principal_id, gp_acr_login_server, gp_output_container_url, gp_control_plane_backend_name=honua-azure-batch) \u2014 never input-variable names. Per-job sizing (task timeout/retry/image) is a task-add-time runtime concern with zero infra change; use plan_azure_gp_job_sizing for that. The real terraform apply stays behind the agent's execution/approval gates exactly like the other runtime adapters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "environmentsCsv": {
+            "type": "string"
+          },
+          "poolVmSize": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "acrName": {
+            "type": "string"
+          },
+          "maxNodes": {
+            "type": "integer"
+          },
+          "createWorkerGdalAcr": {
+            "type": "boolean"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "environmentsCsv",
+          "poolVmSize",
+          "image",
+          "acrName",
+          "maxNodes",
+          "createWorkerGdalAcr",
+          "owner"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "process_pending_tickets",
+      "description": "Pull pending support tickets from honua-support, run diagnosis against the fault catalog, and post results back.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "plan_metadata_release_gitops",
+      "description": "Plan a metadata-release-aware honua-gitops run from a validated metadata release package. Fuses the PR-ready change set with the honua-gitops planner so a single read-only output carries BOTH the desired-state change set AND a metadata-release-aware gitops plan: per-environment diff/drift/state transitions tagged in-scope vs not-targeted, plus a metadata-release summary (semantic resources, compatibility verdict, breaking-change count, script coverage, rollback classification, known-good revision, blocking reasons). Default-safe and deterministic: never calls the backend, submits, rolls back, or mutates state; merge/reconcile runs through the governed GitOps/approval path. Returns a blocked plan surfacing blocking reasons when compatibility flags breaking changes, and a graceful unknown response when the document cannot be parsed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "releasePackageJson": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "releasePackageJson"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "recommend_deployment_topology",
+      "description": "Recommend deployment topology options including WAF, ingress, and edge rate limiting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "enableWaf": {
+            "type": "boolean"
+          },
+          "useNginxProxy": {
+            "type": "boolean"
+          },
+          "enableEdgeRateLimiting": {
+            "type": "boolean"
+          },
+          "trafficProfile": {
+            "type": "string"
+          },
+          "riskTolerance": {
+            "type": "string"
+          },
+          "enableRedis": {
+            "type": "boolean",
+            "default": true
+          },
+          "customDomain": {
+            "type": "boolean",
+            "default": false
+          },
+          "enableGpBatch": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "environment",
+          "enableWaf",
+          "useNginxProxy",
+          "enableEdgeRateLimiting",
+          "trafficProfile",
+          "riskTolerance"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "find_recent_operations",
+      "description": "Search the audit journal for recent operations across sessions. Returns diagnostic auditEventId, timestamp, tool, status, mutated flag, and summary. JSONL is a non-authoritative replica; auditEventId cannot be used for rollback. Use the typed server operation references for runtime actions. Filters: toolFilter (exact tool name, empty for any), mutatedOnly (true skips reads), statusContains (substring), limit (1-200, default 20).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "toolFilter": {
+            "type": "string"
+          },
+          "mutatedOnly": {
+            "type": "boolean"
+          },
+          "statusContains": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "toolFilter",
+          "mutatedOnly",
+          "statusContains",
+          "limit"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "record_gitops_proposal_decision",
+      "description": "Record an auditable approve or reject decision against a GitOps proposal by stable operationId, capturing the deciding actor and a reason consistent with the honua-server decision audit. Moves the proposal's canonical lifecycle toward Submitted (approve) or Rejected (reject). Records only; never submits, executes, or rolls back. Approval surfaces the governed submit suggestion that still requires an explicit governed submit.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operationId",
+          "decision",
+          "actor",
+          "reason"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "install_handoff",
+      "description": "Write a secretless, unverified CLI and honua-mcp-proxy handoff after provisioning. Requires the exact provisioningOperationId and operator-configured manifest pins for candidate, proxy version, and integrity. Returns install-handoff-written, never ready; verification is a separate evidence-producing step. Leave baseUrl and adminKeySecretRef empty: both are read from the stack's honua.operator-contract/v2 projection captured at apply time. Nonempty values must exactly match that retained contract; endpoint or secret overrides are refused. Requires execute mode, an authorized write tier, direct-allowed policy, and a retained non-production environment allowed by the current session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "adminKeySecretRef": {
+            "type": "string"
+          },
+          "outputDirectory": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          },
+          "provisioningOperationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stack",
+          "baseUrl",
+          "adminKeySecretRef",
+          "outputDirectory",
+          "overwrite",
+          "provisioningOperationId"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "plan_gp_substrate",
+      "description": "Plan provisioning/updating the durable PER-ENVIRONMENT geoprocessing (GP) substrate (AWS Batch compute-env Fargate-Spot, job queue, IAM, ECR, and a POOL of job-definition ephemeral-storage tiers s/m/l/xl = 20/50/100/200 GiB), recording a PLAN-FIRST, advisory deploy-control proposal (submitImmediately=false; never executes). Provisioned RARELY (when GP capability is added/updated in an env), NOT per job. Per-env config: architecture (x86_64|arm64, shared by the whole tier pool), image (empty=reuse Lambda image), maxVcpus (compute-env ceiling; 0=>256), createWorkerGdalRepo, tiersCsv (subset of s,m,l,xl; empty=all four). Binds to substrate OUTPUTS the server consumes (gp_job_queue_arn, gp_job_definition_arns map, gp_compute_environment_arn, gp_job_role_arn, gp_execution_role_arn, gp_worker_gdal_repository_url) \u2014 never input-variable names. Per-job sizing (vCPU/memory/timeout/retry + tier selection) is a SubmitJob-time runtime concern with zero infra change; use plan_gp_job_sizing for that. The real terraform apply stays behind the agent's execution/approval gates exactly like the other runtime adapters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "environmentsCsv": {
+            "type": "string"
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "maxVcpus": {
+            "type": "integer"
+          },
+          "createWorkerGdalRepo": {
+            "type": "boolean"
+          },
+          "tiersCsv": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "environmentsCsv",
+          "architecture",
+          "image",
+          "maxVcpus",
+          "createWorkerGdalRepo",
+          "tiersCsv",
+          "owner"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "get_devops_operation_status",
+      "description": "Get the unified DevOps operation status for a stable operationId across proposal, PR, CI, promotion, smoke, SLO-watch, rollback-readiness, and rollback-execution sections that all share the operationId. PR/CI sections are marked evidence-missing rather than scraped.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operationId"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "install_honua",
+      "description": "Start or resume a stateful first install. Returns installationId plus the next user question or step. Reuses discovery, requirements/topology recommendations, exact-plan provisioning, signed approval and verified handoff handlers. Currently supports aws-ecs/small only; live release qualification requires separate evidence. Refuses Lambda first-install DB initialization and unqualified targets. Always presents account, region, resources, cost drivers and plan digest before creation; never applies without existing confirmation and approved-digest gates. Supply only non-secret variablesJson; cloud identity stays short-lived in the host environment. Resume with installationId; after plan the inputs are immutable. Completion requires verified handoff and names the installed server /mcp for day-2 work.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "default": ""
+          },
+          "customerRequirements": {
+            "type": "string",
+            "default": ""
+          },
+          "stack": {
+            "type": "string",
+            "default": ""
+          },
+          "variablesJson": {
+            "type": "string",
+            "default": ""
+          },
+          "outputDirectory": {
+            "type": "string",
+            "default": ""
+          },
+          "confirmed": {
+            "type": "boolean",
+            "default": false
+          },
+          "confirmation": {
+            "type": "string",
+            "default": ""
+          },
+          "approvalReceiptJson": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "generate_metadata_release_changeset",
+      "description": "Generate a PR-ready desired-state change set from a validated metadata release package: deterministic branch name, commit message, PR title/body with evidence links, repo-relative file path -> content map (metadata manifests, environment overlays, optional data-script coverage, validation evidence, rollback policy), rollback commands derived from the rollback classification and known-good revision, and an overall ready/warning/blocked/unknown readiness. Read-only: renders Git artifacts in-process and never writes Git, opens a PR, applies manifests, or creates a server operation; merge/reconcile runs through the governed GitOps/approval path. Blocked when compatibility flags breaking changes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "releasePackageJson": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "releasePackageJson"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "plan_gitops_engine",
+      "description": "Plan the internal honua-gitops engine diff, drift, and state transitions without applying desired state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "environmentsCsv": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "changeSummary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "environmentsCsv",
+          "revision",
+          "action",
+          "changeSummary"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "deploy_service_gitops",
+      "description": "Generate GitOps deployment actions across environments, and (only when EXECUTION_MODE=execute and the approval gate is satisfied) actuate sync/promote THROUGH the honua-server deploy-control endpoints: validate (preflight+plan), create a durable operation (submitImmediately=false), pause for external approval under pr-first or when the server requires approval, and only submit+poll to terminal when policy/approval allows. Default plan posture mutates nothing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "environmentsCsv": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "changeSummary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "environmentsCsv",
+          "revision",
+          "action",
+          "changeSummary"
+        ]
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    }
+  ]
+}
