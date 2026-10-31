@@ -360,3 +360,13 @@ def test_buffer_job_role_and_completion_reject_foreign_or_failed_job():
     assert score() == 'fail'
     with pytest.raises(ProjectionError):
         resolve_roles(binding,records,agent_principal='agent',action_results=[])
+
+
+@pytest.mark.parametrize('variant', ['A','B'])
+def test_p13_contract_freezes_every_pack_assertion_and_role(variant):
+    from agent_e2e_local_expectations import load_projections, load_roles
+    from agent_e2e_local_scenarios.P13 import scenario
+    assertions={'version.restored','shared.preserved','source-content.unchanged'}
+    assert set(scenario.expected(variant)) == set(load_projections('P13',variant)) == assertions
+    assert scenario.roles(None,None,variant) == load_roles('P13')
+    assert scenario.customer_files(variant) == []
