@@ -1,39 +1,30 @@
-"""P22 is unsupported on local Docker.
+"""P22 is unsupported: publication requires a separate approver.
 
-A two-session count does not provide the distinct session identities or
-conversation visibility required by session.fresh. The starting partial map and
-its immutable version are not established by the runner or TownSetup, and the
-oracle requires frozen resource and publication bindings.
+The runtime rejects approver setup and supplies no independently seeded saved
+map with a fixture-derived public route or independent final-answer handoff.
+Two runner-minted session identities alone cannot prove saved state was reused.
 """
-from __future__ import annotations
-
-id = "P22"
-supported_variants: tuple[str, ...] = ()
+from agent_e2e_local_api import Scenario
 
 
-def _unsupported():
-    raise NotImplementedError("P22 has no independently observable local implementation")
+class P22(Scenario):
+    id = 'P22'
+    supported_variants = ()
+
+    def sessions_required(self):
+        return 2
+
+    def needs_approver(self):
+        return True
+
+    def seed(self, stack, variant):
+        raise NotImplementedError('P22 needs an independently established saved map')
+
+    def observe(self, stack, seeded, variant, run=None):
+        raise NotImplementedError('P22 needs saved-map and publication readback')
+
+    def expected(self, variant):
+        raise NotImplementedError('P22 has no complete independent expectations')
 
 
-def seed(stack, variant):
-    _unsupported()
-
-
-def fault_plan(variant):
-    _unsupported()
-
-
-def needs_approver():
-    return False
-
-
-def observe(stack, seeded, variant):
-    _unsupported()
-
-
-def expected(variant):
-    _unsupported()
-
-
-def cleanup(stack, seeded):
-    _unsupported()
+scenario = P22()

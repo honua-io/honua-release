@@ -1,40 +1,34 @@
-"""P21 is unsupported on local Docker.
+"""P21 is unsupported: the local runtime rejects all fault plans.
 
-The fault event supplies kind, location and request ID, but no independently
-bound committed map or injection ID for the oracle's fault and recovery
-bindings. Model-created publication identities also cannot be frozen from town
-fixtures. Enabling the case would allow a 503 unrelated to a committed map to
-stand in for the required post-commit failure.
+It needs a single 503 after a committed map create, independently bound to the
+commit and recorded as fired, plus a distinct publication approver. The current
+runtime implements neither the map-create injection nor an approver handoff.
 """
-from __future__ import annotations
-
-id = "P21"
-supported_variants: tuple[str, ...] = ()
+from agent_e2e_local_api import Scenario
 
 
-def _unsupported():
-    raise NotImplementedError("P21 has no independently observable local implementation")
+class P21(Scenario):
+    id = 'P21'
+    supported_variants = ()
+
+    def seed(self, stack, variant):
+        raise NotImplementedError('P21 requires a post-commit map-create fault')
+
+    def fault_plan(self, variant):
+        if variant not in ('A', 'B'):
+            raise ValueError('unsupported variant')
+        return {'kind': 'http-transient', 'status': 503, 'count': 1,
+                'operationClass': 'map-create', 'trigger': 'after-commit-before-response',
+                'injectionActor': 'controller', 'requireCommittedResourceObservation': True}
+
+    def needs_approver(self):
+        return True
+
+    def observe(self, stack, seeded, variant, run=None):
+        raise NotImplementedError('P21 requires independently bound fault and recovery evidence')
+
+    def expected(self, variant):
+        raise NotImplementedError('P21 has no complete independent expectations')
 
 
-def seed(stack, variant):
-    _unsupported()
-
-
-def fault_plan(variant):
-    _unsupported()
-
-
-def needs_approver():
-    return False
-
-
-def observe(stack, seeded, variant):
-    _unsupported()
-
-
-def expected(variant):
-    _unsupported()
-
-
-def cleanup(stack, seeded):
-    _unsupported()
+scenario = P21()
