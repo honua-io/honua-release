@@ -77,6 +77,8 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
             identity = {'actorId': principal + '-id', 'tenantId': 'tenant-b' if principal == 'owner' else 'tenant-a',
                         'isHumanSession': principal == 'owner',
                         'authenticationKind': 'operator-bearer' if principal == 'owner' else 'api-key'}
+            if principal == 'owner':
+                identity['studioOwnerId'] = 'owner-id'
             if state['wrong'] == 'same-tenant':
                 identity['tenantId'] = 'tenant-a'
             if state['wrong'] == 'nonhuman-owner' and principal == 'owner':
@@ -98,9 +100,14 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
             envelope = {'family': 'map', 'body': copy.deepcopy(map_body)}
             if state['wrong'] == 'mutate-map' and recorder.phase == 'observe' and principal == 'controller':
                 envelope['body']['initialView']['zoom'] += 1
-            value = {'data': {'itemId': item, 'versionId': version, 'envelope': envelope}} if code == 200 else {'error': 'denied'}
+            value = {'data': {'itemId': item, 'versionId': version, 'ownerId': 'owner-id', 'envelope': envelope}} if code == 200 else {'error': 'denied'}
+            if code == 404 and principal == 'agent':
+                value['code'] = ('studio_authorization/cross_tenant_denied' if state['wrong'] != 'generic-404'
+                                 else 'studio_authorization/not_found')
             if state['wrong'] == 'wrong-map' and principal in ('operator', 'owner'):
                 value['data']['versionId'] = '55555555-5555-5555-5555-555555555555'
+            if state['wrong'] == 'wrong-owner' and principal == 'owner':
+                value['data']['ownerId'] = 'someone-else'
             return code, json.dumps(value).encode()
         raise AssertionError((principal, method, path))
 
@@ -166,6 +173,12 @@ def test_tenant_denial_refuses_unverified_native_custody(tmp_path, monkeypatch, 
         recorded_case(tmp_path, monkeypatch, sid, 'A', wrong)
 
 
+@pytest.mark.parametrize('sid', ('P15', 'P18'))
+def test_generic_not_found_does_not_prove_tenant_isolation(tmp_path, monkeypatch, sid):
+    with pytest.raises(ValueError, match='cross-tenant boundary'):
+        recorded_case(tmp_path, monkeypatch, sid, 'A', 'generic-404')
+
+
 @pytest.mark.parametrize('sid', ('P15', 'P18', 'P20'))
 def test_positive_control_must_read_the_expected_map_version(tmp_path, monkeypatch, sid):
     with pytest.raises(ValueError, match='exact saved map version'):
@@ -175,6 +188,12 @@ def test_positive_control_must_read_the_expected_map_version(tmp_path, monkeypat
 def test_private_sharing_does_not_use_the_shared_map_as_the_foreign_control(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='distinct foreign map'):
         recorded_case(tmp_path, monkeypatch, 'P15', 'A', 'same-map')
+
+
+@pytest.mark.parametrize('sid', ('P15', 'P18'))
+def test_tenant_positive_control_requires_the_native_map_owner(tmp_path, monkeypatch, sid):
+    with pytest.raises(ValueError, match='exact saved map version'):
+        recorded_case(tmp_path, monkeypatch, sid, 'A', 'wrong-owner')
 
 
 def test_mutated_foreign_map_fails_preservation_oracle():

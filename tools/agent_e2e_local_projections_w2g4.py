@@ -36,12 +36,13 @@ def permission_matrix(steps, identity_steps=(), item_role=ITEM, version_role=VER
     return result
 
 
-def require_exact_positive(answer, item, version):
+def require_exact_positive(answer, item, version, owner_id=None):
     response = answer['observation']
     value = response.get('body')
     value = value.get('data') if isinstance(value, dict) else None
     if (response['httpStatus'] != 200 or not isinstance(value, dict) or
-            value.get('itemId') != item or value.get('versionId') != version):
+            value.get('itemId') != item or value.get('versionId') != version or
+            (owner_id is not None and value.get('ownerId') != owner_id)):
         raise ValueError('positive control did not return the exact saved map version')
 
 
@@ -110,13 +111,22 @@ def observe_partial(scenario_id, stack, seeded, variant):
             if (not owner[0] or owner[0] != agent[0] or
                     owner[1]['tenantId'] == agent[1]['tenantId'] or
                     owner[1]['actorId'] == agent[1]['actorId'] or
+                    not owner[1].get('studioOwnerId') or
                     owner[1].get('isHumanSession') is not True or
                     owner[1].get('authenticationKind') not in ('operator-bearer', 'interactive')):
                 raise ValueError('distinct native tenant and human-owner custody unavailable')
             for suffix, principal in (('owner', 'owner'), ('agent', 'agent')):
                 answer = recorder.json(f'{prefix}-{suffix}', 'GET', tenant_path, principal=principal)
                 if principal == 'owner':
-                    require_exact_positive(answer, tenant_item, tenant_version)
+                    require_exact_positive(answer, tenant_item, tenant_version, owner[1]['studioOwnerId'])
+                elif answer['observation']['httpStatus'] == 404:
+                    value = answer['observation']['body']
+                    if not isinstance(value, dict) or value.get('code') != 'studio_authorization/cross_tenant_denied':
+                        raise ValueError('denial does not identify the cross-tenant boundary')
+                elif answer['observation']['httpStatus'] == 404:
+                    body = answer['observation']['body']
+                    if not isinstance(body, dict) or body.get('code') != 'studio_authorization/cross_tenant_denied':
+                        raise ValueError('denial does not identify the cross-tenant boundary')
             selected['tenant.denied'] = permission_matrix((f'{prefix}-owner', f'{prefix}-agent'),
                 (f'{prefix}-owner-identity', f'{prefix}-agent-identity'), item_role, version_role)
         if scenario_id == 'P15':
