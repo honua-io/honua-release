@@ -39,6 +39,7 @@ class Candidate:
         self.keys = {}          # key secret -> {'id', 'revoked', 'permissions'}
         self.features = shelters()
         self.mcp_calls = []
+        self.approvals = []
         self.lock = threading.Lock()
 
     def principal(self, headers):
@@ -73,13 +74,18 @@ class Candidate:
         {'name': 'honua_update_features', 'description': 'Edit features of a published layer.',
          'inputSchema': {'type': 'object', 'properties': {'serviceId': {'type': 'string'}}}},
     ]
+    EXTRA_TOOLS = [
+        {'name': 'honua_create_map', 'description': 'Create a map.', 'inputSchema': {'type': 'object'}},
+        {'name': 'honua_ingest_dataset', 'description': 'Load an inline dataset.', 'inputSchema': {'type': 'object'}},
+    ]
+    extra_tools = False
 
     def mcp(self, message, principal):
         method = message.get('method')
         if method == 'initialize':
             return {'protocolVersion': '2025-03-26', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fake'}}
         if method == 'tools/list':
-            return {'tools': self.TOOLS}
+            return {'tools': self.TOOLS + (self.EXTRA_TOOLS if self.extra_tools else [])}
         if method == 'resources/read':
             return {'contents': [{'uri': message['params']['uri'], 'text': '{"processes":[]}'}]}
         if method == 'tools/call':
@@ -87,6 +93,14 @@ class Candidate:
             self.mcp_calls.append((principal['id'], name, arguments))
             if name == 'honua_query_features':
                 return self.query(arguments)
+            if name == 'honua_create_map':
+                return {'content': [{'type': 'text', 'text': 'created'}], 'isError': False,
+                        'structuredContent': {'mapId': 'map-1'}}
+            if name == 'honua_ingest_dataset':
+                rows = arguments.get('data', '').splitlines()[1:]
+                bad = [{'row': i + 2, 'reason': 'missing coordinate'} for i, row in enumerate(rows) if ',,' in row]
+                return {'content': [{'type': 'text', 'text': 'ingested'}], 'isError': False,
+                        'structuredContent': {'rowCount': len(rows) - len(bad), 'errors': bad}}
             if name == 'honua_update_features':
                 self.features = [dict(f, properties={**f['properties'], 'capacity': 999}) for f in self.features]
                 return {'content': [{'type': 'text', 'text': 'updated'}], 'isError': False}
@@ -118,6 +132,8 @@ def serve(candidate):
                     return self.reply(401, {'error': 'unauthorized'})
                 if path == '/api/v1/admin/api-keys/':
                     return self.reply(200, {'data': []})
+                if path == '/api/v1/admin/version':
+                    return self.reply(200, {'data': {'version': 'fake'}})
                 if path.endswith('/effective-permissions'):
                     return self.reply(200, {'data': {'status': 'active'}})
                 if '/FeatureServer/' in path and path.endswith('/query'):
@@ -157,6 +173,11 @@ def serve(candidate):
                         if row['id'] == key_id:
                             row['revoked'] = True
                     return self.reply(200, {'data': {'status': 'revoked'}})
+                if path.startswith('/api/v1/admin/proposals/') and path.endswith('/approve'):
+                    if 'admin:approve' not in principal['permissions']:
+                        return self.reply(403, {'error': 'forbidden'})
+                    candidate.approvals.append((principal['id'], path.split('/')[-2]))
+                    return self.reply(200, {'data': {'status': 'Approved'}})
                 if path == '/api/v1/operations/service.publish/submit':
                     return self.reply(200, {'data': {'operationId': 'service.publish', 'status': 'Completed',
                                                      'resourceIds': {'serviceName': body['serviceName'], 'layerId': '0'}}})
@@ -215,6 +236,8 @@ class FakeRuntime(runner.LocalRuntime):
                       compose_file='none', workdir=str(workdir), candidate_digest=candidate_digest,
                       extra={'workspaceId': 'tj-test'})
         self._prepare(stack, list(agent_permissions))
+        if needs_approver:
+            stack = self._mint_approver(stack)
         return stack
 
     def proxy(self, stack):
@@ -769,3 +792,253 @@ def test_unknown_agent_is_refused_before_any_stack(tmp_path):
     assert runner.main(['case', '--scenario', 'P10', '--variant', 'A', '--model', 'm', '--agent', 'nope',
                         '--image-ref', 'x', '--output', str(out)]) == 1
     assert json.loads(out.read_text())['status'] == 'infrastructure'
+
+
+# ---- runner hooks for scenario lanes ------------------------------------------------------------
+
+class HookP10(FakeP10):
+    """FakeP10 with configurable hooks (two sessions, restart, approver, fault, files, reports)."""
+
+    def __init__(self, *, sessions=1, restart=False, approver=False, fault=None, files=(), report=False,
+                 approve_with=None):
+        self.n, self.restart, self.approver, self.fault = sessions, restart, approver, fault
+        self.files, self.report, self.approve_with = list(files), report, approve_with
+        self.between_calls = []
+
+    def sessions_required(self): return self.n
+    def needs_approver(self): return self.approver
+    def fault_plan(self, variant): return self.fault
+    def customer_files(self, variant): return self.files
+
+    def between_sessions(self, stack, seeded, variant, after_session):
+        self.between_calls.append((after_session, stack.extra['recorder'].phase))
+        if self.approve_with:
+            stack.extra['approve'](self.approve_with)
+        return {'restartServer': True} if self.restart else None
+
+    def observe(self, stack, seeded, variant, run=None):
+        rows = super().observe(stack, seeded, variant, run)
+        recorder = stack.extra['recorder']
+        if self.report:
+            ingest = [a for a in recorder.actions() if a.tool == 'honua_ingest_dataset']
+            recorder.action_result('import-report', ingest[-1])
+        return rows
+
+
+def run_hook_case(candidate, tmp_path, replies, scenario, monkeypatch=None):
+    model = FakeModel(replies)
+    runtime = FakeRuntime(candidate.base_url, model, tmp_path)
+    receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=scenario, variant='A', case=case('A'),
+                                  candidate_digest=DIGEST, runtime=runtime)
+    return receipt, model, runtime
+
+
+def test_between_sessions_restart_is_a_recorded_compose_restart(candidate, tmp_path, monkeypatch):
+    import subprocess
+    started = {'t': '2026-10-31T07:00:00Z'}
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv[:2])
+        out = ''
+        if argv[:2] == ['docker', 'ps']:
+            out = 'cid-1\n'
+        elif argv[:2] == ['docker', 'inspect']:
+            out = f'cid-1 {started["t"]} running\n'
+        return subprocess.CompletedProcess(argv, 0, out, '')
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+
+    def compose_restart(self, stack):
+        assert stack.extra['recorder'].phase == 'between'
+        started['t'] = '2026-10-31T07:05:00Z'
+        return 0
+    monkeypatch.setattr(FakeRuntime, 'compose_restart', compose_restart)
+    scenario = HookP10(sessions=2, restart=True)
+    receipt, model, _ = run_hook_case(candidate, tmp_path, [FINAL, tool(CORRECT_WHERE), FINAL], scenario)
+    assert scenario.between_calls == [(1, 'between')]
+    fact = receipt['betweenSessions'][0]['restart']
+    assert fact['restarted'] and fact['ready'] and fact['command'] == 'docker compose restart server'
+    assert fact['containersBefore'] != fact['containersAfter']
+    records = {r['step']: r for r in receipt['controllerRecords']}
+    assert records['between-1-ready-1']['phase'] == 'between' and records['between-1-ready-1']['status'] == 200
+    assert receipt['custody']['restart:between-1'] == fact
+    assert len(receipt['sessions']) == 2 and receipt['status'] == 'pass', receipt['assertions']
+    # Session 2 is a fresh context: its first request carries none of session 1's messages.
+    assert len(model.sent[1]) == 2
+
+
+def test_restart_is_refused_while_the_model_session_runs(candidate, tmp_path):
+    runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+    stack = runtime.setup('P10:A:local-docker', DIGEST)
+    stack.extra['recorder'].set_phase('session')
+    with pytest.raises(ValueError, match='outside the model session'):
+        runtime.restart_server(stack, 'mid')
+
+
+def test_compose_restart_uses_the_drivers_compose_project(monkeypatch, tmp_path):
+    seen = []
+
+    class Compose:
+        def _run(self, *args, timeout):
+            seen.append(args)
+            return type('R', (), {'returncode': 0})()
+
+    class Driver:
+        @staticmethod
+        def _rehydrate(request):
+            seen.append(request['workspaceId'])
+            return {'workdir': str(tmp_path)}, {'compose': {}}, {}, None, None
+
+        @staticmethod
+        def _compose_for(target, manifest, workdir):
+            return Compose(), 'http://127.0.0.1:1', 'image'
+    monkeypatch.setattr(runner, '_live_driver_module', lambda: Driver)
+    stack = Stack('http://127.0.0.1:1', ADMIN, None, 'p', 'f', str(tmp_path), DIGEST, {'workspaceId': 'tj-1'})
+    assert runner.LocalRuntime(None, model='m', release_id='r').compose_restart(stack) == 0
+    assert seen == ['tj-1', ('restart', 'server')]
+
+
+def test_fault_plan_fires_once_after_trigger_and_is_recorded(candidate, tmp_path):
+    candidate.extra_tools = True
+    plan = {'kind': 'http_503_once', 'id': 'map-503', 'after': {'tool': 'honua_create_map'}, 'match': None}
+    create = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {}})
+    receipt, model, _ = run_hook_case(candidate, tmp_path,
+                                      [create, tool(CORRECT_WHERE), tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
+    events = receipt['faultEvents']
+    actions = receipt['sessions'][0]['actions']
+    assert len(events) == 1 and events[0]['id'] == 'map-503' and events[0]['httpStatus'] == 503
+    assert events[0]['actionDigest'] == actions[1]['digest']
+    assert [a['status'] for a in actions] == ['pass', 'fail', 'pass']
+    assert receipt['faultPlan']['id'] == 'map-503'
+    # The model saw the 503 as the result of its call; the server never received that request.
+    assert '503' in model.sent[2][-1]['content']
+    assert [c[1] for c in candidate.mcp_calls].count('honua_query_features') == 2  # one model call + one replay
+
+
+def test_fault_that_never_triggers_records_no_event_and_bad_plans_are_refused(candidate, tmp_path):
+    plan = {'kind': 'http_503_once', 'after': {'tool': 'honua_create_map'}, 'match': None}
+    receipt, _, _ = run_hook_case(candidate, tmp_path, [tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
+    assert receipt['faultEvents'] == []
+    for bad in ({'kind': 'http_503_once', 'after': 'map.created'}, {'kind': 'drop-db'},
+                {'kind': 'http_503_once', 'after': {'tool': 'x'}, 'extra': 1}):
+        with pytest.raises(ValueError):
+            runner.validate_fault_plan(bad)
+    from agent_e2e_local_faults import FaultInjector
+    injector = FaultInjector({'kind': 'http_503_once', 'after': {'tool': 'a'}, 'match': {'tool': 'b'}})
+    execute = injector.wrap(lambda kind, action: {'status': 'ok'})
+    assert execute('tool_call', {'tool': 'b'})['status'] == 'ok'          # not armed yet
+    assert execute('tool_call', {'tool': 'a'})['status'] == 'ok'          # trigger
+    assert execute('tool_call', {'tool': 'c'})['status'] == 'ok'          # not a match
+    assert execute('tool_call', {'tool': 'b'})['httpStatus'] == 503       # fires
+    assert execute('tool_call', {'tool': 'b'})['status'] == 'ok'          # once only
+    assert len(injector.events) == 1
+
+
+def test_separate_approver_is_minted_recorded_and_never_model_visible(candidate, tmp_path):
+    scenario = HookP10(sessions=2, approver=True, approve_with='prop-1')
+    receipt, model, runtime = run_hook_case(candidate, tmp_path, [FINAL, tool(CORRECT_WHERE), FINAL], scenario)
+    approver_id = receipt['custody']['approverPrincipalId']
+    assert candidate.approvals == [(approver_id, 'prop-1')]
+    record = {r['step']: r for r in receipt['controllerRecords']}['runner-approve-1']
+    assert record['principal'] == 'approver' and record['principalId'] == approver_id and record['phase'] == 'between'
+    assert approver_id not in (receipt['custody']['agentPrincipalId'],)
+    key = next(k for k, v in candidate.keys.items() if v['id'] == approver_id)
+    assert key not in json.dumps(model.sent) and key not in json.dumps(receipt)
+    assert receipt['status'] == 'pass'
+
+
+def test_approve_without_an_approver_principal_is_refused(candidate, tmp_path):
+    runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+    stack = runtime.setup('P10:A:local-docker', DIGEST)
+    assert stack.approver_key is None and 'approve' not in stack.extra
+    with pytest.raises(ValueError, match='no approver'):
+        runtime.approve(stack, 'prop-1')
+
+
+def test_customer_files_are_manifest_checked_and_shown_with_digests(candidate, tmp_path):
+    files = ['town-A/invalid-rows.csv']
+    receipt, model, _ = run_hook_case(candidate, tmp_path, [tool(CORRECT_WHERE), FINAL], HookP10(files=files))
+    raw = (ROOT / 'certification/agent-e2e/corpus/town-A/invalid-rows.csv').read_bytes()
+    digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+    assert receipt['customerFiles'] == [{'corpusPath': files[0], 'mediaType': 'text/csv', 'sha256': digest}]
+    attached = json.loads(model.sent[0][1]['content'])['customerAttachments']
+    assert attached == [{'name': 'invalid-rows.csv', 'mediaType': 'text/csv', 'sha256': digest,
+                         'content': raw.decode()}]
+    for bad in (['../oracles/town-A.json'], ['oracles/town-A.json', 'oracles/town-A.json'], ['nope.csv']):
+        with pytest.raises(ValueError):
+            runner.stage_customer_files(tmp_path / 'x', bad)
+
+
+def test_import_report_comes_from_the_captured_server_response_to_the_sealed_action(candidate, tmp_path):
+    candidate.extra_tools = True
+    data = 'name,lon,lat\na,1,2\nb,,\n'
+    ingest = json.dumps({'kind': 'tool_call', 'tool': 'honua_ingest_dataset',
+                         'arguments': {'format': 'csv', 'data': data}})
+    receipt, _, _ = run_hook_case(candidate, tmp_path, [ingest, tool(CORRECT_WHERE), FINAL], HookP10(report=True))
+    record = {r['step']: r for r in receipt['controllerRecords']}['import-report']
+    assert record['origin'] == 'session-result' and record['principal'] == 'agent'
+    assert record['replayOf'] == receipt['sessions'][0]['actions'][0]['digest']
+    from agent_e2e_local_projections import Context, evaluate
+    from agent_e2e_local_recorder import Record
+    raw = base64.b64decode(json.loads((tmp_path / 'case/controller-records/import-report.json').read_text())['bodyBase64'])
+    rec = Record('import-report', 'observe', 'mcp', 'agent', None, 'POST', '/mcp#tools/call', 200, raw,
+                 'sha256:' + hashlib.sha256(raw).hexdigest())
+    reasons = evaluate({'map': {'body': 'import-report', 'pointer': '/result/structuredContent/errors'},
+                        'to': {'item': '/reason'}}, Context({'import-report': rec}))
+    assert reasons == ['missing coordinate'] and record['sha256'] == rec.sha256
+
+
+def test_action_result_refuses_unsealed_or_altered_responses(candidate, tmp_path):
+    import os
+    from agent_e2e_local_recorder import LoggedAction, action_bytes
+    os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST,
+                                  attempt_id='corpus-test', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')})
+    action = {'kind': 'tool_call', 'tool': 'honua_ingest_dataset', 'arguments': {}}
+    path, response = tmp_path / 'action-0001.json', tmp_path / 'action-0001.response'
+    path.write_bytes(action_bytes(action))
+    response.write_bytes(b'{"jsonrpc":"2.0","id":"1","result":{"content":[]}}')
+    digest = 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest()
+    row = {'session': 1, 'sequence': 1, 'digest': digest, 'logPath': str(path), 'status': 'pass',
+           'resultRawPath': str(response), 'resultHttpStatus': 200,
+           'resultRawSha256': 'sha256:' + hashlib.sha256(response.read_bytes()).hexdigest()}
+    logged = LoggedAction(1, 1, digest, 'tool_call', 'honua_ingest_dataset', {}, None, 'pass', str(path))
+    recorder.set_phase('observe')
+    with pytest.raises(ValueError, match='not in this case'):
+        recorder.action_result('report-unsealed', logged)
+    recorder.append_actions(1, [row])
+    response.write_bytes(b'{"jsonrpc":"2.0","id":"1","result":{"content":[],"forged":true}}')
+    with pytest.raises(ValueError, match='digest mismatch'):
+        recorder.action_result('report-altered', logged)
+
+
+def test_exclusions_are_listed_never_passed_and_only_by_registered_rulings(candidate, tmp_path):
+    marker = {'$excluded': 'founder-ruling-no-multi-tenant-2026.1'}
+    from agent_e2e_local_expectations import check_exclusion
+    assert check_exclusion('P03', 'tenant.denied', marker) == 'founder-ruling-no-multi-tenant-2026.1'
+    assert check_exclusion('P18', 'mutations.absent', marker)
+    for scenario_id, assertion, value in (('P10', 'filter.exact', marker), ('P03', 'tenant.denied', {'$excluded': 'other'})):
+        with pytest.raises(ValueError):
+            check_exclusion(scenario_id, assertion, value)
+    # A scored case lists the excluded assertion and passes on the rest only.
+    results = runner.score_assertions(['tenant.denied'], [], {'tenant.denied': marker}, records={}, scenario_id='P07')
+    assert results == [{'assertion': 'tenant.denied', 'status': 'excluded', 'ruling': marker['$excluded']}]
+
+    class Excluded(FakeP10):
+        id = 'P18'
+        def expected(self, variant): return {a: dict(marker) for a in case('A')['assertions']}
+    runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+    receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=Excluded(), variant='A', case=case('A'),
+                                  candidate_digest=DIGEST, runtime=runtime)
+    assert receipt['status'] == 'excluded' and not receipt['sessions'] and not runtime.workdirs
+    assert {a['status'] for a in receipt['assertions']} == {'excluded'}
+    runner.validate_receipt(receipt)
+    with pytest.raises(ValueError):
+        runner.validate_receipt({**receipt, 'assertions': [{'assertion': 'x', 'status': 'pass'}]})
+    (tmp_path / 'a').mkdir()
+    passing, _, _ = run_case(candidate, tmp_path / 'a', [tool(CORRECT_WHERE), FINAL])
+    excluded = {**receipt, 'caseId': 'P10:B:local-docker'}
+    summary = runner.aggregate(runner.build_inventory(runner.PACK, ['P10'], ['A', 'B']), [passing, excluded])
+    assert summary['overall']['total'] == 1 and summary['overall']['passed'] == 1
+    assert summary['overall']['excludedCases'] == ['P10:B:local-docker']
+    assert [c['caseId'] for c in summary['cases']] == ['P10:A:local-docker', 'P10:B:local-docker']
