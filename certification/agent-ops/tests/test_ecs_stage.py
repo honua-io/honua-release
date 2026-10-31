@@ -120,7 +120,7 @@ def test_check_stays_closed_and_pins_do_not_match_the_cell_image():
     assert require_ready() is False
     assert forbidden_calls() == []
     assert {gap["id"] for gap in OPEN_PRODUCT_GAPS} == {
-        "convergence-image", "restore-142", "restart-config", "controller-cert-cell"}
+        "ecs-convergence-pr", "convergence-image", "restore-142", "restart-config", "controller-cert-cell"}
     digest = "sha256:" + "a" * 64
     other = "sha256:" + "b" * 64
     pins = {"iac_ref": "c" * 40, "helm_ref": "d" * 40,
@@ -290,3 +290,44 @@ def test_fault_targets_waiter_and_requires_controller_evidence(monkeypatch):
     fault.arm()
     assert fault.wait_and_fire()["fired"] is False
     assert no_proof.stopped
+
+
+def test_controller_migration_read_requires_matching_script_failure_and_absent_journal():
+    from ecs_observe import MigrationStateReader
+    class Logs:
+        def __init__(self, messages): self.messages = messages
+        def get_log_events(self, **kwargs):
+            assert kwargs['logStreamName'] == 'candidate-task'
+            return {'events': [] if 'nextToken' in kwargs else [{'message': message} for message in self.messages], 'nextForwardToken': 'end'}
+    def read(journal, messages):
+        return MigrationStateReader(_Session([journal]), Logs(messages), log_group='cell',
+            log_stream='candidate-task', script='142_test.sql', evidence_id='d' * 32,
+            backend_pid=99, start_time_ms=1000)()
+    good = ["Executing Database Server script '142_test.sql'", 'migration failed']
+    assert read('0', good)['migration_failed'] is True
+    assert read('0', good)['journal_absent'] is True
+    assert read('1', good)['journal_absent'] is False
+    assert read('0', ["Executing Database Server script '143_other.sql'", 'migration failed'])['migration_failed'] is False
+    assert read('0', [good[0], 'migration completed'])['migration_failed'] is False
+    with pytest.raises(ValueError):
+        MigrationStateReader(_Session([]), Logs([]), log_group='cell', log_stream='candidate-task',
+            script="x'; DROP TABLE x;--.sql", evidence_id='d' * 32, backend_pid=99, start_time_ms=0)
+
+
+def test_recording_proxy_captures_only_successful_actual_proposal_responses(tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
+    from agent_cli_sessions import RecordingProxy
+    from ecs_recording import ProposalCapture
+    result = {'status': 'ok', 'result': {'structuredContent': {'proposalId': 'proposal01'}}}
+    capture = ProposalCapture(lambda kind, action: result)
+    view = {'tools': [{'name': 'honua_propose_platform_release_convergence', 'inputSchema': {'type': 'object'}}]}
+    with RecordingProxy(view, capture, tmp_path, 1, 5, server_name='honua') as proxy:
+        proxy.rpc('tools/call', {'name': 'honua_propose_platform_release_convergence', 'arguments': {}})
+        assert proxy.actions[0]['status'] == 'pass'
+    assert capture.records == [{'tool': 'honua_propose_platform_release_convergence', 'proposalId': 'proposal01'}]
+    capture('tool_call', {'tool': 'honua_ops_health'})
+    assert len(capture.records) == 1
+    failed = ProposalCapture(lambda kind, action: {'status': 'fail', 'result': result['result']})
+    failed('tool_call', {'tool': 'honua_propose_finding'})
+    assert failed.records == []

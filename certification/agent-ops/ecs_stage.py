@@ -23,6 +23,8 @@ from ecs_observe import ObservationMissing
 from product_ops import TOOL_NAMES, scrub_model_env
 
 OPEN_PRODUCT_GAPS = (
+    {"id": "ecs-convergence-pr", "issue": "https://github.com/honua-io/honua-server/pull/6825",
+     "scenarios": ("O01", "O08")},
     {"id": "convergence-image", "issue": "https://github.com/honua-io/honua-server/issues/6812",
      "scenarios": ("O01",)},
     {"id": "restore-142", "issue": "https://github.com/honua-io/honua-server/issues/6813",

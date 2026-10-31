@@ -89,7 +89,10 @@ Tracked product work, which this harness does not simulate:
 - [honua-iac #351](https://github.com/honua-io/honua-iac/issues/351) — the update/rollback controller cannot restore a database, and its boundary denies a cert or demo cell.
 - EKS native workload remains [honua-iac #267](https://github.com/honua-io/honua-iac/issues/267) and [honua-devops #224](https://github.com/honua-io/honua-devops/issues/224).
 
-The ECS stage is unwired and cannot pass even if the product gaps close. Before
+The ECS stage is unwired and cannot pass even if the product gaps close.
+The ECS image-convergence prerequisite is honua-server #6825, which remains open.
+`MigrationStateReader` and `ProposalCapture` are separately tested components,
+but are not yet connected to a verified task, trusted inter-job handoff, or approval. Before
 wiring, run the model in a separate credential-free job with the proposer-only
 MCP proxy, approve only IDs from its trusted recording ledger in a separate
 approver process, and implement independent migration-state, probe, schema and

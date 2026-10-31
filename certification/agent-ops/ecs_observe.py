@@ -66,3 +66,60 @@ class EcsObserver:
             "desired": service["desiredCount"],
             "images": [item.get("image") for item in declared if isinstance(item, dict)],
         }
+
+
+class MigrationStateReader:
+    """Controller-side evidence from one candidate task log and the migration journal.
+
+    The log stream and pending script must come from the controller's verified task
+    and pre-upgrade inventory, never from model output.
+    """
+
+    def __init__(self, session, logs, *, log_group: str, log_stream: str,
+                 script: str, evidence_id: str, backend_pid: int, start_time_ms: int):
+        if (not isinstance(log_group, str) or not log_group or
+                not isinstance(log_stream, str) or not log_stream or
+                not isinstance(script, str) or not re.fullmatch(r"[A-Za-z0-9._-]+\.sql", script) or
+                not isinstance(evidence_id, str) or not re.fullmatch(r"[0-9a-f]{32}", evidence_id) or
+                type(backend_pid) is not int or backend_pid <= 0 or
+                type(start_time_ms) is not int or start_time_ms < 0):
+            raise ValueError("invalid migration observation binding")
+        self.session, self.logs = session, logs
+        self.log_group, self.log_stream, self.script = log_group, log_stream, script
+        self.evidence_id, self.backend_pid, self.start_time_ms = evidence_id, backend_pid, start_time_ms
+
+    def __call__(self) -> dict:
+        # The script is validated above and originates in the controller inventory.
+        count = self.session.query(
+            f"SELECT count(*) FROM public.schema_versions WHERE scriptname='{self.script}'")
+        if count not in ("0", "1"):
+            raise ObservationMissing("migration journal")
+        params = {"logGroupName": self.log_group, "logStreamName": self.log_stream,
+                  "startTime": self.start_time_ms, "startFromHead": True, "limit": 10000}
+        messages = []
+        token = None
+        for _ in range(10):
+            if token is not None:
+                params["nextToken"] = token
+            page = self.logs.get_log_events(**params)
+            if not isinstance(page, dict) or not isinstance(page.get("events"), list):
+                raise ObservationMissing("migration logs")
+            for event in page["events"]:
+                if not isinstance(event, dict) or not isinstance(event.get("message"), str):
+                    raise ObservationMissing("migration logs")
+                messages.append(event["message"])
+            next_token = page.get("nextForwardToken")
+            if not isinstance(next_token, str) or not next_token:
+                raise ObservationMissing("migration log cursor")
+            if token == next_token:
+                break
+            token = next_token
+        else:
+            raise ObservationMissing("migration log page incomplete")
+        text = "\n".join(messages)
+        scripts = list(re.finditer(r"Executing Database Server script '([^']+)'", text))
+        failure = bool(scripts and scripts[-1].group(1) == self.script and
+                       re.search(r"migration[^\n]{0,200}?fail", text[scripts[-1].end():], re.I))
+        return {"evidence_id": self.evidence_id, "backend_pid": self.backend_pid,
+                "migration_failed": failure,
+                "journal_absent": count == "0"}
