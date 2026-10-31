@@ -256,3 +256,27 @@ def test_direct_unsafe_relations_refused_without_state_change(database, kind):
     with pytest.raises(ValueError):
         recorder.table_rows('direct-unsafe-' + kind, 'honua_data', table, ['x'])
     assert state(runtime, stack) == before
+
+
+@pytest.mark.parametrize('setup,cleanup', [
+    ('ALTER ROLE corpus_reader BYPASSRLS', 'ALTER ROLE corpus_reader NOBYPASSRLS'),
+    ('GRANT SELECT ON honua_data.shelters TO corpus_reader', 'REVOKE SELECT ON honua_data.shelters FROM corpus_reader'),
+    ('CREATE TABLE honua_data.reader_owned (x int); ALTER TABLE honua_data.reader_owned OWNER TO corpus_reader',
+     'DROP TABLE honua_data.reader_owned'),
+    ("CREATE EXTENSION IF NOT EXISTS postgres_fdw; CREATE SERVER mapping_probe FOREIGN DATA WRAPPER postgres_fdw; "
+     "CREATE USER MAPPING FOR corpus_reader SERVER mapping_probe", 'DROP SERVER mapping_probe CASCADE'),
+])
+def test_existing_reader_rejects_extra_authority_without_repair(database, setup, cleanup):
+    runtime, stack, _ = database
+    code, _ = runtime.psql(stack, setup, read_only=False)
+    assert code == 0
+    try:
+        with pytest.raises(RuntimeError):
+            runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
+        # The dirty role remains dirty; a failed check must not repair it.
+        with pytest.raises(RuntimeError):
+            runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
+    finally:
+        code, _ = runtime.psql(stack, cleanup, read_only=False)
+        assert code == 0
+    runner.LocalRuntime(None, model='m', release_id='r')._ensure_reader(stack)
