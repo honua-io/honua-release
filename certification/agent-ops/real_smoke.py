@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 
 from live_observer import (compare_source_geometry, observe_database, observe_layer,
-                           observe_service_settings, reopen_saved_map, same_reopened_envelope)
+                           observe_metadata_security, observe_service_settings, reopen_saved_map, same_reopened_envelope)
 from real_controller import RealController
 from live_probes import ProbeTraffic, assess_traffic, readback_writes
 from real_seed import _verify_runtime, prepare_town
@@ -154,6 +154,19 @@ def main() -> None:
             return {name: value['settings'] for name, value in snapshot.items()}
         if os.environ.get('OPS_SMOKE_EXPLICIT_ACL') == '1':
             evidence['service_settings'] = service_settings()
+        def metadata_security():
+            services = sorted({binding['service'] for binding in town['layers'].values()} | {station['service']})
+            observation = observe_metadata_security(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], services)
+            graph = observation['security']
+            by_id = {service['id']: service['name'] for service in graph['services']}
+            for binding in [*town['layers'].values(), station]:
+                publications = [item for item in graph['publications'] if by_id[item['serviceId']] == binding['service']]
+                if (not publications or any(item['layerIndex'] != binding['layerId'] for item in publications) or
+                    len({item['resourceId'] for item in publications}) != 1):
+                    raise RuntimeError('metadata security does not bind the observed service layer')
+            return observation
+        if os.environ.get('OPS_SMOKE_METADATA') == '1':
+            evidence['metadata_security'] = metadata_security()
         path = f"/rest/services/maui-inspections/FeatureServer/{publication['layerId']}"
         def new_traffic():
             return ProbeTraffic(base, path, '', 'note',
@@ -230,6 +243,10 @@ def main() -> None:
                 evidence['upgraded_service_settings'] = service_settings()
                 if settings_data(evidence['service_settings']) != settings_data(evidence['upgraded_service_settings']):
                     raise RuntimeError('service settings changed on upgrade')
+            if 'metadata_security' in evidence:
+                evidence['upgraded_metadata_security'] = metadata_security()
+                if evidence['metadata_security']['security'] != evidence['upgraded_metadata_security']['security']:
+                    raise RuntimeError('metadata security changed on upgrade')
             restored = controller.apply('ops_compose_action', {'operation': 'restore_backup', 'backup_id': 'previous-release'})
             evidence['restore'] = restored
             if not restored['ok']:
@@ -249,6 +266,10 @@ def main() -> None:
                 evidence['restored_service_settings'] = service_settings()
                 if settings_data(evidence['service_settings']) != settings_data(evidence['restored_service_settings']):
                     raise RuntimeError('service settings changed on restore')
+            if 'metadata_security' in evidence:
+                evidence['restored_metadata_security'] = metadata_security()
+                if evidence['metadata_security']['security'] != evidence['restored_metadata_security']['security']:
+                    raise RuntimeError('metadata security changed on restore')
             evidence['action_audit'] = controller.audit
             if [event['ok'] for event in controller.audit] != [True, False, True, True, True, True, True]:
                 raise RuntimeError('controller action audit is incomplete')
@@ -308,6 +329,10 @@ def main() -> None:
                     evidence['fault_restored_service_settings'] = service_settings()
                     if settings_data(evidence['service_settings']) != settings_data(evidence['fault_restored_service_settings']):
                         raise RuntimeError('service settings changed after interrupted migration restore')
+                if 'metadata_security' in evidence:
+                    evidence['fault_restored_metadata_security'] = metadata_security()
+                    if evidence['metadata_security']['security'] != evidence['fault_restored_metadata_security']['security']:
+                        raise RuntimeError('metadata security changed after interrupted migration restore')
                 if not evidence['fault_assessment']['rpo_zero']:
                     raise RuntimeError('acknowledged writes lost during fault recovery')
         evidence['status'] = 'operations-pass'

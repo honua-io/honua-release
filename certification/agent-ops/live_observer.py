@@ -349,3 +349,111 @@ def compare_source_geometry(project: str, compose_file: str, table: str, feature
             'source_sha256': hashlib.sha256(_canonical(features)).hexdigest(),
             'response_sha256': hashlib.sha256(raw).hexdigest(),
             'response_body_b64': base64.b64encode(raw).decode('ascii')}
+
+
+def observe_metadata_security(project: str, compose_file: str, services: list[str], *, timeout: float = 30) -> dict:
+    """Read scoped metadata security values and links in one SQL snapshot.
+
+    A null policy is retained as null, never interpreted as a protective ACL.
+    This diagnostic does not prove effective access or enable a trial without
+    fixture and principal provenance.
+    """
+    import re
+    import subprocess
+    from pathlib import Path
+    if (not re.fullmatch(r'ops-[a-f0-9]{32}', project) or not Path(compose_file).is_file() or
+        not services or len(set(services)) != len(services) or
+        any(not re.fullmatch(r'[a-z0-9_-]{1,100}', name) for name in services)):
+        raise ValueError('invalid metadata observation scope')
+    compose = str(Path(compose_file).resolve())
+    ps = subprocess.run(['docker', 'compose', '-p', project, '-f', compose,
+                         'ps', '-q', '--status', 'running', 'db'], capture_output=True, text=True,
+                        timeout=timeout, check=False)
+    containers = ps.stdout.split()
+    if ps.returncode or len(containers) != 1 or not re.fullmatch(r'[a-f0-9]{12,64}', containers[0]):
+        raise ValueError('metadata database identity unavailable')
+    # Names are controller-owned, strictly alphanumeric and cannot escape SQL literals.
+    names = ','.join("'" + name + "'" for name in sorted(services))
+    sql = f"""WITH current_graph AS (
+      SELECT s.document FROM honua.metadata_v2_current c JOIN honua.metadata_v2_snapshots s
+        ON s.environment=c.environment AND s.revision=c.revision
+    ), selected_services AS (
+      SELECT value AS s FROM current_graph, jsonb_array_elements(document->'services')
+        WHERE value->'metadata'->>'name' IN ({names})
+    ), selected_publications AS (
+      SELECT value AS p FROM current_graph, jsonb_array_elements(document->'publications')
+        WHERE value->>'serviceId' IN (SELECT s->'metadata'->>'id' FROM selected_services)
+    ), selected_resources AS (
+      SELECT value AS r FROM current_graph, jsonb_array_elements(document->'resources')
+        WHERE value->'metadata'->>'id' IN (SELECT p->>'resourceId' FROM selected_publications)
+    ) SELECT json_build_object(
+       'graphCount', (SELECT count(*) FROM current_graph),
+       'services', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',s->'metadata'->'id',
+         'name',s->'metadata'->'name','policy',s->'accessPolicy','policyPresent',s ? 'accessPolicy')
+         ORDER BY s->'metadata'->>'id'),'[]'::jsonb) FROM selected_services),
+       'publications', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',p->'metadata'->'id',
+         'serviceId',p->'serviceId','resourceId',p->'resourceId','layerIndex',p->'layerIndex',
+         'identifier',p->'identifier') ORDER BY p->'metadata'->>'id'),'[]'::jsonb) FROM selected_publications),
+       'resources', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',r->'metadata'->'id',
+         'name',r->'metadata'->'name','policy',r->'accessPolicy','policyPresent',r ? 'accessPolicy',
+         'policyIds',r->'policyIds') ORDER BY r->'metadata'->>'id'),'[]'::jsonb) FROM selected_resources),
+       'policies', (SELECT coalesce(jsonb_agg(value ORDER BY value->'metadata'->>'id'),'[]'::jsonb)
+         FROM current_graph, jsonb_array_elements(document->'policies')
+         WHERE value->'metadata'->>'id' IN (
+           SELECT jsonb_array_elements_text(coalesce(r->'policyIds','[]'::jsonb)) FROM selected_resources)))::text"""
+    completed = subprocess.run(['docker', 'exec', containers[0], 'psql', '-v', 'ON_ERROR_STOP=1',
+                                '-U', 'honua', '-d', 'honua', '-Atc', sql], capture_output=True, text=True,
+                               timeout=timeout, check=False)
+    if completed.returncode:
+        raise ValueError('metadata security read failed')
+    raw = completed.stdout.encode()
+    if len(raw) > 2_000_000:
+        raise ValueError('metadata security read exceeds limit')
+    from client import Redactor
+    import os
+    secrets = [os.environ.get(name, '') for name in ('E2E_API_KEY', 'OPS_SMOKE_OPERATOR_KEY',
+               'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY')]
+    if Redactor(sensitive_values=secrets).text(completed.stdout) != completed.stdout:
+        raise ValueError('metadata observation disclosed credential')
+    doc = json.loads(raw)
+    def contains_sensitive_metadata(value):
+        if isinstance(value, dict):
+            return any(re.search(r'(?i)password|secret|token|authorization|api.?key', str(key)) or
+                       contains_sensitive_metadata(item) for key, item in value.items())
+        if isinstance(value, list):
+            return any(contains_sensitive_metadata(item) for item in value)
+        if isinstance(value, str):
+            return bool(re.search(r'(?i)(?:password|secret|token|api.?key)\s*[:=]\s*\S+', value) or
+                        re.search(r'(?i)https?://[^\s/@:]+:[^\s/@]+@', value))
+        return False
+    if contains_sensitive_metadata(doc):
+        raise ValueError('metadata observation contains sensitive fields')
+    if (not isinstance(doc, dict) or doc.get('graphCount') != 1 or
+        any(not isinstance(doc.get(key), list) for key in ('services', 'publications', 'resources', 'policies')) or
+        any(not isinstance(row, dict) for key in ('services', 'publications', 'resources', 'policies') for row in doc[key]) or
+        len(doc['services']) != len(services) or
+        {row.get('name') for row in doc['services']} != set(services) or
+        not doc['publications'] or not doc['resources']):
+        raise ValueError('metadata security inventory incomplete')
+    service_ids = [row.get('id') for row in doc['services']]
+    resource_ids = [row.get('id') for row in doc['resources']]
+    publication_ids = [row.get('id') for row in doc['publications']]
+    policy_ids = [row.get('metadata', {}).get('id') if isinstance(row.get('metadata'), dict) else None
+                  for row in doc['policies']]
+    if (any(type(row.get('policyPresent')) is not bool or
+            (row.get('policy') is not None and not isinstance(row.get('policy'), dict))
+            for row in doc['services'] + doc['resources']) or
+        any(not isinstance(row.get('policyIds'), list) or any(not isinstance(value, str) or not value
+            for value in row['policyIds']) for row in doc['resources']) or
+        any(not isinstance(value, str) or not value for value in service_ids + resource_ids + publication_ids + policy_ids) or
+        len(set(publication_ids)) != len(publication_ids) or
+        len(set(policy_ids)) != len(policy_ids) or
+        any(policy_id not in policy_ids for row in doc['resources'] for policy_id in row['policyIds']) or
+        len(set(service_ids)) != len(service_ids) or len(set(resource_ids)) != len(resource_ids) or
+        any(row.get('serviceId') not in service_ids or row.get('resourceId') not in resource_ids
+            for row in doc['publications']) or
+        set(service_ids) != {row.get('serviceId') for row in doc['publications']} or
+        set(resource_ids) != {row.get('resourceId') for row in doc['publications']}):
+        raise ValueError('metadata security links incomplete')
+    return {'project': project, 'database_container': containers[0], 'security': doc,
+            'sha256': hashlib.sha256(raw).hexdigest(), 'body_b64': base64.b64encode(raw).decode('ascii')}
