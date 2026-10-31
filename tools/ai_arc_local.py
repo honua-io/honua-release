@@ -104,15 +104,19 @@ class VmSlot:
                  f'HONUA_GRPC_PORT={self.grpc_port}'] + [f'{k}={v}' for k, v in self.secrets.items()]
         return '\n'.join(lines) + '\n'
 
-    def stage(self, install: dict) -> dict:
-        """The quickstart's secrets and key-ring steps, done by the harness on the VM."""
+    def stage(self, install: dict, compose: str | None = None) -> dict:
+        """The guide's file-creation steps, done by the harness on the VM: compose.yaml (the published
+        definition, byte for byte), .env with generated secrets and the slot's ports, and the key ring.
+        The admitted shell cannot write files, so a customer following the guide would have made these
+        before running it; the agent still has to bring the install up, check it and hand it over."""
         env = self.env_file(install)
         fence = 'HONUA_ENV_' + pysecrets.token_hex(8)
         script = (
             'set -eu\numask 077\n'
             f'mkdir -m 700 -- {shlex.quote(self.remote_dir)}\ncd -- {shlex.quote(self.remote_dir)}\n'
             f"cat > .env <<'{fence}'\n{env}{fence}\n"
-            'mkdir -p secrets\n'
+            + (f"cat > compose.yaml <<'{fence}C'\n{compose}{fence}C\n" if compose else '')
+            + 'mkdir -p secrets\n'
             'KP="$(grep \'^HONUA_KEYRING_PASSWORD=\' .env | cut -d= -f2)"\n'
             'openssl req -x509 -newkey rsa:2048 -keyout secrets/keyring.pem -out secrets/keyring.crt '
             '-days 3650 -nodes -subj "/CN=honua-quickstart" 2>/dev/null\n'

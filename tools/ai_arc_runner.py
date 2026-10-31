@@ -519,7 +519,7 @@ class LocalSetup(StageModule):
         self.compose = ai_arc_local.quickstart_compose(page)
         ctx.slot.facts['quickstart'] = {'pageSha256': sha256(page), 'composeSha256': sha256(self.compose),
                                         'revision': ctx.options.get('quickstart_revision')}
-        ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install)
+        ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install, self.compose)
         ctx.slot.harness_secrets.extend(ctx.slot.vm.secrets.values())
         ctx.slot.controller['admin_key'] = ctx.slot.vm.secrets['HONUA_ADMIN_PASSWORD']
 

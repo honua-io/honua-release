@@ -81,8 +81,11 @@ def _ids(value, out):
     return out
 
 
+# Dangerous only: host privilege, host namespaces, host root or Docker socket mounts, device access,
+# added capabilities or disabled confinement. Hardening settings (security_opt no-new-privileges,
+# cap_drop) in the published definition are not dangerous.
 COMPOSE_DANGER = re.compile(r'privileged\s*:\s*true|/var/run/docker\.sock|^\s*-\s*["\']?/:|["\']/:/|pid\s*:\s*["\']?host|'
-                            r'network_mode\s*:\s*["\']?host|cap_add|security_opt|devices\s*:', re.I | re.M)
+                            r'network_mode\s*:\s*["\']?host|ipc\s*:\s*["\']?host|cap_add|unconfined|devices\s*:', re.I | re.M)
 COMPOSE_OUTSIDE = {'exec', 'run', 'cp'}   # access to containers or data outside the product path
 
 
