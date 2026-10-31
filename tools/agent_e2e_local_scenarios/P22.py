@@ -6,7 +6,7 @@ observations, frozen expectations and a final-answer handoff.
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from agent_e2e_local_api import Scenario, Seeded
+from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_scenario_operations import data
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,7 +71,18 @@ class P22(Scenario):
         return Seeded(state)
 
     def observe(self, stack, seeded, variant, run=None):
-        raise NotImplementedError('P22 needs saved-map and publication readback')
+        from agent_e2e_p10_observer import source_path
+        if (run is None or run.sessions != 2 or run.agent_principal != seeded.state['owner']
+                or variant != seeded.state['variant']):
+            raise ValueError('P22 requires the seeded owner and two sessions')
+        recorder = stack.extra['recorder']
+        recorder.json('p22-version-after', 'GET', '/api/v1/studio/content-items/' +
+                      seeded.state['itemId'] + '/versions/' + seeded.state['versionId'])
+        recorder.json('p22-source-after', 'GET', source_path(seeded.state['shared']))
+        return [Observation(name, None, {'projection': 'extract/v1'}) for name in
+                ('session.fresh', 'state.reused', 'duplicates.absent',
+                 'publication.public', 'source-content.unchanged')]
+
 
     def expected(self, variant):
         raise NotImplementedError('P22 has no complete independent expectations')
