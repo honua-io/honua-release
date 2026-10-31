@@ -17,7 +17,7 @@ import yaml
 REQUIRED_STAGES = frozenset({
     'publisher-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
     'two-layers-filter-widget', 'session-expiry-recovery', 'authored-style-labels', 'save-reload-reopen',
-    'independent-server-render', 'public-audience', 'accessibility',
+    'independent-server-render', 'separate-approval', 'public-audience', 'accessibility',
 })
 REPO = 'honua-io/honua-console'
 WORKFLOW = 'console-live-journey.yml'

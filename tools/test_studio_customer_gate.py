@@ -54,6 +54,13 @@ def test_previous_non_admin_receipt_cannot_replace_the_publisher_journey():
         g.validate_evidence(*values[:3], {"qualificationComplete": True, "completed": list(completed)})
 
 
+def test_publication_without_separate_approval_is_rejected():
+    values = evidence()
+    completed = g.REQUIRED_STAGES - {"separate-approval"}
+    with pytest.raises(ValueError, match="partial"):
+        g.validate_evidence(*values[:3], {"qualificationComplete": True, "completed": list(completed)})
+
+
 def test_tag_only_or_mismatched_digest_is_rejected():
     for digest in ["nightly", "", "sha256:short"]:
         components = pins()
