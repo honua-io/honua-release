@@ -34,7 +34,7 @@ def _screen(value, secrets):
 
 class StdioMcpBackend:
     """Runner-owned honua-devops --mcp process with explicit slot credentials."""
-    def __init__(self, binary, *, slot_env, workdir, timeout=120):
+    def __init__(self, binary, *, slot_env, workdir, timeout=2700):
         self.binary = str(Path(binary).resolve())
         if not Path(self.binary).is_file() or not os.access(self.binary, os.X_OK):
             raise ValueError('published honua-devops MCP binary is unavailable')
@@ -163,7 +163,7 @@ class StdioMcpBackend:
 
 class HttpMcpBackend:
     """Forward to a runner-provided loopback browser or validated server MCP endpoint."""
-    def __init__(self, endpoint, *, header=None, token=None, timeout=120, workflow_view=None):
+    def __init__(self, endpoint, *, header=None, token=None, timeout=2700, workflow_view=None):
         parts = urlsplit(endpoint)
         valid_remote = (parts.scheme == 'https' and parts.port in (None,443)
                         and re.fullmatch(r'[a-z0-9-]+\.cert\.demo\.honua\.io', parts.hostname or ''))
@@ -317,7 +317,7 @@ class RemoteQuickstartShell:
         ssh = ['ssh','-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
                '-o','UserKnownHostsFile='+self.known_hosts,'-i',self.identity,
                '--',self.user+'@'+self.host,'sh','-s']
-        return self.executor(ssh, input=script.encode(), capture_output=True, timeout=300,
+        return self.executor(ssh, input=script.encode(), capture_output=True, timeout=2700,
                              env={'PATH':'/usr/local/bin:/usr/bin:/bin','HOME':str(Path(self.identity).parent)})
 
     def check_health(self):

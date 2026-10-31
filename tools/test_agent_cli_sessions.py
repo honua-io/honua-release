@@ -32,6 +32,7 @@ assert not list(pathlib.Path.cwd().glob('**/CLAUDE.md'))
 prompt = sys.stdin.read()
 assert prompt == 'Customer goal only'
 if AGENT == 'claude-cli':
+    assert int(os.environ['MCP_TOOL_TIMEOUT']) >= 2700000
     assert args[args.index('--tools') + 1] == ''
     assert args[args.index('--permission-mode') + 1] == 'dontAsk'
     assert '--strict-mcp-config' in args and '--restricted' in args
@@ -51,6 +52,9 @@ else:
     assert catalog['models'][0]['shell_type'] == 'disabled'
     assert catalog['models'][0]['experimental_supported_tools'] == []
     url = json.loads(overrides['mcp_servers.honua.url'])
+    assert json.loads(overrides['mcp_servers.honua.tool_timeout_sec']) >= 2700
+    assert json.loads(overrides['mcp_servers.honua.startup_timeout_sec']) >= 2700
+    assert os.environ['RUST_LOG'] == 'codex=debug'
 def rpc(method, params):
     raw = json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode()
     return json.load(urllib.request.urlopen(urllib.request.Request(url,data=raw,headers={'Content-Type':'application/json'})))
@@ -96,6 +100,9 @@ def test_native_cli_isolation_and_proxy_custody(tmp_path, monkeypatch, agent, mo
     assert out['finalAnswer'] == 'Customer result'
     proof = out['provenance'][0]
     assert proof['cost'] is None and proof['temperature'] is None
+    assert proof['mcpToolTimeoutSeconds'] >= 2700 and proof['exitCode'] == 0
+    assert (tmp_path/'log/cli-stdout.jsonl').stat().st_mode & 0o777 == 0o600
+    assert (tmp_path/'log/cli-stderr.log').stat().st_mode & 0o777 == 0o600
     assert proof['cliVersion'] == 'fake-cli 1.0'
     assert proof['promptSha256'] == digest(b'Customer goal only')
     assert proof['servedToolListSha256'] == digest(encoded(TOOLS))
@@ -120,8 +127,46 @@ def test_forbidden_attempts_and_timeout_are_failures(tmp_path, agent, model, mod
         cli.run(prompt='Customer goal only', tool_view=TOOLS,
                 execute=lambda k,a: calls.append(a) or {'status':'ok','result':{'content':[]}},
                 log_dir=tmp_path/'log', timeout=0.2 if mode=='timeout' else 5)
-    assert exc.value.category == 'model'
+    assert exc.value.category == ('infrastructure' if mode == 'timeout' else 'model')
     assert len(calls) == (1 if mode=='forbidden' else 0)
+
+
+def test_unsafe_iam_refusal_is_retained_in_action_ledger(tmp_path):
+    with RecordingProxy(TOOLS, lambda *_: {'status': 'fail', 'refusal': 'unsafe-iam-request',
+                        'result': {'content': [], 'isError': True}}, tmp_path, 1, 2) as proxy:
+        proxy.rpc('tools/call', {'name': 'honua_query_features', 'arguments': {}})
+        assert proxy.actions[0]['refusal'] == 'unsafe-iam-request'
+        assert proxy.actions[0]['status'] == 'fail'
+
+
+def test_notifications_are_logged_and_cancellation_is_infrastructure(tmp_path):
+    import urllib.request
+    with RecordingProxy(TOOLS, lambda *_: {'status': 'ok'}, tmp_path, 1, 2) as proxy:
+        for method in ('notifications/roots/list_changed', 'notifications/cancelled'):
+            data = json.dumps({'jsonrpc': '2.0', 'method': method, 'params': {}}).encode()
+            with urllib.request.urlopen(urllib.request.Request(proxy.url, data=data)) as response:
+                assert response.status == 202
+        assert proxy.failure_category == 'infrastructure'
+        events = [json.loads(line) for line in proxy.event_path.read_text().splitlines()]
+        assert [event['method'] for event in events] == ['notifications/roots/list_changed', 'notifications/cancelled']
+        assert all(event['status'] == 202 and event['elapsedMs'] >= 0 for event in events)
+
+
+def test_cancel_during_dispatched_action_is_undetermined(tmp_path):
+    import threading, urllib.request
+    entered, release = threading.Event(), threading.Event()
+    def execute(*_):
+        entered.set(); assert release.wait(5)
+        return {'status': 'ok', 'result': {'content': []}}
+    with RecordingProxy(TOOLS, execute, tmp_path, 1, 2) as proxy:
+        thread = threading.Thread(target=lambda: proxy.rpc('tools/call',
+            {'name': 'honua_query_features', 'arguments': {}}))
+        thread.start(); assert entered.wait(5)
+        data = json.dumps({'jsonrpc': '2.0', 'method': 'notifications/cancelled', 'params': {}}).encode()
+        with urllib.request.urlopen(urllib.request.Request(proxy.url, data=data)) as response:
+            assert response.status == 202
+        assert proxy.failure_category == 'post-action-undetermined'
+        release.set(); thread.join(5)
 
 
 def test_action_bound_logs_only_actual_callbacks(tmp_path):

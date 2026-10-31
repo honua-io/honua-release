@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Protocol
 
 from agent_e2e_local_recorder import action_bytes, write_private
@@ -109,6 +109,8 @@ class RecordingProxy:
         self.failure_category = None
         self.path = '/' + secrets.token_hex(32)
         self.lock = ledger['lock'] if ledger else threading.Lock()
+        self.event_lock = threading.Lock()
+        self.event_path = self.log_dir / ('mcp-' + (server_name or 'honua') + '.jsonl')
         proxy = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -118,7 +120,17 @@ class RecordingProxy:
             def do_DELETE(self): self.send_error(405)
 
             def do_POST(self):
+                started = time.monotonic()
+                event = {'httpMethod': 'POST', 'status': 500}
+                try:
+                    self.handle_post(event)
+                finally:
+                    event['elapsedMs'] = round((time.monotonic() - started) * 1000, 3)
+                    proxy.record_event(event)
+
+            def handle_post(self, event):
                 if self.path != proxy.path or self.headers.get('Origin'):
+                    event['status'] = 403
                     self.send_error(403)
                     return
                 try:
@@ -129,13 +141,18 @@ class RecordingProxy:
                     if request.get('jsonrpc') != '2.0':
                         raise ValueError('invalid JSON-RPC')
                     method = request.get('method')
+                    event['method'] = method if isinstance(method, str) and re.fullmatch(r'[A-Za-z0-9_./-]{1,256}', method) else 'invalid'
                     proxy.events.append({'method': method if method in ('initialize', 'notifications/initialized',
                         'tools/list', 'tools/call', 'prompts/list', 'resources/list',
                         'resources/templates/list', 'resources/read', 'ping') else 'other',
                         'requestBytes': length})
                     if 'id' not in request:
-                        if request.get('method') != 'notifications/initialized':
+                        if not isinstance(method, str) or not method.startswith('notifications/'):
                             raise ValueError('unsupported notification')
+                        if method == 'notifications/cancelled':
+                            proxy.failure = 'MCP client cancelled a request'
+                            proxy.failure_category = 'post-action-undetermined' if proxy.actions else 'infrastructure'
+                        event['status'] = 202
                         self.send_response(202)
                         self.end_headers()
                         return
@@ -143,13 +160,18 @@ class RecordingProxy:
                         answer = proxy.rpc(request['method'], request.get('params', {}))
                         raw = encoded({'jsonrpc': '2.0', 'id': request['id'], 'result': answer})
                     except NotImplementedError:
+                        event['rpcError'] = -32601
                         raw = encoded({'jsonrpc': '2.0', 'id': request['id'],
                                        'error': {'code': -32601, 'message': 'Method not found'}})
                 except Exception:
                     proxy.failure = proxy.failure or 'invalid or undetermined MCP request'
+                    proxy.failure_category = proxy.failure_category or ('post-action-undetermined' if proxy.actions else 'infrastructure')
+                    event['rpcError'] = -32600
                     raw = encoded({'jsonrpc': '2.0', 'id': locals().get('request', {}).get('id'),
                                    'error': {'code': -32600, 'message': 'MCP request refused'}})
                 proxy.visible.append(digest(raw))
+                event['status'] = 200
+                event['responseBytes'] = len(raw)
                 if proxy.events: proxy.events[-1]['responseBytes'] = len(raw)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -157,9 +179,14 @@ class RecordingProxy:
                 self.end_headers()
                 self.wfile.write(raw)
 
-        self.server = HTTPServer(('127.0.0.1', 0), Handler)
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         self.server.timeout = 1
         self.url = f'http://127.0.0.1:{self.server.server_port}{self.path}'
+
+    def record_event(self, event):
+        with self.event_lock:
+            fd = os.open(self.event_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, 'ab') as stream: stream.write(encoded(event) + b'\n')
 
     def __enter__(self):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -221,6 +248,7 @@ class RecordingProxy:
                 raise
             recording = result.pop('_recording', None)
             if recording is not None: row['runnerMetadata'] = recording
+            if result.get('refusal') == 'unsafe-iam-request': row['refusal'] = 'unsafe-iam-request'
             try:
                 screen_model_input(result)
             except ValueError:
@@ -278,13 +306,13 @@ def cli_environment(home, agent, *, auth_root=None):
     return env
 
 
-def _commands(agent, model, binary, home, servers, max_turns, env, contract):
+def _commands(agent, model, binary, home, servers, max_turns, env, contract, tool_timeout, debug_path):
     if agent == 'claude-cli':
         config = {'mcpServers': {name: {'type': 'http', 'url': item['url']} for name, item in servers.items()}}
         path = home / 'mcp.json'
         write_private(path, encoded(config))
         args = [binary, '-p', '--model', model, '--output-format', 'stream-json', '--verbose',
-                '--debug-file', str(home / 'claude-mcp-debug.log'), '--restricted', '--tools', '', '--allowedTools', ','.join(
+                '--debug', 'mcp', '--debug-file', str(debug_path), '--restricted', '--tools', '', '--allowedTools', ','.join(
                     'mcp__' + name + '__' + tool for name, item in servers.items() for tool in item['names']),
                 '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
                 '--strict-mcp-config', '--mcp-config', str(path), '--setting-sources', '',
@@ -311,6 +339,8 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract):
     for name, item in servers.items():
         overrides[f'mcp_servers.{name}.url'] = item['url']
         overrides[f'mcp_servers.{name}.enabled_tools'] = sorted(item['names'])
+        overrides[f'mcp_servers.{name}.startup_timeout_sec'] = tool_timeout
+        overrides[f'mcp_servers.{name}.tool_timeout_sec'] = tool_timeout
     args = [binary, 'exec', '--model', model, '--sandbox', 'read-only', '--skip-git-repo-check',
             '--ephemeral', '--ignore-user-config', '--ignore-rules', '--json', '--color', 'never']
     for key, value in overrides.items():
@@ -341,7 +371,7 @@ def parse_transcript(agent, raw, names):
                         forbidden = True
             if event.get('type') == 'result':
                 final = event.get('result')
-                if event.get('is_error') or event.get('permission_denials'): forbidden = True
+                if event.get('permission_denials'): forbidden = True
                 if isinstance(event.get('usage'), dict): usage.append(event['usage'])
         else:
             if event.get('type') in ('item.started', 'item.completed'):
@@ -355,7 +385,6 @@ def parse_transcript(agent, raw, names):
             if event.get('type') == 'turn.completed':
                 turns += 1
                 if isinstance(event.get('usage'), dict): usage.append(event['usage'])
-            if event.get('type') in ('turn.failed', 'error'): forbidden = True
     return final, usage, turns, forbidden
 
 
@@ -436,6 +465,9 @@ class CliModelSession:
                    for name in ('AGENTS.md', 'CLAUDE.md', '.git')):
                 raise ValueError('scratch directory has reachable repository instructions')
             env = cli_environment(home, self.agent, auth_root=self.auth_root)
+            tool_timeout = max(2700, int(timeout))
+            if self.agent == 'claude-cli': env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
+            else: env['RUST_LOG'] = 'codex=debug'
             version = subprocess.run([self.binary, '--version'], env=env, cwd=home,
                                      capture_output=True, check=True, timeout=20).stdout.decode().strip()
             with ExitStack() as exits:
@@ -445,19 +477,25 @@ class CliModelSession:
                     for name, item in servers.items()}
                 out['actions'] = ledger['actions']
                 configs = {name: {'url': proxy.url, 'names': sorted(proxy.names)} for name, proxy in proxies.items()}
-                args, inputs = _commands(self.agent, self.model, self.binary, home, configs, max_turns, env, contract)
+                debug_path = log_dir / 'claude-mcp-debug.log'
+                args, inputs = _commands(self.agent, self.model, self.binary, home, configs, max_turns, env, contract, tool_timeout, debug_path)
                 metadata = {'agent': self.agent, 'cliVersion': version, 'model': self.model,
                             'temperature': None, 'temperaturePolicy': 'CLI default', 'cost': None,
                             'metering': 'subscription', 'promptSha256': digest(prompt.encode()),
                             'servedToolListSha256': out['toolViewSha256'], 'cliFlagsSha256': digest(encoded(args)),
                             'configSha256': inputs, 'maxTurns': max_turns, 'timeoutSeconds': timeout,
+                            'mcpToolTimeoutSeconds': tool_timeout,
                             'inputHashScope': 'runner-controlled bytes; provider and CLI prepends are not claimed'}
                 metadata['servedToolListsSha256'] = {name: digest(encoded(view)) for name, view in tool_views.items()}
                 metadata['stage'] = stage
                 out['provenance'] = [metadata]
                 write_private(log_dir / 'cli-inputs.json', encoded({'flags': args, 'prompt': prompt, 'tools': primary_view}))
                 # Files avoid pipe deadlocks and bound retained output. The process group includes children.
-                with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+                stdout_path, stderr_path = log_dir / 'cli-stdout.jsonl', log_dir / 'cli-stderr.log'
+                with os.fdopen(os.open(stdout_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600), 'w+b') as stdout, \
+                     os.fdopen(os.open(stderr_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600), 'w+b') as stderr:
+                    if self.agent == 'claude-cli': write_private(debug_path, b'')
+                    started = time.monotonic()
                     process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                                cwd=home, env=env, start_new_session=True)
                     process.stdin.write(prompt.encode())
@@ -476,6 +514,11 @@ class CliModelSession:
                     raw = stdout.read(16_000_001)
                     stderr.seek(0)
                     stderr_raw = stderr.read(16_000_001)
+                    metadata['exitCode'] = process.returncode
+                    metadata['elapsedSeconds'] = round(time.monotonic() - started, 3)
+                    metadata['diagnosticPaths'] = {'stdout': str(stdout_path), 'stderr': str(stderr_path),
+                        'proxy': {name: str(p.event_path) for name, p in proxies.items()}}
+                    if self.agent == 'claude-cli': metadata['diagnosticPaths']['debug'] = str(debug_path)
                 out['actions'] = ledger['actions']
                 for proxy in proxies.values(): out['modelVisibleDigests'].extend(proxy.visible)
                 metadata['mcpResponsesByServer'] = {name: p.visible for name, p in proxies.items()}
@@ -483,7 +526,6 @@ class CliModelSession:
                 metadata['mcpMethods'] = {name: p.methods for name, p in proxies.items()}
                 metadata['mcpEvents'] = {name: p.events for name, p in proxies.items()}
                 metadata['stderrSha256'] = digest(stderr_raw)
-                debug_path = home / 'claude-mcp-debug.log'
                 if debug_path.is_file():
                     debug = debug_path.read_bytes()
                     metadata['cliDebugSha256'] = digest(debug)
@@ -500,17 +542,25 @@ class CliModelSession:
                 failed_proxy = next((p for p in proxies.values() if p.failure), None)
                 if reason or failed_proxy:
                     raise CliFailure(reason or failed_proxy.failure, out,
-                                     (failed_proxy.failure_category or 'model') if failed_proxy else 'model')
+                                     (failed_proxy.failure_category or 'infrastructure') if failed_proxy else
+                                     ('post-action-undetermined' if ledger['actions'] else 'infrastructure'))
                 try:
                     final, usage, turns, forbidden = parse_transcript(self.agent, raw,
                                                                        {name: p.names for name, p in proxies.items()})
                 except ValueError as exc:
                     raise CliFailure(str(exc), out) from exc
+                reported_failure = any(
+                    isinstance(event, dict) and (event.get('type') in ('turn.failed', 'error') or
+                    event.get('type') == 'result' and event.get('is_error'))
+                    for event in (json.loads(line) for line in raw.splitlines()))
+                if forbidden or turns > max_turns:
+                    raise CliFailure('forbidden action or turn bound exceeded', out)
+                if reported_failure:
+                    raise CliFailure('CLI reported an execution failure', out,
+                                     'post-action-undetermined' if ledger['actions'] else 'infrastructure')
                 out['usage'] = usage
                 out['tokens'] = sum(sum(u.get(k, 0) for k in ('input_tokens', 'output_tokens',
                     'cache_read_input_tokens', 'cache_creation_input_tokens')) for u in usage)
-                if forbidden or turns > max_turns:
-                    raise CliFailure('CLI reported a failure, forbidden action, or turn bound exceeded', out)
                 if process.returncode or not isinstance(final, str) or not final.strip():
                     raise CliFailure('CLI failed or omitted final answer', out,
                                      'post-action-undetermined' if ledger['actions'] else 'infrastructure')
