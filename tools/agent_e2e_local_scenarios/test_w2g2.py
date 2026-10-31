@@ -21,10 +21,10 @@ ASSERTIONS = {
 @pytest.mark.parametrize('variant', ['A', 'B'])
 def test_runner_inventory_and_expectation_shape(scenario_id, variant):
     scenario = load_scenario(scenario_id)
-    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P03', 'P04', 'P07') else ())
+    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P03', 'P04', 'P05', 'P07') else ())
     assert scenario.fault_plan(variant) is None
     assert set(scenario.expected(variant)) == ASSERTIONS[scenario_id]
-    if scenario_id not in ('P03', 'P04', 'P07'):
+    if scenario_id not in ('P03', 'P04', 'P05', 'P07'):
         assert 'unsupported' in importlib.import_module('agent_e2e_local_scenarios.' + scenario_id).__doc__.lower()
 
 
@@ -260,7 +260,7 @@ def test_p05_retains_only_the_last_matching_import_report(tmp_path):
                   {'recorder': Recorder()})
     case = load_scenario('P05')
     from agent_e2e_local_api import Seeded
-    assert [item.assertion_id for item in case.observe(stack, Seeded({'variant': 'A'}), 'A')] == ['features.exact', 'source-content.unchanged']
+    assert [item.assertion_id for item in case.observe(stack, Seeded({'variant': 'A'}), 'A')] == ['features.exact', 'csv.invalid-reported', 'geometry.crs', 'source-content.unchanged']
     assert calls == [('p05-invalid-report', 3)]
 
 
@@ -464,7 +464,8 @@ def test_p05_sql_projection_rejects_changed_feature_and_wrong_table():
     roles = {'created:table:shelters': 'imported_shelters'}
     def score(data, table):
         query = ('SELECT source_id, name, capacity, is_open, ST_SRID(ST_Transform(geometry, 3857)) AS srid, '
-                 'ST_AsGeoJSON(ST_Transform(geometry, 3857))::json AS geometry FROM honua_data.' + table + ' ORDER BY source_id')
+                 'ST_AsGeoJSON(ST_Transform(geometry, 3857))::json AS geometry, '
+                 'ST_AsGeoJSON(ST_SnapToGrid(ST_Transform(geometry, 3857), 0.001))::json AS rounded_geometry FROM honua_data.' + table + ' ORDER BY source_id')
         raw = json.dumps(data).encode()
         record = Record('p05-import-rows', 'observe', 'sql', 'controller', 'owner', 'SELECT', query, 200, raw,
                         'sha256:' + hashlib.sha256(raw).hexdigest())
@@ -481,18 +482,21 @@ def test_p05_sql_projection_rejects_changed_feature_and_wrong_table():
 
 def test_p05_fixture_and_inventory_seed_are_idempotent(tmp_path):
     from pathlib import Path
-    source = (Path(__file__).resolve().parents[2] / 'certification/agent-e2e/corpus/town-A/shelters.csv').read_text()
+    root = Path(__file__).resolve().parents[2] / 'certification/agent-e2e/corpus/town-A'
+    sources = {'valid': (root / 'shelters.csv').read_text(), 'invalid': (root / 'invalid-rows.csv').read_text()}
     calls = []
     class Recorder:
         def sql(self, step, query):
             calls.append((step, query))
-            return [{'content': source}] if step == 'p05-fixture-valid' else []
+            if step.startswith('p05-fixture-'):
+                return [{'content': sources[step.removeprefix('p05-fixture-')], 'srid': 4326}]
+            return []
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     case = load_scenario('P05')
     first = case.seed(stack, 'A')
     assert case.seed(stack, 'A') == first
-    assert [step for step, _ in calls] == ['p05-table-baseline', 'p05-fixture-valid']
+    assert [step for step, _ in calls] == ['p05-table-baseline', 'p05-fixture-valid', 'p05-fixture-invalid']
     with pytest.raises(ValueError):
         case.seed(stack, 'B')
 
@@ -627,3 +631,85 @@ def test_p04_roles_bind_each_table_to_its_matching_input():
     actions[1]['arguments']['data'] = 'unrelated'
     with pytest.raises(ValueError, match='matched 0'):
         resolve_roles(load_roles('P04'), records, agent_principal='agent', action_results=actions)
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_p05_report_and_crs_reject_wrong_rows_and_coordinates(variant):
+    import copy
+    import hashlib
+    import json
+    from pathlib import Path
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    case = load_scenario('P05')
+    expected = case.expected(variant)
+    root = Path(__file__).resolve().parents[2] / 'certification/agent-e2e/corpus'
+    path = f'town-{variant}/invalid-rows.csv'
+    invalid = (root / path).read_bytes()
+    roles = {'created:table:shelters': 'imported_shelters', 'seeded:input:invalid': invalid.decode()}
+    action_id = 'occ:1:2:sha256:' + 'a' * 64
+    action = {'kind': 'tool_call', 'tool': 'honua_ingest_dataset', 'arguments': {'data': invalid.decode()}}
+    args = json.dumps({'tool': action['tool'], 'arguments': action['arguments']}).encode()
+    def record(step, phase, kind, principal, method, path, value, **kw):
+        raw = json.dumps(value).encode()
+        return Record(step, phase, kind, principal, 'id', method, path, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest(), **kw)
+    rows = [{**f['properties'], 'srid': 3857, 'geometry': f['geometry'], 'rounded_geometry': f['geometry']}
+            for f in sorted(oracle.fixture_expectation(variant, 'features.exact', layer='shelters')['features'],
+                            key=lambda f: f['properties']['source_id'])]
+    query = ('SELECT source_id, name, capacity, is_open, ST_SRID(ST_Transform(geometry, 3857)) AS srid, '
+             'ST_AsGeoJSON(ST_Transform(geometry, 3857))::json AS geometry, '
+             'ST_AsGeoJSON(ST_SnapToGrid(ST_Transform(geometry, 3857), 0.001))::json AS rounded_geometry FROM '
+             'honua_data.imported_shelters ORDER BY source_id')
+    errors = [{'row': 1, 'code': 'import.geometry_invalid'}, {'row': 2, 'code': 'import.geometry_missing'},
+              {'row': 3, 'code': 'import.geometry_invalid'}]
+    records = {'p05-fixture-valid': record('p05-fixture-valid', 'seed', 'sql', 'controller', 'SELECT',
+               "SELECT 'fixture' AS content, 4326 AS srid", [{'content': 'fixture', 'srid': 4326}]),
+               'p05-import-rows': record('p05-import-rows', 'observe', 'sql', 'controller', 'SELECT', query, rows),
+               'p05-invalid-report': record('p05-invalid-report', 'observe', 'mcp', 'agent', 'POST', '/mcp#tools/call',
+                   {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {'rowErrors': errors}}},
+                   replay_of=action_id, request_arguments_raw=args, origin='session-result')}
+    observations = [Observation(name, None, {'projection': 'extract/v1'}) for name in ('csv.invalid-reported', 'geometry.crs')]
+    def scores(values):
+        out = score_assertions(list(expected), observations, expected, records=values, roles=roles, scenario_id='P05',
+            frozen=frozen_projections(case, variant), model_actions={action_id: action}, customer_files={path: invalid})
+        return {r['assertion']: r['status'] for r in out}
+    assert scores(records)['csv.invalid-reported'] == scores(records)['geometry.crs'] == 'pass'
+    bad = dict(records)
+    wrong = copy.deepcopy(errors)
+    wrong[1]['row'] = 1
+    bad['p05-invalid-report'] = record('p05-invalid-report', 'observe', 'mcp', 'agent', 'POST', '/mcp#tools/call',
+        {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {'rowErrors': wrong}}},
+        replay_of=action_id, request_arguments_raw=args, origin='session-result')
+    assert scores(bad)['csv.invalid-reported'] == 'fail'
+    changed = copy.deepcopy(rows)
+    changed[0]['rounded_geometry']['coordinates'][0] += 1
+    bad = dict(records)
+    bad['p05-import-rows'] = record('p05-import-rows', 'observe', 'sql', 'controller', 'SELECT', query, changed)
+    assert scores(bad)['geometry.crs'] == 'fail'
+
+
+def test_p05_handoff_requires_each_invalid_row_to_be_disclosed(tmp_path):
+    import hashlib
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+    from agent_e2e_handoff import score_final_answer
+    from agent_e2e_local_projections import Context, evaluate
+    from agent_e2e_local_recorder import Record
+    root = Path(__file__).resolve().parents[2] / 'certification/agent-e2e/corpus'
+    data = (root / 'town-A/invalid-rows.csv').read_bytes()
+    def record(step, kind, path, body):
+        raw = json.dumps(body).encode()
+        return Record(step, 'observe', kind, 'controller', 'id', 'POST', path, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    records = {'p05-import-rows': record('p05-import-rows', 'sql', 'SELECT x', [{'name': 'shelter'}]),
+               'p05-invalid-report': record('p05-invalid-report', 'mcp', '/mcp#tools/call',
+                   {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {'rowErrors': [{'row': 1}, {'row': 2}, {'row': 3}]}}})}
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': SimpleNamespace(records=records)})
+    spec = load_scenario('P05').handoff(stack, None, 'A')
+    facts = evaluate(spec, Context(records, customer_files={'town-A/invalid-rows.csv': data}))
+    assert score_final_answer('Rows bad1, bad2 and bad3 could not be placed.', facts, state_status='pass')['status'] == 'pass'
+    assert score_final_answer('Rows bad1 and bad2 could not be placed.', facts, state_status='pass')['status'] == 'fail'
