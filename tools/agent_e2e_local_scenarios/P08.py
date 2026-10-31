@@ -1,8 +1,10 @@
-"""P08: unsupported. The local render helper requires independent browser network, label and region capture; the interface supplies no such capture or goal-selected saved-map binding."""
+"""P08: Unsupported: render.actual needs independent signed-in browser capture, runtime assets and a bound saved version. The runner must provide those plus assertion-specific map and source projections."""
 from __future__ import annotations
 
+from agent_e2e_local_api import Scenario as ScenarioBase
 
-class Scenario:
+
+class P08(ScenarioBase):
     id = "P08"
     supported_variants: tuple[str, ...] = ()
 
@@ -23,3 +25,6 @@ class Scenario:
 
     def cleanup(self, stack, seeded):
         raise RuntimeError("P08 has no independent local observer")
+
+
+scenario = P08()

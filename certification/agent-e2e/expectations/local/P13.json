@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P13",
+  "derivation": "Partial, non-runnable expectation: the shelters content is derived from frozen town fixtures. Restore history, shared inventory and other town layers remain unresolved.",
+  "variants": {
+    "A": {
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s1",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "Kestrel Central",
+                    "source_id": "s1"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19400,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s2",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "Kestrel Central",
+                    "source_id": "s2"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -18800,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s3",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s3"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19100,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s4",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s4"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19700,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s5",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s5"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -20000,
+                      -4700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "B": {
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s101",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s101"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13300,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s102",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s102"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      14200,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s103",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s103"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13600,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s104",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s104"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13900,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s105",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s105"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13000,
+                      -7700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

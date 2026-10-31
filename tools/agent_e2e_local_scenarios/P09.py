@@ -1,8 +1,10 @@
-"""P09: unsupported. Independent local browser render capture and a goal-selected saved-version binding are unavailable; a style document alone cannot prove rendered labels."""
+"""P09: Unsupported: render.actual needs independent signed-in browser capture, runtime assets and a bound saved version. The seeded map also needs assertion-specific style, save and source projections."""
 from __future__ import annotations
 
+from agent_e2e_local_api import Scenario as ScenarioBase
 
-class Scenario:
+
+class P09(ScenarioBase):
     id = "P09"
     supported_variants: tuple[str, ...] = ()
 
@@ -23,3 +25,6 @@ class Scenario:
 
     def cleanup(self, stack, seeded):
         raise RuntimeError("P09 has no independent local observer")
+
+
+scenario = P09()
