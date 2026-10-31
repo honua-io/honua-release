@@ -1,4 +1,4 @@
-"""P03: customer database discovery with verified owner binding.
+"""P03 unsupported: core needs a seeded table role selected from a complete inventory.
 
 A restricted database handoff and fixture identities come from controller setup; the runner binds the created connection to the agent and verifies live discovery.
 """
@@ -13,7 +13,7 @@ LAYERS = ('flood_zones', 'parcels', 'shelters', 'survey_points')
 
 class P03(Scenario):
     id = 'P03'
-    supported_variants = ('A', 'B')
+    supported_variants = ()
 
     def seed(self, stack, variant):
         if variant not in ('A', 'B'):
@@ -35,10 +35,8 @@ class P03(Scenario):
             schema = town.state['layers'][name]['schema']
             if not all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v) for v in (schema, table)):
                 raise ValueError('fixture table identity is invalid')
-            rows = recorder.sql('p03-' + name.replace('_', '-') + '-table',
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = '" + schema +
-                "' AND table_name = '" + table + "'")
-            if not isinstance(rows, list) or len(rows) != 1 or rows[0].get('table_name') != table:
+            rows = recorder.table_inventory('p03-' + name.replace('_', '-') + '-table', schema)
+            if not any(row.get('table_name') == table and row.get('table_schema') == schema for row in rows):
                 raise ValueError('fixture table was not independently observed')
         stack.extra['databaseHandoff']('town', 'honua_data')
         before = recorder.json('p03-connections-before', 'GET', '/api/v1/admin/connections')

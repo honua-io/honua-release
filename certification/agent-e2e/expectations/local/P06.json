@@ -73585,7 +73585,30 @@
           }
         }
       },
-      "reads": {}
+      "reads": {
+        "$modelReplays": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "replayOfModelAction": true,
+          "addresses": [
+            {
+              "role": "child:serviceid:survey_points",
+              "at": {
+                "argument": "/serviceId"
+              }
+            },
+            {
+              "role": "child:layer:survey_points",
+              "at": {
+                "argument": "/layerId"
+              }
+            }
+          ]
+        }
+      }
     }
   }
 }

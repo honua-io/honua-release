@@ -1,4 +1,4 @@
-"""P05 CSV point import and invalid-row reporting.
+"""P05 unsupported: core needs attachment-digest action binding and structured geometry CRS evidence.
 
 The exact input is joined to agent-created tables; typed attributes require honua-server #6815.
 """
@@ -15,7 +15,7 @@ INVENTORY = "SELECT table_schema, table_name FROM information_schema.tables WHER
 
 class P05(Scenario):
     id = 'P05'
-    supported_variants = ('A', 'B')
+    supported_variants = ()
 
     def seed(self, stack, variant):
         if variant not in ('A', 'B'):
@@ -26,19 +26,8 @@ class P05(Scenario):
                 raise ValueError('case already seeded for another variant')
             return Seeded(previous)
         recorder = stack.extra['recorder']
-        recorder.sql('p05-table-baseline', INVENTORY)
+        recorder.table_inventory('p05-table-baseline', 'honua_data')
         resources = self.expected(variant)['source-content.unchanged']['resources']
-        for label, resource in zip(('valid', 'invalid'), resources):
-            raw = (CORPUS / resource['resourceId']).read_bytes()
-            if 'sha256:' + hashlib.sha256(raw).hexdigest() != resource['content']['sha256']:
-                raise ValueError('fixture differs from frozen expectation')
-            text = raw.decode('utf-8')
-            if ';' in text:
-                raise ValueError('fixture cannot be represented by the recorder SQL contract')
-            escaped = text.replace("'", "''")
-            rows = recorder.sql('p05-fixture-' + label, "SELECT '" + escaped + "' AS content, 4326 AS srid FROM information_schema.tables WHERE table_schema = 'information_schema' AND table_name = 'tables'")
-            if rows != [{'content': text, 'srid': 4326}]:
-                raise ValueError('fixture identity could not be recorded')
         state = {'variant': variant}
         stack.extra['p05Seed'] = state
         return Seeded(state)
@@ -48,7 +37,7 @@ class P05(Scenario):
 
     def observe(self, stack, seeded, variant, run=None):
         recorder = stack.extra['recorder']
-        recorder.sql('p05-table-after', INVENTORY)
+        recorder.table_inventory('p05-table-after', 'honua_data')
         resources = self.expected(variant)['source-content.unchanged']['resources']
         actions = recorder.actions()
         for label, resource in zip(('valid', 'invalid'), resources):
@@ -73,11 +62,7 @@ class P05(Scenario):
             schema, table, geometry = (content.get(key) for key in ('schema', 'table', 'geometryColumn'))
             if all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v)
                    for v in (schema, table, geometry)):
-                recorder.sql('p05-import-rows',
-                    'SELECT source_id, name, capacity, is_open, ST_SRID(ST_Transform(' + geometry +
-                    ', 3857)) AS srid, ST_AsGeoJSON(ST_Transform(' + geometry + ', 3857))::json AS geometry, '
-                    'ST_AsGeoJSON(ST_SnapToGrid(ST_Transform(' + geometry + ', 3857), 0.001))::json AS rounded_geometry FROM ' +
-                    schema + '.' + table + ' ORDER BY source_id')
+                recorder.table_rows('p05-import-rows', schema, table, ('source_id', 'name', 'capacity', 'is_open', geometry))
         return [Observation(name, None, {'projection': 'extract/v1'})
                 for name in ('features.exact', 'csv.invalid-reported', 'geometry.crs', 'source-content.unchanged')]
 

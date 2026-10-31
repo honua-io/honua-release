@@ -1,4 +1,4 @@
-"""P04 vector import with independently checked fixture features and CRS.
+"""P04 unsupported: core needs attachment-digest action binding and structured geometry CRS evidence.
 
 The runner needs SQL reads bound to agent-created table roles; typed GeoJSON
 attributes required by the table checks depend on honua-server #6815.
@@ -17,7 +17,7 @@ INVENTORY = "SELECT table_schema, table_name FROM information_schema.tables WHER
 
 class P04(Scenario):
     id = 'P04'
-    supported_variants = ('A', 'B')
+    supported_variants = ()
 
     def seed(self, stack, variant):
         if variant not in ('A', 'B'):
@@ -28,21 +28,7 @@ class P04(Scenario):
                 raise ValueError('case already seeded for another variant')
             return Seeded(previous)
         recorder = stack.extra['recorder']
-        recorder.sql('p04-table-baseline', INVENTORY)
-        for label, resource in zip(('parcels', 'flood-zones'), self.expected(variant)['source-content.unchanged']['resources']):
-            raw = (CORPUS / resource['resourceId']).read_bytes()
-            if 'sha256:' + hashlib.sha256(raw).hexdigest() != resource['content']['sha256']:
-                raise ValueError('fixture differs from frozen expectation')
-            text = raw.decode('utf-8')
-            if ';' in text:
-                raise ValueError('fixture cannot be represented by the recorder SQL contract')
-            crs = json.loads(text)['crs']['properties']['name']
-            if crs not in ('EPSG:4326', 'EPSG:3857'):
-                raise ValueError('fixture CRS unsupported')
-            srid = int(crs.removeprefix('EPSG:'))
-            rows = recorder.sql('p04-fixture-' + label, "SELECT '" + text.replace("'", "''") + "' AS content, " + str(srid) + " AS srid FROM information_schema.tables WHERE table_schema = 'information_schema' AND table_name = 'tables'")
-            if rows != [{'content': text, 'srid': srid}]:
-                raise ValueError('fixture identity could not be recorded')
+        recorder.table_inventory('p04-table-baseline', 'honua_data')
         state = {'variant': variant}
         stack.extra['p04Seed'] = state
         return Seeded(state)
@@ -52,7 +38,7 @@ class P04(Scenario):
 
     def observe(self, stack, seeded, variant, run=None):
         recorder = stack.extra['recorder']
-        recorder.sql('p04-table-after', INVENTORY)
+        recorder.table_inventory('p04-table-after', 'honua_data')
         resources = self.expected(variant)['source-content.unchanged']['resources']
         actions = recorder.actions()
         for label, resource in zip(('parcels', 'flood-zones'), resources):
@@ -77,11 +63,8 @@ class P04(Scenario):
             if not all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v)
                        for v in (schema, table, geometry)):
                 continue
-            columns = 'source_id, name, owner, value' if label == 'parcels' else 'source_id, name'
-            recorder.sql('p04-' + label + '-rows', 'SELECT ' + columns + ', ST_SRID(ST_Transform(' + geometry +
-                         ', 3857)) AS srid, ST_AsGeoJSON(ST_Transform(' + geometry + ', 3857))::json AS geometry, '
-                         'ST_AsGeoJSON(ST_SnapToGrid(ST_Transform(' + geometry + ', 3857), 0.001))::json AS rounded_geometry FROM ' +
-                         schema + '.' + table + ' ORDER BY source_id')
+            columns = ('source_id', 'name', 'owner', 'value', geometry) if label == 'parcels' else ('source_id', 'name', geometry)
+            recorder.table_rows('p04-' + label + '-rows', schema, table, columns)
         return [Observation(name, None, {'projection': 'extract/v1'})
                 for name in ('features.exact', 'geometry.crs', 'source-content.unchanged')]
 

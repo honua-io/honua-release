@@ -1,4 +1,4 @@
-"""P06 read-only service: unsupported until variable-length model pagination can be verified.
+"""P06 unsupported: core needs seeded inventory-member roles and structured geometry SRID evidence.
 
 The runner needs a projection that aggregates all sealed model query replays for
 the same service and layer. Imported typed GeoJSON fields also depend on
@@ -21,12 +21,6 @@ FIELDS = {'parcels': ('source_id', 'name', 'owner', 'value'),
           'survey_points': ('source_id', 'name', 'reading')}
 
 
-def source_query(binding, name):
-    schema, table = binding['schema'], binding['table']
-    if not all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v) for v in (schema, table)):
-        raise ValueError('invalid fixture table identity')
-    return ('SELECT ' + ', '.join(FIELDS[name]) + ", 'Feature' AS feature_type, ST_SRID(geometry) AS srid, "
-            'ST_AsGeoJSON(geometry)::json AS geometry FROM ' + schema + '.' + table + ' ORDER BY source_id')
 
 
 class P06(Scenario):
@@ -73,12 +67,10 @@ class P06(Scenario):
                 if not all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v) for v in (schema, table)):
                     raise ValueError('invalid fixture table identity')
                 step = name.replace('_', '-')
-                identity = recorder.sql('p06-' + step + '-table',
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = '" + schema +
-                    "' AND table_name = '" + table + "'")
-                if identity != [{'table_name': table}]:
+                identity = recorder.table_inventory('p06-' + step + '-table', schema)
+                if not any(row.get('table_name') == table and row.get('table_schema') == schema for row in identity):
                     raise ValueError('fixture table was not independently observed')
-                rows = recorder.sql('p06-' + step + '-source-before', source_query(binding, name))
+                rows = recorder.table_rows('p06-' + step + '-source-before', schema, table, (*FIELDS[name], 'geometry'))
                 if not isinstance(rows, list) or not rows:
                     raise ValueError('fixture source snapshot unavailable')
         before = recorder.json('p06-services-before', 'GET', '/api/v1/admin/services')
@@ -95,7 +87,8 @@ class P06(Scenario):
     def observe(self, stack, seeded, variant, run=None):
         recorder = stack.extra['recorder']
         for name in TARGETS:
-            recorder.sql('p06-' + name.replace('_', '-') + '-source-after', source_query(seeded.state['layers'][name], name))
+            binding = seeded.state['layers'][name]
+            recorder.table_rows('p06-' + name.replace('_', '-') + '-source-after', binding['schema'], binding['table'], (*FIELDS[name], 'geometry'))
         recorder.json('p06-services-after', 'GET', '/api/v1/admin/services')
         actions = [action for action in recorder.actions()
                    if action.kind == 'tool_call' and action.tool == 'honua_publish_service']
