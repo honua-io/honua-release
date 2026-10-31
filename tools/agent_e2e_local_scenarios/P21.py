@@ -44,7 +44,9 @@ class P21(Scenario):
             raise ValueError('unsupported variant')
         return {'kind': 'response_lost_after_commit', 'id': 'p21-map-create',
                 'after': None, 'match': {'tool': 'honua_studio_create_draft'},
-                'commit': {'pointer': '/result/structuredContent/draftId'}}
+                'commit': {'pointer': '/result/structuredContent/draftId',
+                           'confirm': {'path': '/api/v1/studio/package-drafts/{id}',
+                                       'attempts': 3, 'intervalSeconds': 0}}}
 
     def needs_approver(self):
         return True
