@@ -29,7 +29,7 @@ contracts:
     # index sha256:4fd2c1be…), not carried forward from the aa894e1 pin —
     #   /api/v1/capabilities/manifest -> transports.items[id=geoservices-rest].contractVersion = 1.0.0
     #   (same envelope: server.deploymentRevision = 6b6d3b898f4abb6b34833d953b50d44f3d38c6c1)
-    # (it still deliberately does not emit ArcGIS `currentVersion`). Client floors below are NOT
+    # (it still deliberately does not emit the vendor-specific `currentVersion` field). Client floors below are NOT
     # tightened here: raising a floor drops support for older clients and validate_platform's drift
     # check treats that as breaking, so floors stay at the phase-0 baseline until the SDKs actually
     # negotiate on this version. Nothing in honua-server#3347/#3349/#3352/#3353 moved a floor: the

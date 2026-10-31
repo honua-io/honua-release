@@ -275,7 +275,7 @@ def main():
     w, rt, wn = do_writer("shapefile") if r == "pass" else ("na", "na", "read failed")
     emit("Shapefile", r, w, rt, f"{n}; {wn}"); passed += r == "pass"
 
-    # Esri JSON — committed FeatureSet; server import does not auto-detect it (parsed as GeoJSON): gap.
+    # FeatureSet JSON — committed fixture; server import does not auto-detect it (parsed as GeoJSON): gap.
     r, _, n = do_read("EsriJSON", FIX / "sample.esrijson", ctype="application/json")
     emit("EsriJSON", r, "na", "na", n + " (not auto-detected; parsed as GeoJSON)")
     passed += r == "pass"

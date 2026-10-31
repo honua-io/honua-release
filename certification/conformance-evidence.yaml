@@ -65,8 +65,8 @@ releaseScope:
     reportAs: "not certified for 2026.1"
 
 esri:
-  # honua-esri-compat's license-free lanes (ArcGIS API for Python, ArcGIS Maps SDK for .NET, and the
-  # SDK-driven GeoServices/OGC/auth/geoprocessing lanes) emit per-service `.cert.json` evidence.
+  # Desktop scripting, .NET, and the SDK-driven GeoServices/OGC/auth/geoprocessing lanes emit
+  # per-service `.cert.json` evidence.
   # Desktop results are referenced only by their private producer evidence identifiers.
   #
   # `expectedImage` is NOT configured here: it is derived from the candidate manifest's pinned
