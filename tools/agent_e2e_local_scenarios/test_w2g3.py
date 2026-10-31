@@ -51,7 +51,7 @@ def test_p11_seed_idempotent_and_declares_recorded_source_projection(monkeypatch
     class FakeRecorder:
         def __init__(self): self.calls = []
         def json(self, *args): self.calls.append(args)
-    monkeypatch.setattr('agent_e2e_scenario_backend.TownSetup', FakeTown)
+    monkeypatch.setattr('agent_e2e_local_scenarios.w2g3_common.town_setup', lambda recorder, variant: FakeTown(recorder, None))
     recorder = FakeRecorder()
     stack = Stack('http://127.0.0.1:1', 'controller', None, 'case-123', 'compose.yml', str(tmp_path), 'sha256:test',
                   {'recorder': recorder, 'ensureConnection': lambda: 'fixture-connection'})
@@ -97,7 +97,7 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
             else:
                 value, status = {}, 200
             return {'observation': {'httpStatus': status, 'body': {'success': True, 'data': value}}}
-    monkeypatch.setattr('agent_e2e_scenario_backend.TownSetup', FakeTown)
+    monkeypatch.setattr('agent_e2e_local_scenarios.w2g3_common.town_setup', lambda recorder, variant: FakeTown(recorder, None))
     recorder = FakeRecorder()
     stack = Stack('http://127.0.0.1:1', 'controller', None, 'case-123', 'compose.yml', str(tmp_path), 'sha256:test',
                   {'recorder': recorder, 'ensureConnection': lambda: 'fixture-connection', 'agentPrincipal': 'agent-id', 'addPrincipal': lambda name, grants: 'shared-id'})
@@ -160,3 +160,18 @@ def test_p13_restore_projection_rejects_noop_wrong_style_and_pointer():
         bad[step] = record(bad[step].path, bad[step].json['data'])
         with pytest.raises(ProjectionError):
             project_restore(bad, item_id=item, version_id=v1, agent_principal=owner)
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_town_setup_verifies_only_selected_fixture_bytes(monkeypatch, variant):
+    from agent_e2e_local_scenarios import w2g3_common
+    original = w2g3_common.verify_corpus
+    calls = []
+    def verify(root, manifest):
+        paths = {row['path'] for row in manifest['files']}
+        assert paths == {f'town-{variant}/{name}.3857.geojson' for name in ('parcels', 'flood_zones', 'shelters')}
+        calls.append(paths)
+        return original(root, manifest)
+    monkeypatch.setattr(w2g3_common, 'verify_corpus', verify)
+    setup = w2g3_common.town_setup(object(), variant)
+    assert len(calls) == 1 and set(setup.files) == calls[0]
