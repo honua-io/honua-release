@@ -1,38 +1,25 @@
-"""P24: unsupported on the frozen local runner interface.
+"""P24 is unsupported: independent worker custody and map evidence are missing.
 
-The runner supplies an already running stack and no bootstrap credential revocation or worker replacement evidence. The interface also lacks an independent fresh-session identity for reopening.
+The runner needs bootstrap worker identity and termination, task worker identity
+and provisioning credential inventory, a restart/fresh-session map read ordering,
+and independently decoded browser render evidence. It also starts the stack before
+the task, so installation attribution requires a pack-owner decision.
 """
-from __future__ import annotations
-
-from agent_e2e_local_api import Observation, Seeded, Stack
-
-id = "P24"
-supported_variants: tuple[str, ...] = ()
+from agent_e2e_local_api import Scenario
 
 
-def _unsupported() -> None:
-    raise RuntimeError("P24 is unsupported: see module docstring")
+class P24(Scenario):
+    id = 'P24'
+    supported_variants = ()
+
+    def needs_approver(self):
+        return True
+
+    def seed(self, stack, variant):
+        raise RuntimeError('P24 unsupported: worker custody and map evidence unavailable')
+
+    def observe(self, stack, seeded, variant, run=None):
+        raise RuntimeError('P24 unsupported: worker custody and map evidence unavailable')
 
 
-def seed(stack: Stack, variant: str) -> Seeded:
-    _unsupported()
-
-
-def fault_plan(variant: str) -> dict | None:
-    _unsupported()
-
-
-def needs_approver() -> bool:
-    return True
-
-
-def observe(stack: Stack, seeded: Seeded, variant: str) -> list[Observation]:
-    _unsupported()
-
-
-def expected(variant: str) -> dict:
-    _unsupported()
-
-
-def cleanup(stack: Stack, seeded: Seeded) -> None:
-    _unsupported()
+scenario = P24()

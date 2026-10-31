@@ -1,38 +1,23 @@
-"""P12: unsupported on the frozen local runner interface.
+"""P12 is unsupported: a fresh-session read after restart cannot yet be proven.
 
-The interface has no independent restart timeline or fresh-session identity linking the saved document to the reopened document and its protected source baseline.
+The runner executes both sessions before observe(), so its restartServer helper
+cannot put a restart between them. It must expose a between-session restart hook
+and bind the second session's map read to that session and the seeded version.
+StudioSetup.prepare_saved_map additionally requires a real SQL absence baseline
+and separate task and setup transports, which the runner does not expose.
 """
-from __future__ import annotations
-
-from agent_e2e_local_api import Observation, Seeded, Stack
-
-id = "P12"
-supported_variants: tuple[str, ...] = ()
+from agent_e2e_local_api import Scenario
 
 
-def _unsupported() -> None:
-    raise RuntimeError("P12 is unsupported: see module docstring")
+class P12(Scenario):
+    id = 'P12'
+    supported_variants = ()
+
+    def seed(self, stack, variant):
+        raise RuntimeError('P12 unsupported: no independent saved-map setup baseline')
+
+    def observe(self, stack, seeded, variant, run=None):
+        raise RuntimeError('P12 unsupported: no restart between the model sessions')
 
 
-def seed(stack: Stack, variant: str) -> Seeded:
-    _unsupported()
-
-
-def fault_plan(variant: str) -> dict | None:
-    _unsupported()
-
-
-def needs_approver() -> bool:
-    return False
-
-
-def observe(stack: Stack, seeded: Seeded, variant: str) -> list[Observation]:
-    _unsupported()
-
-
-def expected(variant: str) -> dict:
-    _unsupported()
-
-
-def cleanup(stack: Stack, seeded: Seeded) -> None:
-    _unsupported()
+scenario = P12()
