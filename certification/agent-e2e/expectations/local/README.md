@@ -66,6 +66,23 @@ scenario's `roles()` must repeat them exactly. A `created:*` role needs the owne
 baseline made with the identical request (method, path, principal, request body or MCP arguments), and
 exactly one completeness proof, `total` or `next_page`. The pointer must exist in both enumerations.
 
+Created-role completeness comes only from a reviewed enumeration contract (`ENUMERATION_CONTRACTS` in
+`tools/agent_e2e_local_projections.py`, currently `GET /api/v1/admin/connections`, unpaged). A binding may not
+set its own `total`/`next_page`/`page_limit`. Both reads must start at the beginning (no offset, skip or
+cursor), and neither may carry continuation, truncation or count evidence that contradicts completeness.
+To add an endpoint, ask core: entries are reviewed against honua-server. Authorship may be `owner` (a row
+field equal to the agent principal) or `created_by` (`{"tool": ..., "pointer": "/result/..."}`: the id appears
+in the server's captured reply to a successful sealed agent call of that tool). Inventory preservation
+(`"resource": "inventory"`) needs `"items"` and meets the same completeness rule.
+
+Runner roles need no binding: `session:previous`, `session:current`, `session:visible-message-ids` and
+`session:handoff-sha256` (the sha256 of the session-1 final answer).
+
+Frozen read rules may also pin `"session": N` (with `replayOfModelAction`: the replayed model action came
+from session N) and `"exactPath"`. A rule's `phase` may be `seed`, `between` or `observe`, and the runner
+scores the record only in that phase. A `protectedContent` row may set `"beforePhase": "between"`, or
+`"resource": "inventory"` for an inventory snapshot; an inventory row's reads must pin `exactPath`.
+
 `"customerFiles": {"A": [...], "B": [...]}` is the case's attachment inventory. Only manifest files with
 visibility `selected-case-input` in the variant's `town-<variant>/` folder can be attached, and only those
 whose `scenarioIds` (when present) name the scenario. Controller-only files (oracles, SQL seeds) are refused.

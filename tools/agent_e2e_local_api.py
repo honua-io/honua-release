@@ -50,6 +50,19 @@ Other hooks (base-class defaults below): between_sessions() (approve, or request
 one HTTP 503 on the model's request path after a trigger; fired events in RunRecord.fault_events),
 needs_approver() (a distinct approver key: stack.approver_key and stack.extra['approve'](proposal)),
 customer_files() (manifest-checked corpus files attached to the customer turn by digest).
+Restart facts: custody['restart:<prefix>'] (raw observations) and custody['lifecycle:<prefix>'] =
+{"resourceId": "server", "states": [...]} in corpus/oracle lifecycle shape; each state is runner-observed.
+Fault kinds: http_503_once (pre-forward) and response_lost_after_commit (forwarded; fires only on a VERIFIED
+commit: a non-error reply naming the resource at commit.pointer AND a recorded runner controller read of
+commit.confirm.path ({id} substituted) answering 200, polled so pending/202 creations count only once they
+exist; the model gets 503;
+the event records upstreamStatus/upstreamOutcome/upstreamResponseSha256/committedResourceId; rejected or
+noncommitted replies pass through unchanged, are listed in receipt.faultSkipped, and leave the fault armed).
+Custody facts live in the runtime vault (bound to their evidence records); stack.extra['custody'] is a copy.
+Replays and captured results carry the action OCCURRENCE (occ:<session>:<sequence>:<digest>), and every
+record carries afterSession, both bound in the vault digest.
+Canaries: stack.extra['registerCanary'](name) during seed returns a runner-minted secret to plant; projections
+find it with {"matchedCanaries": [steps..., "$model-visible"]}.
 Exclusions come only from the frozen prereg list (agent_e2e_local_expectations.PREREG_EXCLUSIONS:
 tenant.denied, P18, custody.worker-replaced@local-docker); they are listed in receipts, never a pass,
 and never removed from n. Roles, projections and customer files are frozen in the expectation file.
@@ -134,9 +147,14 @@ class RoleBinding:
     RunRecord.agent_principal) and ``before`` (a complete seed-phase enumeration of the same path by
     the same principal; ids present there are excluded) are required. Both enumerations must be
     the identical request (kind, method, path, principal and, for MCP, tool arguments) and provably
-    complete: exactly one of ``total`` (pointer to a count equal to the rows) or ``next_page``
-    (pointer to a cursor that must be absent or null) is required and checked on both. Exactly one
-    row must remain.
+    complete by a reviewed enumeration contract (agent_e2e_local_projections.ENUMERATION_CONTRACTS):
+    the endpoint must be listed (unpaged, cursor or total), the request must start at the beginning,
+    and neither response may carry continuation, truncation or count evidence contradicting
+    completeness. The binding's own total/next_page/page_limit fields are refused. Authorship is
+    either ``owner`` (a row field equal to RunRecord.agent_principal) or ``created_by`` (the id appears in
+    the server's captured reply to a successful sealed agent call of that tool). Exactly one row must remain.
+    Runner roles (no binding needed): ``session:previous``, ``session:current``,
+    ``session:visible-message-ids``, ``session:handoff-sha256`` (sha256 of the session-1 final answer).
     """
     role: str
     step: str
@@ -146,7 +164,10 @@ class RoleBinding:
     owner: str | None = None
     before: str | None = None
     total: str | None = None        # created: pointer to the enumeration's total count (must equal len(items))
-    next_page: str | None = None    # created: pointer to the next-page cursor (must be absent or null)
+    next_page: str | None = None    # created: pointer to the next-page cursor (must exist and be null)
+    page_limit: dict | None = None  # created: {"param": "limit", "value": N}: the query asked for N rows, fewer came back
+    created_by: dict | None = None  # created: {"tool": name, "pointer": "/result/..."}: the id is named by the
+                                    # server's captured reply to a successful sealed agent call of that tool
 
 
 @dataclass(frozen=True)
