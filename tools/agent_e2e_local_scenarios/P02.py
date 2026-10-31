@@ -1,10 +1,10 @@
 """P02 remains unsupported pending independent evidence for all three assertions.
 
-Core must bind model-created configuration and scanned-artifact digests to
-independent pre-restart reads, and scan task outputs/final answers for registered
-canaries and credentials; current exact binding expectations cannot do this.
-The runner-owned lifecycle fact can independently prove the controller restart.
-Inventory reads alone do not prove persistence or secret absence.
+The recorded role hashes the pre-restart inventory with a sha256: prefix,
+while canonicalSha256 projects the post-restart inventory without it, so the
+exact configuration predicate fails on identical data. Secret scans require
+a canary planted in a real secret field without seeding the requested setup.
+The runner-owned lifecycle fact independently proves the restart.
 """
 from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_scenario_operations import body
@@ -13,6 +13,15 @@ from agent_e2e_scenario_operations import body
 class P02(Scenario):
     id = 'P02'
     supported_variants = ()
+
+    def sessions_required(self):
+        return 2
+
+    def between_sessions(self, stack, seeded, variant, after_session):
+        if after_session != 1 or seeded.state.get('variant') != variant:
+            raise ValueError('invalid P02 between-session state')
+        body(stack.extra['recorder'].json('p02-connections-before-restart', 'GET', '/api/v1/admin/connections/'))
+        return {'restartServer': True}
 
     def seed(self, stack, variant):
         if variant not in ('A', 'B'):
@@ -29,12 +38,9 @@ class P02(Scenario):
         if seeded.state.get('variant') != variant:
             raise ValueError('seed variant differs')
         recorder = stack.extra['recorder']
-        body(recorder.json('p02-connections-before-restart', 'GET', '/api/v1/admin/connections/'))
-        fact = stack.extra['restartServer']('p02')
-        if fact.get('restarted') is not True:
-            raise RuntimeError('controller restart did not complete')
         body(recorder.json('p02-connections-after-restart', 'GET', '/api/v1/admin/connections/'))
-        return [Observation('restart.observed', None, {'projection': 'extract/v1'})]
+        return [Observation('configuration.persisted', None, {'projection': 'extract/v1'}),
+                Observation('restart.observed', None, {'projection': 'extract/v1'})]
 
 
 scenario = P02()
