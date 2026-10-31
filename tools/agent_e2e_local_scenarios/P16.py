@@ -8,13 +8,9 @@ from __future__ import annotations
 
 import copy
 import re
-from pathlib import Path
 
 from agent_e2e_local_api import Scenario, Seeded
-from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings
-from agent_e2e_scenario_backend import TownSetup
-
-ROOT = Path(__file__).resolve().parents[2]
+from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings, seed_town
 
 
 class P16(Scenario):
@@ -34,14 +30,9 @@ class P16(Scenario):
         if stack.extra.get('p16SeedStarted'):
             raise ValueError('incomplete seed; reconcile the original case without retry')
         stack.extra['p16SeedStarted'] = True
-        connection = stack.extra.get('connectionId')
-        if connection is None:
-            connection = stack.extra['ensureConnection']()
-            stack.extra['connectionId'] = connection
         suffix = re.sub('[^a-z0-9]', '', stack.compose_project.lower())[-12:]
         namespace = ('kestrel' if variant == 'A' else 'willow') + '_p16_' + suffix
-        town = TownSetup(stack.extra['recorder'], ROOT / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
-            variant=variant, namespace=namespace, starting_state='published-town', connection_id=connection)
+        town = seed_town(stack, variant, namespace)
         state = {'variant': variant, 'shelters': town['layers']['shelters']}
         stack.extra['p16Seed'] = copy.deepcopy(state)
         return Seeded(state)

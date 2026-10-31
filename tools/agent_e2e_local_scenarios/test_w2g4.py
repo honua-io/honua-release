@@ -100,6 +100,12 @@ class RecordedCandidate:
             draft_id = path.split('/')[-2]
             row = self.drafts[draft_id]
             version = {**row, 'versionId': VERSION if draft_id == DRAFT else OTHER_VERSION, 'contentHash': HASH}
+            if draft_id == DRAFT and self.wrong == 'seed-owner':
+                version['ownerId'] = 'foreign-owner'
+            if draft_id == DRAFT and self.wrong == 'seed-item':
+                version['itemId'] = OTHER_ITEM
+            if draft_id == DRAFT and self.wrong == 'seed-hash':
+                version['contentHash'] = 'invalid'
             if draft_id == DRAFT:
                 self.version = version
             status, value = 201, {'data': version}
@@ -404,7 +410,8 @@ def test_governance_seed_is_idempotent_and_scoped_to_the_case(tmp_path, monkeypa
         assert seeded.state['otherItemId'] == OTHER_ITEM
         assert candidate.drafts[DRAFT]['packageKey'] == candidate.drafts[OTHER_DRAFT]['packageKey']
         assert candidate.drafts[DRAFT]['ownerId'] != candidate.drafts[OTHER_DRAFT]['ownerId']
-    # Fixture preparation never publishes a Studio map or creates a task key.
+    # Seed imports never use an unreviewed table inventory or publish a Studio map.
+    assert not any(path.endswith('/tables') for _, _, _, path in candidate.calls)
     assert not any('/published/' in path for _, _, _, path in candidate.calls)
     assert not any(method == 'POST' and path.startswith('/api/v1/admin/proposals/')
                    for _, _, method, path in candidate.calls)
@@ -531,3 +538,37 @@ def test_source_projection_rejects_service_and_layer_role_swaps(tmp_path, monkey
     swapped[service], swapped[layer] = swapped[layer], swapped[service]
     bad = score(swapped)
     assert bad['status'] == 'fail' and 'does not address' in bad['reason']
+
+
+@pytest.mark.parametrize('sid', ('P14', 'P16', 'P17', 'P20'))
+def test_seed_refuses_background_import_without_unreviewed_inventory(tmp_path, monkeypatch, sid):
+    stack, candidate, _ = stack_fixture(tmp_path, monkeypatch)
+    original = candidate.http
+    def http(recorder, principal, method, path, raw, headers):
+        if path == '/api/v1/admin/import/upload':
+            candidate.calls.append((recorder.phase, principal, method, path))
+            return 202, json.dumps({'success': True, 'jobId': 'job-1', 'statusUrl': '/api/v1/admin/import/jobs/job-1'}).encode()
+        return original(recorder, principal, method, path, raw, headers)
+    stack.extra['recorder']._http_factory = http
+    scenario = runner.load_scenario(sid)
+    with pytest.raises(ValueError, match='background import needs independently retained table discovery'):
+        scenario.seed(stack, 'A')
+    assert not any(path.endswith('/tables') for _, _, _, path in candidate.calls)
+    before = len(candidate.calls)
+    with pytest.raises(ValueError, match='incomplete seed'):
+        scenario.seed(stack, 'A')
+    assert len(candidate.calls) == before
+
+
+@pytest.mark.parametrize('sid', ('P14', 'P17', 'P20'))
+@pytest.mark.parametrize('wrong', ('seed-owner', 'seed-item', 'seed-hash'))
+def test_seed_rejects_a_misbound_saved_map_without_retry(tmp_path, monkeypatch, sid, wrong):
+    stack, candidate, _ = stack_fixture(tmp_path, monkeypatch)
+    candidate.wrong = wrong
+    scenario = runner.load_scenario(sid)
+    with pytest.raises(ValueError, match='saved map does not match'):
+        scenario.seed(stack, 'A')
+    before = len(candidate.calls)
+    with pytest.raises(ValueError, match='incomplete seed'):
+        scenario.seed(stack, 'A')
+    assert len(candidate.calls) == before
