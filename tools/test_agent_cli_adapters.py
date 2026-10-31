@@ -237,3 +237,11 @@ def test_remote_corpus_uses_distinct_approver_and_refuses_local_docker(tmp_path,
     with pytest.raises(ValueError,match='host Docker is disabled'):
         runtime.restart_server(stack,'between-1')
     runtime.teardown(stack)
+
+
+def test_cli_corpus_refuses_host_docker_before_driver_setup():
+    class Driver:
+        def invoke(self,*_args,**_kwargs): raise AssertionError('host Docker driver was invoked')
+    runtime=corpus.LocalRuntime(Driver(),agent='claude-cli',model='claude-opus-5-5',release_id='rc')
+    with pytest.raises(ValueError,match='host Docker is disabled'):
+        runtime.setup('P10:A:local-docker',DIGEST)

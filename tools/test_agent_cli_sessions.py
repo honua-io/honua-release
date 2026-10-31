@@ -174,6 +174,15 @@ def test_proxy_refuses_credential_bearing_tool_catalog(tmp_path):
         RecordingProxy(tools,lambda *_:None,tmp_path,1,1)
 
 
+def test_credential_bearing_prompt_is_refused_before_starting_cli(tmp_path):
+    binary=fake_cli(tmp_path,'claude-cli')
+    cli=CliModelSession('claude-cli','claude-opus-5-5',binary=binary,auth_root=tmp_path)
+    with pytest.raises(CliFailure) as failure:
+        cli.run(prompt='DATABASE_PASSWORD=private-value',tool_view=TOOLS,execute=lambda *_:None,log_dir=tmp_path/'log')
+    assert failure.value.category=='infrastructure'
+    assert not (tmp_path/'log').exists()
+
+
 @pytest.mark.parametrize('agent', ['claude-cli','codex-cli'])
 def test_provider_auth_only(tmp_path, agent):
     source=tmp_path/'source'; home=tmp_path/'home'; home.mkdir()
