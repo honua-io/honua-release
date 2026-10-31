@@ -222,3 +222,37 @@ def test_foreign_descendants_refused_without_executing_remote_side_effect(databa
         recorder.table_rows('foreign-descendant-' + ('partition' if partitioned else 'inheritance'),
                             'honua_data', parent, ['x'])
     assert marker() == before
+
+
+def test_preexisting_reader_with_unreviewed_membership_is_refused_without_repair(database):
+    runtime, stack, recorder = database
+    code, _ = runtime.psql(stack, 'CREATE ROLE unexpected_reader_grant; GRANT unexpected_reader_grant TO corpus_reader', read_only=False)
+    assert code == 0
+    probe = runner.LocalRuntime(None, model='m', release_id='r')
+    try:
+        with pytest.raises(RuntimeError, match='read-only controller database role'):
+            probe._ensure_reader(stack)
+        code, raw = runtime.psql(stack, "SELECT pg_catalog.pg_has_role('corpus_reader', 'unexpected_reader_grant', 'MEMBER')", read_only=False)
+        assert code == 0 and raw.strip() == b't'
+    finally:
+        code, _ = runtime.psql(stack, 'REVOKE unexpected_reader_grant FROM corpus_reader; DROP ROLE unexpected_reader_grant', read_only=False)
+        assert code == 0
+
+
+@pytest.mark.parametrize('kind', ['foreign', 'materialized'])
+def test_direct_unsafe_relations_refused_without_state_change(database, kind):
+    runtime, stack, recorder = database
+    if kind == 'foreign':
+        sql = ("CREATE EXTENSION IF NOT EXISTS postgres_fdw; "
+               "CREATE SERVER IF NOT EXISTS direct_probe FOREIGN DATA WRAPPER postgres_fdw OPTIONS (dbname 'honua'); "
+               "CREATE FOREIGN TABLE honua_data.direct_foreign (x integer) SERVER direct_probe OPTIONS (table_name 'missing')")
+        table = 'direct_foreign'
+    else:
+        sql = 'CREATE MATERIALIZED VIEW honua_data.direct_materialized AS SELECT 7 AS x'
+        table = 'direct_materialized'
+    code, _ = runtime.psql(stack, sql, read_only=False)
+    assert code == 0
+    before = state(runtime, stack)
+    with pytest.raises(ValueError):
+        recorder.table_rows('direct-unsafe-' + kind, 'honua_data', table, ['x'])
+    assert state(runtime, stack) == before
