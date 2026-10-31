@@ -331,3 +331,35 @@ def execute_case(*, case_id, scenario, variant, prompt, candidate_digest, runtim
                 receipt['status'] = 'infrastructure'
                 receipt['infrastructure'].append({'phase': 'stack-teardown', 'errorType': type(exc).__name__})
     return receipt
+
+
+def build_inventory(pack_path: Path, scenarios: list[str], variants: list[str]) -> list[str]:
+    """Freeze a unique development-case inventory before any model call."""
+    import re
+    if (not scenarios or len(scenarios) != len(set(scenarios))
+            or any(not isinstance(s, str) or not re.fullmatch(r'P\d\d', s) for s in scenarios)):
+        raise ValueError('invalid or duplicate scenario inventory')
+    if not variants or len(set(variants)) != len(variants) or any(v not in ('A', 'B') for v in variants):
+        raise ValueError('invalid or duplicate development variant inventory')
+    result = []
+    for scenario in scenarios:
+        for variant in variants:
+            case = select_case(pack_path, scenario, variant)
+            if 'local-docker' not in case.get('targets', []):
+                raise ValueError('scenario does not support local docker')
+            result.append(f'{scenario}:{variant}:local-docker')
+    return result
+
+
+def aggregate_files(expected_cases: list[str], paths: list[Path]) -> dict:
+    """Aggregate every supplied artifact, rejecting duplicates and omissions."""
+    receipts = []
+    for path in paths:
+        path = Path(path)
+        if not path.is_file() or path.is_symlink():
+            raise ValueError('receipt artifact unavailable or symbolic')
+        value = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(value, dict):
+            raise ValueError('malformed receipt artifact')
+        receipts.append(value)
+    return aggregate(expected_cases, receipts)

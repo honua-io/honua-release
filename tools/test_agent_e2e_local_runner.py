@@ -138,3 +138,22 @@ def test_uncertain_tool_execution_retains_attempt_without_retry(tmp_path):
     assert count == ['x']
     assert error.value.progress['actions'][0]['status'] == 'unknown'
     assert len(error.value.progress['modelVisibleDigests']) == 1
+
+
+def test_inventory_and_file_aggregation_reject_missing_duplicates(tmp_path):
+    import json
+    from agent_e2e_local_runner import aggregate_files, build_inventory
+    pack = tmp_path / 'pack.v2.AB-only.json'
+    pack.write_text(json.dumps({'scenarios': [{'id': 'P10', 'prompts': {'A': 'a', 'B': 'b'},
+        'targets': ['local-docker'], 'assertions': ['filter.exact']}]}))
+    cases = build_inventory(pack, ['P10'], ['A', 'B'])
+    paths = []
+    for index, case in enumerate(cases):
+        path = tmp_path / f'{index}.json'
+        path.write_text(json.dumps({'caseId': case, 'status': 'pass'}))
+        paths.append(path)
+    assert aggregate_files(cases, paths)['overall']['passed'] == 2
+    for files in (paths[:1], paths + paths[:1]):
+        with pytest.raises(ValueError): aggregate_files(cases, files)
+    for variants in (['A', 'A'], ['C']):
+        with pytest.raises(ValueError): build_inventory(pack, ['P10'], variants)

@@ -32,6 +32,13 @@ def test_replay_uses_digest_bound_query_and_rejects_tampering(tmp_path):
     assert observed == {'resourceIds': ['s1']}
     assert evidence['replayedRequestDigest'] == digest
     assert client.calls == [('honua_query_features', action['arguments'])]
+    class Contradictory(Client):
+        def call_tool(self, name, args):
+            result = super().call_tool(name, args)
+            result['structuredContent']['returnedCount'] = 0
+            return result
+    with pytest.raises(ValueError):
+        replay_query(path, digest, {'service': 'svc', 'layerId': 7}, Contradictory())
     path.write_text(json.dumps({**action, 'arguments': {}}))
     with pytest.raises(ValueError):
         replay_query(path, digest, {'service': 'svc', 'layerId': 7}, client)
