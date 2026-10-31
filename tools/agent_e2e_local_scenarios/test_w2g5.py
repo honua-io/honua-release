@@ -253,3 +253,14 @@ def test_p21_reads_committed_draft_and_rejects_missing_fault(stack, monkeypatch,
     bad = {**event, 'committedResourceId': 'wrong-draft'}
     with pytest.raises(ValueError):
         p21.observe(stack, seeded, variant, RunRecord('agent-id', 1, (bad,), (), ()))
+
+
+def test_publication_full_path_binding_rejects_a_different_route():
+    from types import SimpleNamespace
+    from agent_e2e_local_projections import require_address
+    route = '/api/v1/studio/published/maps/example'
+    roles = {'child:publication-route': route}
+    binding = {'role': 'child:publication-route', 'at': {'fullPath': True}}
+    require_address(SimpleNamespace(path=route, kind='http', step='anonymous'), binding, roles)
+    with pytest.raises(ValueError):
+        require_address(SimpleNamespace(path='/api/v1/studio/published/maps/other', kind='http', step='anonymous'), binding, roles)
