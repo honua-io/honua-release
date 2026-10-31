@@ -51,3 +51,26 @@ def test_replayed_ids_checked_against_fixture_not_model_claim():
     oracle.verify('filter.exact', {'resourceIds': list(expected['resourceIds'])}, expected)
     with pytest.raises(ValueError):
         oracle.verify('filter.exact', {'resourceIds': ['incorrect']}, expected)
+
+
+def test_p10_seed_is_idempotent_per_case(monkeypatch, tmp_path):
+    from agent_e2e_local_api import Stack
+    from agent_e2e_local_scenarios.P10 import P10
+    import agent_e2e_scenario_backend
+    import agent_e2e_p10_observer
+    calls = []
+    class Town:
+        def __init__(self, http, manifest): pass
+        def prepare(self, **kwargs):
+            calls.append(kwargs)
+            return {'layers': {'shelters': {'service': 's', 'layerId': 1}}}
+    class Http:
+        def json(self, *args): return {'observation': {'httpStatus': 200}}
+    monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+    monkeypatch.setattr(agent_e2e_p10_observer, 'source_content', lambda row: {'resourceId': 'shelters', 'content': {}})
+    stack = Stack('http://127.0.0.1', 'controller', None, 'corpus-test', 'compose', str(tmp_path),
+                  'sha256:' + 'a' * 64, {'controllerHttp': Http(), 'connectionId': 'connection'})
+    scenario = P10()
+    assert scenario.seed(stack, 'A') == scenario.seed(stack, 'A')
+    assert len(calls) == 1
+    with pytest.raises(ValueError): scenario.seed(stack, 'B')

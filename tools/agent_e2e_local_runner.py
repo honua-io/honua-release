@@ -451,6 +451,12 @@ class LocalRuntime(LocalStackDriver):
                 raise ValueError('driver omitted the case-owned agent credential')
             os.environ['HONUA_CORPUS_AGENT_KEY'] = key
             self._agents[workspace] = principal
+            stack.extra['controllerHttp'] = LocalControllerHttp(stack)
+            stack.extra['ensureConnection'] = lambda: create_local_connection(stack)
+            from agent_e2e_mcp import Client
+            stack.extra['controllerMcpFactory'] = lambda: Client(
+                stack.base_url + '/mcp', credential_env='HONUA_ADMIN_PASSWORD',
+                credential_kind='api-key', timeout=120)
         except Exception:
             super().teardown(stack)
             raise
@@ -516,3 +522,59 @@ class LocalRuntime(LocalStackDriver):
             self._agents.pop(stack.extra['workspaceId'], None)
             self._admitted.discard(stack.extra['workspaceId'])
             os.environ.pop('HONUA_CORPUS_AGENT_KEY', None)
+
+
+class LocalControllerHttp:
+    """Controller HTTP adapter retaining each intent and exact response once."""
+    def __init__(self, stack):
+        self.stack = stack
+        self.root = Path(stack.workdir) / 'controller-http'
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    def _retain(self, kind, step, record):
+        import os
+        from agent_e2e_pack import canonical_digest
+        raw = json.dumps(record, ensure_ascii=False, allow_nan=False, sort_keys=True).encode()
+        path = self.root / (kind + '-' + step + '.json')
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return {'key': path.name, 'sha256': canonical_digest(record)}
+
+    def _client(self):
+        from agent_e2e_setup_http import SetupHttp
+        return SetupHttp(self.stack.base_url, 'HONUA_ADMIN_PASSWORD',
+            identity={'candidateKey': self.stack.candidate_digest,
+                      'attemptId': self.stack.compose_project},
+            authorize=lambda: None, retain=self._retain, credential_kind='api-key', timeout=600)
+
+    def json(self, step, method, path, body=None):
+        return self._client().json(step, method, path, body)
+
+    def upload(self, step, raw, *, table, schema, srid):
+        return self._client().upload(step, raw, table=table, schema=schema, srid=srid)
+
+
+def create_local_connection(stack):
+    """Use the journey's typed SDK path to create the case fixture connection."""
+    import importlib.util
+    import sys
+    driver_path = ROOT / 'certification/terminal-journey/live_driver.py'
+    name = 'corpus_live_driver'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, driver_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    driver = sys.modules[name]
+    state, target, _manifest, observation, _workspace = driver._rehydrate({'workspaceId': stack.extra['workspaceId']})
+    engine = driver._executor(state, target, observation)
+    created = engine.sdk_call('CreateConnectionAsync', [engine.datasource_arguments()])
+    connection_id = created['connectionId']
+    tested = engine.sdk_call('TestConnectionAsync', [connection_id])
+    proof = engine._check(3, 'datasource', 'TestConnectionAsync', lambda: engine.prove_connection(tested))
+    if proof.status != 'pass':
+        raise ValueError('case fixture connection was not verified')
+    return connection_id

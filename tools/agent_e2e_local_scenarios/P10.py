@@ -77,6 +77,8 @@ class P10:
         http = stack.extra['controllerHttp']
         namespace = 'p10_' + stack.compose_project.replace('-', '')[-16:]
         manifest = Path(__file__).resolve().parents[2] / 'certification/agent-e2e/corpus/manifest.v1.json'
+        if 'connectionId' not in stack.extra:
+            stack.extra['connectionId'] = stack.extra['ensureConnection']()
         town = TownSetup(http, manifest).prepare(variant=variant, namespace=namespace,
             starting_state='published-town', connection_id=stack.extra['connectionId'])
         binding = town['layers']['shelters']
