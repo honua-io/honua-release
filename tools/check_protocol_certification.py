@@ -116,7 +116,7 @@ def _owned_source_name(cell: dict) -> str:
         return "geospatial-grpc"
     if lane.startswith("mcp-"):
         return "geospatial-mcp"
-    if cell.get("deployment_target") == "windows-licensed" or lane.startswith(("raw-geoservices", "arcgis-stub")):
+    if cell.get("deployment_target") == "windows-licensed" or lane.startswith(("raw-geoservices", "geoservices-rest-stub")):
         return "esri-compat"
     return "server"
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
