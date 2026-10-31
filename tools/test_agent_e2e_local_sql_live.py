@@ -56,9 +56,10 @@ def database(tmp_path_factory):
         else:
             pytest.fail('PostGIS container did not become ready')
         time.sleep(2)
-        for statement in FIXTURE['seed']:
-            code, _ = runtime.psql(stack, statement, read_only=False)
-            assert code == 0, statement
+        # One owner session avoids repeated remote Docker/SSH handshakes; the
+        # fixture statements are all transactional and ON_ERROR_STOP is set.
+        code, _ = runtime.psql(stack, ';\n'.join(FIXTURE['seed']), read_only=False)
+        assert code == 0, 'could not create the confinement fixture'
         recorder = ControllerRecorder(base_url='http://127.0.0.1:1', workdir=workdir, candidate_digest='sha256:' + 'a' * 64,
                                       attempt_id=project, principals={'controller': (None, None)}, vault=EvidenceVault(project),
                                       sql_executor=lambda request: runtime.sql_read(stack, request))
