@@ -184,7 +184,7 @@ def test_foreign_descendants_refused_without_executing_remote_side_effect(databa
     CREATE SERVER IF NOT EXISTS review_loopback FOREIGN DATA WRAPPER postgres_fdw
       OPTIONS (host '127.0.0.1', port '5432', dbname 'honua');
     CREATE USER MAPPING IF NOT EXISTS FOR corpus_reader SERVER review_loopback
-      OPTIONS (user 'honua', password 'local-contract-only');
+      OPTIONS (user 'honua', password 'local-contract-only', password_required 'false');
     GRANT USAGE ON FOREIGN SERVER review_loopback TO corpus_reader;
     """
     runtime._ensure_reader(stack)
@@ -212,7 +212,8 @@ def test_foreign_descendants_refused_without_executing_remote_side_effect(databa
     # read-only session; this is a test-only direct read of the foreign child.
     child = 'review_partition_foreign' if partitioned else 'review_inherited_foreign'
     code, _ = runtime.psql(stack, f'SELECT x FROM honua_data.{child}', read_only=True)
-    assert code == 0 and marker() == [1]
+    assert code == 0
+    assert marker() == [1]
     code, _ = runtime.psql(stack, 'UPDATE honua_data.review_marker SET x = 0', read_only=False)
     assert code == 0
     before = marker()
