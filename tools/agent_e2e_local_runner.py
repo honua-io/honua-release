@@ -101,3 +101,23 @@ def aggregate(expected_cases: list[str], receipts: list[dict]) -> dict:
     return {'overall': summary(list(rows.values())),
             'scenarios': {name: summary(items) for name, items in sorted(groups.items())},
             'cases': [rows[case] for case in expected_cases]}
+
+
+def observe_scenario(scenario, stack, seeded, variant, run):
+    """Support both the frozen three-argument interface and its v1.1 extension."""
+    import inspect
+    parameters = inspect.signature(scenario.observe).parameters
+    if 'run' in parameters:
+        return scenario.observe(stack, seeded, variant, run=run)
+    return scenario.observe(stack, seeded, variant)
+
+
+def score_final_answer(answer: str, observations: dict | None, assertions: list[dict]) -> dict:
+    """Score the customer handoff against controller observations, failing closed."""
+    from agent_e2e_handoff import score_final_answer as check
+    if not isinstance(answer, str) or not answer.strip() or not isinstance(observations, dict):
+        return {'status': 'fail', 'reason': 'missing final answer or independent handoff observations'}
+    if not assertions:
+        return {'status': 'fail', 'reason': 'missing assertion scores'}
+    status = 'pass' if all(row.get('status') == 'pass' for row in assertions) else 'fail'
+    return check(answer, observations, state_status=status)

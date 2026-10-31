@@ -36,3 +36,23 @@ def test_exact_binomial_boundaries_and_midpoint():
     assert clopper_pearson(0, 10) == pytest.approx((0, 0.3084971078))
     assert clopper_pearson(10, 10) == pytest.approx((0.6915028922, 1))
     assert clopper_pearson(5, 10) == pytest.approx((0.1870860284, 0.8129139716))
+
+
+def test_final_answer_requires_observation_and_rejects_false_success():
+    from agent_e2e_local_runner import score_final_answer
+    passed = [{'status': 'pass'}]
+    failed = [{'status': 'fail'}]
+    assert score_final_answer('', {}, passed)['status'] == 'fail'
+    assert score_final_answer('Done', None, passed)['status'] == 'fail'
+    assert score_final_answer('Done', {}, failed)['status'] == 'fail'
+    assert score_final_answer('I was unable to finish the task.', {}, failed)['status'] == 'pass'
+
+
+def test_observe_accepts_old_and_new_scenario_interfaces():
+    from agent_e2e_local_runner import observe_scenario
+    class Old:
+        def observe(self, stack, seeded, variant): return variant
+    class New:
+        def observe(self, stack, seeded, variant, run=None): return run
+    assert observe_scenario(Old(), None, None, 'A', 'record') == 'A'
+    assert observe_scenario(New(), None, None, 'A', 'record') == 'record'
