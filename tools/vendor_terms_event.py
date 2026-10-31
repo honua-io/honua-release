@@ -28,7 +28,7 @@ def visible_markdown_text(text: str) -> str:
 def event_texts(event_name: str, payload: dict) -> tuple[str, str]:
     if not isinstance(payload, dict):
         raise ValueError("Invalid event")
-    if event_name in ("issues", "pull_request"):
+    if event_name in ("issues", "pull_request", "pull_request_target"):
         key = "issue" if event_name == "issues" else "pull_request"
         item = payload.get(key)
         if not isinstance(item, dict) or not isinstance(item.get("title"), str):
@@ -45,7 +45,7 @@ def event_texts(event_name: str, payload: dict) -> tuple[str, str]:
     if not isinstance(item, dict):
         raise ValueError("Missing event item")
     body = item.get("body")
-    if body is None and event_name in ("issues", "pull_request", "pull_request_review"):
+    if body is None and event_name in ("issues", "pull_request", "pull_request_target", "pull_request_review"):
         body = ""
     if not isinstance(body, str):
         raise ValueError("Invalid event body")
@@ -151,7 +151,7 @@ def remediation_target(event_name: str, payload: dict, repository: str) -> tuple
     base = _repo_path(repository)
     if event_name == "issues":
         return "PATCH", f"{base}/issues/{_event_number(payload, 'issue')}"
-    if event_name == "pull_request":
+    if event_name in ("pull_request", "pull_request_target"):
         return "PATCH", f"{base}/issues/{_event_number(payload, 'pull_request')}"
     if event_name == "pull_request_review":
         pull_number = _event_number(payload, "pull_request")
@@ -224,7 +224,7 @@ def remediate_event(event_name: str, payload: dict, repository: str, repo_name: 
         raise RuntimeError("The offending sentence could not be isolated safely")
 
     is_comment = event_name in ("issue_comment", "pull_request_review_comment", "commit_comment")
-    is_issue_or_pr_body = event_name in ("issues", "pull_request")
+    is_issue_or_pr_body = event_name in ("issues", "pull_request", "pull_request_target")
     if is_issue_or_pr_body and not updated_body.strip():
         raise RuntimeError("Emptying an entire issue or pull request body requires manual correction")
     if is_comment and not updated_body.strip():

@@ -192,12 +192,15 @@ scheduled REST audit. Their full SHA pins the reviewed reusable workflows and
 trusted scanner code; **the pinned commit must first be available on GitHub**.
 Update both pins together to a reviewed, reachable full commit SHA before
 installation. Copy the examples to `.github/workflows/` on each target default
-branch and verify Actions, workflow access policies, token read permissions, and
-actual event delivery there. Installing these examples is a per-repository
+branch and verify Actions, workflow access policies, event-remediation write
+permissions, audit read permissions, and actual event delivery there. Installing these examples is a per-repository
 change; they do not configure an organization ruleset or install themselves.
 
 The event caller runs after publication, so text can be visible briefly before
-the workflow edits it. The audit caller scans only content its repository token can read; scheduled
+the workflow edits it. Pull request descriptions use `pull_request_target` so
+the base repository can perform a narrow edit with a write token. That job
+checks out only the trusted reusable workflow SHA; it never checks out or runs
+the proposed pull request. The audit caller scans only content its repository token can read; scheduled
 runs cover one of 16 review shards per day. Check run outcomes and rerun every
 missing shard with `workflow_dispatch` and `review_shard` in the range 0–15.
 Disabled Actions, missed schedules, request budgets, repository visibility,
@@ -230,9 +233,12 @@ when the event runs. GitHub does not provide a pre-post hook for these surfaces.
 The delta check can block a merge only when installed as a required check; it
 cannot prevent an issue, comment, review, or pull request from being created.
 Titles and bodies that cannot be safely sentence-edited fail visibly for a
-manual correction. Each repository needs caller workflows with the relevant
-event triggers and pinned `workflow_call` references; the reusable workflows
-do not install organization-wide coverage. Events missed while Actions is
+manual correction. GitHub keeps tokens read-only for fork pull request review,
+review-comment, and conversation-comment events, so automatic edits or removal
+can fail there; those items require a maintainer correction. Each repository
+needs caller workflows with the relevant event triggers and pinned
+`workflow_call` references; the reusable workflows do not install
+organization-wide coverage. Events missed while Actions is
 disabled or unavailable require a separate audit. Commit-comment edits do not
 produce a supported event, and most activity made with a workflow's repository
 token does not trigger another workflow. Periodic API reconciliation detects

@@ -6,7 +6,7 @@ name: vendor-terms-event
 on:
   issues:
     types: [opened, edited]
-  pull_request:
+  pull_request_target:
     types: [opened, edited, reopened]
   pull_request_review:
     types: [submitted, edited]
@@ -38,7 +38,7 @@ jobs:
         run: python3 tools/vendor_terms_event.py --repo "$REPO_NAME" --repository "$REPOSITORY" --remediate --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
 
   remediate-pull-request-body:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

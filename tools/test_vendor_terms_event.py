@@ -16,6 +16,7 @@ class EventTests(unittest.TestCase):
         cases = {
             "issues": ({"issue": {"title": "Title", "body": "Body"}}, ("Title", "Body")),
             "pull_request": ({"pull_request": {"title": "Title", "body": "Body"}}, ("Title", "Body")),
+            "pull_request_target": ({"pull_request": {"title": "Title", "body": "Body"}}, ("Title", "Body")),
             "issue_comment": ({"comment": {"body": "Body"}}, ("", "Body")),
             "pull_request_review": ({"review": {"body": "Body"}}, ("", "Body")),
             "pull_request_review_comment": ({"comment": {"body": "Body"}}, ("", "Body")),
@@ -97,7 +98,7 @@ class EventTests(unittest.TestCase):
         self.assertNotIn("permissions", config)
         self.assertEqual(
             set(config["on"]),
-            {"issues", "pull_request", "issue_comment", "pull_request_review", "pull_request_review_comment",
+            {"issues", "pull_request_target", "issue_comment", "pull_request_review", "pull_request_review_comment",
              "workflow_call"},
         )
         expected = {
@@ -113,6 +114,11 @@ class EventTests(unittest.TestCase):
                 self.assertEqual(job["permissions"], permissions)
                 self.assertEqual(job["steps"][0]["with"]["persist-credentials"], "false")
                 self.assertIn("--remediate", job["steps"][1]["run"])
+        target_job = config["jobs"]["remediate-pull-request-body"]
+        target_checkout = target_job["steps"][0]["with"]
+        self.assertEqual(target_checkout["repository"], "honua-io/honua-release")
+        self.assertEqual(target_checkout["ref"], "${{ job.workflow_sha }}")
+        self.assertNotIn("head", str(target_checkout).lower())
 
 
 if __name__ == "__main__":
