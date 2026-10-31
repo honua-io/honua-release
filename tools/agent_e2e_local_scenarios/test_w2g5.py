@@ -35,7 +35,7 @@ def test_unsupported_case_cannot_seed_score_or_mutate(scenario, stack, tmp_path)
     assert scenario.id in type(scenario).__name__
     assert scenario.needs_approver() == (scenario.id in ('P21', 'P22'))
     for variant in ('A', 'B'):
-        if scenario.id != 'P23':
+        if scenario.id == 'P21':
             for _ in range(2):
                 with pytest.raises(NotImplementedError):
                     scenario.seed(stack, variant)
@@ -173,3 +173,42 @@ def test_p23_seed_records_distinct_owners_and_is_idempotent(stack, monkeypatch, 
         p23.observe(stack, seed, variant, RunRecord('foreign-id', 1, (), (), ()))
     with pytest.raises(ValueError):
         p23.seed(stack, 'B' if variant == 'A' else 'A')
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_p22_seed_saves_and_reads_owned_version(stack, monkeypatch, variant):
+    import agent_e2e_scenario_backend as backend
+    import agent_e2e_p10_observer as observer
+    class FakeTown:
+        def __init__(self, recorder, manifest):
+            pass
+        def prepare(self, **kwargs):
+            return {'layers': {'shelters': {'service': 'shared', 'layerId': 1}}}
+    class FakeRecorder:
+        def __init__(self):
+            self.calls = []
+            self.item = None
+        def json(self, step, method, path, body=None, *, principal='controller'):
+            self.calls.append(step)
+            if step == 'p22-draft-create':
+                self.item = body['itemId']
+                value = {'draftId': 'draft-1', 'itemId': self.item, 'ownerId': 'agent-id'}
+                status = 201
+            elif step == 'p22-draft-validate':
+                value, status = {'status': 'valid', 'diagnostics': []}, 200
+            elif step in ('p22-draft-save', 'p22-version-before'):
+                value = {'versionId': 'version-1', 'itemId': self.item, 'ownerId': 'agent-id'}
+                status = 201 if step == 'p22-draft-save' else 200
+            else:
+                value, status = {}, 200
+            return {'observation': {'httpStatus': status, 'body': {'data': value}}}
+    monkeypatch.setattr(backend, 'TownSetup', FakeTown)
+    monkeypatch.setattr(observer, 'source_path', lambda layer: '/shared/source')
+    recorder = FakeRecorder()
+    stack.extra.update(recorder=recorder, agentPrincipal='agent-id', ensureConnection=lambda: 'connection-id')
+    p22 = importlib.import_module('agent_e2e_local_scenarios.P22').scenario
+    seeded = p22.seed(stack, variant)
+    assert seeded.state['versionId'] == 'version-1'
+    assert p22.seed(stack, variant) == seeded
+    assert recorder.calls == ['p22-source-before', 'p22-draft-create', 'p22-draft-validate',
+                              'p22-draft-save', 'p22-version-before']
