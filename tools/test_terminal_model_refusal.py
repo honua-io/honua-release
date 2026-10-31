@@ -25,12 +25,16 @@ from transport import ExecutionError
 
 
 def _builder(guidance="full"):
-    return r.RefusalReceiptBuilder(manifest=c.load_manifest(MANIFEST), protocol=c._load_json(PROTOCOL),
+    builder = r.RefusalReceiptBuilder(manifest=c.load_manifest(MANIFEST), protocol=c._load_json(PROTOCOL),
         protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=c.DEFAULT_DRIVER,
         deterministic_receipt={"path": "receipt.json", "sha256": "a"*64, "generatedAt": c._now(),
             "status": "pass", "prerequisiteProfile": r.PROFILE, "sourceStatus": "blocked",
             "candidateVerified": True, "freshnessVerified": True},
         redactor=c.Redactor([]), lock_digest=LOCK, cell="aws-ecs/redis-off", attempt=1, guidance=guidance)
+    image = builder.receipt["serverImage"]
+    builder.receipt["lockVerification"] = {"lockDigest": LOCK, "serverDigest": image["digest"],
+        "observedReference": image["reference"], "observationSource": "ecs-task-readback"}
+    return builder
 
 
 def _prerequisite(tmp_path, cell="aws-ecs/redis-off"):

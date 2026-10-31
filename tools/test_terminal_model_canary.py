@@ -444,11 +444,12 @@ def test_local_docker_presents_the_bootstrap_admin_key_as_x_api_key(monkeypatch)
     assert "per-run-admin-key" not in json.dumps(config.evidence())
 
 
+@pytest.mark.parametrize("temperature", [None, 0.0, 0.7])
 @pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding", "adapter", "custom-model", "imported-model", "application-profile", "model-alias", "empty-text"])
 @pytest.mark.parametrize("model", ["anthropic.claude-sonnet-4-6",
                                    "us.anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-5-5",
                                    "global.anthropic.claude-sonnet-4-5-20250929-v1:0"])
-def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation, model):
+def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation, model, temperature):
     key = Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -491,9 +492,10 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
         "provider": "bedrock",
         "model": endpoint.model,
         "messages": [{"role": "user", "content": "advance"}],
-        "temperature": 0,
         "certification": certification,
     }
+    if temperature is not None:
+        request_body["temperature"] = temperature
     provider_events = [
         {"type": "MessageStart", "provider": "bedrock", "model": endpoint.model},
         {"type": "TextDelta", "text": '{"intent":"<read layer> μ"}'},
@@ -556,6 +558,11 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
                     "transcriptSigning": manifest}
     responses = iter([Response(json.dumps(capabilities).encode()), Response(sse)])
     monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(lambda *args, **kwargs: next(responses)))
+    original_init = canary.CandidateProxyClient.__init__
+    def init_with_temperature(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.temperature = temperature
+    monkeypatch.setattr(canary.CandidateProxyClient, "__init__", init_with_temperature)
 
     if mutation == "empty-text":
         content, _, _, _ = canary.CandidateProxyClient(endpoint).complete(request_body["messages"], certification)
@@ -879,7 +886,7 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     assert call["inputs"]["lock_digest"]["required"] is True
     assert "TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED" in call["secrets"]
     assert set(triggers["workflow_dispatch"]["inputs"]["target"]["options"]) == {
-        "local-docker", "aws-ecs/redis-off", "endpoint"}
+        "local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on", "endpoint"}
 
     local = workflow["jobs"]["local-docker"]
     assert local["permissions"]["id-token"] == "write"
@@ -914,7 +921,9 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
 
     cloud = workflow["jobs"]["aws-ecs"]
     assert cloud["uses"] == "./.github/workflows/e2e-cloud-aws.yml"
-    assert cloud["with"]["target"] == "aws-ecs" and cloud["with"]["redis_mode"] == "off"
+    assert cloud["with"]["target"] == "aws-ecs"
+    assert "aws-ecs/redis-on" in cloud["with"]["redis_mode"]
+    assert "inputs.model" in cloud["with"]["bedrock_model"]
     assert cloud["with"]["genuine_model_bedrock"] is True
     assert cloud["with"]["lock_digest"] == "${{ inputs.lock_digest }}"
 
@@ -1532,7 +1541,8 @@ def test_cli_binds_the_lock_bytes_and_refuses_an_unbound_or_mismatched_run(tmp_p
                         "--cell", "aws-ecs/redis-off", "--attempt", "2"]) == 1
     bound = json.loads(out.read_text(encoding="utf-8"))
     assert (bound["lockDigest"], bound["cell"], bound["attempt"]) == (digest, "aws-ecs/redis-off", 2)
-    assert bound["status"] == "skipped" and bound["failureAttribution"] == "infrastructure"
+    assert bound["status"] == "fail" and bound["failureAttribution"] == "infrastructure"
+    assert "requires the verified same-job deployment receipt" in bound["notices"][0]
 
     out = tmp_path / "mismatch.json"
     assert canary.main(["--output", str(out), "--lock", str(lock), "--lock-digest", LOCK]) == 1
@@ -1931,7 +1941,7 @@ def test_workflow_dispatch_guidance_defaults_to_full_and_refuses_an_unguided_clo
     assert "inputs.guidance != 'none'" in workflow["jobs"]["aws-ecs"]["if"]
     refused = workflow["jobs"]["unguided-cloud-refused"]
     assert "inputs.guidance == 'none'" in refused["if"]
-    assert "aws-ecs/redis-off" in refused["if"]
+    assert "startsWith(inputs.target, 'aws-ecs/redis-')" in refused["if"]
 
 
 def test_parser_accepts_one_fenced_json_block_and_names_the_shape_of_a_refusal():
@@ -2776,6 +2786,9 @@ def _single_tenant_live_run(monkeypatch, tmp_path: Path, *, cell: str = GA_CELL,
     """State-machine unit test of run 41013398407's stage 8; it makes no candidate or model claim."""
     builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
         endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, cell=cell, lock_digest=LOCK)
+    image = builder.receipt["serverImage"]
+    builder.receipt["lockVerification"] = {"lockDigest": LOCK, "serverDigest": image["digest"],
+        "observedReference": image["reference"], "observationSource": "ecs-task-readback"}
     config = tmp_path / "target.json"
     config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "http://127.0.0.1:8000"}))
     deterministic = tmp_path / "deterministic.json"

@@ -800,18 +800,14 @@ components:
     repository: "https://github.com/honua-io/geospatial-mcp"
     lifecycleStatus: Experimental
     version: "pre-release"             # draft spec; artifact identity uses SPEC_VERSION plus commit
-    artifactVersion: "1.0.0+d5a09d13" # SPEC_VERSION 1.0 normalized to SemVer plus pinned commit
-    artifact: "spec:https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json"
-    artifactSourceRevision: "d5a09d13c4ad541c05702e598c3679c0f42db7af"
-    artifactSha256: "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
-    # REFRESHED 2026-08-27, 5e052a76 -> d5a09d13 (trunk HEAD), to carry BOTH named migrations.
-    # Ancestry proven for each, not inferred from the branch:
-    #   geospatial-mcp#79 merge b2ad4079a5b2...  -> compare b2ad4079...d5a09d13 = "ahead" (ancestor)
-    #   geospatial-mcp#80 merge d5a09d13c4ad...  -> compare d5a09d13...d5a09d13 = "identical"
-    # #80 is "fix(ci): fetch the pinned corpus revision into the shallow checkout before verifying" —
-    # i.e. the fix for the pinned-revision consumption that mechanically redded aggregation.
-    # CI fully green: 10 success, 0 failure.
-    sha: "d5a09d13c4ad541c05702e598c3679c0f42db7af"   # branch: trunk HEAD (green)
+    artifactVersion: "1.0.0+3c5388a8" # SPEC_VERSION 1.0 normalized to SemVer plus pinned commit
+    artifact: "spec:https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json"
+    artifactSourceRevision: "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd"
+    artifactSha256: "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
+    # RC.2: geospatial-mcp#161 attests each trunk commit's index bytes. Both SLSA provenance
+    # and CycloneDX SBOM are verified at this exact source revision (run 41105115258).
+    # The old d5a09d13 pin predates the publisher and cannot be attested retroactively (#1004).
+    sha: "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd"   # attested trunk merge of geospatial-mcp#161
 
   honua-iac:
     repository: "https://github.com/honua-io/honua-iac"
@@ -971,15 +967,18 @@ components:
     # (fail-closed AiDisclosurePolicy; #6597 admission). A 0.x minor (new optional input), published
     # as an annotated tag (object 8cf53764) and GitHub Release. Push CI at 97cf1830 is green, including
     # Static Terraform Validate, Terraform 1.5 Floor Validate and Attest the commit archive.
+    # RC.2: v0.5.0 includes #336 (worker-scoped EKS GP role), #339 (EKS HSTS), and #340-#347
+    # (Lambda settings/SSL, DNS grants and Bedrock policies/quota guidance). A 0.x minor follows
+    # docs/module-versioning.md because optional inputs were added. See honua-iac#348.
     # The pin is the COMMIT archive, not the refs/tags archive: honua-iac attest-source-archive.yml
     # (honua-iac#316) attests archive/<commit>.tar.gz, and these exact bytes carry its CycloneDX SBOM
     # and SLSA provenance attestations (the tag archive's different bytes carry none). With the
     # publisher attestations present, honua-iac leaves the sdk-attestation-exception-2026-10-27 set.
-    version: "0.4.6"                   # release tag v0.4.6 (annotated, v0.4.6^{} = sha); Git-source distribution
-    sha: "03d16128676d6764f6de684e9fbb2f4a6bf90255"   # v0.4.6^{} = trunk HEAD 2026-10-30 (honua-iac#335 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/03d16128676d6764f6de684e9fbb2f4a6bf90255.tar.gz"
-    artifactSourceRevision: "03d16128676d6764f6de684e9fbb2f4a6bf90255"   # the tarball's pax comment (git get-tar-commit-id)
-    artifactSha256: "sha256:fdf6040e39030c7b91f8b2b5a38a497b403c64fd04161ce32bb5863fb7314880"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
+    version: "0.5.0"                   # annotated v0.5.0; Git-source distribution
+    sha: "d2f3919fed00535816522ab8555c71fd5ab78cdc"   # v0.5.0^{}; release notes honua-iac#348
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/d2f3919fed00535816522ab8555c71fd5ab78cdc.tar.gz"
+    artifactSourceRevision: "d2f3919fed00535816522ab8555c71fd5ab78cdc"   # the tarball's pax comment (git get-tar-commit-id)
+    artifactSha256: "sha256:5f2122c9a453d50d7ec7a56d2ddafe234ec386c6c0b8d77188df5dae6fb48556"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
@@ -1025,7 +1024,13 @@ components:
     # https://github.com/honua-io/honua-helm/archive/5069bffb27a1fe48485bf48c798804821a59e61a.tar.gz,
     # two anonymous downloads, identical bytes, sha256
     # 6d2f3355d3b84c810d1b07ad283c1191049bc4011b0b2ffcfafd26f0a08d4e35, pax comment = this sha.
-    sha: "5069bffb27a1fe48485bf48c798804821a59e61a"   # branch: trunk HEAD 2026-10-11 (honua-helm#99 merge commit)
+    # 2026-10-31 ADVANCE 5069bffb -> trunk 49a0601a (honua-helm#116 merge commit; carries #111 GP-worker
+    # secret scoping, which honua-iac v0.5.0's narrowed EKS gp-job role (#336) requires, and the #116 dev
+    # quick-start PostGIS wait). Verified green: check-runs at 49a0601a -> 11 success, 0 failure.
+    # Source tarball https://github.com/honua-io/honua-helm/archive/49a0601a9a9ac338121b44df89850ff0099b92a7.tar.gz,
+    # two anonymous downloads, identical bytes, sha256
+    # e8edc71658ffa7f7f147f422f5097f05e190012d96bc1ef834c8cda773083ef8, pax comment = this sha.
+    sha: "49a0601a9a9ac338121b44df89850ff0099b92a7"   # branch: trunk HEAD 2026-10-31 (honua-helm#116 merge commit)
     artifact: "oci-chart:honua"
 
 # Customer-installable certification inputs. These are package bytes, not deployable platform
@@ -1379,9 +1384,9 @@ platformLockEvidence:
     # bytes back `components.geospatial-mcp.artifactSha256`.
     geospatialMcp:
       repository: "https://github.com/honua-io/geospatial-mcp"
-      revision: "d5a09d13c4ad541c05702e598c3679c0f42db7af"
+      revision: "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd"
       path: "spec/schemas/index.json"
-      sha256: "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
+      sha256: "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
     # catalog: AT-CUT. The runtime capability/operation catalog digest is produced by the exact
     #   candidate server image; no pre-cut file carries it.
     # okf: AT-CUT. The OKF content digest is produced by the same candidate runtime.
