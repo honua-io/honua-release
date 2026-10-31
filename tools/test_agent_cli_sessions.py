@@ -14,6 +14,10 @@ TOOLS = {'tools': [{'name': 'honua_query_features', 'description': 'Query the ca
                     'inputSchema': {'type': 'object', 'properties': {}}}]}
 
 
+def test_rehearsal_discovery_hash_identifies_server_discover():
+    assert digest(b'server/discover') == 'sha256:79580444954c2b593a013c1449220b917e7b6e09687dc2c48cf0dd7370457c02'
+
+
 def test_codex_debug_detects_calls_missing_from_json_events():
     names = {'honua': {'honua_ops_health'}}
     allowed = b'event.name="codex.tool_call_received" tool_name="honua_ops_health" tool_namespace="mcp__honua"'
@@ -25,6 +29,9 @@ def test_codex_debug_detects_calls_missing_from_json_events():
     assert codex_forbidden_diagnostics(plan, names, 'codex-cli 0.165.1')
     assert internal_events('codex-cli', 'codex-cli 0.165.0', b'', plan)[0]['kind'] == 'update_plan'
     assert internal_events('codex-cli', 'codex-cli 0.165.1', b'', plan) == []
+    plan_event = json.dumps({'type': 'item.updated', 'item': {'type': 'plan', 'id': 'item_0'}}).encode()
+    assert not parse_transcript('codex-cli', plan_event, names, 'codex-cli 0.165.0')[-1]
+    assert parse_transcript('codex-cli', plan_event, names, 'codex-cli 0.165.1')[-1]
 
 
 def fake_cli(tmp_path, agent, mode='ok'):
@@ -78,7 +85,7 @@ def rpc(method, params):
     return json.load(urllib.request.urlopen(urllib.request.Request(url,data=raw,headers={'Content-Type':'application/json'})))
 rpc('initialize', {'protocolVersion':'2025-03-26'})
 assert rpc('prompts/list', {})['result'] == {'prompts': []}
-assert rpc('experimental/discovery', {})['error']['code'] == -32601
+assert rpc('server/discover', {})['error']['code'] == -32601
 assert rpc('tools/list', {})['result']['tools'][0]['name'] == 'honua_query_features'
 if MODE == 'item_failure':
     print(json.dumps({'type':'item.completed','item':{'type':'error','message':'tool host unavailable'}})); sys.exit(1)
