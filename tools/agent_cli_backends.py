@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 import urllib.request
 
 from agent_cli_sessions import digest
+from agent_e2e_local_recorder import write_private
 
 MAX_RESPONSE = 4 * 1024 * 1024
 _SAFE_ID = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\Z')
@@ -56,21 +57,27 @@ class StdioMcpBackend:
                         and v and not k.endswith(('_KEY_ARNS', '_KEY_ARN'))]
         self.timeout = timeout
         self.process = None
+        self.audit_path = root / 'honua-devops-stderr.log'
+        self.audit_sha256 = None
         self.queue = queue.Queue(maxsize=128)
         self.lock = threading.Lock()
         self.counter = 0
 
     def start(self):
+        self.stderr = tempfile.TemporaryFile()
         self.process = subprocess.Popen([self.binary, '--mcp'], cwd=self.env['HOME'], env=self.env,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, start_new_session=True)
         def reader():
             while line := self.process.stdout.readline(MAX_RESPONSE + 1):
                 self.queue.put(line)
             self.queue.put(None)
         threading.Thread(target=reader, daemon=True).start()
         try:
-            self.rpc('initialize', {'protocolVersion':'2025-03-26','capabilities':{},
-                                    'clientInfo':{'name':'honua-arc-runner','version':'1'}})
+            hello = self.rpc('initialize', {'protocolVersion':'2025-03-26','capabilities':{},
+                                            'clientInfo':{'name':'honua-arc-runner','version':'1'}})
+            if (hello.get('protocolVersion') != '2025-03-26' or not isinstance(hello.get('capabilities'),dict)
+                    or not isinstance(hello.get('serverInfo'),dict)):
+                raise ValueError('operator MCP initialization was not verified')
             self._send({'jsonrpc':'2.0','method':'notifications/initialized'})
         except Exception:
             self.close()
@@ -122,6 +129,14 @@ class StdioMcpBackend:
             self.process.kill()
             self.process.wait(timeout=5)
         for stream in (self.process.stdin, self.process.stdout): stream.close()
+        self.stderr.seek(0)
+        raw = self.stderr.read(MAX_RESPONSE + 1)
+        self.stderr.close()
+        if len(raw) > MAX_RESPONSE or any(secret.encode() in raw for secret in self.secrets):
+            raise ValueError('operator audit output exceeded its bound or disclosed a credential')
+        write_private(self.audit_path, raw)
+        self.audit_sha256 = digest(raw)
+        self.process = None
 
 
 class HttpMcpBackend:
@@ -168,7 +183,10 @@ class HttpMcpBackend:
         params = {'protocolVersion':'2025-03-26','capabilities':{},
                   'clientInfo':{'name':'honua-arc-runner','version':'1'}}
         if self.workflow_view: params['_meta'] = {'honua.io/workflow-view':self.workflow_view}
-        self.rpc('initialize', params)
+        hello = self.rpc('initialize', params)
+        if (hello.get('protocolVersion') != '2025-03-26' or not isinstance(hello.get('capabilities'),dict)
+                or not isinstance(hello.get('serverInfo'),dict)):
+            raise ValueError('MCP initialization was not verified')
         self.rpc('notifications/initialized', notification=True)
         return self
 
@@ -223,6 +241,7 @@ def parse_quickstart(command):
                    'pull':{'--quiet'},'ps':{'-a','--all','--format=json'},
                    'logs':{'--no-color','--timestamps'},'config':{'--quiet'},'version':set()}[operation]
         if '--wait-timeout' in rest:
+            if rest.count('--wait-timeout') != 1: raise ValueError('duplicate compose wait timeout')
             ix=rest.index('--wait-timeout')
             if ix+1 >= len(rest) or not rest[ix+1].isdigit() or not 1 <= int(rest[ix+1]) <= 300:
                 raise ValueError('invalid compose wait timeout')

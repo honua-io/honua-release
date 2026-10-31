@@ -39,8 +39,6 @@ class CliRuntime(corpus.LocalRuntime):
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         if self.target == 'local':
             raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
-        if needs_approver:
-            raise ValueError('corpus separate approver is not implemented by W2 yet')
         if not self.target_config or not self.deployment_receipt:
             raise ValueError('AWS target requires retained target config and deterministic deployment receipt')
         config = json.loads(Path(self.target_config).read_bytes())
@@ -68,6 +66,8 @@ class CliRuntime(corpus.LocalRuntime):
         self._secrets.append(admin)
         try:
             self._prepare(stack, list(agent_permissions))
+            if needs_approver:
+                stack = self._mint_approver(stack)
             # The cell belongs to the release provisioner. No Docker/AWS restart fallback.
             stack.extra['restartServer'] = lambda prefix: (_ for _ in ()).throw(
                 ValueError('AWS cell restart requires a real controller operation; unavailable'))
@@ -75,6 +75,9 @@ class CliRuntime(corpus.LocalRuntime):
             self.teardown(stack)
             raise
         return stack
+
+    def restart_server(self, stack, prefix):
+        raise ValueError('remote restart requires a product-owned controller operation; host Docker is disabled')
 
     def teardown(self, stack):
         failed = False

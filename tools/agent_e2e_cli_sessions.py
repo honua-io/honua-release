@@ -4,6 +4,8 @@ The recording proxy dispatches through SessionContext.execute. The runner owns
 that gateway and seals its own action log; it ignores session-reported actions.
 """
 from pathlib import Path
+import hashlib
+import json
 import sys
 
 from agent_cli_sessions import CliFailure, CliModelSession
@@ -19,8 +21,19 @@ class CorpusCliSession:
 
     def run(self, context):
         failure = None
+        prompt = context.prompt
+        if context.attachments:
+            attachments = []
+            for item in context.attachments:
+                raw = Path(item['path']).read_bytes()
+                if 'sha256:' + hashlib.sha256(raw).hexdigest() != item['sha256']:
+                    raise ValueError('customer attachment changed after staging')
+                attachments.append({'name':item['name'], 'mediaType':item['mediaType'],
+                                    'sha256':item['sha256'], 'content':raw.decode('utf-8')})
+            prompt = json.dumps({'customerRequest':context.prompt, 'customerAttachments':attachments},
+                                ensure_ascii=False, separators=(',', ':'))
         try:
-            row = self.cli.run(prompt=context.prompt, tool_view=context.tool_view,
+            row = self.cli.run(prompt=prompt, tool_view=context.tool_view,
                 execute=context.execute, log_dir=Path(context.workdir)/'cli-wire', session=context.session,
                 max_actions=context.limits.max_actions, max_turns=context.limits.max_model_calls,
                 timeout=getattr(self.runtime, 'timeout', 600))

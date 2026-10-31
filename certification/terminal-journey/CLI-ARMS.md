@@ -39,7 +39,9 @@ operator process gets the slot credentials; the model and CLI do not. The
 backend screens returned data for those credentials. The release runner owns
 plan review, signing the exact approval digest as a separate principal, and
 forwarding approved product calls. This library neither provisions cloud
-resources nor approves a plan.
+resources nor approves a plan. After the operator closes, the runner retains
+its private stderr audit file and `audit_sha256`; output containing a configured
+credential or exceeding the audit bound fails closed and is not exported.
 
 For a local-Docker target, the release runner supplies a fresh remote VM and
 constructs `RemoteQuickstartShell` with its host, user, SSH identity, pinned

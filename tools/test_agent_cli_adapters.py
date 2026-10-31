@@ -1,5 +1,6 @@
 """Native CLI adapter integrity: W2's real recorder, independent canary, OPS refusal."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -173,3 +174,53 @@ def test_remote_recorder_only_admits_verified_exact_origin(tmp_path,monkeypatch)
     with pytest.raises(ProjectionError,match='admitted'): admitted.json('escape','GET','/api/v1/admin/version')
     for wrong in ('http://ecs-123.cert.demo.honua.io',remote+'/path','https://external.example'):
         with pytest.raises(ProjectionError): recorder('wrong-'+str(len(wrong)),wrong)
+
+
+def test_corpus_session_delivers_verified_customer_attachment_without_local_path(tmp_path):
+    from types import SimpleNamespace
+    from agent_e2e_local_api import SessionContext,SessionLimits
+    source=tmp_path/'customer.csv'; source.write_bytes(b'name,value\nexample,3\n')
+    sha='sha256:'+hashlib.sha256(source.read_bytes()).hexdigest()
+    captured=[]
+    class FakeCli:
+        def run(self, **kwargs):
+            captured.append(kwargs['prompt'])
+            return {'tokens':0,'usage':[],'provenance':[],'modelVisibleDigests':[],
+                    'messageIds':[],'finalAnswer':'done','systemContractSha256':'s','toolViewSha256':'t'}
+    runtime=SimpleNamespace(agent='claude-cli',model='claude-opus-5-5',cli=FakeCli())
+    context=SessionContext(prompt='Import this customer file',session=1,candidate_release='rc',
+        limits=SessionLimits(10,10,100),tool_view={'tools':[]},execute=lambda *_:None,
+        mcp_proxy=lambda:None,workdir=str(tmp_path),attachments=(
+            {'name':'customer.csv','mediaType':'text/csv','sha256':sha,'path':str(source)},))
+    assert agent_e2e_cli_sessions.CorpusCliSession(runtime,None).run(context).final_answer=='done'
+    document=json.loads(captured[0])
+    assert document['customerAttachments']==[{'name':'customer.csv','mediaType':'text/csv',
+                                              'sha256':sha,'content':'name,value\nexample,3\n'}]
+    assert str(source) not in captured[0]
+    source.write_text('changed')
+    with pytest.raises(ValueError,match='changed after staging'):
+        agent_e2e_cli_sessions.CorpusCliSession(runtime,None).run(context)
+    assert len(captured)==1
+
+
+def test_remote_corpus_uses_distinct_approver_and_refuses_local_docker(tmp_path,monkeypatch):
+    import agent_e2e_cli_runner as cli
+    target='https://slot1.cert.demo.honua.io'
+    config=tmp_path/'cell.json'; config.write_text(json.dumps({'kind':'aws-ecs','baseUrl':target}))
+    proof=tmp_path/'proof.json'; proof.write_text('{}')
+    case_dir=tmp_path/'case'; case_dir.mkdir()
+    monkeypatch.setattr(cli.tempfile,'mkdtemp',lambda **_:str(case_dir))
+    monkeypatch.setenv('HONUA_CLOUD_JOURNEY_ADMIN','controller-key')
+    class Driver:
+        def invoke(self,operation,payload):
+            return {'status':'ready','workspaceId':'test','baseUrl':target} if operation=='setup' else {'status':'pass'}
+    runtime=cli.CliRuntime(Driver(),agent='claude-cli',model='claude-opus-5-5',release_id='rc',target=target,
+                           target_config=config,deployment_receipt=proof,session_factory=lambda *_:None)
+    called=[]
+    monkeypatch.setattr(runtime,'_prepare',lambda stack,permissions: called.append('prepare'))
+    monkeypatch.setattr(runtime,'_mint_approver',lambda stack: called.append('approver') or stack)
+    stack=runtime.setup('P10:A:local-docker',DIGEST,needs_approver=True)
+    assert called==['prepare','approver']
+    with pytest.raises(ValueError,match='host Docker is disabled'):
+        runtime.restart_server(stack,'between-1')
+    runtime.teardown(stack)
