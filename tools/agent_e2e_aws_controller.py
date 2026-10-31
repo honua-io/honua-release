@@ -247,7 +247,7 @@ class HttpProbes:
 def export_bootstrap(iac_root, backend_config, output):
     """Read existing bootstrap state; this never creates the bootstrap resources."""
     root = Path(iac_root).resolve() / 'infrastructure/terraform/bootstrap/aws-exec-identity'
-    (root / 'backend.tf').write_text('terraform { backend "s3" {} }\n')
+    (root / 'backend.tf').write_text('terraform {\n  backend "s3" {}\n}\n')
     run_checked(['terraform', '-chdir=' + str(root), 'init', '-input=false', '-no-color',
                  '-backend-config=' + str(Path(backend_config).resolve())])
     raw = run_checked(['terraform', '-chdir=' + str(root), 'output', '-json'])

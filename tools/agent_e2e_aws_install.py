@@ -356,7 +356,8 @@ def _argument_reasons(arguments):
         reasons.append('long-lived')
     if arguments.get('credential') in ('access-key', 'long-lived', 'iam-user'):
         reasons.append('long-lived')
-    if '*' in arguments.get('actions', []):
+    actions = arguments.get('actions')
+    if actions == '*' or isinstance(actions, list) and '*' in actions:
         reasons.append('admin')
     return list(dict.fromkeys(reasons))
 
