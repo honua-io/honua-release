@@ -93,5 +93,85 @@
         "reads": {}
       }
     }
+  },
+  "roles": [
+    {
+      "role": "seeded:input:shelters",
+      "step": "p05-fixture-valid",
+      "pointer": "/0/content"
+    },
+    {
+      "role": "created:table:shelters",
+      "step": "p05-table-after",
+      "items": "",
+      "id": "/table_name",
+      "before": "p05-table-baseline",
+      "created_by": {
+        "tool": "honua_ingest_dataset",
+        "pointer": "/result/structuredContent/table",
+        "where": {
+          "argument": "/data",
+          "role": "seeded:input:shelters"
+        }
+      }
+    }
+  ],
+  "projections": {
+    "features.exact": {
+      "spec": {
+        "object": {
+          "srid": {
+            "body": "p05-import-rows",
+            "pointer": "/0/srid"
+          },
+          "features": {
+            "map": {
+              "body": "p05-import-rows",
+              "pointer": ""
+            },
+            "to": {
+              "object": {
+                "properties": {
+                  "object": {
+                    "source_id": {
+                      "item": "/source_id"
+                    },
+                    "name": {
+                      "item": "/name"
+                    },
+                    "capacity": {
+                      "item": "/capacity"
+                    },
+                    "is_open": {
+                      "item": "/is_open"
+                    }
+                  }
+                },
+                "geometry": {
+                  "item": "/geometry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "reads": {
+        "p05-import-rows": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "SELECT source_id, name, capacity, is_open, ST_SRID\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\) AS srid, ST_AsGeoJSON\\(ST_Transform\\([a-z][a-z0-9_]*, 3857\\)\\)::json AS geometry FROM [a-z][a-z0-9_]*\\.[a-z][a-z0-9_]* ORDER BY source_id",
+          "addresses": [
+            {
+              "role": "created:table:shelters",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ]
+        }
+      }
+    }
   }
 }

@@ -255,10 +255,12 @@ def test_p05_retains_only_the_last_matching_import_report(tmp_path):
         def action_result(self, step, action):
             calls.append((step, action.sequence))
             return SimpleNamespace(status=200, json={'result': {'structuredContent': {'success': False}}})
+        def sql(self, step, query): pass
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
     case = load_scenario('P05')
-    assert [item.assertion_id for item in case.observe(stack, case.seed(stack, 'A'), 'A')] == ['source-content.unchanged']
+    from agent_e2e_local_api import Seeded
+    assert [item.assertion_id for item in case.observe(stack, Seeded({'variant': 'A'}), 'A')] == ['features.exact', 'source-content.unchanged']
     assert calls == [('p05-invalid-report', 3)]
 
 
@@ -373,12 +375,14 @@ def test_p05_reads_only_a_safe_table_named_by_the_sealed_report(tmp_path):
         def action_result(self, step, action):
             return SimpleNamespace(status=200, json={'result': {'isError': False, 'structuredContent': {
                 'success': True, 'schema': 'honua_data', 'table': self.table, 'geometryColumn': 'geom'}}})
-        def sql(self, step, query): calls.append((step, query))
+        def sql(self, step, query):
+            if step == 'p05-import-rows': calls.append((step, query))
     def observe(table):
         stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                       {'recorder': Recorder(table)})
         case = load_scenario('P05')
-        case.observe(stack, case.seed(stack, 'A'), 'A')
+        from agent_e2e_local_api import Seeded
+        case.observe(stack, Seeded({'variant': 'A'}), 'A')
     observe('imported_shelters')
     assert len(calls) == 1 and 'FROM honua_data.imported_shelters' in calls[0][1]
     observe('unsafe;drop')
@@ -442,3 +446,32 @@ def test_p06_records_agent_publications_for_later_role_binding(tmp_path):
                   {'recorder': Recorder()})
     assert load_scenario('P06').observe(stack, Seeded({}), 'A') == []
     assert calls == ['p06-services-after', ('p06-publish-001', 1), ('p06-publish-002', 3)]
+
+
+def test_p05_sql_projection_rejects_changed_feature_and_wrong_table():
+    import copy
+    import hashlib
+    import json
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    case = load_scenario('P05')
+    expected = case.expected('A')
+    fixture = oracle.fixture_expectation('A', 'features.exact', layer='shelters')
+    rows = [{**row['properties'], 'srid': 3857, 'geometry': row['geometry']} for row in fixture['features']]
+    roles = {'created:table:shelters': 'imported_shelters'}
+    def score(data, table):
+        query = ('SELECT source_id, name, capacity, is_open, ST_SRID(ST_Transform(geometry, 3857)) AS srid, '
+                 'ST_AsGeoJSON(ST_Transform(geometry, 3857))::json AS geometry FROM honua_data.' + table + ' ORDER BY source_id')
+        raw = json.dumps(data).encode()
+        record = Record('p05-import-rows', 'observe', 'sql', 'controller', 'owner', 'SELECT', query, 200, raw,
+                        'sha256:' + hashlib.sha256(raw).hexdigest())
+        observations = [Observation('features.exact', None, {'projection': 'extract/v1'})]
+        results = score_assertions(list(expected), observations, expected, records={'p05-import-rows': record},
+                                   roles=roles, scenario_id='P05', frozen=frozen_projections(case, 'A'))
+        return next(row['status'] for row in results if row['assertion'] == 'features.exact')
+    assert score(rows, 'imported_shelters') == 'pass'
+    changed = copy.deepcopy(rows)
+    changed[0]['capacity'] = 999
+    assert score(changed, 'imported_shelters') == 'fail'
+    assert score(rows, 'another_table') == 'fail'
