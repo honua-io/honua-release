@@ -63,6 +63,7 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
     principals = {p: ('G4_' + p.upper(), p + '-id') for p in ('controller', 'operator', 'owner', 'agent')}
     principals['anonymous'] = (None, None)
     source = feature_response(variant)
+    map_body = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_text())['execution']['mapBody']
 
     def http(recorder, principal, method, path, body, headers):
         if path.startswith('/keys/'):
@@ -89,12 +90,15 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
         if path in (f'/api/v1/studio/content-items/{ITEM}/versions/{VERSION}',
                     f'/api/v1/studio/content-items/{FOREIGN_ITEM}/versions/{FOREIGN_VERSION}'):
             item, version = (FOREIGN_ITEM, FOREIGN_VERSION) if FOREIGN_ITEM in path else (ITEM, VERSION)
-            code = {'operator': 200, 'owner': 200, 'agent': 404, 'anonymous': 401}[principal]
+            code = {'controller': 200, 'operator': 200, 'owner': 200, 'agent': 404, 'anonymous': 401}[principal]
             if state['wrong'] == 'anonymous-public' and principal == 'anonymous':
                 code = 200
             if state['wrong'] == 'tenant-open' and principal == 'agent':
                 code = 200
-            value = {'data': {'itemId': item, 'versionId': version}} if code == 200 else {'error': 'denied'}
+            envelope = {'family': 'map', 'body': copy.deepcopy(map_body)}
+            if state['wrong'] == 'mutate-map' and recorder.phase == 'observe' and principal == 'controller':
+                envelope['body']['initialView']['zoom'] += 1
+            value = {'data': {'itemId': item, 'versionId': version, 'envelope': envelope}} if code == 200 else {'error': 'denied'}
             if state['wrong'] == 'wrong-map' and principal in ('operator', 'owner'):
                 value['data']['versionId'] = '55555555-5555-5555-5555-555555555555'
             return code, json.dumps(value).encode()
@@ -113,6 +117,10 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
     if sid == 'P15':
         from agent_e2e_p10_observer import source_path
         recorder.json('p15-source-before', 'GET', source_path({'service': 'town', 'layerId': 3}))
+    if sid == 'P18':
+        baseline_item = FOREIGN_ITEM if wrong == 'other-baseline' else ITEM
+        baseline_version = FOREIGN_VERSION if wrong == 'other-baseline' else VERSION
+        recorder.json('p18-map-before', 'GET', f'/api/v1/studio/content-items/{baseline_item}/versions/{baseline_version}')
     recorder.set_phase('observe')
     stack = Stack('http://127.0.0.1:8147', 'controller', None, 'case', 'compose', str(tmp_path),
                   'sha256:' + '1' * 64, {'recorder': recorder})
@@ -124,7 +132,12 @@ def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
     scenario = runner.load_scenario(sid)
     observed = scenario.observe(stack, seeded, variant)
     roles = resolve_roles(scenario.roles(stack, seeded, variant), recorder.records, agent_principal='agent-id')
-    scored = runner.score_assertions(PACK[sid], observed, scenario.expected(variant), records=recorder.records, roles=roles)
+    expectation = scenario.expected(variant)
+    if sid == 'P18' and wrong in ('map-control', 'mutate-map'):
+        # A fixture-only control, not the still-unavailable production baseline.
+        expectation['mutations.absent'] = {'profile': 'honua.protected-content/v1', 'resources': [
+            {'resourceId': 'foreign-map', 'content': {'family': 'map', 'body': map_body}}]}
+    scored = runner.score_assertions(PACK[sid], observed, expectation, records=recorder.records, roles=roles)
     return {row['assertion']: row for row in scored}
 
 
@@ -175,6 +188,19 @@ def test_mutated_foreign_map_fails_preservation_oracle():
     changed['after'][0]['content']['initialView']['zoom'] += 1
     with pytest.raises(runner.oracle.VerificationError):
         runner.oracle.verify('mutations.absent', changed, expected)
+
+
+def test_p18_recorded_map_projection_detects_a_real_envelope_change(tmp_path, monkeypatch):
+    good = recorded_case(tmp_path / 'good-map', monkeypatch, 'P18', 'A', 'map-control')['mutations.absent']
+    bad = recorded_case(tmp_path / 'bad-map', monkeypatch, 'P18', 'A', 'mutate-map')['mutations.absent']
+    assert good['status'] == 'pass', good
+    assert {row['step'] for row in good['evidence']} == {'p18-map-before', 'p18-map-after'}
+    assert bad['status'] == 'fail', bad
+
+
+def test_p18_refuses_a_foreign_baseline_for_another_resource(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match='same controller-read version'):
+        recorded_case(tmp_path, monkeypatch, 'P18', 'A', 'other-baseline')
 
 
 @pytest.mark.parametrize('sid', ('P15', 'P18'))

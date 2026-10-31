@@ -124,6 +124,18 @@ def observe_partial(scenario_id, stack, seeded, variant):
             recorder.json('p15-source-after', 'GET', source_path(seeded.state['shelters']))
             selected['source-content.unchanged'] = {'protectedContent': [{
                 'label': 'shelters', 'before': 'p15-source-before', 'after': 'p15-source-after'}]}
+        if scenario_id == 'P18':
+            # This covers the selected map envelope only. A frozen baseline and
+            # complete map/draft/pointer inventory are still needed to enable
+            # mutations.absent for the case as a whole.
+            before = recorder.records.get('p18-map-before')
+            if (before is None or before.phase != 'seed' or before.path != path or
+                    before.principal != 'controller' or before.status != 200):
+                raise ValueError('foreign map baseline is not the same controller-read version')
+            recorder.json('p18-map-after', 'GET', path)
+            selected['mutations.absent'] = {'protectedContent': [{
+                'label': 'foreign-map', 'before': 'p18-map-before', 'after': 'p18-map-after',
+                'pointer': '/data/envelope'}]}
     # Missing controller evidence must fail projection rather than yield a fabricated value.
     return [observation(assertion, selected.get(assertion, {
         'body': scenario_id.lower() + '-unavailable-' + assertion.replace('.', '-'), 'pointer': ''}))
