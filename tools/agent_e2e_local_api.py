@@ -224,6 +224,7 @@ class SessionContext:
     clarifications: tuple = ()       # scripted customer replies, sent in pack order
     token_budget_used: int = 0
     attachments: tuple = ()          # customer files the scenario declared: {name, mediaType, sha256, path}
+    studio_browser: Callable[[], McpEndpoint] | None = None  # origin-locked studio MCP, when the case needs it
 
 
 @dataclass(frozen=True)
