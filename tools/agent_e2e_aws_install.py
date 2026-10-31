@@ -376,33 +376,31 @@ def _parse_variables(arguments):
     return raw, None
 
 
-def _variable_reason(variables, goal, prefix, cell_domain=None):
+def _variable_reason(variables, goal, prefix, cell_domain=None, partial=False):
     for key, value in variables.items():
         if SECRET_KEY_RE.search(str(key)):
             return 'malformed'
         if isinstance(value, str) and ('\n' in value or '\x00' in value or len(value) > 512):
             return 'malformed'
-    if 'redis_enabled' not in variables:
+    if not partial and 'redis_enabled' not in variables:
         return 'topology-mismatch'
-    enabled = variables['redis_enabled']
-    # bool("false") is True. Only a real JSON boolean states the Redis choice.
-    if type(enabled) is not bool:
-        return 'variable-rejected'
-    if enabled != goal['topology'].redis:
-        return 'topology-mismatch'
-    for key in ('region', 'name_prefix', 'environment'):
-        if key not in variables:
+    if 'redis_enabled' in variables:
+        enabled = variables['redis_enabled']
+        if type(enabled) is not bool:
+            return 'variable-rejected'
+        if enabled != goal['topology'].redis:
+            return 'topology-mismatch'
+    expected = {'region': 'us-east-1', 'name_prefix': prefix, 'environment': ENVIRONMENT}
+    for key, value in expected.items():
+        if key in variables and variables[key] != value or not partial and key not in variables:
             return 'malformed'
-    if variables['region'] != 'us-east-1':
-        return 'malformed'
-    if variables['name_prefix'] != prefix:
-        return 'malformed'
-    if variables['environment'] != ENVIRONMENT:
-        return 'malformed'
     if 'honua_image' in variables and variables['honua_image'] != INSTALL_IMAGE:
         return 'wrong-release'
     domain = variables.get('domain_name', variables.get('domain'))
-    if goal['topology'].custom_domain and domain != (cell_domain or goal['topology'].domain):
+    if goal['topology'].custom_domain:
+        if (not partial or domain is not None) and domain != (cell_domain or goal['topology'].domain):
+            return 'topology-mismatch'
+    elif domain:
         return 'topology-mismatch'
     return None
 
@@ -708,7 +706,9 @@ class InstallHarness:
                 return {'status': 'fail', 'result': {'error': 'topology-mismatch'}}
             if args.get('variablesJson'):
                 variables, problem = _parse_variables(args)
-                problem = problem or _variable_reason(variables, self.goal, self.prefix, self.cell_domain)
+                if not problem:
+                    variables = {**(self.install_variables or {}), **variables}
+                problem = problem or _variable_reason(variables, self.goal, self.prefix, self.cell_domain, partial=True)
                 if problem:
                     self._note(problem)
                     return {'status': 'fail', 'result': {'error': problem}}

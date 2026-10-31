@@ -43,13 +43,12 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: e2e-cloud-aws
-  cancel-in-progress: false
-
 jobs:
   protocol:
     name: Shipped operator protocol
+    concurrency:
+      group: agent-aws-install-protocol-${{ github.ref }}
+      cancel-in-progress: true
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -88,6 +87,9 @@ jobs:
 
   install:
     name: AWS install eval
+    concurrency:
+      group: e2e-cloud-aws
+      cancel-in-progress: false
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     timeout-minutes: 90

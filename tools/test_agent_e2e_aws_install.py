@@ -326,7 +326,8 @@ def test_workflow_guard_pins_oidc_export_and_teardown_order():
     assert job['if'] == "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/trunk'"
     assert job['environment'] == 'aws-cell-provision'
     assert job['permissions']['id-token'] == 'write'
-    assert workflow['concurrency'] == {'group': 'e2e-cloud-aws', 'cancel-in-progress': False}
+    assert job['concurrency'] == {'group': 'e2e-cloud-aws', 'cancel-in-progress': False}
+    assert workflow['jobs']['protocol']['concurrency']['group'].startswith('agent-aws-install-protocol-')
     steps = job['steps']
     names = [s.get('name', '') for s in steps]
     assert names.index('Preflight the release cell and the product gaps') < names.index('Assume the release-cell provision role')
@@ -528,3 +529,20 @@ def test_signer_can_reuse_workflow_oidc_session_without_self_assume():
     obj.session = SimpleNamespace(get_credentials=lambda: SimpleNamespace(get_frozen_credentials=lambda: frozen))
     creds = obj.assume(role, 'unused')
     assert creds.access_key_id == frozen.access_key and creds.role_arn == role
+
+
+def test_install_intake_accumulates_partial_variables_without_overriding_scope(harness):
+    harness.operator.result = fixture('install-intake.json')
+    first = harness.execute('tool_call', {'tool': 'install_honua', 'arguments': {
+        'variablesJson': json.dumps({'environment': 'dev', 'redis_enabled': False})}})
+    assert first['status'] == 'ok'
+    second = harness.execute('tool_call', {'tool': 'install_honua', 'arguments': {
+        'installationId': harness.installation_id,
+        'variablesJson': json.dumps({'domain_name': 'maps.example.test', 'region': 'us-east-1'})}})
+    assert second['status'] == 'ok'
+    assert harness.install_variables['redis_enabled'] is False
+    assert harness.install_variables['domain_name'] == 'maps.example.test'
+    wrong = harness.execute('tool_call', {'tool': 'install_honua', 'arguments': {
+        'installationId': harness.installation_id, 'variablesJson': json.dumps({'redis_enabled': True})}})
+    assert wrong['result']['error'] == 'topology-mismatch'
+    assert len(harness.operator.calls) == 2
