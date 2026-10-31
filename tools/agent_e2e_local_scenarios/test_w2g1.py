@@ -191,7 +191,7 @@ def test_p02_recorded_configuration_rejects_changed_state():
         'p02-connections-after-restart': _record('p02-connections-after-restart', phase='observe', body=config, path='/api/v1/admin/connections/'),
         'p02-connections-seed': _record('p02-connections-seed', phase='seed', body={'data': []}, path='/api/v1/admin/connections/'),
     }
-    roles = resolve_roles([RoleBinding(**row) for row in document['roles']], records, agent_principal='agent')
+    roles = resolve_roles([RoleBinding(**{'step': '', **row}) for row in document['roles']], records, agent_principal='agent')
     rows = score_assertions(['configuration.persisted'],
         [Observation('configuration.persisted', None, {'projection': 'extract/v1'})],
         {'configuration.persisted': document['variants']['A']['configuration.persisted']},
@@ -218,10 +218,13 @@ def test_p02_secret_scan_rejects_exposed_canary_in_final_answer():
         'p02-connections-after-restart': _record('p02-connections-after-restart', phase='observe', body=inventory, path='/api/v1/admin/connections/'),
         'p02-connections-seed': _record('p02-connections-seed', phase='seed', body={'data': []}, path='/api/v1/admin/connections/'),
     }
-    roles = resolve_roles([RoleBinding(**row) for row in document['roles']], records, agent_principal='agent')
+    roles = resolve_roles([RoleBinding(**{'step': '', **row}) for row in document['roles']], records, agent_principal='agent')
     def score(answer):
+        from agent_e2e_local_projections import Context, scan_roles
+        scan = scan_roles([RoleBinding(**{'step': '', **row}) for row in document['roles']],
+                          Context(records, roles, model_visible=(b'{}',), action_results=(b'{}',), final_answers=(answer,)))
         return score_assertions(['secrets.absent'], [Observation('secrets.absent', None, {'projection': 'extract/v1'})],
-            {'secrets.absent': document['variants']['A']['secrets.absent']}, records=records, roles=roles,
+            {'secrets.absent': document['variants']['A']['secrets.absent']}, records=records, roles={**roles, **scan},
             scenario_id='P02', frozen={'secrets.absent': document['projections']['secrets.absent']},
             canaries={'p02-secret': 'secret-canary-value'}, model_visible=(b'{}',), action_results=(b'{}',),
             final_answers=(answer,))[0]['status']
@@ -262,7 +265,7 @@ def test_p12_saved_and_reopened_bind_real_recorded_version_and_session():
                                       {'version': {'itemId': item, 'versionId': version}})
     records['p12-reopen-read'] = mcp('p12-reopen-read', 'controller', 'controller', read_id, read_args,
                                       {'versionId': version})
-    roles = resolve_roles([RoleBinding(**row) for row in document['roles']], records, agent_principal='agent')
+    roles = resolve_roles([RoleBinding(**{'step': '', **row}) for row in document['roles']], records, agent_principal='agent')
     roles['session:current'] = 'fresh-session'
     actions = {save_id: {'kind': 'tool_call', **save_args, '_session': 1},
                read_id: {'kind': 'tool_call', **read_args, '_session': 2}}
@@ -340,9 +343,9 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
         case.seed(second, 'A')
 
 
-def test_p02_does_not_enable_canonical_hash_as_raw_scan_evidence():
+def test_p02_scans_raw_bytes_instead_of_canonical_hashes():
     case = importlib.import_module('agent_e2e_local_scenarios.P02').scenario
-    assert case.supported_variants == ()
+    assert case.supported_variants == ('A', 'B')
     raw = b'{"success":true,"data":[],"timestamp":"2026-01-01T00:00:00Z"}'
     raw_digest = hashlib.sha256(raw).hexdigest()
     data_digest = hashlib.sha256(json.dumps([], separators=(',', ':')).encode()).hexdigest()

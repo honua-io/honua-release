@@ -25,11 +25,9 @@
         ]
       },
       "secrets.absent": {
-        "scannedArtifactDigests": [
-          {
-            "$role": "recorded:scanned-inventory"
-          }
-        ],
+        "scannedArtifactDigests": {
+          "$role": "scan:artifacts"
+        },
         "leakedCredentialFingerprints": [],
         "matchedPrivateCanaries": []
       }
@@ -56,11 +54,9 @@
         ]
       },
       "secrets.absent": {
-        "scannedArtifactDigests": [
-          {
-            "$role": "recorded:scanned-inventory"
-          }
-        ],
+        "scannedArtifactDigests": {
+          "$role": "scan:artifacts"
+        },
         "leakedCredentialFingerprints": [],
         "matchedPrivateCanaries": []
       }
@@ -108,13 +104,11 @@
       "spec": {
         "object": {
           "scannedArtifactDigests": {
-            "list": [
-              {
-                "canonicalSha256": {
-                  "body": "p02-connections-after-restart",
-                  "pointer": "/data"
-                }
-              }
+            "scannedDigests": [
+              "p02-connections-after-restart",
+              "$model-visible",
+              "$action-results",
+              "$final-answers"
             ]
           },
           "leakedCredentialFingerprints": {
@@ -153,11 +147,6 @@
       "pointer": "/data"
     },
     {
-      "role": "recorded:scanned-inventory",
-      "step": "p02-connections-before-restart",
-      "pointer": "/data"
-    },
-    {
       "role": "created:connection",
       "step": "p02-connections-after-restart",
       "items": "/data",
@@ -165,6 +154,15 @@
       "owner": "/createdBy",
       "before": "p02-connections-seed",
       "owner_format": "api-key:{id}"
+    },
+    {
+      "role": "scan:artifacts",
+      "sources": [
+        "p02-connections-after-restart",
+        "$model-visible",
+        "$action-results",
+        "$final-answers"
+      ]
     }
   ],
   "customerFiles": {

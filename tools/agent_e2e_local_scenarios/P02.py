@@ -1,6 +1,5 @@
-"""P02 is unsupported: the secret-scan oracle needs raw scanned-artifact digests.
+"""P02 observes persisted connections and scans exact recorded artifacts for secrets.
 
-The current projection hashes canonical inventory data, not the raw bytes scanned.
 A controller-owned canary is seeded separately from the agent-owned connection.
 """
 from agent_e2e_local_api import Observation, Scenario, Seeded
@@ -9,7 +8,7 @@ from agent_e2e_scenario_operations import body
 
 class P02(Scenario):
     id = 'P02'
-    supported_variants = ()
+    supported_variants = ('A', 'B')
 
     def sessions_required(self):
         return 2
