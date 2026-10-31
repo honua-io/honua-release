@@ -1,20 +1,193 @@
 {
   "schemaVersion": 1,
   "scenario": "P03",
-  "derivation": "Known static facts use the corpus fixture oracle. Null marks an unavailable expectation and cannot pass oracle verification.",
+  "derivation": "Dataset identities are independently recorded from fixture-seeded tables; the created connection is bound to the agent and the tenant assertion is preregistered as excluded.",
   "variants": {
     "A": {
-      "connection.verified": null,
-      "catalog.exact": null,
+      "connection.verified": {
+        "connectionId": {
+          "$role": "created:connection"
+        },
+        "probeStatus": 200,
+        "visibleDatasetIds": [
+          {
+            "$role": "seeded:table:flood_zones"
+          },
+          {
+            "$role": "seeded:table:parcels"
+          },
+          {
+            "$role": "seeded:table:shelters"
+          },
+          {
+            "$role": "seeded:table:survey_points"
+          }
+        ]
+      },
+      "catalog.exact": {
+        "resourceIds": [
+          {
+            "$role": "seeded:table:flood_zones"
+          },
+          {
+            "$role": "seeded:table:parcels"
+          },
+          {
+            "$role": "seeded:table:shelters"
+          },
+          {
+            "$role": "seeded:table:survey_points"
+          }
+        ]
+      },
       "tenant.denied": {
         "$excluded": "tenant.denied"
       }
     },
     "B": {
-      "connection.verified": null,
-      "catalog.exact": null,
+      "connection.verified": {
+        "connectionId": {
+          "$role": "created:connection"
+        },
+        "probeStatus": 200,
+        "visibleDatasetIds": [
+          {
+            "$role": "seeded:table:flood_zones"
+          },
+          {
+            "$role": "seeded:table:parcels"
+          },
+          {
+            "$role": "seeded:table:shelters"
+          },
+          {
+            "$role": "seeded:table:survey_points"
+          }
+        ]
+      },
+      "catalog.exact": {
+        "resourceIds": [
+          {
+            "$role": "seeded:table:flood_zones"
+          },
+          {
+            "$role": "seeded:table:parcels"
+          },
+          {
+            "$role": "seeded:table:shelters"
+          },
+          {
+            "$role": "seeded:table:survey_points"
+          }
+        ]
+      },
       "tenant.denied": {
         "$excluded": "tenant.denied"
+      }
+    }
+  },
+  "customerHandoffs": {
+    "A": [
+      "database:town"
+    ],
+    "B": [
+      "database:town"
+    ]
+  },
+  "roles": [
+    {
+      "role": "seeded:table:flood_zones",
+      "step": "p03-flood-zones-table",
+      "pointer": "/0/table_name"
+    },
+    {
+      "role": "seeded:table:parcels",
+      "step": "p03-parcels-table",
+      "pointer": "/0/table_name"
+    },
+    {
+      "role": "seeded:table:shelters",
+      "step": "p03-shelters-table",
+      "pointer": "/0/table_name"
+    },
+    {
+      "role": "seeded:table:survey_points",
+      "step": "p03-survey-points-table",
+      "pointer": "/0/table_name"
+    },
+    {
+      "role": "created:connection",
+      "step": "p03-connections-after",
+      "items": "/data",
+      "id": "/connectionId",
+      "owner": "/createdBy",
+      "before": "p03-connections-before"
+    }
+  ],
+  "projections": {
+    "connection.verified": {
+      "spec": {
+        "object": {
+          "connectionId": {
+            "target": "p03-connection-probe",
+            "role": "created:connection"
+          },
+          "probeStatus": {
+            "status": "p03-connection-probe"
+          },
+          "visibleDatasetIds": {
+            "sorted": {
+              "body": "p03-catalog",
+              "pointer": "/tables/*/table"
+            }
+          }
+        }
+      },
+      "reads": {
+        "p03-connection-probe": {
+          "kind": "http",
+          "method": "POST",
+          "path": "/api/v1/admin/connections/[0-9a-fA-F-]{36}/test",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            "created:connection"
+          ]
+        },
+        "p03-catalog": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/connections/[0-9a-fA-F-]{36}/tables",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            "created:connection"
+          ]
+        }
+      }
+    },
+    "catalog.exact": {
+      "spec": {
+        "object": {
+          "resourceIds": {
+            "sorted": {
+              "body": "p03-catalog",
+              "pointer": "/tables/*/table"
+            }
+          }
+        }
+      },
+      "reads": {
+        "p03-catalog": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/connections/[0-9a-fA-F-]{36}/tables",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            "created:connection"
+          ]
+        }
       }
     }
   }

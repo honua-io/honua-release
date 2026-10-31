@@ -15,7 +15,23 @@
         }
       },
       "geometry.crs": null,
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "town-A/parcels.4326.geojson",
+            "content": {
+              "sha256": "sha256:561ce256cc4f4f45667ac70bafa64d9acfc27a09d6abcd74fef595f07ee5e63c"
+            }
+          },
+          {
+            "resourceId": "town-A/flood_zones.3857.geojson",
+            "content": {
+              "sha256": "sha256:b8ea14ee38b0ef30df4ec16a0b1ed31ef495726f1507c4511cb972676f3d5c54"
+            }
+          }
+        ]
+      }
     },
     "B": {
       "features.exact": {
@@ -29,7 +45,23 @@
         }
       },
       "geometry.crs": null,
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "town-B/parcels.3857.geojson",
+            "content": {
+              "sha256": "sha256:78adb08094629329be262eda964c489ba3f8097d6e4f37e7ed26f61702214321"
+            }
+          },
+          {
+            "resourceId": "town-B/flood_zones.4326.geojson",
+            "content": {
+              "sha256": "sha256:f406a070d755a0e7500af9350e6432ac92371900b62829e0ac9391b3fb3bd77d"
+            }
+          }
+        ]
+      }
     }
   },
   "customerFiles": {
@@ -41,5 +73,29 @@
       "town-B/parcels.3857.geojson",
       "town-B/flood_zones.4326.geojson"
     ]
+  },
+  "variantProjections": {
+    "A": {
+      "source-content.unchanged": {
+        "spec": {
+          "attachmentSnapshots": [
+            "town-A/parcels.4326.geojson",
+            "town-A/flood_zones.3857.geojson"
+          ]
+        },
+        "reads": {}
+      }
+    },
+    "B": {
+      "source-content.unchanged": {
+        "spec": {
+          "attachmentSnapshots": [
+            "town-B/parcels.3857.geojson",
+            "town-B/flood_zones.4326.geojson"
+          ]
+        },
+        "reads": {}
+      }
+    }
   }
 }

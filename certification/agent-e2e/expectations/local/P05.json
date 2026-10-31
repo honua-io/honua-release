@@ -13,7 +13,23 @@
       },
       "csv.invalid-reported": null,
       "geometry.crs": null,
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "town-A/shelters.csv",
+            "content": {
+              "sha256": "sha256:cb2fb51557859841860bee70b93402aade259e568da71e279743954130bbb54c"
+            }
+          },
+          {
+            "resourceId": "town-A/invalid-rows.csv",
+            "content": {
+              "sha256": "sha256:a46f82c6f96fb17022036ad19c48e39d322d879539c05c143f3aa3f81a2718a2"
+            }
+          }
+        ]
+      }
     },
     "B": {
       "features.exact": {
@@ -25,7 +41,23 @@
       },
       "csv.invalid-reported": null,
       "geometry.crs": null,
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "town-B/shelters.csv",
+            "content": {
+              "sha256": "sha256:9c77ce87024f619b079678ca30cb9b2f62ad4a41565632948c40c1b28cb3789b"
+            }
+          },
+          {
+            "resourceId": "town-B/invalid-rows.csv",
+            "content": {
+              "sha256": "sha256:a46f82c6f96fb17022036ad19c48e39d322d879539c05c143f3aa3f81a2718a2"
+            }
+          }
+        ]
+      }
     }
   },
   "customerFiles": {
@@ -37,5 +69,29 @@
       "town-B/shelters.csv",
       "town-B/invalid-rows.csv"
     ]
+  },
+  "variantProjections": {
+    "A": {
+      "source-content.unchanged": {
+        "spec": {
+          "attachmentSnapshots": [
+            "town-A/shelters.csv",
+            "town-A/invalid-rows.csv"
+          ]
+        },
+        "reads": {}
+      }
+    },
+    "B": {
+      "source-content.unchanged": {
+        "spec": {
+          "attachmentSnapshots": [
+            "town-B/shelters.csv",
+            "town-B/invalid-rows.csv"
+          ]
+        },
+        "reads": {}
+      }
+    }
   }
 }
