@@ -906,6 +906,8 @@ def run_case(*, goal_id, agent, model, lock_digest, output, run_id, attempt=1, r
         return receipt
     if any(value is None for value in (session, operator, creds, contract, contract_digest, approver, controller)):
         raise InfrastructureError('controller-required')
+    receipt['referenceDigest'] = 'sha256:' + contract_digest
+    receipt['referenceContract'] = contract
     prefix = name_prefix_for(run_id, goal['topology'])
     workdir = Path(workdir or output.parent / 'work')
     workdir.mkdir(parents=True, exist_ok=True)

@@ -515,6 +515,8 @@ def test_run_case_writes_first_attempt_only_and_cleans_up(tmp_path, harness):
         approver=harness.approver, controller=harness.aws, module_source=harness.module_dir)
     receipt = aws.run_case(**args)
     assert receipt['status'] != 'pass'
+    assert receipt['referenceContract'] == harness.contract
+    assert receipt['referenceDigest'] == 'sha256:' + harness.contract_digest
     assert harness.aws.destroyed == 1
     with pytest.raises(FileExistsError):
         aws.run_case(**args)
