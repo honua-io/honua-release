@@ -476,3 +476,77 @@ def test_runtime_proxy_omits_temperature_like_the_shipped_client(monkeypatch, tm
         with pytest.raises(Stop):
             client.complete([{'role': 'user', 'content': 'x'}], {'runNonce': 'n'})
     assert 'temperature' not in sent[0] and sent[1]['temperature'] == 0
+
+
+def _record(step, phase='observe', status=200, body=None, path='/x', principal_id='admin', kind='http', arguments=None):
+    from agent_e2e_local_recorder import Record
+    raw = json.dumps(body).encode()
+    return Record(step, phase, kind, 'controller', principal_id, 'GET', path, status, raw,
+                  'sha256:' + hashlib.sha256(raw).hexdigest(), body, None, arguments)
+
+
+def test_permission_matrix_projection_binds_targets_principals_and_disclosure():
+    roles = {'seeded:map:ours': 'map-1', 'seeded:map:theirs': 'map-2'}
+    records = {'own': _record('own', body={'data': {'id': 'map-1'}}, path='/api/v1/maps/map-1', principal_id='key-a'),
+               'foreign': _record('foreign', status=404, body={'error': 'not found'}, path='/api/v1/maps/map-2',
+                                  principal_id='key-a'),
+               'control': _record('control', body={'data': {'id': 'map-2'}}, path='/api/v1/maps/map-2',
+                                  principal_id='key-b')}
+
+    def row(step, role):
+        return {'object': {'principalId': {'principal': step}, 'method': {'method': step},
+                           'resourceId': {'target': step, 'role': role}, 'status': {'status': step},
+                           'responseSha256': {'sha256': step},
+                           'disclosedResourceIds': {'disclosed': step, 'roles': ['seeded:map:theirs']}}}
+    spec = {'object': {'requests': {'list': [row('own', 'seeded:map:ours'), row('foreign', 'seeded:map:theirs'),
+                                             row('control', 'seeded:map:theirs')]}}}
+    expected = {'requests': [
+        {'principalId': 'key-a', 'method': 'GET', 'resourceId': {'$role': 'seeded:map:ours'}, 'status': 200},
+        {'principalId': 'key-a', 'method': 'GET', 'resourceId': {'$role': 'seeded:map:theirs'}, 'status': 404},
+        {'principalId': 'key-b', 'method': 'GET', 'resourceId': {'$role': 'seeded:map:theirs'}, 'status': 200}]}
+    obs = Observation('tenant.denied', None, {'projection': 'extract/v1', 'spec': spec})
+    assert runner.score_assertions(['tenant.denied'], [obs], {'tenant.denied': expected}, records=records,
+                                   roles=roles)[0]['status'] == 'pass'
+    # A probe cannot claim a resource its request did not address.
+    swapped = {'object': {'requests': {'list': [row('own', 'seeded:map:ours'), row('own', 'seeded:map:theirs'),
+                                                row('control', 'seeded:map:theirs')]}}}
+    bad = Observation('tenant.denied', None, {'projection': 'extract/v1', 'spec': swapped})
+    result = runner.score_assertions(['tenant.denied'], [bad], {'tenant.denied': expected}, records=records, roles=roles)
+    assert result[0]['status'] == 'fail' and 'did not address' in result[0]['reason']
+    # A denial that discloses the foreign id fails.
+    records['foreign'] = _record('foreign', status=404, body={'id': 'map-2'}, path='/api/v1/maps/map-2',
+                                 principal_id='key-a')
+    assert runner.score_assertions(['tenant.denied'], [obs], {'tenant.denied': expected}, records=records,
+                                   roles=roles)[0]['status'] == 'fail'
+
+
+def test_binding_projection_from_custody_and_secret_scan():
+    custody = {'bootstrapPrincipalId': 'key-1', 'bootstrapRevokedCredentialIds': ['key-1'],
+               'postRevocationProbeStatus': 401}
+    spec = {'object': {'bootstrapPrincipalId': {'custody': 'bootstrapPrincipalId'},
+                       'revokedCredentialIds': {'custody': 'bootstrapRevokedCredentialIds'},
+                       'postRevocationProbeStatus': {'custody': 'postRevocationProbeStatus'}}}
+    expected = {'bootstrapPrincipalId': 'key-1', 'revokedCredentialIds': ['key-1'], 'postRevocationProbeStatus': 401}
+    obs = Observation('custody.bootstrap-revoked', None, {'projection': 'extract/v1', 'spec': spec})
+    assert runner.score_assertions(['custody.bootstrap-revoked'], [obs], {'custody.bootstrap-revoked': expected},
+                                   records={}, custody=custody)[0]['status'] == 'pass'
+    custody['postRevocationProbeStatus'] = 200
+    assert runner.score_assertions(['custody.bootstrap-revoked'], [obs], {'custody.bootstrap-revoked': expected},
+                                   records={}, custody=custody)[0]['status'] == 'fail'
+    from agent_e2e_local_projections import Context, evaluate
+    records = {'cfg': _record('cfg', body={'connection': 'password=hunter2-secret'})}
+    ctx = Context(records, credentials=('hunter2-secret', 'unused-credential'))
+    assert evaluate({'leakedCredentials': ['cfg']}, ctx) == [hashlib.sha256(b'hunter2-secret').hexdigest()[:16]]
+
+
+def test_protected_content_requires_seed_before_and_observe_after():
+    from agent_e2e_local_projections import Context, evaluate
+    records = {'b': _record('b', phase='seed', body={'data': {'title': 'Map', 'updatedAt': 1}}),
+               'a': _record('a', phase='observe', body={'data': {'title': 'Map', 'updatedAt': 2}})}
+    spec = {'protectedContent': [{'label': 'map', 'before': 'b', 'after': 'a',
+                                  'content': {'object': {'title': {'body': '$step', 'pointer': '/data/title'}}}}]}
+    value = evaluate(spec, Context(records))
+    assert value['before'] == value['after'] == [{'resourceId': 'map', 'content': {'title': 'Map'}}]
+    swapped = {'protectedContent': [{'label': 'map', 'before': 'a', 'after': 'b', 'pointer': '/data'}]}
+    with pytest.raises(ValueError, match='wrong phase'):
+        evaluate(swapped, Context(records))

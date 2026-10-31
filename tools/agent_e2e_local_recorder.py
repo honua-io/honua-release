@@ -127,7 +127,6 @@ class ControllerRecorder:
         self.principals = dict(principals)
         self.records: dict[str, Record] = {}
         self.phase = 'seed'
-        self._clients = {}
         self._pending = {}
         self._http_factory = http_factory
         self._mcp_factory = mcp_factory
@@ -159,49 +158,76 @@ class ControllerRecorder:
         return record
 
     # -- HTTP --------------------------------------------------------------
-    def _http(self, principal):
-        if principal not in self._clients:
-            env, _identity = self._principal(principal)
-            if self._http_factory is not None:
-                client = self._http_factory(self, principal)
-            else:
-                from agent_e2e_setup_http import SetupHttp
-                client = SetupHttp(self.base_url, env, identity=dict(self.identity), authorize=lambda: None,
-                                   retain=lambda kind, step, record, p=principal: self._retain(p, kind, step, record),
-                                   credential_kind='anonymous' if env is None else 'api-key', timeout=600)
-            self._clients[principal] = client
-        return self._clients[principal]
-
-    def _retain(self, principal, kind, step, record):
-        from agent_e2e_pack import canonical_digest
-        if kind == 'intent':
-            self._pending[step] = (principal, record['method'], record['path'])
-        elif kind == 'response':
-            owner, method, path = self._pending.pop(step)
-            require(owner == principal, 'response retained under another principal')
-            response = record['response']
-            raw = base64.b64decode(response['rawBodyBase64'], validate=True)
-            digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
-            require(digest == response['responseDigest'], 'recorded response digest mismatch')
+    def _request(self, step, principal, method, path, body, content_type):
+        """One loopback request; every response (any status, any bytes) is retained."""
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        self._claim(step)
+        env, identity = self._principal(principal)
+        require(method in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE') and isinstance(path, str)
+                and path.startswith('/') and not path.startswith('//') and all(33 <= ord(c) <= 126 for c in path),
+                'invalid recorder request')
+        require(urllib.parse.urlsplit(self.base_url).hostname in ('127.0.0.1', 'localhost', '::1'),
+                'recorder reads only the case-local stack')
+        headers = {'Accept': 'application/json'}
+        if body is not None:
+            headers['Content-Type'] = content_type
+        token = None
+        if env is not None:
+            token = os.environ.get(env)
+            require(isinstance(token, str) and token, 'recorder credential is not available')
+            headers['X-API-Key'] = token
+        if self._http_factory is not None:
+            status, raw = self._http_factory(self, principal, method, path, body, headers)
+        else:
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, *args, **kwargs):
+                    return None
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+            request = urllib.request.Request(self.base_url + path, data=body, headers=headers, method=method)
+            self._pending[step] = (principal, method, path)
             try:
-                parsed = json.loads(raw) if raw.strip() else None
-            except ValueError:
-                parsed = None
-            self._store(Record(step, self.phase, 'http', principal, self._principal(principal)[1], method, path,
-                               response['httpStatus'], raw, digest, parsed))
-        return {'key': step + '-' + kind, 'sha256': canonical_digest(record)}
+                try:
+                    response = opener.open(request, timeout=120)
+                except urllib.error.HTTPError as error:
+                    response = error
+                with response:
+                    status, raw = response.status if hasattr(response, 'status') else response.code, response.read(16 * 1024 * 1024 + 1)
+            finally:
+                self._pending.pop(step, None)
+            require(len(raw) <= 16 * 1024 * 1024, 'recorded response exceeds bound')
+        require(token is None or token.encode() not in raw, 'response disclosed the requesting credential')
+        try:
+            parsed = json.loads(raw) if raw.strip() else None
+        except ValueError:
+            parsed = None
+        record = self._store(Record(step, self.phase, 'http', principal, identity, method, path, status, raw,
+                                    'sha256:' + hashlib.sha256(raw).hexdigest(), parsed))
+        return {'observation': {'httpStatus': status, 'body': parsed, 'responseDigest': record.sha256,
+                                'rawBodyBase64': base64.b64encode(raw).decode('ascii')},
+                'reference': {'key': step, 'sha256': record.sha256}}
 
     def json(self, step, method, path, body=None, *, principal='controller'):
-        self._claim(step)
-        answer = self._http(principal).json(step, method, path, body)
-        require(step in self.records, 'transport returned without a retained response')
-        return answer
+        encoded = None if body is None else json.dumps(body, ensure_ascii=True, allow_nan=False,
+                                                       separators=(',', ':')).encode()
+        return self._request(step, principal, method, path, encoded, 'application/json')
 
     def upload(self, step, raw, *, table, schema, srid, principal='controller'):
-        self._claim(step)
-        answer = self._http(principal).upload(step, raw, table=table, schema=schema, srid=srid)
-        require(step in self.records, 'transport returned without a retained response')
-        return answer
+        """The fixture import upload (same multipart form as agent_e2e_setup_http.SetupHttp.upload)."""
+        require(type(raw) is bytes and all(isinstance(v, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', v)
+                                           for v in (table, schema)) and type(srid) is int and srid > 0,
+                'invalid fixture upload target')
+        boundary = 'honua-' + hashlib.sha256(raw).hexdigest()
+        require(boundary.encode() not in raw, 'fixture upload contains multipart boundary')
+        fields = {'TableName': table, 'TargetSchema': schema, 'SourceSrid': str(srid),
+                  'TargetSrid': str(srid), 'OverwriteExisting': 'false'}
+        parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
+                 for key, value in fields.items()]
+        parts += [f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="fixture.geojson"\r\n'
+                  'Content-Type: application/geo+json\r\n\r\n'.encode(), raw, f'\r\n--{boundary}--\r\n'.encode()]
+        return self._request(step, principal, 'POST', '/api/v1/admin/import/upload', b''.join(parts),
+                             'multipart/form-data; boundary=' + boundary)
 
     # -- MCP ---------------------------------------------------------------
     def _mcp(self, step, principal, rpc, *, replay_of=None, arguments=None, label):

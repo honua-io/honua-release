@@ -71,7 +71,8 @@ def _canary():
 
 # --------------------------------------------------------------------------- scoring
 
-def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None):
+def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None,
+                     credentials=()):
     """Score each pack assertion from the runner's own recorded responses, failing closed."""
     if len(set(assertions)) != len(assertions) or set(expected) != set(assertions):
         raise ValueError('pack assertions and frozen expectations differ')
@@ -81,7 +82,7 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 or observation.assertion_id in by_id:
             raise ValueError('unexpected or duplicate observation')
         by_id[observation.assertion_id] = observation
-    ctx = projections.Context(records, roles, custody, run_facts)
+    ctx = projections.Context(records, roles, custody, run_facts, credentials)
     results = []
     for assertion in assertions:
         obs = by_id.get(assertion)
@@ -527,6 +528,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             observations = observe_scenario(scenario, stack, seeded, variant, run)
             bindings = (scenario.roles(stack, seeded, variant, run) if hasattr(scenario, 'roles') else [])
             roles = projections.resolve_roles(bindings, recorder.records, agent_principal=run.agent_principal)
+            custody = runtime.custody(stack)  # includes runner facts recorded during observe (e.g. restarts)
         except Exception as exc:
             # After the session, an observation that cannot be made is a failed case, never a rerun.
             receipt['assertions'] = [{'assertion': a, 'status': 'fail',
@@ -536,7 +538,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         if observations is not None:
             receipt['assertions'] = score_assertions(case['assertions'], observations, expected,
                                                      records=recorder.records, roles=roles, custody=custody,
-                                                     run_facts=run_facts)
+                                                     run_facts=run_facts,
+                                                     credentials=tuple(getattr(runtime, '_secrets', ())))
         receipt['roles'] = {name: value for name, value in sorted(roles.items())}
         handoff = None
         if observations is not None and hasattr(scenario, 'handoff'):
@@ -739,7 +742,7 @@ class LocalRuntime:
         os.environ[self.AGENT_ENV] = agent_key
         recorder.principals['agent'] = (self.AGENT_ENV, agent_id)
         revoke = recorder.json('runner-custody-revoke-bootstrap', 'POST',
-                               f'/api/v1/admin/api-keys/{bootstrap_id}/revoke', {}, principal='controller')
+                               f'/api/v1/admin/api-keys/{bootstrap_id}/revoke', principal='controller')
         probe = recorder.json('runner-custody-probe-bootstrap', 'GET', '/api/v1/admin/api-keys/',
                               principal='bootstrap')
         effective = recorder.json('runner-custody-agent-effective', 'GET',
@@ -761,6 +764,64 @@ class LocalRuntime:
                               'runner-custody-probe-bootstrap', 'runner-custody-agent-effective']}
         stack.extra['agentPrincipal'] = agent_id
         stack.extra['ensureConnection'] = lambda: create_local_connection(stack)
+        stack.extra['addPrincipal'] = lambda name, grants: self.add_principal(stack, name, grants)
+        stack.extra['restartServer'] = lambda prefix: self.restart_server(stack, prefix)
+
+    def add_principal(self, stack, name, grants):
+        """Mint one more case API key (e.g. a viewer) as a recorder principal; seed phase only."""
+        recorder = stack.extra['recorder']
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,30}', name) or name in recorder.principals or recorder.phase != 'seed':
+            raise ValueError('invalid, duplicate or late recorder principal')
+        expires = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 3 * 3600))
+        answer = recorder.json(f'runner-principal-{name}', 'POST', '/api/v1/admin/api-keys/',
+                               {'name': f'{stack.compose_project}-{name}', 'permissions': list(grants),
+                                'expiresAt': expires})
+        if answer['observation']['httpStatus'] != 201:
+            raise RuntimeError('could not mint the case principal ' + name)
+        created = answer['observation']['body']['data']
+        env = 'HONUA_CORPUS_PRINCIPAL_' + name.upper().replace('-', '_')
+        os.environ[env] = created['key']
+        self._secrets.append(created['key'])
+        recorder.principals[name] = (env, created['apiKey']['id'])
+        return created['apiKey']['id']
+
+    def restart_server(self, stack, prefix):
+        """Runner-performed server restart, observed: container start times and readiness reads."""
+        import subprocess
+        recorder = stack.extra['recorder']
+        if recorder.phase == 'session' or not re.fullmatch(r'[a-z0-9-]{1,40}', prefix):
+            raise ValueError('restart is a controller step outside the model session')
+        labels = ['--filter', f'label=com.docker.compose.project={stack.compose_project}',
+                  '--filter', 'label=com.docker.compose.service=server']
+        ids = subprocess.run(['docker', 'ps', '-q', *labels], capture_output=True, text=True, check=True,
+                             timeout=60).stdout.split()
+        if not ids:
+            raise RuntimeError('no running server container for the case stack')
+
+        def started():
+            out = subprocess.run(['docker', 'inspect', '--format', '{{.Id}} {{.State.StartedAt}}', *ids],
+                                 capture_output=True, text=True, check=True, timeout=60).stdout
+            return sorted(out.split('\n')[:-1])
+        before = started()
+        subprocess.run(['docker', 'restart', '--time', '30', *ids], capture_output=True, check=True, timeout=300)
+        after = started()
+        steps, deadline = [], time.time() + 300
+        while time.time() < deadline:
+            step = f'{prefix}-ready-{len(steps) + 1}'
+            try:
+                answer = recorder.json(step, 'GET', '/api/v1/admin/version')
+                steps.append(step)
+                if answer['observation']['httpStatus'] == 200:
+                    break
+            except Exception:
+                steps.append(step)
+            time.sleep(3)
+        fact = {'containersBefore': before, 'containersAfter': after, 'readinessSteps': steps,
+                'restarted': before != after and bool(steps) and step in recorder.records
+                and recorder.records[step].status == 200}
+        stack.extra['custody'].setdefault('restarts', []).append({'prefix': prefix, **fact})
+        stack.extra['custody'][f'restart:{prefix}'] = fact
+        return fact
 
     def custody(self, stack):
         return dict(stack.extra['custody'])

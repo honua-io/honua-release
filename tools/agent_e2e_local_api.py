@@ -34,6 +34,18 @@ value in a seed-phase response; ``created:*`` roles bind to the single live item
 enumerated after the session that is owned by ``RunRecord.agent_principal`` and/or
 absent from a seed-phase enumeration. Unresolved, ambiguous or colliding roles fail.
 
+Runner helpers in ``stack.extra`` (controller side, never visible to the model):
+  ensureConnection() -> connection id      the journey's typed SDK datasource connection
+  addPrincipal(name, grants) -> key id     seed phase: mint another case API key as a recorder principal
+  restartServer(prefix) -> fact            observe phase: restart the case server container; the
+                                           runner records container start times and readiness reads
+                                           under custody['restart:<prefix>']
+
+Final answer: a scenario may define ``handoff(stack, seeded, variant, run) -> spec | None``; the runner
+evaluates the spec like an observation and passes the result to agent_e2e_handoff.score_final_answer
+as the controller-observed facts ({'resources': [...], 'facts': {...}, 'accessProbes': [...]}).
+Without it the finalAnswerCheck fails closed.
+
 Custody facts (``RunRecord.custody``) are recorded by the runner, which controls the
 credentials; e.g. ``agentPrincipalId``, ``agentCredentialIds``, ``bootstrapPrincipalId``,
 ``bootstrapRevokedCredentialIds``, ``postRevocationProbeStatus``. Projections read them with
@@ -124,6 +136,7 @@ class Scenario:
     def sessions_required(self) -> int: return 1
     def agent_permissions(self, variant: str) -> list[str]: return ['admin:write']
     def roles(self, stack: Stack, seeded: Seeded, variant: str, run: RunRecord | None = None) -> list[RoleBinding]: return []
+    def handoff(self, stack: Stack, seeded: Seeded, variant: str, run: RunRecord | None = None) -> dict | None: return None
     def observe(self, stack: Stack, seeded: Seeded, variant: str, run: RunRecord | None = None) -> list[Observation]: ...
     def expected(self, variant: str) -> dict[str, Any]:   # assertion_id -> expected value for oracle.verify
         from agent_e2e_local_expectations import load_expected

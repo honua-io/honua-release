@@ -24,10 +24,14 @@ Spec operations (exactly one key per object unless noted):
   {"featureServerPoints": STEP}        FeatureServer query body -> {srid, features} by source_id
   {"featureQueryIds": STEP, "service": SPEC, "layer": SPEC}
                                        source_id set from an MCP honua_query_features result
-  {"protectedContent": [{"label": NAME, "before": STEP, "after": STEP, "pointer": "/x"?}]}
+  {"protectedContent": [{"label": NAME, "before": STEP, "after": STEP, "pointer": "/x"? | "content": SPEC?}]}
                                        honua.protected-content/v1 before/after snapshots; "before"
                                        must be a seed-phase read and "after" an observe-phase read;
-                                       content is featureServerPoints, or the object at "pointer"
+                                       content is featureServerPoints, the object at "pointer", or
+                                       SPEC evaluated with "$step" naming the before/after read
+  {"target": STEP, "role": NAME}       the role's live id, only if the recorded request addressed it
+                                       (a path segment, query value, or MCP argument value)
+  {"leakedCredentials": [STEP, ...]}   fingerprints of runner-held case credentials found in bodies
 """
 from __future__ import annotations
 
@@ -43,7 +47,7 @@ def require(condition, reason):
 
 
 _STEP_OPS = ('body', 'status', 'sha256', 'principal', 'method', 'replayOf', 'disclosed',
-             'featureServerPoints', 'featureQueryIds')
+             'featureServerPoints', 'featureQueryIds', 'target')
 
 
 def referenced_steps(spec, found=None):
@@ -58,8 +62,9 @@ def referenced_steps(spec, found=None):
                 if isinstance(row, dict):
                     found.update(row.get(key) for key in ('before', 'after') if isinstance(row.get(key), str))
             return found
-        if 'each' in spec and isinstance(spec['each'], list):
-            found.update(step for step in spec['each'] if isinstance(step, str))
+        for op in ('each', 'leakedCredentials'):
+            if isinstance(spec.get(op), list):
+                found.update(step for step in spec[op] if isinstance(step, str))
         for value in spec.values():
             referenced_steps(value, found)
     elif isinstance(spec, list):
@@ -107,9 +112,10 @@ def canonical(value):
 
 
 class Context:
-    def __init__(self, records, roles=None, custody=None, run_facts=None):
+    def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=()):
         self.records, self.roles = records, dict(roles or {})
         self.custody, self.run_facts = dict(custody or {}), dict(run_facts or {})
+        self.credentials = tuple(value for value in credentials if isinstance(value, str) and len(value) >= 8)
 
     def record(self, step):
         require(isinstance(step, str) and step in self.records, 'projection reads an unrecorded step: ' + str(step))
@@ -207,22 +213,47 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(rows, list) and rows, 'protectedContent needs resources')
         before, after, labels = [], [], set()
         for row in rows:
-            require(isinstance(row, dict) and {'label', 'before', 'after'} <= set(row) <= {'label', 'before', 'after', 'pointer'},
+            require(isinstance(row, dict) and {'label', 'before', 'after'} <= set(row) <= {'label', 'before', 'after', 'pointer', 'content'},
                     'invalid protectedContent row')
             label = row['label']
             require(isinstance(label, str) and label and label not in labels, 'duplicate protected label')
             labels.add(label)
+            require(not ('pointer' in row and 'content' in row), 'protectedContent row has two content sources')
             for phase, name, sink in (('seed', row['before'], before), ('observe', row['after'], after)):
                 record = ctx.record(name)
                 require(record.phase == phase, f'protected {phase} snapshot read in the wrong phase')
                 require(record.status == 200 and record.json is not None, 'protected snapshot read failed')
-                if 'pointer' in row:
+                if 'content' in row:
+                    content = sub(row['content'], step=name)
+                    require(isinstance(content, dict) and content, 'protected content is not an object')
+                elif 'pointer' in row:
                     content = pointer_get(record.json, row['pointer'])
                     require(isinstance(content, dict) and content, 'protected content is not an object')
                 else:
                     content = evaluate({'featureServerPoints': name}, ctx)
                 sink.append({'resourceId': label, 'content': content})
         return {'profile': 'honua.protected-content/v1', 'before': before, 'after': after}
+    if keys == {'target', 'role'}:
+        from urllib.parse import parse_qsl, unquote, urlsplit
+        record = ctx.record(named(spec['target']))
+        require(spec['role'] in ctx.roles, 'logical role unresolved: ' + str(spec['role']))
+        value = str(ctx.roles[spec['role']])
+        parts = urlsplit(record.path.split('#', 1)[0])
+        addressed = {unquote(segment) for segment in parts.path.split('/')} | {v for _, v in parse_qsl(parts.query)}
+        if record.request_arguments is not None:
+            _scalars(record.request_arguments.get('arguments', record.request_arguments), addressed)
+        require(value in addressed, 'recorded request did not address the role ' + spec['role'])
+        return ctx.roles[spec['role']]
+    if keys == {'leakedCredentials'}:
+        steps = spec['leakedCredentials']
+        require(isinstance(steps, list) and steps, 'leakedCredentials needs recorded steps')
+        found = set()
+        for name in steps:
+            raw = ctx.record(named(name)).raw
+            for credential in ctx.credentials:
+                if credential.encode() in raw:
+                    found.add(hashlib.sha256(credential.encode()).hexdigest()[:16])
+        return sorted(found)
     if keys == {'map', 'to'}:
         values = sub(spec['map'])
         require(isinstance(values, list), 'map over a non-list')
