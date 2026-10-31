@@ -24,7 +24,7 @@ if str(TOOLS) not in sys.path:
 
 from agent_e2e_pack import canonical_digest  # noqa: E402
 from agent_e2e_setup_http import SetupHttp  # noqa: E402
-from agent_e2e_scenario_operations import publication_request, submit_publication  # noqa: E402
+from agent_e2e_scenario_operations import data, publication_request, submit_publication  # noqa: E402
 from state import _projected_layer, messy_table  # noqa: E402
 
 CORPUS = ROOT / 'certification' / 'agent-e2e' / 'corpus'
@@ -57,7 +57,7 @@ def _verify_runtime(project: str, compose_file: Path, image_ref: str, digest: st
 
 def prepare_town(*, variant: str, namespace: str, base_url: str, credential_env: str,
                  candidate_digest: str, connection_id: str, work: Path, project: str,
-                 compose_file: Path, image_ref: str, authorize) -> dict:
+                 compose_file: Path, image_ref: str, authorize, explicit_service_acl: bool = False) -> dict:
     """Seed and publish only the selected development town, retaining every intent.
 
     No held-out pack is opened. Only the three selected A/B layer files are
@@ -182,6 +182,20 @@ def prepare_town(*, variant: str, namespace: str, base_url: str, credential_env:
                    'source_sha256': hashlib.sha256(json.dumps(sources[name], sort_keys=True,
                        separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
                    'publication': published['reference']}
+        if explicit_service_acl:
+            policy = {'allowAnonymous': True, 'allowAnonymousWrite': False,
+                      'allowedRoles': [], 'allowedWriteRoles': []}
+            answer = http.json('policy-' + name.replace('_', '-'), 'PUT',
+                               '/api/v1/admin/services/' + service + '/access-policy', policy)
+            if data(answer).get('accessPolicy') != policy:
+                raise RuntimeError('service access policy mutation was not observed')
+            read = http.json('policy-read-' + name.replace('_', '-'), 'GET',
+                             '/api/v1/admin/services/' + service + '/settings')
+            settings = data(read)
+            if settings.get('serviceName') != service or settings.get('accessPolicy') != policy:
+                raise RuntimeError('independent service access policy readback mismatch')
+            binding['service_policy'] = {'expected': policy, 'write': answer['reference'],
+                                         'read': read['reference']}
         if name == 'stations':
             result['stations'] = binding
         else:

@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from live_observer import compare_source_geometry, observe_database, observe_layer
+from live_observer import compare_source_geometry, observe_database, observe_layer, observe_service_settings
 from real_controller import RealController
 from live_probes import ProbeTraffic, assess_traffic, readback_writes
 from real_seed import _verify_runtime, prepare_town
@@ -33,7 +33,8 @@ def main() -> None:
                             candidate_digest=os.environ['HONUA_SERVER_IMAGE'].split('@', 1)[1],
                             connection_id=seed['connectionId'], work=Path(os.environ['OPS_SMOKE_OUT']) / namespace,
                             project=os.environ['COMPOSE_PROJECT_NAME'], compose_file=Path(os.environ['E2E_COMPOSE_FILE']),
-                            image_ref=os.environ['HONUA_SERVER_IMAGE'], authorize=lambda: None)
+                            image_ref=os.environ['HONUA_SERVER_IMAGE'], authorize=lambda: None,
+                            explicit_service_acl=os.environ.get('OPS_SMOKE_EXPLICIT_ACL') == '1')
         evidence['town'] = town
         def authorize():
             if _verify_runtime(os.environ['COMPOSE_PROJECT_NAME'], Path(os.environ['E2E_COMPOSE_FILE']),
@@ -123,6 +124,21 @@ def main() -> None:
             sorted(mixed_value['rows'], key=lambda row: row['permit_id']) !=
                 sorted(messy_table('Kestrel'), key=lambda row: row['permit_id'])):
             raise RuntimeError('mixed-schema fields or values mismatch')
+        def server_snapshot():
+            bindings = {**town['layers'], 'stations': station}
+            return {name: observe_layer(base,
+                    f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}", key)
+                    for name, binding in bindings.items()}
+        def layer_data(snapshot):
+            return {name: {field: observed[field] for field in ('count', 'object_id_field', 'fields', 'features')}
+                    for name, observed in snapshot.items()}
+        def service_settings():
+            services = {binding['service'] for binding in town['layers'].values()} | {station['service']}
+            return {service: observe_service_settings(base, service, key) for service in sorted(services)}
+        def settings_data(snapshot):
+            return {name: value['settings'] for name, value in snapshot.items()}
+        if os.environ.get('OPS_SMOKE_EXPLICIT_ACL') == '1':
+            evidence['service_settings'] = service_settings()
         path = f"/rest/services/maui-inspections/FeatureServer/{publication['layerId']}"
         def new_traffic():
             return ProbeTraffic(base, path, '', 'note',
@@ -147,6 +163,10 @@ def main() -> None:
                                         compose_file=Path(os.environ['E2E_COMPOSE_FILE']), output=action_out,
                                         prior_image=os.environ['HONUA_SERVER_IMAGE'], candidate_image=candidate,
                                         base_url=base)
+            evidence['prior_schema'] = controller.apply('ops_compose_schema', {})
+            if (evidence['prior_schema'].get('ok') is not True or
+                evidence['prior_schema'].get('schema', 142) >= 142):
+                raise RuntimeError('prior schema is not below the migration 142 boundary')
             # Exercise the internal structured Compose adapter; this is not an MCP tool.
             # A rejected action must also appear in the controller's audit.
             rejected = controller.apply('ops_compose_action', {'operation': 'apply', 'image': candidate})
@@ -164,6 +184,10 @@ def main() -> None:
                 evidence['upgrade'] = upgraded
                 if not upgraded['ok']:
                     raise RuntimeError('live upgrade failed')
+                evidence['upgraded_schema'] = controller.apply('ops_compose_schema', {})
+                if (evidence['upgraded_schema'].get('ok') is not True or
+                    evidence['upgraded_schema'].get('schema', 0) < 142):
+                    raise RuntimeError('candidate did not reach migration 142')
             time.sleep(1.25)
         finally:
             samples = traffic.stop()
@@ -184,16 +208,34 @@ def main() -> None:
                 return {name: (value['fields'], value['rows']) for name, value in snapshot.items()}
             if data_only(before_db) != data_only(after_upgrade):
                 raise RuntimeError('seeded data changed on upgrade')
+            evidence['upgraded_layers'] = server_snapshot()
+            if layer_data(evidence['layers']) != layer_data(evidence['upgraded_layers']):
+                raise RuntimeError('live layer observations changed on upgrade')
+            if 'service_settings' in evidence:
+                evidence['upgraded_service_settings'] = service_settings()
+                if settings_data(evidence['service_settings']) != settings_data(evidence['upgraded_service_settings']):
+                    raise RuntimeError('service settings changed on upgrade')
             restored = controller.apply('ops_compose_action', {'operation': 'restore_backup', 'backup_id': 'previous-release'})
             evidence['restore'] = restored
             if not restored['ok']:
                 raise RuntimeError('live backup restore failed')
+            evidence['restored_schema'] = controller.apply('ops_compose_schema', {})
+            if (evidence['restored_schema'].get('ok') is not True or
+                evidence['restored_schema'].get('schema') != evidence['prior_schema']['schema']):
+                raise RuntimeError('backup restore did not return the prior schema')
             after_restore = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
             evidence['restored_database'] = after_restore
             if data_only(before_db) != data_only(after_restore):
                 raise RuntimeError('seeded data changed on restore')
+            evidence['restored_layers'] = server_snapshot()
+            if layer_data(evidence['layers']) != layer_data(evidence['restored_layers']):
+                raise RuntimeError('live layer observations changed on restore')
+            if 'service_settings' in evidence:
+                evidence['restored_service_settings'] = service_settings()
+                if settings_data(evidence['service_settings']) != settings_data(evidence['restored_service_settings']):
+                    raise RuntimeError('service settings changed on restore')
             evidence['action_audit'] = controller.audit
-            if [event['ok'] for event in controller.audit] != [False, True, True, True]:
+            if [event['ok'] for event in controller.audit] != [True, False, True, True, True, True, True]:
                 raise RuntimeError('controller action audit is incomplete')
             pending = os.environ.get('OPS_SMOKE_FAULT_MIGRATION')
             if pending:
@@ -244,6 +286,13 @@ def main() -> None:
                     os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
                 if data_only(before_db) != data_only(evidence['fault_restored_database']):
                     raise RuntimeError('seeded data changed after interrupted migration restore')
+                evidence['fault_restored_layers'] = server_snapshot()
+                if layer_data(evidence['layers']) != layer_data(evidence['fault_restored_layers']):
+                    raise RuntimeError('live layers changed after interrupted migration restore')
+                if 'service_settings' in evidence:
+                    evidence['fault_restored_service_settings'] = service_settings()
+                    if settings_data(evidence['service_settings']) != settings_data(evidence['fault_restored_service_settings']):
+                        raise RuntimeError('service settings changed after interrupted migration restore')
         evidence['status'] = 'operations-pass'
         evidence['cleanup'] = 'pending'
         print('real Compose operations completed: town layers, anonymous public traffic, controller readback' +

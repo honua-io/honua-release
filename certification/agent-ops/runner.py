@@ -200,6 +200,8 @@ def _drive_stub(scenario: str, state: dict, limit: int) -> tuple[list[dict], boo
 def _tool_action(kind: str, action: dict) -> dict:
     if kind == "tool_call":
         return {"tool": action["tool"], "arguments": dict(action.get("arguments") or {})}
+    if kind == "resource_read":
+        return {"tool": "resource_read", "arguments": {"uri": action.get("uri", "")}}
     return {"tool": "terminal_command", "arguments": {"command": action.get("command", "")}}
 
 
@@ -235,8 +237,19 @@ def live_actions(
     on_usage,
     wait_for_server: bool = False,
 ) -> tuple[bool, bool, dict | None]:
-    """Call the canary client. Returns (priced, completed, evidence)."""
+    """Refuse until live trial setup, customer actions and grading are complete."""
     raise RuntimeError("not-real: live operations and independent readback are not implemented")
+
+
+def _live_session(state: dict, transcript: list[dict], row: dict, arm: str, limit: int, *,
+                  allow_call, on_usage, execute_action, wait_for_server: bool = False
+                  ) -> tuple[bool, bool, dict | None]:
+    """Drive one session with an explicitly supplied action executor.
+
+    This helper does not authorize priced runs; the public entry remains guarded.
+    """
+    if not callable(execute_action):
+        raise ValueError("an explicit action executor is required")
     from client import (
         CanaryError,
         ModelFailure,
@@ -327,12 +340,15 @@ def live_actions(
             transcript.append({"kind": "report", "text": json.dumps(parsed["arguments"]), "report": parsed["arguments"]})
             return priced, True, None
         try:
-            result = apply_action(state, {"tool": parsed["tool"], **parsed["arguments"]})
+            result = execute_action(parsed["tool"], parsed["arguments"])
+            if not isinstance(result, dict) or type(result.get("ok")) is not bool:
+                raise ValueError("action response lacks an explicit result")
         except (KeyError, TypeError, ValueError):
             result = {"ok": False, "error": "the arguments do not match this operation"}
         transcript.append({"tool": parsed["tool"], "arguments": parsed["arguments"], "result": result})
         messages.append({"role": "user", "content": json.dumps({"result": result}, default=str)})
-    return priced, True, None
+    return priced, False, {"kind": "action_cap", "model_acted": priced,
+                           "state_changed": any(item.get("tool") for item in transcript)}
 
 
 def _blind(row: dict, root: Path | None = None) -> None:

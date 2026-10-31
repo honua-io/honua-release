@@ -739,3 +739,40 @@ def test_pr_workflow_runs_real_compose_smoke_without_model():
     assert "github.event_name == 'pull_request'" in smoke
     assert 'bash certification/agent-ops/real_smoke.sh' in smoke
     assert '--priced-ok' not in smoke
+
+
+def test_live_session_counts_nudge_and_failed_action_without_restarting(monkeypatch):
+    import json
+    import client
+    import runner
+
+    class Endpoint:
+        configured = True
+        def validated_base_url(self): return 'http://127.0.0.1:1234'
+
+    class Model:
+        def __init__(self, endpoint):
+            self.answers = iter([
+                'not a valid action',
+                json.dumps({'kind': 'tool_call', 'tool': 'example', 'arguments': {}}),
+                json.dumps({'kind': 'tool_call', 'tool': 'finish', 'arguments': {'summary': 'failed'}}),
+            ])
+            instances.append(self)
+        def complete(self, messages, certification):
+            lengths.append(len(messages))
+            return next(self.answers), {'prompt_tokens': 2, 'completion_tokens': 1}, 0, {}
+
+    instances, lengths, actions = [], [], []
+    monkeypatch.setattr(client, 'build_endpoint', lambda arm: Endpoint())
+    monkeypatch.setattr(client, 'OperateClient', Model)
+    transcript = []
+    def execute(name, arguments):
+        actions.append((name, arguments))
+        return {'ok': False, 'error': 'rejected'}
+    priced, complete, evidence = runner._live_session(
+        {'image_digest': 'sha256:test'}, transcript, {'id': 'trial', 'prompt': 'operate'},
+        'primary', 5, allow_call=lambda: True, on_usage=lambda pair: None, execute_action=execute)
+    assert priced and complete and evidence is None
+    assert len(instances) == 1 and lengths == [2, 4, 6]
+    assert actions == [('example', {})]
+    assert runner._attempt_counts(transcript) == {'actions': 1, 'nudges': 1, 'failed_actions': 1}
