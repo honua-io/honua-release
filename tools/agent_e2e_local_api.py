@@ -52,8 +52,10 @@ needs_approver() (a distinct approver key: stack.approver_key and stack.extra['a
 customer_files() (manifest-checked corpus files attached to the customer turn by digest).
 Restart facts: custody['restart:<prefix>'] (raw observations) and custody['lifecycle:<prefix>'] =
 {"resourceId": "server", "states": [...]} in corpus/oracle lifecycle shape; each state is runner-observed.
-Fault kinds: http_503_once (pre-forward) and response_lost_after_commit (forwarded; fires only on a confirmed
-commit: 2xx, non-error JSON-RPC result, a non-empty scalar at the plan's "commit" pointer; the model gets 503;
+Fault kinds: http_503_once (pre-forward) and response_lost_after_commit (forwarded; fires only on a VERIFIED
+commit: a non-error reply naming the resource at commit.pointer AND a recorded runner controller read of
+commit.confirm.path ({id} substituted) answering 200, polled so pending/202 creations count only once they
+exist; the model gets 503;
 the event records upstreamStatus/upstreamOutcome/upstreamResponseSha256/committedResourceId; rejected or
 noncommitted replies pass through unchanged, are listed in receipt.faultSkipped, and leave the fault armed).
 Custody facts live in the runtime vault (bound to their evidence records); stack.extra['custody'] is a copy.

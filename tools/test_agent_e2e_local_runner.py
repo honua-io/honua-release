@@ -57,6 +57,7 @@ class Candidate:
         self.mcp_calls = []
         self.approvals = []
         self.maps = []
+        self.pending = {}
         self.lock = threading.Lock()
 
     def principal(self, headers):
@@ -117,8 +118,11 @@ class Candidate:
             if name == 'honua_create_map' and arguments.get('title') == 'bad':
                 return {'content': [{'type': 'text', 'text': 'invalid title'}], 'isError': True}
             if name == 'honua_create_map' and arguments.get('pending'):
+                map_id = f'map-p{len(self.pending) + 1}'
+                # Committed only after `pending` controller reads (never, if it is 'never').
+                self.pending[map_id] = arguments['pending']
                 return {'content': [{'type': 'text', 'text': 'accepted'}], 'isError': False,
-                        'structuredContent': {'status': 'Accepted'}}
+                        'structuredContent': {'status': 'Accepted', 'mapId': map_id}}
             if name == 'honua_create_map':
                 map_id = f'map-{len(self.maps) + 1}'
                 self.maps.append({'id': map_id, 'title': arguments.get('title', '')})
@@ -165,6 +169,17 @@ def serve(candidate):
                     return self.reply(401, {'error': 'unauthorized'})
                 if path == '/api/v1/admin/api-keys/':
                     return self.reply(200, {'data': []})
+                if path.startswith('/api/v1/admin/maps/'):
+                    map_id = path.rsplit('/', 1)[1]
+                    remaining = candidate.pending.get(map_id)
+                    if isinstance(remaining, int):
+                        candidate.pending[map_id] = remaining - 1
+                        if remaining - 1 <= 0:
+                            del candidate.pending[map_id]
+                            candidate.maps.append({'id': map_id, 'title': ''})
+                    if any(m['id'] == map_id for m in candidate.maps):
+                        return self.reply(200, {'data': {'id': map_id}})
+                    return self.reply(404, {'error': 'not found'})
                 if path == '/api/v1/admin/maps':
                     limit = int(dict(parse_qs(urlsplit(self.path).query)).get('limit', ['10'])[0])
                     return self.reply(200, {'items': candidate.maps[:limit]})
@@ -1527,7 +1542,8 @@ def test_core2_session_roles_bind_exact_session_expectations(candidate, tmp_path
 def test_core2_response_lost_after_commit_forwards_then_answers_503(candidate, tmp_path):
     candidate.extra_tools = True
     plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'},
-            'commit': {'pointer': '/result/structuredContent/mapId'}}
+            'commit': {'pointer': '/result/structuredContent/mapId',
+                       'confirm': {'path': '/api/v1/admin/maps/{id}', 'attempts': 4, 'intervalSeconds': 0}}}
     create = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {'title': 'Shelters'}})
     receipt, model, _ = run_hook_case(candidate, tmp_path, [create, tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
     event = receipt['faultEvents'][0]
@@ -1733,13 +1749,14 @@ def test_core2r3_partial_inventories_fail_preservation(tmp_path):
                           'a': _record('a', phase='observe', body={'items': [1]}, path=path)}))
 
 
-@pytest.mark.parametrize('first', ['bad', 'pending'])
+@pytest.mark.parametrize('first', ['bad', 'never'])
 def test_core2r4_lost_response_fault_fires_only_on_a_confirmed_commit(candidate, tmp_path, first):
     candidate.extra_tools = True
     plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'},
-            'commit': {'pointer': '/result/structuredContent/mapId'}}
+            'commit': {'pointer': '/result/structuredContent/mapId',
+                       'confirm': {'path': '/api/v1/admin/maps/{id}', 'attempts': 4, 'intervalSeconds': 0}}}
     rejected = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map',
-                           'arguments': {'title': 'bad'} if first == 'bad' else {'pending': True}})
+                           'arguments': {'title': 'bad'} if first == 'bad' else {'pending': 'never'}})
     good = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {'title': 'Shelters'}})
     receipt, model, _ = run_hook_case(candidate, tmp_path, [rejected, good, tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
     # The rejected/noncommitted reply reached the model unchanged; the fault stayed armed for the real commit.
@@ -1753,14 +1770,15 @@ def test_core2r4_lost_response_fault_fires_only_on_a_confirmed_commit(candidate,
 def test_core2r4_lost_response_needs_commit_on_the_proxy_path_too():
     from agent_e2e_local_faults import FaultInjector
     plan = {'kind': 'response_lost_after_commit', 'after': None, 'match': {'tool': 'honua_create_map'},
-            'commit': {'pointer': '/result/structuredContent/mapId'}}
+            'commit': {'pointer': '/result/structuredContent/mapId',
+                       'confirm': {'path': '/api/v1/admin/maps/{id}', 'attempts': 4, 'intervalSeconds': 0}}}
     action = {'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {}}
 
     def reply(result=None, error=None):
         body = {'jsonrpc': '2.0', 'id': '1'}
         body.update({'error': error} if error else {'result': result})
         return json.dumps(body).encode()
-    injector = FaultInjector(plan)
+    injector = FaultInjector(plan, confirm=lambda path: (200 if path.endswith('/m') else 404, 'step'))
     for status, raw in ((500, reply({'structuredContent': {'mapId': 'm'}})),
                         (200, reply(error={'code': -32602, 'message': 'invalid'})),
                         (200, reply({'isError': True, 'structuredContent': {'mapId': 'm'}})),
@@ -1770,3 +1788,85 @@ def test_core2r4_lost_response_needs_commit_on_the_proxy_path_too():
     assert len(injector.skipped) == 4 and not injector.events
     event = injector.lose('tool_call', action, {'status': 'ok'}, 201, reply({'structuredContent': {'mapId': 'm'}}))
     assert event['committedResourceId'] == 'm' and event['upstreamStatus'] == 201
+
+
+
+def test_core2r5_accepted_but_pending_creation_counts_only_once_a_controller_read_sees_it(candidate, tmp_path):
+    candidate.extra_tools = True
+    plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'},
+            'commit': {'pointer': '/result/structuredContent/mapId',
+                       'confirm': {'path': '/api/v1/admin/maps/{id}', 'attempts': 5, 'intervalSeconds': 0}}}
+    pending = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {'pending': 2}})
+    receipt, model, _ = run_hook_case(candidate, tmp_path, [pending, tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
+    event = receipt['faultEvents'][0]
+    assert [c['status'] for c in event['confirmation']['checks']] == [404, 200]   # polled until it existed
+    assert event['committedResourceId'] == 'map-p1' and {'id': 'map-p1', 'title': ''} in candidate.maps
+    assert '503' in model.sent[1][-1]['content']
+    records = {r['step']: r for r in receipt['controllerRecords']}
+    confirm = records[event['confirmation']['checks'][-1]['step']]
+    assert confirm['phase'] == 'session-confirm' and confirm['origin'] == 'fault-confirmation'
+    # A confirmation read is never accepted as observed state by a frozen read rule.
+    from agent_e2e_local_recorder import Record
+    with pytest.raises(ValueError, match='origin'):
+        runner.check_reads('c', Record('c', 'session-confirm', 'http', 'controller', None, 'GET', '/api/v1/admin/maps/map-p1',
+                                       200, b'{}', 'sha256:' + hashlib.sha256(b'{}').hexdigest(), origin='fault-confirmation'),
+                           {'kind': 'http', 'method': 'GET', 'principal': 'controller', 'phase': 'session-confirm',
+                            'path': '/api/v1/admin/maps/map-p1'}, {})
+
+
+class ProxyCreateSession(McpSpeakingSession):
+    agent_type = 'test-proxy-create'
+
+    def run(self, context):
+        import os
+        from agent_e2e_local_api import SessionResult
+        from agent_e2e_mcp import Client, McpError
+        endpoint = context.mcp_proxy()
+        os.environ['TEST_PROXY_TOKEN'] = endpoint.token.removeprefix('Bearer ')
+        client = Client(endpoint.url, credential_env='TEST_PROXY_TOKEN', credential_kind='bearer', timeout=60)
+        client.initialize()
+        self.first = client.call_tool('honua_create_map', {'pending': 'never'})   # delivered unchanged
+        with pytest.raises(McpError):
+            client.call_tool('honua_create_map', {'title': 'Shelters'})          # committed, reply lost
+        client.close()
+        return SessionResult(agent_type=self.agent_type, model_id='test-model', final_answer='Tried twice.')
+
+
+def test_core2r5_proxy_path_delivers_unverified_replies_and_loses_only_verified_commits(candidate, tmp_path):
+    candidate.extra_tools = True
+    plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'},
+            'commit': {'pointer': '/result/structuredContent/mapId',
+                       'confirm': {'path': '/api/v1/admin/maps/{id}', 'attempts': 3, 'intervalSeconds': 0}}}
+    sessions = []
+
+    def factory(runtime, stack):
+        session = ProxyCreateSession(runtime, stack)
+        sessions.append(session)
+        return session
+    runner.SESSIONS['test-proxy-create'] = factory
+    try:
+        runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+        runtime.agent = 'test-proxy-create'
+        receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=HookP10(fault=plan), variant='A',
+                                      case=case('A'), candidate_digest=DIGEST, runtime=runtime)
+    finally:
+        del runner.SESSIONS['test-proxy-create']
+    assert sessions[0].first['structuredContent'] == {'status': 'Accepted', 'mapId': 'map-p1'}
+    assert receipt['faultSkipped'][0]['reason'] == 'the resource never appeared to a controller read'
+    assert len(receipt['faultEvents']) == 1 and receipt['faultEvents'][0]['committedResourceId'] == 'map-1'
+    assert {'id': 'map-1', 'title': 'Shelters'} in candidate.maps
+
+
+def test_core2r5_lost_response_plans_need_a_confirm_read():
+    base = {'kind': 'response_lost_after_commit', 'after': None, 'match': {'tool': 'honua_create_map'}}
+    for commit in ({'pointer': '/result/x'}, {'pointer': '/result/x', 'confirm': {'path': '/api/v1/maps'}},
+                   {'pointer': '/result/x', 'confirm': {'path': 'https://elsewhere/{id}'}},
+                   {'pointer': '/result/x', 'confirm': {'path': '/api/v1/maps/{id}', 'attempts': 0}}):
+        with pytest.raises(ValueError):
+            runner.validate_fault_plan({**base, 'commit': commit})
+    from agent_e2e_local_faults import FaultInjector
+    injector = FaultInjector({**base, 'commit': {'pointer': '/result/structuredContent/mapId',
+                                                 'confirm': {'path': '/api/v1/maps/{id}', 'attempts': 1, 'intervalSeconds': 0}}})
+    raw = json.dumps({'jsonrpc': '2.0', 'id': '1', 'result': {'structuredContent': {'mapId': 'm'}}}).encode()
+    assert injector.lose('tool_call', {'kind': 'tool_call', 'tool': 'honua_create_map'}, {'status': 'ok'}, 200, raw) is None
+    assert injector.skipped[0]['reason'].startswith('no runner controller read')
