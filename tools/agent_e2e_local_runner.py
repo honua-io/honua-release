@@ -1622,14 +1622,22 @@ class LocalRuntime:
         if '_caseConsole' in stack.extra:
             return stack.extra['_caseConsole'].url
         import yaml
-        from agent_browser_studio import CaseConsole
+        from agent_browser_studio import CaseConsole, studio_console_image
         manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
         component = manifest['components']['honua-console']
         repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0]
+        pin = studio_console_image()
+        if repository + '@' + component['digest'] != pin['image'] or component.get('sha') != pin['sourceRevision']:
+            raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
         identity = self._console_identities.get(stack.compose_project)
         if identity is None:
             raise ValueError('case has no minted Console customer identity')
-        console = CaseConsole(stack, repository + '@' + component['digest'], edge_secret=identity['edgeSecret'])
+        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
+        try:
+            self.attest(stack, 'studioConsoleImage', pin, [])
+        except Exception:
+            console.close()
+            raise
         stack.extra['_caseConsole'] = console
         stack.extra['consoleUrl'] = console.url
         stack.extra['validatedConsoleCustomer'] = identity['userId']

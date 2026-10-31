@@ -428,6 +428,33 @@ def test_console_attachment_requires_approved_host_and_pinned_image(tmp_path, mo
         CaseConsole(stack, 'ghcr.io/honua-io/honua-console:latest')
 
 
+def test_case_console_must_match_the_reviewed_image_and_manifest(tmp_path, monkeypatch):
+    import agent_browser_studio as studio
+    from agent_e2e_local_runner import LocalRuntime
+    image = 'ghcr.io/honua-io/honua-console@sha256:' + 'b' * 64
+    revision = 'c' * 40
+    pin = {'image': image, 'sourceRevision': revision}
+    pin_path = tmp_path / 'pin.json'
+    pin_path.write_text(json.dumps(pin))
+    monkeypatch.setattr(studio, 'CONSOLE_PIN_PATH', pin_path)
+    manifest = {'components': {'honua-console': {'image': 'ghcr.io/honua-io/honua-console:nightly',
+                                                  'digest': 'sha256:' + 'a' * 64, 'sha': revision}}}
+    (tmp_path / 'platform-manifest.yaml').write_text(json.dumps(manifest))
+    stack = Stack('http://127.0.0.1:8137', 'k', None, 'g41', 'f', str(tmp_path), DIGEST, {})
+    custody = {}
+    runtime = SimpleNamespace(root=tmp_path, _console_identities={'g41': {'edgeSecret': 'x', 'userId': 'user'}},
+                              attest=lambda _stack, name, value, _steps: custody.update({name: value}))
+    with pytest.raises(ValueError, match='manifest Console pin differs'):
+        LocalRuntime.start_console(runtime, stack)
+    manifest['components']['honua-console']['digest'] = 'sha256:' + 'b' * 64
+    (tmp_path / 'platform-manifest.yaml').write_text(json.dumps(manifest))
+    monkeypatch.setattr(studio, 'CaseConsole', lambda _stack, actual, **_kwargs:
+                        SimpleNamespace(url='http://127.0.0.1:1234', image=actual))
+    assert LocalRuntime.start_console(runtime, stack) == 'http://127.0.0.1:1234'
+    assert stack.extra['_caseConsole'].image == image
+    assert custody['studioConsoleImage'] == pin
+
+
 def test_console_cleanup_keeps_its_original_remote_host(monkeypatch):
     from agent_browser_studio import CaseConsole
     calls = []

@@ -31,6 +31,7 @@ from agent_e2e_local_recorder import ProjectionError
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / 'certification/agent-e2e/corpus'
 CONTRACT_PATH = ROOT / 'certification/agent-e2e/expectations/local/studio-render-contract.json'
+CONSOLE_PIN_PATH = ROOT / 'certification/agent-e2e/expectations/local/studio-console-image.json'
 LIST_PATH = '/api/v1/studio/content-items?family=map&limit=200'
 LAYER_NAMES = ('parcels', 'flood_zones', 'shelters')
 SOURCE_LAYERS = (('parcels', 'parcels'), ('flood_zones', 'flood-zones'), ('shelters', 'shelters'))
@@ -38,6 +39,17 @@ STYLE_CONFIG = {'floodLayerId': 'flood_zones', 'shelterLayerId': 'shelters'}
 FLOOD_COLOR = '#0088ff'
 FLOOD_OPACITY = 0.35
 RENDER_MINIMUM_NON_BACKGROUND = 1000
+
+
+def studio_console_image():
+    """The reviewed case Console image, independent of mutable tags."""
+    pin = json.loads(CONSOLE_PIN_PATH.read_text(encoding='utf-8'))
+    require(isinstance(pin, dict) and set(pin) == {'image', 'sourceRevision'}
+            and isinstance(pin['image'], str)
+            and re.fullmatch(r'ghcr\.io/honua-io/honua-console@sha256:[0-9a-f]{64}', pin['image'])
+            and isinstance(pin['sourceRevision'], str) and re.fullmatch(r'[0-9a-f]{40}', pin['sourceRevision']),
+            'invalid frozen Console image')
+    return pin
 RENDER_MINIMUM_MATCHING = 4000
 MAX_BODY = 512 * 1024
 OWNER_TIMEOUT = 35
