@@ -1148,3 +1148,58 @@ def test_pinned_sessions_and_a_pre_dispatch_failure_are_admitted(tmp_path):
     run(tmp_path, name='002', mods=modules(setup=FakeStage('setup', extra_row=refused)))
     aggregate, _ = _admit(tmp_path, '002')
     assert aggregate['scheduled'] == 1 and aggregate['completed'] == 0
+
+
+# ---------------------------------------------------------------- Sol #1177 review 5725424626
+
+def _corpus_session(sid, provenance):
+    session = {'sessionId': sid, 'actions': [{'tool': 'honua_query_features', 'status': 'ok'}]}
+    if provenance is not None:
+        session['provenance'] = provenance
+    return session
+
+
+@pytest.mark.parametrize('p15', ['missing', 'empty'])
+@pytest.mark.parametrize('surface', ['retained-receipt', 'stage-sessions'])
+def test_one_pinned_corpus_session_never_vouches_for_another(tmp_path, p15, surface):
+    """P10's session records the pin; P15's action-bearing session has missing or empty provenance."""
+    pinned = [{'agent': 'claude-cli', 'cliVersion': A1['cliVersion'], 'model': A1['model']}]
+    p10 = _corpus_session('p10', pinned)
+    p15_session = _corpus_session('p15', None if p15 == 'missing' else [])
+
+    class Services(FakeStage):
+        def run(self, ctx, session, prompt):
+            row = super().run(ctx, session, prompt)
+            for sid, item in (('P10', p10), ('P15', p15_session)):
+                R.write_private(ctx.private_dir / 'services' / 'corpus' / sid / 'receipt.json',
+                                R.canonical({'scenario': sid, 'sessions': [item]}))
+            row['provenance'] = pinned
+            if surface == 'stage-sessions':
+                row['sessionRecords'] = [R.session_record(p10), R.session_record(p15_session)]
+            return row
+    stages = {s: FakeStage(s) for s in R.STAGES}
+    stages['services'] = Services('services')
+    run(tmp_path, mods=modules(**stages))
+    with pytest.raises(ValueError):
+        _admit(tmp_path, '001')
+
+
+def test_pinned_corpus_sessions_and_a_refused_one_are_admitted(tmp_path):
+    pinned = [{'agent': 'claude-cli', 'cliVersion': A1['cliVersion'], 'model': A1['model']}]
+    p10 = _corpus_session('p10', pinned)
+    refused = {'sessionId': 'p15', 'actions': [], 'provenance': []}
+
+    class Services(FakeStage):
+        def run(self, ctx, session, prompt):
+            row = super().run(ctx, session, prompt)
+            for sid, item in (('P10', p10), ('P15', refused)):
+                R.write_private(ctx.private_dir / 'services' / 'corpus' / sid / 'receipt.json',
+                                R.canonical({'scenario': sid, 'sessions': [item]}))
+            row['provenance'] = pinned
+            row['sessionRecords'] = [R.session_record(p10), R.session_record(refused)]
+            return row
+    stages = {s: FakeStage(s) for s in R.STAGES}
+    stages['services'] = Services('services')
+    run(tmp_path, mods=modules(**stages))
+    aggregate, _ = _admit(tmp_path, '001')
+    assert aggregate['completed'] == 1

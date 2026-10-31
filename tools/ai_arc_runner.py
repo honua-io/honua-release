@@ -744,6 +744,8 @@ class ServicesStage(StageModule):
                 # Every corpus session's own provenance, so admission checks each one's CLI version.
                 'provenance': [p for c in cases for session in (c['receipt'].get('sessions') or [])
                                if isinstance(session, dict) for p in (session.get('provenance') or [])],
+                'sessionRecords': [session_record(session) for c in cases
+                                   for session in (c['receipt'].get('sessions') or [])],
                 'corpusCases': [{'scenario': c['scenario'], 'status': c['receipt'].get('status'),
                                  'receiptSha256': sha256(canonical(c['receipt']))} for c in cases]}
 
@@ -820,6 +822,12 @@ def cli_versions(value) -> list:
     if isinstance(value, dict):
         if 'cliVersion' in value:
             out.append(value['cliVersion'])
+        if ('sessionId' in value or 'provenance' in value) and value.get('actions'):
+            # A session that recorded any action vouches for itself: it must carry its own provenance
+            # (another pinned session in the run never covers it).
+            own = value.get('provenance')
+            if not isinstance(own, list) or not own:
+                out.append(None)
         for key, item in value.items():
             if key == 'provenance' and isinstance(item, list):
                 out.extend(None for entry in item if not (isinstance(entry, dict) and 'cliVersion' in entry))
@@ -828,6 +836,19 @@ def cli_versions(value) -> list:
         for item in value:
             out.extend(cli_versions(item))
     return out
+
+
+def session_record(session) -> dict:
+    """One corpus session as admission sees it: its own CLI versions and how many actions it took."""
+    if not isinstance(session, dict):
+        return {'cliVersion': None, 'actions': None}
+    provenance = session.get('provenance') if isinstance(session.get('provenance'), list) else []
+    versions = sorted({p.get('cliVersion') if isinstance(p, dict) else None for p in provenance}, key=str)
+    actions = len(session.get('actions') or [])
+    if not actions and not provenance:
+        return {'actions': 0, 'provenanceEntries': 0}    # refused before dispatch: no CLI ran
+    return {'cliVersion': versions[0] if len(versions) == 1 else None,
+            'actions': actions, 'provenanceEntries': len(provenance)}
 
 
 def pinned_cli_factory(arm: dict):
@@ -1455,9 +1476,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                'utterances': [u for u in row.get('utterances') or [] if isinstance(u, str)],
                'nestedAnswerChecks': bool(row.get('nestedAnswerChecks')),
                'shutdown': row.get('shutdown'), 'harnessUnsafe': harness_unsafe,
-               'sessions': [{'cliVersion': p.get('cliVersion') if isinstance(p, dict) else None,
-                             'agent': p.get('agent') if isinstance(p, dict) else None}
-                            for p in row.get('provenance') or []]}
+               'sessions': (row['sessionRecords'] if isinstance(row.get('sessionRecords'), list) else
+                            [{'cliVersion': p.get('cliVersion') if isinstance(p, dict) else None,
+                              'agent': p.get('agent') if isinstance(p, dict) else None}
+                             for p in row.get('provenance') or []])}
     secrets = ctx.slot.harness_secrets
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, handoff_r, context_r = red(actions), red(observations), red(handoff), red(context)
@@ -1512,12 +1534,20 @@ def verify_cli_sessions(row: dict, folder: Path, pinned: str) -> None:
     if not isinstance(sessions, list):
         raise ValueError(f"{row['stage']}: the retained context records no session list")
     versions = [s.get('cliVersion') if isinstance(s, dict) else None for s in sessions]
-    if any(v != pinned for v in versions):
-        raise ValueError(f"{row['stage']}: a session ran a CLI other than the pinned {pinned}")
+    for session in sessions:
+        if not isinstance(session, dict):
+            raise ValueError(f"{row['stage']}: a session record is malformed")
+        if 'provenanceEntries' in session and session.get('actions') and not session['provenanceEntries']:
+            raise ValueError(f"{row['stage']}: a session that dispatched carries no CLI provenance of its own")
+        if session.get('actions') == 0 and session.get('provenanceEntries') == 0:
+            continue                                     # a corpus session refused before dispatch
+        if session.get('cliVersion') != pinned:
+            raise ValueError(f"{row['stage']}: a session ran a CLI other than the pinned {pinned}")
     if row.get('actions') and not sessions and (context.get('failure') or {}).get('category') != 'harness-error':
         raise ValueError(f"{row['stage']}: actions were dispatched but no session is recorded")
     summary = [p.get('cliVersion') for p in (row.get('modelVisible') or {}).get('provenance') or []]
-    if summary != versions:
+    counted = [s.get('cliVersion') for s in sessions for _ in range(int(s.get('provenanceEntries', 1)))]
+    if summary != counted:
         raise ValueError(f"{row['stage']}: the receipt's session summary contradicts the retained sessions")
 
 
