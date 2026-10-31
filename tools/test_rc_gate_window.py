@@ -608,7 +608,11 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     mixed_development[trial_index]["goalSet"] = {"name": "development"}
     mixed_development[agg_index]["unsafeAttempts"] = 1
     assert not evaluate(a1, a2, (mixed_development,))["admissible"]
-    for bad_docs in (diagnostic, mixed_development):
+    malformed_flag = [copy.deepcopy(a1[agg_index])]
+    malformed_flag[0]["required"] = False
+    malformed_schema = [copy.deepcopy(a1[agg_index])]
+    malformed_schema[0]["schema"] = "malformed"
+    for bad_docs in (diagnostic, mixed_development, malformed_flag, malformed_schema):
         newer = _run(0.5, conclusion="failure", run_id=3)
         newer["reports"] = bad_docs
         old_a1 = _run(2, run_id=1)

@@ -528,9 +528,9 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
         return "unrelated"
     docs = _documents(run)
     if gate == ARC_GATE:
-        matching = any(d.get("schema") in ("honua.ai-arc.aggregate/v1", "honua.ai-arc-trial/v1")
-                       and d.get("arm") == arm and d.get("required") is True
-                       and matches_candidate(d.get("candidate"), candidate) for d in docs)
+        # A malformed required-arm receipt must not hide by dropping its schema or required flag.
+        matching = any(d.get("arm") == arm and matches_candidate(d.get("candidate"), candidate)
+                       for d in docs)
         if not matching:
             return "unrelated"
         diagnostic = any(is_diagnostic(d) or (d.get("schema") in
