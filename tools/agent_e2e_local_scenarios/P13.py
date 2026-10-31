@@ -1,14 +1,12 @@
-"""P13 is unsupported until complete preservation can be scored independently.
+"""Restore the seeded map while preserving town and shared state.
 
-The frozen restore projection checks the seeded v1, a later agent-authored style
-change and the final pointer. Town feature preservation and the shared map pointer have frozen projections.
-The runner still needs a complete independent inventory and protected
-configuration readback for all other services and maps before this case can
-be enabled. Typed attribute projection depends on honua-server #6815.
+Frozen observations cover version history, the shared map, service settings,
+complete map/service inventories, and all three town layers. Typed feature reads
+require honua-server #6815. Inventory baselines fail closed if unexpected
+resources already exist on the fresh stack.
 """
 from pathlib import Path
-from urllib.parse import urlencode
-from uuid import uuid4
+from urllib.parse import quote, urlencode
 
 from agent_e2e_local_api import Observation, RoleBinding, Scenario, Seeded
 from agent_e2e_scenario_operations import data
@@ -18,11 +16,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class P13(Scenario):
     id = 'P13'
-    supported_variants = ()
+    supported_variants = ('A', 'B')
 
     @staticmethod
     def _map(recorder, *, prefix, namespace, owner, principal, town):
-        item_id = str(uuid4())
+        item_id = ('11111111-1111-4111-8111-111111111111' if prefix == 'p13-target'
+                   else '22222222-2222-4222-8222-222222222222')
         layers = [{'id': name, 'sourceId': str(town['layers'][name]['service']), 'visible': True}
                   for name in ('parcels', 'flood_zones', 'shelters')]
         layers[2]['style'] = {'type': 'circle', 'paint': {'circle-color': '#315a86'}}
@@ -77,12 +76,24 @@ class P13(Scenario):
         town = town_setup(recorder, variant).prepare(
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
+        for name in ('parcels', 'flood_zones', 'shelters'):
+            service = quote(town['layers'][name]['service'], safe='')
+            prefix = 'p13-service-' + name.replace('_', '-')
+            base = '/api/v1/admin/services/' + service
+            data(recorder.json(prefix + '-protocols', 'PUT', base + '/protocols',
+                               {'enabledProtocols': ['FeatureServer']}))
+            data(recorder.json(prefix + '-policy', 'PUT', base + '/access-policy',
+                               {'allowAnonymous': False, 'allowAnonymousWrite': False,
+                                'allowedRoles': [], 'allowedWriteRoles': []}))
+            data(recorder.json(prefix + '-before', 'GET', base + '/settings'))
         owner = stack.extra['agentPrincipal']
         target = self._map(recorder, prefix='p13-target', namespace='ae_t' + suffix, owner=owner, principal='agent', town=town)
         shared_owner = stack.extra['addPrincipal']('p13-shared', ['admin:write'])
         shared = self._map(recorder, prefix='p13-shared', namespace='ae_s' + suffix, owner=shared_owner, principal='p13-shared', town=town)
         binding = town['layers']['shelters']
         read_town(recorder, 'p13', town['layers'], 'before')
+        recorder.json('p13-maps-inventory-before', 'GET', '/api/v1/studio/content-items?family=map&limit=100')
+        recorder.json('p13-services-inventory-before', 'GET', '/api/v1/admin/services/')
         seed = {'variant': variant, 'target': target, 'shared': shared,
                 'service': binding['service'], 'layerId': binding['layerId'], 'layers': town['layers']}
         stack.extra['p13Seed'] = seed
@@ -92,6 +103,7 @@ class P13(Scenario):
         return [RoleBinding('seeded:map:target', 'p13-target-save', pointer='/data/itemId'),
                 RoleBinding('seeded:version:v1', 'p13-target-save', pointer='/data/versionId'),
                 RoleBinding('seeded:hash:v1', 'p13-target-save', pointer='/data/contentHash'),
+                RoleBinding('seeded:owner:target', 'p13-target-save', pointer='/data/ownerId'),
                 RoleBinding('seeded:workspace:shared', 'p13-shared-save', pointer='/data/workspaceId'),
                 RoleBinding('seeded:owner:shared', 'p13-shared-save', pointer='/data/ownerId'),
                 RoleBinding('seeded:map:shared', 'p13-shared-save', pointer='/data/itemId'),
@@ -109,8 +121,14 @@ class P13(Scenario):
         recorder.json('p13-target-versions', 'GET', '/api/v1/studio/content-items/' + item + '/versions')
         recorder.json('p13-target-v1', 'GET', '/api/v1/studio/content-items/' + item + '/versions/' + target['versionId'])
         recorder.json('p13-shared-after', 'GET', seeded.state['shared']['listPath'])
+        for name in ('parcels', 'flood_zones', 'shelters'):
+            service = quote(seeded.state['layers'][name]['service'], safe='')
+            recorder.json('p13-service-' + name.replace('_', '-') + '-after', 'GET',
+                          '/api/v1/admin/services/' + service + '/settings')
         from agent_e2e_local_scenarios.w2g3_common import read_town
         read_town(recorder, 'p13', seeded.state['layers'], 'after')
+        recorder.json('p13-maps-inventory-after', 'GET', '/api/v1/studio/content-items?family=map&limit=100')
+        recorder.json('p13-services-inventory-after', 'GET', '/api/v1/admin/services/')
         return [Observation('version.restored', None, {'projection': 'extract/v1'}),
                 Observation('shared.preserved', None, {'projection': 'extract/v1'}),
                 Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
