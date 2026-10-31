@@ -90,9 +90,10 @@ def test_audited_map_sources_require_customer_publish_and_reject_claims():
                 'locator': {'url': f"/rest/services/{row['serviceName']}/FeatureServer/{row['layerId']}",
                             'layerId': row['layerId']}} for row in rows]}
     record = lambda value, **kw: SimpleNamespace(step='test', json=value, status=200, phase=kw.get('phase', 'observe'),
+        method='POST' if kw.get('kind') == 'mcp' else 'GET',
         principal='controller', kind=kw.get('kind', 'http'), path=kw.get('path', '/x'),
         recorded_at=kw.get('at', later), request_arguments=kw.get('arguments'))
-    records = {'p24-maps-before': record({}, phase='seed', at=now),
+    records = {'p24-maps-before': record({}, phase='seed', at=now, path='/api/v1/studio/content-items?family=map&limit=200'),
       'p24-version': record({'data': {'envelope': {'body': body}}}, path='/api/v1/studio/content-items/map/versions/ver'),
       'p24-catalog': record({'result': {'structuredContent': {'layers': rows, 'totalCount': 3, 'offset': 0,
           'layerCount': 3, 'hasMore': False}}}, kind='mcp', path='/mcp#tools/call',

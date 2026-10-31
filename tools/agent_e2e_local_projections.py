@@ -898,8 +898,14 @@ def audited_map_sources(records, action_results, custody, agent_principal, map_i
             and version.principal == catalog.principal == audit.principal == 'controller'
             and version.status == catalog.status == audit.status == 200,
             'audited source records lack controller custody')
+    require(before.kind == version.kind == audit.kind == 'http'
+            and before.method == version.method == audit.method == 'GET'
+            and before.path == '/api/v1/studio/content-items?family=map&limit=200'
+            and re.fullmatch(r'/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}', version.path),
+            'audited map read or stage baseline differs')
     require_address(version, {'role': 'created:map', 'at': {'pathSegment': 4}}, {'created:map': map_id})
-    require(catalog.kind == 'mcp' and catalog.request_arguments == {'tool': 'honua_list_layers',
+    require(catalog.kind == 'mcp' and catalog.method == 'POST' and catalog.path == '/mcp#tools/call'
+            and catalog.request_arguments == {'tool': 'honua_list_layers',
             'arguments': {'offset': 0, 'limit': 500}}, 'audited catalog request differs')
     require(audit.kind == 'http' and audit.path ==
             '/api/v1/admin/observability/audit?action=operation.completed&resourceType=operation_instance&pageSize=200',
