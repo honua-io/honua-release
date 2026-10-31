@@ -944,3 +944,16 @@ def test_fixture_source_read_rejects_embedded_server_error():
             return {'observation': {'httpStatus': 200, 'body': {'error': {'code': 400}}}}
     with pytest.raises(ProjectionError, match='required fields'):
         snapshot_sources(Recorder(), 'p08', LAYERS, 'before')
+
+
+def test_unstyled_map_still_records_composition_and_save():
+    from agent_browser_studio import record_map_measurements
+    body = {'layers': [{'id': 'parcels', 'visible': True}], 'view': {'bbox': [-1, -1, 1, 1]}}
+    class Recorder:
+        records = {'version': SimpleNamespace(json={'data': {'envelope': {'body': body}}})}
+        def __init__(self): self.derived = {}
+        def store_derived(self, name, value): self.derived[name] = value
+    recorder = Recorder()
+    record_map_measurements(recorder, 'version', 'p08')
+    assert set(recorder.derived) == {'p08-composition', 'p08-saved'}
+    assert recorder.derived['p08-composition']['orderedLayerIds'] == ['parcels']

@@ -959,7 +959,8 @@ def saved_digest(body):
 def record_map_measurements(recorder, version_step, prefix):
     body = package_body(recorder.records[version_step].json)
     recorder.store_derived(prefix + '-composition', composition_from_body(body))
-    recorder.store_derived(prefix + '-style', style_from_body(body))
+    if prefix != 'p08' and 'mapSpec' in body:
+        recorder.store_derived(prefix + '-style', style_from_body(body))
     recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(body)})
 
 
