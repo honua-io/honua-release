@@ -750,7 +750,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                'candidateDigest': candidate_digest, 'attempt': 1, 'status': 'infrastructure',
                'model': runtime.model, 'temperature': None,
                'temperaturePolicy': 'omitted: provider default, as the shipped Studio AI client sends',
-               'modelVisibleScope': MODEL_VISIBLE_SCOPE, 'sessions': [], 'assertions': [],
+               'modelVisibleScope': (MODEL_VISIBLE_SCOPE if agent == 'bedrock-proxy' else
+                    'sha256 of runner-controlled session inputs; CLI/provider prepends are not claimed'),
+               'sessions': [], 'assertions': [],
                'finalAnswerCheck': None, 'nudges': 0, 'tokens': 0, 'infrastructure': [],
                'bounds': {'maxModelCalls': runtime.max_model_calls, 'maxActions': runtime.max_actions,
                           'maxTokens': runtime.max_tokens}}
@@ -919,7 +921,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['controllerRecords'] = stack.extra['recorder'].index() if 'recorder' in stack.extra else []
             receipt['usage'] = [u for s in receipt['sessions'] for u in s['usage']]
             try:
-                receipt['cost'] = model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None
+                receipt['cost'] = (None if agent in ('claude-cli', 'codex-cli') else
+                                   model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None)
             except ValueError as exc:
                 receipt['cost'] = {'usd': None, 'reason': str(exc)}
             if seeded is not None:
@@ -1075,6 +1078,8 @@ class LocalRuntime:
 
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         import yaml
+        if self.agent in ('claude-cli', 'codex-cli'):
+            raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
         if not re.fullmatch(r'P\d\d:[AB]:local-docker', case_id):
             raise ValueError('invalid case identity')
         if (not isinstance(agent_permissions, (list, tuple)) or not agent_permissions
@@ -1147,7 +1152,8 @@ class LocalRuntime:
         vault = self._vaults.setdefault(stack.compose_project, EvidenceVault(stack.compose_project))
         return ControllerRecorder(base_url=stack.base_url, workdir=stack.workdir,
                                   candidate_digest=stack.candidate_digest, attempt_id=stack.compose_project,
-                                  principals=principals, vault=vault)
+                                  principals=principals, vault=vault,
+                                  admitted_remote_origin=getattr(self, 'verified_remote_origin', None))
 
     def vault(self, stack):
         """The runtime-held evidence authority for this case (never handed to a scenario)."""
