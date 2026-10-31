@@ -709,7 +709,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                'candidateDigest': candidate_digest, 'attempt': 1, 'status': 'infrastructure',
                'model': runtime.model, 'temperature': None,
                'temperaturePolicy': 'omitted: provider default, as the shipped Studio AI client sends',
-               'modelVisibleScope': MODEL_VISIBLE_SCOPE, 'sessions': [], 'assertions': [],
+               'modelVisibleScope': (MODEL_VISIBLE_SCOPE if agent == 'bedrock-proxy' else
+                    'sha256 of runner-controlled session inputs; CLI/provider prepends are not claimed'),
+               'sessions': [], 'assertions': [],
                'finalAnswerCheck': None, 'nudges': 0, 'tokens': 0, 'infrastructure': [],
                'bounds': {'maxModelCalls': runtime.max_model_calls, 'maxActions': runtime.max_actions,
                           'maxTokens': runtime.max_tokens}}

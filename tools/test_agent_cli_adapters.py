@@ -35,6 +35,9 @@ def test_fake_cli_corpus_uses_sealed_runner_gateway_and_independent_oracle(tmp_p
         assert receipt['sessions'][0]['actions'][0]['tool']=='honua_query_features'
         assert [row[0] for row in state.mcp_calls]==['key-2','admin']  # agent call, then independent controller replay
         assert receipt['sessions'][0]['provenance'][0]['metering']=='subscription'
+        assert receipt['cost'] is None
+        assert receipt['temperaturePolicy']=='CLI default'
+        assert 'prepends are not claimed' in receipt['modelVisibleScope']
         assert runtime.fake_model.sent==[]
     finally:
         http.shutdown(); http.server_close()
