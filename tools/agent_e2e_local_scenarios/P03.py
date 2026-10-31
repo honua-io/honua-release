@@ -1,6 +1,6 @@
 """P03 remains unsupported.
 
-The frozen release rules prohibit multi-tenant work; the tenant.denied assertion requires a second tenant and an authorized positive control. The runner needs an approved isolated tenant fixture and probes.
+The tenant assertion is preregistered as excluded. The connection list response has no total or cursor, so the runner cannot prove the complete baseline required to bind a model-created connection. A complete owner-bearing enumeration is needed.
 """
 from agent_e2e_local_api import Scenario
 

@@ -31,5 +31,15 @@
       "geometry.crs": null,
       "source-content.unchanged": null
     }
+  },
+  "customerFiles": {
+    "A": [
+      "town-A/parcels.4326.geojson",
+      "town-A/flood_zones.3857.geojson"
+    ],
+    "B": [
+      "town-B/parcels.3857.geojson",
+      "town-B/flood_zones.4326.geojson"
+    ]
   }
 }

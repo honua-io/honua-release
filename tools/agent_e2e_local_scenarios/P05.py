@@ -1,6 +1,6 @@
 """P05 remains unsupported.
 
-The runner exposes no model-visible fixture-file channel or controller-verifiable invalid-row reporting artifact. The runner needs an input handoff and independently recorded report evidence.
+Customer files are declared and action_result can retain an import report. The runner still needs an owner-bound imported-resource inventory and a projection binding row-number errors to fixture source IDs and live imported features.
 """
 from agent_e2e_local_api import Scenario
 

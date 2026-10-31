@@ -27,5 +27,15 @@
       "geometry.crs": null,
       "source-content.unchanged": null
     }
+  },
+  "customerFiles": {
+    "A": [
+      "town-A/shelters.csv",
+      "town-A/invalid-rows.csv"
+    ],
+    "B": [
+      "town-B/shelters.csv",
+      "town-B/invalid-rows.csv"
+    ]
   }
 }
