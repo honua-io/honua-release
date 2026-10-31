@@ -1,0 +1,23 @@
+{
+  "goal": "city-gis-ecs",
+  "reference": "curated-bootstrap-policies",
+  "referenceFile": "reference-actions.json",
+  "note": "Live runs fail closed. honua-devops aws-ecs size=small requires redis_enabled=true and has no custom-domain variable, and install_honua is not in the catalog. Until honua-iac feat/aws-topology-deploy-identity merges, the observer's action manifest is the curated Allow set in bootstrap/aws-ecs. This goal keeps the custom-domain slice and drops Redis, WAF and batch.",
+  "checks": [
+    "topology",
+    "actions",
+    "admin",
+    "long_lived",
+    "approval",
+    "apply",
+    "principal",
+    "health",
+    "layer",
+    "handoff",
+    "teardown",
+    "final_answer",
+    "secret",
+    "install_release",
+    "product_tools"
+  ]
+}

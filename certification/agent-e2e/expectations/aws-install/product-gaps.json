@@ -1,0 +1,32 @@
+{
+  "sourceRev": "5a1e884860fae2f8d2f18a73a1656bfc98920b2a",
+  "repo": "honua-io/honua-devops",
+  "issue": "https://github.com/honua-io/honua-devops/issues/244",
+  "gaps": {
+    "install-honua-missing": {
+      "blocks": true,
+      "goals": ["city-gis-ecs", "county-eks", "town-lambda"],
+      "evidence": "src/Honua.DevOps.Agent/Operations/CapabilityToolset.cs has no install_honua. docs/QUICKSTART-MCP.md lists the 27 operator tools and does not name one."
+    },
+    "ecs-small-requires-redis": {
+      "blocks": true,
+      "goals": ["city-gis-ecs"],
+      "evidence": "HonuaOperationsToolkit.Provisioning.cs ValidateVariable requires redis_enabled=true for size=small. The city goal asks for no Redis."
+    },
+    "ecs-small-no-custom-domain": {
+      "blocks": true,
+      "goals": ["city-gis-ecs"],
+      "evidence": "AllowedAwsEcsVariables has no domain or certificate input. The city goal names maps.example.test."
+    },
+    "eks-live-unqualified": {
+      "blocks": true,
+      "goals": ["county-eks"],
+      "evidence": "docs/unified-agent-workspace.md: native EKS Terraform outputs remain unqualified and live install qualification is outstanding."
+    },
+    "lambda-first-install-unqualified": {
+      "blocks": true,
+      "goals": ["town-lambda"],
+      "evidence": "docs/unified-agent-workspace.md: Lambda first-install database initialization is not a qualified unattended setup. The tool description advertises aws-ecs size=small only."
+    }
+  }
+}
