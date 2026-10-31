@@ -81,68 +81,6 @@ permissions:
   contents: read
 
 jobs:
-  real-compose-smoke:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check out the tested candidate source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: honua-io/honua-server
-          ref: ffd100de5c9c08054ca787400846c3871cb64d48
-          path: ops-server-candidate
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
-      - name: Install smoke dependencies
-        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
-      - name: Log in to the image registry
-        env:
-          GHCR_TOKEN: ${{ github.token }}
-        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - name: Build immutable production candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_ACTOR: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          docker run -d --name ops-smoke-registry -p 127.0.0.1:55000:5000 registry:2 >/dev/null
-          docker build --progress=plain --platform linux/amd64 \
-            --build-arg HONUA_GIT_SHA=ffd100de5c9c08054ca787400846c3871cb64d48 \
-            --secret id=github_token,env=GH_TOKEN --secret id=github_actor,env=GH_ACTOR \
-            -f ops-server-candidate/docker/Dockerfile.aot -t 127.0.0.1:55000/honua-server:ops-smoke ops-server-candidate
-          test "$(docker image inspect --format '{{index .Config.Labels "honua.runtime.compilation"}}' 127.0.0.1:55000/honua-server:ops-smoke)" = native-aot
-          test "$(docker image inspect --format '{{index .Config.Labels "honua.runtime.profile"}}' 127.0.0.1:55000/honua-server:ops-smoke)" = web
-          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 127.0.0.1:55000/honua-server:ops-smoke)" = ffd100de5c9c08054ca787400846c3871cb64d48
-          docker push 127.0.0.1:55000/honua-server:ops-smoke | tee "$RUNNER_TEMP/ops-candidate-push.log"
-          digest="$(sed -n 's/.*\(sha256:[0-9a-f]\{64\}\).*/\1/p' "$RUNNER_TEMP/ops-candidate-push.log" | tail -1)"
-          test -n "$digest"
-          echo "OPS_SMOKE_CANDIDATE_IMAGE=127.0.0.1:55000/honua-server@$digest" >> "$GITHUB_ENV"
-      - name: Exercise real town seed and public traffic
-        env:
-          OPS_SMOKE_OUT: ${{ runner.temp }}/ops-real-smoke
-          OPS_SMOKE_EXPLICIT_ACL: "1"
-          OPS_SMOKE_MAP: "1"
-          OPS_SMOKE_METADATA: "1"
-          OPS_SMOKE_FAULT_MIGRATION: ${{ vars.OPS_SMOKE_FAULT_MIGRATION }}
-        run: bash certification/agent-ops/real_smoke.sh
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: ops-real-compose-smoke
-          path: ${{ runner.temp }}/ops-real-smoke/smoke-evidence.json
-          if-no-files-found: ignore
-          retention-days: 90
-      - name: Remove local candidate registry
-        if: always()
-        run: docker rm -f ops-smoke-registry >/dev/null 2>&1 || true
-
   pilot-stub:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

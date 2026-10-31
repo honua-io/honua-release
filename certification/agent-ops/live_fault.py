@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-from ga_actions import _PROJECT
+_PROJECT = re.compile(r"ops-[a-f0-9]{32}")
 
 
 class MigrationFault:

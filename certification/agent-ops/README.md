@@ -98,5 +98,7 @@ The controller currently simulates operations and probes. No scenario has the
 independent live readback required for an operate trial. Live runs are refused
 with `not-real`; the stub is for unpriced self-tests only and cannot be combined
 with `--priced-ok`. Passing a stub run is not evidence of deployment behavior.
-Real execution requires the Compose GA upgrade and restore procedures, concurrent
-customer probes, fault receipts, and independent server and database observations.
+Real execution requires product MCP proposal tools, approval by a separate
+principal, a product-owned executor, concurrent customer probes, fault receipts,
+and independent server and database observations. The local Compose executor
+and restore gap is tracked in honua-server #6811.
