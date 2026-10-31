@@ -16,12 +16,12 @@
     "@bufbuild/protobuf": "2.16.0",
     "@connectrpc/connect": "2.2.0",
     "@connectrpc/connect-web": "2.2.0",
-    "@honua/sdk-js": "^0.2.7",
+    "@honua/sdk-js": "^0.2.9",
     "maplibre-gl": "6.15.0"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
-    "typescript": "5.9.3",
-    "vite": "8.3.4"
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
   }
 }
