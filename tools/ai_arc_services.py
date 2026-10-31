@@ -39,8 +39,9 @@ def runtime_class():
             self.arc = {'base_url': base_url, 'admin_key': admin_key, 'project': project,
                         'candidate': candidate_digest, 'private_root': private_root}
             self.timeout = limits['maxSeconds']
-            self.extra_secrets = list(extra_secrets)
-            self.answers, self.withheld = {}, 0
+            self.extra_secrets = extra_secrets if isinstance(extra_secrets, list) else list(extra_secrets)
+            self.answers, self.withheld, self.catalog_redactions = {}, 0, 0
+            self.stacks, self.cancelled = [], []
 
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
             if candidate_digest != self.arc['candidate']:
@@ -61,7 +62,30 @@ def runtime_class():
             self._prepare(stack, list(agent_permissions))
             if needs_approver:
                 stack = self._mint_approver(stack)
+            self.stacks.append(stack)
+            # Live secret set: minted case keys join the arc's screen and redaction at once.
+            for value in self._secrets:
+                if value not in self.extra_secrets:
+                    self.extra_secrets.append(value)
             return stack
+
+        def cancel(self):
+            """Stop outstanding agent work through the controller: revoke every case agent credential."""
+            import urllib.request
+            results = []
+            for stack in self.stacks:
+                agent = (stack.extra.get('custody') or {}).get('agentPrincipalId')
+                if not agent or agent in self.cancelled:
+                    continue
+                request = urllib.request.Request(f"{stack.base_url}/api/v1/admin/api-keys/{agent}/revoke", method='POST',
+                                                 headers={'X-API-Key': self.arc['admin_key']})
+                try:
+                    with urllib.request.urlopen(request, timeout=20) as response:
+                        results.append({'principal': agent, 'status': response.status})
+                except Exception as exc:  # noqa: BLE001
+                    results.append({'principal': agent, 'status': None, 'error': type(exc).__name__})
+                self.cancelled.append(agent)
+            return results
 
         def raw_execute(self, stack, names):
             execute = super().raw_execute(stack, names)
@@ -75,6 +99,16 @@ def runtime_class():
                     return dict(WITHHELD)
                 return result
             return screened
+
+        def tool_view(self, stack):
+            from ai_arc_runner import _as_text, redact_bytes, secret_forms
+            view = super().tool_view(stack)
+            secrets = [*self._secrets, *self.extra_secrets]
+            raw = json.dumps(view, ensure_ascii=False, default=_as_text).encode()
+            if any(form in raw for form in secret_forms(secrets)):
+                self.catalog_redactions += 1
+                view = json.loads(redact_bytes(raw, secrets))
+            return view
 
         def session(self, stack, prompt, number, **kwargs):
             try:
@@ -107,8 +141,19 @@ def private_actions(case_dir: Path) -> list[dict]:
     return rows
 
 
+class Canceller:
+    """Registered in the stage's live set: on a stage overrun the runner closes it, revoking agent keys."""
+
+    def __init__(self, runtime):
+        self.runtime, self.results = runtime, None
+
+    def close(self):
+        self.results = self.runtime.cancel()
+
+
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
-                 handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None):
+                 handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None, private_root=None,
+                 register=None):
     """Run each services scenario once on the adopted stack under one shared stage budget.
 
     Returns (row, cases). ``row`` carries every action (with its recorded status), the private final
@@ -119,12 +164,16 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     except ImportError as exc:
         raise RuntimeError('CLI corpus sessions (#1160) are not installed') from exc
     deadline = deadline or (time.monotonic() + limits['maxSeconds'])
-    private_root = tempfile.mkdtemp(prefix='honua-arc-services-')
-    os.chmod(private_root, 0o700)
+    owned = private_root is None
+    # The write-ahead ledger lives in the stage's private evidence, so a timeout recovers it.
+    private_root = Path(private_root or tempfile.mkdtemp(prefix='honua-arc-services-'))
+    private_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     cls = runtime_class()
     runtime = cls(base_url=base_url, admin_key=admin_key, project=project, candidate_digest=candidate_digest,
                   agent=arm['agent'], model=arm['model'], limits=limits, private_root=private_root,
                   extra_secrets=extra_secrets)
+    if register is not None:
+        register(Canceller(runtime))
     if cli is not None:
         runtime.cli = cli    # test seam: #1160's CorpusCliSession uses runtime.cli when present
     load_scenario = load_scenario or runner.load_scenario
@@ -157,11 +206,12 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                     actions.append({**row, 'scenario': sid,
                                     'status': statuses[offset] if offset < len(statuses) else 'unknown'})
                 keep = out_dir / sid
-                for pattern in ('session-*/action-*.json', 'session-*/cli-wire/*'):
-                    for path in Path(case_dir).glob(pattern):
-                        target = keep / 'private' / path.relative_to(case_dir)
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(path, target)
+                if owned:
+                    for pattern in ('session-*/action-*.json', 'session-*/cli-wire/*'):
+                        for path in Path(case_dir).glob(pattern):
+                            target = keep / 'private' / path.relative_to(case_dir)
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copyfile(path, target)
                 try:
                     runner.export_case_evidence(case_dir, keep / 'export', runtime._secrets)
                 except ValueError as exc:
@@ -179,9 +229,10 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             cases.append({'scenario': sid, 'receipt': receipt})
     finally:
         secrets = list(runtime._secrets)
-        shutil.rmtree(private_root, ignore_errors=True)
+        if owned:
+            shutil.rmtree(private_root, ignore_errors=True)
     return {'actions': actions, 'answers': answers, 'secrets': secrets, 'nudges': nudges, 'failure': failure,
-            'withheld': runtime.withheld}, cases
+            'withheld': runtime.withheld, 'catalogRedactions': runtime.catalog_redactions}, cases
 
 
 def case_assertions(cases: list[dict]) -> list[dict]:

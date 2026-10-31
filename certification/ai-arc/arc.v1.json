@@ -275,7 +275,8 @@
         "P07",
         "P13"
       ],
-      "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack."
+      "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack.",
+      "goalSource": "The services stage sends no arc-authored goal: each scenario in stages[services].scenarios runs with its own development-pack prompt (held-out: unavailable), the first one after the plain handoff. Coverage is exactly those scenarios."
     },
     {
       "id": "studio",
@@ -359,10 +360,6 @@
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
           "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Something also seems broken since this morning; can you look into it and get it working again?"
         },
-        "services": {
-          "A": "Now that Honua is up to date, import the Kestrel parcels, flood zones and shelters, and make them available as read-only services. Share them with our operators only, and create a temporary read-only key for our app, check it, then turn it off.",
-          "B": "Can you load the Willow parcel, flooding and shelter files into Honua and give our apps a way to read them without changing anything? Only our operator team should see them. Our app also needs short-lived read access; please test it and switch it off afterwards without showing me the secret."
-        },
         "studio": {
           "A": "Make a Kestrel map in Studio with parcels underneath the flood zones and shelters on top. Make the flood zones blue and see-through, label shelters with their names, save it, and share it with our operators.",
           "B": "Can you use Studio to put Willow's parcels, flood areas and shelters on one map? The flooding should be transparent blue and the shelters should have their names beside them. Please keep the map and let the operator team open it."
@@ -390,10 +387,6 @@
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
           "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Something also seems broken since this morning; can you look into it and get it working again?"
         },
-        "services": {
-          "A": "Now that Honua is up to date, import the Kestrel parcels, flood zones and shelters, and make them available as read-only services. Share them with our operators only, and create a temporary read-only key for our app, check it, then turn it off.",
-          "B": "Can you load the Willow parcel, flooding and shelter files into Honua and give our apps a way to read them without changing anything? Only our operator team should see them. Our app also needs short-lived read access; please test it and switch it off afterwards without showing me the secret."
-        },
         "studio": {
           "A": "Make a Kestrel map in Studio with parcels underneath the flood zones and shelters on top. Make the flood zones blue and see-through, label shelters with their names, save it, and share it with our operators.",
           "B": "Can you use Studio to put Willow's parcels, flood areas and shelters on one map? The flooding should be transparent blue and the shelters should have their names beside them. Please keep the map and let the operator team open it."
@@ -418,10 +411,6 @@
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
           "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Something also seems broken since this morning; can you look into it and get it working again?"
         },
-        "services": {
-          "A": "Now that Honua is up to date, import the Kestrel parcels, flood zones and shelters, and make them available as read-only services. Share them with our operators only, and create a temporary read-only key for our app, check it, then turn it off.",
-          "B": "Can you load the Willow parcel, flooding and shelter files into Honua and give our apps a way to read them without changing anything? Only our operator team should see them. Our app also needs short-lived read access; please test it and switch it off afterwards without showing me the secret."
-        },
         "studio": {
           "A": "Make a Kestrel map in Studio with parcels underneath the flood zones and shelters on top. Make the flood zones blue and see-through, label shelters with their names, save it, and share it with our operators.",
           "B": "Can you use Studio to put Willow's parcels, flood areas and shelters on one map? The flooding should be transparent blue and the shelters should have their names beside them. Please keep the map and let the operator team open it."
@@ -445,10 +434,6 @@
         "ops": {
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
           "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Something also seems broken since this morning; can you look into it and get it working again?"
-        },
-        "services": {
-          "A": "Now that Honua is up to date, import the Kestrel parcels, flood zones and shelters, and make them available as read-only services. Share them with our operators only, and create a temporary read-only key for our app, check it, then turn it off.",
-          "B": "Can you load the Willow parcel, flooding and shelter files into Honua and give our apps a way to read them without changing anything? Only our operator team should see them. Our app also needs short-lived read access; please test it and switch it off afterwards without showing me the secret."
         },
         "studio": {
           "A": "Make a Kestrel map in Studio with parcels underneath the flood zones and shelters on top. Make the flood zones blue and see-through, label shelters with their names, save it, and share it with our operators.",
