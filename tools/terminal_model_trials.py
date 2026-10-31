@@ -20,7 +20,7 @@ def aggregate(root: Path, trials: int, *, cell: str, guidance: str, model: str, 
     seen = {}
     receipt_digests = set()
     for folder in root.iterdir():
-        match = re.fullmatch(r'terminal-model-trial-(\d+)-attempt-1', folder.name)
+        match = re.fullmatch(r'terminal-model-canary-trial-(\d+)-attempt-1', folder.name)
         if not match or not folder.is_dir():
             raise ValueError(f'unexpected trial artifact {folder.name}')
         trial = int(match.group(1))

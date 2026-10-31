@@ -587,7 +587,7 @@ jobs:
         if: ${{ always() && inputs.enable_bedrock && inputs.trial_id != '' && github.run_attempt == 1 }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: terminal-model-trial-${{ inputs.trial_id }}-attempt-1
+          name: terminal-model-canary-trial-${{ inputs.trial_id }}-attempt-1
           path: artifacts/terminal-model-canary-receipt.json
           if-no-files-found: error
       - name: Upload the nightly-model-journey row

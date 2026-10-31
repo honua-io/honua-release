@@ -22,8 +22,8 @@ def result(root, n=2):
 
 
 def test_results_and_exact_interval(tmp_path):
-    write(tmp_path, 'terminal-model-trial-1-attempt-1', receipt())
-    write(tmp_path, 'terminal-model-trial-2-attempt-1', receipt('fail', 'model'))
+    write(tmp_path, 'terminal-model-canary-trial-1-attempt-1', receipt())
+    write(tmp_path, 'terminal-model-canary-trial-2-attempt-1', receipt('fail', 'model'))
     report = result(tmp_path)
     assert (report['passed'], report['trials']) == (1, 2)
     assert report['failureAttribution'] == {'model': 1, 'infrastructure': 0, 'undetermined': 0}
@@ -31,20 +31,20 @@ def test_results_and_exact_interval(tmp_path):
 
 
 def test_rejects_missing_duplicates_reruns_and_wrong_arm(tmp_path):
-    write(tmp_path, 'terminal-model-trial-1-attempt-1', receipt())
+    write(tmp_path, 'terminal-model-canary-trial-1-attempt-1', receipt())
     with pytest.raises(ValueError, match='missing'):
         result(tmp_path)
-    write(tmp_path, 'terminal-model-trial-01-attempt-1', receipt())
+    write(tmp_path, 'terminal-model-canary-trial-01-attempt-1', receipt())
     with pytest.raises(ValueError, match='duplicate'):
         result(tmp_path)
-    (tmp_path / 'terminal-model-trial-01-attempt-1' / 'terminal-model-canary-receipt.json').unlink()
-    (tmp_path / 'terminal-model-trial-01-attempt-1').rmdir()
-    write(tmp_path, 'terminal-model-trial-2-attempt-2', receipt())
+    (tmp_path / 'terminal-model-canary-trial-01-attempt-1' / 'terminal-model-canary-receipt.json').unlink()
+    (tmp_path / 'terminal-model-canary-trial-01-attempt-1').rmdir()
+    write(tmp_path, 'terminal-model-canary-trial-2-attempt-2', receipt())
     with pytest.raises(ValueError, match='unexpected'):
         result(tmp_path)
-    (tmp_path / 'terminal-model-trial-2-attempt-2' / 'terminal-model-canary-receipt.json').unlink()
-    (tmp_path / 'terminal-model-trial-2-attempt-2').rmdir()
-    write(tmp_path, 'terminal-model-trial-2-attempt-1', {**receipt(), 'attempt': 2})
+    (tmp_path / 'terminal-model-canary-trial-2-attempt-2' / 'terminal-model-canary-receipt.json').unlink()
+    (tmp_path / 'terminal-model-canary-trial-2-attempt-2').rmdir()
+    write(tmp_path, 'terminal-model-canary-trial-2-attempt-1', {**receipt(), 'attempt': 2})
     with pytest.raises(ValueError, match='identity'):
         result(tmp_path)
 
@@ -85,7 +85,7 @@ def test_workflow_preserves_first_attempts_and_isolates_trials():
     assert workflow['jobs']['aws-ecs']['strategy']['max-parallel'] == 1
     aggregate = workflow['jobs']['aggregate']
     assert 'always()' in aggregate['if']
-    assert any('terminal-model-trial-*-attempt-1' == step.get('with', {}).get('pattern') for step in aggregate['steps'])
+    assert any('terminal-model-canary-trial-*-attempt-1' == step.get('with', {}).get('pattern') for step in aggregate['steps'])
     local = workflow['jobs']['local-docker']
     script = '\n'.join(str(step.get('run', '')) for step in local['steps'])
     assert 'verify_lock_binding' in script and 'docker image inspect' in script
