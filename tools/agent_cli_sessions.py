@@ -445,6 +445,13 @@ def internal_events(agent, version, stdout, stderr):
     """Hash version-pinned local bookkeeping separately from proxy actions."""
     events = []
     if agent == 'codex-cli':
+        if 'update_plan' in INTERNAL_TOOLS.get(agent, {}).get(version, ()):
+            for line in stdout.splitlines():
+                try: event = json.loads(line)
+                except (ValueError, UnicodeError): continue
+                if (isinstance(event, dict) and event.get('type') in ('item.started', 'item.updated', 'item.completed')
+                        and isinstance(event.get('item'), dict) and event['item'].get('type') == 'plan'):
+                    events.append({'kind': 'plan_event', 'eventSha256': digest(line)})
         for line in stderr.splitlines():
             text = line.decode('utf-8', errors='replace')
             if 'event.name="codex.tool_call_received"' not in text: continue
