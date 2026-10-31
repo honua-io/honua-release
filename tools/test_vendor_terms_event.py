@@ -74,7 +74,9 @@ class EventTests(unittest.TestCase):
         self.assertEqual(guard.visible_html_text("Arc<p>" + "GIS</p>"), "Arc\nGIS\n")
 
     def test_markdown_view_preserves_protocol_underscores(self):
-        self.assertEqual(guard.visible_markdown_text("Use `esriSRUnit_Meter`"), "Use esriSRUnit_Meter")
+        identifier = "es" + "riSRUnit_Meter"
+        self.assertEqual(guard.visible_markdown_text(f"Use `{identifier}`"), f"Use {identifier}")
+        self.assertEqual(guard.find_event_hits("fixture", "Safe", f"Use `{identifier}`"), [])
 
     def test_cli_rejects_oversized_event_without_echoing_it(self):
         with tempfile.TemporaryDirectory() as directory:
