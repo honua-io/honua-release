@@ -4,7 +4,19 @@
   "derivation": "Null means unavailable: see scenario module for the evidence required. Fixture references resolve against the pinned town corpus.",
   "variants": {
     "A": {
-      "configuration.persisted": null,
+      "configuration.persisted": {
+        "configurationBeforeSha256": {
+          "$role": "recorded:configuration"
+        },
+        "configurationAfterSha256": {
+          "$role": "recorded:configuration"
+        },
+        "savedDataSourceIds": [
+          {
+            "$role": "created:connection"
+          }
+        ]
+      },
       "restart.observed": {
         "resourceId": "server",
         "terminalState": "ready",
@@ -15,7 +27,19 @@
       "secrets.absent": null
     },
     "B": {
-      "configuration.persisted": null,
+      "configuration.persisted": {
+        "configurationBeforeSha256": {
+          "$role": "recorded:configuration"
+        },
+        "configurationAfterSha256": {
+          "$role": "recorded:configuration"
+        },
+        "savedDataSourceIds": [
+          {
+            "$role": "created:connection"
+          }
+        ]
+      },
       "restart.observed": {
         "resourceId": "server",
         "terminalState": "ready",
@@ -29,12 +53,57 @@
   "projections": {
     "restart.observed": {
       "spec": {
-        "custody": "lifecycle:p02"
+        "custody": "lifecycle:between-1"
       },
       "reads": {}
+    },
+    "configuration.persisted": {
+      "spec": {
+        "object": {
+          "configurationBeforeSha256": {
+            "role": "recorded:configuration"
+          },
+          "configurationAfterSha256": {
+            "canonicalSha256": {
+              "body": "p02-connections-after-restart",
+              "pointer": "/data"
+            }
+          },
+          "savedDataSourceIds": {
+            "list": [
+              {
+                "role": "created:connection"
+              }
+            ]
+          }
+        }
+      },
+      "reads": {
+        "p02-connections-after-restart": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/connections/",
+          "principal": "controller",
+          "phase": "observe"
+        }
+      }
     }
   },
-  "roles": [],
+  "roles": [
+    {
+      "role": "recorded:configuration",
+      "step": "p02-connections-before-restart",
+      "pointer": "/data"
+    },
+    {
+      "role": "created:connection",
+      "step": "p02-connections-after-restart",
+      "items": "/data",
+      "id": "/connectionId",
+      "owner": "/createdBy",
+      "before": "p02-connections-seed"
+    }
+  ],
   "customerFiles": {
     "A": [],
     "B": []

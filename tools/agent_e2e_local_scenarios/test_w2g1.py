@@ -58,22 +58,11 @@ def test_p02_records_real_order_and_refuses_to_grade_partial_evidence(stack):
     assert case.seed(stack, 'A') == seeded
     with pytest.raises(ValueError):
         case.seed(stack, 'B')
+    assert case.sessions_required() == 2
+    assert case.between_sessions(stack, seeded, 'A', 1) == {'restartServer': True}
     observations = case.observe(stack, seeded, 'A')
-    assert [row.assertion_id for row in observations] == ['restart.observed']
-    assert [entry[0] for entry in calls] == ['p02-connections-seed', 'p02-connections-before-restart', 'restart', 'p02-connections-after-restart']
-
-
-def test_p02_failed_restart_never_reads_or_scores_after_state(stack):
-    case = importlib.import_module('agent_e2e_local_scenarios.P02').scenario
-    calls = []
-    class Recorder:
-        def json(self, step, method, path):
-            calls.append(step)
-            return {'observation': {'httpStatus': 200, 'body': {'success': True, 'data': []}}}
-    stack.extra.update(recorder=Recorder(), restartServer=lambda _: {'restarted': False})
-    with pytest.raises(RuntimeError, match='restart did not complete'):
-        case.observe(stack, Seeded({'variant': 'A'}), 'A')
-    assert calls == ['p02-connections-before-restart']
+    assert [row.assertion_id for row in observations] == ['configuration.persisted', 'restart.observed']
+    assert [entry[0] for entry in calls] == ['p02-connections-seed', 'p02-connections-before-restart', 'p02-connections-after-restart']
 
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
@@ -154,7 +143,7 @@ def test_worker_exclusion_is_explicit_and_never_a_pass(scenario_id):
     assert rows[0]['ruling'] == 'custody.worker-replaced@local-docker'
 
 
-@pytest.mark.parametrize('scenario_id,prefix', [('P02', 'p02'), ('P12', 'between-1')])
+@pytest.mark.parametrize('scenario_id,prefix', [('P02', 'between-1'), ('P12', 'between-1')])
 def test_frozen_restart_projection_passes_and_rejects_wrong_state(scenario_id, prefix):
     from agent_e2e_local_api import Observation
     from agent_e2e_local_runner import score_assertions
@@ -179,3 +168,25 @@ def test_protected_inventory_shape_cannot_satisfy_configuration_binding():
                 'configurationAfterSha256': 'a' * 64, 'savedDataSourceIds': ['fixture']}
     with pytest.raises(oracle.VerificationError):
         oracle.verify('configuration.persisted', projected, expected)
+
+
+def test_p02_recorded_digest_prefix_mismatch_fails_closed():
+    from agent_e2e_local_api import RoleBinding, Observation
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_runner import score_assertions
+    from test_agent_e2e_local_runner import _record
+    document = json.loads((ROOT / 'certification/agent-e2e/expectations/local/P02.json').read_text())
+    config = {'data': [{'connectionId': 'fixture-id', 'createdBy': 'agent'}]}
+    records = {
+        'p02-connections-before-restart': _record('p02-connections-before-restart', phase='between', body=config, path='/api/v1/admin/connections/'),
+        'p02-connections-after-restart': _record('p02-connections-after-restart', phase='observe', body=config, path='/api/v1/admin/connections/'),
+        'p02-connections-seed': _record('p02-connections-seed', phase='seed', body={'data': []}, path='/api/v1/admin/connections/'),
+    }
+    roles = resolve_roles([RoleBinding(**row) for row in document['roles']], records, agent_principal='agent')
+    rows = score_assertions(['configuration.persisted'],
+        [Observation('configuration.persisted', None, {'projection': 'extract/v1'})],
+        {'configuration.persisted': document['variants']['A']['configuration.persisted']},
+        records=records, roles=roles, scenario_id='P02',
+        frozen={'configuration.persisted': document['projections']['configuration.persisted']})
+    assert rows[0]['status'] == 'fail'
+    assert rows[0]['reason'] == 'value differs from frozen expectation'

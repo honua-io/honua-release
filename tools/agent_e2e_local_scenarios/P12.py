@@ -1,10 +1,9 @@
 """P12 is unsupported: a fresh-session read after restart cannot yet be proven.
 
-The runner can now record an oracle-compatible restart between sessions. A
-second-session map read still needs to be bound to the seeded version and
-fixture-derived expected content and hash.
-StudioSetup.prepare_saved_map additionally requires a real SQL absence baseline
-and separate task and setup transports, which the runner does not expose.
+The runner records an oracle-compatible restart and exposes read-only SQL.
+A reviewed saved-town-map envelope and a recorder-compatible fixture adapter
+are still needed to bind the seeded map/version and source baseline; inventing
+a map fixture would not establish the requested starting state.
 """
 from agent_e2e_local_api import Observation, Scenario
 
