@@ -167,12 +167,17 @@ def test_foreign_descendants_refused_without_executing_remote_side_effect(databa
     # Grants intentionally reproduce the permissive conditions in the review.
     setup = """
     CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+    CREATE EXTENSION IF NOT EXISTS dblink;
     CREATE TABLE IF NOT EXISTS honua_data.review_marker (x integer NOT NULL);
     TRUNCATE honua_data.review_marker;
     INSERT INTO honua_data.review_marker VALUES (0);
     CREATE OR REPLACE FUNCTION public.review_side_effect() RETURNS integer
     LANGUAGE plpgsql VOLATILE SECURITY DEFINER AS $$
-    BEGIN UPDATE honua_data.review_marker SET x = x + 1; RETURN 1; END $$;
+    BEGIN
+      PERFORM public.dblink_exec('host=127.0.0.1 port=5432 dbname=honua user=honua password=local-contract-only',
+                                 'UPDATE honua_data.review_marker SET x = x + 1');
+      RETURN 1;
+    END $$;
     CREATE OR REPLACE VIEW public.review_remote AS SELECT public.review_side_effect() AS x;
     CREATE SERVER IF NOT EXISTS review_loopback FOREIGN DATA WRAPPER postgres_fdw
       OPTIONS (host '127.0.0.1', port '5432', dbname 'honua');
@@ -201,6 +206,13 @@ def test_foreign_descendants_refused_without_executing_remote_side_effect(databa
         code, out = runtime.psql(stack, 'SELECT pg_catalog.json_agg(x) FROM honua_data.review_marker', read_only=False)
         assert code == 0
         return json.loads(out)
+    # Prove the fixture can cause a persistent write even through the reader's
+    # read-only session; this is a test-only direct read of the foreign child.
+    child = 'review_partition_foreign' if partitioned else 'review_inherited_foreign'
+    code, _ = runtime.psql(stack, f'SELECT x FROM honua_data.{child}', read_only=True)
+    assert code == 0 and marker() == [1]
+    code, _ = runtime.psql(stack, 'UPDATE honua_data.review_marker SET x = 0', read_only=False)
+    assert code == 0
     before = marker()
     assert before == [0]
     with pytest.raises(ValueError):
