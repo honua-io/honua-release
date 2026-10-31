@@ -21,10 +21,10 @@ ASSERTIONS = {
 @pytest.mark.parametrize('variant', ['A', 'B'])
 def test_runner_inventory_and_expectation_shape(scenario_id, variant):
     scenario = load_scenario(scenario_id)
-    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P03', 'P07') else ())
+    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P03', 'P04', 'P07') else ())
     assert scenario.fault_plan(variant) is None
     assert set(scenario.expected(variant)) == ASSERTIONS[scenario_id]
-    if scenario_id not in ('P03', 'P07'):
+    if scenario_id not in ('P03', 'P04', 'P07'):
         assert 'unsupported' in importlib.import_module('agent_e2e_local_scenarios.' + scenario_id).__doc__.lower()
 
 
@@ -400,11 +400,13 @@ def test_p04_only_reads_a_table_from_the_matching_sealed_input(tmp_path):
         def action_result(self, step, action):
             return SimpleNamespace(status=200, json={'result': {'isError': False, 'structuredContent': {
                 'success': True, 'schema': 'honua_data', 'table': 'imported_parcels', 'geometryColumn': 'geom'}}})
-        def sql(self, step, query): calls.append((step, query))
+        def sql(self, step, query):
+            if step.endswith('-rows'): calls.append((step, query))
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
+    from agent_e2e_local_api import Seeded
     scenario = load_scenario('P04')
-    assert [item.assertion_id for item in scenario.observe(stack, scenario.seed(stack, 'A'), 'A')] == ['source-content.unchanged']
+    assert [item.assertion_id for item in scenario.observe(stack, Seeded({'variant': 'A'}), 'A')] == ['features.exact', 'geometry.crs', 'source-content.unchanged']
     assert len(calls) == 1 and calls[0][0] == 'p04-parcels-rows'
     assert 'FROM honua_data.imported_parcels' in calls[0][1]
 
@@ -475,3 +477,153 @@ def test_p05_sql_projection_rejects_changed_feature_and_wrong_table():
     changed[0]['capacity'] = 999
     assert score(changed, 'imported_shelters') == 'fail'
     assert score(rows, 'another_table') == 'fail'
+
+
+def test_p05_fixture_and_inventory_seed_are_idempotent(tmp_path):
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[2] / 'certification/agent-e2e/corpus/town-A/shelters.csv').read_text()
+    calls = []
+    class Recorder:
+        def sql(self, step, query):
+            calls.append((step, query))
+            return [{'content': source}] if step == 'p05-fixture-valid' else []
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    case = load_scenario('P05')
+    first = case.seed(stack, 'A')
+    assert case.seed(stack, 'A') == first
+    assert [step for step, _ in calls] == ['p05-table-baseline', 'p05-fixture-valid']
+    with pytest.raises(ValueError):
+        case.seed(stack, 'B')
+
+
+def test_p04_sql_projection_rejects_changed_attributes_and_foreign_table():
+    import copy
+    import hashlib
+    import json
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    case = load_scenario('P04')
+    expected = case.expected('A')
+    fixtures = {name: oracle.fixture_expectation('A', 'features.exact', layer=layer)['features']
+                for name, layer in [('parcels', 'parcels'), ('flood-zones', 'flood_zones')]}
+    roles = {'created:table:parcels': 'imported_parcels', 'created:table:flood-zones': 'imported_flood'}
+    def score(mutated=False, wrong_table=False):
+        records = {}
+        for label, features in fixtures.items():
+            rows = [{**row['properties'], 'srid': 3857, 'geometry': row['geometry']} for row in copy.deepcopy(features)]
+            if label == 'parcels' and mutated:
+                rows[0]['owner'] = 'wrong owner'
+            table = ('foreign' if wrong_table else 'imported_parcels') if label == 'parcels' else 'imported_flood'
+            columns = 'source_id, name, owner, value' if label == 'parcels' else 'source_id, name'
+            query = ('SELECT ' + columns + ', ST_SRID(ST_Transform(geometry, 3857)) AS srid, '
+                     'ST_AsGeoJSON(ST_Transform(geometry, 3857))::json AS geometry, '
+                     'ST_AsGeoJSON(ST_SnapToGrid(ST_Transform(geometry, 3857), 0.001))::json AS rounded_geometry FROM honua_data.' + table + ' ORDER BY source_id')
+            raw = json.dumps(rows).encode()
+            step = 'p04-' + label + '-rows'
+            records[step] = Record(step, 'observe', 'sql', 'controller', 'owner', 'SELECT', query, 200, raw,
+                                   'sha256:' + hashlib.sha256(raw).hexdigest())
+        result = score_assertions(list(expected), [Observation('features.exact', None, {'projection': 'extract/v1'})],
+                                  expected, records=records, roles=roles, scenario_id='P04',
+                                  frozen=frozen_projections(case, 'A'))
+        return next(row['status'] for row in result if row['assertion'] == 'features.exact')
+    assert score() == 'pass'
+    assert score(mutated=True) == 'fail'
+    assert score(wrong_table=True) == 'fail'
+
+
+def test_p04_fixture_and_inventory_seed_are_idempotent(tmp_path):
+    from pathlib import Path
+    import json
+    root = Path(__file__).resolve().parents[2] / 'certification/agent-e2e'
+    document = json.loads((root / 'expectations/local/P04.json').read_text())
+    files = document['customerFiles']['A']
+    fixtures = {name: (root / 'corpus' / path).read_text() for name, path in zip(('parcels', 'flood-zones'), files)}
+    calls = []
+    class Recorder:
+        def sql(self, step, query):
+            calls.append(step)
+            if step.startswith('p04-fixture-'):
+                text = fixtures[step.removeprefix('p04-fixture-')]
+                srid = int(json.loads(text)['crs']['properties']['name'].split(':')[-1])
+                return [{'content': text, 'srid': srid}]
+            return []
+    stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
+                  {'recorder': Recorder()})
+    case = load_scenario('P04')
+    assert case.seed(stack, 'A') == case.seed(stack, 'A')
+    assert calls == ['p04-table-baseline', 'p04-fixture-parcels', 'p04-fixture-flood-zones']
+    with pytest.raises(ValueError):
+        case.seed(stack, 'B')
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_p04_crs_digest_rejects_changed_coordinates(variant):
+    import copy
+    import hashlib
+    import json
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    case = load_scenario('P04')
+    expected = case.expected(variant)
+    roles = {'created:table:parcels': 'imported_parcels', 'created:table:flood-zones': 'imported_flood'}
+    source_srids = expected['geometry.crs']['sourceSrid']
+    def record(step, phase, query, value):
+        raw = json.dumps(value).encode()
+        return Record(step, phase, 'sql', 'controller', 'owner', 'SELECT', query, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    records = {}
+    for i, (label, layer, table) in enumerate((('parcels', 'parcels', 'imported_parcels'),
+                                               ('flood-zones', 'flood_zones', 'imported_flood'))):
+        fixture = oracle.fixture_expectation(variant, 'features.exact', layer=layer)['features']
+        rows = [{**f['properties'], 'srid': 3857, 'geometry': f['geometry'], 'rounded_geometry': f['geometry']}
+                for f in sorted(fixture, key=lambda f: f['properties']['source_id'])]
+        cols = 'source_id, name, owner, value' if label == 'parcels' else 'source_id, name'
+        query = ('SELECT ' + cols + ', ST_SRID(ST_Transform(geometry, 3857)) AS srid, '
+                 'ST_AsGeoJSON(ST_Transform(geometry, 3857))::json AS geometry, '
+                 'ST_AsGeoJSON(ST_SnapToGrid(ST_Transform(geometry, 3857), 0.001))::json AS rounded_geometry FROM '
+                 'honua_data.' + table + ' ORDER BY source_id')
+        records['p04-' + label + '-rows'] = record('p04-' + label + '-rows', 'observe', query, rows)
+        seed_step = 'p04-fixture-' + label
+        records[seed_step] = record(seed_step, 'seed', "SELECT 'fixture' AS content, " + str(source_srids[i]) + ' AS srid',
+                                    [{'content': 'fixture', 'srid': source_srids[i]}])
+    obs = [Observation('geometry.crs', None, {'projection': 'extract/v1'})]
+    def score(values):
+        result = score_assertions(list(expected), obs, expected, records=values, roles=roles,
+                                  scenario_id='P04', frozen=frozen_projections(case, variant))
+        return next(row['status'] for row in result if row['assertion'] == 'geometry.crs')
+    assert score(records) == 'pass'
+    bad = dict(records)
+    step = 'p04-parcels-rows'
+    rows = copy.deepcopy(records[step].json)
+    rows[0]['rounded_geometry']['coordinates'][0][0][0] += 1
+    bad[step] = record(step, 'observe', records[step].path, rows)
+    assert score(bad) == 'fail'
+
+
+def test_p04_roles_bind_each_table_to_its_matching_input():
+    import hashlib
+    import json
+    from agent_e2e_local_expectations import load_roles
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_scenarios.P04 import INVENTORY
+    def record(step, phase, path, value):
+        raw = json.dumps(value).encode()
+        return Record(step, phase, 'sql', 'controller', 'owner', 'SELECT', path, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    records = {'p04-fixture-parcels': record('p04-fixture-parcels', 'seed', "SELECT 'a'", [{'content': 'a'}]),
+               'p04-fixture-flood-zones': record('p04-fixture-flood-zones', 'seed', "SELECT 'b'", [{'content': 'b'}]),
+               'p04-table-baseline': record('p04-table-baseline', 'seed', INVENTORY, []),
+               'p04-table-after': record('p04-table-after', 'observe', INVENTORY,
+                   [{'table_schema': 'honua_data', 'table_name': 'flood'}, {'table_schema': 'honua_data', 'table_name': 'parcel'}])}
+    actions = [{'tool': 'honua_ingest_dataset', 'status': 'pass', 'arguments': {'data': data},
+                'json': {'result': {'structuredContent': {'table': table}}}}
+               for data, table in [('a', 'parcel'), ('b', 'flood')]]
+    roles = resolve_roles(load_roles('P04'), records, agent_principal='agent', action_results=actions)
+    assert roles['created:table:parcels'] == 'parcel' and roles['created:table:flood-zones'] == 'flood'
+    actions[1]['arguments']['data'] = 'unrelated'
+    with pytest.raises(ValueError, match='matched 0'):
+        resolve_roles(load_roles('P04'), records, agent_principal='agent', action_results=actions)
