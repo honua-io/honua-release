@@ -1024,7 +1024,13 @@ components:
     # https://github.com/honua-io/honua-helm/archive/5069bffb27a1fe48485bf48c798804821a59e61a.tar.gz,
     # two anonymous downloads, identical bytes, sha256
     # 6d2f3355d3b84c810d1b07ad283c1191049bc4011b0b2ffcfafd26f0a08d4e35, pax comment = this sha.
-    sha: "5069bffb27a1fe48485bf48c798804821a59e61a"   # branch: trunk HEAD 2026-10-11 (honua-helm#99 merge commit)
+    # 2026-10-31 ADVANCE 5069bffb -> trunk 49a0601a (honua-helm#116 merge commit; carries #111 GP-worker
+    # secret scoping, which honua-iac v0.5.0's narrowed EKS gp-job role (#336) requires, and the #116 dev
+    # quick-start PostGIS wait). Verified green: check-runs at 49a0601a -> 11 success, 0 failure.
+    # Source tarball https://github.com/honua-io/honua-helm/archive/49a0601a9a9ac338121b44df89850ff0099b92a7.tar.gz,
+    # two anonymous downloads, identical bytes, sha256
+    # e8edc71658ffa7f7f147f422f5097f05e190012d96bc1ef834c8cda773083ef8, pax comment = this sha.
+    sha: "49a0601a9a9ac338121b44df89850ff0099b92a7"   # branch: trunk HEAD 2026-10-31 (honua-helm#116 merge commit)
     artifact: "oci-chart:honua"
 
 # Customer-installable certification inputs. These are package bytes, not deployable platform

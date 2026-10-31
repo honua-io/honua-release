@@ -200,7 +200,7 @@ components:
   honua-helm:
     source:
       repository: https://github.com/honua-io/honua-helm
-      revision: 5069bffb27a1fe48485bf48c798804821a59e61a
+      revision: 49a0601a9a9ac338121b44df89850ff0099b92a7
     contractVersions: {}
     schemaVersions: {}
     artifacts:
