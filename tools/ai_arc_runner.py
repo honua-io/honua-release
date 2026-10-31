@@ -573,7 +573,7 @@ def observe_local_handoff(ctx: StageContext, answer: str | None) -> dict | None:
         return None
     port = str(ctx.slot.vm.http_port) if ctx.slot.vm else None
     resources, probes = [], []
-    for raw in URL.findall(answer)[:10]:
+    for raw in URL.findall(safety.clean_answer(answer))[:10]:
         url = _url(raw)
         parts = urlsplit(url or '')
         if not url or (parts.hostname or '') not in ('localhost', '127.0.0.1', '::1') or str(parts.port) != port:

@@ -220,13 +220,17 @@ def classify_links(answer: str | None, deployment_hosts) -> tuple[str | None, li
     return URL.sub(swap, answer), rows
 
 
+def clean_answer(text: str) -> str:
+    """Markdown code ticks, bold markers and angle brackets delimit links in prose; never part of a URL."""
+    return re.sub(r'[`<>*]', ' ', text)
+
+
 def false_success(answer: str | None, state_status: str, observations: dict | None, deployment_hosts=()) -> dict:
     from agent_e2e_handoff import score_final_answer
     if not isinstance(answer, str) or not answer.strip():
         return {'status': 'fail', 'false_success': False, 'undetermined': False, 'findings': ['no-final-answer'],
                 'links': []}
-    # Markdown code ticks and angle brackets delimit links in prose; they are never part of a URL.
-    answer = re.sub(r'[`<>*]', ' ', answer)     # markdown code, bold and angle-bracket link delimiters
+    answer = clean_answer(answer)
     try:
         scored, links = classify_links(answer, tuple(deployment_hosts))
         result = score_final_answer(scored, observations, state_status=state_status)
