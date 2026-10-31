@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 
 from live_observer import compare_source_geometry, observe_database, observe_layer
-from ga_actions import invoke
+from real_controller import RealController
 from live_probes import ProbeTraffic, assess_traffic, readback_writes
 from real_seed import _verify_runtime, prepare_town
 from real_credentials import mint_operator
@@ -20,6 +20,7 @@ def main() -> None:
     root = Path(os.environ['E2E_OUT'])
     base, key = os.environ['E2E_BASE'], os.environ['E2E_API_KEY']
     evidence = {'project': os.environ['COMPOSE_PROJECT_NAME'], 'status': 'fail', 'layers': {}}
+    controller = None
     try:
         seed = json.loads((root / 'seed-manifest.json').read_text())
         publication = json.loads((root / 'seed-inspections-publication.json').read_text())
@@ -125,7 +126,6 @@ def main() -> None:
                                write_attributes={'name': 'ops probe', 'category': 'park', 'status': 'ok',
                                                  'reported_at': int(time.time() * 1000)}, writer_interval=0.2)
         candidate = os.environ.get('OPS_SMOKE_CANDIDATE_IMAGE')
-        action_args = None
         before_db = None
         backup = None
         if candidate:
@@ -136,19 +136,24 @@ def main() -> None:
             evidence['before_database'] = before_db
             action_out = Path(os.environ['OPS_SMOKE_OUT']) / 'actions'
             action_out.mkdir(mode=0o700)
-            action_args = {'project': os.environ['COMPOSE_PROJECT_NAME'],
-                           'compose_file': Path(os.environ['E2E_COMPOSE_FILE']), 'output': action_out,
-                           'prior_image': os.environ['HONUA_SERVER_IMAGE'], 'candidate_image': candidate,
-                           'base_url': base}
-            backup = invoke(operation='backup', **action_args)
+            controller = RealController(project=os.environ['COMPOSE_PROJECT_NAME'],
+                                        compose_file=Path(os.environ['E2E_COMPOSE_FILE']), output=action_out,
+                                        prior_image=os.environ['HONUA_SERVER_IMAGE'], candidate_image=candidate,
+                                        base_url=base)
+            # Exercise the same structured action interface a model would use.
+            # A rejected action must also appear in the controller's audit.
+            rejected = controller.apply('honua_deploy_operations', {'operation': 'apply', 'image': candidate})
+            if rejected.get('ok') is not False or rejected.get('error') != 'pre-upgrade-backup-required':
+                raise RuntimeError('unsafe pre-backup update was not rejected')
+            backup = controller.apply('honua_deploy_operations', {'operation': 'backup'})
             evidence['backup'] = backup
             if not backup['ok']:
                 raise RuntimeError('live pre-upgrade backup failed')
         traffic.start()
         try:
             time.sleep(1)
-            if action_args:
-                upgraded = invoke(operation='start-candidate', **action_args)
+            if controller:
+                upgraded = controller.apply('honua_deploy_operations', {'operation': 'apply', 'image': candidate})
                 evidence['upgrade'] = upgraded
                 if not upgraded['ok']:
                     raise RuntimeError('live upgrade failed')
@@ -165,14 +170,14 @@ def main() -> None:
         evidence['assessment'] = result
         if not result['rpo_zero']:
             raise RuntimeError('live probe lost an acknowledged write')
-        if action_args:
+        if controller:
             after_upgrade = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
             evidence['upgraded_database'] = after_upgrade
             def data_only(snapshot):
                 return {name: (value['fields'], value['rows']) for name, value in snapshot.items()}
             if data_only(before_db) != data_only(after_upgrade):
                 raise RuntimeError('seeded data changed on upgrade')
-            restored = invoke(operation='restore-prior', expected_backup_sha256=backup['backup_sha256'], **action_args)
+            restored = controller.apply('honua_deploy_operations', {'operation': 'restore_backup', 'backup_id': 'previous-release'})
             evidence['restore'] = restored
             if not restored['ok']:
                 raise RuntimeError('live backup restore failed')
@@ -180,14 +185,19 @@ def main() -> None:
             evidence['restored_database'] = after_restore
             if data_only(before_db) != data_only(after_restore):
                 raise RuntimeError('seeded data changed on restore')
+            evidence['action_audit'] = controller.audit
+            if [event['ok'] for event in controller.audit] != [False, True, True, True]:
+                raise RuntimeError('controller action audit is incomplete')
         evidence['status'] = 'operations-pass'
         evidence['cleanup'] = 'pending'
         print('real Compose operations completed: town layers, anonymous public traffic, controller readback' +
-              (', upgrade and backup restore' if action_args else ''))
+              (', upgrade and backup restore' if controller else ''))
     except Exception as exc:
         evidence['error_type'] = type(exc).__name__
         raise
     finally:
+        if controller is not None:
+            evidence['action_audit'] = controller.audit
         (Path(os.environ['OPS_SMOKE_OUT']) / 'smoke-evidence.json').write_text(
             json.dumps(evidence, sort_keys=True) + '\n', encoding='utf-8')
 
