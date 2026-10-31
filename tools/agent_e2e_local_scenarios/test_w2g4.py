@@ -393,7 +393,7 @@ def test_p15_model_context_has_only_ab_prompt_and_product_tools(tmp_path, monkey
     runner.validate_receipt(receipt)
 
 
-@pytest.mark.parametrize('sid', ('P14', 'P16', 'P17', 'P20'))
+@pytest.mark.parametrize('sid', ('P14', 'P15', 'P16', 'P17', 'P20'))
 @pytest.mark.parametrize('variant', ('A', 'B'))
 def test_governance_seed_is_idempotent_and_scoped_to_the_case(tmp_path, monkeypatch, sid, variant):
     stack, candidate, _ = stack_fixture(tmp_path, monkeypatch, variant)
@@ -403,7 +403,7 @@ def test_governance_seed_is_idempotent_and_scoped_to_the_case(tmp_path, monkeypa
     assert scenario.seed(stack, variant) == seeded
     assert len(candidate.calls) == count
     assert seeded.state['variant'] == variant
-    if sid in ('P14', 'P17', 'P20'):
+    if sid in ('P14', 'P15', 'P17', 'P20'):
         assert seeded.state['itemId'] == ITEM
     if sid == 'P20':
         assert seeded.state['otherItemId'] == OTHER_ITEM
@@ -539,7 +539,7 @@ def test_source_projection_rejects_service_and_layer_role_swaps(tmp_path, monkey
     assert bad['status'] == 'fail' and 'does not address' in bad['reason']
 
 
-@pytest.mark.parametrize('sid', ('P14', 'P16', 'P17', 'P20'))
+@pytest.mark.parametrize('sid', ('P14', 'P15', 'P16', 'P17', 'P20'))
 def test_seed_refuses_background_import_without_unreviewed_inventory(tmp_path, monkeypatch, sid):
     stack, candidate, _ = stack_fixture(tmp_path, monkeypatch)
     original = candidate.http
@@ -559,7 +559,7 @@ def test_seed_refuses_background_import_without_unreviewed_inventory(tmp_path, m
     assert len(candidate.calls) == before
 
 
-@pytest.mark.parametrize('sid', ('P14', 'P17', 'P20'))
+@pytest.mark.parametrize('sid', ('P14', 'P15', 'P17', 'P20'))
 @pytest.mark.parametrize('wrong', ('seed-owner', 'seed-item', 'seed-hash'))
 def test_seed_rejects_a_misbound_saved_map_without_retry(tmp_path, monkeypatch, sid, wrong):
     stack, candidate, _ = stack_fixture(tmp_path, monkeypatch)
