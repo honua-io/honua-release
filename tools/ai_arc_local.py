@@ -231,12 +231,16 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
     running = [c for c in containers if c.get('Service') != 'keyring-init']
     healthy = bool(server) and all(c.get('State') == 'running' and c.get('Health') in ('healthy', '', None)
                                    for c in running)
-    repo_digests = []
+    repo_digests, label_revision = [], None
     if server and re.fullmatch(r'[A-Za-z0-9@:/._-]{1,300}', server[0].get('Image', '')):
-        inspected = slot.ssh('docker image inspect --format "{{json .RepoDigests}}" ' + shlex.quote(server[0]['Image']), 60)
+        inspected = slot.ssh('docker image inspect --format \'{{json .RepoDigests}}|{{json .Config.Labels}}\' '
+                             + shlex.quote(server[0]['Image']), 60)
         try:
-            repo_digests = json.loads(inspected.stdout or b'[]') or []
-        except ValueError:
+            digests_raw, labels_raw = inspected.stdout.decode().strip().split('|', 1)
+            repo_digests = json.loads(digests_raw) or []
+            labels = json.loads(labels_raw) or {}
+            label_revision = labels.get('org.opencontainers.image.revision')
+        except (ValueError, AttributeError):
             repo_digests = []
     reference = expected['image'] + '@' + expected['imageDigest']
     ready = http('GET', base_url + '/healthz/ready', None)
@@ -245,8 +249,15 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
     document = admin.get('json') if isinstance(admin.get('json'), dict) else {}
     document = document.get('data', document) if isinstance(document, dict) else {}
     instance = document.get('instance') if isinstance(document.get('instance'), dict) else {}
-    served = instance.get('source') or document.get('commitSha') or document.get('sourceRevision')
-    revision_ok = isinstance(served, str) and len(served) >= 7 and expected['sourceSha'].startswith(served)
+    # The served build: the server's informational version carries the commit as build metadata
+    # (``x.y.z-pre+<sha>``); the image's OCI revision label is the controller-side cross-check.
+    version = str(document.get('version') or '')
+    metadata = version.split('+', 1)[1] if '+' in version else ''
+    served = next((part for part in re.split(r'[.+-]', metadata) if re.fullmatch(r'[0-9a-f]{7,40}', part)), None)
+    sha = expected['sourceSha']
+    label_ok = isinstance(label_revision, str) and len(label_revision) >= 7 and sha.startswith(label_revision)
+    served_ok = served is None or sha.startswith(served)
+    revision_ok = label_ok and served_ok
     console = [c for c in containers if c.get('Service') == 'console' and c.get('State') == 'running']
     console_port = None
     for publisher in (console[0].get('Publishers') or []) if console else []:
@@ -256,7 +267,8 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
             break
     evidence = {'console': bool(console),
                 'containers': [{k: c.get(k) for k in ('Service', 'State', 'Health')} for c in containers],
-                'repoDigestMatch': reference in repo_digests, 'servedRevision': served, 'expected': reference,
+                'repoDigestMatch': reference in repo_digests, 'servedRevision': served,
+                'servedVersion': version, 'labelRevision': label_revision, 'expected': reference,
                 'readyStatus': ready.get('status'), 'anonymousStatus': anonymous.get('status'),
                 'adminStatus': admin.get('status')}
     return {'identity': reference in repo_digests and revision_ok, 'ready': healthy and ready.get('status') == 200,

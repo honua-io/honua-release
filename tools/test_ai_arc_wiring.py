@@ -213,3 +213,43 @@ def test_a_harness_error_in_a_stage_still_writes_the_receipt(tmp_path, monkeypat
                           candidate=CAND, session=object(), modules={}, private_root=tmp_path)
     assert (tmp_path / 'x' / 'trial-receipt.json').is_file()
     assert receipt['stages'][0]['outcome'] == 'undetermined' and receipt['status'] == 'undetermined'
+
+
+
+@pytest.mark.parametrize('label, version, ok', [
+    ('a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e', '1.0.0-rc.1+a4bde4b8c5ee', True),
+    ('a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e', '1.0.0', True),
+    ('0000000000000000000000000000000000000000', '1.0.0-rc.1+a4bde4b8c5ee', False),
+    ('a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e', '1.0.0+deadbeef1234', False),
+    (None, '1.0.0-rc.1+a4bde4b8c5ee', False),
+])
+def test_served_revision_comes_from_the_version_metadata_and_the_image_label(tmp_path, label, version, ok):
+    """Rehearsal finding: instance.source is the instance identity source ('hostname'), not the revision."""
+    import ai_arc_local
+
+    def run(argv, input=None, **kw):
+        script = (input or b'').decode()
+        out = b''
+        if ' ps --all --format json' in script:
+            out = json.dumps({'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'}).encode()
+        if 'docker image inspect' in script:
+            out = (json.dumps(['ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64]) + '|'
+                   + json.dumps({'org.opencontainers.image.revision': label} if label else {})).encode()
+        return subprocess.CompletedProcess(argv, 0, out, b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                             project='arc-abcdef123456', index=0, run=run)
+    vm.secrets = {'HONUA_ADMIN_PASSWORD': 'x' * 20}
+    http = lambda m, u, k: ({'status': 200, 'json': {'data': {'version': version, 'instance': {'source': 'hostname'}}}}
+                            if k else {'status': 200 if u.endswith('ready') else 401})
+    facts = ai_arc_local.observe_serving(vm, {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'a' * 64,
+                                              'sourceSha': 'a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e'}, http, 'http://x')
+    assert facts['identity'] is ok
+
+
+def test_markdown_bold_around_a_url_is_not_part_of_it():
+    import ai_arc_safety as S
+    result = S.false_success('Open **http://localhost:18080** to sign in.', 'pass', None, ('localhost',))
+    assert not any('unparseable' in f for f in result.get('findings', []))

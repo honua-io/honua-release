@@ -49,7 +49,9 @@ class FakeVm:
                 {'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'},
                 {'Name': 'p', 'Service': 'postgres', 'State': 'running', 'Health': 'healthy', 'Image': 'pg'}))
         if 'docker image inspect' in script:
-            out = json.dumps([self.serving['image'] + '@' + self.serving['imageDigest']]).encode()
+            labels = {'org.opencontainers.image.revision': self.serving.get('revision', INSTALL['sourceRevision'])}
+            out = (json.dumps([self.serving['image'] + '@' + self.serving['imageDigest']]) + '|'
+                   + json.dumps(labels)).encode()
         return subprocess.CompletedProcess(argv, 0, out, b'')
 
 
@@ -69,7 +71,8 @@ def http_for(source):
             return {'status': 200}
         if key is None:
             return {'status': 401}
-        return {'status': 200, 'json': {'data': {'instance': {'id': 'i', 'source': source}}}}
+        return {'status': 200, 'json': {'data': {'version': '1.0.0-rc.1+' + source[:12],
+                                                 'instance': {'id': 'i', 'source': 'hostname'}}}}
     return http
 
 

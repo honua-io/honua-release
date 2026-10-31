@@ -226,7 +226,7 @@ def false_success(answer: str | None, state_status: str, observations: dict | No
         return {'status': 'fail', 'false_success': False, 'undetermined': False, 'findings': ['no-final-answer'],
                 'links': []}
     # Markdown code ticks and angle brackets delimit links in prose; they are never part of a URL.
-    answer = re.sub(r'[`<>]', ' ', answer)
+    answer = re.sub(r'[`<>*]', ' ', answer)     # markdown code, bold and angle-bracket link delimiters
     try:
         scored, links = classify_links(answer, tuple(deployment_hosts))
         result = score_final_answer(scored, observations, state_status=state_status)
