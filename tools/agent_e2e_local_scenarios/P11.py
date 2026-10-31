@@ -6,6 +6,8 @@ The frozen town feature projections use typed attributes, so they depend on
 honua-server #6815. A fixture buffer alone cannot prove the requested saved result was made.
 """
 from pathlib import Path
+import re
+from urllib.parse import quote
 
 from agent_e2e_local_api import Observation, RoleBinding, Scenario, Seeded
 
@@ -33,20 +35,42 @@ class P11(Scenario):
             connection_id=stack.extra['connectionId'])
         binding = town['layers']['shelters']
         read_town(recorder, 'p11', town['layers'], 'before')
+        recorder.json('p11-jobs-before', 'GET', '/api/v1/admin/jobs?limit=100')
         seed = {'variant': variant, 'service': binding['service'], 'layerId': binding['layerId'], 'layers': town['layers']}
         stack.extra['p11Seed'] = seed
         return Seeded(seed)
 
     def roles(self, stack, seeded, variant, run=None):
-        return [RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
+        return [RoleBinding('created:job:buffer', 'p11-jobs-after', items='/items', id='/jobId',
+                            before='p11-jobs-before', next_page='/nextCursor',
+                            created_by={'tool':'honua_execute_plan', 'pointer':'/result/structuredContent/jobId'}),
+                *[RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
                             pointer=f'/data/resourceIds/{field}')
                 for layer in ('parcels', 'flood_zones', 'shelters')
-                for kind, field in (('service', 'serviceName'), ('layer', 'layerId'))]
+                for kind, field in (('service', 'serviceName'), ('layer', 'layerId'))]]
 
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_local_scenarios.w2g3_common import read_town
-        read_town(stack.extra['recorder'], 'p11', seeded.state['layers'], 'after')
-        return [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
+        recorder = stack.extra['recorder']
+        read_town(recorder, 'p11', seeded.state['layers'], 'after')
+        listing = recorder.json('p11-jobs-after', 'GET', '/api/v1/admin/jobs?limit=100')
+        live = listing['observation']['body']
+        candidates = []
+        for index, action in enumerate(recorder.actions()):
+            if action.kind != 'tool_call' or action.tool != 'honua_execute_plan' or action.status != 'pass':
+                continue
+            response = recorder.action_result(f'p11-action-{index}', action)
+            value = response.json.get('result', {}).get('structuredContent', {})
+            job = value.get('jobId') if isinstance(value, dict) else None
+            if isinstance(job, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', job):
+                if any(row.get('jobId') == job for row in live.get('items', [])):
+                    candidates.append((job, action))
+        if len(candidates) == 1:
+            job, action = candidates[0]
+            recorder.action_result('p11-job-action', action)
+            recorder.json('p11-job-detail', 'GET', '/api/v1/admin/jobs/' + quote(job, safe=''))
+        return [Observation('job.completed', None, {'projection': 'extract/v1'}),
+                Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
 
 scenario = P11()

@@ -51,7 +51,10 @@ def test_p11_seed_idempotent_and_declares_recorded_source_projection(monkeypatch
                                for i, name in enumerate(('parcels', 'flood_zones', 'shelters'))}}
     class FakeRecorder:
         def __init__(self): self.calls = []
-        def json(self, *args): self.calls.append(args)
+        def json(self, *args):
+            self.calls.append(args)
+            return {'observation': {'body': {'items': [], 'nextCursor': None}}}
+        def actions(self): return ()
         def mcp_call(self, *args): self.calls.append(args)
     monkeypatch.setattr('agent_e2e_local_scenarios.w2g3_common.town_setup', lambda recorder, variant: FakeTown(recorder, None))
     recorder = FakeRecorder()
@@ -62,11 +65,11 @@ def test_p11_seed_idempotent_and_declares_recorded_source_projection(monkeypatch
     assert sum(call[0] == 'prepare' for call in recorder.calls) == 1
     with pytest.raises(ValueError):
         P11.scenario.seed(stack, 'B' if variant == 'A' else 'A')
-    observation = P11.scenario.observe(stack, first, variant)[0]
+    observation = P11.scenario.observe(stack, first, variant)[1]
     assert observation.assertion_id == 'source-content.unchanged'
     assert observation.observed is None
     assert observation.evidence == {'projection': 'extract/v1'}
-    assert recorder.calls[-1][0] == 'p11-shelters-after'
+    assert any(row[0] == 'p11-shelters-after' for row in recorder.calls)
 
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
@@ -290,3 +293,35 @@ def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
     assert score() == 'pass'
     records['p13-shared-after']=record('p13-shared-after','observe','foreign-v2')
     assert score() == 'fail'
+
+
+def test_buffer_job_role_and_completion_reject_foreign_or_failed_job():
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_projections, load_roles
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record, ProjectionError
+    from agent_e2e_local_runner import score_assertions
+    def record(step, phase, path, body, *, kind='http', principal='controller', origin='controller', method='GET'):
+        raw=json.dumps(body).encode()
+        return Record(step,phase,kind,principal,'principal',method,path,200,raw,
+                      'sha256:'+hashlib.sha256(raw).hexdigest(),origin=origin)
+    path='/api/v1/admin/jobs?limit=100'
+    before=record('p11-jobs-before','seed',path,{'items':[],'nextCursor':None})
+    after=record('p11-jobs-after','observe',path,{'items':[{'jobId':'j1'}],'nextCursor':None})
+    action={'jsonrpc':'2.0','id':1,'result':{'structuredContent':{'jobId':'j1','status':'Queued'}}}
+    action_result=[{'tool':'honua_execute_plan','status':'pass','json':action}]
+    records={'p11-jobs-before':before,'p11-jobs-after':after,
+             'p11-job-action':record('p11-job-action','observe','/mcp#tools/call',action,kind='mcp',principal='agent',origin='session-result',method='POST'),
+             'p11-job-detail':record('p11-job-detail','observe','/api/v1/admin/jobs/j1',{'status':'Succeeded'})}
+    binding=[row for row in load_roles('P11') if row.role=='created:job:buffer']
+    roles=resolve_roles(binding,records,agent_principal='agent',action_results=action_result)
+    obs=Observation('job.completed',None,{'projection':'extract/v1'})
+    expected={'job.completed':load_expected('P11','A')['job.completed']}
+    def score():
+        return score_assertions(['job.completed'],[obs],expected,records=records,roles=roles,scenario_id='P11',
+                                frozen=load_projections('P11','A'))[0]['status']
+    assert score() == 'pass'
+    records['p11-job-detail']=record('p11-job-detail','observe','/api/v1/admin/jobs/j1',{'status':'Failed'})
+    assert score() == 'fail'
+    with pytest.raises(ProjectionError):
+        resolve_roles(binding,records,agent_principal='agent',action_results=[])

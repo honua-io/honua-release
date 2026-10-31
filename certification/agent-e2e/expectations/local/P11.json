@@ -404,6 +404,12 @@
             }
           }
         ]
+      },
+      "job.completed": {
+        "resourceId": {
+          "$role": "created:job:buffer"
+        },
+        "terminalState": "Succeeded"
       }
     },
     "B": {
@@ -807,6 +813,12 @@
             }
           }
         ]
+      },
+      "job.completed": {
+        "resourceId": {
+          "$role": "created:job:buffer"
+        },
+        "terminalState": "Succeeded"
       }
     }
   },
@@ -1043,9 +1055,60 @@
           "phase": "observe"
         }
       }
+    },
+    "job.completed": {
+      "spec": {
+        "object": {
+          "resourceId": {
+            "target": "p11-job-detail",
+            "role": "created:job:buffer"
+          },
+          "states": {
+            "list": [
+              {
+                "body": "p11-job-action",
+                "pointer": "/result/structuredContent/status"
+              },
+              {
+                "body": "p11-job-detail",
+                "pointer": "/status"
+              }
+            ]
+          }
+        }
+      },
+      "reads": {
+        "p11-job-action": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "agent",
+          "phase": "observe",
+          "origin": "session-result"
+        },
+        "p11-job-detail": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/jobs/[A-Za-z0-9_-]+",
+          "principal": "controller",
+          "phase": "observe"
+        }
+      }
     }
   },
   "roles": [
+    {
+      "role": "created:job:buffer",
+      "step": "p11-jobs-after",
+      "items": "/items",
+      "id": "/jobId",
+      "before": "p11-jobs-before",
+      "next_page": "/nextCursor",
+      "created_by": {
+        "tool": "honua_execute_plan",
+        "pointer": "/result/structuredContent/jobId"
+      }
+    },
     {
       "role": "seeded:service:parcels",
       "step": "publish-parcels-submit",
