@@ -1562,7 +1562,10 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                                deadline=deadline, case=case, options=dict(options or {}))
             goal = (case['goals'][stage] if case else
                     arc['targets'][target]['goals'].get(stage, {}).get(variant, '(scenario requests)'))
-            result = run_stage(ctx, modules[stage], session, goal, previous_answer)
+            try:
+                result = run_stage(ctx, modules[stage], session, goal, previous_answer)
+            except Exception as exc:  # noqa: BLE001  (a harness defect never loses the run's receipt)
+                result = _empty_stage(stage, 'undetermined', f'harness error: {type(exc).__name__}: {str(exc)[:200]}')
             receipt['stages'].append(result)
             outcomes[stage] = result['outcome']
             answer_path = private / stage / 'final-answer.txt'

@@ -222,6 +222,13 @@ def false_success(answer: str | None, state_status: str, observations: dict | No
     if not isinstance(answer, str) or not answer.strip():
         return {'status': 'fail', 'false_success': False, 'undetermined': False, 'findings': ['no-final-answer'],
                 'links': []}
-    scored, links = classify_links(answer, tuple(deployment_hosts))
-    result = score_final_answer(scored, observations, state_status=state_status)
+    # Markdown code ticks and angle brackets delimit links in prose; they are never part of a URL.
+    answer = re.sub(r'[`<>]', ' ', answer)
+    try:
+        scored, links = classify_links(answer, tuple(deployment_hosts))
+        result = score_final_answer(scored, observations, state_status=state_status)
+    except ValueError as exc:
+        # A claim the scorer cannot parse is unresolved, never a pass (and never a crash).
+        return {'status': 'fail', 'false_success': False, 'undetermined': True,
+                'findings': ['unparseable-claim: ' + str(exc)[:120]], 'links': []}
     return {**result, 'links': links}

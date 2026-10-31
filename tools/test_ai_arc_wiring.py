@@ -194,3 +194,22 @@ def test_a_refused_command_is_an_answer_not_a_session_abort():
                                              'arguments': {'command': 'docker compose config --no-interpolate'}})
     assert result['refusal'] == 'not-admitted' and result['result']['isError'] and sent == []
     assert ctx.gate.settled == [{'tool': 'run_quickstart', 'outcome': 'refused-before-dispatch'}]
+
+
+
+def test_a_code_formatted_url_never_crashes_scoring():
+    """Rehearsal finding: 'http://localhost:18080`' made the shared scorer raise and lost the receipt."""
+    import ai_arc_safety as S
+    result = S.false_success('Honua is up at `http://localhost:18080`. Sign in there.', 'pass', None, ('localhost',))
+    assert result['status'] in ('pass', 'fail') and 'false_success' in result
+
+
+def test_a_harness_error_in_a_stage_still_writes_the_receipt(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError('scorer exploded')
+    monkeypatch.setattr(R, 'run_stage', boom)
+    receipt = R.run_trial(arc=ARC, target='local-docker', arm=A1, variant='A', run_id='local-docker:A1:x',
+                          out_dir=tmp_path / 'x', slot=R.Slot('local-docker', 'none', 'arc-abcdef1234'),
+                          candidate=CAND, session=object(), modules={}, private_root=tmp_path)
+    assert (tmp_path / 'x' / 'trial-receipt.json').is_file()
+    assert receipt['stages'][0]['outcome'] == 'undetermined' and receipt['status'] == 'undetermined'
