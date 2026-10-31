@@ -263,7 +263,10 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                     receipt['status'] = 'fail'
                     receipt['exportFailure'] = str(exc)[:200]
             (out_dir / sid).mkdir(parents=True, exist_ok=True)
-            (out_dir / sid / 'case-receipt.json').write_text(json.dumps(receipt, sort_keys=True))
+            from ai_arc_runner import redact_bytes
+            # Redacted at write time (minted case keys and the controller credential never stored).
+            (out_dir / sid / 'case-receipt.json').write_bytes(
+                redact_bytes(json.dumps(receipt, sort_keys=True).encode(), [*runtime._secrets, *runtime.extra_secrets]))
             answer = runtime.answers.get(f'{project}-{sid.lower()}')
             if isinstance(answer, str):
                 answers.append(answer)
