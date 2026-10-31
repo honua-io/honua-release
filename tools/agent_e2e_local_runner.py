@@ -1747,25 +1747,36 @@ class LocalRuntime:
         if injector is not None:
             raw = injector.wrap(raw)
         proxies = []
+        studio_servers = []
 
         def mcp_proxy():
             from agent_e2e_local_mcp_proxy import RecordingMcpProxy
             proxy = RecordingMcpProxy(stack.base_url + '/mcp', self.AGENT_ENV, action_log, names, injector=injector)
             proxies.append(proxy)
             return proxy.start()
-        context = SessionContext(
-            prompt=prompt, session=number, candidate_release=self.release_id,
-            limits=SessionLimits(self.max_model_calls, self.max_actions, self.max_tokens), tool_view=tool_view,
-            execute=lambda kind, action: action_log.dispatch(kind, action, raw), mcp_proxy=mcp_proxy,
-            workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
-            attachments=tuple(stack.extra.get('customerFiles', ())))
         agent = self.agent_session(stack)
         vault = self.vault(stack)
 
         def empty_progress():
             return {'actions': list(action_log.rows), 'modelVisibleDigests': [], 'usage': [], 'provenance': [],
                     'nudges': 0, 'clarifications': [], 'tokens': 0, 'messageIds': [], 'agentType': agent.agent_type}
+        studio_browser = None
         try:
+            if stack.extra.get('needsStudioBrowser'):
+                from agent_browser_studio import open_studio_browser
+                server = open_studio_browser(stack, action_log)
+                studio_servers.append(server)
+                endpoint = server.endpoint
+
+                def studio_browser():
+                    return endpoint
+            context = SessionContext(
+                prompt=prompt, session=number, candidate_release=self.release_id,
+                limits=SessionLimits(self.max_model_calls, self.max_actions, self.max_tokens), tool_view=tool_view,
+                execute=lambda kind, action: action_log.dispatch(kind, action, raw), mcp_proxy=mcp_proxy,
+                workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
+                attachments=tuple(stack.extra.get('customerFiles', ())), studio_browser=studio_browser)
+            agent = self.agent_session(stack)
             result = agent.run(context)
         except SessionInterrupted as exc:
             exc.progress['actions'] = list(action_log.rows)
@@ -1781,6 +1792,8 @@ class LocalRuntime:
         finally:
             for proxy in proxies:
                 proxy.stop()
+            for server in studio_servers:
+                server.stop()
         vault.append_actions(number, action_log.rows)
         stack.extra['agentType'] = result.agent_type
         output = {'actions': list(action_log.rows), 'modelVisibleDigests': list(result.model_visible_digests),

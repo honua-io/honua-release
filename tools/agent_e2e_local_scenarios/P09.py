@@ -1,30 +1,41 @@
-"""P09: Unsupported: render.actual needs independent signed-in browser capture, runtime assets and a bound saved version. The seeded map also needs assertion-specific style, save and source projections."""
+"""P09 style and labels.
+
+The runner seeds one unstyled saved map, then reads the saved document and renders it
+in its own browser. Pack prompts stay in the pack.
+"""
 from __future__ import annotations
 
-from agent_e2e_local_api import Scenario as ScenarioBase
+from agent_browser_studio import (
+    handoff_spec, observe_map, render_spec, saved_spec, seed_case, source_content_spec, style_spec,
+)
+from agent_e2e_local_api import Observation, RoleBinding, Scenario
 
 
-class P09(ScenarioBase):
-    id = "P09"
-    supported_variants: tuple[str, ...] = ()
+class P09(Scenario):
+    id = 'P09'
+    supported_variants = ('A', 'B')
 
     def seed(self, stack, variant):
-        raise RuntimeError("P09 has no independent local observer")
+        return seed_case(self.id, stack, variant, create_map=True)
 
-    def fault_plan(self, variant):
-        return None
+    def roles(self, stack, seeded, variant, run=None):
+        return [
+            RoleBinding('seeded:map', 'p09-maps-before', pointer='/data/items/0/itemId'),
+            RoleBinding('created:version', 'p09-maps', items='/data/items', id='/currentVersionId',
+                        owner='/ownerId', before='p09-maps-before'),
+        ]
 
-    def needs_approver(self):
-        return False
+    def observe(self, stack, seeded, variant, run=None):
+        observe_map(stack, seeded, 'p09', created=False)
+        return [
+            Observation('map.style', None, {'projection': 'extract/v1', 'spec': style_spec('p09', 'seeded:map')}),
+            Observation('render.actual', None, {'projection': 'extract/v1', 'spec': render_spec('p09')}),
+            Observation('state.saved', None, {'projection': 'extract/v1', 'spec': saved_spec('p09', 'seeded:map', 'created:version')}),
+            Observation('source-content.unchanged', None, {'projection': 'extract/v1', 'spec': source_content_spec('p09')}),
+        ]
 
-    def observe(self, stack, seeded, variant):
-        raise RuntimeError("P09 has no independent local observer")
-
-    def expected(self, variant):
-        raise RuntimeError("P09 has no independent local observer")
-
-    def cleanup(self, stack, seeded):
-        raise RuntimeError("P09 has no independent local observer")
+    def handoff(self, stack, seeded, variant, run=None):
+        return handoff_spec('p09', 'seeded:map')
 
 
 scenario = P09()
