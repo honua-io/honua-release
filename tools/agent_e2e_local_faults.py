@@ -15,7 +15,12 @@ Plans (``Scenario.fault_plan(variant)``):
   {"kind": "response_lost_after_commit",     # the request IS forwarded and commits; the model gets 503
    "id": "<short id>",
    "after": {"tool": ...} | null,            # optional trigger; null = armed from the start
-   "match": {"tool": "<tool name>"}}         # required: the call whose response is lost
+   "match": {"tool": "<tool name>"},         # required: the call whose response is lost
+   "commit": {"pointer": "/result/structuredContent/mapId"}}
+                                             # required: where the upstream reply names the created resource.
+  It fires only on a confirmed commit: HTTP 2xx, a JSON-RPC result that is not an error, and a non-empty
+  scalar at the commit pointer. A rejected, erroring or noncommitted (e.g. accepted-but-pending) reply is
+  forwarded to the model unchanged and the fault stays armed for the next matching call.
 The fired event records the upstream status, outcome and response digest next to the injected 503;
 the upstream bytes stay in the action log as that action's captured response.
 """
@@ -33,7 +38,7 @@ UNAVAILABLE = b'{"error":{"code":503,"message":"Service Unavailable"}}'
 def validate_fault_plan(plan):
     if plan is None:
         return None
-    if not isinstance(plan, dict) or plan.get('kind') not in KINDS or set(plan) - {'kind', 'id', 'after', 'match'}:
+    if not isinstance(plan, dict) or plan.get('kind') not in KINDS or set(plan) - {'kind', 'id', 'after', 'match', 'commit'}:
         raise ValueError('unsupported fault plan')
     after, match = plan.get('after'), plan.get('match')
     lost = plan['kind'] == 'response_lost_after_commit'
@@ -43,11 +48,19 @@ def validate_fault_plan(plan):
     if (match is None and lost) or (match is not None and (not isinstance(match, dict) or set(match) != {'tool'}
                                                             or not isinstance(match['tool'], str) or not match['tool'])):
         raise ValueError('fault plan match must be {"tool": ...} (null only for http_503_once)')
+    commit = plan.get('commit')
+    if lost != (commit is not None) or (lost and (not isinstance(commit, dict) or set(commit) != {'pointer'}
+                                                  or not isinstance(commit['pointer'], str)
+                                                  or not commit['pointer'].startswith('/'))):
+        raise ValueError('response_lost_after_commit needs {"commit": {"pointer": "/result/..."}} (and only it)')
     identity = plan.get('id', plan['kind'])
     if not isinstance(identity, str) or not re.fullmatch(r'[a-z0-9_.-]{1,40}', identity):
         raise ValueError('invalid fault plan id')
-    return {'kind': plan['kind'], 'id': identity, 'after': None if after is None else dict(after),
-            'match': None if match is None else dict(match)}
+    out = {'kind': plan['kind'], 'id': identity, 'after': None if after is None else dict(after),
+           'match': None if match is None else dict(match)}
+    if lost:
+        out['commit'] = dict(commit)
+    return out
 
 
 class FaultInjector:
@@ -55,6 +68,7 @@ class FaultInjector:
         self.plan = validate_fault_plan(plan)
         self.triggered = self.plan['after'] is None
         self.events: list[dict] = []
+        self.skipped: list[dict] = []
         self._lock = threading.Lock()
 
     def _matches(self, spec, kind, action):
@@ -85,9 +99,15 @@ class FaultInjector:
             if (self.plan['kind'] != 'response_lost_after_commit' or not self.triggered or self.events
                     or not self._matches(self.plan['match'], kind, action)):
                 return None
+            committed = self._committed_resource(execution, upstream_status, upstream_raw)
+            if committed is None:
+                # Not a confirmed commit: leave the fault unfulfilled and record why it did not fire.
+                self.skipped.append({'actionDigest': 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest(),
+                                     'upstreamStatus': upstream_status, 'upstreamOutcome': execution.get('status')})
+                return None
             event = {'kind': self.plan['kind'], 'id': self.plan['id'], 'at': {'after': self.plan['after']},
                      'actionDigest': 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest(),
-                     'tool': action.get('tool'), 'forwarded': True,
+                     'tool': action.get('tool'), 'forwarded': True, 'committedResourceId': committed,
                      'upstreamOutcome': execution.get('status'), 'upstreamStatus': upstream_status,
                      'upstreamResponseSha256': (None if upstream_raw is None
                                                 else 'sha256:' + hashlib.sha256(upstream_raw).hexdigest()),
@@ -95,6 +115,23 @@ class FaultInjector:
                      'firedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
             self.events.append(event)
             return event
+
+    def _committed_resource(self, execution, status, raw):
+        from agent_e2e_local_projections import pointer_get
+        from agent_e2e_local_recorder import ProjectionError, parse_jsonrpc
+        if execution.get('status') != 'ok' or type(status) is not int or not 200 <= status < 300 or raw is None:
+            return None
+        try:
+            message = parse_jsonrpc(raw)
+            result = message.get('result')
+            if 'error' in message or not isinstance(result, dict) or result.get('isError') is True:
+                return None
+            value = pointer_get(message, self.plan['commit']['pointer'])
+        except (ProjectionError, ValueError):
+            return None
+        if isinstance(value, bool) or not isinstance(value, (str, int)) or str(value) == '':
+            return None
+        return value
 
     def observe(self, kind, action, execution):
         """Arm the fault once the trigger action has succeeded."""

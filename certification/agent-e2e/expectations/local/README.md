@@ -66,11 +66,14 @@ scenario's `roles()` must repeat them exactly. A `created:*` role needs the owne
 baseline made with the identical request (method, path, principal, request body or MCP arguments), and
 exactly one completeness proof, `total` or `next_page`. The pointer must exist in both enumerations.
 
-Created-role completeness may also be `page_limit` (`{"param": "limit", "value": N}`: the frozen request
-asked for N rows and fewer came back) or a reviewed unpaged endpoint (`UNPAGED_ENUMERATIONS` in
-`tools/agent_e2e_local_projections.py`, currently `GET /api/v1/admin/connections`). Authorship may be
-`owner` (a row field equal to the agent principal) or `created_by` (`{"tool": ..., "pointer": "/result/..."}`:
-the id appears in the server's captured reply to a successful sealed agent call of that tool).
+Created-role completeness comes only from a reviewed enumeration contract (`ENUMERATION_CONTRACTS` in
+`tools/agent_e2e_local_projections.py`, currently `GET /api/v1/admin/connections`, unpaged). A binding may not
+set its own `total`/`next_page`/`page_limit`. Both reads must start at the beginning (no offset, skip or
+cursor), and neither may carry continuation, truncation or count evidence that contradicts completeness.
+To add an endpoint, ask core: entries are reviewed against honua-server. Authorship may be `owner` (a row
+field equal to the agent principal) or `created_by` (`{"tool": ..., "pointer": "/result/..."}`: the id appears
+in the server's captured reply to a successful sealed agent call of that tool). Inventory preservation
+(`"resource": "inventory"`) needs `"items"` and meets the same completeness rule.
 
 Runner roles need no binding: `session:previous`, `session:current`, `session:visible-message-ids` and
 `session:handoff-sha256` (the sha256 of the session-1 final answer).
@@ -89,7 +92,7 @@ address every one of them and be the identical request.
 
 ## Exclusions
 
-Exclusions come only from the frozen preregistration list in `certification/ai-arc/PREREG-arc-v1.md`:
+Exclusions come only from the frozen preregistration list in `certification/ai-arc/PREREG-arc-v1.md` (it lands with honua-io/honua-release#1163, introduced in commit bb655ee1; `PREREG_REFERENCE` in `tools/agent_e2e_local_expectations.py` records the pointer, and a test checks the list against the document once it is present):
 `tenant.denied` (any scenario), `P18` (the whole scenario) and `custody.worker-replaced@local-docker`. The
 runner applies them itself (`prereg_exclusion`). An optional `{"$excluded": "<id>"}` marker must name the
 covering entry, and no other marker is accepted. Excluded assertions are listed in every receipt with their

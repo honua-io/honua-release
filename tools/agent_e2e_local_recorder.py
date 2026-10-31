@@ -53,6 +53,7 @@ class Record:
                                    # a sealed model action, captured by the runner gateway or proxy
     content_type: str | None = None
     recorded_at: str = ''
+    after_session: int = 0         # how many model sessions had completed when the read was made
 
     def metadata(self, case_id) -> dict:
         """Everything about the record the ledger binds: request identity, principal, phase, status, body."""
@@ -60,7 +61,7 @@ class Record:
                 'principal': self.principal, 'principalId': self.principal_id, 'method': self.method,
                 'path': self.path, 'status': self.status, 'bodySha256': 'sha256:' + hashlib.sha256(self.raw).hexdigest(),
                 'replayOf': self.replay_of, 'origin': self.origin, 'contentType': self.content_type,
-                'recordedAt': self.recorded_at,
+                'recordedAt': self.recorded_at, 'afterSession': self.after_session,
                 'requestArgumentsSha256': (None if self.request_arguments_raw is None else
                                            'sha256:' + hashlib.sha256(self.request_arguments_raw).hexdigest())}
 
@@ -76,7 +77,8 @@ class Record:
 
     @property
     def request_arguments(self) -> dict | None:
-        """MCP: the tool and arguments sent. HTTP: the JSON request body, when it was JSON."""
+        """MCP records only: the {"tool", "arguments"} (or {"uri"}) that was sent. HTTP records return None;
+        their request body is kept as raw bytes in ``request_arguments_raw`` and compared byte for byte."""
         if self.request_arguments_raw is None:
             return None
         try:
@@ -97,6 +99,7 @@ class Record:
             row['replayOf'] = self.replay_of
         if self.origin != 'controller':
             row['origin'] = self.origin
+        row['afterSession'] = self.after_session
         return row
 
 
@@ -154,6 +157,11 @@ def parse_jsonrpc(raw: bytes) -> dict:
     return responses[0]
 
 
+def occurrence(session, sequence, digest):
+    """The identity of one sealed model action occurrence (not just its content digest)."""
+    return f'occ:{session}:{sequence}:{digest}'
+
+
 _GENESIS = 'sha256:' + hashlib.sha256(b'honua-corpus-action-log/v1').hexdigest()
 
 
@@ -176,6 +184,7 @@ class EvidenceVault:
         self._actions = []          # (entry, action_bytes, chain)
         self._chain = _GENESIS
         self._sessions = set()
+        self._custody = {}          # name -> (canonical json bytes, evidence steps, digest)
 
     def digest(self, record):
         return 'sha256:' + hashlib.sha256(json.dumps(record.metadata(self.case_id), sort_keys=True,
@@ -194,6 +203,31 @@ class EvidenceVault:
             require(self.digest(record) == self._digests[step] and record.intact(), 'vault record altered: ' + step)
             out[step] = record
         return out
+
+    def attest(self, name, value, steps):
+        """Runtime only: seal one runner-observed custody fact with the records that support it."""
+        require(isinstance(name, str) and name, 'invalid custody fact name')
+        steps = tuple(steps or ())
+        missing = [step for step in steps if step not in self._records]
+        require(not missing, 'custody fact cites unrecorded evidence: ' + ','.join(missing))
+        raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+        digest = 'sha256:' + hashlib.sha256(raw + b'\n' + json.dumps(
+            [(step, self._digests[step]) for step in steps]).encode()).hexdigest()
+        self._custody[name] = (raw, steps, digest)
+
+    def custody(self):
+        """Detached copies of the sealed custody facts (re-verified against their evidence)."""
+        out = {}
+        for name, (raw, steps, digest) in self._custody.items():
+            require(all(step in self._records for step in steps), 'custody evidence disappeared: ' + name)
+            check = 'sha256:' + hashlib.sha256(raw + b'\n' + json.dumps(
+                [(step, self._digests[step]) for step in steps]).encode()).hexdigest()
+            require(check == digest, 'custody fact altered: ' + name)
+            out[name] = json.loads(raw)
+        return out
+
+    def custody_evidence(self):
+        return {name: list(steps) for name, (_raw, steps, _digest) in self._custody.items()}
 
     def ledger(self):
         return dict(self._digests)
@@ -239,7 +273,9 @@ class EvidenceVault:
 
     def model_actions(self):
         """digest -> the model's logged action (for replay-provenance checks)."""
-        return {entry[2]: {**json.loads(raw), '_session': entry[0]} for entry, raw in self.entries()}
+        return {occurrence(entry[0], entry[1], entry[2]): {**json.loads(raw), '_session': entry[0], '_sequence': entry[1],
+                                                           '_digest': entry[2]}
+                for entry, raw in self.entries()}
 
 
 class ControllerRecorder:
@@ -259,6 +295,7 @@ class ControllerRecorder:
         self.principals = dict(principals)
         self._records: dict[str, Record] = {}
         self.phase = 'seed'
+        self.after_session = 0      # set by the runner as sessions complete; bound into every record
         self._pending = {}
         self._http_factory = http_factory
         self._mcp_factory = mcp_factory
@@ -313,7 +350,8 @@ class ControllerRecorder:
     def _store(self, record: Record):
         import dataclasses
         require(record.intact(), 'recorded digest differs from the retained bytes')
-        record = dataclasses.replace(record, recorded_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+        record = dataclasses.replace(record, recorded_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                                     after_session=self.after_session)
         self._deliver(record)
         self._records[record.step] = record
         row = {**record.index(), 'bodyBase64': base64.b64encode(record.raw).decode('ascii')}
@@ -473,7 +511,8 @@ class ControllerRecorder:
         require(logged.get('kind') == 'tool_call' and isinstance(logged.get('arguments'), dict)
                 and isinstance(logged.get('tool'), str), 'only a logged tool call can be replayed')
         tool, arguments = logged['tool'], json.loads(json.dumps(logged['arguments']))
-        return self._mcp(step, principal, lambda c: c.call_tool(tool, arguments), replay_of=action.digest,
+        return self._mcp(step, principal, lambda c: c.call_tool(tool, arguments),
+                         replay_of=occurrence(action.session, action.sequence, action.digest),
                          arguments={'tool': tool, 'arguments': arguments}, label='tools/call')
 
     def action_result(self, step, action: LoggedAction):
@@ -497,5 +536,5 @@ class ControllerRecorder:
                      else {'uri': logged.get('uri')})
         _env, identity = self.principals.get('agent', (None, None))
         return self._store(Record(step, 'observe', 'mcp', 'agent', identity, 'POST', '/mcp#' + label,
-                                  int(http_status or 0), raw, raw_sha, digest, action_bytes(arguments),
-                                  'session-result'))
+                                  int(http_status or 0), raw, raw_sha, occurrence(_session, _sequence, digest),
+                                  action_bytes(arguments), 'session-result'))

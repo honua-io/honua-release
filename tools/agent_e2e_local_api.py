@@ -52,8 +52,13 @@ needs_approver() (a distinct approver key: stack.approver_key and stack.extra['a
 customer_files() (manifest-checked corpus files attached to the customer turn by digest).
 Restart facts: custody['restart:<prefix>'] (raw observations) and custody['lifecycle:<prefix>'] =
 {"resourceId": "server", "states": [...]} in corpus/oracle lifecycle shape; each state is runner-observed.
-Fault kinds: http_503_once (pre-forward) and response_lost_after_commit (forwarded and committed; the model
-gets 503; the event records upstreamStatus/upstreamOutcome/upstreamResponseSha256 beside the injected 503).
+Fault kinds: http_503_once (pre-forward) and response_lost_after_commit (forwarded; fires only on a confirmed
+commit: 2xx, non-error JSON-RPC result, a non-empty scalar at the plan's "commit" pointer; the model gets 503;
+the event records upstreamStatus/upstreamOutcome/upstreamResponseSha256/committedResourceId; rejected or
+noncommitted replies pass through unchanged, are listed in receipt.faultSkipped, and leave the fault armed).
+Custody facts live in the runtime vault (bound to their evidence records); stack.extra['custody'] is a copy.
+Replays and captured results carry the action OCCURRENCE (occ:<session>:<sequence>:<digest>), and every
+record carries afterSession, both bound in the vault digest.
 Canaries: stack.extra['registerCanary'](name) during seed returns a runner-minted secret to plant; projections
 find it with {"matchedCanaries": [steps..., "$model-visible"]}.
 Exclusions come only from the frozen prereg list (agent_e2e_local_expectations.PREREG_EXCLUSIONS:
@@ -140,9 +145,10 @@ class RoleBinding:
     RunRecord.agent_principal) and ``before`` (a complete seed-phase enumeration of the same path by
     the same principal; ids present there are excluded) are required. Both enumerations must be
     the identical request (kind, method, path, principal and, for MCP, tool arguments) and provably
-    complete: exactly one of ``total`` (a count equal to the rows), ``next_page`` (a cursor that must
-    exist and be null), ``page_limit`` (the request's own page-size parameter, with fewer rows back) or
-    a reviewed unpaged endpoint (agent_e2e_local_projections.UNPAGED_ENUMERATIONS). Authorship is
+    complete by a reviewed enumeration contract (agent_e2e_local_projections.ENUMERATION_CONTRACTS):
+    the endpoint must be listed (unpaged, cursor or total), the request must start at the beginning,
+    and neither response may carry continuation, truncation or count evidence contradicting
+    completeness. The binding's own total/next_page/page_limit fields are refused. Authorship is
     either ``owner`` (a row field equal to RunRecord.agent_principal) or ``created_by`` (the id appears in
     the server's captured reply to a successful sealed agent call of that tool). Exactly one row must remain.
     Runner roles (no binding needed): ``session:previous``, ``session:current``,

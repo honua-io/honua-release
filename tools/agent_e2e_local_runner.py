@@ -227,7 +227,7 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 raise ValueError('observation is not a runner projection over recorded responses')
             steps = projections.referenced_steps(spec)
             text = json.dumps(spec)
-            if not steps and '"custody"' not in text and '"run"' not in text:
+            if not steps and '"custody"' not in text and '"run"' not in text and '$model-visible' not in text:
                 raise ValueError('projection reads no recorded evidence')
             for step in steps:
                 record = records.get(step)
@@ -372,7 +372,7 @@ def aggregate(expected_cases: list[str], receipts: list[dict], *, candidate_dige
     return {'apiVersion': API_VERSION, 'arm': arm, 'packSha256': PACK_SHA256, 'candidateDigest': digests.pop(),
             'denominator': ('every inventoried case; infrastructure and excluded cases count as not passed '
                             '(exclusions are reported, never removed from n)'),
-            'exclusions': {'source': 'certification/ai-arc/PREREG-arc-v1.md',
+            'exclusions': {'source': 'certification/ai-arc/PREREG-arc-v1.md (honua-io/honua-release#1163, bb655ee1)',
                            'list': ['tenant.denied', 'P18', 'custody.worker-replaced@local-docker']},
             'overall': summary(list(rows.values())),
             'scenarios': {name: summary(items) for name, items in sorted(groups.items())},
@@ -815,6 +815,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['sessions'].append(_session_receipt(row, session_id))
             receipt['nudges'] += row['nudges']
             receipt['tokens'] += row['tokens']
+            recorder.after_session = number
             if number < session_count and hasattr(scenario, 'between_sessions'):
                 with recorder.between():
                     directive = scenario.between_sessions(stack, seeded, variant, number)
@@ -830,6 +831,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         injector = stack.extra.get('faultInjector')
         fault_events = tuple(dict(e) for e in injector.events) if injector is not None else ()
         receipt['faultEvents'] = list(fault_events)
+        if injector is not None:
+            receipt['faultSkipped'] = [dict(e) for e in injector.skipped]
         run = RunRecord(agent_principal=runtime.agent_principal(stack), sessions=len(sessions),
                         fault_events=fault_events, resource_hints=tuple(runtime.resource_hints(stack)),
                         final_answers=tuple(s['finalAnswer'] for s in sessions), custody=custody,
@@ -1108,8 +1111,7 @@ class LocalRuntime:
         import dataclasses
         approver_id = self.add_principal(stack, 'approver', ['admin:approve'])
         key = os.environ['HONUA_CORPUS_PRINCIPAL_APPROVER']
-        stack.extra['custody']['approverPrincipalId'] = approver_id
-        stack.extra['custody']['evidenceSteps'].append('runner-principal-approver')
+        self.attest(stack, 'approverPrincipalId', approver_id, ['runner-principal-approver'])
         stack = dataclasses.replace(stack, approver_key=key)
         stack.extra['approve'] = lambda proposal_id, step=None: self.approve(stack, proposal_id, step)
         return stack
@@ -1128,7 +1130,7 @@ class LocalRuntime:
                                principal='approver')
         stack.extra['approvals'].append({'proposalId': proposal_id, 'step': step,
                                          'httpStatus': answer['observation']['httpStatus']})
-        stack.extra['custody']['approvals'] = list(stack.extra['approvals'])
+        self.attest(stack, 'approvals', list(stack.extra['approvals']), [a['step'] for a in stack.extra['approvals']])
         return answer
 
     def _recorder(self, stack, principals):
@@ -1184,7 +1186,7 @@ class LocalRuntime:
                                   f'/api/v1/admin/api-keys/{agent_id}/effective-permissions', principal='controller')
         probe_status = probe['observation']['httpStatus']
         revoked = revoke['observation']['httpStatus'] in (200, 204) and probe_status in (401, 403)
-        stack.extra['custody'] = {
+        initial = {
             'bootstrapPrincipalId': bootstrap_id,
             'bootstrapRevokedCredentialIds': [bootstrap_id] if revoked else [],
             'postRevocationProbeStatus': probe_status,
@@ -1197,6 +1199,9 @@ class LocalRuntime:
             'workerCustody': 'unsupported-on-local-docker',
             'evidenceSteps': ['runner-custody-mint-bootstrap', 'runner-custody-mint-agent', 'runner-custody-revoke-bootstrap',
                               'runner-custody-probe-bootstrap', 'runner-custody-agent-effective']}
+        steps = list(initial.pop('evidenceSteps'))
+        for name, value in initial.items():
+            self.attest(stack, name, value, steps)
         stack.extra['agentPrincipal'] = agent_id
         stack.extra['ensureConnection'] = lambda: create_local_connection(stack)
         stack.extra['addPrincipal'] = lambda name, grants: self.add_principal(stack, name, grants)
@@ -1275,8 +1280,8 @@ class LocalRuntime:
         fact = {'command': 'docker compose restart server', 'exitCode': restart,
                 'containersBefore': before, 'containersAfter': after, 'readinessSteps': steps,
                 'ready': ready, 'restarted': restarted and ready}
-        stack.extra['custody'].setdefault('restarts', []).append({'prefix': prefix, **fact})
-        stack.extra['custody'][f'restart:{prefix}'] = fact
+        recorded = [step for step in steps if step in recorder.records]
+        self.attest(stack, f'restart:{prefix}', fact, recorded)
         # Oracle-consumable lifecycle (corpus/oracle.py lifecycle: {resourceId, states}), each state
         # observed by the runner: running before, restarted (new start time on the same container),
         # running again after, ready (an authenticated read answered 200).
@@ -1289,7 +1294,7 @@ class LocalRuntime:
             states.append('running')
         if ready:
             states.append('ready')
-        stack.extra['custody'][f'lifecycle:{prefix}'] = {'resourceId': 'server', 'states': states}
+        self.attest(stack, f'lifecycle:{prefix}', {'resourceId': 'server', 'states': states}, recorded)
         return fact
 
     def compose_restart(self, stack):
@@ -1299,8 +1304,16 @@ class LocalRuntime:
         compose, _base, _image = driver._compose_for(target, manifest, Path(state['workdir']))
         return compose._run('restart', 'server', timeout=600).returncode
 
+    def attest(self, stack, name, value, steps):
+        """Record a runner-observed custody fact in the runtime-owned vault (bound to its evidence steps).
+        Scenarios only ever see a detached copy in stack.extra['custody']."""
+        import copy
+        self.vault(stack).attest(name, value, steps)
+        stack.extra.setdefault('custody', {})[name] = copy.deepcopy(value)
+
     def custody(self, stack):
-        return dict(stack.extra['custody'])
+        """Authoritative custody facts: the vault's sealed copies, never the scenario-visible dict."""
+        return self.vault(stack).custody()
 
     def agent_principal(self, stack):
         return stack.extra['agentPrincipal']
@@ -1536,6 +1549,7 @@ def export_case_evidence(case_dir, out_dir, secret_values, redact_values=()):
                 row['exportedBodySha256'] = 'sha256:' + hashlib.sha256(exported).hexdigest()
             (target / path.name).write_text(json.dumps(row, sort_keys=True))
     visible = Path(case_dir) / 'model-visible'
+    redactions = {}
     if visible.is_dir():
         target = Path(out_dir) / 'model-visible'
         target.mkdir(parents=True, exist_ok=True)
@@ -1543,7 +1557,14 @@ def export_case_evidence(case_dir, out_dir, secret_values, redact_values=()):
             raw = path.read_bytes()
             if redact(raw) != raw:
                 raise ValueError('a case credential reached model-visible bytes')
-            (target / path.name).write_bytes(redact(raw, redact_values))
+            exported = redact(raw, redact_values)
+            (target / path.name).write_bytes(exported)
+            if exported != raw:
+                redactions[path.name] = {'sentSha256': 'sha256:' + hashlib.sha256(raw).hexdigest(),
+                                         'exportedSha256': 'sha256:' + hashlib.sha256(exported).hexdigest(),
+                                         'reason': 'runner canary redacted'}
+        if redactions:
+            (target / 'redactions.json').write_text(json.dumps(redactions, indent=2, sort_keys=True))
 
 
 MEDIA_TYPES = {'.geojson': 'application/geo+json', '.json': 'application/json', '.csv': 'text/csv'}

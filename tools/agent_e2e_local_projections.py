@@ -275,7 +275,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
         before, after, labels = [], [], set()
         for row in rows:
             require(isinstance(row, dict) and {'label', 'before', 'after', 'resource'} <= set(row)
-                    <= {'label', 'before', 'after', 'resource', 'pointer', 'content', 'beforePhase'},
+                    <= {'label', 'before', 'after', 'resource', 'pointer', 'content', 'beforePhase', 'items'},
                     'invalid protectedContent row (label, before, after and resource roles are required)')
             # The snapshots must be of the protected resource itself: both reads address every
             # resolved identity role of it, and they are the identical request.
@@ -285,6 +285,10 @@ def evaluate(spec, ctx, *, item=None, step=None):
                     'protectedContent resource must list identity roles or be "inventory"')
             first, second = ctx.record(row['before']), ctx.record(row['after'])
             require(same_request(first, second), 'protected before/after reads are different requests')
+            if resource == 'inventory':
+                require(isinstance(row.get('items'), str), 'an inventory snapshot needs its "items" pointer')
+                for record in (first, second):
+                    proven_complete(record, pointer_get(record.json, row['items']), row['label'])
             for role in ([] if resource == 'inventory' else resource):
                 require(role in ctx.roles, 'logical role unresolved: ' + role)
                 for record in (first, second):
@@ -459,40 +463,77 @@ def substitute_roles(expected, roles):
     return expected
 
 
-# Enumerations reviewed against honua-server as unpaged (they return every row): (method, path regex, source).
-UNPAGED_ENUMERATIONS = (
-    ('GET', r'/api/v1/admin/connections/?',
-     'honua-server SecureConnectionEndpoints.HandleGetConnections: registry.GetActiveConnectionsAsync, no paging'),
+# Reviewed enumeration contracts: an enumeration counts as complete only when its endpoint is listed here
+# (reviewed against honua-server) AND the response carries no continuation, truncation or count evidence
+# contradicting completeness AND the request starts at the beginning. Lanes ask core to add entries.
+#   paging "unpaged":            the endpoint always returns every row
+#   paging {"cursor": PTR}:      the cursor at PTR must exist and be empty (no further page)
+#   paging {"total": PTR}:       the count at PTR must equal the rows returned
+ENUMERATION_CONTRACTS = (
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/connections/?', 'paging': 'unpaged',
+     'source': 'honua-server SecureConnectionEndpoints.HandleGetConnections: GetActiveConnectionsAsync, no paging'},
 )
+CONTINUATION_KEYS = ('next', 'nextCursor', 'nextPageToken', 'continuationToken', 'nextLink', 'cursor')
+TRUNCATION_KEYS = ('hasMore', 'exceededTransferLimit', 'truncated', 'partial')
+COUNT_KEYS = ('total', 'totalCount', 'count', 'totalItems', 'totalResults')
+START_PARAMS = {'offset': '0', 'skip': '0', 'resultOffset': '0', 'start': '0', 'page': '1', 'cursor': '',
+                'pageToken': '', 'continuationToken': ''}
 
 
-def _complete(listing, values, binding, name):
+def _contract_for(record):
+    tool = None
+    if record.kind == 'mcp':
+        arguments = record.request_arguments or {}
+        tool = arguments.get('tool')
+    for contract in ENUMERATION_CONTRACTS:
+        if contract['kind'] != record.kind:
+            continue
+        if record.kind == 'http' and contract['method'] == record.method and re.fullmatch(
+                contract['path'], record.path.split('?', 1)[0]):
+            return contract
+        if record.kind == 'mcp' and contract.get('tool') == tool:
+            return contract
+    return None
+
+
+def proven_complete(record, values, label):
+    """Fail unless this enumeration is provably the complete inventory (see ENUMERATION_CONTRACTS)."""
     from urllib.parse import parse_qsl, urlsplit
-    modes = [m for m in ('total', 'next_page', 'page_limit') if getattr(binding, m) is not None]
-    unpaged = any(listing.method == method and re.fullmatch(path, listing.path)
-                  for method, path, _source in UNPAGED_ENUMERATIONS)
-    if unpaged and not modes:
-        return  # a reviewed endpoint that always returns every row
-    require(len(modes) == 1,
-            'created role needs exactly one completeness proof (total, next_page, page_limit or unpaged): ' + name)
-    mode = modes[0]
-    if mode == 'total':
-        count = pointer_get(listing.json, binding.total)
-        require(type(count) is int and count == len(values), 'created role enumeration is incomplete: ' + name)
-    elif mode == 'next_page':
-        # The cursor field must exist (a wrong pointer is not proof of a last page) and be empty.
+    require(isinstance(values, list), 'enumeration is not a list: ' + label)
+    contract = _contract_for(record)
+    require(contract is not None, 'no reviewed enumeration contract for this request: ' + label)
+    query = dict(parse_qsl(urlsplit(record.path.split('#', 1)[0]).query, keep_blank_values=True))
+    if record.kind == 'mcp':
+        query.update({k: str(v) for k, v in ((record.request_arguments or {}).get('arguments') or {}).items()
+                      if not isinstance(v, (dict, list))})
+    for param, start in START_PARAMS.items():
+        require(param not in query or query[param] == start, 'enumeration does not start at the beginning: ' + label)
+    body = record.json
+    scopes = [body] + [body.get(k) for k in ('data', 'result') if isinstance(body, dict)]
+    if isinstance(body, dict) and isinstance(body.get('result'), dict):
+        scopes.append(body['result'].get('structuredContent'))
+    for scope in scopes:
+        if not isinstance(scope, dict):
+            continue
+        for key in CONTINUATION_KEYS:
+            require(scope.get(key) in (None, ''), 'enumeration reports a further page: ' + label)
+        for key in TRUNCATION_KEYS:
+            require(scope.get(key) is not True, 'enumeration reports truncation: ' + label)
+        for key in COUNT_KEYS:
+            if type(scope.get(key)) is int:
+                require(scope[key] == len(values), 'enumeration count contradicts its rows: ' + label)
+    paging = contract['paging']
+    if paging == 'unpaged':
+        return
+    if 'cursor' in paging:
         try:
-            cursor = pointer_get(listing.json, binding.next_page)
+            cursor = pointer_get(body, paging['cursor'])
         except ProjectionError:
-            raise ProjectionError('created role completeness pointer is absent: ' + name) from None
-        require(cursor in (None, ''), 'created role enumeration has further pages: ' + name)
+            raise ProjectionError('enumeration cursor is absent: ' + label) from None
+        require(cursor in (None, ''), 'enumeration has further pages: ' + label)
     else:
-        limit = binding.page_limit
-        require(isinstance(limit, dict) and set(limit) == {'param', 'value'} and type(limit['value']) is int
-                and limit['value'] > 0, 'invalid page_limit: ' + name)
-        query = dict(parse_qsl(urlsplit(listing.path.split('#', 1)[0]).query))
-        require(query.get(limit['param']) == str(limit['value']), 'enumeration did not request the declared page size: ' + name)
-        require(len(values) < limit['value'], 'created role enumeration filled its page and may continue: ' + name)
+        count = pointer_get(body, paging['total'])
+        require(type(count) is int and count == len(values), 'enumeration is incomplete: ' + label)
 
 
 def resolve_roles(bindings, records, *, agent_principal, action_results=()):
@@ -531,8 +572,10 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
                 'created role baseline enumerates a different request scope: ' + name)
         baseline = pointer_get(baseline_record.json, binding.items)
         require(isinstance(baseline, list), 'created role baseline is not a list: ' + name)
+        require(binding.total is None and binding.next_page is None and binding.page_limit is None,
+                'completeness comes from the reviewed enumeration contract, not the binding: ' + name)
         for listing, values in ((record, rows), (baseline_record, baseline)):
-            _complete(listing, values, binding, name)
+            proven_complete(listing, values, name)
         excluded = {str(pointer_get(row, binding.id)) for row in baseline}
         authored = None
         if binding.created_by is not None:

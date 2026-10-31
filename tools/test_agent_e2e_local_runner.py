@@ -22,6 +22,21 @@ from agent_e2e_local_recorder import ControllerRecorder
 from agent_e2e_local_scenarios.P10 import P10
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Test-only enumeration contracts for the fake candidate's inventories (the real registry is reviewed core code).
+TEST_CONTRACTS = (
+    {'kind': 'http', 'method': 'GET', 'path': r'/maps', 'paging': {'cursor': '/next'}},
+    {'kind': 'mcp', 'tool': 'honua_list_maps', 'paging': {'total': '/result/total'}},
+    {'kind': 'http', 'method': 'POST', 'path': r'/api/v1/admin/maps/search', 'paging': {'cursor': '/next'}},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/maps', 'paging': 'unpaged'},
+)
+
+
+@pytest.fixture(autouse=True)
+def _test_enumeration_contracts(monkeypatch):
+    import agent_e2e_local_projections as projections_module
+    monkeypatch.setattr(projections_module, 'ENUMERATION_CONTRACTS',
+                        projections_module.ENUMERATION_CONTRACTS + TEST_CONTRACTS)
 DIGEST = 'sha256:' + 'a' * 64
 ADMIN = 'admin-' + 'k' * 40
 CORRECT_WHERE = 'is_open = true AND capacity > 50'
@@ -99,6 +114,11 @@ class Candidate:
             self.mcp_calls.append((principal['id'], name, arguments))
             if name == 'honua_query_features':
                 return self.query(arguments)
+            if name == 'honua_create_map' and arguments.get('title') == 'bad':
+                return {'content': [{'type': 'text', 'text': 'invalid title'}], 'isError': True}
+            if name == 'honua_create_map' and arguments.get('pending'):
+                return {'content': [{'type': 'text', 'text': 'accepted'}], 'isError': False,
+                        'structuredContent': {'status': 'Accepted'}}
             if name == 'honua_create_map':
                 map_id = f'map-{len(self.maps) + 1}'
                 self.maps.append({'id': map_id, 'title': arguments.get('title', '')})
@@ -314,7 +334,8 @@ def test_full_loop_passes_on_correct_state_with_runner_owned_evidence(candidate,
                                               .read_text())['bodyBase64'])
             assert item['sha256'] == records[item['step']]['sha256'] == 'sha256:' + hashlib.sha256(raw).hexdigest()
     replay = records['p10-replay-query']
-    assert replay['principal'] == 'controller' and replay['replayOf'] == receipt['sessions'][0]['actions'][0]['digest']
+    first = receipt['sessions'][0]['actions'][0]
+    assert replay['principal'] == 'controller' and replay['replayOf'] == f"occ:1:1:{first['digest']}"
     # The model acted with its own agent credential; the controller replay used the admin key.
     assert [c[0] for c in candidate.mcp_calls] == ['key-2', 'admin']
     # Custody: bootstrap minted the agent key, then was revoked; the probe is a recorded 401.
@@ -496,8 +517,7 @@ def test_created_role_requires_exactly_one_new_owned_resource():
     before = [{'id': 'm1', 'owner': 'other'}]
     records = {'before': record('before', 'seed', before),
                'after': record('after', 'observe', before + [{'id': 'm2', 'owner': 'agent'}, {'id': 'm3', 'owner': 'x'}])}
-    binding = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before',
-                          next_page='/next')
+    binding = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before')
     assert resolve_roles([binding], records, agent_principal='agent') == {'created:map': 'm2'}
     records['after'] = record('after', 'observe', before + [{'id': 'm2', 'owner': 'agent'}, {'id': 'm4', 'owner': 'agent'}])
     with pytest.raises(ValueError, match='matched 2'):
@@ -710,15 +730,13 @@ def test_finding3_created_roles_require_owner_and_post_seed_creation():
                     RoleBinding('created:map', 'after', items='/items', id='/id', before='before')):
         with pytest.raises(ValueError, match='authorship proof'):
             resolve_roles([binding], records, agent_principal='agent')
-    both = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before',
-                       next_page='/next')
+    both = RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='before')
     with pytest.raises(ValueError, match='matched 0'):
         resolve_roles([both], records, agent_principal='agent')
     # The baseline must be the same enumeration, read before the session.
     records['other'] = record('other', 'seed', [], path='/other')
     with pytest.raises(ValueError, match='same enumeration'):
-        resolve_roles([RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='other',
-                                   next_page='/next')],
+        resolve_roles([RoleBinding('created:map', 'after', items='/items', id='/id', owner='/owner', before='other')],
                       records, agent_principal='agent')
 
 
@@ -745,7 +763,7 @@ def test_finding4_replay_requires_membership_in_this_cases_action_log(candidate,
     with pytest.raises(ValueError, match='not in this case'):   # a session this case never ran
         recorder.replay('replay-foreign', foreign)
     recorder.replay('replay-member', recorder.actions()[0])
-    assert recorder.records['replay-member'].replay_of == digest
+    assert recorder.records['replay-member'].replay_of == 'occ:1:1:' + digest
     # Rewriting the private file cannot change what is replayed: the vault holds the sealed bytes.
     path.write_bytes(action_bytes({**action, 'arguments': {**action['arguments'], 'where': '1=1'}}))
     recorder.replay('replay-after-file-edit', recorder.actions()[0])
@@ -1040,7 +1058,7 @@ def test_import_report_comes_from_the_captured_server_response_to_the_sealed_act
     receipt, _, _ = run_hook_case(candidate, tmp_path, [ingest, tool(CORRECT_WHERE), FINAL], HookP10(report=True))
     record = {r['step']: r for r in receipt['controllerRecords']}['import-report']
     assert record['origin'] == 'session-result' and record['principal'] == 'agent'
-    assert record['replayOf'] == receipt['sessions'][0]['actions'][0]['digest']
+    assert record['replayOf'] == f"occ:1:1:{receipt['sessions'][0]['actions'][0]['digest']}"
     from agent_e2e_local_projections import Context, evaluate
     from agent_e2e_local_recorder import Record
     raw = base64.b64decode(json.loads((tmp_path / 'case/controller-records/import-report.json').read_text())['bodyBase64'])
@@ -1199,25 +1217,28 @@ def test_rereview3_created_roles_need_complete_identical_enumerations():
                       None if arguments is None else json.dumps(arguments).encode())
     scope = {'tool': 'honua_list_maps', 'arguments': {'owner': 'agent'}}
     rows = [{'id': 'm1', 'owner': 'agent'}]
-    binding = RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before', total='/result/total')
+    binding = RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before')
     complete = {'before': record('before', 'seed', {'items': [], 'total': 0}, scope),
                 'after': record('after', 'observe', {'items': rows, 'total': 1}, scope)}
     assert resolve_roles([binding], complete, agent_principal='agent') == {'created:map': 'm1'}
     incomplete = {**complete, 'before': record('before', 'seed', {'items': [], 'total': 3}, scope)}
-    with pytest.raises(ValueError, match='incomplete'):   # the pre-existing m1 may be on an unread page
+    with pytest.raises(ValueError, match='count contradicts'):   # the pre-existing m1 may be on an unread page
         resolve_roles([binding], incomplete, agent_principal='agent')
     other_scope = {**complete, 'before': record('before', 'seed', {'items': [], 'total': 0},
                                                 {'tool': 'honua_list_maps', 'arguments': {'owner': 'someone'}})}
     with pytest.raises(ValueError, match='different request scope'):
         resolve_roles([binding], other_scope, agent_principal='agent')
-    paged = RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before',
-                        next_page='/result/next')
+    paged = RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before')
     more = {**complete, 'after': record('after', 'observe', {'items': rows, 'next': 'cursor-2'}, scope)}
-    with pytest.raises(ValueError, match='further pages'):
+    with pytest.raises(ValueError, match='further page'):
         resolve_roles([paged], more, agent_principal='agent')
-    with pytest.raises(ValueError, match='completeness'):
-        resolve_roles([RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before')],
-                      complete, agent_principal='agent')
+    unreviewed = {k: record(k, r.phase, json.loads(r.raw)['result'], {'tool': 'honua_list_other', 'arguments': {}})
+                  for k, r in complete.items()}
+    with pytest.raises(ValueError, match='no reviewed enumeration contract'):
+        resolve_roles([binding], unreviewed, agent_principal='agent')
+    with pytest.raises(ValueError, match='reviewed enumeration contract, not the binding'):
+        resolve_roles([RoleBinding('created:map', 'after', items='/result/items', id='/id', owner='/owner', before='before',
+                                   total='/result/total')], complete, agent_principal='agent')
 
 
 class CrashingSession:
@@ -1346,12 +1367,12 @@ def test_third_review2_completeness_pointer_must_exist_and_post_scopes_are_ident
     recorder.json('maps-after-mine', 'POST', '/api/v1/admin/maps/search', {'scope': 'mine'})
     assert recorder.records['maps-before'].request_arguments_raw == b'{"scope":"mine"}'
     scoped = RoleBinding('created:map', 'maps-after', items='/items', id='/id', owner='/owner',
-                         before='maps-before', next_page='/next')
+                         before='maps-before')
     with pytest.raises(ValueError, match='different request scope'):  # body-defined scopes differ
         resolve_roles([scoped], dict(recorder.records), agent_principal='key-2')
     wrong_cursor = RoleBinding('created:map', 'maps-after-mine', items='/items', id='/id', owner='/owner',
                                before='maps-before', next_page='/nextCursor')
-    with pytest.raises(ValueError, match='pointer is absent'):
+    with pytest.raises(ValueError, match='not the binding'):  # a binding cannot choose its own completeness proof
         resolve_roles([wrong_cursor], dict(recorder.records), agent_principal='key-2')
 
 
@@ -1450,30 +1471,35 @@ def test_core2_created_role_by_agent_authorship_and_complete_page(tmp_path):
     records = {'before': listing('before', 'seed', [{'id': 'map-1'}]),
                'after': listing('after', 'observe', [{'id': 'map-1'}, {'id': 'map-2'}, {'id': 'map-3'}, {'id': 'map-4'}])}
     created_by = {'tool': 'honua_create_map', 'pointer': '/result/structuredContent/mapId'}
-    binding = RoleBinding('created:map', 'after', items='/items', id='/id', before='before', created_by=created_by,
-                          page_limit={'param': 'limit', 'value': 100})
+    binding = RoleBinding('created:map', 'after', items='/items', id='/id', before='before', created_by=created_by)
     # map-3 came from a failed call and map-4 from nobody: only the agent's successful creation binds.
     assert resolve_roles([binding], records, agent_principal='agent', action_results=results) == {'created:map': 'map-2'}
     with pytest.raises(ValueError, match='matched 0'):
         resolve_roles([binding], {**records, 'before': listing('before', 'seed', [{'id': 'map-1'}, {'id': 'map-2'}])},
                       agent_principal='agent', action_results=results)
-    full = {k: listing(k, ph, [{'id': f'm{i}'} for i in range(100)]) for k, ph in (('before', 'seed'), ('after', 'observe'))}
-    with pytest.raises(ValueError, match='filled its page'):
-        resolve_roles([binding], full, agent_principal='agent', action_results=results)
-    unbounded = {k: listing(k, r.phase, [{'id': 'map-2'}] if k == 'after' else [], path='/api/v1/admin/maps')
-                 for k, r in records.items()}
-    with pytest.raises(ValueError, match='page size'):
-        resolve_roles([binding], unbounded, agent_principal='agent', action_results=results)
-    no_proof = RoleBinding('created:map', 'after', items='/items', id='/id', before='before', created_by=created_by)
-    with pytest.raises(ValueError, match='completeness'):
-        resolve_roles([no_proof], unbounded, agent_principal='agent', action_results=results)
-    # A reviewed unpaged enumeration needs no paging proof.
-    connections = {k: listing(k, r.phase, [{'id': 'map-2'}] if k == 'after' else [], path='/api/v1/admin/connections')
-                   for k, r in records.items()}
-    assert resolve_roles([no_proof], connections, agent_principal='agent', action_results=results) == {'created:map': 'map-2'}
+    # Completeness comes only from the reviewed contract plus the absence of contradicting evidence.
+    def pair(after_body_extra=None, path='/api/v1/admin/maps?limit=100'):
+        out = {'before': listing('before', 'seed', [{'id': 'map-1'}], path=path),
+               'after': listing('after', 'observe', [{'id': 'map-1'}, {'id': 'map-2'}], path=path)}
+        if after_body_extra:
+            raw = json.dumps({'items': [{'id': 'map-1'}, {'id': 'map-2'}], **after_body_extra}).encode()
+            out['after'] = Record('after', 'observe', 'http', 'controller', None, 'GET', path, 200, raw,
+                                  'sha256:' + hashlib.sha256(raw).hexdigest())
+        return out
+    for extra, message in (({'next': 'p2'}, 'further page'), ({'hasMore': True}, 'truncation'),
+                           ({'totalCount': 9}, 'count contradicts')):
+        with pytest.raises(ValueError, match=message):
+            resolve_roles([binding], pair(extra), agent_principal='agent', action_results=results)
+    with pytest.raises(ValueError, match='start at the beginning'):
+        resolve_roles([binding], pair(path='/api/v1/admin/maps?limit=100&offset=50'), agent_principal='agent',
+                      action_results=results)
+    with pytest.raises(ValueError, match='no reviewed enumeration contract'):
+        resolve_roles([binding], pair(path='/api/v1/admin/unreviewed'), agent_principal='agent', action_results=results)
+    connections = pair(path='/api/v1/admin/connections')
+    assert resolve_roles([binding], connections, agent_principal='agent', action_results=results) == {'created:map': 'map-2'}
     with pytest.raises(ValueError, match='authorship'):
         resolve_roles([RoleBinding('created:map', 'after', items='/items', id='/id', before='before', owner='/o',
-                                   created_by=created_by, page_limit={'param': 'limit', 'value': 100})],
+                                   created_by=created_by)],
                       records, agent_principal='agent', action_results=results)
 
 
@@ -1500,7 +1526,8 @@ def test_core2_session_roles_bind_exact_session_expectations(candidate, tmp_path
 
 def test_core2_response_lost_after_commit_forwards_then_answers_503(candidate, tmp_path):
     candidate.extra_tools = True
-    plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'}}
+    plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'},
+            'commit': {'pointer': '/result/structuredContent/mapId'}}
     create = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {'title': 'Shelters'}})
     receipt, model, _ = run_hook_case(candidate, tmp_path, [create, tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
     event = receipt['faultEvents'][0]
@@ -1511,6 +1538,7 @@ def test_core2_response_lost_after_commit_forwards_then_answers_503(candidate, t
     assert event['httpStatus'] == 503 and event['actionDigest'] == action['digest']
     assert action['status'] == 'fail' and event['upstreamResponseSha256'] == action['resultRawSha256']
     for bad in ({'kind': 'response_lost_after_commit', 'after': None, 'match': None},
+                {'kind': 'response_lost_after_commit', 'after': None, 'match': {'tool': 'x'}},
                 {'kind': 'http_503_once', 'after': None, 'match': None}):
         with pytest.raises(ValueError):
             runner.validate_fault_plan(bad)
@@ -1569,7 +1597,8 @@ def test_core2_import_projections_and_inventory_preservation(tmp_path):
     # Inventory preservation needs the identical request with an exact frozen path.
     inventory = {'b': _record('b', phase='seed', body={'items': [1]}, path='/api/v1/admin/maps?limit=100'),
                  'a': _record('a', phase='observe', body={'items': [1]}, path='/api/v1/admin/maps?limit=100')}
-    pspec = {'protectedContent': [{'label': 'maps', 'before': 'b', 'after': 'a', 'resource': 'inventory', 'pointer': ''}]}
+    pspec = {'protectedContent': [{'label': 'maps', 'before': 'b', 'after': 'a', 'resource': 'inventory', 'pointer': '',
+                                   'items': '/items'}]}
     expected = {'shared.preserved': {'profile': 'honua.protected-content/v1', 'resources': [{'resourceId': 'maps', 'content': {'items': [1]}}]}}
     rule = {'kind': 'http', 'method': 'GET', 'principal': 'controller', 'path': r'/api/v1/admin/maps\?limit=100'}
     obs = Observation('shared.preserved', None, {'projection': 'extract/v1'})
@@ -1600,3 +1629,144 @@ def test_core2_canaries_and_model_visible_scans(candidate, tmp_path):
     stack.extra['recorder'].set_phase('session')
     with pytest.raises(ValueError):
         stack.extra['registerCanary']('late')
+def test_prereg_exclusions_match_the_preregistration():
+    import re
+    import agent_e2e_local_expectations as expectations
+    assert expectations.PREREG_EXCLUSIONS == ('tenant.denied', 'P18', 'custody.worker-replaced@local-docker')
+    assert '#1163' in expectations.PREREG_REFERENCE
+    document = ROOT / expectations.PREREG_SOURCE
+    if not document.is_file():
+        pytest.skip('the preregistration lands with honua-io/honua-release#1163')
+    text = document.read_text(encoding='utf-8')
+    section = text.split('## Exclusions', 1)[1].split('\n## ', 1)[0]
+    assert '`tenant.denied`' in section and 'P18' in section and '`custody.worker-replaced`' in section
+    listed = re.search(r'"exclusions":\[([^\]]*)\]', text)
+    assert listed and [x.strip().strip('"') for x in listed.group(1).split(',')] == list(expectations.PREREG_EXCLUSIONS)
+
+
+def test_request_arguments_accessor_is_mcp_only():
+    import json as _json
+    from agent_e2e_local_recorder import Record
+    body = _json.dumps({'scope': 'mine'}).encode()
+    http = Record('h', 'observe', 'http', 'controller', None, 'POST', '/x', 200, b'{}',
+                  'sha256:' + hashlib.sha256(b'{}').hexdigest(), None, body)
+    mcp = Record('m', 'observe', 'mcp', 'controller', None, 'POST', '/mcp#tools/call', 200, b'{}',
+                 'sha256:' + hashlib.sha256(b'{}').hexdigest(), None, _json.dumps({'tool': 't', 'arguments': {}}).encode())
+    assert http.request_arguments is None and http.request_arguments_raw == body
+    assert mcp.request_arguments == {'tool': 't', 'arguments': {}}
+
+
+# ---- Astra review 5722460139 of #1171 -----------------------------------------------------------
+
+def test_core2r1_custody_facts_come_only_from_the_runtime_vault(candidate, tmp_path, monkeypatch):
+    _restart_fixture(monkeypatch, restart_changes_start=False)   # no restart is observed
+    runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+    stack = runtime.setup('P10:A:local-docker', DIGEST)
+    runtime.restart_server(stack, 'probe')
+    # A scenario rewrites the visible custody dict to claim a restart.
+    stack.extra['custody']['lifecycle:probe'] = {'resourceId': 'server', 'states': ['running', 'restarted', 'running', 'ready']}
+    stack.extra['custody']['lifecycle:invented'] = {'resourceId': 'server', 'states': ['running', 'restarted', 'ready']}
+    authoritative = runtime.custody(stack)
+    assert 'restarted' not in authoritative['lifecycle:probe']['states'] and 'lifecycle:invented' not in authoritative
+    expected = {'restart.observed': {'resourceId': 'server', 'terminalState': 'ready', 'requiredStates': ['restarted']}}
+    obs = Observation('restart.observed', None, {'projection': 'extract/v1'})
+    for name in ('lifecycle:probe', 'lifecycle:invented'):
+        frozen = {'restart.observed': {'spec': {'custody': name}, 'reads': {}}}
+        assert runner.score_assertions(['restart.observed'], [obs], expected, records={}, custody=authoritative,
+                                       frozen=frozen)[0]['status'] == 'fail'
+    vault = runtime.vault(stack)
+    raw, steps, digest = vault._custody['lifecycle:probe']
+    vault._custody['lifecycle:probe'] = (raw.replace(b'"running"', b'"restarted"', 1), steps, digest)
+    with pytest.raises(ValueError, match='custody fact altered'):
+        runtime.custody(stack)
+    with pytest.raises(ValueError, match='unrecorded evidence'):
+        vault.attest('x', {}, ['never-recorded'])
+
+
+def test_core2r2_records_bind_the_action_occurrence_not_just_its_digest(tmp_path, candidate):
+    import os
+    from agent_e2e_local_recorder import EvidenceVault, action_bytes
+    os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
+    vault = EvidenceVault('c')
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST, vault=vault,
+                                  attempt_id='c', principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')})
+    action = {'kind': 'tool_call', 'tool': 'honua_query_features',
+              'arguments': {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE}}
+    for session in (1, 2):   # the identical request in both sessions
+        path, response = tmp_path / f's{session}.json', tmp_path / f's{session}.response'
+        path.write_bytes(action_bytes(action))
+        response.write_bytes(json.dumps({'jsonrpc': '2.0', 'id': '1', 'result': {'session': session}}).encode())
+        vault.append_actions(session, [{'session': session, 'sequence': 1, 'logPath': str(path), 'status': 'pass',
+                                        'digest': 'sha256:' + hashlib.sha256(action_bytes(action)).hexdigest(),
+                                        'resultRawPath': str(response), 'resultHttpStatus': 200,
+                                        'resultRawSha256': 'sha256:' + hashlib.sha256(response.read_bytes()).hexdigest()}])
+    recorder.set_phase('observe')
+    first = [a for a in recorder.actions() if a.session == 1][0]
+    record = recorder.action_result('captured-session-1', first)
+    assert record.replay_of.startswith('occ:1:1:')
+    model_actions = vault.model_actions()
+    assert len(model_actions) == 2   # two occurrences of the same bytes stay distinct
+    rule = {'kind': 'mcp', 'method': 'POST', 'path': '/mcp#tools/call', 'principal': 'agent', 'phase': 'observe',
+            'origin': 'session-result', 'replayOfModelAction': True}
+    runner.check_reads('captured-session-1', record, {**rule, 'session': 1}, model_actions)
+    with pytest.raises(ValueError, match='session 2'):
+        runner.check_reads('captured-session-1', record, {**rule, 'session': 2}, model_actions)
+    assert record.index()['afterSession'] == 0 and 'afterSession' in record.metadata('c')
+
+
+def test_core2r3_partial_inventories_fail_preservation(tmp_path):
+    from agent_e2e_local_projections import Context, evaluate
+    path = '/api/v1/admin/maps?limit=100'
+    spec = {'protectedContent': [{'label': 'maps', 'before': 'b', 'after': 'a', 'resource': 'inventory',
+                                  'pointer': '', 'items': '/items'}]}
+    for body, message in (({'items': [1], 'next': 'p2'}, 'further page'), ({'items': [1], 'total': 5}, 'count contradicts')):
+        records = {'b': _record('b', phase='seed', body=body, path=path), 'a': _record('a', phase='observe', body=body, path=path)}
+        with pytest.raises(ValueError, match=message):
+            evaluate(spec, Context(records))
+    unreviewed = {'b': _record('b', phase='seed', body={'items': [1]}, path='/other'),
+                  'a': _record('a', phase='observe', body={'items': [1]}, path='/other')}
+    with pytest.raises(ValueError, match='no reviewed enumeration contract'):
+        evaluate(spec, Context(unreviewed))
+    with pytest.raises(ValueError, match='items'):
+        evaluate({'protectedContent': [{**spec['protectedContent'][0], 'items': None}]},
+                 Context({'b': _record('b', phase='seed', body={'items': [1]}, path=path),
+                          'a': _record('a', phase='observe', body={'items': [1]}, path=path)}))
+
+
+@pytest.mark.parametrize('first', ['bad', 'pending'])
+def test_core2r4_lost_response_fault_fires_only_on_a_confirmed_commit(candidate, tmp_path, first):
+    candidate.extra_tools = True
+    plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'},
+            'commit': {'pointer': '/result/structuredContent/mapId'}}
+    rejected = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map',
+                           'arguments': {'title': 'bad'} if first == 'bad' else {'pending': True}})
+    good = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {'title': 'Shelters'}})
+    receipt, model, _ = run_hook_case(candidate, tmp_path, [rejected, good, tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
+    # The rejected/noncommitted reply reached the model unchanged; the fault stayed armed for the real commit.
+    assert '503' not in model.sent[1][-1]['content']
+    events = receipt['faultEvents']
+    assert len(events) == 1 and events[0]['actionDigest'] == receipt['sessions'][0]['actions'][1]['digest']
+    assert events[0]['committedResourceId'] == 'map-1' and events[0]['upstreamStatus'] == 200
+    assert receipt['faultSkipped'][0]['actionDigest'] == receipt['sessions'][0]['actions'][0]['digest']
+
+
+def test_core2r4_lost_response_needs_commit_on_the_proxy_path_too():
+    from agent_e2e_local_faults import FaultInjector
+    plan = {'kind': 'response_lost_after_commit', 'after': None, 'match': {'tool': 'honua_create_map'},
+            'commit': {'pointer': '/result/structuredContent/mapId'}}
+    action = {'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {}}
+
+    def reply(result=None, error=None):
+        body = {'jsonrpc': '2.0', 'id': '1'}
+        body.update({'error': error} if error else {'result': result})
+        return json.dumps(body).encode()
+    injector = FaultInjector(plan)
+    for status, raw in ((500, reply({'structuredContent': {'mapId': 'm'}})),
+                        (200, reply(error={'code': -32602, 'message': 'invalid'})),
+                        (200, reply({'isError': True, 'structuredContent': {'mapId': 'm'}})),
+                        (200, reply({'structuredContent': {'status': 'Accepted'}}))):
+        execution = {'status': 'ok' if status == 200 else 'fail'}
+        assert injector.lose('tool_call', action, execution, status, raw) is None
+    assert len(injector.skipped) == 4 and not injector.events
+    event = injector.lose('tool_call', action, {'status': 'ok'}, 201, reply({'structuredContent': {'mapId': 'm'}}))
+    assert event['committedResourceId'] == 'm' and event['upstreamStatus'] == 201
