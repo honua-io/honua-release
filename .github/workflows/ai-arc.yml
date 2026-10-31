@@ -148,6 +148,7 @@ jobs:
                 --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md" --quickstart-revision "$REVISION"
                 --out "artifacts/$TARGET")
           [ "$TARGET" != local-docker ] || args+=(--hosts "$HOSTS" --per-host 3)
+          [ "$TARGET" = local-docker ] || [ -z "${HONUA_ARC_SLOT_PROVISIONER:-}" ] || args+=(--slot-provisioner "$HONUA_ARC_SLOT_PROVISIONER")
           [ -z "$TRIALS" ] || args+=(--trials "$TRIALS")
           [ "$GOAL_SET" != held-out ] || args+=(--goal-set "$RUNNER_TEMP/arc-inputs/primary.json"
                                                --reserve-set "$RUNNER_TEMP/arc-inputs/reserve.json")

@@ -33,7 +33,7 @@ def slots(hosts: list[str], per_host: int) -> list[tuple[str, int]]:
 
 
 def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, common: list[str],
-                 reserve_rows=(), launch=None, wait_poll=30.0, max_wait=None) -> list[dict]:
+                 reserve_rows=(), launch=None, wait_poll=30.0, max_wait=None, provisioner=None) -> list[dict]:
     """Run every scheduled row once; returns [{runId, status, receipt}]. ``launch(row, slot) -> int``."""
     out = Path(out)
     (out / 'adjudications').mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,21 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             command += ['--case-id', row['caseId']]
         if host:
             command += ['--docker-host', 'ssh://' + host, '--slot-index', str(index)]
-        return subprocess.run(command, timeout=5 * 3600).returncode
+        if provisioner and target != 'local-docker':
+            # The release cell machinery reserves an empty slot (never this script): it prints the slot
+            # receipt, the operator session file and the deploy identity contract export paths.
+            got = subprocess.run([provisioner, 'acquire', target, row['runId']], capture_output=True, text=True,
+                                 timeout=3600, check=True)
+            slot_doc = json.loads(got.stdout)
+            for flag, key in (('--slot-receipt', 'slotReceipt'), ('--slot-credentials', 'slotCredentials'),
+                              ('--deploy-identity-contract', 'deployIdentityContract')):
+                if slot_doc.get(key):
+                    command += [flag, slot_doc[key]]
+        try:
+            return subprocess.run(command, timeout=5 * 3600).returncode
+        finally:
+            if provisioner and target != 'local-docker':
+                subprocess.run([provisioner, 'release', target, row['runId']], timeout=3600, check=False)
     launch = launch or default_launch
 
     def worker(row, slot):
@@ -124,6 +138,7 @@ def main(argv=None) -> int:
     parser.add_argument('--quickstart')
     parser.add_argument('--quickstart-revision')
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--slot-provisioner', help='AWS targets: executable with acquire/release <target> <run>')
     args = parser.parse_args(argv)
     if args.out.exists():
         parser.error('output directory exists; every previous campaign is preserved')
@@ -143,7 +158,7 @@ def main(argv=None) -> int:
             common += [flag, value]
     results = run_campaign(target=args.target, arm=args.arm, schedule_rows=rows, out=args.out,
                            hosts=[h for h in args.hosts.split(',') if h], per_host=args.per_host, common=common,
-                           reserve_rows=reserve_rows)
+                           reserve_rows=reserve_rows, provisioner=args.slot_provisioner)
     print(json.dumps({'runs': len(results), 'statuses': sorted(r['status'] for r in results)}))
     return 0
 

@@ -577,27 +577,28 @@
   ],
   "operator": {
     "repo": "honua-io/honua-devops",
-    "tag": "v2026.1.1",
-    "commit": "09a8984b519bfeeaf5ac63e5a3174e662e3866d1",
+    "tag": "v2026.1.2",
+    "commit": "2fcd96c8d80c55b69ec5f187b58b6852de1bb5dd",
     "entryTool": "install_honua",
     "toolCount": 28,
     "assets": {
       "linux-x64": {
         "name": "honua-devops-linux-x64.tar.gz",
-        "sha256": "253f0d3c6696590a3c55f03b77b6364e7972f979b4e3d327a936d8a4fc4612aa"
+        "sha256": "926294a5fdccf3a6cf157edbed11fc53c91c2f1b8d134e1e1d7ca948713dc680"
       },
       "osx-arm64": {
         "name": "honua-devops-osx-arm64.tar.gz",
-        "sha256": "5fe82b26f4f393bdbf77ed19fa07ea019d49c398005812d80521a419124a96d0"
+        "sha256": "1eee278f1ae36e14330f45c52282e7cf833e6b5a1a7dfc17939995843b45fc12"
       },
       "osx-x64": {
         "name": "honua-devops-osx-x64.tar.gz",
-        "sha256": "83b326dd15287e904d8e185c00d071d8f8e5c92423060eed973b17d9a2daac47"
+        "sha256": "22da09ff45bc69ad37303cbd5b223e8ae8cac54f4e5abf0fdddcfc02e54aa0d6"
       }
     },
-    "containerImage": "ghcr.io/honua-io/honua-devops@sha256:ddec7485a2681cf75876f8852f98de7121ef885e5f40bf154d61c509fec15a4c",
+    "containerImage": "ghcr.io/honua-io/honua-devops@sha256:e46a7988da99e87f5c41f09f76aac2e3250c8153c78589717bd5117eec79b846",
     "registration": "claude mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp (Codex: codex mcp add honua-devops -- <dir>/Honua.DevOps.Agent --mcp); in the arc the runner starts the same verified binary with --mcp behind the recording proxy",
-    "credentials": "slot-scoped short-lived STS session credentials in the operator process environment only"
+    "credentials": "short-lived STS session for the deploy identity contract's role only, in the operator process environment",
+    "deployIdentity": "HONUA_DEVOPS_DEPLOY_IDENTITY_CONTRACT_PATH = the honua-iac bootstrap/aws-exec-identity deploy_identity_contract output for the agent-chosen topology; the harness (customer's admin) applies that bootstrap after the agent's plan is approved and gives the operator only a short-lived session for the contract's role_arn"
   },
   "hosts": {
     "local-docker": {

@@ -97,6 +97,32 @@ def test_arc_pins_the_operator_release():
     arc = arc_runner.load_arc()
     spec = arc['operator']
     assert (spec['repo'], spec['tag'], spec['entryTool'], spec['toolCount']) == \
-        ('honua-io/honua-devops', 'v2026.1.1', 'install_honua', 28)
+        ('honua-io/honua-devops', 'v2026.1.2', 'install_honua', 28)
     assert spec['containerImage'].startswith('ghcr.io/honua-io/honua-devops@sha256:')
     operator.pinned_asset(spec)
+
+
+CONTRACT = {'schema_version': 'v1', 'kind': 'honua.iac.deploy-identity',
+            'role_arn': 'arn:aws:iam::123456789012:role/honua-deploy-ecs-small',
+            'topology': {'compute': 'ecs', 'redis': False, 'custom_domain': False, 'waf': False, 'gp_batch': False},
+            'actions_by_service': {'ecs': ['ecs:CreateService'], 'rds': ['rds:CreateDBInstance']}}
+
+
+def test_deploy_identity_contract_is_checked_and_bound_to_the_session(tmp_path):
+    path = tmp_path / 'contract.json'
+    path.write_text(json.dumps(CONTRACT))
+    contract = operator.deploy_identity(str(path))
+    assert contract['roleArn'].endswith('honua-deploy-ecs-small') and contract['topology']['compute'] == 'ecs'
+    env = operator.operator_environment(contract, {'AWS_ACCESS_KEY_ID': 'ASIAEXAMPLEEXAMPLE12', 'AWS_SECRET_ACCESS_KEY': 's',
+                                                   'AWS_SESSION_TOKEN': 't', 'roleArn': CONTRACT['role_arn']})
+    assert env[operator.CONTRACT_VARIABLE] == str(path.resolve()) and 'roleArn' not in env
+    with pytest.raises(operator.OperatorError):
+        operator.operator_environment(contract, {'roleArn': 'arn:aws:iam::123456789012:role/admin'})
+    for bad in ({**CONTRACT, 'kind': 'other'}, {**CONTRACT, 'role_arn': 'arn:aws:iam::1:user/x'},
+                {**CONTRACT, 'actions_by_service': {'iam': ['iam:CreateAccessKey']}},
+                {**CONTRACT, 'topology': {'compute': 'ecs'}}):
+        path.write_text(json.dumps(bad))
+        with pytest.raises(operator.OperatorError):
+            operator.deploy_identity(str(path))
+    with pytest.raises(operator.OperatorError):
+        operator.deploy_identity('relative/contract.json')

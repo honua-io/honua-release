@@ -540,7 +540,7 @@ class AwsSetup(DelegatingStage):
     def prepare(self, ctx):
         import ai_arc_operator
         credentials = ai_arc_operator.slot_credentials(ctx.options['slot_credentials'])
-        ctx.slot.harness_secrets.extend(v for k, v in credentials.items() if k != 'AWS_REGION')
+        ctx.slot.harness_secrets.extend(v for k, v in credentials.items() if k.startswith('AWS_') and k != 'AWS_REGION')
         installed = ai_arc_operator.install(ctx.arc['operator'], ctx.private_dir / 'operator',
                                             download=ctx.options.get('operator_download'))
         installed['registration'] = ai_arc_operator.registration_command(ctx.arm['agent'],
@@ -549,12 +549,30 @@ class AwsSetup(DelegatingStage):
         self.operator = (installed['binary'], credentials)
         return self._inner.prepare(ctx)
 
+    def operator_identity(self, ctx):
+        """(contract, session) for the operator. The g43 adapter supplies them after the harness, as the
+        customer's admin, has applied bootstrap/aws-exec-identity for the agent-chosen topology once the
+        plan is approved (``operator_identity(ctx)``); otherwise the slot provisioner's pre-applied ones."""
+        import ai_arc_operator
+        hook = getattr(self._inner, 'operator_identity', None)
+        if hook is not None:
+            contract_path, credentials_path = hook(ctx)
+        else:
+            contract_path, credentials_path = ctx.options.get('deploy_identity_contract'), ctx.options['slot_credentials']
+        contract = ai_arc_operator.deploy_identity(contract_path)
+        credentials = ai_arc_operator.slot_credentials(credentials_path)
+        ctx.slot.harness_secrets.extend(v for k, v in credentials.items() if k.startswith('AWS_') and k != 'AWS_REGION')
+        ctx.slot.facts.setdefault('operator', {})['deployIdentity'] = {k: contract[k] for k in
+                                                                       ('sha256', 'roleArn', 'topology', 'actionCount')}
+        return ai_arc_operator.operator_environment(contract, credentials)
+
     def backends(self, ctx):
         from agent_cli_backends import StdioMcpBackend
-        binary, credentials = self.operator
+        binary, _ = self.operator
+        env = self.operator_identity(ctx)
         home = ctx.private_dir / 'operator-home'
         home.mkdir(parents=True, mode=0o700)
-        backend = StdioMcpBackend(binary, slot_env=credentials, workdir=str(home)).start()
+        backend = StdioMcpBackend(binary, slot_env=env, workdir=str(home)).start()
         ctx.slot.facts['operator']['toolCount'] = len(backend.tool_view()['tools'])
         wrap = getattr(self._inner, 'wrap_backends', None)
         return wrap(ctx, {'honua_devops': backend}) if wrap else {'honua_devops': backend}
@@ -1356,6 +1374,7 @@ def main(argv=None) -> int:
     trial.add_argument('--quickstart-revision')
     trial.add_argument('--slot-receipt')
     trial.add_argument('--slot-credentials')
+    trial.add_argument('--deploy-identity-contract', help='honua-iac deploy_identity_contract export (absolute path)')
     trial.add_argument('--goal-set')
     trial.add_argument('--reserve-set')
     trial.add_argument('--lock-digest', required=True)
@@ -1406,7 +1425,8 @@ def main(argv=None) -> int:
         goal_set = load_goal_set(args.goal_set) if args.variant == 'H' else None
         slot = build_slot(args.target, args)
         options = {'quickstart': args.quickstart, 'quickstart_revision': args.quickstart_revision,
-                   'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials, 'http': local_http}
+                   'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials,
+                   'deploy_identity_contract': args.deploy_identity_contract, 'http': local_http}
         receipt = run_trial(arc=arc, target=args.target, arm=arm, variant=args.variant, run_id=args.run_id,
                             out_dir=args.output, slot=slot, candidate=candidate, session=ArcSession(arm),
                             options=options, goal_set=goal_set, case_id=args.case_id)

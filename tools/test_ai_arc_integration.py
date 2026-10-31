@@ -241,10 +241,15 @@ def test_aws_setup_composes_the_pinned_operator_behind_the_real_backend(tmp_path
     arc = R.load_arc()
     arc['operator'] = spec
     creds = tmp_path / 'creds.json'
-    creds.write_text(json.dumps(op.CREDS))
+    creds.write_text(json.dumps({**op.CREDS, 'roleArn': op.CONTRACT['role_arn']}))
+    contract = tmp_path / 'contract.json'
+    contract.write_text(json.dumps(op.CONTRACT))
 
     class Adapter(R.StageModule):
         stage = 'setup'
+
+        def operator_identity(self, ctx):
+            return str(contract), str(creds)
 
         def observe(self, ctx, row):
             return [{'assertion': a, 'status': 'pass'} for a in R.required_assertions(arc, 'setup', 'aws-ecs')]
@@ -276,3 +281,4 @@ def test_aws_setup_composes_the_pinned_operator_behind_the_real_backend(tmp_path
     assert seen['servers'] == ['honua_devops']
     assert 'ASIAEXAMPLEEXAMPLE12' in ctx.slot.harness_secrets
     assert ctx.slot.facts['operator']['registration'][:4] == ['codex', 'mcp', 'add', 'honua-devops']
+    assert ctx.slot.facts['operator']['deployIdentity']['roleArn'] == op.CONTRACT['role_arn']
