@@ -213,9 +213,14 @@ python3 tools/check_vendor_terms.py confidential-known --root . --repo honua-rel
 - The committed inventory reports list avoidable hits only. Confidential hits appear as counts by
   category, and avoidable hits under a confidential path are counted but not listed.
 - Lockfiles, source maps, binary files and bundled build output (`.js` or `.css` averaging more than
-  1,000 characters a line) are skipped, and the report counts them. Every other text file is scanned,
-  whatever its size: tracked files plus untracked files that are not ignored, or the blobs of `--git-ref`.
-  A symlink's own path is classified like any other path; its target is not followed.
+  1,000 characters a line) are skipped, and the report counts them. Other text files are scanned from
+  tracked files and untracked files that are not ignored, or from the blobs of `--git-ref`. The scanner
+  checks HTML entities, percent and common source escapes, and Unicode normalization; it fails closed on
+  encoded or Unicode-containing lines over 1,000,000 characters, normalized lines over 1,000,000
+  characters, or more than eight nested decoding passes. To bound matching work, a line with a term
+  also fails above 512 term matches or with a matching token longer than 4,096 characters. On longer
+  changed lines it may report a raw and decoded occurrence separately. A symlink's own path is classified;
+  its target is not followed.
 - Other repositories adopt the gate by calling the reusable workflow, once their baseline is committed
   here:
 
@@ -242,6 +247,11 @@ for pull request metadata.
 The event scanner also checks text joined across HTML markup and common inline
 Markdown formatting. It is not a complete GitHub Markdown renderer, so unusual
 rendering and encoding forms can evade or falsely trigger this detection.
+The vocabulary includes a visual-workflow product name that can also occur as a
+generic programming identifier. A lexical match is an audit signal, not a legal
+conclusion. Code-delta findings can use the documented exception process where
+appropriate; pull-request metadata and event checks do not apply that allowlist,
+so a generic match there still requires manual review or rewording.
 
 This is **post-publication detection**: the text is already visible when the
 event runs. It does not prevent or delete a submission, and a failed comment
@@ -293,7 +303,7 @@ candidate against the PR merge base (or merge queue base) without a committed ba
 its full file context, and rejects new avoidable, confidential and nominative uses. The
 specification and interoperability vocabularies and approved exceptions still apply. New path
 components are checked as well. Existing findings on unchanged lines do not block the check.
-The check also examines HTML entities and common source-code escapes, including nested
+The check also examines HTML entities, percent encoding, and common source-code escapes, including nested
 combinations up to a bounded depth; deeper encodings fail closed. An additional Unicode
 normalization pass checks compatibility characters and ignores invisible format characters and
 variation selectors. Unicode-containing lines over 100,000 characters and normalized changes

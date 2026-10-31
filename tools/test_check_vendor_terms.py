@@ -32,6 +32,14 @@ def classify(path: str, text: str, allowlist=()) -> list[vt.Hit]:
     return vt.Classifier("honua-test", VOCABULARY, list(allowlist)).classify_text(path, text)
 
 
+@pytest.mark.parametrize("prefix,suffix", [("", "Factory"), ("my", ""), ("", "_factory")])
+def test_visual_workflow_mark_is_found_inside_identifiers_and_paths(prefix, suffix):
+    identifier = prefix + "Model" + "Builder" + suffix
+    classifier = vt.Classifier("honua-test", VOCABULARY, [])
+    assert classifier.classify_text("source.py", f"name = {identifier}\n")
+    assert classifier.classify_path(f"src/{identifier}.py")
+
+
 def only(hits: list[vt.Hit], token: str) -> vt.Hit:
     matching = [hit for hit in hits if hit.token == token]
     assert len(matching) == 1, [hit.as_dict() for hit in hits]
@@ -821,6 +829,8 @@ def test_published_coordinate_exception_is_exact_and_path_scoped(version, next_v
         for path, value in [(publication, identifier + "-extra"), ("other.json", identifier)]:
             hits = classifier.classify_text(path, json.dumps({"package": value}))
             assert hits and all(hit.exception is None for hit in hits)
+        encoded_suffix = classifier.classify_text(publication, json.dumps({"package": identifier + "%45vil"}))
+        assert encoded_suffix and any(hit.exception is None for hit in encoded_suffix)
         hits = classifier.classify_text(publication, json.dumps({"description": "endorsed by " + identifier}))
         assert hits and all(hit.exception is None for hit in hits)
     prose = classifier.classify_text(publication, json.dumps({"description": entry.tokens[0] + " compatibility"}))
@@ -880,3 +890,144 @@ def test_immutable_gp_guide_exception_is_exact_and_remains_visible():
         baseline = {"schema": vt.BASELINE_SCHEMA, "repo": repo, "files": {}, "total": 0}
         assert bool(vt.lint(report, baseline)) is not excepted
         assert ("exception" in report["avoidable"][0]) is excepted
+
+
+@pytest.mark.parametrize("encoded", [
+    "&#" + "69;sri",
+    "%" + "45sri",
+    chr(92) + "u0045sri",
+    chr(92) + "x45sri",
+    chr(92) + "N{LATIN CAPITAL LETTER E}sri",
+    "Ｅｓｒｉ",
+    "E\u200bsri",
+    "%" + "252545sri",
+])
+def test_encoded_vendor_terms_are_detected_on_the_original_physical_line(encoded):
+    hits = classify("src/client.ts", "first\nsecond\nconst name = '" + encoded + "';\nfourth\n")
+    assert len(hits) == 1
+    assert (hits[0].line, hits[0].token, hits[0].cls) == (3, "Esri", "avoidable")
+
+
+def test_encoded_wire_identifier_retains_spec_classification():
+    encoded = "&#" + "101;sriGeometryPoint"
+    hits = classify("data.json", '{"type":"' + encoded + '"}')
+    assert [(hit.token, hit.cls) for hit in hits] == [("esriGeometryPoint", "spec")]
+
+
+def test_decoded_line_break_does_not_shift_physical_diagnostics():
+    encoded = "&#" + "10;" + "&#" + "69;sri"
+    hits = classify("site.html", "first\n" + encoded + "\nthird\nEsri")
+    assert [hit.line for hit in hits] == [2, 4]
+
+
+def test_encoded_names_in_paths_retain_original_path():
+    classifier = vt.Classifier("honua-test", VOCABULARY, [])
+    path = "src/%" + "45sri/client.ts"
+    hit = classifier.classify_path(path)[0]
+    assert (hit.path, hit.line, hit.token) == ("src/%" + "45sri", 0, "Esri")
+
+
+def test_paired_source_backslashes_are_not_interpreted_as_one_escape():
+    escaped = chr(92) * 2 + "u0045sri"
+    assert classify("src/client.ts", escaped) == []
+
+
+def test_too_many_encoding_layers_fail_closed_without_echoing_content():
+    value = "&" + "amp;" * 10 + "#69;sri"
+    with pytest.raises(ValueError, match="too many nested encodings") as error:
+        classify("site.html", value)
+    assert value not in str(error.value)
+
+
+def test_plain_and_encoded_occurrences_are_both_reported():
+    encoded = "&#" + "69;sri"
+    hits = classify("site.html", "Esri " + encoded)
+    assert [hit.token for hit in hits] == ["Esri", "Esri"]
+
+
+def test_large_encoded_line_fails_closed_without_echoing_content():
+    value = "x" * 1_000_001 + "%"
+    with pytest.raises(ValueError, match="input exceeds the inspection limit") as error:
+        classify("source.txt", value)
+    assert value not in str(error.value)
+
+
+@pytest.mark.parametrize("separator", ["\r", "\u2028"])
+def test_delta_line_mapping_preserves_earlier_logical_separators(separator):
+    import vendor_terms_delta as delta
+
+    text = "before" + separator + "still first physical line\n" + "&#" + "69;sri\n"
+    hits = classify("file.txt", text)
+    mapping = delta.logical_to_git_lines(text)
+    assert len(hits) == 1
+    assert mapping[hits[0].line - 1] == 2
+
+
+def test_scan_cli_fails_closed_without_echoing_oversized_line(tmp_path):
+    sensitive = "unique-sensitive-payload-" + "x" * 1_000_001 + "%"
+    (tmp_path / "source.txt").write_text(sensitive)
+    result = subprocess.run(
+        [sys.executable, str(vt.ROOT / "tools/check_vendor_terms.py"), "scan", "--root", str(tmp_path),
+         "--repo", "honua-test"], capture_output=True, text=True, check=False,
+    )
+    assert result.returncode != 0
+    assert "input exceeds the inspection limit" in result.stderr
+    assert sensitive not in result.stdout + result.stderr
+    assert "unique-sensitive-payload-" not in result.stdout + result.stderr
+
+
+def test_encoded_hit_is_not_hidden_by_different_scoped_exception_on_same_line():
+    exception = vt.Exception_(0, "honua-test", ("source.py",), (), "reason", "owner", ("allowedModelBuilder",))
+    text = "model%42" + "uilder + allowedModel" + "Builder"
+    hits = classify("source.py", text, [exception])
+    assert any(hit.exception is None and hit.cls == "avoidable" for hit in hits)
+    assert any(hit.exception == 0 for hit in hits)
+
+
+def test_raw_path_hit_survives_percent_decoding():
+    classifier = vt.Classifier("honua-test", VOCABULARY, [])
+    path = "src/%e" + "Esri.py"
+    assert any(hit.path == path and hit.cls == "avoidable" for hit in classifier.classify_path(path))
+
+
+def test_excessive_terms_fail_closed():
+    text = ("Es" + "ri ") * 513
+    with pytest.raises(ValueError, match="too many terms"):
+        classify("source.txt", text)
+
+
+def test_pathological_token_fails_closed():
+    text = "x" * 4097 + "Es" + "ri"
+    with pytest.raises(ValueError, match="token exceeds"):
+        classify("source.txt", text)
+
+
+def test_long_changed_line_is_scanned_conservatively():
+    text = "plain " * 1000 + "Es" + "ri " + "&#" + "69;sri"
+    hits = classify("source.txt", text)
+    assert len(hits) >= 2
+    assert all(hit.cls == "avoidable" for hit in hits)
+
+
+def test_encoded_suffix_does_not_inherit_an_identifier_exception():
+    exception = vt.Exception_(0, "honua-test", ("source.py",), (), "reason", "owner", ("allowedModelBuilder",))
+    value = "allowedModel" + "Builder%45vil"
+    hits = classify("source.py", value, [exception])
+    assert any(hit.cls == "avoidable" and hit.exception is None for hit in hits)
+
+
+@pytest.mark.parametrize("filename,version,other_version", [
+    ("published-registry-observations.json", "0.1.15", "0.1.16"),
+    ("published-sdk-016-registry-observations.json", "0.1.16", "0.1.15"),
+])
+def test_historical_decoded_registry_url_exception_is_exact(filename, version, other_version):
+    path = "certification/sdk-publication-replay/" + filename
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    classifier = vt.Classifier("honua-release", VOCABULARY, entries)
+    raw = (vt.ROOT / path).read_text()
+    hits = classifier.classify_text(path, raw)
+    assert hits and all(hit.exception is not None for hit in hits)
+    url = "https://registry.npmjs.org/%40honua%2Fsdk-esri-compat/" + version
+    for other_path, value in ((path, url.replace(version, other_version)),
+                              (path, url + "%45vil"), ("other.json", url)):
+        assert any(hit.exception is None for hit in classifier.classify_text(other_path, value))

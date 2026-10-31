@@ -63,7 +63,7 @@ class EventTests(unittest.TestCase):
             command = [sys.executable, str(Path(guard.__file__)), "--repo", "fixture", "--event-name", "issue_comment",
                        "--event", str(event)]
             for text in ("Arc<!-- -->" + "GIS", "<em>Arc</em>" + "GIS", "Arc**" + "GIS**",
-                         "Arc[" + "GIS](https://example.com)", "Arc`" + "GIS`"):
+                         "Arc[" + "GIS](https://example.com)", "Arc`" + "GIS`", "Model**" + "Builder**"):
                 with self.subTest(text=text):
                     event.write_text(json.dumps({"comment": {"body": text}}), encoding="utf-8")
                     result = subprocess.run(command, capture_output=True, text=True, check=False)

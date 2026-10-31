@@ -30,16 +30,20 @@ respected) or, with --git-ref, the blobs of a commit without checking it out.
 from __future__ import annotations
 
 import argparse
+import difflib
 from collections import Counter
 from dataclasses import dataclass, field
 import functools
 import hashlib
+import html
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
+import unicodedata
+from urllib.parse import unquote
 from typing import Iterable, Iterator
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,8 +83,10 @@ PRODUCT_NAMES = (
 PRODUCT = re.compile("|".join(re.escape(name).replace(r"\ ", r"\s+") for name in PRODUCT_NAMES),
                      re.IGNORECASE)
 # Esri marks that do not contain either substring.
-STANDALONE = re.compile(r"\b(?:Living\s+Atlas|ArcMap|ArcCatalog|Arc[P]y|ArcObjects|ArcSDE|ArcIMS)\b",
+STANDALONE = re.compile(r"\b(?:Living\s+Atlas|ArcMap|ArcCatalog|Arc[P]y|ArcObjects|ArcSDE|ArcIMS|"
+                        + "model" + r"builder)\b",
                         re.IGNORECASE)
+WORKFLOW_PRODUCT = re.compile("model" + "builder", re.IGNORECASE)
 BARE_MARKS = {"esri", "arcgis"}
 CANONICAL_PRODUCT = {name.lower(): name for name in PRODUCT_NAMES}
 
@@ -99,6 +105,7 @@ CONFIDENTIAL = (
 # A CI runner selection is runner detail when it names a mark at all (runs-on: [self-hosted, <mark>-...]).
 RUNNER_LABEL = re.compile(r"^\s*(?:-\s*)?runs-on\s*:", re.IGNORECASE)
 PRESCREEN = re.compile(r"esri|arcgis|living\s+atlas|arcmap|arccatalog|arc[p]y|arcobjects|arcsde|arcims|"
+                       + "model" + r"builder|"
                        r"\.(?:ap[r]x|at[b]x|p[y]t)(?![A-Za-z0-9_])|lmg[r]d|\b2700\d@", re.IGNORECASE)
 
 # The two clauses of the required attribution (docs/THIRD-PARTY-TRADEMARKS.md), whitespace-insensitive. The
@@ -398,6 +405,7 @@ class Hit:
     cls: str
     category: str
     exception: int | None = None
+    position: int = field(default=0, repr=False, compare=False)
 
     def as_dict(self) -> dict:
         data = {"path": self.path, "line": self.line, "token": self.token, "term": self.term,
@@ -570,6 +578,21 @@ def _spans(line: str) -> list[Span]:
 
     ``confidential`` is the R30 category when the span is, or overlaps, confidential detail; detail that carries
     no mark at all (a desktop project file, a licence-server address) is a span of its own."""
+    if PRESCREEN.search(line):
+        if len(line) > 1_000_000:
+            raise ValueError("Candidate line exceeds the inspection limit")
+        if sum(1 for _ in PRESCREEN.finditer(line)) > 512:
+            raise ValueError("Candidate line has too many terms to inspect safely")
+        work = 0
+        for word in re.finditer(r"[^\s\"'()\[\]{}<>,;|]+", line):
+            value = word.group()
+            matches = sum(1 for _ in PRESCREEN.finditer(value))
+            if matches:
+                if len(value) > 4096:
+                    raise ValueError("Candidate token exceeds the inspection limit")
+                work += len(value) ** 2 * matches
+                if work > 2_000_000:
+                    raise ValueError("Candidate requires too much inspection work")
     spans: list[list] = []
     taken: list[tuple[int, int]] = []
     for match in PRODUCT.finditer(line):
@@ -583,6 +606,11 @@ def _spans(line: str) -> list[Span]:
         if any(s <= match.start() < e for s, e in taken):
             continue
         spans.append([match.start(), match.end(), match.group(), re.sub(r"\s+", " ", match.group()), None])
+        taken.append((match.start(), match.end()))
+    for match in WORKFLOW_PRODUCT.finditer(line):
+        if any(s <= match.start() < e for s, e in taken):
+            continue
+        spans.append([match.start(), match.end(), match.group(), match.group(), None])
         taken.append((match.start(), match.end()))
     for start, end in _mark_tokens(line):
         if any(s <= start < e for s, e in taken):
@@ -634,14 +662,70 @@ def _mark_tokens(line: str) -> list[tuple[int, int]]:
     return tokens
 
 
+# Decode a bounded set of rendered/source forms before the ordinary classifier.
+# This is a detection view only: the source bytes are never modified.
+_SOURCE_ESCAPE = re.compile(
+    r"(?<!\\)(?P<slashes>(?>\\+))(?:u\{(?P<braced>[0-9a-fA-F]{1,6})\}|u(?P<u4>[0-9a-fA-F]{4})|"
+    r"U(?P<u8>[0-9a-fA-F]{8})|x(?P<x2>[0-9a-fA-F]{2})|"
+    r"N\{(?P<name>[A-Za-z0-9 -]{1,100})\}|(?P<octal>[0-7]{1,3}))"
+)
+
+
+def _decode_detection_view(value: str) -> str:
+    if value.isascii() and not any(char in value for char in "&%\\"):
+        return value
+
+    def decode_escape(match: re.Match[str]) -> str:
+        slashes = match.group("slashes")
+        if len(slashes) % 2 == 0:
+            return match.group()
+        try:
+            name = match.group("name")
+            if name:
+                char = unicodedata.lookup(name)
+            else:
+                octal = match.group("octal")
+                digits = octal or match.group("braced") or match.group("u4") or match.group("u8") or match.group("x2")
+                char = chr(int(digits, 8 if octal else 16))
+            if len(char) != 1 or 0xD800 <= ord(char) <= 0xDFFF:
+                return match.group()
+            return slashes[:-1] + char
+        except (KeyError, ValueError, OverflowError):
+            return match.group()
+
+    if len(value) > 1_000_000:
+        raise ValueError("Encoded input exceeds the inspection limit")
+    for _ in range(8):
+        decoded = html.unescape(value) if "&" in value else value
+        decoded = unquote(decoded, errors="replace") if "%" in decoded else decoded
+        decoded = _SOURCE_ESCAPE.sub(decode_escape, decoded) if "\\" in decoded else decoded
+        if not decoded.isascii():
+            if len(decoded) > 1_000_000:
+                raise ValueError("Unicode input exceeds the inspection limit")
+            decoded = unicodedata.normalize("NFKC", decoded)
+            if len(decoded) > 1_000_000:
+                raise ValueError("Normalized input exceeds the inspection limit")
+            decoded = "".join(char for char in decoded if unicodedata.category(char) != "Cf"
+                              and ord(char) != 0x034F and not 0xFE00 <= ord(char) <= 0xFE0F
+                              and not 0xE0100 <= ord(char) <= 0xE01EF)
+        # An encoded line break must not invent a physical source line.
+        decoded = re.sub(r"[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]", " ", decoded)
+        if decoded == value:
+            return decoded
+        value = decoded
+    raise ValueError("Candidate has too many nested encodings to inspect safely")
+
+
 class Classifier:
     def __init__(self, repo: str, vocabulary: dict[str, dict], allowlist: list[Exception_],
-                 interop: Interop | None = None, *, skip_encoded: bool = True):
+                 interop: Interop | None = None, *, skip_encoded: bool = True,
+                 normalize_rendered: bool = True):
         self.repo = repo
         self.vocabulary = vocabulary
         self.interop = interop if interop is not None else _committed_interop()
         self.allowlist = allowlist
         self.skip_encoded = skip_encoded
+        self.normalize_rendered = normalize_rendered
         self.skipped: Counter[str] = Counter()
 
     def _exception(self, path: str, token: str, identifier: str | None = None, category: str = "") -> int | None:
@@ -656,8 +740,19 @@ class Classifier:
         hits = []
         parts = path.split("/")
         for depth, part in enumerate(parts):
-            for start, end, token, term, detail in _spans(part):
-                prefix = "/".join(parts[:depth + 1])
+            prefix = "/".join(parts[:depth + 1])
+            original = _spans(part)
+            spans = list(original)
+            detection_part = _decode_detection_view(part) if self.normalize_rendered else part
+            if detection_part != part:
+                seen = Counter((token.lower(), term.lower(), detail) for _, _, token, term, detail in original)
+                added = Counter()
+                for span in _spans(detection_part):
+                    key = (span[2].lower(), span[3].lower(), span[4])
+                    added[key] += 1
+                    if added[key] > seen[key]:
+                        spans.append(span)
+            for start, end, token, term, detail in spans:
                 if detail:
                     hits.append(Hit(prefix, 0, token, term, "confidential", detail))
                 else:
@@ -665,6 +760,63 @@ class Classifier:
         return hits
 
     def classify_text(self, path: str, text: str) -> list[Hit]:
+        # First preserve original lexical exceptions, then add newly revealed occurrences.
+        original = self._classify_detection_text(path, text)
+        if not self.normalize_rendered:
+            return original
+        normalized_parts = []
+        for line in text.splitlines(keepends=True):
+            ending = re.search(r"(?:\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029])$", line)
+            if ending:
+                normalized_parts.append(_decode_detection_view(line[:ending.start()]) + ending.group())
+            else:
+                normalized_parts.append(_decode_detection_view(line))
+        normalized = "".join(normalized_parts)
+        if normalized == text:
+            return original
+        decoded = self._classify_detection_text(path, normalized)
+        # An exact unchanged span identifies the same physical occurrence even if
+        # decoding nearby URL punctuation changes the lexical exception lookup.
+        # A newly decoded mark has no unchanged span and must remain a finding.
+        original_lines = text.splitlines()
+        decoded_lines = normalized.splitlines()
+        original_keys = {(hit.line, hit.position, hit.token.lower(), hit.cls, hit.category, hit.exception)
+                         for hit in original}
+        mappings: dict[int, list[tuple[int, int, int]]] = {}
+        for hit in decoded:
+            number = hit.line
+            if number not in mappings:
+                before, after = original_lines[number - 1], decoded_lines[number - 1]
+                if before == after:
+                    mappings[number] = [(0, 0, len(before))]
+                else:
+                    if max(len(before), len(after)) > 4096:
+                        # Only the unchanged prefix and suffix are unambiguous without
+                        # an expensive whole-line comparison. Any middle occurrences
+                        # stay as separate, conservative findings.
+                        prefix = 0
+                        while prefix < min(len(before), len(after)) and before[prefix] == after[prefix]:
+                            prefix += 1
+                        suffix = 0
+                        limit = min(len(before), len(after)) - prefix
+                        while suffix < limit and before[-1 - suffix] == after[-1 - suffix]:
+                            suffix += 1
+                        mappings[number] = [(0, 0, prefix), (len(before) - suffix, len(after) - suffix, suffix)]
+                    else:
+                        mappings[number] = difflib.SequenceMatcher(None, before, after, autojunk=False).get_matching_blocks()
+            same_occurrence = False
+            for before_start, after_start, length in mappings[number]:
+                if after_start <= hit.position and hit.position + len(hit.token) <= after_start + length:
+                    old_start = before_start + hit.position - after_start
+                    key = (number, old_start, hit.token.lower(), hit.cls, hit.category, hit.exception)
+                    if key in original_keys:
+                        same_occurrence = True
+                        break
+            if not same_occurrence:
+                original.append(hit)
+        return sorted(original, key=lambda hit: hit.line)
+
+    def _classify_detection_text(self, path: str, text: str) -> list[Hit]:
         if not PRESCREEN.search(text):
             return []
         context = FileContext(path, text)
@@ -710,7 +862,7 @@ class Classifier:
                 while right < len(line) and re.fullmatch(r"[A-Za-z0-9@._/-]", line[right]):
                     right += 1
                 exception = self._exception(path, token, line[left:right], category) if cls == "avoidable" else None
-                hits.append(Hit(path, number, token, term, cls, category, exception))
+                hits.append(Hit(path, number, token, term, cls, category, exception, position=start))
         return hits
 
     def _classify(self, context: FileContext, number: int, line: str, start: int, end: int, token: str,
