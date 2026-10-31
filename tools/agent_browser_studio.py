@@ -1627,7 +1627,8 @@ def observe_map(stack, seeded, prefix, *, created):
     rows = items_of(listing['observation']['body'])
     if created:
         before = {row.get('itemId') for row in items_of(recorder.records[prefix + '-maps-before'].json)}
-        owners = {stack.extra.get('agentPrincipal'), stack.extra.get('consoleUserId')}
+        key = stack.extra.get('agentPrincipal')
+        owners = {key, stack.extra.get('consoleUserId'), 'api-key:' + str(key)}
         matches = [row for row in rows if row.get('itemId') not in before and row.get('ownerId') in owners]
         require(len(matches) == 1, 'map list does not identify one new map')
         row = matches[0]
@@ -1637,6 +1638,27 @@ def observe_map(stack, seeded, prefix, *, created):
         row = matches[0]
     recorder.json(prefix + '-version', 'GET', version_path(row.get('itemId'), row.get('currentVersionId')))
     record_map_measurements(recorder, prefix + '-version', prefix)
+    if prefix == 'p24' and not layers:
+        from agent_e2e_local_projections import audited_map_sources
+        from types import SimpleNamespace
+        recorder.mcp_call('p24-catalog', 'honua_list_layers', {'offset': 0, 'limit': 500})
+        recorder.json('p24-audit', 'GET', '/api/v1/admin/observability/audit?action=operation.completed&resourceType=operation_instance&pageSize=200')
+        receipts = []
+        for index, action in enumerate(recorder.actions()):
+            if action.kind != 'tool_call' or action.tool != 'honua_publish_service' or action.status != 'pass':
+                continue
+            try:
+                result = recorder.action_result(f'p24-publish-result-{index}', action)
+            except ProjectionError:
+                continue
+            receipts.append({'tool': action.tool, 'status': action.status, 'json': result.json})
+        try:
+            layers = audited_map_sources(recorder.records, receipts, stack.extra.get('custody'),
+                                          stack.extra.get('agentPrincipal'), row.get('itemId'))
+            snapshot_sources(recorder, prefix, layers, 'after', variant=seeded.state['variant'])
+            seeded = SimpleNamespace(state={**seeded.state, 'layers': layers})
+        except ProjectionError as exc:
+            stack.extra[prefix + 'SourceFailure'] = str(exc)[:200]
     if set(layers) == set(LAYER_NAMES):
         from playwright.sync_api import Error as PlaywrightError
         try:
@@ -1668,6 +1690,8 @@ def render_spec(prefix):
     fields = ('httpStatus', 'decodedWidth', 'decodedHeight', 'loadedLayerIds', 'nonBackgroundPixels',
               'browserErrors', 'regions', 'visibleLabelSourceIds')
     steps = [prefix + '-version']
+    if prefix == 'p24':
+        steps.extend(('p24-catalog', 'p24-audit'))
     for _name, slug in SOURCE_LAYERS:
         steps.extend((f'{prefix}-src-{slug}-after-raw', f'{prefix}-src-{slug}-after-geo',
                       f'{prefix}-export-{slug}'))
@@ -1686,8 +1710,8 @@ def source_content_spec(prefix):
     return {'protectedContent': [
         {'label': name, 'before': f'{prefix}-src-{slug}-before-raw', 'after': f'{prefix}-src-{slug}-after-raw',
          'resource': [
-             {'role': f'seeded:service:{name}', 'at': {'pathSegment': 2}},
-             {'role': f'seeded:layer:{name}', 'at': {'pathSegment': 4}}],
+             {'role': f'{"audited" if prefix == "p24" else "seeded"}:service:{name}', 'at': {'pathSegment': 2}},
+             {'role': f'{"audited" if prefix == "p24" else "seeded"}:layer:{name}', 'at': {'pathSegment': 4}}],
          'content': ({'featureServerFeatures': '$step', 'booleanFields': ['is_open'], 'booleanGeo': {
              f'{prefix}-src-{slug}-before-raw': f'{prefix}-src-{slug}-before-geo',
              f'{prefix}-src-{slug}-after-raw': f'{prefix}-src-{slug}-after-geo'}}

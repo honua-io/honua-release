@@ -867,21 +867,11 @@ def test_source_read_of_another_service_fails_the_frozen_address(monkeypatch, tm
 
 
 def test_p24_scores_style_and_source_and_fails_the_rest_closed(monkeypatch, tmp_path):
-    outcome = _run(tmp_path, monkeypatch, 'P24', 'A', png=BLUE_PNG, published=True)
     assert P24().needs_approver() is True
     assert P08().needs_approver() is False
     assert P09().needs_approver() is False
-    assertions = list(select_case(PACK, 'P24', 'A')['assertions'])
-    assert [row.assertion_id for row in outcome.observations] == assertions
-    assert all(row.observed is None for row in outcome.observations)
-    blob = json.dumps([row.evidence for row in outcome.observations])
-    assert 'Kestrel' not in blob and 'Willow' not in blob
-    for name in ('features.exact', 'map.style', 'source-content.unchanged'):
-        assert _status(outcome, name) == 'pass', outcome.results[name]
-    assert _status(outcome, 'render.actual') == 'fail'
-    assert _status(outcome, 'custody.worker-replaced') == 'excluded'
-    assert _status(outcome, 'candidate.identity') == 'fail'
-    assert 'unrecorded step' in outcome.results['candidate.identity']['reason']
+    with pytest.raises(ProjectionError, match='audited source records are incomplete'):
+        _run(tmp_path, monkeypatch, 'P24', 'A', png=BLUE_PNG, published=True)
 
 
 def test_p24_agent_claim_cannot_create_an_owned_layer(tmp_path):
@@ -895,11 +885,8 @@ def test_p24_agent_claim_cannot_create_an_owned_layer(tmp_path):
     seeded = scenario.seed(stack, 'A')
     recorder.set_phase('observe')
     run = RunRecord(AGENT, 1, (), (), ('I created svc-parcels and its layer.',))
-    scenario.observe(stack, seeded, 'A', run)
-    with pytest.raises(ProjectionError, match='unrecorded step'):
-        resolve_roles(frozen_roles(scenario, stack, seeded, 'A', run), recorder.records,
-                      agent_principal=AGENT, custody={'agentUserId': AGENT, 'agentKeyId': AGENT,
-                                                      'agentKeyOwnerUserId': AGENT})
+    with pytest.raises(ProjectionError, match='authenticated principal'):
+        scenario.observe(stack, seeded, 'A', run)
     assert 'p24-render' not in recorder.records
 
 

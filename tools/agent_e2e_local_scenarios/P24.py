@@ -8,7 +8,7 @@ Other unsupported facts also fail closed on local Docker. Pack prompts stay in t
 from __future__ import annotations
 
 from agent_browser_studio import (
-    handoff_spec, observe_map, render_spec, seed_case, source_content_spec, source_roles, style_spec,
+    handoff_spec, observe_map, render_spec, seed_case, source_content_spec, style_spec,
 )
 from agent_e2e_local_api import Observation, RoleBinding, Scenario
 
@@ -51,14 +51,16 @@ class P24(Scenario):
         return seed_case(self.id, stack, variant, create_map=False)
 
     def roles(self, stack, seeded, variant, run=None):
-        return source_roles() + [
+        return [
             RoleBinding('created:map', 'p24-maps', items='/data/items', id='/itemId',
                         owner='/ownerId', before='p24-maps-before',
                         owner_any_of=['{agentUser}', '{agentKey}', 'api-key:{agentKey}']),
             RoleBinding('created:version', 'p24-maps', items='/data/items', id='/currentVersionId',
                         owner='/ownerId', before='p24-maps-before',
                         owner_any_of=['{agentUser}', '{agentKey}', 'api-key:{agentKey}']),
-        ]
+        ] + [RoleBinding(f'audited:{kind}:{name}', 'p24-version', parent='created:map',
+                         before='p24-maps-before')
+             for name in ('parcels', 'flood_zones', 'shelters') for kind in ('service', 'layer')]
 
     def observe(self, stack, seeded, variant, run=None):
         observe_map(stack, seeded, 'p24', created=True)

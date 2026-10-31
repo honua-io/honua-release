@@ -974,36 +974,6 @@
   },
   "roles": [
     {
-      "role": "seeded:service:parcels",
-      "step": "publish-parcels-submit",
-      "pointer": "/data/resourceIds/serviceName"
-    },
-    {
-      "role": "seeded:layer:parcels",
-      "step": "publish-parcels-submit",
-      "pointer": "/data/resourceIds/layerId"
-    },
-    {
-      "role": "seeded:service:flood_zones",
-      "step": "publish-flood-zones-submit",
-      "pointer": "/data/resourceIds/serviceName"
-    },
-    {
-      "role": "seeded:layer:flood_zones",
-      "step": "publish-flood-zones-submit",
-      "pointer": "/data/resourceIds/layerId"
-    },
-    {
-      "role": "seeded:service:shelters",
-      "step": "publish-shelters-submit",
-      "pointer": "/data/resourceIds/serviceName"
-    },
-    {
-      "role": "seeded:layer:shelters",
-      "step": "publish-shelters-submit",
-      "pointer": "/data/resourceIds/layerId"
-    },
-    {
       "role": "created:map",
       "step": "p24-maps",
       "items": "/data/items",
@@ -1028,6 +998,42 @@
         "{agentKey}",
         "api-key:{agentKey}"
       ]
+    },
+    {
+      "role": "audited:service:parcels",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:layer:parcels",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:service:flood_zones",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:layer:flood_zones",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:service:shelters",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:layer:shelters",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
     }
   ],
   "projections": {
@@ -1108,13 +1114,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
@@ -1129,13 +1135,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
@@ -1421,6 +1427,12 @@
                 "sha256": "p24-version"
               },
               {
+                "sha256": "p24-catalog"
+              },
+              {
+                "sha256": "p24-audit"
+              },
+              {
                 "sha256": "p24-src-parcels-after-raw"
               },
               {
@@ -1482,13 +1494,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:parcels",
+              "role": "audited:service:parcels",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:parcels",
+              "role": "audited:layer:parcels",
               "at": {
                 "pathSegment": 4
               }
@@ -1503,13 +1515,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:parcels",
+              "role": "audited:service:parcels",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:parcels",
+              "role": "audited:layer:parcels",
               "at": {
                 "pathSegment": 4
               }
@@ -1524,13 +1536,13 @@
           "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
           "addresses": [
             {
-              "role": "seeded:service:parcels",
+              "role": "audited:service:parcels",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:parcels",
+              "role": "audited:layer:parcels",
               "at": {
                 "query": "layers"
               }
@@ -1545,13 +1557,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:flood_zones",
+              "role": "audited:service:flood_zones",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:flood_zones",
+              "role": "audited:layer:flood_zones",
               "at": {
                 "pathSegment": 4
               }
@@ -1566,13 +1578,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:flood_zones",
+              "role": "audited:service:flood_zones",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:flood_zones",
+              "role": "audited:layer:flood_zones",
               "at": {
                 "pathSegment": 4
               }
@@ -1587,13 +1599,13 @@
           "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
           "addresses": [
             {
-              "role": "seeded:service:flood_zones",
+              "role": "audited:service:flood_zones",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:flood_zones",
+              "role": "audited:layer:flood_zones",
               "at": {
                 "query": "layers"
               }
@@ -1608,13 +1620,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
@@ -1629,13 +1641,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
@@ -1650,18 +1662,32 @@
           "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "query": "layers"
               }
             }
           ]
+        },
+        "p24-catalog": {
+          "kind": "mcp",
+          "method": "POST",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/mcp#tools/call"
+        },
+        "p24-audit": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/admin/observability/audit\\?action=operation\\.completed&resourceType=operation_instance&pageSize=200"
         }
       }
     },
@@ -1728,13 +1754,13 @@
             "after": "p24-src-parcels-after-raw",
             "resource": [
               {
-                "role": "seeded:service:parcels",
+                "role": "audited:service:parcels",
                 "at": {
                   "pathSegment": 2
                 }
               },
               {
-                "role": "seeded:layer:parcels",
+                "role": "audited:layer:parcels",
                 "at": {
                   "pathSegment": 4
                 }
@@ -1750,13 +1776,13 @@
             "after": "p24-src-flood-zones-after-raw",
             "resource": [
               {
-                "role": "seeded:service:flood_zones",
+                "role": "audited:service:flood_zones",
                 "at": {
                   "pathSegment": 2
                 }
               },
               {
-                "role": "seeded:layer:flood_zones",
+                "role": "audited:layer:flood_zones",
                 "at": {
                   "pathSegment": 4
                 }
@@ -1772,13 +1798,13 @@
             "after": "p24-src-shelters-after-raw",
             "resource": [
               {
-                "role": "seeded:service:shelters",
+                "role": "audited:service:shelters",
                 "at": {
                   "pathSegment": 2
                 }
               },
               {
-                "role": "seeded:layer:shelters",
+                "role": "audited:layer:shelters",
                 "at": {
                   "pathSegment": 4
                 }
@@ -1806,13 +1832,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:flood_zones",
+              "role": "audited:service:flood_zones",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:flood_zones",
+              "role": "audited:layer:flood_zones",
               "at": {
                 "pathSegment": 4
               }
@@ -1827,13 +1853,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:flood_zones",
+              "role": "audited:service:flood_zones",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:flood_zones",
+              "role": "audited:layer:flood_zones",
               "at": {
                 "pathSegment": 4
               }
@@ -1848,13 +1874,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
@@ -1869,13 +1895,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
@@ -1890,13 +1916,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:parcels",
+              "role": "audited:service:parcels",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:parcels",
+              "role": "audited:layer:parcels",
               "at": {
                 "pathSegment": 4
               }
@@ -1911,13 +1937,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:parcels",
+              "role": "audited:service:parcels",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:parcels",
+              "role": "audited:layer:parcels",
               "at": {
                 "pathSegment": 4
               }
@@ -1932,13 +1958,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
@@ -1953,13 +1979,13 @@
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
           "addresses": [
             {
-              "role": "seeded:service:shelters",
+              "role": "audited:service:shelters",
               "at": {
                 "pathSegment": 2
               }
             },
             {
-              "role": "seeded:layer:shelters",
+              "role": "audited:layer:shelters",
               "at": {
                 "pathSegment": 4
               }
