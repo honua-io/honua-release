@@ -81,7 +81,8 @@ class FakeSession:
             time.sleep(30)
         answer = self.answers.pop(0) if self.answers else GOOD_ANSWER
         actions = self.actions.pop(0) if self.actions else [act()]
-        row = {'finalAnswer': answer, 'actions': actions, 'nudges': 0}
+        row = {'finalAnswer': answer, 'actions': actions, 'nudges': 0,
+               'provenance': [{'agent': ctx.arm['agent'], 'cliVersion': ctx.arm['cliVersion'], 'model': ctx.arm['model']}]}
         if stage == 'studio':
             row['assistantModel'] = 'us.anthropic.claude-sonnet-4-6'
         return row
@@ -1078,3 +1079,72 @@ def test_the_services_corpus_session_is_pinned_too(tmp_path, monkeypatch):
     except Exception:  # noqa: BLE001  (only the session's construction matters here)
         pass
     assert seen['cli'].expected_version == A1['cliVersion']
+
+
+# ---------------------------------------------------------------- Sol #1177 review 5725287948 item 2
+
+def _admit(tmp_path, name):
+    return agg(tmp_path, [name], [(tmp_path / name / 'trial-receipt.json').read_bytes()])
+
+
+def _rewrite_receipt(tmp_path, name, change):
+    path = tmp_path / name / 'trial-receipt.json'
+    receipt = json.loads(path.read_bytes())
+    change(receipt)
+    path.write_text(json.dumps(receipt))
+
+
+PINNED = {'provenance': [{'agent': 'claude-cli', 'cliVersion': A1['cliVersion'], 'model': A1['model']}]}
+
+
+@pytest.mark.parametrize('tamper', ['top-level', 'top-level-absent', 'summary-erased', 'summary-absent-field'])
+def test_admission_requires_the_pinned_cli_on_every_session(tmp_path, tamper):
+    run(tmp_path, mods=modules(**{s: FakeStage(s, extra_row=PINNED) for s in R.STAGES}))
+
+    def change(receipt):
+        if tamper == 'top-level':
+            receipt['cliVersion'] = '2.1.400 (Claude Code)'
+        elif tamper == 'top-level-absent':
+            receipt.pop('cliVersion')
+        elif tamper == 'summary-erased':
+            receipt['stages'][0]['modelVisible']['provenance'] = []
+        else:
+            receipt['stages'][0]['modelVisible']['provenance'][0].pop('cliVersion')
+    _rewrite_receipt(tmp_path, '001', change)
+    with pytest.raises(ValueError):
+        _admit(tmp_path, '001')
+
+
+def test_a_session_that_dispatched_without_a_recorded_cli_is_not_admitted(tmp_path):
+    run(tmp_path, mods=modules(setup=FakeStage('setup', extra_row={'provenance': []})))
+    with pytest.raises(ValueError, match='no session is recorded'):
+        _admit(tmp_path, '001')
+
+
+def test_a_nested_corpus_session_with_another_cli_is_not_admitted(tmp_path):
+    """The services case receipts are retained; a session inside one with another CLI is rejected,
+    even when the stage summary is consistent."""
+    nested = {'provenance': [{'agent': 'claude-cli', 'cliVersion': A1['cliVersion']}]}
+
+    class Services(FakeStage):
+        def run(self, ctx, session, prompt):
+            row = super().run(ctx, session, prompt)
+            R.write_private(ctx.private_dir / 'services' / 'corpus' / 'P10' / 'receipt.json', R.canonical(
+                {'sessions': [{'provenance': [{'agent': 'claude-cli', 'cliVersion': 'codex-cli 0.170.0'}]}]}))
+            return row
+    stages = {s: FakeStage(s, extra_row=PINNED) for s in R.STAGES}
+    stages['services'] = Services('services', extra_row=nested)
+    run(tmp_path, mods=modules(**stages))
+    with pytest.raises(ValueError, match='retained evidence records a CLI'):
+        _admit(tmp_path, '001')
+
+
+def test_pinned_sessions_and_a_pre_dispatch_failure_are_admitted(tmp_path):
+    run(tmp_path, mods=modules(**{s: FakeStage(s, extra_row=PINNED) for s in R.STAGES}))
+    aggregate, _ = _admit(tmp_path, '001')
+    assert aggregate['completed'] == 1
+    refused = {'actions': [], 'provenance': [], 'failure': {'category': 'infrastructure',
+                                                            'reason': "CLI version 'x' is not the pinned"}}
+    run(tmp_path, name='002', mods=modules(setup=FakeStage('setup', extra_row=refused)))
+    aggregate, _ = _admit(tmp_path, '002')
+    assert aggregate['scheduled'] == 1 and aggregate['completed'] == 0

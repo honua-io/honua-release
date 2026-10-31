@@ -232,10 +232,12 @@ def test_served_revision_comes_from_the_version_metadata_and_the_image_label(tmp
         script = (input or b'').decode()
         out = b''
         if ' ps --all --format json' in script:
-            out = json.dumps({'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'}).encode()
+            out = json.dumps({'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy',
+                              'Image': 'img'}).encode()
         if 'docker image inspect' in script:
             out = (json.dumps(['ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64]) + '|'
-                   + json.dumps({'org.opencontainers.image.revision': label} if label else {})).encode()
+                   + json.dumps({'org.opencontainers.image.revision': label} if label else {})
+                   + '|' + json.dumps('sha256:' + '9' * 64)).encode()
         return subprocess.CompletedProcess(argv, 0, out, b'')
     identity, known = tmp_path / 'id', tmp_path / 'kh'
     identity.write_text('k')
@@ -706,7 +708,7 @@ def test_a_development_image_is_identified_by_its_local_id_only_when_declared(de
             if 'image inspect' in script:
                 out = '[]|{"org.opencontainers.image.revision": "%s"}|"%s"' % ('a' * 40, image_id)
             else:
-                out = json.dumps({'Service': 'honua', 'State': 'running', 'Health': 'healthy',
+                out = json.dumps({'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy',
                                   'Image': 'honua-arc-dev/honua-server:' + 'a' * 12})
             return subprocess.CompletedProcess([], 0, out.encode(), b'')
 
@@ -717,3 +719,77 @@ def test_a_development_image_is_identified_by_its_local_id_only_when_declared(de
     facts = L.observe_serving(Slot(), {'image': 'honua-arc-dev/honua-server', 'imageDigest': 'sha256:' + 'f' * 64,
                                        'sourceSha': 'a' * 40, 'development': development}, http, 'http://x')
     assert facts['identity'] is ok, facts['evidence']
+
+
+# ---------------------------------------------------------------- Sol #1177 review 5725287948
+
+def test_an_initializer_that_exits_leaves_no_unowned_descendant(tmp_path):
+    """Item 1: the operator forks a child, answers initialize with garbage and exits before any
+    snapshot; the child is reparented. Its process group is still owned and killed."""
+    import ai_arc_devops
+    from agent_e2e_aws_controller import StdioOperator
+    pidfile = tmp_path / 'child.pid'
+    script = tmp_path / 'operator'
+    script.write_text(f'#!/bin/sh\nsleep 300 &\necho $! > {pidfile}\necho not-json\nexit 0\n')
+    script.chmod(0o755)
+    for _ in range(8):
+        pidfile.unlink(missing_ok=True)
+        owner = ai_arc_devops.OperatorOwner(StdioOperator(script, tmp_path / 'op'))
+        with pytest.raises(Exception):
+            owner.bind(dict(os.environ), str(tmp_path), None)
+        child = int(pidfile.read_text())
+        owner.close()
+        assert not ai_arc_devops._pid_alive(child), 'the reparented child was killed with the group'
+        assert not owner.alive() and not ai_arc_devops._group_members(owner.pgid)
+
+
+def test_the_operator_is_launched_as_its_own_process_group_leader(tmp_path):
+    import ai_arc_devops
+    from agent_e2e_aws_controller import StdioOperator
+    script = tmp_path / 'operator'
+    script.write_text('#!/bin/sh\nexec sleep 300\n')
+    script.chmod(0o755)
+    owner = ai_arc_devops.OperatorOwner(StdioOperator(script, tmp_path / 'op'))
+    try:
+        with pytest.raises(Exception):
+            owner.bind(dict(os.environ), str(tmp_path), None)      # never answers initialize (30 s bound)
+    finally:
+        owner.close()
+    assert owner.pgid == owner.operator.process.pid and not owner.alive()
+
+
+def _ps(*containers):
+    return b'\n'.join(json.dumps(c).encode() for c in containers)
+
+
+def test_an_install_console_whose_tag_moved_is_judged_by_the_running_image(tmp_path):
+    """Item 3: the container still runs the old Console while its tag now resolves to the pinned one."""
+    import ai_arc_local
+
+    def run(argv, input=None, **kw):
+        script = (input or b'').decode()
+        out = b''
+        if ' ps --all --format json' in script:
+            out = _ps({'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'},
+                      {'Name': 'c', 'Service': 'console', 'State': 'running', 'Health': 'healthy',
+                       'Image': 'ghcr.io/honua-io/honua-console:rc',
+                       'Publishers': [{'URL': '127.0.0.1', 'TargetPort': 8080, 'PublishedPort': 18190}]})
+        elif 'image inspect' in script:
+            running = '"$(docker inspect' in script        # the container's own image, not a tag lookup
+            digests = [OLD_6828] if running else [CONSOLE_REF]
+            out = (json.dumps(digests) + '|{}|' + json.dumps('sha256:' + ('1' if running else '2') * 64)).encode()
+        return subprocess.CompletedProcess(argv, 0, out, b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                             project='arc-abcdef123456', index=1, run=run)
+    facts = ai_arc_local.observe_serving(vm, {'image': 'x', 'imageDigest': 'sha256:' + 'a' * 64, 'sourceSha': 'b' * 40},
+                                         lambda m, u, k: {'status': 200}, 'http://127.0.0.1:1')
+    assert facts['consoleRepoDigests'] == [OLD_6828] and CONSOLE_REF not in facts['consoleRepoDigests']
+    assert facts['evidence']['consoleImageId'] == 'sha256:' + '1' * 64
+
+
+def test_a_container_without_an_id_has_no_identity():
+    import ai_arc_local
+    assert ai_arc_local.running_image(object(), {'Image': 'ghcr.io/honua-io/honua-console:rc'}) == (None, [], {})

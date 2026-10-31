@@ -51,7 +51,7 @@ class FakeVm:
         if 'docker image inspect' in script:
             labels = {'org.opencontainers.image.revision': self.serving.get('revision', INSTALL['sourceRevision'])}
             out = (json.dumps([self.serving['image'] + '@' + self.serving['imageDigest']]) + '|'
-                   + json.dumps(labels)).encode()
+                   + json.dumps(labels) + '|' + json.dumps('sha256:' + '9' * 64)).encode()
         return subprocess.CompletedProcess(argv, 0, out, b'')
 
 

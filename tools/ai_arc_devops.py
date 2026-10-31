@@ -37,7 +37,12 @@ class OperatorOwner:
     Ownership is synchronized with the spawn. ``bind`` marks a start in progress under the lock; a
     ``close`` that arrives meanwhile waits for the start to end (normally or by exception) and then
     stops the process and its whole process tree. A start that fails stops what it spawned before the
-    exception propagates. Once closed, or once the stage is finalized, nothing may start."""
+    exception propagates. Once closed, or once the stage is finalized, nothing may start.
+
+    The ownership boundary is a process group made at spawn: the operator is launched through
+    ``setsid`` (exec in place, so the group id is the operator's pid), and every descendant stays in
+    that group even after the operator exits and its children are reparented. Stopping kills the
+    group and waits until no member is left."""
 
     START_WAIT = 45.0          # longer than the operator's own initialize/tools-list timeout (30 s)
 
@@ -48,6 +53,27 @@ class OperatorOwner:
         self._cv = threading.Condition()
         self.tree = []                                  # pids observed under the operator
         self._stop_lock, self._stopped = threading.Lock(), False
+        self.pgid = None
+        self._own_group()
+
+    def _own_group(self):
+        import shlex
+        import shutil
+        import tempfile
+        binary = getattr(self.operator, 'binary', None)
+        if binary is None:
+            return                                      # an in-process stand-in launches nothing itself
+        setsid = shutil.which('setsid')
+        if not setsid:
+            raise RuntimeError('cannot launch the operator in its own process group (setsid missing)')
+        launcher_dir = Path(tempfile.mkdtemp(prefix='honua-arc-operator-'))
+        launcher = launcher_dir / 'launch'
+        launcher.write_text('#!/bin/sh\nexec ' + shlex.quote(setsid) + ' ' + shlex.quote(str(binary)) + ' "$@"\n')
+        launcher.chmod(0o700)
+        self.operator.binary = str(launcher)
+
+    def _group(self) -> list[int]:
+        return _group_members(self.pgid) if self.pgid else []
 
     @property
     def closed(self):
@@ -76,7 +102,10 @@ class OperatorOwner:
 
     def alive(self) -> bool:
         process = getattr(self.operator, 'process', None)
-        return (process is not None and process.poll() is None) or any(_pid_alive(p) for p in self.tree)
+        if process is not None and self.pgid is None:
+            self.pgid = process.pid
+        return ((process is not None and process.poll() is None) or any(_pid_alive(p) for p in self.tree)
+                or bool(self._group()))
 
     def _stop(self):
         # Serialized and once only: a failing start and a racing close both stop; the second must
@@ -90,13 +119,18 @@ class OperatorOwner:
         if process is None:
             return
         self._stopped = True
-        self.tree = sorted(set(self.tree) | set(_descendants(process.pid)))
+        self.pgid = process.pid
+        self.tree = sorted(set(self.tree) | set(_descendants(process.pid)) | set(self._group()))
         try:
             self.operator.close()
         except Exception:  # noqa: BLE001
             process.kill()
         import os
         import signal
+        try:
+            os.killpg(self.pgid, signal.SIGKILL)        # the whole group, reparented members included
+        except (ProcessLookupError, PermissionError):
+            pass
         for pid in self.tree:                           # children the operator started (terraform, ...)
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -107,7 +141,7 @@ class OperatorOwner:
             process.wait(10)
         import time
         deadline = time.monotonic() + 10                # SIGKILL is asynchronous: wait for the tree to go
-        while any(_pid_alive(p) for p in self.tree) and time.monotonic() < deadline:
+        while (any(_pid_alive(p) for p in self.tree) or self._group()) and time.monotonic() < deadline:
             time.sleep(0.05)
 
     def close(self):
@@ -140,6 +174,21 @@ def _descendants(pid: int) -> list[int]:
         children = parents.get(queue.pop(), [])
         out.extend(children)
         queue.extend(children)
+    return out
+
+
+def _group_members(pgid: int) -> list[int]:
+    """Live (non-zombie) processes in process group ``pgid``."""
+    out = []
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        if len(fields) > 2 and fields[2] == str(pgid) and fields[0] not in ('Z', 'X'):
+            out.append(int(entry.name))
     return out
 
 

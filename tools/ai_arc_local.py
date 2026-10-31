@@ -278,6 +278,29 @@ def tunnel_for(slot: VmSlot) -> Tunnel:
     return Tunnel(slot, slot.http_port)
 
 
+CONTAINER = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
+
+
+def running_image(slot, container: dict) -> tuple[str | None, list, dict]:
+    """(image id, repo digests, labels) of the image the CONTAINER runs: its immutable ``.Image`` id,
+    never a tag lookup (a tag can move after the container started). Unknown is ``(None, [], {})``."""
+    ref = container.get('ID') or container.get('Name')
+    if not isinstance(ref, str) or not CONTAINER.fullmatch(ref):
+        return None, [], {}
+    inspected = slot.ssh('docker image inspect --format \'{{json .RepoDigests}}|{{json .Config.Labels}}|{{json .Id}}\' '
+                         '"$(docker inspect --format \'{{.Image}}\' ' + shlex.quote(ref) + ')"', 60)
+    try:
+        parts = inspected.stdout.decode().strip().split('|')
+        digests = json.loads(parts[0]) or []
+        labels = json.loads(parts[1]) or {}
+        image_id = json.loads(parts[2])
+    except (ValueError, AttributeError, IndexError):
+        return None, [], {}
+    if not isinstance(image_id, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', image_id):
+        return None, [], {}
+    return image_id, digests if isinstance(digests, list) else [], labels if isinstance(labels, dict) else {}
+
+
 def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str) -> dict:
     """Controller reads: containers healthy, the server image's repo digest and served revision
     equal ``expected``, readiness, and that admin reads need sign-in."""
@@ -297,18 +320,9 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
     healthy = bool(server) and all(c.get('State') == 'running' and c.get('Health') in ('healthy', '', None)
                                    for c in running)
     repo_digests, label_revision, image_id = [], None, None
-    if server and re.fullmatch(r'[A-Za-z0-9@:/._-]{1,300}', server[0].get('Image', '')):
-        inspected = slot.ssh('docker image inspect --format \'{{json .RepoDigests}}|{{json .Config.Labels}}|{{json .Id}}\' '
-                             + shlex.quote(server[0]['Image']), 60)
-        try:
-            parts = inspected.stdout.decode().strip().split('|')
-            digests_raw, labels_raw = parts[0], parts[1]
-            image_id = json.loads(parts[2]) if len(parts) > 2 else None
-            repo_digests = json.loads(digests_raw) or []
-            labels = json.loads(labels_raw) or {}
-            label_revision = labels.get('org.opencontainers.image.revision')
-        except (ValueError, AttributeError, IndexError):
-            repo_digests = []
+    if server:
+        image_id, repo_digests, labels = running_image(slot, server[0])
+        label_revision = labels.get('org.opencontainers.image.revision')
     reference = expected['image'] + '@' + expected['imageDigest']
     ready = http('GET', base_url + '/healthz/ready', None)
     anonymous = http('GET', base_url + '/api/v1/admin/version', None)
@@ -333,14 +347,10 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
             console_port = int(publisher['PublishedPort'])
             break
     console_digests = []
-    if console and re.fullmatch(r'[A-Za-z0-9@:/._-]{1,300}', console[0].get('Image', '')):
-        inspected = slot.ssh('docker image inspect --format \'{{json .RepoDigests}}\' '
-                             + shlex.quote(console[0]['Image']), 60)
-        try:
-            console_digests = json.loads(inspected.stdout.decode().strip()) or []
-        except (ValueError, AttributeError):
-            console_digests = []
-    evidence = {'console': bool(console), 'consoleRepoDigests': console_digests,
+    console_image_id = None
+    if console:
+        console_image_id, console_digests, _ = running_image(slot, console[0])
+    evidence = {'console': bool(console), 'consoleRepoDigests': console_digests, 'consoleImageId': console_image_id,
                 'containers': [{k: c.get(k) for k in ('Service', 'State', 'Health')} for c in containers],
                 'repoDigestMatch': reference in repo_digests, 'servedRevision': served,
                 'servedVersion': version, 'labelRevision': label_revision, 'expected': reference,

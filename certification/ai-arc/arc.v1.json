@@ -580,8 +580,8 @@
   },
   "console": {
     "image": "ghcr.io/honua-io/honua-console",
-    "imageDigest": "sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4",
-    "source": "Console #473 + #488 fixed release (honua-iac #361 pin)",
+    "imageDigest": "sha256:38a1c2b38c09697f90716a3abbab5471e2ea5b79ed494c2a77fb7a80faa52da1",
+    "source": "Console release with Studio #156 widget transport, Studio #158 and Console #493 (honua-server #6829 re-pin)",
     "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed."
   }
 }

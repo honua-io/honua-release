@@ -559,6 +559,9 @@ class LocalSetup(StageModule):
         facts = ai_arc_local.observe_serving(ctx.slot.vm, expected, ctx.options['http'], ctx.slot.controller['base_url'])
         ctx.slot.facts['consoleObserved'] = facts.get('console', False)
         want = f"{ctx.arc['console']['image']}@{ctx.arc['console']['imageDigest']}"
+        if facts.get('console'):
+            ctx.slot.facts['consoleObservedIdentity'] = {'imageId': facts['evidence'].get('consoleImageId'),
+                                                         'repoDigests': facts.get('consoleRepoDigests')}
         if facts.get('console') and want not in (facts.get('consoleRepoDigests') or []):
             # A Console other than the arc's release digest is never Studio's surface (fail closed).
             ctx.slot.facts['consoleRejected'] = {'expected': want, 'observed': facts.get('consoleRepoDigests')}
@@ -738,6 +741,9 @@ class ServicesStage(StageModule):
         return {'actions': row['actions'], 'finalAnswer': row['answers'][-1] if row['answers'] else None,
                 'utterances': row['answers'], 'nudges': row['nudges'], 'failure': row['failure'],
                 'nestedAnswerChecks': True,
+                # Every corpus session's own provenance, so admission checks each one's CLI version.
+                'provenance': [p for c in cases for session in (c['receipt'].get('sessions') or [])
+                               if isinstance(session, dict) for p in (session.get('provenance') or [])],
                 'corpusCases': [{'scenario': c['scenario'], 'status': c['receipt'].get('status'),
                                  'receiptSha256': sha256(canonical(c['receipt']))} for c in cases]}
 
@@ -806,6 +812,23 @@ def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
 
 
 # --------------------------------------------------------------------------- the arm's session
+
+def cli_versions(value) -> list:
+    """Every CLI version recorded anywhere in ``value``: each ``cliVersion`` field at any nesting,
+    and None for each session provenance entry that lacks one (absent is never accepted)."""
+    out = []
+    if isinstance(value, dict):
+        if 'cliVersion' in value:
+            out.append(value['cliVersion'])
+        for key, item in value.items():
+            if key == 'provenance' and isinstance(item, list):
+                out.extend(None for entry in item if not (isinstance(entry, dict) and 'cliVersion' in entry))
+            out.extend(cli_versions(item))
+    elif isinstance(value, list):
+        for item in value:
+            out.extend(cli_versions(item))
+    return out
+
 
 def pinned_cli_factory(arm: dict):
     """CLI sessions that refuse to start unless the installed CLI is the arm's pinned version."""
@@ -1431,7 +1454,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                'nudges': int(row.get('nudges') or 0), 'elapsedSeconds': elapsed,
                'utterances': [u for u in row.get('utterances') or [] if isinstance(u, str)],
                'nestedAnswerChecks': bool(row.get('nestedAnswerChecks')),
-               'shutdown': row.get('shutdown'), 'harnessUnsafe': harness_unsafe}
+               'shutdown': row.get('shutdown'), 'harnessUnsafe': harness_unsafe,
+               'sessions': [{'cliVersion': p.get('cliVersion') if isinstance(p, dict) else None,
+                             'agent': p.get('agent') if isinstance(p, dict) else None}
+                            for p in row.get('provenance') or []]}
     secrets = ctx.slot.harness_secrets
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, handoff_r, context_r = red(actions), red(observations), red(handoff), red(context)
@@ -1475,6 +1501,24 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
     if ctx.slot.facts.get('withheldResponses'):
         result['withheldResponses'] = ctx.slot.facts['withheldResponses']
     return result
+
+
+def verify_cli_sessions(row: dict, folder: Path, pinned: str) -> None:
+    """Each session that ran is recorded in the retained stage context with exactly the pinned CLI;
+    the receipt's provenance summary agrees with it. A stage that dispatched anything must have a
+    session record; only a genuine pre-dispatch failure (no actions) or a harness error has none."""
+    context = json.loads((folder / row['stage'] / 'context.json').read_bytes())
+    sessions = context.get('sessions')
+    if not isinstance(sessions, list):
+        raise ValueError(f"{row['stage']}: the retained context records no session list")
+    versions = [s.get('cliVersion') if isinstance(s, dict) else None for s in sessions]
+    if any(v != pinned for v in versions):
+        raise ValueError(f"{row['stage']}: a session ran a CLI other than the pinned {pinned}")
+    if row.get('actions') and not sessions and (context.get('failure') or {}).get('category') != 'harness-error':
+        raise ValueError(f"{row['stage']}: actions were dispatched but no session is recorded")
+    summary = [p.get('cliVersion') for p in (row.get('modelVisible') or {}).get('provenance') or []]
+    if summary != versions:
+        raise ValueError(f"{row['stage']}: the receipt's session summary contradicts the retained sessions")
 
 
 def verify_stage_evidence(arc: dict, target: str, row: dict, folder: Path) -> None:
@@ -1648,7 +1692,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                                                  for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
         shutil.rmtree(private, ignore_errors=True)
     receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
-                            if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth')}
+                            if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
+                                     'consoleObservedIdentity')}
     return finish_trial(receipt, out_dir)
 
 
@@ -1704,7 +1749,7 @@ def harness_error_stage(ctx, module, exc) -> dict:
                    'composeSha256'),
                'deploymentHosts': [], 'failure': failure, 'binding': {'slotId': ctx.slot.project},
                'nudges': 0, 'elapsedSeconds': 0, 'utterances': [], 'nestedAnswerChecks': False,
-               'shutdown': shutdown, 'harnessUnsafe': harness_unsafe}
+               'shutdown': shutdown, 'harnessUnsafe': harness_unsafe, 'sessions': []}
     secrets = ctx.slot.harness_secrets
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, context_r = red(actions), red(observations), red(context)
@@ -1853,6 +1898,17 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         path = Path(evidence) / item['path']
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
+    pinned = arm_by_id(arc, arm_id)['cliVersion']
+    if receipt.get('cliVersion') != pinned:
+        raise ValueError(f'run receipt does not record the pinned CLI {pinned}')
+    for item in listed:
+        if item['path'].endswith('.json'):
+            try:
+                retained = json.loads((Path(evidence) / item['path']).read_bytes())
+            except ValueError:
+                continue
+            if any(v != pinned for v in cli_versions(retained)):
+                raise ValueError('retained evidence records a CLI other than the pinned one: ' + item['path'][:80])
     stages = receipt.get('stages')
     if [r.get('stage') for r in stages or []] != list(STAGES):
         raise ValueError('run receipt does not record every stage')
@@ -1880,10 +1936,7 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
                 or str(stage_row.get('cause', '')).startswith('stage wall-clock limit reached')):
             continue
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
-        pinned = arm_by_id(arc, arm_id)['cliVersion']
-        seen = [p.get('cliVersion') for p in (stage_row.get('modelVisible') or {}).get('provenance') or []]
-        if any(v != pinned for v in seen):
-            raise ValueError(f"{stage_row['stage']}: the session ran a CLI other than the pinned {pinned}")
+        verify_cli_sessions(stage_row, Path(evidence), pinned)
         if outcome == 'pass':
             if stage_row['stage'] == 'studio' and stage_row.get('assistantModel') != arc['studioAssistant']['model']:
                 raise ValueError('studio passed without the required built-in assistant observed')
