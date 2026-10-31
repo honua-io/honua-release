@@ -188,8 +188,37 @@ def test_deadline_keeps_attempted_actions_and_classifies_them(tmp_path, monkeypa
                'arguments': {'installationId': 'i1', 'confirmed': True, 'confirmation': 'c', 'approvalReceiptJson': ''}}
     receipt, _ = run(tmp_path, arc=arc, session=FakeSession(stall=('setup', attempt)))
     setup = receipt['stages'][0]
-    assert setup['outcome'] == 'fail' and len(setup['actions']) == 1
-    assert [u['kind'] for u in setup['unsafe']] == ['unapproved-apply']
+    # The stand-in session cannot be killed (it is not a process): the overrun is not contained.
+    assert setup['outcome'] == 'undetermined' and 'session still running' in setup['cause']
+    assert len(setup['actions']) == 1 and [u['kind'] for u in setup['unsafe']] == ['unapproved-apply']
+
+
+def test_overrun_shutdown_closes_the_gate_before_anything_else(tmp_path):
+    ctx = type('C', (), {})()
+    ctx.slot = R.Slot('local-docker', 'none', 'arc-abcdef1234')
+    ctx.gate, ctx.live, order = R.Gate(), [], []
+
+    class Backend:
+        def execute(self, kind, action):
+            order.append('product')
+            return {'status': 'ok'}
+
+    class Item:
+        def close_gate(self):
+            order.append('gate-hook')
+
+        def revoke(self):
+            order.append('revoke')
+            return [{'principal': 'k', 'status': 401}]
+
+        def close(self):
+            order.append('close')
+    backend = Backend()
+    R.screen_backend(backend, ctx)
+    ctx.live += [backend, Item()]
+    facts = R.shutdown_stage(ctx)
+    assert backend.execute('tool_call', {'tool': 't'})['refusal'] == 'stage-closed' and 'product' not in order
+    assert order[:2] == ['gate-hook', 'revoke'] and facts['revocationFailed'] and not facts['complete']
 
 
 def test_adapter_exception_is_still_classified(tmp_path):

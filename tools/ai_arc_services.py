@@ -42,6 +42,7 @@ def runtime_class():
             self.extra_secrets = extra_secrets if isinstance(extra_secrets, list) else list(extra_secrets)
             self.answers, self.withheld, self.catalog_redactions = {}, 0, 0
             self.stacks, self.cancelled = [], []
+            self.gate = None
 
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
             if candidate_digest != self.arc['candidate']:
@@ -71,6 +72,7 @@ def runtime_class():
 
         def cancel(self):
             """Stop outstanding agent work through the controller: revoke every case agent credential."""
+            import urllib.error
             import urllib.request
             results = []
             for stack in self.stacks:
@@ -81,18 +83,33 @@ def runtime_class():
                                                  headers={'X-API-Key': self.arc['admin_key']})
                 try:
                     with urllib.request.urlopen(request, timeout=20) as response:
-                        results.append({'principal': agent, 'status': response.status})
+                        status = response.status
+                except urllib.error.HTTPError as exc:
+                    status = exc.code
                 except Exception as exc:  # noqa: BLE001
                     results.append({'principal': agent, 'status': None, 'error': type(exc).__name__})
-                self.cancelled.append(agent)
+                    continue
+                results.append({'principal': agent, 'status': status})
+                if status in (200, 204):
+                    self.cancelled.append(agent)
             return results
 
         def raw_execute(self, stack, names):
             execute = super().raw_execute(stack, names)
 
             def screened(kind, action):
-                from ai_arc_runner import WITHHELD, _as_text, secret_forms
-                result = execute(kind, action)
+                from ai_arc_runner import GATE_CLOSED, WITHHELD, _as_text, secret_forms
+                gate = self.gate
+                if gate is not None and not gate.enter():
+                    return dict(GATE_CLOSED)       # the stage has ended: nothing reaches the product
+                try:
+                    result = execute(kind, action)
+                except BaseException as exc:
+                    if gate is not None:
+                        gate.leave({'tool': action.get('tool'), 'outcome': 'error', 'error': type(exc).__name__})
+                    raise
+                if gate is not None:
+                    gate.leave({'tool': action.get('tool'), 'outcome': result.get('status')})
                 raw = json.dumps(result, ensure_ascii=False, default=_as_text).encode()
                 if any(form in raw for form in secret_forms([*self._secrets, *self.extra_secrets])):
                     self.withheld += 1
@@ -142,18 +159,24 @@ def private_actions(case_dir: Path) -> list[dict]:
 
 
 class Canceller:
-    """Registered in the stage's live set: on a stage overrun the runner closes it, revoking agent keys."""
+    """Registered in the stage's live set: the ordered shutdown calls ``revoke`` after the gate is
+    closed and the CLI is killed, and records every result (a failed revocation is not hidden)."""
 
     def __init__(self, runtime):
-        self.runtime, self.results = runtime, None
+        self.runtime, self.results = runtime, []
+
+    def revoke(self):
+        results = self.runtime.cancel()
+        self.results.extend(results)
+        return results
 
     def close(self):
-        self.results = self.runtime.cancel()
+        self.revoke()
 
 
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
                  handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None, private_root=None,
-                 register=None):
+                 register=None, gate=None):
     """Run each services scenario once on the adopted stack under one shared stage budget.
 
     Returns (row, cases). ``row`` carries every action (with its recorded status), the private final
@@ -172,6 +195,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     runtime = cls(base_url=base_url, admin_key=admin_key, project=project, candidate_digest=candidate_digest,
                   agent=arm['agent'], model=arm['model'], limits=limits, private_root=private_root,
                   extra_secrets=extra_secrets)
+    runtime.gate = gate
     if register is not None:
         register(Canceller(runtime))
     if cli is not None:
