@@ -86,7 +86,7 @@ def test_database_snapshot_is_project_scoped_and_missing_table_fails(tmp_path, m
         observe_database(project, str(compose), [('public', 'foo;drop')])
     monkeypatch.setattr(subprocess, 'run', lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, '', 'missing'))
     with pytest.raises(RuntimeError, match='container identity unavailable'):
-        observe_database(project, str(compose), [('public', 'absent')])
+        observe_database(project, str(compose), [('honua_data', 'ops_absent')])
 
 
 def test_saved_map_requires_actual_reopen_and_fresh_matching_draft(monkeypatch):
@@ -149,3 +149,21 @@ def test_service_settings_requires_access_policy_and_matching_identity(monkeypat
     monkeypatch.setattr(live_observer, '_controller_json', missing)
     with pytest.raises(ValueError, match='ACL missing'):
         live_observer.observe_service_settings('http://127.0.0.1:1', 'shelters', 'controller')
+
+
+def test_source_geometry_requires_exact_complete_matching_inventory(tmp_path, monkeypatch):
+    import subprocess
+    from live_observer import compare_source_geometry
+    compose = tmp_path / 'compose.yml'
+    compose.write_text('services: {}')
+    project = 'ops-' + 'a' * 32
+    features = [{'properties': {'source_id': 'one'}, 'geometry': {'type': 'Point', 'coordinates': [1, 2]}}]
+    def run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, '{"expected":1,"actual":1,"matching":1}', '')
+    monkeypatch.setattr(subprocess, 'run', run)
+    assert compare_source_geometry(project, str(compose), 'ops_town', features, srid=4326)['counts']['matching'] == 1
+    monkeypatch.setattr(subprocess, 'run', lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, '{"expected":1,"actual":1,"matching":0}', ''))
+    with pytest.raises(ValueError, match='geometries do not match'):
+        compare_source_geometry(project, str(compose), 'ops_town', features, srid=4326)
+    with pytest.raises(ValueError, match='invalid'):
+        compare_source_geometry(project, str(compose), 'ops_town;drop', features, srid=4326)

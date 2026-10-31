@@ -25,9 +25,9 @@ class FeatureHandler(BaseHTTPRequestHandler):
             if self.fail_reads:
                 body = {"error": {"code": 500}}
             elif "objectIds" in query:
-                oid = int(query["objectIds"][0])
-                body = {"features": ([{"attributes": {"objectid": oid, "note": self.features[oid]}}]
-                                     if oid in self.features else [])}
+                ids = [int(value) for value in query["objectIds"][0].split(',')]
+                body = {"features": [{"attributes": {"objectid": oid, "note": self.features[oid]}}
+                                     for oid in ids if oid in self.features]}
             else:
                 body = {"count": len(self.features)}
         self.send_response(200)
@@ -61,7 +61,7 @@ def test_real_http_samples_and_missing_committed_write():
                if row["kind"] in ("write", "writer") and row["ok"]]
         readback = readback_writes(f"http://127.0.0.1:{server.server_port}", "/layer",
                                              "controller", "objectid", "note", ids)
-        assert len(readback["responses"]) == len(ids)
+        assert len(readback["responses"]) == (len(ids) + 99) // 100
         assert all(len(item["sha256"]) == 64 and "controller" not in str(item) for item in readback["responses"])
         try:
             result = assess_traffic(record, readback)

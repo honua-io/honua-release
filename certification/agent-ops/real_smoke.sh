@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Non-priced real-server smoke: GA seed, development town import, probes/readback.
+# Non-priced real-server smoke: GA seed, typed town setup, probes/readback.
 # The caller supplies only an evidence directory; this always creates its own stack.
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -18,8 +18,24 @@ mkdir -p "$E2E_OUT"
 cleanup() {
   status=$?
   trap - EXIT
+  export OPS_SMOKE_CLEANUP=pass
   if ! docker compose -p "$COMPOSE_PROJECT_NAME" -f "$E2E_COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1; then
+    export OPS_SMOKE_CLEANUP=fail
     echo "trial stack cleanup failed" >&2
+    status=1
+  fi
+  export OPS_SMOKE_EXIT="$status"
+  if ! python3 - <<'PY'
+import json, os
+from pathlib import Path
+path = Path(os.environ['OPS_SMOKE_OUT']) / 'smoke-evidence.json'
+data = json.loads(path.read_text()) if path.exists() else {'project': os.environ['COMPOSE_PROJECT_NAME'], 'status': 'fail'}
+data['cleanup'] = os.environ['OPS_SMOKE_CLEANUP']
+data['status'] = 'pass' if data.get('status') == 'operations-pass' and os.environ['OPS_SMOKE_EXIT'] == '0' else 'fail'
+path.write_text(json.dumps(data, sort_keys=True) + '\n')
+PY
+  then
+    echo "could not retain smoke cleanup evidence" >&2
     exit 1
   fi
   exit "$status"

@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
 import time
 import uuid
 from pathlib import Path
 
-from live_observer import observe_database, observe_layer
+from live_observer import compare_source_geometry, observe_database, observe_layer
 from ga_actions import invoke
 from live_probes import ProbeTraffic, assess_traffic, readback_writes
 from real_seed import prepare_town
+from state import _projected_layer, messy_table
 
 
 def main() -> None:
@@ -35,6 +37,64 @@ def main() -> None:
             evidence['layers'][name] = observed
             if observed['count'] != expected[name]:
                 raise RuntimeError('live town feature count mismatch')
+            source_path = Path(os.environ['OPS_SMOKE_OUT']) / namespace / 'town-A' / f'{name}.4326.geojson'
+            source = json.loads(source_path.read_text())['features']
+            evidence['layers'][name]['source_geometry'] = compare_source_geometry(
+                os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], binding['table'], source, srid=4326)
+            expected_values = {feature['properties']['source_id']: feature['properties'] for feature in source}
+            actual_values = {feature['attributes'].get('source_id'): feature['attributes'] for feature in observed['features']}
+            if set(actual_values) != set(expected_values) or any(
+                any(actual_values[identity].get(field) != value for field, value in values.items())
+                for identity, values in expected_values.items()
+            ):
+                raise RuntimeError('live town attribute values differ from source')
+            types = {field.get('name'): field.get('type') for field in observed['fields']}
+            expected_types = {'source_id': 'esriFieldTypeString', 'name': 'esriFieldTypeString'}
+            if name == 'parcels':
+                expected_types.update(owner='esriFieldTypeString', value='esriFieldTypeInteger')
+            if name == 'shelters':
+                expected_types.update(capacity='esriFieldTypeInteger', is_open='esriFieldTypeSmallInteger')
+            if any(types.get(field) != kind for field, kind in expected_types.items()):
+                raise RuntimeError('live town field types differ from source fixture')
+        station = town['stations']
+        station_path = f"/rest/services/{station['service']}/FeatureServer/{station['layerId']}"
+        evidence['layers']['stations'] = observe_layer(base, station_path, key)
+        station_observation = evidence['layers']['stations']
+        metadata = json.loads(base64.b64decode(station_observation['evidence'][0]['body_b64']))
+        if metadata.get('spatialReference', {}).get('wkid') != 3338:
+            raise RuntimeError('projected station CRS mismatch')
+        station_types = {field.get('name'): field.get('type') for field in station_observation['fields']}
+        if any(station_types.get(name) != kind for name, kind in {
+            'source_id': 'esriFieldTypeString', 'name': 'esriFieldTypeString',
+            'latitude': 'esriFieldTypeDouble', 'elevation_m': 'esriFieldTypeInteger',
+        }.items()):
+            raise RuntimeError('projected station field types mismatch')
+        expected_stations = {f['properties']['source_id']: f for f in _projected_layer('Kestrel')['features']}
+        actual_stations = {}
+        for feature in station_observation['features']:
+            attributes = feature['attributes']
+            source_id = attributes.get('source_id')
+            if source_id in actual_stations:
+                raise RuntimeError('duplicate projected station')
+            actual_stations[source_id] = (attributes, feature['geometry'])
+        if set(actual_stations) != set(expected_stations):
+            raise RuntimeError('projected station identity mismatch')
+        for source_id, source in expected_stations.items():
+            attributes, geometry = actual_stations[source_id]
+            x, y = source['geometry']['coordinates']
+            if any(attributes.get(k) != v for k, v in source['properties'].items()) or geometry.get('x') != x or geometry.get('y') != y:
+                raise RuntimeError('projected station values or geometry mismatch')
+        mixed = town['mixed_schema']
+        mixed_snapshot = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'],
+                                          [(mixed['schema'], mixed['table'])])
+        evidence['mixed_schema'] = mixed_snapshot
+        mixed_value = mixed_snapshot[f"{mixed['schema']}.{mixed['table']}"]
+        expected_types = {'permit_id': 'text', 'year': 'integer', 'fee': 'numeric',
+                          'note': 'text', 'active': 'boolean', 'owner': 'text'}
+        if ({field['name']: field['type'] for field in mixed_value['fields']} != expected_types or
+            sorted(mixed_value['rows'], key=lambda row: row['permit_id']) !=
+                sorted(messy_table('Kestrel'), key=lambda row: row['permit_id'])):
+            raise RuntimeError('mixed-schema fields or values mismatch')
         path = f"/rest/services/maui-inspections/FeatureServer/{publication['layerId']}"
         traffic = ProbeTraffic(base, path, '', 'note',
                                {'x': -156.47, 'y': 20.89, 'spatialReference': {'wkid': 4326}},
@@ -46,7 +106,8 @@ def main() -> None:
         backup = None
         if candidate:
             tables = sorted({(binding['schema'], binding['table']) for binding in town['layers'].values()} |
-                            {('honua_data', 'e2e_src_fs'), ('honua_data', 'maui_zoning')})
+                            {(station['schema'], station['table']), (mixed['schema'], mixed['table']),
+                             ('honua_data', 'e2e_src_fs'), ('honua_data', 'maui_zoning')})
             before_db = observe_database(os.environ['COMPOSE_PROJECT_NAME'], os.environ['E2E_COMPOSE_FILE'], tables)
             evidence['before_database'] = before_db
             action_out = Path(os.environ['OPS_SMOKE_OUT']) / 'actions'
@@ -95,8 +156,9 @@ def main() -> None:
             evidence['restored_database'] = after_restore
             if data_only(before_db) != data_only(after_restore):
                 raise RuntimeError('seeded data changed on restore')
-        evidence['status'] = 'pass'
-        print('real Compose smoke passed: town layers, anonymous public traffic, controller readback' +
+        evidence['status'] = 'operations-pass'
+        evidence['cleanup'] = 'pending'
+        print('real Compose operations completed: town layers, anonymous public traffic, controller readback' +
               (', upgrade and backup restore' if action_args else ''))
     except Exception as exc:
         evidence['error_type'] = type(exc).__name__

@@ -218,7 +218,7 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
     entries = readback.get("responses")
     began = readback.get("started_monotonic")
     if (not isinstance(began, (int, float)) or not end <= began <= end + max_readback_delay_s or
-        not isinstance(entries, list) or len(entries) != len(ids)):
+        not isinstance(entries, list) or not entries):
         raise ValueError("missing or late controller readback")
     base = readback.get("base_url")
     layer = readback.get("layer_path")
@@ -227,7 +227,10 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
     expected_prefix = base.rstrip("/") + layer + "/query"
     observed = {}
     for entry in entries:
-        if not isinstance(entry, dict) or entry.get("object_id") not in ids or entry["object_id"] in observed:
+        batch = entry.get("object_ids") if isinstance(entry, dict) else None
+        if (not isinstance(batch, list) or not batch or len(batch) > 100 or
+            any(type(oid) is not int or oid not in ids or oid in observed for oid in batch) or
+            len(set(batch)) != len(batch)):
             raise ValueError("invalid readback identity")
         observed_at = entry.get("observed_monotonic")
         if not isinstance(observed_at, (int, float)) or not began <= observed_at <= end + max_readback_delay_s:
@@ -236,7 +239,7 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
         parsed = urllib.parse.urlsplit(url) if isinstance(url, str) else None
         if (entry.get("method") != "GET" or parsed is None or
             urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")) != expected_prefix or
-            urllib.parse.parse_qs(parsed.query).get("objectIds") != [str(entry["object_id"])]):
+            urllib.parse.parse_qs(parsed.query).get("objectIds") != [','.join(map(str, batch))]):
             raise ValueError("readback request does not match trial layer")
         try:
             raw = base64.b64decode(entry["body_b64"], validate=True)
@@ -245,17 +248,18 @@ def assess_traffic(record: dict, readback: dict, *, max_readback_delay_s: float 
             raise ValueError("invalid readback response") from exc
         if hashlib.sha256(raw).hexdigest() != entry.get("sha256") or entry.get("status") != 200:
             raise ValueError("readback response failed integrity check")
-        if not isinstance(body, dict) or body.get("error") or not isinstance(body.get("features"), list) or len(body["features"]) > 1:
+        if (not isinstance(body, dict) or body.get("error") or body.get("exceededTransferLimit") is True or
+            not isinstance(body.get("features"), list) or len(body["features"]) > len(batch)):
             raise ValueError("invalid readback response")
-        rows = body["features"]
-        if not rows:
-            observed[entry["object_id"]] = None
-            continue
-        attrs = rows[0].get("attributes") if isinstance(rows[0], dict) else None
-        if (not isinstance(attrs, dict) or attrs.get(readback.get("object_id_field")) != entry["object_id"] or
-            not isinstance(attrs.get(readback.get("marker_field")), str)):
-            raise ValueError("readback attributes do not match")
-        observed[entry["object_id"]] = attrs[readback["marker_field"]]
+        found = {}
+        for row in body["features"]:
+            attrs = row.get("attributes") if isinstance(row, dict) else None
+            oid = attrs.get(readback.get("object_id_field")) if isinstance(attrs, dict) else None
+            marker = attrs.get(readback.get("marker_field")) if isinstance(attrs, dict) else None
+            if type(oid) is not int or oid not in batch or oid in found or not isinstance(marker, str):
+                raise ValueError("readback attributes do not match")
+            found[oid] = marker
+        observed.update({oid: found.get(oid) for oid in batch})
     if set(observed) != set(ids):
         raise ValueError("missing committed-write readback")
     lost = [row["object_id"] for row in writes if observed[row["object_id"]] != row["marker"]]
@@ -281,26 +285,30 @@ def readback_writes(base_url: str, layer_path: str, controller_key: str,
         raise ValueError("invalid readback request")
     evidence = []
     started_monotonic = time.monotonic()
-    for oid in ids:
-        params = urllib.parse.urlencode({"f": "json", "objectIds": oid,
+    for offset in range(0, len(ids), 100):
+        batch = ids[offset:offset + 100]
+        params = urllib.parse.urlencode({"f": "json", "objectIds": ','.join(map(str, batch)),
                                         "outFields": f"{object_id_field},{marker_field}",
                                         "returnGeometry": "false"})
         url = base_url.rstrip("/") + layer_path + "/query?" + params
         req = urllib.request.Request(url, headers={"X-API-Key": controller_key})
         with open_local(req, timeout=timeout) as response:
-            raw = response.read()
+            raw = response.read(2_000_001)
             status = response.status
+        if len(raw) > 2_000_000:
+            raise ValueError("write readback exceeds size limit")
         body = json.loads(raw)
-        if not isinstance(body, dict) or body.get("error") or not isinstance(body.get("features"), list):
+        if (not isinstance(body, dict) or body.get("error") or body.get("exceededTransferLimit") is True or
+            not isinstance(body.get("features"), list) or len(body['features']) > len(batch)):
             raise ValueError("invalid write readback")
-        rows = body["features"]
-        if len(rows) > 1:
-            raise ValueError("ambiguous write readback")
-        if rows:
-            attrs = rows[0].get("attributes") if isinstance(rows[0], dict) else None
-            if not isinstance(attrs, dict) or attrs.get(object_id_field) != oid or not isinstance(attrs.get(marker_field), str):
+        seen = set()
+        for row in body['features']:
+            attrs = row.get('attributes') if isinstance(row, dict) else None
+            oid = attrs.get(object_id_field) if isinstance(attrs, dict) else None
+            if type(oid) is not int or oid not in batch or oid in seen or not isinstance(attrs.get(marker_field), str):
                 raise ValueError("write readback identity mismatch")
-        evidence.append({"object_id": oid, "method": "GET", "url": url, "status": status,
+            seen.add(oid)
+        evidence.append({"object_ids": batch, "method": "GET", "url": url, "status": status,
                          "sha256": hashlib.sha256(raw).hexdigest(),
                          "body_b64": base64.b64encode(raw).decode("ascii"), "observed_at": time.time(),
                          "observed_monotonic": time.monotonic()})

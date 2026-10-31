@@ -87,8 +87,11 @@ def observe_database(project: str, compose_file: str, tables: list[tuple[str, st
     if not re.fullmatch(r"ops-[0-9a-f]{32}", project) or not Path(compose_file).is_file() or not tables:
         raise ValueError("invalid trial database observation request")
     identifier = re.compile(r"[a-z_][a-z0-9_]*\Z")
-    if len(set(tables)) != len(tables) or any(not identifier.fullmatch(schema) or not identifier.fullmatch(table)
-                                              for schema, table in tables):
+    if len(set(tables)) != len(tables) or any(
+        not identifier.fullmatch(schema) or not identifier.fullmatch(table) or schema != 'honua_data' or
+        (table not in {'e2e_src_fs', 'maui_zoning'} and not re.fullmatch(r'(?:imported_)?ops_[a-z0-9_]+', table))
+        for schema, table in tables
+    ):
         raise ValueError("invalid table name")
     import time
     compose = str(Path(compose_file).resolve())
@@ -152,6 +155,7 @@ def observe_service_settings(base_url: str, service: str, controller_key: str, *
 
 
 def _controller_json(base_url: str, path: str, key: str, *, method: str = 'GET', timeout: float = 10) -> tuple[dict, dict]:
+    import os
     import time
     require_loopback(base_url)
     if not key or not path.startswith('/') or path.startswith('//'):
@@ -166,7 +170,21 @@ def _controller_json(base_url: str, path: str, key: str, *, method: str = 'GET',
             return None
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     with opener.open(request, timeout=timeout) as response:
-        raw, status = response.read(), response.status
+        raw, status = response.read(2_000_001), response.status
+    if len(raw) > 2_000_000:
+        raise ValueError('controller observation exceeds size limit')
+    from client import Redactor
+    try:
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        raise ValueError('controller observation is not UTF-8') from exc
+    secrets = [key, *(os.environ.get(name, '') for name in (
+        'E2E_API_KEY', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'TERMINAL_MODEL_API_KEY',
+        'HONUA_CANARY_AWS_ACCESS_KEY_ID', 'HONUA_CANARY_AWS_SECRET_ACCESS_KEY',
+        'HONUA_CANARY_AWS_SESSION_TOKEN', 'HONUA_CANARY_TRANSCRIPT_SIGNING_SEED',
+    ))]
+    if Redactor(sensitive_values=secrets).text(text) != text:
+        raise ValueError('controller observation disclosed its credential')
     body = json.loads(raw)
     if not isinstance(body, dict) or body.get('error') or body.get('success') is False:
         raise ValueError('controller observation failed')
@@ -244,3 +262,53 @@ def observe_runtime(project: str, compose_file: str, image_ref: str, expected_re
         replicas.append({'container': cid, 'image_id': image_id, 'state': state, 'health': health})
     return {'project': project, 'image_ref': image_ref, 'expected_image_id': expected_id,
             'replicas': replicas, 'started_at': started, 'finished_at': time.time()}
+
+
+def compare_source_geometry(project: str, compose_file: str, table: str, features: list[dict], *, srid: int,
+                            timeout: float = 30) -> dict:
+    """Compare each source geometry's exact EWKB with the actual published source table."""
+    import re
+    import subprocess
+    from pathlib import Path
+    if (not re.fullmatch(r'ops-[a-f0-9]{32}', project) or not Path(compose_file).is_file() or
+        not re.fullmatch(r'ops_[a-z0-9_]+', table) or type(srid) is not int or srid <= 0 or
+        not isinstance(features, list) or not features):
+        raise ValueError('invalid source geometry comparison')
+    ids = []
+    for feature in features:
+        if (not isinstance(feature, dict) or not isinstance(feature.get('properties'), dict) or
+            not isinstance(feature['properties'].get('source_id'), str) or not feature['properties']['source_id'] or
+            not isinstance(feature.get('geometry'), dict)):
+            raise ValueError('invalid expected source feature')
+        ids.append(feature['properties']['source_id'])
+    if len(ids) != len(set(ids)):
+        raise ValueError('duplicate expected source identity')
+    encoded = base64.b64encode(_canonical(features)).decode('ascii')
+    sql = f'''WITH expected AS (
+      SELECT f->'properties'->>'source_id' AS source_id,
+             ST_SetSRID(ST_GeomFromGeoJSON((f->'geometry')::text), {srid}) AS geom
+      FROM jsonb_array_elements(convert_from(decode('{encoded}', 'base64'),'UTF8')::jsonb) f
+    ) SELECT json_build_object(
+       'expected', (SELECT count(*) FROM expected),
+       'actual', (SELECT count(*) FROM honua_data."{table}"),
+       'matching', (SELECT count(DISTINCT e.source_id) FROM expected e JOIN honua_data."{table}" t
+         ON t.source_id=e.source_id WHERE ST_AsEWKB(t.geom)=ST_AsEWKB(e.geom)))::text'''
+    completed = subprocess.run(['docker', 'compose', '-p', project, '-f', str(Path(compose_file).resolve()),
+                                'exec', '-T', 'db', 'psql', '-v', 'ON_ERROR_STOP=1',
+                                '-U', 'honua', '-d', 'honua', '-Atc', sql],
+                               capture_output=True, text=True, timeout=timeout, check=False)
+    if completed.returncode:
+        raise RuntimeError('source geometry comparison failed')
+    try:
+        body = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError('invalid source geometry observation') from exc
+    if not isinstance(body, dict) or any(type(body.get(k)) is not int for k in ('expected', 'actual', 'matching')):
+        raise ValueError('incomplete source geometry observation')
+    if body['expected'] != len(features) or body['actual'] != len(features) or body['matching'] != len(features):
+        raise ValueError('source geometries do not match')
+    raw = completed.stdout.encode()
+    return {'counts': body, 'project': project, 'table': table, 'srid': srid,
+            'source_sha256': hashlib.sha256(_canonical(features)).hexdigest(),
+            'response_sha256': hashlib.sha256(raw).hexdigest(),
+            'response_body_b64': base64.b64encode(raw).decode('ascii')}
