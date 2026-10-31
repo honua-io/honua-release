@@ -1,8 +1,10 @@
-"""P19: unsupported. The interface provides no independent network and action audit, artifact secret scan, bootstrap credential revocation or fresh worker custody evidence."""
+"""P19: Unsupported: the runner needs controller-side DNS and egress capture, independent action and shared-resource observations, an artifact secret scan and real worker-custody evidence."""
 from __future__ import annotations
 
+from agent_e2e_local_api import Scenario as ScenarioBase
 
-class Scenario:
+
+class P19(ScenarioBase):
     id = "P19"
     supported_variants: tuple[str, ...] = ()
 
@@ -23,3 +25,6 @@ class Scenario:
 
     def cleanup(self, stack, seeded):
         raise RuntimeError("P19 has no independent local observer")
+
+
+scenario = P19()
