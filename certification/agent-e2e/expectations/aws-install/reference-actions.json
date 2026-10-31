@@ -1,0 +1,9 @@
+{
+  "reference": "deploy_identity_contract",
+  "repo": "honua-io/honua-iac",
+  "tag": "v0.6.0",
+  "source": "infrastructure/terraform/bootstrap/aws-exec-identity/outputs.tf#deploy_identity_contract",
+  "actions": "Runtime export: actions_by_service for the selected topology; never a curated grant.",
+  "principal": "Runtime export: role_arn",
+  "digest": "SHA-256 over the exact exported JSON bytes passed to the operator."
+}

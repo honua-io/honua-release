@@ -1,0 +1,1 @@
+{"schema_version":"v1","kind":"honua.iac.deploy-identity","role_arn":"arn:aws:iam::123456789012:role/honua-deploy-dev","topology":{"compute":"ecs","redis":false,"custom_domain":true,"waf":false,"gp_batch":false},"actions_by_service":{"ecs":["ecs:CreateService","ecs:DescribeServices"]}}
