@@ -86,6 +86,9 @@ def test_workflow_preserves_first_attempts_and_isolates_trials():
     aggregate = workflow['jobs']['aggregate']
     assert 'always()' in aggregate['if']
     assert any('terminal-model-canary-trial-*-attempt-1' == step.get('with', {}).get('pattern') for step in aggregate['steps'])
+    import fnmatch
+    summary_name = next(step['with']['name'] for step in aggregate['steps'] if step.get('name') == 'Upload trial summary')
+    assert not fnmatch.fnmatch(summary_name.replace('${{ github.run_attempt }}', '1'), 'terminal-model-canary-trial-*-attempt-1')
     local = workflow['jobs']['local-docker']
     script = '\n'.join(str(step.get('run', '')) for step in local['steps'])
     assert 'verify_lock_binding' in script and 'docker image inspect' in script
