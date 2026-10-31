@@ -1,85 +1,94 @@
-# Native coding-agent CLI arms
+# Coding-agent CLI arms for the AI arc
 
-These exploratory arms use Claude Code (`claude-opus-5-5`, `claude-sonnet-5-5`)
-and Codex (`gpt-6.1-sol`, `gpt-6.1-terra`) on the controller machine. They do not
-use Bedrock. Subscription cost is `null`, temperature is the CLI default, and
-receipts identify the agent, CLI version, requested model and controlled input
-hashes. Provider/CLI prepends are outside the input hash claim. A CLI receipt is
-not signed Studio AI proxy provenance and cannot be substituted for that arm.
+The required arms are Claude Code with `claude-opus-5-5` and Codex CLI with
+`gpt-6.1-sol`. `claude-sonnet-5-5`, `claude-sonnet-4-6`, and `gpt-6.1-terra`
+are comparison arms. CLI receipts record agent type, executable version, model,
+CLI-default temperature, subscription cost `null`, prompt and tool-catalog
+hashes, CLI flags/config hashes, and hashes of every proxy response. Provider
+and CLI prepends are outside the runner-controlled input hash claim. These are
+exploratory CLI receipts, not signed Studio AI proxy provenance.
 
-Run from the release worktree with the repository's Python dependencies installed:
+## Arc runner integration
 
-```bash
-PYTHON=/path/to/venv/bin/python tools/agent_cli_arms.sh \
-  --surface corpus --agent claude-cli --model claude-sonnet-5-5 \
-  --cases P10:A,P10:B --trials 1 --target local \
-  --pack /path/to/pack.v2.AB-only.json --output /path/to/new-run-directory
-```
+`tools/agent_cli_arc.py::run_stage` is the stage adapter. The arc runner owns
+slots, credentials, approvals, fault injection, independent observations and
+teardown. It starts the backend appropriate to the stage and passes exactly that
+backend under the indicated name:
 
-`--surface canary` runs the complete terminal journey. It sends each reviewed
-unguided stage goal to the native CLI, preserving driver observations, the render
-fault and recovery checks, the separate approver and final URL/pixel verification.
-The controller creates/tests the authored datasource and uploads the fixture;
-these are recorded as harness fixture work. The model selects publication,
-style/render, GP, durable composition and proposal actions. This fixture boundary
-differs from the shell-capable Bedrock arm and is explicit in the receipt.
+| Stage | Target | Backend name | Controller-side backend |
+| --- | --- | --- | --- |
+| 1 | AWS ECS | `honua_devops` | `StdioMcpBackend` running published `Honua.DevOps.Agent --mcp` |
+| 1 | Remote VM Docker | `quickstart_shell` | `RemoteQuickstartShell` over runner-owned SSH |
+| 2–3 | Either | `honua` | `HttpMcpBackend` on installed `/mcp`, `workflow_view='full'` |
+| 4 | Either | `studio` | `HttpMcpBackend` on g41's origin-locked browser MCP |
 
-Both surfaces accept `--target https://<cell>.cert.demo.honua.io` together with
-`--target-config <retained-cell-target.json>` and
-`--deployment-receipt <deterministic-journey-receipt.json>`. The existing driver
-checks the receipt's image, source, target hash and deployment readback before
-attaching to that ECS cell. Provision the cell using the existing release-owned
-IaC/workflows separately. These tools never create AWS resources or dispatch a
-workflow. Controller datasource references remain in the controller. The CLI sees
-only the recording proxy URL; upstream Honua credentials stay behind the proxy.
-Remote corpus key cleanup revokes case-minted keys, and the provisioner retains
-ownership of the cell. Scenarios needing a cell restart fail closed until a real
-controller operation exists. Corpus fault/approver support remains bounded by W2.
+The generic CLI session can proxy multiple named servers concurrently; the arc
+adapter restricts each stage to its own product surface. For each backend the
+runner supplies `tool_view()` and `execute(kind, action)`. The CLI connects only
+to private loopback recording proxies. The proxy logs each actual action before
+it is dispatched; a shared ledger orders actions across multiple servers. The
+CLI transcript can detect forbidden attempts and supply the final answer/usage,
+but cannot supply actions, resource hints, or independent observations.
 
-The corpus registers `ModelSession` implementations with the PR #1152 runner.
-The recording proxy dispatches through its runner-owned gateway; the runner seals
-the action log before controller observation/replay. Session-reported actions and
-model prose cannot supply oracle evidence. P22 receives a fresh CLI process and
-scratch HOME for each session, with only the previous final answer as follow-up.
-The same plugin is selectable directly with
-`tools/agent_e2e_local_runner.py case --agent claude-cli --model ...`.
+The controller starts `StdioMcpBackend(binary, slot_env=..., workdir=...).start()`
+using the published binary documented in honua-devops `docs/QUICKSTART-MCP.md`.
+Supply a fresh scratch workdir and an explicit slot environment. AWS access keys,
+if supplied, require a session token; no inherited AWS profile, Docker settings,
+CLI provider credentials, or user environment crosses into this process. The
+operator process gets the slot credentials; the model and CLI do not. The
+backend screens returned data for those credentials. The release runner owns
+plan review, signing the exact approval digest as a separate principal, and
+forwarding approved product calls. This library neither provisions cloud
+resources nor approves a plan.
 
-OPS exposes `certification/agent-ops/cli_agent.py::run_real_session` for W1's real
-scenario adapters. The current W1 revision has no registered executable real
-scenarios, so `--surface ops` and the OPS runner's `--agent` hook refuse before
-launching a CLI. The simulated controller is never used for these arms. The hook
-requires a registered real adapter, verified seed, real probes/readback context,
-MCP execution and independent server observation. W1 still owns campaign wiring.
+For a local-Docker target, the release runner supplies a fresh remote VM and
+constructs `RemoteQuickstartShell` with its host, user, SSH identity, pinned
+known-hosts file, isolated `/tmp/honua-arc-...` directory and unique Compose
+project. Its runner-side health check must pass before stage 1. The model can
+invoke only `docker compose` and `curl` to localhost, through the recorder;
+command chaining, arbitrary shell, remote HTTP, Compose exec/run/down, and file
+writes via curl are refused. Compose output is reduced to safe status fields or
+an output digest so generated database credentials do not enter the model.
+For `docker compose -f -`, stdin must hash to the controller-approved published
+Compose bytes; the runner may separately make digest-approved public quickstart
+text visible through a localhost endpoint. The release runner supplies the
+prerequisite files and .env in the VM slot and retains their hashes. This is a
+fixture boundary: the current published source quickstart also invokes Python
+and OpenSSL, which are outside the explicitly authorized shell allowlist.
 
-Each campaign takes a host lock and runs sequentially. Local runs check Docker
-health before and after each case and stop on infrastructure/cleanup failure.
-Receipts are never replaced; each trial has its own directory and index row.
-Do not run against the full corpus pack or held-out variants. The A/B loader
-refuses the full pack by filename before reading it.
+After setup, `SshTunnel(remote_shell, remote_port=8080).start()` owns a pinned
+SSH forward from a fresh loopback port to that VM. The controller connects an
+`HttpMcpBackend(tunnel.base_url + '/mcp', header='X-API-Key', token=...,
+workflow_view='full').start()` to the installed candidate. It must verify the
+server-authored full tool view; a silently narrowed catalog fails closed. The
+server credential and tunnel identity stay in controller memory, never CLI
+configuration. Stage 4 connects to g41's browser server with its controller-
+held `McpEndpoint` URL/header/token. g41 owns its origin lock and independent
+Studio observation; it has not yet landed on this branch.
 
-The CLI environment is allowlisted, with a scratch HOME outside all repositories.
-Only subscription authentication is copied, excluding settings, MCP servers,
-plugins, hooks and repository instructions. Claude disables builtins and restricts
-allowed tools to this Honua MCP server. Codex uses read-only sandboxing, no user
-config/rules, disabled shell/web/file/agent features and a bundled model catalog
-with builtin shell/patch capabilities removed. All controlled catalog bytes are
-hashed. Unsupported CLI behavior fails closed. Transcript events are used to
-detect forbidden attempts and extract the final answer/usage; actions and resource
-hints come from the recording proxy, and state evidence comes from the controller.
+Independent remote slots can run in parallel. The older corpus/canary command
+runner serializes cases only within the same cell URL, using a per-target lock;
+there is no host-wide campaign lock. Host-local Docker is refused for these
+CLI arms. The pre-existing local Sonnet 5.5 P10 smoke was made before the remote
+redirect: it reached the candidate, then failed during MCP discovery with zero
+recorded model actions. The stack was torn down and the attempt retained; no
+second real CLI session has been run. An empty `prompts/list` discovery response
+was added and tested with fake executables.
 
-## Development validation
+The legacy corpus adapter uses W2's runner-owned gateway, controller reads and
+oracle. Its remote-cell mode requires the retained target configuration and
+verified deployment receipt. W2 scenario support, scripted clarifications,
+remote restart/fault operations, and the arc runner's orchestration remain
+separate dependencies. OPS is fail-closed while PR #1153 has no real wired
+scenarios. No simulated operation is scored. The release session owns execution,
+AWS provisioning, approval, and cross-family methodology review.
 
-Fake executable tests exercise both CLIs over an actual loopback HTTP recording
-proxy, including environment/config isolation, non-MCP attempts, time/action bounds,
-forged transcript arguments and canonical action digests. The corpus integration
-uses W2's real recorder and independent oracle against its fake HTTP candidate.
-Negative controls fail the canary for missing fault recovery, missing final proof,
-self-approval or incomplete cleanup. OPS is tested to refuse before any CLI call.
+## Tests
 
-One authorized local Sonnet 5.5 P10:A smoke was attempted on 2026-10-31. It reached
-the fresh candidate and Claude Code 2.1.316, then stopped during MCP discovery with
-zero recorded model actions and clean Compose teardown. The initial proxy treated
-an unsupported discovery request as an action failure. Empty `prompts/list`
-discovery is now supported and covered with fake binaries; the real session was
-not repeated. This is not successful model-evaluation evidence. Its original
-receipt is retained at the controller's `rc2-cli-arms-sonnet-smoke-1` directory.
+Fake Claude and Codex executables connect to real loopback recording proxies,
+exercise all three named MCP backends, and prove ordered action logging and
+credential isolation. Additional negative controls cover shell scope, command
+injection, non-loopback curl, Compose exec/down, unapproved inline Compose,
+credential disclosure from the operator, absence of a short-lived AWS session,
+unhealthy VM refusal, tunnel confinement, per-stage surface isolation, and
+parallel independent CLI sessions. No real model calls are part of these tests.

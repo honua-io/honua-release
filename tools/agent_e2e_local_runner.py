@@ -1020,6 +1020,8 @@ class LocalRuntime:
 
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         import yaml
+        if self.agent in ('claude-cli', 'codex-cli'):
+            raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
         if not re.fullmatch(r'P\d\d:[AB]:local-docker', case_id):
             raise ValueError('invalid case identity')
         if (not isinstance(agent_permissions, (list, tuple)) or not agent_permissions

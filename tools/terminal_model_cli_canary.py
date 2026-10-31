@@ -142,6 +142,7 @@ def main(argv=None):
     parser.add_argument('--max-actions-per-stage', type=int, default=12)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args(argv)
+    if args.target == 'local': parser.error('CLI arms require a remote VM tunnel or an admitted AWS cell')
     if args.output.exists(): parser.error('receipt exists; never overwrite an earlier attempt')
     candidate, release, image = corpus._candidate_binding(args.image_ref, args.lock_digest, args.lock_path)
     protocol = json.loads(canary.DEFAULT_PROTOCOL.read_bytes())

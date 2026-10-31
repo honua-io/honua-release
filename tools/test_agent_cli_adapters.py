@@ -144,9 +144,12 @@ def test_scored_failure_with_failed_cleanup_stops_before_second_trial(tmp_path,m
         return subprocess.CompletedProcess(command,1)
     monkeypatch.setattr(arms,'docker_healthy',lambda:None)
     monkeypatch.setattr(arms.subprocess,'run',run)
+    config=tmp_path/'cell.json'; config.write_text('{}')
+    proof=tmp_path/'deployment.json'; proof.write_text('{}')
     with pytest.raises(RuntimeError,match='cleanup failed'):
         arms.main(['--surface','corpus','--agent','claude-cli','--model','claude-sonnet-5-5',
-                   '--cases','P10:A,P10:B','--output',str(tmp_path/'run')])
+                   '--cases','P10:A,P10:B','--target','https://slot1.cert.demo.honua.io',
+                   '--target-config',str(config),'--deployment-receipt',str(proof),'--output',str(tmp_path/'run')])
     assert len(calls)==1
     receipt=json.loads((tmp_path/'run/trial-001/P10-A/receipt.json').read_bytes())
     assert receipt['status']=='fail' and receipt['infrastructure']

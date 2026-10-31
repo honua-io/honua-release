@@ -1,0 +1,278 @@
+"""Fake-CLI tests for stage-scoped MCP backends and remote quickstart commands."""
+import json
+from pathlib import Path
+import socket
+import subprocess
+import threading
+
+import pytest
+
+from agent_cli_sessions import CliFailure, CliModelSession
+from agent_cli_arc import run_stage
+from agent_cli_backends import (RemoteQuickstartShell, StdioMcpBackend, SshTunnel,
+                                HttpMcpBackend, parse_quickstart)
+from agent_e2e_local_recorder import read_logged_action
+
+
+def fake_multi_cli(tmp_path, agent):
+    path=tmp_path/('claude' if agent=='claude-cli' else 'codex')
+    source='''#!/usr/bin/python3
+import json,os,sys,pathlib,urllib.request
+args=sys.argv[1:]
+if args==['--version']: print('fake 2'); sys.exit()
+if args[:3]==['debug','models','--bundled']:
+ print(json.dumps({'models':[{'slug':'gpt-6.1-sol','shell_type':'unified_exec','apply_patch_tool_type':'freeform'}]})); sys.exit()
+assert not any(k.startswith(('AWS_','HONUA_','DOCKER_','PG')) for k in os.environ)
+assert sys.stdin.read() == 'Complete the stage'
+if AGENT == 'claude-cli':
+ config=json.loads(pathlib.Path(args[args.index('--mcp-config')+1]).read_text())['mcpServers']
+ servers={name:item['url'] for name,item in config.items()}
+else:
+ overrides=dict(args[i+1].split('=',1) for i,a in enumerate(args) if a=='-c')
+ servers={k.split('.')[1]:json.loads(v) for k,v in overrides.items() if k.startswith('mcp_servers.') and k.endswith('.url')}
+for server,url in servers.items():
+ def rpc(method,params):
+  msg={'jsonrpc':'2.0','id':1,'method':method,'params':params}
+  return json.load(urllib.request.urlopen(urllib.request.Request(url,data=json.dumps(msg).encode(),headers={'Content-Type':'application/json'})))['result']
+ rpc('initialize',{'protocolVersion':'2025-03-26'})
+ tool=rpc('tools/list',{})['tools'][0]['name']
+ params={'command':'docker compose ps'} if server=='quickstart_shell' else {'query':'test'}
+ rpc('tools/call',{'name':tool,'arguments':params})
+ if AGENT == 'claude-cli':
+  print(json.dumps({'type':'assistant','message':{'content':[{'type':'tool_use','name':'mcp__'+server+'__'+tool}]}}))
+ else:
+  print(json.dumps({'type':'item.completed','item':{'type':'mcp_tool_call','server':server,'tool':tool}}))
+if AGENT=='claude-cli': print(json.dumps({'type':'result','result':'done','usage':{'input_tokens':1,'output_tokens':1}}))
+else:
+ print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'done'}}))
+ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_tokens':1}}))
+'''
+    path.write_text(source.replace('import json,os,sys,pathlib,urllib.request',
+                                   f'import json,os,sys,pathlib,urllib.request\nAGENT={agent!r}'))
+    path.chmod(0o700)
+    return path
+
+
+def view(name):
+    return {'tools':[{'name':name,'inputSchema':{'type':'object','properties':{}}}]}
+
+
+@pytest.mark.parametrize('agent,model',[('claude-cli','claude-opus-5-5'),('codex-cli','gpt-6.1-sol')])
+def test_three_named_servers_proxy_and_record_actual_actions(tmp_path,monkeypatch,agent,model):
+    monkeypatch.setenv('AWS_SECRET_ACCESS_KEY','temporary-secret')
+    monkeypatch.setenv('HONUA_OPERATOR_TOKEN','operator-secret')
+    calls=[]
+    servers={}
+    for server,tool in [('honua_devops','describe_environment'),('honua','honua_ops_health'),('studio','studio_snapshot')]:
+        def execute(kind,action,server=server):
+            calls.append((server,action))
+            return {'status':'ok','result':{'content':[{'type':'text','text':'safe'}]}}
+        servers[server]={'tool_view':view(tool),'execute':execute}
+    cli=CliModelSession(agent,model,binary=fake_multi_cli(tmp_path,agent),auth_root=tmp_path)
+    row=cli.run(prompt='Complete the stage',servers=servers,stage=1,target_kind='aws-ecs',log_dir=tmp_path/'log')
+    assert {a['server'] for a in row['actions']}=={'honua_devops','honua','studio'}
+    assert [a['sequence'] for a in row['actions']]==[1,2,3]
+    assert [a[0] for a in calls]==[a['server'] for a in row['actions']]
+    assert all(read_logged_action(a['logPath'],a['digest'])['server']==a['server'] for a in row['actions'])
+    assert set(row['provenance'][0]['servedToolListsSha256'])==set(servers)
+    assert set(row['provenance'][0]['mcpResponsesByServer'])==set(servers)
+    assert 'temporary-secret' not in json.dumps(row['provenance'])
+
+
+class Backend:
+    def __init__(self,name): self.name=name; self.calls=[]
+    def tool_view(self): return view(self.name)
+    def check_health(self): return {'status':'pass'}
+    def execute(self,kind,action):
+        self.calls.append(action)
+        return {'status':'ok','result':{'content':[{'type':'text','text':'ok'}]}}
+
+
+@pytest.mark.parametrize('stage,target,name,tool',[(1,'aws-ecs','honua_devops','describe_environment'),
+    (1,'remote-vm','quickstart_shell','run_quickstart'),(2,'remote-vm','honua','honua_ops_health'),
+    (3,'aws-ecs','honua','honua_query_features'),(4,'remote-vm','studio','studio_snapshot')])
+def test_arc_stage_only_exposes_its_own_surface(tmp_path,stage,target,name,tool):
+    backend=Backend(tool)
+    def factory(agent,model): return CliModelSession(agent,model,binary=fake_multi_cli(tmp_path,agent),auth_root=tmp_path)
+    result=run_stage(agent='claude-cli',model='claude-opus-5-5',stage=stage,target_kind=target,
+                     prompt='Complete the stage',backends={name:backend},log_dir=tmp_path/'log',cli_factory=factory)
+    assert len(backend.calls)==1 and result['actions'][0]['server']==name
+    assert result['actions'][0]['kind']==('shell_command' if name=='quickstart_shell' else 'tool_call')
+
+
+def test_shell_refused_outside_vm_setup_before_cli(tmp_path):
+    cli=CliModelSession('claude-cli','claude-opus-5-5',binary=fake_multi_cli(tmp_path,'claude-cli'),auth_root=tmp_path)
+    with pytest.raises(CliFailure):
+        cli.run(prompt='Complete the stage',servers={'quickstart_shell':{'tool_view':view('run_quickstart'),
+            'execute':lambda *_:None}},stage=2,target_kind='remote-vm',log_dir=tmp_path/'log')
+    assert not list((tmp_path/'log').glob('action-*'))
+
+
+@pytest.mark.parametrize('command',[
+ 'docker run -v /:/host image', 'docker compose exec server sh', 'docker compose down --volumes',
+ 'docker compose -f ../../other.yml up -d', 'docker compose up -d; cat /etc/passwd',
+ 'docker compose up $(touch bad)', 'curl https://example.com', 'curl http://169.254.169.254/',
+ 'curl -L http://localhost:8080', 'curl -o docker-compose.yml http://localhost:8080/',
+ 'curl http://user:pass@localhost:8080', 'bash -c id'])
+def test_quickstart_rejects_non_allowlisted_commands(command):
+    with pytest.raises(ValueError): parse_quickstart(command)
+
+
+@pytest.mark.parametrize('command',['docker compose up -d --wait --wait-timeout 180',
+    'docker compose --profile console up -d','docker compose ps','curl -fsS http://localhost:8080/healthz/ready'])
+def test_quickstart_accepts_published_compose_and_local_health(command):
+    assert parse_quickstart(command)
+
+
+def remote_shell(tmp_path, executor):
+    identity=tmp_path/'identity'; identity.write_text('dummy')
+    hosts=tmp_path/'known_hosts'; hosts.write_text('dummy')
+    return RemoteQuickstartShell(host='vm123.example',user='runner',identity_file=identity,known_hosts=hosts,
+        remote_dir='/tmp/honua-arc-12345678',slot='arc-12345678',executor=executor)
+
+
+def test_remote_shell_never_invokes_local_docker_or_exposes_secret_output(tmp_path):
+    calls=[]
+    def fake(command,**kwargs):
+        calls.append((command,kwargs))
+        return subprocess.CompletedProcess(command,0,b'DATABASE_PASSWORD=hidden-secret',b'')
+    shell=remote_shell(tmp_path,fake)
+    result=shell.execute('shell_command',{'tool':'run_quickstart','arguments':{'command':'docker compose config'}})
+    assert calls[0][0][0]=='ssh' and 'hidden-secret' not in json.dumps(result)
+    assert b'--project-name arc-12345678' in calls[0][1]['input']
+    assert '--' in calls[0][0] and 'StrictHostKeyChecking=yes' in calls[0][0]
+
+
+def test_compose_ps_exposes_only_sanitized_status_fields(tmp_path):
+    def fake(command,**kwargs):
+        raw=json.dumps([{'Name':'slot-server','Service':'server','State':'running','Health':'healthy',
+                         'Command':'SECRET=hidden','Publishers':'private'}]).encode()
+        return subprocess.CompletedProcess(command,0,raw,b'')
+    shell=remote_shell(tmp_path,fake)
+    answer=shell.execute('shell_command',{'tool':'run_quickstart','arguments':{'command':'docker compose ps'}})
+    assert json.loads(answer['result']['content'][0]['text'])==[
+        {'Name':'slot-server','Service':'server','State':'running','Health':'healthy'}]
+    assert 'SECRET' not in json.dumps(answer)
+
+
+def test_inline_compose_must_match_reviewed_published_bytes(tmp_path):
+    from agent_cli_sessions import digest
+    calls=[]
+    def fake(command,**kwargs):
+        calls.append(kwargs['input'])
+        return subprocess.CompletedProcess(command,0,b'',b'')
+    shell=remote_shell(tmp_path,fake)
+    source='services:\n  honua:\n    image: pinned\n'
+    shell.approved_compose_sha256=digest(source.encode())
+    action={'tool':'run_quickstart','arguments':{'command':'docker compose -f - up -d','stdin':source}}
+    assert shell.execute('shell_command',action)['status']=='ok'
+    assert source.encode() in calls[0]
+    action['arguments']['stdin']+='  privileged: true\n'
+    with pytest.raises(ValueError,match='approved'): shell.execute('shell_command',action)
+
+
+def test_devops_mcp_gets_explicit_short_lived_credentials_only(tmp_path):
+    binary=tmp_path/'operator'
+    binary.write_text('''#!/usr/bin/python3
+import json,os,sys
+assert sys.argv[1:]==['--mcp']
+assert os.environ['AWS_SESSION_TOKEN']=='temporary-token'
+assert 'CLAUDE_CODE_OAUTH_TOKEN' not in os.environ and 'DOCKER_HOST' not in os.environ
+for line in sys.stdin:
+ m=json.loads(line)
+ if 'id' not in m: continue
+ result={'protocolVersion':'2025-03-26','capabilities':{},'serverInfo':{'name':'fake'}} if m['method']=='initialize' else ({'tools':[{'name':'describe_environment','inputSchema':{'type':'object'}}]} if m['method']=='tools/list' else {'content':[{'type':'text','text':os.environ['AWS_SECRET_ACCESS_KEY'] if m.get('params',{}).get('arguments',{}).get('leak') else 'ok'}]})
+ print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':result}),flush=True)
+'''); binary.chmod(0o700)
+    env={'AWS_ACCESS_KEY_ID':'temporary-id','AWS_SECRET_ACCESS_KEY':'temporary-secret','AWS_SESSION_TOKEN':'temporary-token'}
+    operator=StdioMcpBackend(binary,slot_env=env,workdir=tmp_path).start()
+    try:
+        assert operator.tool_view()['tools'][0]['name']=='describe_environment'
+        assert operator.execute('tool_call',{'tool':'describe_environment','arguments':{}})['status']=='ok'
+        with pytest.raises(ValueError,match='disclosed'):
+            operator.execute('tool_call',{'tool':'describe_environment','arguments':{'leak':True}})
+    finally: operator.close()
+    with pytest.raises(ValueError,match='short-lived'):
+        StdioMcpBackend(binary,slot_env={'AWS_ACCESS_KEY_ID':'long-lived','AWS_SECRET_ACCESS_KEY':'secret'},workdir=tmp_path)
+
+
+def test_http_backend_refuses_unrelated_remote_origin():
+    with pytest.raises(ValueError): HttpMcpBackend('https://attacker.example/mcp')
+
+
+def test_honua_http_backend_negotiates_and_verifies_full_tool_view():
+    from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+    requests=[]
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*_): pass
+        def do_POST(self):
+            request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            requests.append(request)
+            if 'id' not in request:
+                self.send_response(202); self.end_headers(); return
+            result=({'protocolVersion':'2025-03-26','capabilities':{},'serverInfo':{'name':'fake'}}
+                    if request['method']=='initialize' else
+                    {'tools':[{'name':'honua_ops_health','inputSchema':{'type':'object'}}], '_meta':{'view':'full'}})
+            raw=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode()
+            self.send_response(200); self.send_header('Content-Length',str(len(raw))); self.end_headers(); self.wfile.write(raw)
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+    try:
+        backend=HttpMcpBackend(f'http://127.0.0.1:{server.server_port}/mcp',workflow_view='full').start()
+        assert backend.tool_view()['tools'][0]['name']=='honua_ops_health'
+        assert requests[0]['params']['_meta']['honua.io/workflow-view']=='full'
+        assert requests[-1]['params']['view']=='full'
+    finally:
+        server.shutdown(); server.server_close(); thread.join()
+
+
+def test_unhealthy_vm_blocks_before_cli_session(tmp_path):
+    backend=Backend('run_quickstart')
+    backend.check_health=lambda:{'status':'fail'}
+    def never(*_): raise AssertionError('CLI must not start')
+    with pytest.raises(ValueError,match='health'):
+        run_stage(agent='claude-cli',model='claude-opus-5-5',stage=1,target_kind='remote-vm',
+                  prompt='Complete the stage',backends={'quickstart_shell':backend},log_dir=tmp_path,cli_factory=never)
+
+
+def test_runner_owned_ssh_tunnel_forwards_loopback_only(tmp_path):
+    remote=remote_shell(tmp_path,lambda *_a,**_kw:None)
+    calls=[]
+    class Process:
+        def __init__(self,command,kwargs):
+            calls.append((command,kwargs))
+            forwarding=command[command.index('-L')+1]
+            host,port,dest,dest_port=forwarding.split(':')
+            assert (host,dest,dest_port)==('127.0.0.1','127.0.0.1','8080')
+            self.socket=socket.socket(); self.socket.bind((host,int(port))); self.socket.listen(1)
+            self.running=True
+            def accept():
+                connection,_=self.socket.accept(); connection.close()
+            threading.Thread(target=accept,daemon=True).start()
+        def poll(self): return None if self.running else 0
+        def terminate(self): self.running=False; self.socket.close()
+        def wait(self,timeout): return 0
+    tunnel=SshTunnel(remote,remote_port=8080,popen=lambda command,**kwargs:Process(command,kwargs)).start()
+    try:
+        assert tunnel.base_url.startswith('http://127.0.0.1:')
+        assert 'ExitOnForwardFailure=yes' in calls[0][0]
+        assert not any(name.startswith(('AWS_','HONUA_')) for name in calls[0][1]['env'])
+    finally: tunnel.close()
+
+
+def test_parallel_remote_sessions_have_separate_recording_state(tmp_path):
+    binary=fake_multi_cli(tmp_path,'claude-cli')
+    outputs=[]; errors=[]
+    def work(number):
+        try:
+            backend=Backend('honua_ops_health')
+            cli=CliModelSession('claude-cli','claude-opus-5-5',binary=binary,auth_root=tmp_path)
+            outputs.append(cli.run(prompt='Complete the stage',servers={'honua':{'tool_view':backend.tool_view(),
+                'execute':backend.execute}},stage=2,target_kind='remote-vm',log_dir=tmp_path/str(number)))
+        except Exception as exc: errors.append(exc)
+    threads=[threading.Thread(target=work,args=(n,)) for n in range(3)]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join()
+    assert not errors and len(outputs)==3
+    assert all(row['actions'][0]['sequence']==1 for row in outputs)
+    assert len({row['actions'][0]['logPath'] for row in outputs})==3

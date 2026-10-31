@@ -38,7 +38,7 @@ class CliRuntime(corpus.LocalRuntime):
 
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         if self.target == 'local':
-            return super().setup(case_id, candidate_digest, needs_approver, agent_permissions)
+            raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
         if needs_approver:
             raise ValueError('corpus separate approver is not implemented by W2 yet')
         if not self.target_config or not self.deployment_receipt:

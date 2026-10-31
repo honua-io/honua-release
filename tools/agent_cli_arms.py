@@ -1,6 +1,7 @@
-"""Sequential host runner. Local Docker must remain healthy; remote cells are pre-provisioned."""
+"""Sequential cases within a remote slot; independent remote slots may run concurrently."""
 import argparse
 import fcntl
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -33,7 +34,7 @@ def main(argv=None):
     parser.add_argument('--model', required=True)
     parser.add_argument('--cases', default='P10:A', help='corpus: comma-separated Pxx:A/Pxx:B; canary: all stages')
     parser.add_argument('--trials', type=int, default=1)
-    parser.add_argument('--target', type=target_url, default='local')
+    parser.add_argument('--target', type=target_url, required=True)
     parser.add_argument('--target-config', type=Path)
     parser.add_argument('--deployment-receipt', type=Path)
     parser.add_argument('--pack', type=Path)
@@ -43,6 +44,7 @@ def main(argv=None):
     parser.add_argument('--timeout', type=int, default=600)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.target == 'local': parser.error('host Docker is disabled for CLI arms; use a remote target')
     if args.model not in MODELS[args.agent] or args.trials <= 0 or args.timeout <= 0:
         parser.error('invalid model pairing or trial/time budget')
     if args.output.exists(): parser.error('output directory exists; preserve every previous run')
@@ -69,11 +71,11 @@ def main(argv=None):
         common += ['--image-ref', args.image_ref or server['image'].split('@')[0]+'@'+server['digest']]
     for option in ('target_config','deployment_receipt'):
         if getattr(args, option): common += ['--'+option.replace('_','-'), str(getattr(args,option).resolve())]
-    lock_path = Path.home()/'.cache/honua-cli-arms.lock'
+    lock_path = Path.home()/'.cache'/('honua-cli-arms-' + hashlib.sha256(args.target.encode()).hexdigest() + '.lock')
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open('a') as lock:
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError: parser.error('another CLI arms campaign owns this machine')
+        except BlockingIOError: parser.error('another CLI arms campaign owns this target slot')
         args.output.mkdir(parents=True)
         rows=[]
         campaign=uuid.uuid4().hex
