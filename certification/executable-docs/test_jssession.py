@@ -570,8 +570,12 @@ def test_owned_unref_schedulers_cannot_mutate_after_completion(reader, schedule)
 
 
 def test_fired_timeout_refresh_gets_fresh_block_ownership(reader):
-    first = run(reader, "let fired = 0; const reusable = setTimeout(() => { fired++; "
-                "require('node:fs').appendFileSync('fires', 'x'); }, 5); "
+    # The refresh runs in the next block. That block has no require() call, so the
+    # session drops the CommonJS require binding, and the restarted timer can fire
+    # before the block publishes pass. Capture fs here so the callback does not
+    # look require up again.
+    first = run(reader, "let fired = 0; const fs = require('node:fs'); const reusable = setTimeout(() => { fired++; "
+                "fs.appendFileSync('fires', 'x'); }, 5); "
                 "await new Promise(resolve => setTimeout(resolve, 10)); console.log(fired);")
     assert first.status == 'pass' and first.stdout == '1\n'
     refreshed = run(reader, "reusable.refresh().unref();")

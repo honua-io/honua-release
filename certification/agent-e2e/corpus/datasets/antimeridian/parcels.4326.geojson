@@ -1,0 +1,62 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              179.97,
+              70.9
+            ],
+            [
+              179.99,
+              70.9
+            ],
+            [
+              -179.99,
+              70.9
+            ],
+            [
+              -179.97,
+              70.9
+            ],
+            [
+              -179.97,
+              70.93
+            ],
+            [
+              -179.99,
+              70.93
+            ],
+            [
+              179.99,
+              70.93
+            ],
+            [
+              179.97,
+              70.93
+            ],
+            [
+              179.97,
+              70.9
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p-antimeridian-1",
+      "properties": {
+        "name": "Dateline parcels parcel 1",
+        "source_id": "p-antimeridian-1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

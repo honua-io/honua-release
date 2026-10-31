@@ -279,7 +279,8 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
     has no key to exercise).
 
     `expected` overrides the committed file for tests; `None` loads e2e/expected-ga-manifest.json — a
-    missing/malformed file reports BLOCKED, never a fake pass. Before trusting that list, the generated
+    missing/malformed file reports BLOCKED, never a fake pass. A present file whose `expectedGa` is
+    missing or empty is a hard FAIL, never "0 expected-GA ids" passing. Before trusting that list, the generated
     observation (e2e/expected-ga-observation.json, tools/expected_ga_snapshot.py) must be bound to the
     candidate's components.honua-server: server sha, image index digest and booted child digest. A
     missing, unbound or mismatched observation always FAILS, independent of enforcement mode
@@ -334,7 +335,18 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
              "enforcement": enforcement},
         )
 
-    expected_ids = [i for i in (expected.get("expectedGa") or []) if isinstance(i, str)]
+    # A missing or empty expectedGa used to become [] and pass as "0 expected-GA ids". That is a
+    # vacuous pass: the manifest can advertise nothing and still look green. Refuse it.
+    raw_ids = expected.get("expectedGa") if isinstance(expected, dict) else None
+    if not isinstance(raw_ids, list) or not any(isinstance(item, str) and item.strip() for item in raw_ids):
+        return CheckResult(
+            "capability-manifest", "fail",
+            "expectedGa is missing or empty; refusing a vacuous capability pass",
+            {"schemaVersion": schema, "totalCapabilities": len(caps), "expectedGaCount": 0,
+             "enforcement": enforcement},
+        )
+
+    expected_ids = [i for i in raw_ids if isinstance(i, str)]
     excluded_ids = {e.get("id") for e in (expected.get("excluded") or []) if isinstance(e, dict) and e.get("id")}
     checked = [i for i in expected_ids if i not in excluded_ids]
     # `availabilityGated` ids stay in the supported=true assertion but are not asserted

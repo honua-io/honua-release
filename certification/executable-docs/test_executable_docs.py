@@ -288,7 +288,10 @@ def test_guard_pins_and_filters():
     packument = {"name": "@honua/sdk-js", "versions": {"0.1.11": {}, "0.1.12": {}, "0.2.0-beta.0": {}},
                  "dist-tags": {"latest": "0.2.0-beta.0", "next": "0.2.0-beta.0"}, "time": {"0.1.12": "t", "created": "c"}}
     filtered = filter_npm_packument("@honua/sdk-js", packument, pins["npm"])
-    assert list(filtered["versions"]) == ["0.1.12"] and filtered["dist-tags"] == {"latest": "0.1.12"}
+    assert list(filtered["versions"]) == ["0.1.12"]
+    # create-honua-app reads the release-2026.1 tag. The guard serves only the pin,
+    # so the channel names that pin; prerelease tags such as next stay dropped.
+    assert filtered["dist-tags"] == {"latest": "0.1.12", "release-2026.1": "0.1.12"}
     assert filter_npm_packument("@honua-io/sdk-js", packument, pins["npm"]) is None   # old scope
     assert filter_npm_packument("create-honua-app", packument, pins["npm"]) is None    # not pinned
     assert filter_npm_packument("maplibre-gl", packument, pins["npm"]) is packument   # third party
@@ -313,8 +316,9 @@ def test_inventory_build_resolves_revision_rules_and_reports_drift():
     def fetch(url: str, accept: str | None = None, token: str | None = None) -> bytes:
         if url == "https://api.github.com/repos/honua-io/honua-site":
             return b'{"default_branch": "trunk"}'
-        if url == "https://api.github.com/repos/honua-io/honua-site/commits/trunk":
-            return ("e" * 40).encode()
+        if url.startswith("https://api.github.com/repos/honua-io/honua-site/commits?"):
+            assert "path=docs.html" in url
+            return json.dumps([{"sha": "e" * 40}]).encode()
         for (repo, rev, path), text in docs.items():
             if url == f"https://raw.githubusercontent.com/{repo}/{rev}/{path}":
                 return text.encode()
@@ -333,6 +337,117 @@ def test_inventory_build_resolves_revision_rules_and_reports_drift():
     changed = json.loads(json.dumps(inventory))
     changed["documents"][1]["revision"] = "f" * 40
     assert drift(inventory, changed) == [f"honua-site-docs: revision {'e' * 12} -> {'f' * 12}"]
+
+
+def test_default_branch_revision_is_the_commit_that_changed_the_document():
+    from inventory import InventoryError
+
+    touched = "e" * 40
+    doc = {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md",
+           "revision": {"defaultBranch": True}}
+
+    def fetch(url, accept=None, token=None):
+        if url == "https://api.github.com/repos/honua-io/honua-site":
+            return b'{"default_branch": "trunk"}'
+        if url.startswith("https://api.github.com/repos/honua-io/honua-site/commits?"):
+            assert "sha=trunk" in url
+            assert "path=docs%2Fgeoprocessing%2Findex.md" in url or "path=docs/geoprocessing/index.md" in url
+            return json.dumps([{"sha": touched}]).encode()
+        raise AssertionError(url)
+
+    assert Resolver({}, fetch=fetch).revision(doc) == touched
+
+    def fetch_empty(url, accept=None, token=None):
+        if url.endswith("/honua-io/honua-site"):
+            return b'{"default_branch": "trunk"}'
+        return b"[]"
+
+    with pytest.raises(InventoryError, match="no commit"):
+        Resolver({}, fetch=fetch_empty).revision(doc)
+
+
+def test_js_sdk_readme_is_the_github_copy():
+    sources = json.loads((HERE / "sources.json").read_text())
+    documents = sources["documents"]
+    readme = next(d for d in documents if d["repo"] == "honua-io/honua-sdk-js" and d["path"] == "README.md")
+    assert readme["revision"] == {"defaultBranch": True}
+    assert readme["sourceBuild"] is True
+    pinned = {
+        "INSTALL.md": "honua-sdk-js",
+        "docs/quickstart.md": "honua-sdk-js",
+        "mcp/README.md": "honua-mcp-server",
+    }
+    for path, artifact in pinned.items():
+        doc = next(d for d in documents if d["repo"] == "honua-io/honua-sdk-js" and d["path"] == path)
+        assert doc["revision"] == {"clientArtifact": artifact}
+    recorded = next(d for d in json.loads((HERE / "inventory.json").read_text())["documents"]
+                    if d["id"] == "honua-sdk-js-readme")
+    assert recorded["revisionRule"] == {"defaultBranch": True}
+    assert recorded["revision"] != "965c013637722cb70d1a781c3d2d4f6537e6bf44"
+    doctor = next(b for b in recorded["blocks"] if b["index"] == 10)
+    # The published 0.2.10 fence. The GitHub README's fence installs the CLI and the devkit first.
+    assert doctor["sha256"] != "b588b8fa84ab980f00d00fc55afcb4c3ff355e6d63ec77e3d849d5a92d936b6c"
+    assert doctor["sha256"] == "fbd392bc9de2d66231104a6852fc706ec68c6321b015694206c11cb6ed83e07c"
+    assert doctor["intent"] == "run"
+
+
+def test_npm_published_revision_follows_provenance_when_git_head_is_absent():
+    import base64
+    from inventory import InventoryError
+
+    commit = "c6f766ec77b3e13e314a9938d211bc077ff14fbf"
+    statement = {
+        "predicate": {
+            "buildDefinition": {
+                "resolvedDependencies": [{
+                    "uri": "git+https://github.com/honua-io/honua-sdk-js@refs/tags/create-honua-app-v0.2.4",
+                    "digest": {"gitCommit": commit},
+                }]
+            }
+        }
+    }
+    payload = base64.b64encode(json.dumps(statement).encode()).decode()
+    attestation = json.dumps({"attestations": [{"bundle": {"dsseEnvelope": {"payload": payload}}}]}).encode()
+    latest_no_head = json.dumps({"version": "0.2.4", "name": "create-honua-app"}).encode()
+    latest_with_head = json.dumps({"version": "0.2.3", "gitHead": "a" * 40}).encode()
+    doc = {
+        "repo": "honua-io/honua-sdk-js",
+        "path": "packages/create-honua-app/README.md",
+        "revision": {"npmPublished": "create-honua-app"},
+    }
+
+    def fetch(url, accept=None, token=None):
+        if url == "https://registry.npmjs.org/create-honua-app/latest":
+            return latest_no_head
+        if url == "https://registry.npmjs.org/-/npm/v1/attestations/create-honua-app@0.2.4":
+            return attestation
+        raise AssertionError(url)
+
+    assert Resolver({}, fetch=fetch).revision(doc) == commit
+
+    seen = []
+
+    def fetch_head(url, accept=None, token=None):
+        seen.append(url)
+        if url.endswith("/latest"):
+            return latest_with_head
+        raise AssertionError(url)
+
+    assert Resolver({}, fetch=fetch_head).revision(doc) == "a" * 40
+    assert all("attestations" not in url for url in seen)
+
+    def fetch_foreign(url, accept=None, token=None):
+        if url.endswith("/latest"):
+            return latest_no_head
+        bad = json.loads(json.dumps(statement))
+        bad["predicate"]["buildDefinition"]["resolvedDependencies"][0]["uri"] = (
+            "git+https://github.com/other/repo@refs/tags/v1"
+        )
+        foreign_payload = base64.b64encode(json.dumps(bad).encode()).decode()
+        return json.dumps({"attestations": [{"bundle": {"dsseEnvelope": {"payload": foreign_payload}}}]}).encode()
+
+    with pytest.raises(InventoryError, match="no gitHead"):
+        Resolver({}, fetch=fetch_foreign).revision(doc)
 
 
 def test_committed_inventory_matches_sources_and_records_every_block():
@@ -1185,7 +1300,8 @@ def test_public_feature_sample_binds_its_exact_documented_service_token():
     document = next(d for d in inventory["documents"] if d["id"] == ident)
     code = "export HONUA_BASE_URL=http://localhost:8080\nexport HONUA_SAMPLE_SERVICE=your-feature-service\n"
     block = extract("```bash\n" + code + "```\n", "markdown")[0]
-    assert document["revision"] == "8c6f89546e1b659782ae0a094bf91c1c504f66d7"  # Branch moved; README blob still 900e416031983354a9a2deff96f779b74f9144aa.
+    # Last commit that changed this README. The samples branch tip moves without it.
+    assert document["revision"] == "e177f0128fd8143c5f656948d41d8e7332b6f878"
     assert block.sha256 == document["blocks"][0]["sha256"]
     variables = load_vars(HERE / "vars", ident)
     assert set(variables["substitute"]) == {"your-feature-service"}

@@ -45,6 +45,18 @@ all imported stages, enforces a 24-hour freshness window, and exact-matches its 
 #123 client-artifact pins to the candidate manifest. It records the validated receipt's path and hash;
 an arbitrary, stale, blocked, incomplete, or differently pinned receipt fails before model execution.
 
+The workflow `model` input stays free text. When it is empty, the run uses the repository
+variable or the profile named in the workflow. Ids:
+
+- Shipped default, until that workflow default changes: `us.anthropic.claude-sonnet-4-6`
+- Latest models: `us.anthropic.claude-opus-5-5`, `us.anthropic.claude-sonnet-5-5`,
+  `us.openai.gpt-6.1-sol`, `us.openai.gpt-6.1-terra`
+
+The promise-journey provenance check accepts only `anthropic.claude` ids. Opus 5.5 and
+Sonnet 5.5 match that check. GPT-6.1 Sol and Terra do not, until
+`tools/terminal_model_canary.py` accepts them. Sonnet 4.5, Haiku 4.5, and GPT-5 are not
+ids for this harness.
+
 ## Evidence boundary
 
 Every action is attributed as either:
@@ -197,7 +209,7 @@ published signing-manifest trust anchor. A public manifest hash does not supply 
 | variable | `HONUA_AWS_ROLE_ARN` | OIDC role the local-docker job assumes; it must allow `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the Sonnet 5.5 `us.` inference profile and its foundation-model ARNs (honua-iac `bootstrap/aws-release-cells` `runtime_bedrock_model_arns`). The cloud cell uses the same role to provision; Bedrock there is the ECS task role from `modules/aws-ecs/bedrock.tf`. |
 | secret | `TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED` | Base64 32-byte Ed25519 seed the local-docker candidate signs transcripts with (`StudioAiProxy:TranscriptSigning`, key id `terminal-model-canary`, reference `env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED`). |
 | variable | `TERMINAL_MODEL_SIGNING_MANIFEST_SHA256` | SHA-256 of the canonical signing manifest the candidate publishes for that key: the trust anchor. |
-| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `us.anthropic.claude-sonnet-5-5`. |
+| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `us.anthropic.claude-sonnet-4-6`. |
 | secret | `RELEASE_GH_TOKEN` | Already required by the journey for pinned client sources. |
 
 Bedrock model access for Claude Sonnet 5.5 must be enabled in the release account.

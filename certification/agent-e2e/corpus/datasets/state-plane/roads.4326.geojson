@@ -1,0 +1,32 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            -122.27102825,
+            37.80025492
+          ],
+          [
+            -122.26625983,
+            37.80032643
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "r-state-plane-1",
+      "properties": {
+        "name": "Harbor customer export road",
+        "source_id": "r-state-plane-1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

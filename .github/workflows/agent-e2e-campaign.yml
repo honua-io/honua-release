@@ -22,7 +22,7 @@ on:
       development_case:
         description: One implemented A/B case for nonqualifying development (target comes from case ID)
         required: false
-        default: P10:A:aws-ecs-redis-on
+        default: P10:A:local-docker
         type: string
 permissions:
   contents: read
@@ -33,7 +33,7 @@ concurrency:
   group: agent-e2e-campaign
   cancel-in-progress: false
 env:
-  TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
+  TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-6' }}
   PYTHONDONTWRITEBYTECODE: '1'
 jobs:
   freeze:

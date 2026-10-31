@@ -1,0 +1,32 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            179.98,
+            70.915
+          ],
+          [
+            -179.98,
+            70.915
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "r-antimeridian-1",
+      "properties": {
+        "name": "Dateline parcels road",
+        "source_id": "r-antimeridian-1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}
