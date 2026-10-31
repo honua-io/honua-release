@@ -1,7 +1,7 @@
-"""Persistent configuration and credential disclosure across a recorded restart.
+"""P02 is unsupported: the secret-scan oracle needs raw scanned-artifact digests.
 
-A controller-owned canary connection is present only as a secret-disclosure control;
-the model must create its own independently identified connection after the seed.
+The current projection hashes canonical inventory data, not the raw bytes scanned.
+A controller-owned canary is seeded separately from the agent-owned connection.
 """
 from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_scenario_operations import body
@@ -9,7 +9,7 @@ from agent_e2e_scenario_operations import body
 
 class P02(Scenario):
     id = 'P02'
-    supported_variants = ('A', 'B')
+    supported_variants = ()
 
     def sessions_required(self):
         return 2
