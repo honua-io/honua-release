@@ -52,10 +52,15 @@ def test_p06_seed_includes_survey_and_is_idempotent(monkeypatch, tmp_path):
         def upload(self, step, raw, **kwargs):
             calls.append(('upload', step, kwargs['table'], len(raw)))
             return {'fixture': True}
+        def sql(self, step, query):
+            import re
+            if step.endswith('-table'):
+                return [{'table_name': re.search(r"table_name = '([^']+)'", query).group(1)}]
+            return [{'feature': True}]
 
     monkeypatch.setattr(operations, 'discover_tables', lambda *args: {})
     monkeypatch.setattr(operations, 'completed_import', lambda http, accepted, **kw:
-                        {'table': kw['table'], 'featureCount': kw['feature_count']})
+                        {'table': kw['table'], 'schema': 'honua_data', 'featureCount': kw['feature_count']})
     stack = Stack('http://127.0.0.1:1', 'private', None, 'case-123', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder(), 'ensureConnection': lambda: 'connection',
                    'addPrincipal': lambda name, grants: 'viewer'})
@@ -438,16 +443,24 @@ def test_p06_records_agent_publications_for_later_role_binding(tmp_path):
     from agent_e2e_local_api import Seeded
     calls = []
     class Recorder:
+        def sql(self, step, query): calls.append(step)
         def json(self, *args): calls.append(args[0])
         def actions(self):
-            return [SimpleNamespace(kind='tool_call', tool='honua_publish_service', sequence=1),
-                    SimpleNamespace(kind='tool_call', tool='honua_query_features', sequence=2),
-                    SimpleNamespace(kind='tool_call', tool='honua_publish_service', sequence=3)]
-        def action_result(self, step, action): calls.append((step, action.sequence))
+            return [SimpleNamespace(kind='tool_call', tool='honua_publish_service', arguments={'table': 'parcels'}),
+                    SimpleNamespace(kind='tool_call', tool='honua_query_features', arguments={}),
+                    SimpleNamespace(kind='tool_call', tool='honua_publish_service', arguments={'table': 'shelters'})]
+        def action_result(self, step, action):
+            calls.append(step)
+            return SimpleNamespace(status=200, json={'result': {'structuredContent': {'status': 'Completed',
+                                      'serviceName': action.arguments['table'], 'layerId': '0'}}})
+        def mcp_call(self, step, tool, arguments): calls.append(step)
     stack = Stack('http://127.0.0.1:1', 'private', None, 'fake', 'fake', str(tmp_path), 'sha256:fake',
                   {'recorder': Recorder()})
-    assert load_scenario('P06').observe(stack, Seeded({}), 'A') == []
-    assert calls == ['p06-services-after', ('p06-publish-001', 1), ('p06-publish-002', 3)]
+    layers = {name: {'schema': 'honua_data', 'table': name} for name in ('parcels', 'shelters', 'survey_points')}
+    assert [o.assertion_id for o in load_scenario('P06').observe(stack, Seeded({'layers': layers}), 'A')] == ['service.query', 'service.write-denied', 'source-content.unchanged']
+    assert calls == ['p06-parcels-source-after', 'p06-shelters-source-after', 'p06-survey-points-source-after',
+                     'p06-services-after', 'p06-parcels-publish', 'p06-parcels-describe',
+                     'p06-shelters-publish', 'p06-shelters-describe']
 
 
 def test_p05_sql_projection_rejects_changed_feature_and_wrong_table():
@@ -713,3 +726,99 @@ def test_p05_handoff_requires_each_invalid_row_to_be_disclosed(tmp_path):
     facts = evaluate(spec, Context(records, customer_files={'town-A/invalid-rows.csv': data}))
     assert score_final_answer('Rows bad1, bad2 and bad3 could not be placed.', facts, state_status='pass')['status'] == 'pass'
     assert score_final_answer('Rows bad1 and bad2 could not be placed.', facts, state_status='pass')['status'] == 'fail'
+
+
+def test_p06_query_and_permission_projections_reject_wrong_state():
+    import copy
+    import hashlib
+    import json
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    case = load_scenario('P06')
+    expected = case.expected('A')
+    roles = {'seeded:principal:viewer': 'viewer'}
+    for name in ('parcels', 'shelters', 'survey_points'):
+        roles.update({'created:service:' + name: 'service_' + name,
+                      'child:serviceid:' + name: 'id_' + name, 'child:layer:' + name: 0})
+    def record(step, kind, principal, principal_id, method, path, status, body, arguments=None):
+        raw = json.dumps(body).encode()
+        return Record(step, 'observe', kind, principal, principal_id, method, path, status, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest(),
+                      request_arguments_raw=None if arguments is None else json.dumps(arguments).encode())
+    records = {}
+    for name in ('parcels', 'shelters', 'survey_points'):
+        label = name.replace('_', '-')
+        values = sorted(f['properties']['source_id'] for f in oracle.fixture_expectation('A', 'features.exact', layer=name)['features'])
+        offsets = (0, 1000, 2000) if name == 'survey_points' else (0,)
+        for offset in offsets:
+            step = 'p06-' + label + '-query-' + str(offset)
+            page = values[offset:offset+1000]
+            body = {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {
+                    'resultOffset': offset, 'returnedCount': len(page), 'exceededTransferLimit': offset+1000 < len(values),
+                    'geojson': {'features': [{'properties': {'source_id': x}} for x in page]}}}}
+            args = {'tool': 'honua_query_features', 'arguments': {'serviceId': 'id_' + name, 'layerId': 0}}
+            records[step] = record(step, 'mcp', 'controller', 'installer-bootstrap-admin', 'POST', '/mcp#tools/call', 200, body, args)
+        path = '/rest/services/service_' + name + '/FeatureServer/0'
+        read, write = 'p06-' + label + '-read', 'p06-' + label + '-write'
+        records[read] = record(read, 'http', 'controller', 'installer-bootstrap-admin', 'GET', path + '?f=json', 200, {'ok': True})
+        records[write] = record(write, 'http', 'p06-viewer', 'viewer', 'POST', path + '/applyEdits?f=json', 403, {'error': 'forbidden'})
+    obs = [Observation(name, None, {'projection': 'extract/v1'}) for name in ('service.query', 'service.write-denied')]
+    def score(values):
+        rows = score_assertions(list(expected), obs, expected, records=values, roles=roles,
+                                scenario_id='P06', frozen=frozen_projections(case, 'A'))
+        return {row['assertion']: row['status'] for row in rows}
+    assert score(records)['service.query'] == score(records)['service.write-denied'] == 'pass'
+    wrong = dict(records)
+    step = 'p06-survey-points-query-2000'
+    body = copy.deepcopy(records[step].json)
+    body['result']['structuredContent']['geojson']['features'].pop()
+    old = records[step]
+    wrong[step] = record(step, old.kind, old.principal, old.principal_id, old.method, old.path, 200, body, old.request_arguments)
+    assert score(wrong)['service.query'] == 'fail'
+    wrong = dict(records)
+    step = 'p06-shelters-write'
+    old = records[step]
+    wrong[step] = record(step, old.kind, old.principal, old.principal_id, old.method, old.path, 200, {'ok': True})
+    assert score(wrong)['service.write-denied'] == 'fail'
+
+
+def test_p06_preservation_rejects_mutation_and_wrong_table():
+    import copy
+    import hashlib
+    import json
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import frozen_projections, score_assertions
+    from agent_e2e_local_scenarios.P06 import source_query
+    case = load_scenario('P06')
+    expected = case.expected('A')
+    roles = {'seeded:table:' + n: 'fixture_' + n for n in ('parcels', 'shelters', 'survey_points')}
+    records = {}
+    def record(step, phase, query, rows):
+        raw = json.dumps(rows).encode()
+        return Record(step, phase, 'sql', 'controller', 'owner', 'SELECT', query, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    for n in ('parcels', 'shelters', 'survey_points'):
+        features = oracle.fixture_expectation('A', 'features.exact', layer=n)['features']
+        rows = [{**f['properties'], 'feature_type': 'Feature', 'srid': 3857, 'geometry': f['geometry']}
+                for f in sorted(features, key=lambda f:f['properties']['source_id'])]
+        query = source_query({'schema': 'honua_data', 'table': 'fixture_' + n}, n)
+        for suffix, phase in [('before', 'seed'), ('after', 'observe')]:
+            step = 'p06-' + n.replace('_', '-') + '-source-' + suffix
+            records[step] = record(step, phase, query, rows)
+    def score(values):
+        result = score_assertions(list(expected), [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})],
+                                  expected, records=values, roles=roles, scenario_id='P06',
+                                  frozen=frozen_projections(case, 'A'))
+        return next(r['status'] for r in result if r['assertion'] == 'source-content.unchanged')
+    assert score(records) == 'pass'
+    step = 'p06-parcels-source-after'
+    old = records[step]
+    changed = copy.deepcopy(old.json)
+    changed[0]['owner'] = 'changed'
+    bad = dict(records)
+    bad[step] = record(step, 'observe', old.path, changed)
+    assert score(bad) == 'fail'
+    bad[step] = record(step, 'observe', old.path.replace('fixture_parcels', 'foreign'), old.json)
+    assert score(bad) == 'fail'
