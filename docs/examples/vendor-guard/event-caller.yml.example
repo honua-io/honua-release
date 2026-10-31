@@ -22,9 +22,9 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    uses: honua-io/honua-release/.github/workflows/guard-vendor-event.yml@acbcec54d35c1ee9e0017d2c916fc68ddf2bbc3c
+    uses: honua-io/honua-release/.github/workflows/guard-vendor-event.yml@acbcec54eddc1656e7f98c6f71c2cd27b14ac03c
   remediate-commit-comment:
     if: github.event_name == 'commit_comment'
     permissions:
       contents: write
-    uses: honua-io/honua-release/.github/workflows/guard-vendor-commit-comment.yml@acbcec54d35c1ee9e0017d2c916fc68ddf2bbc3c
+    uses: honua-io/honua-release/.github/workflows/guard-vendor-commit-comment.yml@acbcec54eddc1656e7f98c6f71c2cd27b14ac03c
