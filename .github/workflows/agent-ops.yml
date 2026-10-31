@@ -84,7 +84,7 @@ jobs:
   real-compose-smoke:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: read
@@ -106,7 +106,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ github.token }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - name: Build immutable candidate using the Compose GA procedure
+      - name: Build immutable production candidate
         env:
           GH_TOKEN: ${{ github.token }}
           GH_ACTOR: ${{ github.actor }}
@@ -116,7 +116,10 @@ jobs:
           docker build --progress=plain --platform linux/amd64 \
             --build-arg HONUA_GIT_SHA=ffd100de5c9c08054ca787400846c3871cb64d48 \
             --secret id=github_token,env=GH_TOKEN --secret id=github_actor,env=GH_ACTOR \
-            -f ops-server-candidate/Dockerfile -t 127.0.0.1:55000/honua-server:ops-smoke ops-server-candidate
+            -f ops-server-candidate/docker/Dockerfile.aot -t 127.0.0.1:55000/honua-server:ops-smoke ops-server-candidate
+          test "$(docker image inspect --format '{{index .Config.Labels "honua.runtime.compilation"}}' 127.0.0.1:55000/honua-server:ops-smoke)" = native-aot
+          test "$(docker image inspect --format '{{index .Config.Labels "honua.runtime.profile"}}' 127.0.0.1:55000/honua-server:ops-smoke)" = web
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 127.0.0.1:55000/honua-server:ops-smoke)" = ffd100de5c9c08054ca787400846c3871cb64d48
           docker push 127.0.0.1:55000/honua-server:ops-smoke | tee "$RUNNER_TEMP/ops-candidate-push.log"
           digest="$(sed -n 's/.*\(sha256:[0-9a-f]\{64\}\).*/\1/p' "$RUNNER_TEMP/ops-candidate-push.log" | tail -1)"
           test -n "$digest"
