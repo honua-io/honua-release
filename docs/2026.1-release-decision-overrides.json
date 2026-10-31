@@ -604,6 +604,14 @@
         "honua-server#2439"
       ]
     },
+    "ai-arc-required-2026-10-31": {
+      "date": "2026-10-31",
+      "authority": "Founder decision 2026-10-31",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "The AI arc is required for 2026.1-rc.2 admission for each founder-approved gating target and both required arms.",
+      "effect": "Supersedes wedge-critical-retier-2026-10-25 for the arc gate only. The genuine-model canary and gate-agent-e2e remain advisory.",
+      "moved": []
+    },
     "wedge-critical-retier-2026-10-25": {
       "date": "2026-10-25",
       "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748",

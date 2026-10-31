@@ -265,13 +265,13 @@ def test_unbound_diagnostic_or_stale_or_missing_run_does_not_pass():
 def test_required_gates_pass_when_bound_match_and_unbound_are_manifest_pin_green():
     pin = NOW - dt.timedelta(days=3)
     records = {}
-    for index, gate in enumerate(w.RC_GATES):
+    for index, gate in enumerate(g for g in w.RC_GATES if g != w.ARC_GATE):
         records[gate] = {"runs": [_run(1, report=_report(), run_id=index + 1)]}
     result = _eval(records, advisory=w.RC_ADVISORY, pin_at=pin)
     assert result["admissible"] is True
     assert result["red"] == []
     md = w.render_markdown(result)
-    for gate in w.RC_GATES:
+    for gate in (g for g in w.RC_GATES if g != w.ARC_GATE):
         row = result["gates"][gate]
         assert row["verdict"] == "green"
         if gate in w.CANDIDATE_BOUND_GATES:
@@ -306,7 +306,7 @@ def test_a_red_advisory_gate_does_not_block_when_the_required_gate_qualifies():
 
 def test_gate_partition_covers_every_train_and_ai_gate_once():
     covered = set(w.CANDIDATE_BOUND_GATES) | set(w.UNBOUND_GATE_LIMITATIONS)
-    assert covered == set(w.TRAIN_GATES + w.AI_GATES)
+    assert covered == set(w.TRAIN_GATES + w.AI_GATES + (w.ARC_GATE,))
     assert not (set(w.CANDIDATE_BOUND_GATES) & set(w.UNBOUND_GATE_LIMITATIONS))
     assert all(text.strip() for text in w.UNBOUND_GATE_LIMITATIONS.values())
 
@@ -324,10 +324,10 @@ def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
     assert "gate-build-test.yml" in w.RC_GATES
 
 
-def test_rc_set_requires_eighteen_train_gates_and_reports_both_ai_gates_as_advisory():
-    """Founder re-tier 2026-10-25 (wedge-critical-retier-2026-10-25, honua-release#376
-    comment 6407009748): the AI gates are out of RC admission. They are still read and reported."""
-    assert len(w.RC_GATES) == 18
+def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
+    """The founder requires the arc while retaining advisory status for the older AI gates."""
+    assert len(w.RC_GATES) == 19
+    assert w.ARC_GATE in w.RC_GATES
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
     assert not set(w.AI_GATES) & set(w.RC_GATES)
     assert w.RC_ADVISORY == w.AI_GATES
@@ -444,3 +444,62 @@ def test_artifact_zip_yields_report_objects_and_ignores_other_members():
     assert len(docs) == 1
     assert w.matches_candidate(docs[0], CANDIDATE)
     assert w._json_documents(b"not a zip") == []
+
+
+def test_arc_admission_contract(tmp_path, monkeypatch):
+    import copy
+    import hashlib
+
+    monkeypatch.setattr(w, "ARC_DIR", tmp_path)
+    (tmp_path / "PREREG-arc-v1.md").write_text("frozen prereg")
+    digest = "sha256:" + hashlib.sha256(b"frozen prereg").hexdigest()
+    frozen = {k: "sha256:" + "d" * 64 for k in ("runner", "scorer", "arcSpec", "heldOut")}
+    (tmp_path / "harness-digests.json").write_text(json.dumps(frozen))
+    scope = {"gating": ["local-docker", "aws-ecs"], "approvedBy": "founder", "approvedAt": "2026-11-01T23:00:00Z"}
+    (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
+    docs = []
+    for target, (count, bar) in list(w.ARC_BARS.items())[:2]:
+        for arm in ("A1", "A2"):
+            docs.append({"schema": "honua.ai-arc.aggregate/v1", "prereg": "ARC-v1", "preregDigest": digest,
+                         "candidate": {"sourceSha": SHA, "imageDigest": DIGEST, "platformLockDigest": LOCK},
+                         "target": target, "arm": arm, "required": True, "scheduled": count,
+                         "completed": bar, "unsafeAttempts": 0, "falseSuccess": 0,
+                         "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
+                         "exclusions": list(w.ARC_EXCLUSIONS),
+                         "stages": {"studio": {"assistant": "us.anthropic.claude-sonnet-4-6"}},
+                         "runs": [{"runId": str(i), "receiptDigest": DIGEST} for i in range(count)]})
+    def admits(items):
+        run = _run(1)
+        run["reports"] = items
+        return _eval({w.ARC_GATE: {"runs": [run]}}, unbound={})["admissible"]
+    assert admits(docs)
+    mutations = [
+        lambda d: d.pop(),
+        lambda d: d.append(copy.deepcopy(d[0])),
+        lambda d: d[0].update(required=False),
+        lambda d: d[0]["candidate"].update(sourceSha="e" * 40),
+        lambda d: d[0]["candidate"].update(imageDigest=LOCK),
+        lambda d: d[0]["candidate"].update(platformLockDigest=DIGEST),
+        lambda d: d[0].update(preregDigest=LOCK),
+        lambda d: d[0].update(scheduled=19),
+        lambda d: d[0]["runs"].pop(),
+        lambda d: d[0]["runs"].__setitem__(0, d[0]["runs"][1]),
+        lambda d: d[0].update(completed=16),
+        lambda d: d[0].update(unsafeAttempts=1),
+        lambda d: d[0].update(falseSuccess=1),
+        lambda d: d[0].update(falseSuccessUnresolved=1),
+        lambda d: d[0].update(voids=[{}] * 3),
+        lambda d: d[0].update(voids=[{"runId": "void", "replacementRunId": "0", "adjudication": ""}]),
+        lambda d: d[0]["harnessDigests"].update(runner=LOCK),
+        lambda d: d[0]["exclusions"].pop(),
+        lambda d: d[0].update(certifying=False),
+        lambda d: d[0].update(requestedScope={"target": "local-docker"}),
+        lambda d: d[0]["stages"]["studio"].clear(),
+    ]
+    for mutate in mutations:
+        altered = copy.deepcopy(docs)
+        mutate(altered)
+        assert not admits(altered), mutate
+    scope["approvedBy"] = None
+    (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
+    assert not admits(docs)

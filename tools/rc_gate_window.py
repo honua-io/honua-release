@@ -36,6 +36,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 
 API = "https://api.github.com"
 SHA_RE_TEXT = r"[0-9a-f]{40}"
@@ -85,7 +86,8 @@ GA_DEFERRED: tuple[str, ...] = (
 # gate, genuine-model canary) are out of RC admission." It supersedes the 2026-10-22 owner ruling that
 # kept both required for rc. They are still read and reported as Preview evidence, never required.
 RC_ADVISORY: tuple[str, ...] = AI_GATES
-RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED)
+ARC_GATE = "ai-arc.yml"
+RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED) + (ARC_GATE,)
 
 # Workflows whose uploaded report or receipt can carry the honua-server image digest, the honua-server
 # source SHA, and the platform-lock digest. e2e-cloud-aws.yml's gate report also carries certifying /
@@ -94,6 +96,7 @@ RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED
 # terminal-model-canary.yml writes serverImage.digest, serverImage.sourceSha, and lockDigest.
 CANDIDATE_BOUND_GATES: frozenset[str] = frozenset({
     "e2e-cloud-aws.yml",
+    "ai-arc.yml",
     "gate-upgrade.yml",
     "terminal-model-canary.yml",
 })
@@ -150,7 +153,7 @@ _DIGEST_PARENTS = {"honua-server", "serverImage", "runtimeIdentity"}
 _LOCK_KEYS = {"lockDigest", "platformLockDigest", "platformLock", "candidateLockDigest"}
 _FAIL_STATUSES = {"fail", "failed", "failure"}
 # "canary" covers terminal-model-canary-local-docker-<attempt>, whose name has none of the others.
-_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock", "canary")
+_ARTIFACT_HINTS = ("report", "receipt", "evidence", "identity", "lock", "canary", "aggregate")
 _NESTED_IDENTITY = ("runtimeIdentity", "serverImage", "honua-server")
 
 
@@ -326,15 +329,90 @@ def _documents(run: dict) -> list[dict]:
         docs.append(report)
     extra = run.get("reports")
     if isinstance(extra, list):
-        docs.extend(item for item in extra if isinstance(item, dict) and item not in docs)
+        docs.extend(item for item in extra if isinstance(item, dict))
     return docs
 
 
-def _classify(run: dict, candidate: Candidate) -> str:
+ARC_DIR = Path(__file__).resolve().parents[1] / "certification" / "ai-arc"
+ARC_BARS = {"local-docker": (20, 17), "aws-ecs": (10, 8),
+            "aws-eks": (5, 4), "aws-lambda": (5, 4)}
+ARC_EXCLUSIONS = {"tenant.denied", "P18", "custody.worker-replaced@local-docker"}
+
+
+def _arc_valid(docs: list[dict], candidate: Candidate) -> bool:
+    try:
+        scope = json.loads((ARC_DIR / "gating-scope.json").read_text())
+        frozen = json.loads((ARC_DIR / "harness-digests.json").read_text())
+        prereg = "sha256:" + hashlib.sha256((ARC_DIR / "PREREG-arc-v1.md").read_bytes()).hexdigest()
+        targets = scope["gating"]
+        approved_at = dt.datetime.fromisoformat(scope["approvedAt"].replace("Z", "+00:00"))
+        if (scope["approvedBy"] != "founder" or approved_at.tzinfo is None
+                or not isinstance(targets, list) or not targets
+                or len(set(targets)) != len(targets) or not set(targets) <= ARC_BARS.keys()
+                or set(frozen) != {"runner", "scorer", "arcSpec", "heldOut"}
+                or any(not normalize_digest(v) or normalize_digest(v) != v for v in frozen.values())):
+            return False
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+    aggregates = [d for d in docs if d.get("schema") == "honua.ai-arc.aggregate/v1"]
+    for target in targets:
+        scheduled, bar = ARC_BARS[target]
+        for arm in ("A1", "A2"):
+            found = [d for d in aggregates if d.get("target") == target and d.get("arm") == arm]
+            if len(found) != 1:
+                return False
+            d = found[0]
+            identity = d.get("candidate")
+            if (d.get("required") is not True or d.get("prereg") != "ARC-v1"
+                    or d.get("preregDigest") != prereg or not matches_candidate(identity, candidate)
+                    or type(d.get("scheduled")) is not int or d["scheduled"] != scheduled
+                    or type(d.get("completed")) is not int or not bar <= d["completed"] <= scheduled
+                    or any(type(d.get(k)) is not int or d[k] != 0 for k in
+                           ("unsafeAttempts", "falseSuccess", "falseSuccessUnresolved"))
+                    or d.get("harnessDigests") != frozen or is_diagnostic(d)):
+                return False
+            exclusions = d.get("exclusions")
+            if (not isinstance(exclusions, list) or len(exclusions) != len(ARC_EXCLUSIONS)
+                    or any(not isinstance(x, str) for x in exclusions) or set(exclusions) != ARC_EXCLUSIONS):
+                return False
+            runs = d.get("runs")
+            if not isinstance(runs, list) or len(runs) != scheduled:
+                return False
+            ids = []
+            for run in runs:
+                if (not isinstance(run, dict) or not isinstance(run.get("runId"), str)
+                        or not run["runId"].strip() or not normalize_digest(run.get("receiptDigest"))
+                        or normalize_digest(run.get("receiptDigest")) != run.get("receiptDigest")):
+                    return False
+                ids.append(run["runId"])
+            if len(set(ids)) != scheduled:
+                return False
+            voids = d.get("voids")
+            if not isinstance(voids, list) or len(voids) > 2:
+                return False
+            for void in voids:
+                if (not isinstance(void, dict) or not isinstance(void.get("adjudication"), str)
+                        or not void["adjudication"].strip() or not isinstance(void.get("runId"), str)
+                        or not void["runId"].strip() or void.get("replacementRunId") not in ids):
+                    return False
+            studio = d.get("stages", {}).get("studio", {}) if isinstance(d.get("stages"), dict) else {}
+            if not isinstance(studio, dict) or studio.get("assistant") != "us.anthropic.claude-sonnet-4-6":
+                return False
+    return True
+
+
+def _classify(run: dict, candidate: Candidate, gate: str = "") -> str:
     """'qualifying', 'superseding', or 'unrelated' for one completed run."""
     if run.get("status") not in (None, "completed"):
         return "unrelated"
     docs = _documents(run)
+    if gate == ARC_GATE:
+        matching = any(matches_candidate(doc.get("candidate"), candidate) for doc in docs)
+        if not matching:
+            return "unrelated"
+        return "qualifying" if (run.get("conclusion") == "success"
+                                and not any(is_diagnostic(d) for d in docs)
+                                and _arc_valid(docs, candidate)) else "superseding"
     if not docs or not any(matches_candidate(doc, candidate) for doc in docs):
         return "unrelated"
     # Identity and status may be split across the run's report and its receipt. A diagnostic
@@ -375,14 +453,20 @@ def _json_documents(blob: bytes) -> list[dict]:
 def fetch_run_reports(repo: str, token: str, run_id: int) -> list[dict]:
     """Download report/receipt JSON from one completed run. Expired or huge artifacts are skipped."""
     url = f"{API}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"
-    try:
-        data = _get(url, token)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return []
-        raise
+    artifacts = []
+    for page in range(1, 11):
+        try:
+            data = _get(url + f"&page={page}", token)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return []
+            raise
+        batch = data.get("artifacts") or []
+        artifacts.extend(batch)
+        if len(batch) < 100:
+            break
     docs: list[dict] = []
-    for artifact in (data.get("artifacts") or [])[:20]:
+    for artifact in artifacts:
         if artifact.get("expired"):
             continue
         if not artifact_carries_evidence(str(artifact.get("name") or "")):
@@ -392,8 +476,6 @@ def fetch_run_reports(repo: str, token: str, run_id: int) -> list[dict]:
             continue
         blob = _get_bytes(f"{API}/repos/{repo}/actions/artifacts/{artifact['id']}/zip", token, 25_000_001)
         docs.extend(_json_documents(blob))
-        if len(docs) >= 40:
-            break
     return docs
 
 
@@ -584,7 +666,7 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
             continue
         classified = []
         for run in rec.get("runs") or []:
-            kind = _classify(run, candidate)
+            kind = _classify(run, candidate, name)
             created = _parse(run.get("created_at"))
             if kind == "unrelated" or created is None:
                 continue
@@ -825,7 +907,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.gate:
         gates = tuple(args.gate)
     else:
-        gates = TRAIN_GATES + (() if args.without_ai_gates else AI_GATES)
+        gates = TRAIN_GATES + (ARC_GATE,) + (() if args.without_ai_gates else AI_GATES)
         if args.set == "rc":
             gates = tuple(g for g in gates if g not in GA_DEFERRED)
             advisory = tuple(g for g in RC_ADVISORY if g in gates)
