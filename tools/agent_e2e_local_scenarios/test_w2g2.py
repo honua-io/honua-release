@@ -265,3 +265,25 @@ def test_core_role_binding_rejects_two_services_from_same_tool():
                for name in ('parcels', 'shelters')]
     with pytest.raises(ValueError, match='matched 2'):
         resolve_roles([binding], records, agent_principal='agent', action_results=actions)
+
+
+def test_core_connection_binding_uses_unpaged_inventory_and_owner():
+    import hashlib
+    import json
+    from agent_e2e_local_api import RoleBinding
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+
+    def record(step, phase, rows):
+        raw = json.dumps({'data': rows}).encode()
+        return Record(step, phase, 'http', 'controller', 'admin', 'GET', '/api/v1/admin/connections',
+                      200, raw, 'sha256:' + hashlib.sha256(raw).hexdigest())
+    binding = RoleBinding('created:connection', 'after', items='/data', id='/connectionId',
+                          owner='/createdBy', before='before')
+    before = record('before', 'seed', [])
+    records = {'before': before, 'after': record('after', 'observe', [
+        {'connectionId': 'owned', 'createdBy': 'agent'}])}
+    assert resolve_roles([binding], records, agent_principal='agent') == {'created:connection': 'owned'}
+    records['after'] = record('after', 'observe', [{'connectionId': 'foreign', 'createdBy': 'other'}])
+    with pytest.raises(ValueError, match='matched 0'):
+        resolve_roles([binding], records, agent_principal='agent')
