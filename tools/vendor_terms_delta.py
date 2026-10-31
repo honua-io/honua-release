@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import unicodedata
+from urllib.parse import unquote
 from pathlib import Path
 
 import check_vendor_terms as policy
@@ -45,7 +46,7 @@ def binary_contains_visible_mark(data: bytes, classifier: policy.Classifier, pat
     # Opaque assets are not fully inspectable. Screen plainly encoded text using
     # the same word boundaries and protocol exceptions as source files.
     names = ('es' + 'ri', 'arc' + 'gis', 'arc' + 'py', 'arc' + 'map', 'arc' + 'catalog',
-             'arc' + 'objects', 'arc' + 'sde', 'arc' + 'ims', 'living' + ' ' + 'atlas')
+             'arc' + 'objects', 'arc' + 'sde', 'arc' + 'ims', 'living' + ' ' + 'atlas', 'model' + 'builder')
     lowered = data.lower()
     for encoding in ('latin-1', 'utf-16-le', 'utf-16-be'):
         probe_encoding = 'ascii' if encoding == 'latin-1' else encoding
@@ -108,7 +109,7 @@ def logical_to_git_lines(text: str) -> list[int]:
 # below handles the overlapping end of common spatial-reference identifiers.
 DISTINCTIVE = re.compile('|'.join(('arc' + 'gis', 'arc' + 'py', 'arc' + 'map',
                                    'arc' + 'catalog', 'arc' + 'objects', 'arc' + 'sde',
-                                   'arc' + 'ims', r'living[ _-]*atlas',
+                                   'arc' + 'ims', r'living[ _-]*atlas', 'model' + 'builder',
                                    'es' + 'ri')), re.IGNORECASE)
 
 ESCAPED_CHAR = re.compile(r'(?<!\\)(?P<slashes>\\+)(?:u\{(?P<braced>[0-9a-fA-F]{1,6})\}|u(?P<u4>[0-9a-fA-F]{4})|U(?P<u8>[0-9a-fA-F]{8})|x(?P<x2>[0-9a-fA-F]{2})|N\{(?P<name>[A-Za-z0-9 -]{1,100})\}|(?P<octal>[0-7]{1,3}))')
@@ -141,6 +142,7 @@ def decode_rendered_text(text: str) -> str:
     """Normalize Unicode and decode nested escapes with a bounded number of passes."""
     for _ in range(8):
         decoded = html.unescape(text) if '&' in text else text
+        decoded = unquote(decoded, errors='replace') if '%' in decoded else decoded
         decoded = decode_source_escapes(decoded) if '\\' in decoded else decoded
         if not decoded.isascii():
             if len(decoded) > MAX_UNICODE_INPUT_CHARS:
@@ -255,7 +257,7 @@ def classify_decoded_text(classifier: policy.Classifier, path: str, text: str) -
     findings: list[policy.Hit] = []
     # Split only on LF to retain the line numbers reported by Git's diff hunks.
     for physical_line, line in enumerate(text.split('\n'), start=1):
-        if '&' not in line and '\\' not in line and line.isascii():
+        if '&' not in line and '\\' not in line and '%' not in line and line.isascii():
             continue
         decoded = decode_rendered_text(line)
         if decoded == line:
@@ -298,7 +300,7 @@ def find_new_hits(root: Path, repo: str, base: str, head: str) -> list[policy.Hi
         parts = raw.decode('utf-8', errors='surrogateescape').split('/')
         old_prefixes.update('/'.join(parts[:i]) for i in range(1, len(parts) + 1))
     classifier = policy.Classifier(repo, policy.load_vocabulary(), policy.load_allowlist(policy.ALLOWLIST),
-                                   policy.load_interop(), skip_encoded=False)
+                                   policy.load_interop(), skip_encoded=False, normalize_rendered=False)
     findings: list[policy.Hit] = []
     seen_paths: set[str] = set()
     for path in paths:
@@ -345,7 +347,7 @@ def find_new_hits(root: Path, repo: str, base: str, head: str) -> list[policy.Hi
             continue  # Compressed and visual content is outside the text classifier.
         new_text = new.decode('utf-8', errors='replace')
         if (not policy.PRESCREEN.search(new_text) and not DISTINCTIVE.search(new_text)
-                and '&' not in new_text and '\\' not in new_text and new_text.isascii()):
+                and '&' not in new_text and '\\' not in new_text and '%' not in new_text and new_text.isascii()):
             continue
         lines, has_hunk = changed_lines(root, base, head, path)
         if not has_hunk and blob(root, base, path) != new:
@@ -384,7 +386,7 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
         body = ''
     if not isinstance(body, str):
         raise RuntimeError('Pull request description is invalid')
-    classifier = policy.Classifier(repo, policy.load_vocabulary(), [], policy.load_interop(), skip_encoded=False)
+    classifier = policy.Classifier(repo, policy.load_vocabulary(), [], policy.load_interop(), skip_encoded=False, normalize_rendered=False)
     findings: list[policy.Hit] = []
     for path, text in (('pull-request-title.md', pr['title']), ('pull-request-body.md', body)):
         validate_scan_bounds(text)

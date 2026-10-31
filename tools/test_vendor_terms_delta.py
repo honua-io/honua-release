@@ -52,6 +52,42 @@ class DeltaTests(unittest.TestCase):
         head = commit(root, 'int value = 1;\n// ' + 'Es' + 'ri adapter\n')
         assert any(h.cls == 'avoidable' for h in guard.find_new_hits(root, 'fixture', base, head))
 
+    def test_workflow_product_name_is_detected_in_code_and_metadata(self):
+        root = repo(self.tmp_path)
+        mark = 'Model' + 'Builder'
+        base = commit(root, 'value = 1\n')
+        head = commit(root, f'// {mark} workflows\nvalue = 1\n')
+        assert guard.find_new_hits(root, 'fixture', base, head)
+        assert guard.find_pr_metadata_hits('fixture', {'pull_request': {'title': 'Migration', 'body': mark}})
+
+    def test_percent_encoded_product_name_is_detected(self):
+        root = repo(self.tmp_path)
+        base = commit(root, 'value = 1\n')
+        encoded = 'Model%42' + 'uilder'
+        head = commit(root, f'// {encoded} workflow\nvalue = 1\n')
+        assert guard.find_new_hits(root, 'fixture', base, head)
+        assert guard.find_pr_metadata_hits('fixture', {'pull_request': {'title': 'Migration', 'body': encoded}})
+
+    def test_encoded_occurrences_are_counted_once_each(self):
+        encoded = "&#" + "69;sri"
+        for count in (1, 2):
+            text = " ".join([encoded] * count)
+            payload = {"pull_request": {"title": "Migration", "body": text}}
+            self.assertEqual(len(guard.find_pr_metadata_hits("fixture", payload)), count)
+            (self.tmp_path / str(count)).mkdir()
+            root = repo(self.tmp_path / str(count))
+            base = commit(root, "value = 1\n")
+            head = commit(root, "// " + text + "\n")
+            self.assertEqual(len(guard.find_new_hits(root, "fixture", base, head)), count)
+
+    def test_encoded_path_occurrence_is_counted_once(self):
+        root = repo(self.tmp_path)
+        base = commit(root, "value = 1\n")
+        head = commit(root, "value = 1\n", "path-%" + "45sri.txt")
+        hits = guard.find_new_hits(root, "fixture", base, head)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0].line, 0)
+
     def test_compound_vendor_identifier_is_rejected_in_code_and_pr_text(self):
         root = repo(self.tmp_path)
         base = commit(root, 'value = 1\n')
