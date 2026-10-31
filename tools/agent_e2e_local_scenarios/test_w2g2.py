@@ -614,7 +614,7 @@ def test_p04_legacy_free_form_records_cannot_prove_crs(variant):
     assert score(bad) == 'fail'
 
 
-def test_p04_roles_bind_each_table_to_its_matching_input():
+def test_p04_legacy_inventory_cannot_bind_created_table():
     import hashlib
     import json
     from agent_e2e_local_expectations import load_roles
