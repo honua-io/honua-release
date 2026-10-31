@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scenario": "P11",
-  "derivation": "Buffer facts use oracle.fixture_expectation; town geometry and typed attributes come from A/B corpus GeoJSON. Job and map assertions remain unresolved.",
+  "derivation": "Buffer and 500 m bounds derive from A/B corpus oracles; source features from town fixtures. Live job, published service, map and child layer identities bind to agent-created resources; the map must show the published job result.",
   "variants": {
     "A": {
       "buffer.metric": {
@@ -410,6 +410,49 @@
           "$role": "created:job:buffer"
         },
         "terminalState": "Succeeded"
+      },
+      "map.composition": {
+        "mapId": {
+          "$role": "created:map:result"
+        },
+        "orderedLayerIds": [
+          {
+            "$role": "child:layer:result"
+          }
+        ],
+        "visibility": {
+          "buffer": true
+        },
+        "extent": [
+          -19900,
+          -5200,
+          -18900,
+          -4200
+        ],
+        "layerSource": {
+          "$role": "created:service:buffer"
+        },
+        "publishedJob": {
+          "$role": "created:job:buffer"
+        },
+        "publishedJobEcho": {
+          "$role": "created:job:buffer"
+        },
+        "publishStatus": "Completed",
+        "featureCount": 1,
+        "truncated": false,
+        "currentMapId": {
+          "$role": "created:map:result"
+        },
+        "currentVersionMatches": true,
+        "mapCount": 1,
+        "versionHttpStatus": 200,
+        "currentHttpStatus": 200,
+        "resultHttpStatus": 200,
+        "featureArrayCount": 1,
+        "queryError": false,
+        "offset": 0,
+        "geojsonType": "FeatureCollection"
       }
     },
     "B": {
@@ -819,6 +862,49 @@
           "$role": "created:job:buffer"
         },
         "terminalState": "Succeeded"
+      },
+      "map.composition": {
+        "mapId": {
+          "$role": "created:map:result"
+        },
+        "orderedLayerIds": [
+          {
+            "$role": "child:layer:result"
+          }
+        ],
+        "visibility": {
+          "buffer": true
+        },
+        "extent": [
+          12800,
+          -8200,
+          13800,
+          -7200
+        ],
+        "layerSource": {
+          "$role": "created:service:buffer"
+        },
+        "publishedJob": {
+          "$role": "created:job:buffer"
+        },
+        "publishedJobEcho": {
+          "$role": "created:job:buffer"
+        },
+        "publishStatus": "Completed",
+        "featureCount": 1,
+        "truncated": false,
+        "currentMapId": {
+          "$role": "created:map:result"
+        },
+        "currentVersionMatches": true,
+        "mapCount": 1,
+        "versionHttpStatus": 200,
+        "currentHttpStatus": 200,
+        "resultHttpStatus": 200,
+        "featureArrayCount": 1,
+        "queryError": false,
+        "offset": 0,
+        "geojsonType": "FeatureCollection"
       }
     }
   },
@@ -1094,6 +1180,191 @@
           "phase": "observe"
         }
       }
+    },
+    "buffer.metric": {
+      "spec": {
+        "object": {
+          "srid": {
+            "body": "p11-result-esri",
+            "pointer": "/spatialReference/wkid"
+          },
+          "sourceId": {
+            "body": "p11-result-geojson",
+            "pointer": "/result/structuredContent/geojson/features/0/properties/source_id"
+          },
+          "geometry": {
+            "body": "p11-result-geojson",
+            "pointer": "/result/structuredContent/geojson/features/0/geometry"
+          }
+        }
+      },
+      "reads": {
+        "p11-result-esri": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?.+",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            "created:service:buffer",
+            "child:layer:published"
+          ]
+        },
+        "p11-result-geojson": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            "created:service:buffer",
+            "child:layer:published"
+          ]
+        }
+      }
+    },
+    "map.composition": {
+      "spec": {
+        "object": {
+          "mapId": {
+            "target": "p11-map-version",
+            "role": "created:map:result"
+          },
+          "orderedLayerIds": {
+            "map": {
+              "body": "p11-map-version",
+              "pointer": "/data/envelope/body/layers"
+            },
+            "to": {
+              "item": "/id"
+            }
+          },
+          "visibility": {
+            "object": {
+              "buffer": {
+                "body": "p11-map-version",
+                "pointer": "/data/envelope/body/layers/0/visible"
+              }
+            }
+          },
+          "extent": {
+            "body": "p11-map-version",
+            "pointer": "/data/envelope/body/view/bbox"
+          },
+          "layerSource": {
+            "body": "p11-map-version",
+            "pointer": "/data/envelope/body/layers/0/sourceId"
+          },
+          "publishedJob": {
+            "target": "p11-result-publish",
+            "role": "created:job:buffer"
+          },
+          "publishedJobEcho": {
+            "body": "p11-result-publish",
+            "pointer": "/result/structuredContent/sourceJobId"
+          },
+          "publishStatus": {
+            "body": "p11-result-publish",
+            "pointer": "/result/structuredContent/status"
+          },
+          "featureCount": {
+            "body": "p11-result-geojson",
+            "pointer": "/result/structuredContent/returnedCount"
+          },
+          "truncated": {
+            "body": "p11-result-geojson",
+            "pointer": "/result/structuredContent/exceededTransferLimit"
+          },
+          "currentMapId": {
+            "body": "p11-map-current",
+            "pointer": "/data/items/0/itemId"
+          },
+          "currentVersionMatches": {
+            "eq": [
+              {
+                "body": "p11-map-current",
+                "pointer": "/data/items/0/currentVersionId"
+              },
+              {
+                "body": "p11-map-version",
+                "pointer": "/data/versionId"
+              }
+            ]
+          },
+          "mapCount": {
+            "body": "p11-map-current",
+            "pointer": "/data/total"
+          },
+          "versionHttpStatus": {
+            "status": "p11-map-version"
+          },
+          "currentHttpStatus": {
+            "status": "p11-map-current"
+          },
+          "resultHttpStatus": {
+            "status": "p11-result-geojson"
+          },
+          "featureArrayCount": {
+            "count": {
+              "body": "p11-result-geojson",
+              "pointer": "/result/structuredContent/geojson/features"
+            }
+          },
+          "queryError": {
+            "body": "p11-result-geojson",
+            "pointer": "/result/isError"
+          },
+          "offset": {
+            "body": "p11-result-geojson",
+            "pointer": "/result/structuredContent/resultOffset"
+          },
+          "geojsonType": {
+            "body": "p11-result-geojson",
+            "pointer": "/result/structuredContent/geojson/type"
+          }
+        }
+      },
+      "reads": {
+        "p11-map-version": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/content-items/[0-9a-fA-F-]+/versions/[0-9a-fA-F-]+",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            "created:map:result"
+          ]
+        },
+        "p11-map-current": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/content-items\\?.+",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "p11-result-publish": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "agent",
+          "phase": "observe",
+          "origin": "session-result",
+          "addresses": [
+            "created:job:buffer"
+          ]
+        },
+        "p11-result-geojson": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            "created:service:buffer",
+            "child:layer:published"
+          ]
+        }
+      }
     }
   },
   "roles": [
@@ -1106,11 +1377,41 @@
       "created_by": {
         "tool": "honua_execute_plan",
         "pointer": "/result/structuredContent/jobId"
-      },
-      "page_limit": {
-        "param": "limit",
-        "value": 100
       }
+    },
+    {
+      "role": "created:service:buffer",
+      "step": "p11-services-after",
+      "items": "/data",
+      "id": "/serviceName",
+      "before": "p11-services-before",
+      "created_by": {
+        "tool": "honua_publish_result",
+        "pointer": "/result/structuredContent/serviceId"
+      }
+    },
+    {
+      "role": "child:layer:published",
+      "step": "p11-service-meta",
+      "pointer": "/layers/0/id",
+      "parent": "created:service:buffer"
+    },
+    {
+      "role": "created:map:result",
+      "step": "p11-maps-after",
+      "items": "/data/items",
+      "id": "/itemId",
+      "before": "p11-maps-before",
+      "created_by": {
+        "tool": "honua_studio_create_draft",
+        "pointer": "/result/structuredContent/itemId"
+      }
+    },
+    {
+      "role": "child:layer:result",
+      "step": "p11-map-version",
+      "pointer": "/data/envelope/body/layers/0/id",
+      "parent": "created:map:result"
     },
     {
       "role": "seeded:service:parcels",
