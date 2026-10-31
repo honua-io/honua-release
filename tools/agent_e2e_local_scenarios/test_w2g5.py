@@ -21,7 +21,7 @@ spec.loader.exec_module(oracle)
 
 @pytest.fixture(params=['P21', 'P22', 'P23'])
 def scenario(request):
-    return importlib.import_module('agent_e2e_local_scenarios.' + request.param)
+    return importlib.import_module('agent_e2e_local_scenarios.' + request.param).scenario
 
 
 @pytest.fixture
@@ -32,19 +32,17 @@ def stack(tmp_path):
 
 def test_unsupported_case_cannot_seed_score_or_mutate(scenario, stack, tmp_path):
     assert scenario.supported_variants == ()
-    assert scenario.id in scenario.__doc__
-    assert not scenario.needs_approver()
+    assert scenario.id in type(scenario).__name__
+    assert scenario.needs_approver() == (scenario.id in ('P21', 'P22'))
     for variant in ('A', 'B'):
         for _ in range(2):
             with pytest.raises(NotImplementedError):
                 scenario.seed(stack, variant)
-        for call in (lambda: scenario.fault_plan(variant),
-                     lambda: scenario.observe(stack, Seeded({}), variant),
+        for call in (lambda: scenario.observe(stack, Seeded({}), variant),
                      lambda: scenario.expected(variant)):
             with pytest.raises(NotImplementedError):
                 call()
-    with pytest.raises(NotImplementedError):
-        scenario.cleanup(stack, Seeded({}))
+    assert scenario.cleanup(stack, Seeded({})) is None
     assert list(tmp_path.iterdir()) == []
     assert not (ROOT / 'certification/agent-e2e/expectations/local' /
                 (scenario.id + '.json')).exists()
@@ -79,8 +77,20 @@ def test_fixture_source_preservation_negative_control(scenario):
 ])
 def test_scenario_oracle_negative_control(scenario_id, assertion, expected, wrong):
     # Synthetic controls exercise predicates only; they are not case evidence.
-    scenario = importlib.import_module('agent_e2e_local_scenarios.' + scenario_id)
+    scenario = importlib.import_module('agent_e2e_local_scenarios.' + scenario_id).scenario
     assert scenario.supported_variants == ()
     oracle.verify(assertion, copy.deepcopy(expected), expected)
     with pytest.raises(oracle.VerificationError):
         oracle.verify(assertion, wrong, expected)
+
+
+def test_runner_contract():
+    p21 = importlib.import_module('agent_e2e_local_scenarios.P21').scenario
+    p22 = importlib.import_module('agent_e2e_local_scenarios.P22').scenario
+    for variant in ('A', 'B'):
+        assert p21.fault_plan(variant) == {
+            'kind': 'http-transient', 'status': 503, 'count': 1,
+            'operationClass': 'map-create', 'trigger': 'after-commit-before-response',
+            'injectionActor': 'controller', 'requireCommittedResourceObservation': True}
+        assert p22.fault_plan(variant) is None
+    assert p22.sessions_required() == 2

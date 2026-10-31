@@ -1,40 +1,27 @@
-"""P23 is unsupported on local Docker.
+"""P23 is unsupported: the requested scoped project cleanup is not observable.
 
-TownSetup creates town data and services, not the owned project with shared
-and foreign resources required by this case. The interface carries an ownership
-inventory only if seed can establish one; no available local adapter establishes
-and independently enumerates that project inventory. Cleanup completeness
-therefore cannot be proved.
+The reviewed proposal requires another tenant, prohibited by the release rules.
+The Studio endpoints expose draft deletion and content lists, but no project
+resource or project deletion/readback. A draft-only inventory cannot prove the
+project and every owned resource were deleted. This needs a same-tenant foreign
+principal fixture, a real owned-project lifecycle and complete controller
+inventory/readback (including shared-service and source snapshots).
 """
-from __future__ import annotations
-
-id = "P23"
-supported_variants: tuple[str, ...] = ()
+from agent_e2e_local_api import Scenario
 
 
-def _unsupported():
-    raise NotImplementedError("P23 has no independently observable local implementation")
+class P23(Scenario):
+    id = 'P23'
+    supported_variants = ()
+
+    def seed(self, stack, variant):
+        raise NotImplementedError('P23 requires an independently inventoried project')
+
+    def observe(self, stack, seeded, variant, run=None):
+        raise NotImplementedError('P23 requires complete owned-project readback')
+
+    def expected(self, variant):
+        raise NotImplementedError('P23 has no complete independent expectations')
 
 
-def seed(stack, variant):
-    _unsupported()
-
-
-def fault_plan(variant):
-    _unsupported()
-
-
-def needs_approver():
-    return False
-
-
-def observe(stack, seeded, variant):
-    _unsupported()
-
-
-def expected(variant):
-    _unsupported()
-
-
-def cleanup(stack, seeded):
-    _unsupported()
+scenario = P23()
