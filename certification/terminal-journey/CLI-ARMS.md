@@ -119,6 +119,20 @@ event; the transcript was not retained, so the precise cause is unknown. The
 image lacked `honua_ops_health`, while a controller read using the scoped key
 verified `honua_list_layers`. Neither attempt is a successful model smoke.
 
+A later instrumented smoke used the exact trunk source
+`013613e7136b6b90a50b505b0dd5190cb6d1e692` built on the remote host with
+`docker/Dockerfile.aot` (image ID
+`sha256:70a717d3e0915f9adc1ed19ca120518db845f8ba3e5dbe171f7e710efdabcd55`).
+Opus 5.5 and GPT-6.1 Sol each listed the 135-tool catalog and successfully
+called `honua_ops_health` through the recording proxy; each isolated stack and
+its volumes was removed. Claude first sent `server/discover`, which the proxy
+now rejects as an optional method without aborting discovery. Codex initially
+failed because its bundled model catalog forced code-mode-only routing and then
+deferred tool search despite the restricted session. The isolated catalog now
+selects direct MCP tool routing without deferred search while keeping built-in
+shell, file, web and code-mode tools disabled. The private raw diagnostics and
+receipts remain with the runner, not in the repository.
+
 The legacy corpus adapter uses W2's runner-owned gateway, controller reads and
 oracle. Its remote-cell mode requires the retained target configuration and
 verified deployment receipt. W2 scenario support, scripted clarifications,

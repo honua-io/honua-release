@@ -7,11 +7,19 @@ import textwrap
 import pytest
 
 from agent_cli_sessions import (CliFailure, CliModelSession, RecordingProxy, cli_environment,
-                                digest, encoded, parse_transcript)
+                                codex_forbidden_diagnostics, digest, encoded, parse_transcript)
 from agent_e2e_local_recorder import read_logged_action
 
 TOOLS = {'tools': [{'name': 'honua_query_features', 'description': 'Query the candidate',
                     'inputSchema': {'type': 'object', 'properties': {}}}]}
+
+
+def test_codex_debug_detects_calls_missing_from_json_events():
+    names = {'honua': {'honua_ops_health'}}
+    allowed = b'event.name="codex.tool_call_received" tool_name="honua_ops_health" tool_namespace="mcp__honua"'
+    rejected = b'event.name="codex.tool_call_received" tool_name="tool_search_tool" tool_namespace="tool_search"'
+    assert not codex_forbidden_diagnostics(allowed, names)
+    assert codex_forbidden_diagnostics(rejected, names)
 
 
 def fake_cli(tmp_path, agent, mode='ok'):

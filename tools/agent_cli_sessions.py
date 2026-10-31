@@ -420,6 +420,19 @@ def transcript_diagnostics(raw):
     return events
 
 
+def codex_forbidden_diagnostics(raw, names):
+    """Catch attempted calls omitted from Codex's JSON event stream."""
+    for line in raw.decode('utf-8', errors='replace').splitlines():
+        if 'event.name="codex.tool_call_received"' not in line: continue
+        namespace = re.search(r'\btool_namespace="([^"\r\n]*)"', line)
+        tool = re.search(r'\btool_name="([^"\r\n]*)"', line)
+        if not namespace or not tool or not namespace.group(1).startswith('mcp__'):
+            return True
+        if tool.group(1) not in names.get(namespace.group(1)[5:], ()):
+            return True
+    return False
+
+
 class CliModelSession:
     def __init__(self, agent, model, *, binary=None, auth_root=None):
         if agent not in MODELS or model not in MODELS[agent]:
@@ -567,7 +580,8 @@ class CliModelSession:
                     event.get('type') in ('item.started', 'item.completed') and
                     isinstance(event.get('item'), dict) and event['item'].get('type') == 'error')
                     for event in (json.loads(line) for line in raw.splitlines()))
-                if forbidden or turns > max_turns:
+                if (forbidden or turns > max_turns or self.agent == 'codex-cli' and
+                        codex_forbidden_diagnostics(stderr_raw, {name: p.names for name, p in proxies.items()})):
                     raise CliFailure('forbidden action or turn bound exceeded', out)
                 if reported_failure:
                     raise CliFailure('CLI reported an execution failure', out,
