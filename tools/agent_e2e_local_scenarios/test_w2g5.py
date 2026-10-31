@@ -89,8 +89,25 @@ def test_runner_contract():
     p22 = importlib.import_module('agent_e2e_local_scenarios.P22').scenario
     for variant in ('A', 'B'):
         assert p21.fault_plan(variant) == {
-            'kind': 'http-transient', 'status': 503, 'count': 1,
-            'operationClass': 'map-create', 'trigger': 'after-commit-before-response',
-            'injectionActor': 'controller', 'requireCommittedResourceObservation': True}
+            'kind': 'http_503_once', 'id': 'p21-map-create',
+            'after': {'tool': 'honua_create_map'}, 'match': {'tool': 'honua_create_map'}}
         assert p22.fault_plan(variant) is None
     assert p22.sessions_required() == 2
+
+
+def test_p21_runner_fault_is_before_forwarding():
+    # A prior successful call arms the hook. The failed matching call is not
+    # forwarded: it cannot stand in for the pack's lost post-commit response.
+    from agent_e2e_local_faults import FaultInjector, validate_fault_plan
+    p21 = importlib.import_module('agent_e2e_local_scenarios.P21').scenario
+    calls = []
+    injector = FaultInjector(validate_fault_plan(p21.fault_plan('A')))
+    def candidate(kind, action):
+        calls.append(action)
+        return {'status': 'ok'}
+    execute = injector.wrap(candidate)
+    action = {'tool': 'honua_create_map', 'arguments': {}}
+    assert execute('tool_call', action)['status'] == 'ok'
+    assert execute('tool_call', action)['httpStatus'] == 503
+    assert calls == [action]
+    assert len(injector.events) == 1

@@ -1,7 +1,7 @@
 """P23 is unsupported: the requested scoped project cleanup is not observable.
 
-The reviewed proposal requires another tenant, prohibited by the release rules.
-The Studio endpoints expose draft deletion and content lists, but no project
+The review proposed another tenant, which the release rules prohibit; a
+same-tenant foreign principal would be permitted. The Studio endpoints expose draft deletion and content lists, but no project
 resource or project deletion/readback. A draft-only inventory cannot prove the
 project and every owned resource were deleted. This needs a same-tenant foreign
 principal fixture, a real owned-project lifecycle and complete controller

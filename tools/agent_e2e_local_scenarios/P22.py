@@ -1,8 +1,9 @@
-"""P22 is unsupported: publication requires a separate approver.
+"""P22 is unsupported: fresh session identities cannot be frozen for the oracle.
 
-The runtime rejects approver setup and supplies no independently seeded saved
-map with a fixture-derived public route or independent final-answer handoff.
-Two runner-minted session identities alone cannot prove saved state was reused.
+The runner creates session IDs at run time, but the oracle requires both IDs
+in the frozen expectation and logical roles can bind only recorded resource
+reads, not session facts. A seeded saved map and publication readback are also
+needed; session count alone cannot prove state reuse.
 """
 from agent_e2e_local_api import Scenario
 
