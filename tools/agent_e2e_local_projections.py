@@ -126,6 +126,22 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
 
 
+def addressed(record):
+    """Identifiers a recorded request addressed: path segments, query values, MCP argument scalars."""
+    from urllib.parse import parse_qsl, unquote, urlsplit
+    parts = urlsplit(record.path.split('#', 1)[0])
+    found = {unquote(segment) for segment in parts.path.split('/') if segment} | {v for _, v in parse_qsl(parts.query)}
+    if record.request_arguments is not None:
+        _scalars(record.request_arguments.get('arguments', record.request_arguments), found)
+    return found
+
+
+def same_request(left, right):
+    """Two records are the same request: kind, method, path, principal and request body/arguments."""
+    return (left.kind == right.kind and left.method == right.method and left.path == right.path
+            and left.principal == right.principal and left.request_arguments_raw == right.request_arguments_raw)
+
+
 class Context:
     def __init__(self, records, roles=None, custody=None, run_facts=None, credentials=(), model_actions=None):
         self.model_actions = dict(model_actions or {})
@@ -229,8 +245,21 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(rows, list) and rows, 'protectedContent needs resources')
         before, after, labels = [], [], set()
         for row in rows:
-            require(isinstance(row, dict) and {'label', 'before', 'after'} <= set(row) <= {'label', 'before', 'after', 'pointer', 'content'},
-                    'invalid protectedContent row')
+            require(isinstance(row, dict) and {'label', 'before', 'after', 'resource'} <= set(row)
+                    <= {'label', 'before', 'after', 'resource', 'pointer', 'content'},
+                    'invalid protectedContent row (label, before, after and resource roles are required)')
+            # The snapshots must be of the protected resource itself: both reads address every
+            # resolved identity role of it, and they are the identical request.
+            resource = row['resource']
+            require(isinstance(resource, list) and resource and all(isinstance(r, str) for r in resource),
+                    'protectedContent resource must list identity roles')
+            first, second = ctx.record(row['before']), ctx.record(row['after'])
+            require(same_request(first, second), 'protected before/after reads are different requests')
+            for role in resource:
+                require(role in ctx.roles, 'logical role unresolved: ' + role)
+                for record in (first, second):
+                    require(str(ctx.roles[role]) in addressed(record),
+                            f'protected read {record.step} does not address {role}')
             label = row['label']
             require(isinstance(label, str) and label and label not in labels, 'duplicate protected label')
             labels.add(label)
@@ -250,15 +279,9 @@ def evaluate(spec, ctx, *, item=None, step=None):
                 sink.append({'resourceId': label, 'content': content})
         return {'profile': 'honua.protected-content/v1', 'before': before, 'after': after}
     if keys == {'target', 'role'}:
-        from urllib.parse import parse_qsl, unquote, urlsplit
         record = ctx.record(named(spec['target']))
         require(spec['role'] in ctx.roles, 'logical role unresolved: ' + str(spec['role']))
-        value = str(ctx.roles[spec['role']])
-        parts = urlsplit(record.path.split('#', 1)[0])
-        addressed = {unquote(segment) for segment in parts.path.split('/')} | {v for _, v in parse_qsl(parts.query)}
-        if record.request_arguments is not None:
-            _scalars(record.request_arguments.get('arguments', record.request_arguments), addressed)
-        require(value in addressed, 'recorded request did not address the role ' + spec['role'])
+        require(str(ctx.roles[spec['role']]) in addressed(record), 'recorded request did not address the role ' + spec['role'])
         return ctx.roles[spec['role']]
     if keys == {'leakedCredentials'}:
         steps = spec['leakedCredentials']
@@ -366,8 +389,7 @@ def resolve_roles(bindings, records, *, agent_principal):
                 and baseline_record.kind == record.kind and baseline_record.path == record.path
                 and baseline_record.principal == record.principal,
                 'created role baseline is not a seed-phase read of the same enumeration: ' + name)
-        require(baseline_record.method == record.method
-                and baseline_record.request_arguments == record.request_arguments,
+        require(same_request(baseline_record, record),
                 'created role baseline enumerates a different request scope: ' + name)
         baseline = pointer_get(baseline_record.json, binding.items)
         require(isinstance(baseline, list), 'created role baseline is not a list: ' + name)
@@ -378,10 +400,11 @@ def resolve_roles(bindings, records, *, agent_principal):
                 count = pointer_get(listing.json, binding.total)
                 require(type(count) is int and count == len(values), 'created role enumeration is incomplete: ' + name)
             else:
+                # The cursor field must exist (a wrong pointer is not proof of a last page) and be empty.
                 try:
                     cursor = pointer_get(listing.json, binding.next_page)
                 except ProjectionError:
-                    cursor = None
+                    raise ProjectionError('created role completeness pointer is absent: ' + name) from None
                 require(cursor in (None, ''), 'created role enumeration has further pages: ' + name)
         excluded = {str(pointer_get(row, binding.id)) for row in baseline}
         matches = []

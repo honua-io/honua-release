@@ -13,20 +13,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Release-session scope rulings that take an assertion out of the measured arc. An excluded
-# assertion is listed in every receipt as excluded (never dropped, never a pass). Only a
-# registered ruling can exclude, and only the assertions or scenarios it names.
-EXCLUSION_RULINGS = {
-    'founder-ruling-no-multi-tenant-2026.1': {
-        'summary': 'Multi-tenancy is not a 2026.1 customer feature (founder ruling); tenant isolation is out of the arc.',
-        'assertions': frozenset({'tenant.denied'}),
-        'scenarios': frozenset({'P18'}),
-    },
-}
+# The frozen exclusion list of the AI arc preregistration (certification/ai-arc/PREREG-arc-v1.md,
+# "Exclusions (listed in every receipt, never counted as pass)"). Nothing else can exclude.
+PREREG_SOURCE = 'certification/ai-arc/PREREG-arc-v1.md'
+PREREG_EXCLUSIONS = ('tenant.denied', 'P18', 'custody.worker-replaced@local-docker')
+TARGET = 'local-docker'
+
+
+def prereg_exclusion(scenario_id, assertion, target=TARGET):
+    """The preregistered exclusion that covers this assertion of this case, or None."""
+    if scenario_id == 'P18':
+        return 'P18'
+    if assertion == 'tenant.denied':
+        return 'tenant.denied'
+    if assertion == 'custody.worker-replaced' and target == 'local-docker':
+        return 'custody.worker-replaced@local-docker'
+    return None
 
 
 def exclusion(value):
-    """The ruling id when an expectation value is an exclusion marker, else None."""
+    """The exclusion id when an expectation value is an exclusion marker, else None."""
     if isinstance(value, dict) and '$excluded' in value:
         if set(value) != {'$excluded'} or not isinstance(value['$excluded'], str):
             raise ValueError('malformed exclusion marker')
@@ -34,14 +40,16 @@ def exclusion(value):
     return None
 
 
-def check_exclusion(scenario_id, assertion, value):
-    ruling = exclusion(value)
-    if ruling is None:
-        return None
-    rule = EXCLUSION_RULINGS.get(ruling)
-    if rule is None or (assertion not in rule['assertions'] and scenario_id not in rule['scenarios']):
-        raise ValueError(f'{assertion} in {scenario_id} is not covered by exclusion ruling {ruling}')
-    return ruling
+def check_exclusion(scenario_id, assertion, value, target=TARGET):
+    """Exclusion is decided by the preregistered list alone. An expectation marker must agree with it;
+    an assertion the list covers is excluded even without a marker, and nothing else can be."""
+    covered = prereg_exclusion(scenario_id, assertion, target)
+    marked = exclusion(value)
+    if marked is not None and marked != covered:
+        raise ValueError(f'{assertion} in {scenario_id} is not covered by the preregistered exclusion {marked}')
+    return covered
+
+
 DIRECTORY = ROOT / 'certification/agent-e2e/expectations/local'
 
 
@@ -91,6 +99,8 @@ def load_expected(scenario_id, variant):
         raise ValueError('no frozen expectation for this variant')
     for assertion, value in assertions.items():
         check_exclusion(scenario_id, assertion, value)
+    for assertion in [a for a in assertions if prereg_exclusion(scenario_id, a)]:
+        assertions = {**assertions, assertion: {'$excluded': prereg_exclusion(scenario_id, assertion)}}
     return _resolve(assertions, variant)
 
 
@@ -120,4 +130,19 @@ def load_projections(scenario_id, variant):
                 raise ValueError(f'frozen read {step} for {assertion} must pin kind, method, path, principal, phase')
             re.compile(rule['path'])
         out[assertion] = {'spec': row['spec'], 'reads': row['reads']}
+    return out
+
+
+ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'total', 'next_page'}
+
+
+def load_roles(scenario_id):
+    """Frozen logical-role bindings ("roles": [{role, step, pointer | items, id, owner, before, total | next_page}])."""
+    from agent_e2e_local_api import RoleBinding
+    rows = load_document(scenario_id).get('roles') or []
+    out = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) - ROLE_FIELDS or not {'role', 'step'} <= set(row):
+            raise ValueError('malformed frozen role binding')
+        out.append(RoleBinding(**row))
     return out

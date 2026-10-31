@@ -2,6 +2,18 @@
   "schemaVersion": 1,
   "scenario": "P10",
   "derivation": "filter.exact from corpus/oracles/town-<variant>.json (openCapacityOver50Ids) via oracle.fixture_expectation; source-content.unchanged is the frozen shelters layer of corpus/town-<variant>/shelters.3857.geojson sorted by source_id (same values as expectations/p10-local-docker.json). Projections and their controller reads are frozen here; the runner scores only these.",
+  "roles": [
+    {
+      "role": "seeded:service:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "publish-shelters-submit",
+      "pointer": "/data/resourceIds/layerId"
+    }
+  ],
   "projections": {
     "filter.exact": {
       "spec": {
@@ -34,7 +46,11 @@
           {
             "label": "shelters",
             "before": "p10-source-before",
-            "after": "p10-source-after"
+            "after": "p10-source-after",
+            "resource": [
+              "seeded:service:shelters",
+              "seeded:layer:shelters"
+            ]
           }
         ]
       },

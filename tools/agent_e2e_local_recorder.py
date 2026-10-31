@@ -76,7 +76,14 @@ class Record:
 
     @property
     def request_arguments(self) -> dict | None:
-        return None if self.request_arguments_raw is None else json.loads(self.request_arguments_raw)
+        """MCP: the tool and arguments sent. HTTP: the JSON request body, when it was JSON."""
+        if self.request_arguments_raw is None:
+            return None
+        try:
+            value = json.loads(self.request_arguments_raw)
+        except ValueError:
+            return None
+        return value if isinstance(value, dict) and self.kind == 'mcp' else None
 
     def intact(self) -> bool:
         return 'sha256:' + hashlib.sha256(self.raw).hexdigest() == self.sha256
@@ -341,8 +348,11 @@ class ControllerRecorder:
                 self._pending.pop(step, None)
             require(len(raw) <= 16 * 1024 * 1024, 'recorded response exceeds bound')
         require(token is None or token.encode() not in raw, 'response disclosed the requesting credential')
+        # The request body is part of the request identity (bound in the vault digest): two POST
+        # enumerations with different body-defined scopes are different requests.
         record = self._store(Record(step, self.phase, 'http', principal, identity, method, path, status, raw,
-                                    'sha256:' + hashlib.sha256(raw).hexdigest(), content_type=content_type))
+                                    'sha256:' + hashlib.sha256(raw).hexdigest(), request_arguments_raw=body,
+                                    content_type=content_type))
         return {'observation': {'httpStatus': status, 'body': record.json, 'responseDigest': record.sha256,
                                 'rawBodyBase64': base64.b64encode(raw).decode('ascii')},
                 'reference': {'key': step, 'sha256': record.sha256}}

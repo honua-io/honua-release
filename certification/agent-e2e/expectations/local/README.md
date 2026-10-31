@@ -59,16 +59,30 @@ frozen read for each step they use. A step the spec reads but `reads` does not d
 `replayOfModelAction` requires the record to be a controller replay of a sealed model action of the
 same case with the model's exact arguments. `variantProjections.{A|B}` may override per variant.
 
+## Frozen roles and customer files
+
+`"roles": [...]` holds the logical-role bindings (`RoleBinding` fields). The runner uses only these; a
+scenario's `roles()` must repeat them exactly. A `created:*` role needs the owner filter, a seed-phase
+baseline made with the identical request (method, path, principal, request body or MCP arguments), and
+exactly one completeness proof, `total` or `next_page`. The pointer must exist in both enumerations.
+
+`"customerFiles": {"A": [...], "B": [...]}` is the case's attachment inventory. Only manifest files with
+visibility `selected-case-input` in the variant's `town-<variant>/` folder can be attached, and only those
+whose `scenarioIds` (when present) name the scenario. Controller-only files (oracles, SQL seeds) are refused.
+
+`protectedContent` rows must name the protected resource's identity roles (`resource`). Both snapshots must
+address every one of them and be the identical request.
+
 ## Exclusions
 
-`{"$excluded": "<ruling id>"}` in place of an expected value takes the assertion out of the measured
-arc. Only rulings registered in `tools/agent_e2e_local_expectations.py` `EXCLUSION_RULINGS` are
-accepted, and only for the assertions or scenarios they name. Today that is
-`founder-ruling-no-multi-tenant-2026.1` (`tenant.denied` anywhere, and all of P18). Excluded
-assertions are listed in every receipt as `excluded` with the ruling. They are never a pass, and a
-case is a pass only when at least one assertion was scored and passed. A case whose every assertion
-is excluded does not run; the aggregate lists it under `excludedCases`, outside the pass-rate
-denominator.
+Exclusions come only from the frozen preregistration list in `certification/ai-arc/PREREG-arc-v1.md`:
+`tenant.denied` (any scenario), `P18` (the whole scenario) and `custody.worker-replaced@local-docker`. The
+runner applies them itself (`prereg_exclusion`). An optional `{"$excluded": "<id>"}` marker must name the
+covering entry, and no other marker is accepted. Excluded assertions are listed in every receipt with their
+exclusion id and are never a pass. A case whose every assertion is excluded (P18) does not run, but it
+stays in `n` as not passed, and the aggregate reports it under `excluded` / `excludedCases`. The aggregate
+rejects any receipt whose assertion rows differ from the pack inventory, or whose excluded rows differ from
+the preregistered list.
 
 The precedent is `../p10-local-docker.json`, whose protected-content resource ids are the
 logical name `shelters`; `P10.json` carries the same values.

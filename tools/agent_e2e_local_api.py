@@ -50,8 +50,9 @@ Other hooks (base-class defaults below): between_sessions() (approve, or request
 one HTTP 503 on the model's request path after a trigger; fired events in RunRecord.fault_events),
 needs_approver() (a distinct approver key: stack.approver_key and stack.extra['approve'](proposal)),
 customer_files() (manifest-checked corpus files attached to the customer turn by digest).
-Exclusions: an expectation value {"$excluded": "<ruling>"} (registered rulings only, in
-agent_e2e_local_expectations.EXCLUSION_RULINGS) is listed as excluded in receipts, never a pass.
+Exclusions come only from the frozen prereg list (agent_e2e_local_expectations.PREREG_EXCLUSIONS:
+tenant.denied, P18, custody.worker-replaced@local-docker); they are listed in receipts, never a pass,
+and never removed from n. Roles, projections and customer files are frozen in the expectation file.
 
 Final answer: a scenario may define ``handoff(stack, seeded, variant, run) -> spec | None``; the runner
 evaluates the spec like an observation and passes the result to agent_e2e_handoff.score_final_answer

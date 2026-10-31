@@ -38,6 +38,7 @@ class Candidate:
     def __init__(self):
         self.keys = {}          # key secret -> {'id', 'revoked', 'permissions'}
         self.features = shelters()
+        self.by_service = {}
         self.mcp_calls = []
         self.approvals = []
         self.lock = threading.Lock()
@@ -49,14 +50,18 @@ class Candidate:
         row = self.keys.get(secret)
         return row if row and not row['revoked'] else None
 
-    def feature_server(self):
+    def features_of(self, service):
+        return self.by_service.get(service, self.features)
+
+    def feature_server(self, service=None):
+        features = self.features_of(service)
         fields = [{'name': 'objectid', 'type': 'esriFieldTypeOID'}] + [
             {'name': name, 'type': 'esriFieldTypeString'} for name in ('capacity', 'is_open', 'name', 'source_id')]
         return {'geometryType': 'esriGeometryPoint', 'exceededTransferLimit': False,
                 'spatialReference': {'wkid': 3857}, 'objectIdFieldName': 'objectid', 'fields': fields,
                 'features': [{'attributes': {'objectid': i + 1, **f['properties']},
                               'geometry': {'x': f['geometry']['coordinates'][0], 'y': f['geometry']['coordinates'][1]}}
-                             for i, f in enumerate(self.features)]}
+                             for i, f in enumerate(features)]}
 
     def query(self, arguments):
         rows = self.features
@@ -101,6 +106,11 @@ class Candidate:
                 bad = [{'row': i + 2, 'reason': 'missing coordinate'} for i, row in enumerate(rows) if ',,' in row]
                 return {'content': [{'type': 'text', 'text': 'ingested'}], 'isError': False,
                         'structuredContent': {'rowCount': len(rows) - len(bad), 'errors': bad}}
+            if name == 'honua_update_features' and arguments.get('serviceId') not in (None, 'p10-shelters'):
+                service = arguments['serviceId']
+                self.by_service[service] = [dict(f, properties={**f['properties'], 'capacity': 999})
+                                            for f in self.features_of(service)]
+                return {'content': [{'type': 'text', 'text': 'updated'}], 'isError': False}
             if name == 'honua_update_features':
                 self.features = [dict(f, properties={**f['properties'], 'capacity': 999}) for f in self.features]
                 return {'content': [{'type': 'text', 'text': 'updated'}], 'isError': False}
@@ -137,7 +147,8 @@ def serve(candidate):
                 if path.endswith('/effective-permissions'):
                     return self.reply(200, {'data': {'status': 'active'}})
                 if '/FeatureServer/' in path and path.endswith('/query'):
-                    return self.reply(200, candidate.feature_server())
+                    service = path.split('/rest/services/', 1)[1].split('/', 1)[0]
+                    return self.reply(200, candidate.feature_server(service if service in candidate.by_service else None))
                 return self.reply(404, {'error': 'not found'})
 
         def do_DELETE(self):
@@ -178,6 +189,9 @@ def serve(candidate):
                         return self.reply(403, {'error': 'forbidden'})
                     candidate.approvals.append((principal['id'], path.split('/')[-2]))
                     return self.reply(200, {'data': {'status': 'Approved'}})
+                if path == '/api/v1/admin/maps/search':
+                    rows = [{'id': 'map-old', 'owner': 'key-2'}] if body.get('scope') == 'all' else []
+                    return self.reply(200, {'items': rows, 'next': None})
                 if path == '/api/v1/operations/service.publish/submit':
                     return self.reply(200, {'data': {'operationId': 'service.publish', 'status': 'Completed',
                                                      'resourceIds': {'serviceName': body['serviceName'], 'layerId': '0'}}})
@@ -468,7 +482,7 @@ def test_created_role_requires_exactly_one_new_owned_resource():
     from agent_e2e_local_recorder import Record
 
     def record(step, phase, items):
-        raw = json.dumps({'items': items}).encode()
+        raw = json.dumps({'items': items, 'next': None}).encode()
         return Record(step, phase, 'http', 'controller', None, 'GET', '/maps', 200, raw,
                       'sha256:' + hashlib.sha256(raw).hexdigest())
     before = [{'id': 'm1', 'owner': 'other'}]
@@ -529,19 +543,19 @@ def test_permission_matrix_projection_binds_targets_principals_and_disclosure():
         {'principalId': 'key-a', 'method': 'GET', 'resourceId': {'$role': 'seeded:map:ours'}, 'status': 200},
         {'principalId': 'key-a', 'method': 'GET', 'resourceId': {'$role': 'seeded:map:theirs'}, 'status': 404},
         {'principalId': 'key-b', 'method': 'GET', 'resourceId': {'$role': 'seeded:map:theirs'}, 'status': 200}]}
-    obs = Observation('tenant.denied', None, {'projection': 'extract/v1', 'spec': spec})
-    assert runner.score_assertions(['tenant.denied'], [obs], {'tenant.denied': expected}, records=records,
+    obs = Observation('publication.private', None, {'projection': 'extract/v1', 'spec': spec})
+    assert runner.score_assertions(['publication.private'], [obs], {'publication.private': expected}, records=records,
                                    roles=roles)[0]['status'] == 'pass'
     # A probe cannot claim a resource its request did not address.
     swapped = {'object': {'requests': {'list': [row('own', 'seeded:map:ours'), row('own', 'seeded:map:theirs'),
                                                 row('control', 'seeded:map:theirs')]}}}
-    bad = Observation('tenant.denied', None, {'projection': 'extract/v1', 'spec': swapped})
-    result = runner.score_assertions(['tenant.denied'], [bad], {'tenant.denied': expected}, records=records, roles=roles)
+    bad = Observation('publication.private', None, {'projection': 'extract/v1', 'spec': swapped})
+    result = runner.score_assertions(['publication.private'], [bad], {'publication.private': expected}, records=records, roles=roles)
     assert result[0]['status'] == 'fail' and 'did not address' in result[0]['reason']
     # A denial that discloses the foreign id fails.
     records['foreign'] = _record('foreign', status=404, body={'id': 'map-2'}, path='/api/v1/maps/map-2',
                                  principal_id='key-a')
-    assert runner.score_assertions(['tenant.denied'], [obs], {'tenant.denied': expected}, records=records,
+    assert runner.score_assertions(['publication.private'], [obs], {'publication.private': expected}, records=records,
                                    roles=roles)[0]['status'] == 'fail'
 
 
@@ -566,15 +580,26 @@ def test_binding_projection_from_custody_and_secret_scan():
 
 def test_protected_content_requires_seed_before_and_observe_after():
     from agent_e2e_local_projections import Context, evaluate
-    records = {'b': _record('b', phase='seed', body={'data': {'title': 'Map', 'updatedAt': 1}}),
-               'a': _record('a', phase='observe', body={'data': {'title': 'Map', 'updatedAt': 2}})}
-    spec = {'protectedContent': [{'label': 'map', 'before': 'b', 'after': 'a',
+    records = {'b': _record('b', phase='seed', body={'data': {'title': 'Map', 'updatedAt': 1}}, path='/maps/map-1'),
+               'a': _record('a', phase='observe', body={'data': {'title': 'Map', 'updatedAt': 2}}, path='/maps/map-1')}
+    spec = {'protectedContent': [{'label': 'map', 'before': 'b', 'after': 'a', 'resource': ['seeded:map:m'],
                                   'content': {'object': {'title': {'body': '$step', 'pointer': '/data/title'}}}}]}
-    value = evaluate(spec, Context(records))
+    roles = {'seeded:map:m': 'map-1'}
+    value = evaluate(spec, Context(records, roles))
     assert value['before'] == value['after'] == [{'resourceId': 'map', 'content': {'title': 'Map'}}]
-    swapped = {'protectedContent': [{'label': 'map', 'before': 'a', 'after': 'b', 'pointer': '/data'}]}
+    swapped = {'protectedContent': [{'label': 'map', 'before': 'a', 'after': 'b', 'pointer': '/data',
+                                     'resource': ['seeded:map:m']}]}
     with pytest.raises(ValueError, match='wrong phase'):
-        evaluate(swapped, Context(records))
+        evaluate(swapped, Context(records, roles))
+    # Third review, item 1: a snapshot of another resource (or a different request) is not preservation.
+    other = dict(records, a=_record('a', phase='observe', body={'data': {'title': 'Map', 'updatedAt': 2}},
+                                    path='/maps/map-2'))
+    with pytest.raises(ValueError, match='different requests'):
+        evaluate(spec, Context(other, roles))
+    both_other = {'b': _record('b', phase='seed', body={'data': {'title': 'Map'}}, path='/maps/map-2'),
+                  'a': _record('a', phase='observe', body={'data': {'title': 'Map'}}, path='/maps/map-2')}
+    with pytest.raises(ValueError, match='does not address'):
+        evaluate(spec, Context(both_other, roles))
 
 
 # ---- Astra review 5721829419: one negative control per blocking finding ------------------------
@@ -649,8 +674,14 @@ def test_finding2_worker_custody_is_not_synthesized_from_key_revocation(candidat
     obs = Observation('custody.worker-replaced', None, {'projection': 'extract/v1', 'spec': spec})
     expected = {'custody.worker-replaced': {'bootstrapWorkerId': 'a', 'taskWorkerId': 'b', 'taskPrincipalId': 'b',
                 'bootstrapWorkerTerminalState': 'terminated', 'taskProvisioningCredentialIds': []}}
+    # On local Docker the prereg excludes it (reported, never a pass) ...
     result = runner.score_assertions(['custody.worker-replaced'], [obs], expected, records={}, custody=custody)[0]
-    assert result['status'] == 'fail' and 'custody fact not recorded' in result['reason']
+    assert result == {'assertion': 'custody.worker-replaced', 'status': 'excluded',
+                      'ruling': 'custody.worker-replaced@local-docker'}
+    # ... and even if scored, no synthesized worker fact could satisfy it.
+    from agent_e2e_local_projections import Context, evaluate
+    with pytest.raises(ValueError, match='custody fact not recorded'):
+        evaluate(spec, Context({}, custody=custody))
 
 
 def test_finding3_created_roles_require_owner_and_post_seed_creation():
@@ -658,7 +689,7 @@ def test_finding3_created_roles_require_owner_and_post_seed_creation():
     from agent_e2e_local_recorder import Record
 
     def record(step, phase, items, path='/maps'):
-        raw = json.dumps({'items': items}).encode()
+        raw = json.dumps({'items': items, 'next': None}).encode()
         return Record(step, phase, 'http', 'controller', None, 'GET', path, 200, raw,
                       'sha256:' + hashlib.sha256(raw).hexdigest())
     pre_seed_owned = {'id': 'm0', 'owner': 'agent'}
@@ -963,18 +994,33 @@ def test_approve_without_an_approver_principal_is_refused(candidate, tmp_path):
         runtime.approve(stack, 'prop-1')
 
 
-def test_customer_files_are_manifest_checked_and_shown_with_digests(candidate, tmp_path):
+def test_customer_files_are_frozen_customer_visible_and_shown_with_digests(candidate, tmp_path, monkeypatch):
+    import agent_e2e_local_expectations as expectations
     files = ['town-A/invalid-rows.csv']
-    receipt, model, _ = run_hook_case(candidate, tmp_path, [tool(CORRECT_WHERE), FINAL], HookP10(files=files))
+    original = expectations.load_document
+
+    def documents(scenario_id):
+        document = original('P10')
+        return {**document, 'scenario': scenario_id, 'customerFiles': {'A': files}} if scenario_id == 'P05' else original(scenario_id)
+    monkeypatch.setattr(expectations, 'load_document', documents)
+
+    class P05(HookP10):
+        id = 'P05'
+    receipt, model, _ = run_hook_case(candidate, tmp_path, [tool(CORRECT_WHERE), FINAL], P05(files=files))
     raw = (ROOT / 'certification/agent-e2e/corpus/town-A/invalid-rows.csv').read_bytes()
     digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
     assert receipt['customerFiles'] == [{'corpusPath': files[0], 'mediaType': 'text/csv', 'sha256': digest}]
     attached = json.loads(model.sent[0][1]['content'])['customerAttachments']
-    assert attached == [{'name': 'invalid-rows.csv', 'mediaType': 'text/csv', 'sha256': digest,
-                         'content': raw.decode()}]
-    for bad in (['../oracles/town-A.json'], ['oracles/town-A.json', 'oracles/town-A.json'], ['nope.csv']):
+    assert attached == [{'name': 'invalid-rows.csv', 'mediaType': 'text/csv', 'sha256': digest, 'content': raw.decode()}]
+    # Third review, item 4: controller-only data, other variants, other scenarios and undeclared files are refused.
+    for bad, scenario_id, variant in ((['oracles/town-A.json'], 'P05', 'A'), (['town-A/postgis.sql'], 'P05', 'A'),
+                                      (['town-B/invalid-rows.csv'], 'P05', 'A'), (['town-A/invalid-rows.csv'], 'P10', 'A'),
+                                      (['town-A/shelters.csv', 'town-A/shelters.csv'], 'P05', 'A'), (['nope.csv'], 'P05', 'A')):
         with pytest.raises(ValueError):
-            runner.stage_customer_files(tmp_path / 'x', bad)
+            runner.stage_customer_files(tmp_path / 'x', bad, scenario_id, variant)
+    receipt, model, _ = run_hook_case(candidate, tmp_path / 'y' if (tmp_path / 'y').mkdir() is None else None,
+                                      [tool(CORRECT_WHERE), FINAL], P05(files=['town-A/shelters.csv']))
+    assert receipt['status'] == 'infrastructure' and not model.sent  # differs from the frozen inventory
 
 
 def test_import_report_comes_from_the_captured_server_response_to_the_sealed_action(candidate, tmp_path):
@@ -1022,36 +1068,53 @@ def test_action_result_refuses_unsealed_or_altered_responses(candidate, tmp_path
         recorder.action_result('report-altered', logged)
 
 
-def test_exclusions_are_listed_never_passed_and_only_by_registered_rulings(candidate, tmp_path):
-    marker = {'$excluded': 'founder-ruling-no-multi-tenant-2026.1'}
+def test_exclusions_are_listed_never_passed_and_only_from_the_prereg_list(candidate, tmp_path):
     from agent_e2e_local_expectations import check_exclusion
-    assert check_exclusion('P03', 'tenant.denied', marker) == 'founder-ruling-no-multi-tenant-2026.1'
-    assert check_exclusion('P18', 'mutations.absent', marker)
-    for scenario_id, assertion, value in (('P10', 'filter.exact', marker), ('P03', 'tenant.denied', {'$excluded': 'other'})):
+    assert check_exclusion('P03', 'tenant.denied', None) == 'tenant.denied'
+    assert check_exclusion('P18', 'mutations.absent', {'$excluded': 'P18'}) == 'P18'
+    assert check_exclusion('P15', 'custody.worker-replaced', None) == 'custody.worker-replaced@local-docker'
+    for scenario_id, assertion, value in (('P10', 'filter.exact', {'$excluded': 'P18'}),
+                                          ('P03', 'tenant.denied', {'$excluded': 'founder-ruling-no-multi-tenant-2026.1'})):
         with pytest.raises(ValueError):
             check_exclusion(scenario_id, assertion, value)
-    # A scored case lists the excluded assertion and passes on the rest only.
-    results = runner.score_assertions(['tenant.denied'], [], {'tenant.denied': marker}, records={}, scenario_id='P07')
-    assert results == [{'assertion': 'tenant.denied', 'status': 'excluded', 'ruling': marker['$excluded']}]
+    results = runner.score_assertions(['tenant.denied'], [], {'tenant.denied': {'requests': []}}, records={},
+                                      scenario_id='P07')
+    assert results == [{'assertion': 'tenant.denied', 'status': 'excluded', 'ruling': 'tenant.denied'}]
 
-    class Excluded(FakeP10):
+    class P18(FakeP10):
         id = 'P18'
-        def expected(self, variant): return {a: dict(marker) for a in case('A')['assertions']}
+        def expected(self, variant): return {a: {'$excluded': 'P18'} for a in runner.select_case(runner.PACK, 'P18', variant)['assertions']}
     runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
-    receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=Excluded(), variant='A', case=case('A'),
-                                  candidate_digest=DIGEST, runtime=runtime)
+    receipt = runner.execute_case(case_id='P18:A:local-docker', scenario=P18(), variant='A',
+                                  case=runner.select_case(runner.PACK, 'P18', 'A'), candidate_digest=DIGEST, runtime=runtime)
     assert receipt['status'] == 'excluded' and not receipt['sessions'] and not runtime.workdirs
-    assert {a['status'] for a in receipt['assertions']} == {'excluded'}
     runner.validate_receipt(receipt)
-    with pytest.raises(ValueError):
-        runner.validate_receipt({**receipt, 'assertions': [{'assertion': 'x', 'status': 'pass'}]})
+    # Exclusions are reported and stay in n: a passing P10 and an excluded P18 are 1 of 2.
     (tmp_path / 'a').mkdir()
     passing, _, _ = run_case(candidate, tmp_path / 'a', [tool(CORRECT_WHERE), FINAL])
-    excluded = {**receipt, 'caseId': 'P10:B:local-docker'}
-    summary = runner.aggregate(runner.build_inventory(runner.PACK, ['P10'], ['A', 'B']), [passing, excluded])
-    assert summary['overall']['total'] == 1 and summary['overall']['passed'] == 1
-    assert summary['overall']['excludedCases'] == ['P10:B:local-docker']
-    assert [c['caseId'] for c in summary['cases']] == ['P10:A:local-docker', 'P10:B:local-docker']
+    cases = runner.build_inventory(runner.PACK, ['P10', 'P18'], ['A'])
+    summary = runner.aggregate(cases, [passing, receipt])
+    assert summary['overall'] == {**summary['overall'], 'passed': 1, 'total': 2, 'excluded': 1}
+    assert summary['overall']['excludedCases'] == ['P18:A:local-docker']
+    assert summary['exclusions']['list'] == ['tenant.denied', 'P18', 'custody.worker-replaced@local-docker']
+
+
+def test_third_review5_unregistered_exclusions_cannot_shrink_or_relabel_cases(candidate, tmp_path):
+    (tmp_path / 'a').mkdir()
+    passing, _, _ = run_case(candidate, tmp_path / 'a', [tool(CORRECT_WHERE), FINAL])
+    forged = {**passing, 'caseId': 'P10:B:local-docker', 'status': 'excluded', 'sessions': [],
+              'assertions': [{'assertion': a, 'status': 'excluded', 'ruling': 'P18'} for a in case('B')['assertions']]}
+    with pytest.raises(ValueError, match='preregistered'):
+        runner.validate_receipt(forged)
+    with pytest.raises(ValueError):
+        runner.aggregate(runner.build_inventory(runner.PACK, ['P10'], ['A', 'B']), [passing, forged])
+    partial = {**passing, 'assertions': passing['assertions'][:1]}
+    with pytest.raises(ValueError, match='inventory'):
+        runner.validate_receipt(partial)
+    relabel = {**passing, 'assertions': [{**passing['assertions'][0], 'status': 'excluded', 'ruling': 'tenant.denied'},
+                                         passing['assertions'][1]]}
+    with pytest.raises(ValueError, match='preregistered'):
+        runner.validate_receipt(relabel)
 
 
 # ---- Astra re-review 5722009491 -----------------------------------------------------------------
@@ -1219,3 +1282,88 @@ def test_rereview5_session_registration_works_through_the_script_entrypoint(tmp_
                     '--agent', 'fake-cli', '--image-ref', 'x', '--output', str(out)], env=env, timeout=120)
     reason = json.loads(out.read_text())['infrastructure'][0]['reason']
     assert 'unknown agent session' not in reason and 'image reference' in reason
+
+
+# ---- Astra third review 5722096789 --------------------------------------------------------------
+
+class OtherResourceP10(FakeP10):
+    """Reads an untouched look-alike resource for the 'after' snapshot (or for both)."""
+
+    def __init__(self, both=False):
+        self.both = both
+
+    def seed(self, stack, variant):
+        from agent_e2e_p10_observer import source_path
+        if not self.both:
+            return super().seed(stack, variant)
+        recorder = stack.extra['recorder']
+        recorder.json('publish-shelters-submit', 'POST', '/api/v1/operations/service.publish/submit',
+                      {'serviceName': 'p10-shelters'})
+        recorder.json('p10-source-before', 'GET', source_path({'service': 'p10-lookalike', 'layerId': 0}))
+        return Seeded({'variant': variant, 'service': 'p10-shelters', 'layerId': 0})
+
+    def observe(self, stack, seeded, variant, run=None):
+        from agent_e2e_p10_observer import source_path
+        recorder = stack.extra['recorder']
+        recorder.json('p10-source-after', 'GET', source_path({'service': 'p10-lookalike', 'layerId': 0}))
+        query = self.selected_query(recorder.actions(), seeded)
+        if query is not None:
+            recorder.replay('p10-replay-query', query)
+        return [Observation('filter.exact', None, {'projection': 'extract/v1'}),
+                Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
+
+
+@pytest.mark.parametrize('both', [False, True])
+def test_third_review1_preservation_reads_must_be_the_protected_resource(candidate, tmp_path, both):
+    mutate = json.dumps({'kind': 'tool_call', 'tool': 'honua_update_features',
+                         'arguments': {'serviceId': 'p10-shelters'}})
+    receipt, _, _ = run_case(candidate, tmp_path, [tool(CORRECT_WHERE), mutate, FINAL], scenario=OtherResourceP10(both))
+    preservation = receipt['assertions'][1]
+    assert preservation['status'] == 'fail' and receipt['status'] == 'fail', preservation
+    assert ('different requests' if not both else 'does not address') in preservation['reason']
+
+
+def test_third_review2_completeness_pointer_must_exist_and_post_scopes_are_identity(candidate, tmp_path):
+    import os
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import EvidenceVault
+    os.environ['HONUA_ADMIN_PASSWORD'] = ADMIN
+    recorder = ControllerRecorder(base_url=candidate.base_url, workdir=tmp_path, candidate_digest=DIGEST,
+                                  vault=EvidenceVault('c'), attempt_id='c',
+                                  principals={'controller': ('HONUA_ADMIN_PASSWORD', 'admin')})
+    recorder.json('maps-before', 'POST', '/api/v1/admin/maps/search', {'scope': 'mine'})
+    recorder.set_phase('observe')
+    recorder.json('maps-after', 'POST', '/api/v1/admin/maps/search', {'scope': 'all'})
+    recorder.json('maps-after-mine', 'POST', '/api/v1/admin/maps/search', {'scope': 'mine'})
+    assert recorder.records['maps-before'].request_arguments_raw == b'{"scope":"mine"}'
+    scoped = RoleBinding('created:map', 'maps-after', items='/items', id='/id', owner='/owner',
+                         before='maps-before', next_page='/next')
+    with pytest.raises(ValueError, match='different request scope'):  # body-defined scopes differ
+        resolve_roles([scoped], dict(recorder.records), agent_principal='key-2')
+    wrong_cursor = RoleBinding('created:map', 'maps-after-mine', items='/items', id='/id', owner='/owner',
+                               before='maps-before', next_page='/nextCursor')
+    with pytest.raises(ValueError, match='pointer is absent'):
+        resolve_roles([wrong_cursor], dict(recorder.records), agent_principal='key-2')
+
+
+def test_third_review3_truncated_proxy_response_is_an_unknown_outcome(candidate, tmp_path, monkeypatch):
+    import agent_e2e_local_mcp_proxy
+    forward = agent_e2e_local_mcp_proxy.RecordingMcpProxy.forward
+
+    def truncated(self, body, headers, *, method='POST'):
+        status, raw, ctype, session = forward(self, body, headers, method=method)
+        if body and b'"tools/call"' in body:
+            return status, raw[: len(raw) // 2], ctype, session
+        return status, raw, ctype, session
+    monkeypatch.setattr(agent_e2e_local_mcp_proxy.RecordingMcpProxy, 'forward', truncated)
+    runner.SESSIONS['test-lost'] = LostResponseSession
+    try:
+        runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+        runtime.agent = 'test-lost'
+        receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=FakeP10(), variant='A', case=case('A'),
+                                      candidate_digest=DIGEST, runtime=runtime)
+    finally:
+        del runner.SESSIONS['test-lost']
+    assert receipt['status'] == 'fail' and receipt['failure']['category'] == 'post-action-undetermined'
+    action = receipt['sessions'][0]['actions'][0]
+    assert action['status'] == 'unknown' and action['resultRawSha256'].startswith('sha256:')

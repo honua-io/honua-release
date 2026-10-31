@@ -102,6 +102,34 @@ def check_reads(step, record, rule, model_actions):
         raise ValueError(f'{step}: an unexpected replay record')
 
 
+def frozen_roles(scenario, stack, seeded, variant, run):
+    """Role bindings come from the frozen expectation file; a scenario's roles() must repeat them exactly."""
+    from agent_e2e_local_expectations import load_roles
+    try:
+        frozen = load_roles(scenario.id)
+    except OSError:
+        frozen = []
+    runtime_roles = scenario.roles(stack, seeded, variant, run) if hasattr(scenario, 'roles') else []
+    if runtime_roles and list(runtime_roles) != frozen:
+        raise ValueError('scenario role bindings differ from the frozen expectation roles')
+    return frozen
+
+
+def frozen_customer_files(scenario, variant):
+    """The case's attachment inventory is frozen in the expectation file ("customerFiles": {variant: [...]});
+    a scenario's customer_files() must repeat it exactly."""
+    from agent_e2e_local_expectations import load_document
+    try:
+        document = load_document(scenario.id)
+    except OSError:
+        document = {}
+    frozen = list((document.get('customerFiles') or {}).get(variant) or [])
+    declared = list(scenario.customer_files(variant)) if hasattr(scenario, 'customer_files') else []
+    if declared and declared != frozen:
+        raise ValueError('scenario customer files differ from the frozen attachment inventory')
+    return frozen
+
+
 def frozen_projections(scenario, variant):
     """The scenario's frozen per-assertion projections (expectations/local/<ID>.json "projections")."""
     from agent_e2e_local_expectations import load_projections
@@ -223,15 +251,33 @@ def validate_receipt(receipt):
         raise ValueError('malformed case receipt')
     if receipt['attempt'] != 1 or receipt['status'] not in ('pass', 'fail', 'infrastructure', 'excluded'):
         raise ValueError('receipt is not a scored first attempt')
-    statuses = [row.get('status') for row in receipt['assertions'] if isinstance(row, dict)]
-    if receipt['status'] == 'excluded':
-        if not statuses or any(status != 'excluded' for status in statuses) or receipt['sessions']:
-            raise ValueError('an excluded case must exclude every assertion and run no session')
-        return
     if receipt['packSha256'] != PACK_SHA256 or receipt['arm'] != arm_for(receipt.get('agentType', 'bedrock-proxy')):
         raise ValueError('receipt was produced from another pack or protocol')
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', str(receipt['candidateDigest'])):
         raise ValueError('receipt is not bound to a candidate digest')
+    # The assertion rows are exactly the pack's inventory for the case, and a row is excluded if and
+    # only if the preregistered exclusion list covers it.
+    from agent_e2e_local_expectations import prereg_exclusion
+    match = re.fullmatch(r'(P\d\d):([AB]):local-docker', str(receipt['caseId']))
+    if not match:
+        raise ValueError('receipt case identity is invalid')
+    inventory = select_case(PACK, match.group(1), match.group(2))['assertions']
+    rows = receipt['assertions']
+    if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
+        raise ValueError('malformed assertion rows')
+    if rows or receipt['status'] != 'infrastructure':
+        if [r.get('assertion') for r in rows] != inventory:
+            raise ValueError('receipt assertions differ from the pack inventory for the case')
+        for row in rows:
+            covered = prereg_exclusion(match.group(1), row['assertion'])
+            if (row.get('status') == 'excluded') != (covered is not None) or \
+                    (covered is not None and row.get('ruling') != covered):
+                raise ValueError('receipt exclusion is not the preregistered exclusion for ' + row['assertion'])
+    statuses = [row.get('status') for row in rows]
+    if receipt['status'] == 'excluded':
+        if not statuses or any(status != 'excluded' for status in statuses) or receipt['sessions']:
+            raise ValueError('an excluded case must exclude every assertion and run no session')
+        return
     if receipt['status'] != 'infrastructure':
         sessions = receipt['sessions']
         if not isinstance(sessions, list) or not sessions or any(not isinstance(s, dict) for s in sessions):
@@ -268,12 +314,13 @@ def aggregate(expected_cases: list[str], receipts: list[dict], *, candidate_dige
         raise ValueError('case receipts bind different candidates')
 
     def summary(items):
-        measured = [row for row in items if row['status'] != 'excluded']
-        n = len(measured)
-        passed = sum(row['status'] == 'pass' for row in measured)
-        return {'passed': passed, 'failed': sum(row['status'] == 'fail' for row in measured),
-                'infrastructure': sum(row['status'] == 'infrastructure' for row in measured),
-                'total': n, 'interval95': clopper_pearson(passed, n) if n else None,
+        # Exclusions are reported, never removed from n and never counted as pass.
+        n = len(items)
+        passed = sum(row['status'] == 'pass' for row in items)
+        return {'passed': passed, 'failed': sum(row['status'] == 'fail' for row in items),
+                'infrastructure': sum(row['status'] == 'infrastructure' for row in items),
+                'excluded': sum(row['status'] == 'excluded' for row in items),
+                'total': n, 'interval95': clopper_pearson(passed, n),
                 'excludedCases': [row['caseId'] for row in items if row['status'] == 'excluded'],
                 'excludedAssertions': sum(a.get('status') == 'excluded' for row in items for a in row['assertions'])}
 
@@ -282,8 +329,10 @@ def aggregate(expected_cases: list[str], receipts: list[dict], *, candidate_dige
         groups.setdefault(case.split(':', 1)[0], []).append(row)
     arm = next(iter(rows.values()))['arm']
     return {'apiVersion': API_VERSION, 'arm': arm, 'packSha256': PACK_SHA256, 'candidateDigest': digests.pop(),
-            'denominator': ('every inventoried case except cases whose every assertion is excluded by a registered '
-                            'scope ruling (listed under excludedCases); infrastructure outcomes count as not passed'),
+            'denominator': ('every inventoried case; infrastructure and excluded cases count as not passed '
+                            '(exclusions are reported, never removed from n)'),
+            'exclusions': {'source': 'certification/ai-arc/PREREG-arc-v1.md',
+                           'list': ['tenant.denied', 'P18', 'custody.worker-replaced@local-docker']},
             'overall': summary(list(rows.values())),
             'scenarios': {name: summary(items) for name, items in sorted(groups.items())},
             'cases': [{key: rows[case].get(key) for key in ('caseId', 'status', 'model', 'temperature', 'nudges',
@@ -354,7 +403,14 @@ class SessionInterrupted(Exception):
 
 
 class ActionOutcomeUnknown(Exception):
-    """A dispatched action whose result could not be observed."""
+    """A dispatched action whose outcome could not be observed or interpreted.
+
+    ``captured`` optionally carries (http_status, raw_bytes) of whatever came back; the action
+    log keeps it as evidence, and the row stays ``unknown`` (the case fails as undetermined)."""
+
+    def __init__(self, message='', captured=None):
+        super().__init__(message)
+        self.captured = captured
 
 
 _TOOL_NAME = re.compile(r'\A[A-Za-z_][A-Za-z0-9_]{0,127}\Z')
@@ -477,7 +533,12 @@ class ActionLog:
             if kind == 'tool_call' and selected.get('tool') in self.names:
                 row['tool'] = selected['tool']
             self.rows.append(row)
-        execution = execute(kind, selected)
+        try:
+            execution = execute(kind, selected)
+        except ActionOutcomeUnknown as exc:
+            if exc.captured is not None:
+                self._keep_response(row, *exc.captured)
+            raise
         captured = execution.pop('_rawResponse', None) if isinstance(execution, dict) else None
         if captured is not None:
             # The server's exact response bytes to this model action, kept privately and sealed
@@ -490,6 +551,16 @@ class ActionLog:
         row['status'] = 'pass' if execution.get('status') in ('ok', 'pass') else 'fail'
         row['resultDigest'] = 'sha256:' + hashlib.sha256(action_bytes(execution)).hexdigest()
         return execution
+
+
+def _keep_response(self, row, status, raw):
+    path = self.dir / f'action-{row["sequence"]:04d}.response'
+    write_private(path, raw)
+    row.update(resultRawSha256='sha256:' + hashlib.sha256(raw).hexdigest(), resultRawPath=str(path),
+               resultHttpStatus=status)
+
+
+ActionLog._keep_response = _keep_response
 
 
 class ActionBoundExceeded(Exception):
@@ -621,7 +692,8 @@ def _session_receipt(row, session_id):
             'modelVisibleDigests': row['modelVisibleDigests'],
             'systemContractSha256': row.get('systemContractSha256'),
             'toolViewSha256': row.get('toolViewSha256'),
-            'actions': [{k: v for k, v in action.items() if k != 'logPath'} for action in row['actions']],
+            'actions': [{k: v for k, v in action.items() if k not in ('logPath', 'resultRawPath')}
+                        for action in row['actions']],
             'nudges': row['nudges'], 'usage': row['usage'], 'provenance': row['provenance'],
             'clarifications': row.get('clarifications', []),
             'finalAnswerSha256': ('sha256:' + hashlib.sha256(row['finalAnswer'].encode()).hexdigest()
@@ -671,9 +743,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             from agent_e2e_local_faults import FaultInjector
             stack.extra['faultInjector'] = FaultInjector(fault_plan)
             receipt['faultPlan'] = fault_plan
-        files = scenario.customer_files(variant) if hasattr(scenario, 'customer_files') else []
+        files = frozen_customer_files(scenario, variant)
         if files:
-            stack.extra['customerFiles'] = runtime.stage_customer_files(stack, files)
+            stack.extra['customerFiles'] = runtime.stage_customer_files(stack, files, scenario.id, variant)
             receipt['customerFiles'] = [{k: f[k] for k in ('corpusPath', 'mediaType', 'sha256')}
                                         for f in stack.extra['customerFiles']]
         seeded = scenario.seed(stack, variant)
@@ -732,7 +804,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                      'customerFiles': [f['sha256'] for f in stack.extra.get('customerFiles', ())]}
         try:
             observations = observe_scenario(scenario, stack, seeded, variant, run)
-            bindings = (scenario.roles(stack, seeded, variant, run) if hasattr(scenario, 'roles') else [])
+            bindings = frozen_roles(scenario, stack, seeded, variant, run)
             vault = runtime.vault(stack)
             sealed = vault.records()
             model_actions = vault.model_actions()
@@ -1285,9 +1357,9 @@ class LocalRuntime:
                                      f'outcome of action(s) {unknown} unknown; the session still answered')
         return output
 
-    def stage_customer_files(self, stack, paths):
-        """Copy the scenario's declared corpus files into the case's customer-files folder, digest-checked."""
-        return stage_customer_files(Path(stack.workdir) / 'customer-files', paths)
+    def stage_customer_files(self, stack, paths, scenario_id, variant):
+        """Copy the case's frozen customer files into its customer-files folder, digest-checked."""
+        return stage_customer_files(Path(stack.workdir) / 'customer-files', paths, scenario_id, variant)
 
     def agent_session(self, stack):
         factory = SESSIONS.get(self.agent)
@@ -1401,14 +1473,28 @@ def export_case_evidence(case_dir, out_dir, secret_values):
 MEDIA_TYPES = {'.geojson': 'application/geo+json', '.json': 'application/json', '.csv': 'text/csv'}
 
 
-def stage_customer_files(folder, paths):
-    """Only manifest-listed corpus files, byte-checked, become customer attachments."""
+def stage_customer_files(folder, paths, scenario_id, variant):
+    """Only customer-visible corpus inputs of this case become attachments, byte-checked.
+
+    A file must be listed in the corpus manifest with visibility ``selected-case-input``, belong to
+    the selected variant's fixture folder (``town-<variant>/``), and, when the manifest names
+    scenarioIds, list this scenario. Controller-only files (oracles, SQL seeds) are never staged.
+    """
     import shutil
     corpus = ROOT / 'certification/agent-e2e/corpus'
     manifest = json.loads((corpus / 'manifest.v1.json').read_text())
-    listed = {row['path']: row['sha256'] for row in manifest['files']}
+    rows = {row['path']: row for row in manifest['files']}
     if not isinstance(paths, (list, tuple)) or len(set(paths)) != len(paths):
         raise ValueError('customer files must be a list of distinct corpus paths')
+    for relative in paths:
+        row = rows.get(relative)
+        if row is None or row.get('visibility') != 'selected-case-input':
+            raise ValueError('customer file is not a customer-visible corpus input: ' + str(relative))
+        if not str(relative).startswith(f'town-{variant}/'):
+            raise ValueError('customer file belongs to another variant: ' + str(relative))
+        if row.get('scenarioIds') is not None and scenario_id not in row['scenarioIds']:
+            raise ValueError('customer file belongs to other scenarios: ' + str(relative))
+    listed = {path: row['sha256'] for path, row in rows.items()}
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     staged, total = [], 0

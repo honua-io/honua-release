@@ -143,8 +143,10 @@ class RecordingMcpProxy:
             reply.update(status=status, raw=raw, ctype=ctype, session=session)
             try:
                 rpc = parse_jsonrpc(raw)
-            except ValueError:
-                return {'status': 'fail', 'httpStatus': status}
+            except ValueError as exc:
+                # A dispatched request whose response cannot be interpreted has an unknown outcome:
+                # keep the bytes as evidence and let the runner fail the case as undetermined.
+                raise ActionOutcomeUnknown('uninterpretable upstream response', captured=(status, raw)) from exc
             result = rpc.get('result')
             failed = status != 200 or 'error' in rpc or (isinstance(result, dict) and result.get('isError') is True)
             execution = {'status': 'fail' if failed else 'ok', 'result': result if result is not None else rpc.get('error')}
