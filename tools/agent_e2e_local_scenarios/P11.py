@@ -1,9 +1,8 @@
-"""P11 remains unsupported: the oracle needs a fixture-bound viewport containment predicate.
+"""P11 remains unsupported: Studio CRS strings need conversion to numeric WKIDs.
 
-The frozen map projection currently requires the exact 500 m buffer bounding box;
-that would reject other legitimate views containing the buffer. Its job, published
-service, persisted geometry and map-child bindings are independently observed.
-Typed attribute reads require honua-server #6815.
+The fixture-bound viewport predicate now verifies a saved EPSG:3857 view, but
+without conversion it would reject valid views in other supported coordinate
+systems. Typed attribute reads require honua-server #6815.
 """
 from pathlib import Path
 import re
@@ -50,12 +49,12 @@ class P11(Scenario):
                             before='p11-services-before',
                             created_by={'tool':'honua_publish_result', 'pointer':'/result/structuredContent/serviceId'}),
                 RoleBinding('child:layer:published', 'p11-service-meta', pointer='/layers/0/id',
-                            parent='created:service:buffer'),
+                            parent='created:service:buffer', parent_link={'at': {'pathSegment': 2}, 'pointer': '/serviceName'}),
                 RoleBinding('created:map:result', 'p11-maps-after', items='/data/items', id='/itemId',
                             before='p11-maps-before',
                             created_by={'tool':'honua_studio_create_draft', 'pointer':'/result/structuredContent/itemId'}),
                 RoleBinding('child:layer:result', 'p11-map-version', pointer='/data/envelope/body/layers/0/id',
-                            parent='created:map:result'),
+                            parent='created:map:result', parent_link={'at': {'pathSegment': 4}, 'pointer': '/data/itemId'}),
                 *[RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
                             pointer=f'/data/resourceIds/{field}')
                 for layer in ('parcels', 'flood_zones', 'shelters')
