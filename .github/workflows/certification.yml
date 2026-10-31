@@ -3,7 +3,7 @@
 #
 # Retires the audit's "false conformance" findings at the gate level:
 #   - geospatial-mcp#25     (conformance checker reported FULL while ignoring resource coverage)
-#   - honua-esri-compat#25  (image/tile cert false-passed any >100-byte body)
+#   - client interoperability certification (image/tile checks previously accepted underspecified output)
 # Both are now fixed upstream; this gate is the release-repo half that RUNS the suites against the
 # pinned candidate and turns their results into a verdict that can FAIL.
 #
@@ -301,7 +301,7 @@ jobs:
           echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
           echo "pinned evidence source: $REPO@${SHA:-<unpinned>}#$ARTIFACT"
 
-      # honua-esri-compat is a private repo, so this needs a token with read access to it. Without
+      # The producer repository is private, so this needs a token with read access to it. Without
       # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
       - name: Check out the pinned Esri certification evidence
         id: evidence
