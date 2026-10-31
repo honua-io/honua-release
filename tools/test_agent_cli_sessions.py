@@ -7,11 +7,15 @@ import textwrap
 import pytest
 
 from agent_cli_sessions import (CliFailure, CliModelSession, RecordingProxy, cli_environment,
-                                codex_forbidden_diagnostics, digest, encoded, parse_transcript)
+                                codex_forbidden_diagnostics, digest, encoded, internal_events, parse_transcript)
 from agent_e2e_local_recorder import read_logged_action
 
 TOOLS = {'tools': [{'name': 'honua_query_features', 'description': 'Query the candidate',
                     'inputSchema': {'type': 'object', 'properties': {}}}]}
+
+
+def test_rehearsal_discovery_hash_identifies_server_discover():
+    assert digest(b'server/discover') == 'sha256:79580444954c2b593a013c1449220b917e7b6e09687dc2c48cf0dd7370457c02'
 
 
 def test_codex_debug_detects_calls_missing_from_json_events():
@@ -20,6 +24,19 @@ def test_codex_debug_detects_calls_missing_from_json_events():
     rejected = b'event.name="codex.tool_call_received" tool_name="tool_search_tool" tool_namespace="tool_search"'
     assert not codex_forbidden_diagnostics(allowed, names)
     assert codex_forbidden_diagnostics(rejected, names)
+    plan = b'event.name="codex.tool_call_received" tool_name="update_plan" tool_namespace="functions" tool_source="direct"'
+    assert not codex_forbidden_diagnostics(plan, names, 'codex-cli 0.165.0')
+    assert codex_forbidden_diagnostics(plan, names, 'codex-cli 0.165.1')
+    assert codex_forbidden_diagnostics(plan.replace(b'update_plan', b'exec'), names, 'codex-cli 0.165.0')
+    assert codex_forbidden_diagnostics(plan.replace(b'functions', b''), names, 'codex-cli 0.165.0')
+    assert internal_events('codex-cli', 'codex-cli 0.165.0', b'', plan)[0]['kind'] == 'update_plan'
+    assert internal_events('codex-cli', 'codex-cli 0.165.1', b'', plan) == []
+    plan_event = json.dumps({'type': 'item.updated', 'item': {'type': 'todo_list', 'id': 'item_0',
+                            'items': [{'text': 'Check health', 'completed': False}]}}).encode()
+    assert not parse_transcript('codex-cli', plan_event, names, 'codex-cli 0.165.0')[-1]
+    assert parse_transcript('codex-cli', plan_event, names, 'codex-cli 0.165.1')[-1]
+    assert internal_events('codex-cli', 'codex-cli 0.165.0', plan_event, b'')[0]['kind'] == 'todo_list'
+    assert internal_events('codex-cli', 'codex-cli 0.165.1', plan_event, b'') == []
 
 
 def fake_cli(tmp_path, agent, mode='ok'):
@@ -28,7 +45,7 @@ def fake_cli(tmp_path, agent, mode='ok'):
 import json, os, pathlib, sys, urllib.request, time
 args = sys.argv[1:]
 if args == ['--version']:
-    print('fake-cli 1.0'); sys.exit(0)
+    print('codex-cli 0.165.0' if MODE == 'plan' else 'fake-cli 1.0'); sys.exit(0)
 if args[:3] == ['debug', 'models', '--bundled']:
     print(json.dumps({'models':[{'slug':'gpt-6.1-sol', 'apply_patch_tool_type':'freeform',
                                 'shell_type':'unified_exec', 'tool_mode':'code_mode_only', 'supports_search_tool':True,
@@ -66,12 +83,14 @@ else:
     assert json.loads(overrides['mcp_servers.honua.tool_timeout_sec']) >= 2700
     assert json.loads(overrides['mcp_servers.honua.startup_timeout_sec']) >= 2700
     assert os.environ['RUST_LOG'] == 'codex=debug'
+    assert json.loads(overrides['tools.update_plan.enabled']) == (MODE == 'plan')
+    if MODE == 'plan': print('event.name="codex.tool_call_received" tool_name="update_plan" tool_namespace="functions" tool_source="direct"', file=sys.stderr)
 def rpc(method, params):
     raw = json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode()
     return json.load(urllib.request.urlopen(urllib.request.Request(url,data=raw,headers={'Content-Type':'application/json'})))
 rpc('initialize', {'protocolVersion':'2025-03-26'})
 assert rpc('prompts/list', {})['result'] == {'prompts': []}
-assert rpc('experimental/discovery', {})['error']['code'] == -32601
+assert rpc('server/discover', {})['error']['code'] == -32601
 assert rpc('tools/list', {})['result']['tools'][0]['name'] == 'honua_query_features'
 if MODE == 'item_failure':
     print(json.dumps({'type':'item.completed','item':{'type':'error','message':'tool host unavailable'}})); sys.exit(1)
@@ -192,6 +211,15 @@ def test_cli_failure_is_infrastructure_with_raw_diagnostics(tmp_path, mode):
     assert caught.value.category == 'infrastructure'
     assert caught.value.progress['provenance'][0]['exitCode'] == 1
     assert ('provider unavailable' if mode == 'cli_failure' else 'tool host unavailable') in (tmp_path/'log/cli-stdout.jsonl').read_text()
+
+
+def test_versioned_internal_plan_is_recorded_without_scored_action(tmp_path):
+    cli = CliModelSession('codex-cli', 'gpt-6.1-sol', binary=fake_cli(tmp_path, 'codex-cli', 'plan'), auth_root=tmp_path)
+    out = cli.run(prompt='Customer goal only', tool_view=TOOLS,
+                  execute=lambda *_: {'status': 'ok', 'result': {'content': []}}, log_dir=tmp_path/'log')
+    assert len(out['actions']) == 1 and out['actions'][0]['tool'] == 'honua_query_features'
+    assert [event['kind'] for event in out['internalEvents']] == ['update_plan']
+    assert json.loads((tmp_path/'log/internal-events.json').read_text()) == out['internalEvents']
 
 
 def test_action_bound_logs_only_actual_callbacks(tmp_path):
