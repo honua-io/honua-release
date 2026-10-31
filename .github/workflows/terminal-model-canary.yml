@@ -145,7 +145,6 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       count: ${{ steps.matrix.outputs.count }}
-      per_trial_ceiling: ${{ steps.matrix.outputs.per_trial_ceiling }}
     steps:
       - id: matrix
         env:
@@ -153,13 +152,11 @@ jobs:
         run: |
           python - <<'PYCODE'
           import json, os
-          from decimal import Decimal, ROUND_DOWN
           value = os.environ['TRIALS']
           if not value.isascii() or not value.isdigit() or not 1 <= int(value) <= 10:
               raise SystemExit('trials must be an integer from 1 to 10')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               print('count=' + value, file=out)
-              print('per_trial_ceiling=' + str((Decimal('20') / int(value)).quantize(Decimal('.0001'), rounding=ROUND_DOWN)), file=out)
               print('matrix=' + json.dumps(list(range(1, int(value) + 1))), file=out)
           PYCODE
   harness:
@@ -468,7 +465,6 @@ jobs:
     with:
       candidate_ref: ${{ inputs.candidate_ref || '' }}
       require_real: true
-      cost_ceiling_usd: ${{ needs.trials.outputs.per_trial_ceiling }}
       target: aws-ecs
       redis_mode: ${{ inputs.target == 'aws-ecs/redis-on' && 'on' || 'off' }}
       run_iac_live: false

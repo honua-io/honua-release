@@ -215,7 +215,7 @@ def test_lambda_readback_rejects_an_unexpected_ecr_digest():
         cloud.observe_lambda(Target(), manifest, run=response(source))
 
 
-def test_cloud_lock_transfer_uses_isolated_read_only_job_and_budget_splits():
+def test_cloud_lock_transfer_uses_isolated_read_only_job_and_aggregate_budget():
     import yaml
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
@@ -226,6 +226,6 @@ def test_cloud_lock_transfer_uses_isolated_read_only_job_and_budget_splits():
     assert 'candidate-lock' in cell['jobs']['journey']['needs']
     assert all('RELEASE_GH_TOKEN' not in json.dumps(step) for step in cell['jobs']['journey']['steps'])
     wf = yaml.safe_load((root / '.github/workflows/terminal-model-canary.yml').read_text())
-    assert 'per_trial_ceiling' in wf['jobs']['aws-ecs']['with']['cost_ceiling_usd']
+    assert 'cost_ceiling_usd' not in wf['jobs']['aws-ecs']['with']
     aggregate = wf['jobs']['aggregate']
     assert any('aggregate' in str(step.get('run', '')) or '--cost-directory' in str(step.get('run', '')) for step in aggregate['steps'])
