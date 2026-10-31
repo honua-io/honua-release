@@ -389,6 +389,8 @@ def evaluate(spec, ctx, *, item=None, step=None):
         return str(ctx.roles[spec['role']]) not in {str(pointer_get(row, spec['id'])) for row in rows}
     if keys == {'extentContainsFixtureBuffer', 'variant'}:
         return extent_contains_fixture_buffer(sub(spec['extentContainsFixtureBuffer']), spec['variant'])
+    if keys == {'studioViewContainsFixture', 'fixtureBounds3857'}:
+        return studio_view_contains_fixture(sub(spec['studioViewContainsFixture']), spec['fixtureBounds3857'])
     if keys == {'runFact', 'pointer'}:
         require(spec['runFact'] in ctx.run_facts, 'run fact not recorded by the runner: ' + str(spec['runFact']))
         return pointer_get(ctx.run_facts[spec['runFact']], spec['pointer'])
@@ -684,6 +686,32 @@ def _to_3857(lon, lat):
     x = math.radians(lon) * 6378137.0
     y = math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) * 6378137.0
     return x, y
+
+
+def studio_view_contains_fixture(view, fixture_bounds):
+    """Compare frozen EPSG:3857 town bounds in the saved Studio view's CRS."""
+    import math
+    require(isinstance(view, dict) and set(view) <= {'bbox', 'crs'}
+            and view.get('crs', 'EPSG:4326') in ('EPSG:4326', 'CRS84'),
+            'Studio view CRS is not geographic')
+    bounds = view.get('bbox')
+    require(isinstance(bounds, list) and len(bounds) == 4
+            and all(type(v) in (int, float) and math.isfinite(v) for v in bounds)
+            and -180 <= bounds[0] < bounds[2] <= 180 and -85 <= bounds[1] < bounds[3] <= 85,
+            'Studio view has invalid geographic bounds')
+    require(isinstance(fixture_bounds, list) and len(fixture_bounds) == 4
+            and all(type(v) in (int, float) and math.isfinite(v) for v in fixture_bounds)
+            and fixture_bounds[0] < fixture_bounds[2] and fixture_bounds[1] < fixture_bounds[3],
+            'frozen fixture bounds are invalid')
+    def geographic(x, y):
+        return (math.degrees(x / 6378137.0),
+                math.degrees(2 * math.atan(math.exp(y / 6378137.0)) - math.pi / 2))
+    left, bottom = geographic(*fixture_bounds[:2])
+    right, top = geographic(*fixture_bounds[2:])
+    return (bounds[0] <= left + 1e-9 and bounds[1] <= bottom + 1e-9
+            and bounds[2] >= right - 1e-9 and bounds[3] >= top - 1e-9
+            and bounds[2] - bounds[0] <= 8 * (right - left)
+            and bounds[3] - bounds[1] <= 8 * (top - bottom))
 
 
 def extent_contains_fixture_buffer(extent, variant):

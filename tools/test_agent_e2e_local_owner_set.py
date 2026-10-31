@@ -59,3 +59,19 @@ def test_geoservices_boolean_cross_check_preserves_type_and_rejects_disagreement
     normalized['features'][0]['properties']['is_open'] = 0
     with pytest.raises(ProjectionError, match='value differs'):
         restore_feature_booleans(normalized, geo, ['is_open'])
+
+
+@pytest.mark.parametrize('bounds', [[-20010, -5010, -18800, -4700], [12990, -8010, 14200, -7700]])
+def test_studio_view_reprojects_fixture_and_rejects_wrong_crs(bounds):
+    import math
+    from agent_e2e_local_projections import studio_view_contains_fixture
+    def lon(x): return math.degrees(x / 6378137)
+    def lat(y): return math.degrees(2 * math.atan(math.exp(y / 6378137)) - math.pi / 2)
+    view = {'bbox': [lon(bounds[0]), lat(bounds[1]), lon(bounds[2]), lat(bounds[3])], 'crs': 'EPSG:4326'}
+    assert studio_view_contains_fixture(view, bounds)
+    view['crs'] = 'EPSG:3857'
+    with pytest.raises(ProjectionError, match='CRS'):
+        studio_view_contains_fixture(view, bounds)
+    view['crs'] = 'EPSG:4326'
+    view['bbox'][0] = view['bbox'][2] - (view['bbox'][2] - view['bbox'][0]) / 2
+    assert not studio_view_contains_fixture(view, bounds)
