@@ -836,7 +836,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                'candidateDigest': candidate_digest, 'attempt': 1, 'status': 'infrastructure',
                'model': runtime.model, 'temperature': None,
                'temperaturePolicy': 'omitted: provider default, as the shipped Studio AI client sends',
-               'modelVisibleScope': MODEL_VISIBLE_SCOPE, 'sessions': [], 'assertions': [],
+               'modelVisibleScope': (MODEL_VISIBLE_SCOPE if agent == 'bedrock-proxy' else
+                    'sha256 of runner-controlled session inputs; CLI/provider prepends are not claimed'),
+               'sessions': [], 'assertions': [],
                'finalAnswerCheck': None, 'nudges': 0, 'tokens': 0, 'infrastructure': [],
                'bounds': {'maxModelCalls': runtime.max_model_calls, 'maxActions': runtime.max_actions,
                           'maxTokens': runtime.max_tokens}}
@@ -957,6 +959,11 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             roles = projections.resolve_roles(bindings, sealed, agent_principal=run.agent_principal,
                                               action_results=vault.action_results())
             roles.update(session_roles(session_ids, sessions))
+            committed = [e for e in fault_events if e.get('kind') == 'response_lost_after_commit'
+                         and e.get('committedResourceId') not in (None, '')]
+            if len(committed) == 1:
+                # The verified-commit resource of a fired lost-response fault, for binding to controller reads.
+                roles['fault:committed-resource'] = committed[0]['committedResourceId']
             extras = case_context(stack, runtime)
             extras['final_answers'] = tuple(run.final_answers)
             extras['action_results'] = tuple(json.dumps(r['json'], sort_keys=True).encode() for r in vault.action_results())
@@ -1016,7 +1023,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['controllerRecords'] = stack.extra['recorder'].index() if 'recorder' in stack.extra else []
             receipt['usage'] = [u for s in receipt['sessions'] for u in s['usage']]
             try:
-                receipt['cost'] = model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None
+                receipt['cost'] = (None if agent in ('claude-cli', 'codex-cli') else
+                                   model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None)
             except ValueError as exc:
                 receipt['cost'] = {'usd': None, 'reason': str(exc)}
             if seeded is not None:
@@ -1175,6 +1183,8 @@ class LocalRuntime:
 
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         import yaml
+        if self.agent in ('claude-cli', 'codex-cli'):
+            raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
         if not re.fullmatch(r'P\d\d:[AB]:local-docker', case_id):
             raise ValueError('invalid case identity')
         if (not isinstance(agent_permissions, (list, tuple)) or not agent_permissions
@@ -1248,6 +1258,7 @@ class LocalRuntime:
         return ControllerRecorder(base_url=stack.base_url, workdir=stack.workdir,
                                   candidate_digest=stack.candidate_digest, attempt_id=stack.compose_project,
                                   principals=principals, vault=vault,
+                                  admitted_remote_origin=getattr(self, 'verified_remote_origin', None),
                                   sql_executor=lambda query: self.sql_read(stack, query))
 
     # -- case database (controller side) ----------------------------------------------------------

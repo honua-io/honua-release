@@ -61,6 +61,9 @@ noncommitted replies pass through unchanged, are listed in receipt.faultSkipped,
 Custody facts live in the runtime vault (bound to their evidence records); stack.extra['custody'] is a copy.
 Replays and captured results carry the action OCCURRENCE (occ:<session>:<sequence>:<digest>), and every
 record carries afterSession, both bound in the vault digest.
+Projection ops added for lanes: {"runFact": NAME, "pointer": "/0/field"} (e.g. faultEvents) and
+{"extentContainsFixtureBuffer": SPEC, "variant": "A"|"B"} (a saved view extent, 3857/102100/4326, contains
+the fixture-derived expected buffer).
 Canaries: stack.extra['registerCanary'](name) during seed returns a runner-minted secret to plant; projections
 find it with {"matchedCanaries": [steps..., "$model-visible", "$final-answers", "$action-results"]}.
 Database handoff: stack.extra['databaseHandoff'](name, schema) during seed creates a SELECT-only customer login
@@ -164,7 +167,9 @@ class RoleBinding:
     (e.g. the layer inside a created map). Roles resolve in the frozen order.
     Address fields (read-rule ``addresses``, ``protectedContent`` ``resource``, ``target``) are exact:
     {"role": NAME, "at": {"pathSegment": N} | {"query": NAME} | {"argument": "/pointer"}}.
-    Runner roles (no binding needed): ``session:previous``, ``session:current``,
+    Address kinds also include {"sqlFrom": "table" | "qualified"} (the table a controller SELECT reads).
+    Runner roles (no binding needed): ``fault:committed-resource`` (verified commit of a fired lost-response
+    fault) and: ``session:previous``, ``session:current``,
     ``session:visible-message-ids``, ``session:handoff-sha256`` (sha256 of the session-1 final answer).
     """
     role: str
@@ -181,6 +186,8 @@ class RoleBinding:
                                     # server's captured reply to a successful sealed agent call of that tool
     parent: str | None = None       # child:<kind>: the role whose resource this observe-phase read addresses
     parent_link: dict | None = None # child: {"at": <request field addressing the parent>, "pointer": <response field naming it>}
+    owner_format: str | None = None # created: how the server renders the agent principal in ``owner``:
+                                    # "{id}" (default) or "api-key:{id}" (reviewed formats only)
 
 
 @dataclass(frozen=True)

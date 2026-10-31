@@ -168,6 +168,14 @@ def address_value(record, at):
         values = [v for k, v in parse_qsl(parts.query, keep_blank_values=True) if k == where]
         require(len(values) == 1, 'address query parameter is absent or repeated')
         return values[0]
+    if kind == 'sqlFrom':
+        # The single table the SELECT reads (the identifier after FROM): "table" or "qualified".
+        require(record.kind == 'sql' and where in ('table', 'qualified'), 'sqlFrom needs a SQL record')
+        match = re.search(r'(?i)\bfrom\s+("?[A-Za-z_][A-Za-z0-9_]*"?)(?:\s*\.\s*("?[A-Za-z_][A-Za-z0-9_]*"?))?', record.path)
+        require(match is not None, 'SQL read names no table')
+        schema, table = (match.group(1), match.group(2)) if match.group(2) else (None, match.group(1))
+        table, schema = table.strip('"'), (schema or '').strip('"')
+        return table if where == 'table' else f'{schema}.{table}'
     if kind == 'argument':
         require(record.kind == 'mcp' and isinstance(record.request_arguments, dict), 'address argument needs an MCP call')
         return pointer_get(record.request_arguments.get('arguments') or {}, where)
@@ -351,6 +359,11 @@ def evaluate(spec, ctx, *, item=None, step=None):
         proven_complete(record, rows, 'absent:' + str(spec['role']))
         require(spec['role'] in ctx.roles, 'logical role unresolved: ' + str(spec['role']))
         return str(ctx.roles[spec['role']]) not in {str(pointer_get(row, spec['id'])) for row in rows}
+    if keys == {'extentContainsFixtureBuffer', 'variant'}:
+        return extent_contains_fixture_buffer(sub(spec['extentContainsFixtureBuffer']), spec['variant'])
+    if keys == {'runFact', 'pointer'}:
+        require(spec['runFact'] in ctx.run_facts, 'run fact not recorded by the runner: ' + str(spec['runFact']))
+        return pointer_get(ctx.run_facts[spec['runFact']], spec['pointer'])
     if keys == {'attachmentSnapshots'}:
         paths = spec['attachmentSnapshots']
         require(isinstance(paths, list) and paths, 'attachmentSnapshots needs attachment paths')
@@ -527,6 +540,42 @@ def feature_server_features(value):
     return {'srid': reference['wkid'], 'features': out}
 
 
+def _to_3857(lon, lat):
+    import math
+    require(-180 <= lon <= 180 and -85.06 < lat < 85.06, 'geographic coordinate out of range')
+    x = math.radians(lon) * 6378137.0
+    y = math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) * 6378137.0
+    return x, y
+
+
+def extent_contains_fixture_buffer(extent, variant):
+    """True when a saved view extent contains the fixture-derived expected buffer (any covering view passes).
+
+    extent = {"xmin", "ymin", "xmax", "ymax", "spatialReference": {"wkid": 3857 | 102100 | 4326}}. The buffer
+    comes from corpus/oracles/town-<variant>.json (center3857, radiusMetres), never from an observation.
+    A 4326 extent is projected to Web Mercator corner by corner; any other CRS fails closed.
+    """
+    import importlib.util
+    from pathlib import Path
+    require(variant in ('A', 'B'), 'only development variants A and B are enabled')
+    require(isinstance(extent, dict) and all(type(extent.get(k)) in (int, float) for k in ('xmin', 'ymin', 'xmax', 'ymax')),
+            'extent lacks numeric bounds')
+    reference = extent.get('spatialReference')
+    wkid = reference.get('latestWkid', reference.get('wkid')) if isinstance(reference, dict) else None
+    require(wkid in (3857, 102100, 4326), 'extent CRS is not a supported reviewed CRS')
+    xmin, ymin, xmax, ymax = (float(extent[k]) for k in ('xmin', 'ymin', 'xmax', 'ymax'))
+    require(xmin < xmax and ymin < ymax, 'extent is empty or inverted')
+    if wkid == 4326:
+        (xmin, ymin), (xmax, ymax) = _to_3857(xmin, ymin), _to_3857(xmax, ymax)
+    path = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/oracle.py'
+    spec = importlib.util.spec_from_file_location('extent_oracle', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    buffer = module.fixture_expectation(variant, 'buffer.metric')
+    (cx, cy), radius = buffer['center3857'], buffer['radiusMetres'] + buffer.get('radialToleranceMetres', 0)
+    return xmin <= cx - radius and xmax >= cx + radius and ymin <= cy - radius and ymax >= cy + radius
+
+
 def substitute_roles(expected, roles):
     """Replace {"$role": name} with the resolved live id; unresolved roles fail closed."""
     if isinstance(expected, dict):
@@ -575,6 +624,12 @@ ENUMERATION_CONTRACTS = (
      'paging': {'total': '/data/total'},
      'source': 'ConsoleContentEndpoints.cs:85-129; in-memory store (Program.cs:1034-1036), lost on restart; '
                'default limit 25, store max 200'},
+    {'kind': 'sql', 'method': 'SELECT', 'path': r'SELECT table_schema, table_name FROM information_schema\.tables WHERE '
+     r"table_schema = '[a-z_][a-z0-9_]*'( AND table_type = 'BASE TABLE')? ORDER BY table_name",
+     'items': '', 'paging': 'unpaged',
+     'source': 'PostgreSQL information_schema.tables over the case database (the server imports into honua_data, '
+               'ImportEndpoints upload TargetSchema); the frozen query has no LIMIT/OFFSET, so every visible row returns '
+               '(corpus_reader holds pg_read_all_data)'},
     {'kind': 'mcp', 'tool': 'honua_list_jobs', 'items': '/result/structuredContent/jobs',
      'paging': {'cursor': '/result/structuredContent/nextCursor', 'omittedWhenLast': True},
      'source': 'ListJobsTool.cs:24-228, output {jobCount, nextCursor, jobs} serialized WhenWritingNull (:261), so the '
@@ -604,6 +659,8 @@ def _contract_for(record):
                 contract['path'], record.path.split('?', 1)[0]):
             return contract
         if record.kind == 'mcp' and contract.get('tool') == tool:
+            return contract
+        if record.kind == 'sql' and re.fullmatch(contract['path'], record.path):
             return contract
     return None
 
@@ -669,7 +726,8 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
         if name.startswith('recorded:'):
             require(record.phase in ('seed', 'between') and binding.pointer is not None and binding.items is None,
                     'recorded role must point into a seed- or between-phase response: ' + name)
-            roles[name] = 'sha256:' + hashlib.sha256(canonical(pointer_get(record.json, binding.pointer)).encode()).hexdigest()
+            # Same digest format as the canonicalSha256 projection (bare hex of the canonical JSON).
+            roles[name] = hashlib.sha256(canonical(pointer_get(record.json, binding.pointer)).encode()).hexdigest()
             continue
         if name.startswith('child:'):
             require(record.phase == 'observe' and binding.pointer is not None and binding.parent in roles,
@@ -718,12 +776,29 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
         for listing, values in ((record, rows), (baseline_record, baseline)):
             proven_complete(listing, values, name)
         excluded = {str(pointer_get(row, binding.id)) for row in baseline}
+        # The server may render the principal with a fixed prefix (connections: "api-key:<id>"); only reviewed
+        # formats apply, and the id is the runner's own minted agent key id.
+        require(binding.owner_format in (None, '{id}', 'api-key:{id}'), 'unreviewed owner format: ' + name)
+        owner_value = (binding.owner_format or '{id}').replace('{id}', str(agent_principal))
         authored = None
         if binding.created_by is not None:
             spec = binding.created_by
-            require(isinstance(spec, dict) and set(spec) == {'tool', 'pointer'}, 'invalid created_by: ' + name)
+            require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {'tool', 'pointer', 'where'},
+                    'invalid created_by: ' + name)
+            where = spec.get('where')
+            require(where is None or (isinstance(where, dict) and set(where) == {'argument', 'role'}
+                                      and where['role'] in roles),
+                    'created_by.where needs {"argument": "/pointer", "role": <resolved role>}: ' + name)
             authored = set()
             for result in action_results:
+                if where is not None:
+                    # Source-specific selection: only the agent call whose own argument equals that role's id.
+                    try:
+                        chosen = pointer_get(result.get('arguments') or {}, where['argument'])
+                    except ProjectionError:
+                        continue
+                    if str(chosen) != str(roles[where['role']]):
+                        continue
                 if result.get('tool') == spec['tool'] and result.get('status') == 'pass':
                     try:
                         value = pointer_get(result['json'], spec['pointer'])
@@ -739,7 +814,7 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=()):
             if authored is not None:
                 if str(identity) not in authored:
                     continue
-            elif str(pointer_get(row, binding.owner)) != str(agent_principal):
+            elif str(pointer_get(row, binding.owner)) != owner_value:
                 continue
             matches.append(identity)
         require(len(matches) == 1, f'created role {name} matched {len(matches)} live resources')

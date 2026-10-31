@@ -79,8 +79,13 @@ import job lists return active jobs only. Request a page large enough to finish 
 set its own `total`/`next_page`/`page_limit`. Both reads must start at the beginning (no offset, skip or
 cursor), and neither may carry continuation, truncation or count evidence that contradicts completeness.
 To add an endpoint, ask core: entries are reviewed against honua-server. Authorship may be `owner` (a row
-field equal to the agent principal) or `created_by` (`{"tool": ..., "pointer": "/result/..."}`: the id appears
-in the server's captured reply to a successful sealed agent call of that tool). Inventory preservation
+field equal to the agent principal, rendered by a reviewed `owner_format`: `{id}` or `api-key:{id}`) or
+`created_by` (`{"tool": ..., "pointer": "/result/...", "where"?: {"argument": "/ptr", "role": NAME}}`: the id
+appears in the server's captured reply to a successful sealed agent call of that tool, optionally only the
+call whose own argument equals another role's id, e.g. the source table of one of several publications).
+The SQL inventory `SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = '<s>'
+ORDER BY table_name` (no LIMIT) is a reviewed complete contract (`items` `""`), and SQL reads can be bound to a
+table role with the address `{"sqlFrom": "table" | "qualified"}`. Inventory preservation
 (`"resource": "inventory"`) needs `"items"` and meets the same completeness rule.
 
 Runner roles need no binding: `session:previous`, `session:current`, `session:visible-message-ids` and
@@ -91,8 +96,9 @@ from session N) and `"exactPath"`. A rule's `phase` may be `seed`, `between` or 
 scores the record only in that phase. A `protectedContent` row may set `"beforePhase": "between"`, or
 `"resource": "inventory"` for an inventory snapshot; an inventory row's reads must pin `exactPath`.
 
-Other roles: `recorded:<name>` is the canonical sha256 of a value at `pointer` in a seed- or between-phase
-read (use it for "persisted unchanged" checks). `child:<kind>` is a scalar in an observe-phase read that
+Other roles: `recorded:<name>` is the canonical sha256 (bare hex, the same format as the `canonicalSha256`
+projection) of a value at `pointer` in a seed- or between-phase read (use it for "persisted unchanged" checks).
+`fault:committed-resource` is the verified-commit resource id of a fired `response_lost_after_commit` fault. `child:<kind>` is a scalar in an observe-phase read that
 addresses its `parent` role.
 
 `"customerHandoffs": {"A": ["database:<name>"]}` attaches a database login the scenario seeded during seed with

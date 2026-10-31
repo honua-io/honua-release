@@ -1948,9 +1948,9 @@ def test_core3_recorded_and_child_roles_and_absence_baselines():
         resolve_roles(bindings, records, agent_principal='a')
     records['cfg-seed'] = _record('cfg-seed', phase='seed', body={'data': {'datasource': 'map-9'}}, path='/x')
     roles = resolve_roles(bindings, records, agent_principal='a')
-    assert roles['child:map-layer'] == 'layer-3' and roles['recorded:config-before'].startswith('sha256:')
+    assert roles['child:map-layer'] == 'layer-3' and len(roles['recorded:config-before']) == 64
     observed = evaluate({'canonicalSha256': {'body': 'cfg-after', 'pointer': '/data'}}, Context(records, roles))
-    assert 'sha256:' + observed == substitute_roles({'$role': 'recorded:config-before'}, roles)
+    assert observed == substitute_roles({'$role': 'recorded:config-before'}, roles)   # same format, equal
     with pytest.raises(ValueError, match='seed- or between-phase'):
         resolve_roles([RoleBinding('recorded:x', 'cfg-after', pointer='/data')], records, agent_principal='a')
     with pytest.raises(ValueError, match='already resolved parent'):
@@ -2258,3 +2258,163 @@ def test_core3r5_mcp_job_list_terminal_page_without_cursor_is_complete():
     with pytest.raises(ValueError):
         proven_complete(_record('l', kind='mcp', body=layers, arguments={'tool': 'honua_list_layers', 'arguments': {}}),
                         [{'id': 1}], 'l')
+
+
+
+# ---- core3 lane asks (a)-(f) --------------------------------------------------------------------
+
+def test_core3a_recorded_role_and_canonical_digest_compare_equal_for_identical_inventories():
+    from agent_e2e_local_projections import Context, evaluate, resolve_roles
+    inventory = {'data': [{'serviceName': 'b'}, {'serviceName': 'a'}]}
+    records = {'before': _record('before', phase='seed', body=inventory, path='/api/v1/admin/services'),
+               'after': _record('after', body={'data': [{'serviceName': 'b'}, {'serviceName': 'a'}]}, path='/api/v1/admin/services')}
+    roles = resolve_roles([RoleBinding('recorded:services', 'before', pointer='/data')], records, agent_principal='a')
+    obs = Observation('configuration.persisted', None, {'projection': 'extract/v1'})
+    spec = {'object': {'configurationBeforeSha256': {'role': 'recorded:services'},
+                       'configurationAfterSha256': {'canonicalSha256': {'body': 'after', 'pointer': '/data'}},
+                       'savedDataSourceIds': {'list': []}}}
+    expected = {'configuration.persisted': {'configurationBeforeSha256': {'$role': 'recorded:services'},
+                                            'configurationAfterSha256': {'$role': 'recorded:services'},
+                                            'savedDataSourceIds': []}}
+    frozen = {'configuration.persisted': {'spec': spec, 'reads': {'after': {
+        'kind': 'http', 'method': 'GET', 'path': '/api/v1/admin/services', 'principal': 'controller', 'phase': 'observe'}}}}
+    assert runner.score_assertions(['configuration.persisted'], [obs], expected, records=records, roles=roles,
+                                   frozen=frozen)[0]['status'] == 'pass'
+    records['after'] = _record('after', body={'data': [{'serviceName': 'b'}]}, path='/api/v1/admin/services')
+    assert runner.score_assertions(['configuration.persisted'], [obs], expected, records=records, roles=roles,
+                                   frozen=frozen)[0]['status'] == 'fail'
+
+
+def test_core3b_owner_format_maps_api_key_owner_to_the_runner_principal():
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+
+    def listing(step, phase, rows):
+        raw = json.dumps({'success': True, 'data': rows}).encode()
+        return Record(step, phase, 'http', 'controller', None, 'GET', '/api/v1/admin/connections', 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    records = {'before': listing('before', 'seed', [{'id': 'c0', 'createdBy': 'api-key:other'}]),
+               'after': listing('after', 'observe', [{'id': 'c0', 'createdBy': 'api-key:other'},
+                                                     {'id': 'c1', 'createdBy': 'api-key:agent-key'},
+                                                     {'id': 'c2', 'createdBy': 'agent-key'}])}
+    binding = RoleBinding('created:connection', 'after', items='/data', id='/id', owner='/createdBy', before='before',
+                          owner_format='api-key:{id}')
+    assert resolve_roles([binding], records, agent_principal='agent-key') == {'created:connection': 'c1'}
+    with pytest.raises(ValueError, match='matched 0'):   # another principal's key never maps to the agent
+        resolve_roles([binding], records, agent_principal='other-key')
+    with pytest.raises(ValueError, match='unreviewed owner format'):
+        resolve_roles([RoleBinding('created:connection', 'after', items='/data', id='/id', owner='/createdBy',
+                                   before='before', owner_format='{id}%')], records, agent_principal='agent-key')
+
+
+def test_core3c_imported_table_role_from_sql_inventory_and_bound_sql_reads(tmp_path):
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+    query = "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = 'honua_data' ORDER BY table_name"
+
+    def inventory(step, phase, rows):
+        raw = json.dumps(rows).encode()
+        return Record(step, phase, 'sql', 'controller', None, 'SELECT', query, 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest(), None, query.encode())
+    vault = _sealed_action_results(tmp_path, [('honua_ingest_dataset', 'pass', {'structuredContent': {'table': 'p05_points'}})])
+    records = {'before': inventory('before', 'seed', [{'table_schema': 'honua_data', 'table_name': 'town'}]),
+               'after': inventory('after', 'observe', [{'table_schema': 'honua_data', 'table_name': 'p05_points'},
+                                                       {'table_schema': 'honua_data', 'table_name': 'town'}])}
+    binding = RoleBinding('created:table', 'after', items='', id='/table_name', before='before',
+                          created_by={'tool': 'honua_ingest_dataset', 'pointer': '/result/structuredContent/table'})
+    roles = resolve_roles([binding], records, agent_principal='a', action_results=vault.action_results())
+    assert roles == {'created:table': 'p05_points'}
+    limited = {k: Record(r.step, r.phase, 'sql', 'controller', None, 'SELECT', query + ' LIMIT 1', 200, r.raw, r.sha256,
+                         None, (query + ' LIMIT 1').encode()) for k, r in records.items()}
+    with pytest.raises(ValueError, match='no reviewed enumeration contract'):   # a limited inventory is not complete
+        resolve_roles([binding], limited, agent_principal='a', action_results=vault.action_results())
+    read = Record('rows', 'observe', 'sql', 'controller', None, 'SELECT',
+                  'SELECT source_id FROM honua_data.p05_points ORDER BY source_id', 200, b'[]',
+                  'sha256:' + hashlib.sha256(b'[]').hexdigest())
+    rule = {'kind': 'sql', 'method': 'SELECT', 'principal': 'controller', 'phase': 'observe', 'path': r'SELECT .*',
+            'addresses': [{'role': 'created:table', 'at': {'sqlFrom': 'table'}}]}
+    runner.check_reads('rows', read, rule, {}, roles)
+    other = Record('rows', 'observe', 'sql', 'controller', None, 'SELECT',
+                   "SELECT source_id FROM honua_data.town WHERE name = 'p05_points'", 200, b'[]',
+                   'sha256:' + hashlib.sha256(b'[]').hexdigest())
+    with pytest.raises(ValueError, match='does not address'):
+        runner.check_reads('rows', other, rule, {}, roles)
+
+
+def test_core3d_created_by_selects_among_same_tool_creations_by_argument():
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_recorder import Record
+    results = [{'tool': 'honua_publish_service', 'status': 'pass', 'arguments': {'tableName': 'survey_points'},
+                'json': {'result': {'structuredContent': {'serviceName': 'svc-survey'}}}},
+               {'tool': 'honua_publish_service', 'status': 'pass', 'arguments': {'tableName': 'shelters'},
+                'json': {'result': {'structuredContent': {'serviceName': 'svc-shelters'}}}}]
+
+    def listing(step, phase, rows):
+        raw = json.dumps({'data': rows}).encode()
+        return Record(step, phase, 'http', 'controller', None, 'GET', '/api/v1/admin/services', 200, raw,
+                      'sha256:' + hashlib.sha256(raw).hexdigest())
+    records = {'seed-table': _record('seed-table', phase='seed', body={'table': 'survey_points'}, path='/x'),
+               'before': listing('before', 'seed', []),
+               'after': listing('after', 'observe', [{'serviceName': 'svc-shelters'}, {'serviceName': 'svc-survey'}])}
+    selector = {'tool': 'honua_publish_service', 'pointer': '/result/structuredContent/serviceName',
+                'where': {'argument': '/tableName', 'role': 'seeded:table:survey'}}
+    bindings = [RoleBinding('seeded:table:survey', 'seed-table', pointer='/table'),
+                RoleBinding('created:service:survey', 'after', items='/data', id='/serviceName', before='before',
+                            created_by=selector)]
+    roles = resolve_roles(bindings, records, agent_principal='a', action_results=results)
+    assert roles['created:service:survey'] == 'svc-survey'
+    unselected = [bindings[0], RoleBinding('created:service:survey', 'after', items='/data', id='/serviceName',
+                                           before='before', created_by={k: v for k, v in selector.items() if k != 'where'})]
+    with pytest.raises(ValueError, match='matched 2'):   # without the selector both creations match
+        resolve_roles(unselected, records, agent_principal='a', action_results=results)
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_core3e_view_extent_must_contain_the_fixture_buffer(variant):
+    from agent_e2e_local_projections import extent_contains_fixture_buffer
+    buffer = runner.oracle.fixture_expectation(variant, 'buffer.metric')
+    (cx, cy), r = buffer['center3857'], buffer['radiusMetres']
+    covering = {'xmin': cx - r - 500, 'ymin': cy - r - 500, 'xmax': cx + r + 500, 'ymax': cy + r + 500,
+                'spatialReference': {'wkid': 3857}}
+    assert extent_contains_fixture_buffer(covering, variant) is True
+    assert extent_contains_fixture_buffer({**covering, 'spatialReference': {'wkid': 102100}}, variant) is True
+    missing = {**covering, 'xmin': cx + 10 * r, 'xmax': cx + 20 * r}
+    assert extent_contains_fixture_buffer(missing, variant) is False
+    tight = {**covering, 'xmin': cx - r / 2}
+    assert extent_contains_fixture_buffer(tight, variant) is False
+    import math
+    lon = lambda x: math.degrees(x / 6378137.0)                                   # noqa: E731
+    lat = lambda y: math.degrees(2 * math.atan(math.exp(y / 6378137.0)) - math.pi / 2)  # noqa: E731
+    geographic = {'xmin': lon(cx - r - 500), 'ymin': lat(cy - r - 500), 'xmax': lon(cx + r + 500), 'ymax': lat(cy + r + 500),
+                  'spatialReference': {'wkid': 4326}}
+    assert extent_contains_fixture_buffer(geographic, variant) is True
+    # Unknown CRSs fail closed; metre values mislabelled as 4326 are out of geographic range and fail too.
+    with pytest.raises(ValueError, match='CRS'):
+        extent_contains_fixture_buffer({**covering, 'spatialReference': {'wkid': 32633}}, variant)
+    with pytest.raises(ValueError):
+        extent_contains_fixture_buffer({**covering, 'spatialReference': {'wkid': 4326}}, variant)
+
+
+def test_core3f_fault_committed_resource_binds_the_controller_draft_read(candidate, tmp_path):
+    candidate.extra_tools = True
+    plan = {'kind': 'response_lost_after_commit', 'id': 'map-lost', 'after': None, 'match': {'tool': 'honua_create_map'},
+            'commit': {'pointer': '/result/structuredContent/mapId',
+                       'confirm': {'path': '/api/v1/admin/maps/{id}', 'attempts': 3, 'intervalSeconds': 0}}}
+    create = json.dumps({'kind': 'tool_call', 'tool': 'honua_create_map', 'arguments': {'title': 'Shelters'}})
+    receipt, _, _ = run_hook_case(candidate, tmp_path, [create, tool(CORRECT_WHERE), FINAL], HookP10(fault=plan))
+    roles = receipt['roles']
+    assert roles['fault:committed-resource'] == 'map-1'
+    from agent_e2e_local_projections import Context, evaluate
+    facts = {'faultEvents': receipt['faultEvents']}
+    assert evaluate({'runFact': 'faultEvents', 'pointer': '/0/committedResourceId'}, Context({}, run_facts=facts)) == 'map-1'
+    draft = _record('draft', body={'data': {'id': 'map-1'}}, path='/api/v1/admin/maps/map-1')
+    rule = {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/maps/[^/]+', 'principal': 'controller', 'phase': 'observe',
+            'addresses': [{'role': 'fault:committed-resource', 'at': {'pathSegment': 4}}]}
+    runner.check_reads('draft', draft, rule, {}, roles)
+    other = _record('draft', body={'data': {'id': 'map-2'}}, path='/api/v1/admin/maps/map-2')
+    with pytest.raises(ValueError, match='does not address'):   # the fault fired on a different resource
+        runner.check_reads('draft', other, rule, {}, roles)
+    with pytest.raises(ValueError, match='unresolved'):          # no verified commit, no role
+        runner.check_reads('draft', draft, rule, {}, {})
+    with pytest.raises(ValueError, match='not recorded'):
+        evaluate({'runFact': 'faultEvents', 'pointer': '/0/committedResourceId'}, Context({}))
