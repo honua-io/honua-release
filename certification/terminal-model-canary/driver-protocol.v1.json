@@ -31,7 +31,7 @@
       ]
     },
     "execute": {
-      "purpose": "execute exactly the model-selected terminal command or tool call; report injectedError or recoveredError with the armed error ID when applicable",
+      "purpose": "execute exactly the model-selected terminal command, tool call, or bounded MCP resource read; report injectedError or recoveredError with the armed error ID when applicable",
       "requiredResponse": [
         "status",
         "stageStatus",
@@ -78,6 +78,7 @@
   "prohibitions": [
     "responses must not contain credential values",
     "execute must reject actions outside the server-authored bounded tool view",
+    "resource_read admits only honua://catalog/processes in bounded-gp and forwards the candidate response",
     "approval must use a principal distinct from the proposer",
     "no operation may report pass from mocked or replayed state"
   ],

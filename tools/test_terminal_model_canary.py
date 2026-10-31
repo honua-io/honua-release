@@ -2990,3 +2990,33 @@ def test_ruled_run_whose_teardown_fails_keeps_a_valid_failed_receipt(monkeypatch
     assert receipt["status"] == "fail" and receipt["failureAttribution"] == "undetermined"
     assert "declaredNotApplicable" not in receipt
     builder.validate_invariants()
+
+
+def test_unguided_gp_outcome_and_resource_action_preserve_evidence_boundaries():
+    stage = next(s for s in canary.load_journey(JOURNEY)["stages"] if s["id"] == "bounded-gp")
+    prompt = canary.stage_user_message(stage=stage, candidate_release="2026.1", observed={"observation": {"fixture": {"buffer": {"point": [0, 0], "srid": 3857, "distance": 2}}}}, guidance="none")
+    assert json.loads(prompt)["observation"]["fixture"]["buffer"] == {"point": [0, 0], "coordinateReferenceSystem": 3857, "radius": 2}
+    assert "Buffer the fixture geometry and retain the resulting geometry." in prompt
+    for forbidden in ("requiredSequence", '"command"', stage["command"], "geometry.buffer", '"wkb"',
+                      '"srid"', '"distance"', '"geodesic"', "planContract"):
+        assert forbidden not in prompt
+    kind, action = canary.parse_model_action('{"kind":"resource_read","uri":"honua://catalog/processes"}')
+    assert kind == "resource_read" and action["uri"] == "honua://catalog/processes"
+    with pytest.raises(canary.ModelFailure):
+        canary.parse_model_action('{"kind":"resource_read","uri":42}')
+    assert "resource_read" in canary._system_contract([], resource_read=True)
+    assert "resource_read" not in canary._system_contract([])
+
+
+def test_resource_read_receipt_is_model_selected_and_digest_only():
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=canary.EndpointConfig(None, None, None, "TERMINAL_MODEL_API_KEY", None, None),
+                                           driver_command=None, lock_digest=LOCK)
+    transcript = builder.capture_transcript("assistant", "resource action", stage_id="bounded-gp")
+    builder.record_action(stage_id="bounded-gp", attribution=canary.MODEL_SELECTED, kind="resource_read",
+                          status="pass", request={"uri": "honua://catalog/processes"},
+                          result={"contents": "candidate catalog content"}, transcript_sequence=transcript)
+    action = builder.receipt["actions"][-1]
+    assert action["attribution"] == "MODEL_SELECTED"
+    assert action["request"]["retention"] == action["result"]["retention"] == "digest-only"
+    assert "candidate catalog content" not in json.dumps(action)

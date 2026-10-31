@@ -1894,3 +1894,40 @@ def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
     assert rejected("honua_render_map", render).problem["argumentsProven"] is True
     assert rejected("honua_render_map", {**render, "bboxSrid": 4326, "transparent": True,
                                          "maxInlineBytes": 1024 * 1024}).problem["argumentsProven"] is True
+
+
+def test_catalog_resource_read_is_bounded_and_cannot_complete_gp(tmp_path):
+    uri = "honua://catalog/processes"
+    payload = {"contents": [{"uri": uri, "text": '{"processes":[{"name":"server-authored"}]}'}]}
+    transport = mock.Mock(credentials={"proposer": "test", "operator": "test"})
+    transport.resource_read.return_value = payload
+    engine = engine_for(transport)
+    response = engine.execute(5, {"kind": "resource_read", "uri": uri})
+    assert response["resource"] == payload
+    transport.resource_read.assert_called_once_with(uri, engine.view(), "operator")
+    assert engine.result(5).status != "pass"
+    assert not engine.evidence["checks"].get("5")
+    for stage, requested in [(5, "honua://catalog/other"), (4, uri), (5, "https://example.com")]:
+        with pytest.raises(transport_module.ActionRejected, match="outside the current stage"):
+            engine.execute(stage, {"kind": "resource_read", "uri": requested})
+    transport.resource_read.assert_called_once()
+
+
+def test_catalog_transport_forwards_candidate_mcp_result(tmp_path):
+    import probes
+    proxy = tmp_path / "proxy"
+    proxy.touch()
+    uri = "honua://catalog/processes"
+    expected = {"contents": [{"uri": uri, "text": "candidate content"}]}
+    view = {"metadata": {"view": "setup"}, "tools": []}
+    session = mock.MagicMock()
+    session.initialize.return_value = {"result": {}}
+    session.request.side_effect = [{"result": {"_meta": view["metadata"], "tools": []}}, {"result": expected}]
+    with mock.patch.object(probes, "McpProxySession") as factory:
+        factory.return_value.__enter__.return_value = session
+        t = Transport("http://127.0.0.1:8123", proxy, None, tmp_path, {"operator": "credential"})
+        assert t.resource_read(uri, view, "operator") == expected
+    session.request.assert_has_calls([mock.call("tools/list", {"view": "setup"}),
+                                     mock.call("resources/read", {"uri": uri})])
+    with pytest.raises(transport_module.ActionRejected):
+        t.resource_read("honua://catalog/other", view, "operator")
