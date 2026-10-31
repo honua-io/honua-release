@@ -337,7 +337,8 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
     matches = [m for m in catalog['models'] if m['slug'] == model]
     if len(matches) != 1: raise ValueError('requested model absent from bundled CLI catalog')
     selected = copy.deepcopy(matches[0])
-    selected.update(shell_type='disabled', apply_patch_tool_type=None, experimental_supported_tools=[])
+    selected.update(shell_type='disabled', apply_patch_tool_type=None, experimental_supported_tools=[],
+                    tool_mode=None)
     catalog['models'] = [selected]
     path = home / 'models.json'
     write_private(path, encoded(catalog))
@@ -389,7 +390,7 @@ def parse_transcript(agent, raw, names):
                 kind = item.get('type')
                 if kind == 'mcp_tool_call':
                     if item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
-                elif kind not in ('agent_message', 'reasoning', 'plan', None):
+                elif kind not in ('agent_message', 'reasoning', 'plan', 'error', None):
                     forbidden = True
                 if kind == 'agent_message' and event['type'] == 'item.completed': final = item.get('text')
             if event.get('type') == 'turn.completed':
@@ -562,7 +563,9 @@ class CliModelSession:
                     raise CliFailure(str(exc), out) from exc
                 reported_failure = any(
                     isinstance(event, dict) and (event.get('type') in ('turn.failed', 'error') or
-                    event.get('type') == 'result' and event.get('is_error'))
+                    event.get('type') == 'result' and event.get('is_error') or
+                    event.get('type') in ('item.started', 'item.completed') and
+                    isinstance(event.get('item'), dict) and event['item'].get('type') == 'error')
                     for event in (json.loads(line) for line in raw.splitlines()))
                 if forbidden or turns > max_turns:
                     raise CliFailure('forbidden action or turn bound exceeded', out)

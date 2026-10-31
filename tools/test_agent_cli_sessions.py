@@ -23,7 +23,7 @@ if args == ['--version']:
     print('fake-cli 1.0'); sys.exit(0)
 if args[:3] == ['debug', 'models', '--bundled']:
     print(json.dumps({'models':[{'slug':'gpt-6.1-sol', 'apply_patch_tool_type':'freeform',
-                                'shell_type':'unified_exec', 'experimental_supported_tools':['clock']}]}))
+                                'shell_type':'unified_exec', 'tool_mode':'code_mode_only', 'experimental_supported_tools':['clock']}]}))
     sys.exit(0)
 assert all(not any(s in k.upper() for s in ('AWS', 'DATABASE', 'POSTGRES', 'DOCKER', 'HONUA', 'SECRET')) for k in os.environ)
 assert pathlib.Path.home() == pathlib.Path.cwd()
@@ -50,6 +50,7 @@ else:
     catalog = json.loads(pathlib.Path(json.loads(overrides['model_catalog_json'])).read_text())
     assert catalog['models'][0]['apply_patch_tool_type'] is None
     assert catalog['models'][0]['shell_type'] == 'disabled'
+    assert catalog['models'][0]['tool_mode'] is None
     assert catalog['models'][0]['experimental_supported_tools'] == []
     url = json.loads(overrides['mcp_servers.honua.url'])
     assert json.loads(overrides['mcp_servers.honua.tool_timeout_sec']) >= 2700
@@ -62,6 +63,8 @@ rpc('initialize', {'protocolVersion':'2025-03-26'})
 assert rpc('prompts/list', {})['result'] == {'prompts': []}
 assert rpc('experimental/discovery', {})['error']['code'] == -32601
 assert rpc('tools/list', {})['result']['tools'][0]['name'] == 'honua_query_features'
+if MODE == 'item_failure':
+    print(json.dumps({'type':'item.completed','item':{'type':'error','message':'tool host unavailable'}})); sys.exit(1)
 if MODE == 'cli_failure':
     print(json.dumps({'type':'turn.failed','error':{'message':'provider unavailable'}})); sys.exit(1)
 if MODE == 'timeout': time.sleep(20)
@@ -171,13 +174,14 @@ def test_cancel_during_dispatched_action_is_undetermined(tmp_path):
         release.set(); thread.join(5)
 
 
-def test_cli_failure_is_infrastructure_with_raw_diagnostics(tmp_path):
-    cli = CliModelSession('codex-cli', 'gpt-6.1-sol', binary=fake_cli(tmp_path, 'codex-cli', 'cli_failure'), auth_root=tmp_path)
+@pytest.mark.parametrize('mode', ['cli_failure', 'item_failure'])
+def test_cli_failure_is_infrastructure_with_raw_diagnostics(tmp_path, mode):
+    cli = CliModelSession('codex-cli', 'gpt-6.1-sol', binary=fake_cli(tmp_path, 'codex-cli', mode), auth_root=tmp_path)
     with pytest.raises(CliFailure) as caught:
         cli.run(prompt='Customer goal only', tool_view=TOOLS, execute=lambda *_: {}, log_dir=tmp_path/'log')
     assert caught.value.category == 'infrastructure'
     assert caught.value.progress['provenance'][0]['exitCode'] == 1
-    assert 'provider unavailable' in (tmp_path/'log/cli-stdout.jsonl').read_text()
+    assert ('provider unavailable' if mode == 'cli_failure' else 'tool host unavailable') in (tmp_path/'log/cli-stdout.jsonl').read_text()
 
 
 def test_action_bound_logs_only_actual_callbacks(tmp_path):
