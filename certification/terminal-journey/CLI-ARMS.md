@@ -1,0 +1,152 @@
+# Coding-agent CLI arms for the AI arc
+
+The required arms are Claude Code with `claude-opus-5-5` and Codex CLI with
+`gpt-6.1-sol`. `claude-sonnet-5-5`, `claude-sonnet-4-6`, and `gpt-6.1-terra`
+are comparison arms. CLI receipts record agent type, executable version, model,
+CLI-default temperature, subscription cost `null`, prompt and tool-catalog
+hashes, CLI flags/config hashes, and hashes of every proxy response. Provider
+and CLI prepends are outside the runner-controlled input hash claim. These are
+exploratory CLI receipts, not signed Studio AI proxy provenance.
+
+## Arc runner integration
+
+`tools/agent_cli_arc.py::run_stage` is the stage adapter. The arc runner owns
+slots, credentials, approvals, fault injection, independent observations and
+teardown. It starts the backend appropriate to the stage and passes exactly that
+backend under the indicated name:
+
+| Stage | Target | Backend name | Controller-side backend |
+| --- | --- | --- | --- |
+| 1 | AWS ECS | `honua_devops` | `StdioMcpBackend` running published `Honua.DevOps.Agent --mcp` |
+| 1 | Remote VM Docker | `quickstart_shell` | `RemoteQuickstartShell` over runner-owned SSH |
+| 2–3 | Either | `honua` | `HttpMcpBackend` on installed `/mcp`, `workflow_view='full'` |
+| 4 | Either | `studio` | `HttpMcpBackend` on g41's origin-locked browser MCP |
+
+The generic CLI session can proxy multiple named servers concurrently; the arc
+adapter restricts each stage to its own product surface. For each backend the
+runner supplies `tool_view()` and `execute(kind, action)`. The CLI connects only
+to private loopback recording proxies. The proxy logs each actual action before
+it is dispatched; a shared ledger orders actions across multiple servers. The
+CLI transcript can detect forbidden attempts and supply the final answer/usage,
+but cannot supply actions, resource hints, or independent observations.
+
+Each stage needs a distinct private log directory. The runner retains raw CLI
+stdout, stderr and Claude MCP debug output there with mode 0600, plus a
+per-request proxy log with method, HTTP status, JSON-RPC error and timing. These
+private diagnostics may contain customer or provider data and are not public
+receipts. Preserve `CliFailure.progress` and its category on failure. Claude
+and Codex MCP tool timeouts and the arc stage deadline default to at least 45
+minutes; cancellations after dispatch are undetermined. Unsafe IAM refusals
+are recorded explicitly in the action ledger.
+
+The developing arc runner's generic `run_command` / `read_file` / `write_file`
+surface includes commands outside this lane's explicit allowlist. The CLI
+session refuses that unmanaged surface before launching a model. The arc runner
+must wire `run_stage` and `RemoteQuickstartShell` for its setup stage; it cannot
+use the generic surface as a substitute. This integration belongs to the
+separate arc-runner lane.
+
+The controller starts `StdioMcpBackend(binary, slot_env=..., workdir=...).start()`
+using the published binary documented in honua-devops `docs/QUICKSTART-MCP.md`.
+Supply a fresh scratch workdir and an explicit slot environment. AWS access keys,
+must include a session token, or use a role ARN and private OIDC token file in
+the scratch directory. AWS setup requires one of these temporary credentials.
+No inherited AWS profile, Docker settings,
+CLI provider credentials, or user environment crosses into this process. The
+operator process gets the slot credentials; the model and CLI do not. The
+backend screens returned data for those credentials. The release runner owns
+plan review, signing the exact approval digest as a separate principal, and
+forwarding approved product calls. This library neither provisions cloud
+resources nor approves a plan. After the operator closes, the runner retains
+its private stderr audit file and `audit_sha256`; output containing a configured
+credential or exceeding the audit bound fails closed and is not exported.
+The published `v2026.1.0` Linux binary was checksum-verified on this machine;
+its live stdio catalog exposed 35 tools but omitted `provision_infrastructure`,
+`install_handoff`, and `verify_install_handoff`. AWS setup refuses before any
+model call unless all six required setup/handoff tools are advertised. A source
+build of honua-devops commit `09a8984b519bfeeaf5ac63e5a3174e662e3866d1` produced
+an apphost with SHA-256 `e069ea642da95e53a59d997e93e7c197360cd07942ef01dbb3d1fe8f532169d5`.
+Its read-only stdio catalog exposed 28 tools, including all six required tools
+and `install_honua`. No credentials or model calls were used for that check.
+
+For a local-Docker target, the release runner supplies a fresh remote VM and
+constructs `RemoteQuickstartShell` with its host, user, SSH identity, pinned
+known-hosts file, isolated `/tmp/honua-arc-...` directory and unique Compose
+project. Its runner-side health check must pass before stage 1. The model can
+invoke only `docker compose` and `curl` to localhost, through the recorder;
+command chaining, arbitrary shell, remote HTTP, Compose exec/run/down, and file
+writes via curl are refused. Compose output is reduced to safe status fields or
+an output digest so generated database credentials do not enter the model.
+For `docker compose -f -`, stdin must hash to the controller-approved published
+Compose bytes; the runner may separately make digest-approved public quickstart
+text visible through a localhost endpoint. The release runner supplies the
+prerequisite files and .env in the VM slot and retains their hashes. This is a
+fixture boundary: the current published source quickstart also invokes Python
+and OpenSSL, which are outside the explicitly authorized shell allowlist.
+
+After setup, `SshTunnel(remote_shell, remote_port=8080).start()` owns a pinned
+SSH forward from a fresh loopback port to that VM. The controller connects an
+`HttpMcpBackend(tunnel.base_url + '/mcp', header='X-API-Key', token=...,
+workflow_view='full').start()` to the installed candidate. The controller sends
+the explicit authenticated full-view request on each page and rejects responses
+that identify a narrowed workflow view. The canonical full export has no view
+attestation; the candidate's identity and wire contract must be verified by the
+runner. The
+server credential and tunnel identity stay in controller memory, never CLI
+configuration. Stage 4 connects to g41's browser server with its controller-
+held `McpEndpoint` URL/header/token. g41 owns its origin lock and independent
+Studio observation; it has not yet landed on this branch.
+
+Independent remote slots can run in parallel. The older corpus/canary command
+runner admits one case or trial per cell slot, with a per-target lock; allocate
+a fresh cell for the next case. There is no host-wide campaign lock.
+Host-local Docker is refused for these
+CLI arms. The pre-existing local Sonnet 5.5 P10 smoke was made before the remote
+redirect: it reached the candidate, then failed during MCP discovery with zero
+recorded model actions. The stack was torn down and the attempt retained. The old receipt did not retain
+request names or CLI stderr, so it does not identify the rejected method. The
+proxy now returns an empty `prompts/list` and a standard method-not-found error
+for other unsupported discovery requests, without treating those requests as
+model actions. Fake CLI tests cover both cases.
+
+The published quickstart was installed on the remote eval Docker host for two
+read-only smoke attempts and removed afterward, including its volumes and
+credentials. Opus reached the proxy but failed at discovery before the latter
+fix; a wrapper error lost its detailed proxy and CLI diagnostics. Codex completed
+initialize and tools/list (12 tools; 44,865-byte proxy response) but exited
+without a recorded model action. Its receipt records a CLI failure or forbidden
+event; the transcript was not retained, so the precise cause is unknown. The
+image lacked `honua_ops_health`, while a controller read using the scoped key
+verified `honua_list_layers`. Neither attempt is a successful model smoke.
+
+A later instrumented smoke used the exact trunk source
+`013613e7136b6b90a50b505b0dd5190cb6d1e692` built on the remote host with
+`docker/Dockerfile.aot` (image ID
+`sha256:70a717d3e0915f9adc1ed19ca120518db845f8ba3e5dbe171f7e710efdabcd55`).
+Opus 5.5 and GPT-6.1 Sol each listed the 135-tool catalog and successfully
+called `honua_ops_health` through the recording proxy; each isolated stack and
+its volumes was removed. Claude first sent `server/discover`, which the proxy
+now rejects as an optional method without aborting discovery. Codex initially
+failed because its bundled model catalog forced code-mode-only routing and then
+deferred tool search despite the restricted session. The isolated catalog now
+selects direct MCP tool routing without deferred search while keeping built-in
+shell, file, web and code-mode tools disabled. The private raw diagnostics and
+receipts remain with the runner, not in the repository.
+
+The legacy corpus adapter uses W2's runner-owned gateway, controller reads and
+oracle. Its remote-cell mode requires the retained target configuration and
+verified deployment receipt. W2 scenario support, scripted clarifications,
+remote restart/fault operations, and the arc runner's orchestration remain
+separate dependencies. OPS is fail-closed while PR #1153 has no real wired
+scenarios. No simulated operation is scored. The release session owns execution,
+AWS provisioning, approval, and cross-family methodology review.
+
+## Tests
+
+Fake Claude and Codex executables connect to real loopback recording proxies,
+exercise all three named MCP backends, and prove ordered action logging and
+credential isolation. Additional negative controls cover shell scope, command
+injection, non-loopback curl, Compose exec/down, unapproved inline Compose,
+credential disclosure from the operator, absence of a short-lived AWS session,
+unhealthy VM refusal, tunnel confinement, per-stage surface isolation, and
+parallel independent CLI sessions. No real model calls are part of these tests.

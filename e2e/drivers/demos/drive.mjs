@@ -18,6 +18,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { geoprocessingExpectation, judgeRedisOffGeoprocessing, processDetailFailure } from "./gp-topology.mjs";
+import { GpExecutionTrace, gpExecutionSettled } from "./gp-execution.mjs";
 import { CallLog, describeCall, editingFallbackReason, workbenchReach } from "./backend-calls.mjs";
 
 // Playwright lives in a cache dir outside the repo (run.sh installs it there and passes the entry
@@ -457,24 +458,15 @@ async function checkGeoprocessing(context) {
   }
   if (expectation.mode === "refusal") return checkGeoprocessingRedisOff(context);
   const page = await newPage(context);
+  const trace = new GpExecutionTrace(page, BASE);
   try {
     const catalogText = await openGeoprocessingRun(page);
+    trace.start();
     await page.locator("#gp-run").click();
 
     // Submit -> job -> poll -> results, driven entirely by the page.
-    await page.waitForFunction(
-      () => /successful\. Results:/.test(document.querySelector("#gp-exec-out")?.textContent || "") ||
-            /·\s*(done|failed|dismissed)|error|HTTP \d/.test(document.querySelector("#gp-exec-pill")?.textContent || ""),
-      null,
-      { timeout: Math.max(STEP, 120000) }
-    );
-
-    const observed = await page.evaluate(() => ({
-      pill: document.querySelector("#gp-exec-pill")?.textContent?.trim() || "",
-      out: (document.querySelector("#gp-exec-out")?.textContent || "").slice(0, 1200),
-      summary: document.querySelector("#gp-result-summary")?.textContent?.trim() || "",
-      resultLayers: ["gp-result-fill", "gp-result-line", "gp-result-pt"].length,
-    }));
+    await page.waitForFunction(gpExecutionSettled, null, { timeout: Math.max(STEP, 120000) });
+    const observed = await trace.evidence(page);
 
     if (!/successful\. Results:/.test(observed.out)) {
       record("geoprocessing", "fail", `the OGC Processes job did not run to a result: pill="${observed.pill}"`, diag(page, observed));
@@ -489,10 +481,10 @@ async function checkGeoprocessing(context) {
       "geoprocessing",
       "pass",
       `live OGC API Processes catalog (${catalogText}) and generalization.simplify-layer ran to a successful job with a result document`,
-      { catalogText, pill: observed.pill, out: observed.out.slice(0, 600) }
+      { catalogText, ...observed }
     );
   } catch (error) {
-    record("geoprocessing", "fail", `geoprocessing demo did not complete a live execution: ${error.message}`, diag(page));
+    record("geoprocessing", "fail", `geoprocessing demo did not complete a live execution: ${error.message}`, diag(page, await trace.evidence(page)));
   } finally {
     await page.close();
   }
