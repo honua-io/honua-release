@@ -127,11 +127,30 @@ class VmSlot:
                 'dockerServerVersion': done.stdout.decode().strip().splitlines()[-1][:40]}
 
     def quickstart_shell(self, approved_compose: str):
-        from agent_cli_backends import RemoteQuickstartShell
+        from agent_cli_backends import RemoteQuickstartShell, parse_quickstart
         from agent_cli_sessions import digest
-        return RemoteQuickstartShell(host=self.host, user=self.user, identity_file=self.identity_file,
+        approved = digest(approved_compose.encode())
+
+        def prevalidate(kind, action):
+            """RemoteQuickstartShell.execute's own checks, all of which run before anything is sent to the
+            VM: a failure here is a proven pre-dispatch refusal."""
+            if kind != 'shell_command' or action.get('tool') != 'run_quickstart':
+                raise ValueError('invalid shell action')
+            args = action.get('arguments', {})
+            if not isinstance(args, dict) or 'command' not in args or set(args) - {'command', 'stdin'}:
+                raise ValueError('invalid shell arguments')
+            command = parse_quickstart(args['command'])
+            inline = any(command[i] in ('-f', '--file') and command[i + 1] == '-' for i in range(len(command) - 1))
+            source = args.get('stdin')
+            if inline and (not isinstance(source, str) or digest(source.encode()) != approved):
+                raise ValueError('inline compose must match the runner-approved published quickstart')
+            if not inline and source is not None:
+                raise ValueError('stdin is only allowed for an approved inline compose file')
+        shell = RemoteQuickstartShell(host=self.host, user=self.user, identity_file=self.identity_file,
                                      known_hosts=self.known_hosts, remote_dir=self.remote_dir, slot=self.project,
-                                     approved_compose_sha256=digest(approved_compose.encode()), executor=self.run)
+                                     approved_compose_sha256=approved, executor=self.run)
+        shell.prevalidate = prevalidate
+        return shell
 
     def tunnel(self, shell, port: int | None = None):
         from agent_cli_backends import SshTunnel

@@ -374,6 +374,8 @@ class StageContext:
     options: dict = field(default_factory=dict)
     live: list = field(default_factory=list)            # started backends (closed on overrun)
     gate: Any = field(default_factory=lambda: Gate())    # runner-owned dispatch gate for this stage
+    finalized: Any = None                                # finalize_stage facts (set exactly once)
+    finalize_order: Any = None                           # the order finalize_stage ran its steps in
     handoff: tuple = (None, None)                       # (handoff template, previous answer)
 
     def remaining(self) -> float:
@@ -404,13 +406,11 @@ class StageModule:
         for backend in backends.values():
             screen_backend(backend, ctx)
             ctx.live.append(backend)
-        try:
-            return session.run_stage(stage=STAGE_NUMBER[self.stage], target=ctx.target, prompt=prompt,
-                                     backends=backends, log_dir=ctx.private_dir / self.stage / 'cli',
-                                     max_actions=ctx.limits['maxToolCalls'], max_turns=ctx.limits['maxTurns'],
-                                     timeout=max(1, int(ctx.remaining())))
-        finally:
-            close_live(ctx)
+        # Cleanup belongs to finalize_stage alone (gate, kill, revoke, drain, close), on every exit.
+        return session.run_stage(stage=STAGE_NUMBER[self.stage], target=ctx.target, prompt=prompt,
+                                 backends=backends, log_dir=ctx.private_dir / self.stage / 'cli',
+                                 max_actions=ctx.limits['maxToolCalls'], max_turns=ctx.limits['maxTurns'],
+                                 timeout=max(1, int(ctx.remaining())))
 
     def observe(self, ctx: StageContext, row: dict) -> list[dict]:
         raise NotImplementedError
@@ -694,7 +694,6 @@ class ServicesStage(StageModule):
             project=ctx.slot.project, arm=ctx.arm, limits=ctx.limits, out_dir=ctx.private_dir / 'services' / 'corpus',
             handoff=handoff, extra_secrets=ctx.slot.harness_secrets, deadline=ctx.deadline,
             private_root=ctx.private_dir / 'services' / 'cases', register=ctx.live.append, gate=ctx.gate)
-        close_live(ctx)
         ctx.slot.harness_secrets.extend(v for v in row['secrets'] if v not in ctx.slot.harness_secrets)
         if row['withheld']:
             ctx.slot.facts['withheldResponses'] = ctx.slot.facts.get('withheldResponses', 0) + row['withheld']
@@ -788,15 +787,29 @@ def screen_backend(backend, ctx) -> None:
             return screen_catalog(listing(), ctx)
         backend.tool_view = tool_view
 
+    prevalidate = getattr(backend, 'prevalidate', None)
+
     def execute(kind, action):
+        if gate is not None and gate.closed:
+            return dict(GATE_CLOSED)
+        if callable(prevalidate):
+            # The only proven pre-dispatch refusal: the backend's own validation, run before dispatch.
+            try:
+                prevalidate(kind, action)
+            except ValueError:
+                if gate is not None:
+                    with gate.cond:
+                        gate.settled.append({'tool': action.get('tool'), 'outcome': 'refused-before-dispatch'})
+                raise
         if gate is not None and not gate.enter():
             return dict(GATE_CLOSED)
         try:
             result = original(kind, action)
         except BaseException as exc:
+            # After dispatch, any exception (ValueError from response parsing included) leaves the
+            # upstream outcome unknown until a terminal resolution.
             if gate is not None:
-                gate.leave({'tool': action.get('tool'), 'outcome': 'refused' if isinstance(exc, ValueError) else 'error',
-                                'error': type(exc).__name__})
+                gate.leave({'tool': action.get('tool'), 'outcome': 'error', 'error': type(exc).__name__})
             raise
         if gate is not None:
             gate.leave({'tool': action.get('tool'), 'outcome': result.get('status')})
@@ -919,9 +932,8 @@ class Gate:
             return True
 
     def leave(self, outcome) -> None:
-        """A transport exception means the upstream outcome is unknown (the product may still apply it):
-        such a call is never 'settled' by returning; it stays unknown until a probe resolves it. A
-        ValueError is the backend's own refusal before anything reached the product (settled)."""
+        """Any exception after dispatch means the upstream outcome is unknown (the product may still apply
+        it): such a call is never 'settled' by returning; it stays unknown until a probe resolves it."""
         with self.cond:
             self.inflight -= 1
             if outcome.get('outcome') == 'error':
@@ -993,41 +1005,71 @@ def kill_cli_processes(pids, wait: float = 15.0) -> list[dict]:
     return out
 
 
-def shutdown_stage(ctx, worker=None) -> dict:
-    """Ordered stage shutdown on overrun: (1) close the dispatch gate, (2) SIGKILL the agent CLI process
-    groups and wait, (3) revoke agent credentials through the controller, (4) drain in-flight upstream
-    calls and record their outcomes, (5) join the session worker, (6) close the backends. The caller
-    finalizes only afterwards; anything not settled makes the stage undetermined."""
-    facts = {'gateClosed': True}
+def finalize_stage(ctx, reason: str = 'unspecified', worker=None) -> dict:
+    """The one shutdown every stage exit takes (normal end, model end, model error, any exception,
+    deadline, overrun), exactly once, in this order, never swallowing a result:
+
+      1. close the runner-owned dispatch gate (nothing further reaches the product)
+      2. SIGKILL the agent CLI process groups and wait for them to exit
+      3. revoke agent credentials through the controller; every result is retained; a failed revocation
+         is incomplete; then probe each credential (it must be refused) and a live one is incomplete
+      4. drain in-flight calls; every dispatched call whose outcome is unknown must reach a terminal
+         state through a controller probe within the drain bound, otherwise it stays unresolved
+      5. join the session worker, then close the backends
+    Observation and finalization happen only afterwards. Anything incomplete makes the stage
+    undetermined (a failed run), whatever else happened."""
+    if getattr(ctx, 'finalized', None) is not None:
+        return ctx.finalized
+    order = getattr(ctx, 'finalize_order', None)
+    if order is None:
+        order = []
+        try:
+            ctx.finalize_order = order
+        except AttributeError:
+            pass
+    facts = {'reason': reason}
     ctx.gate.close()
     for item in list(ctx.live):
         if hasattr(item, 'close_gate'):
             item.close_gate()
+    order.append('gate')
+    facts['gateClosed'] = True
     facts['killed'] = kill_cli_processes(cli_processes())
-    revoked = []
+    order.append('kill')
+    revoked, probes = [], []
     for item in list(ctx.live):
         if hasattr(item, 'revoke'):
             revoked.extend(item.revoke())
-    facts['revoked'] = revoked
+    order.append('revoke')
+    for item in list(ctx.live):
+        if hasattr(item, 'probe'):
+            probes.extend(item.probe())
+    order.append('probe')
+    facts['revoked'], facts['credentialProbes'] = revoked, probes
     facts['revocationFailed'] = any(r.get('status') not in (200, 204) for r in revoked)
+    facts['credentialAlive'] = any(p.get('alive') is not False for p in probes)
     drain_deadline = time.monotonic() + DRAIN_SECONDS
     facts['inflightRemaining'] = ctx.gate.drain(DRAIN_SECONDS)
     facts['settled'] = list(ctx.gate.settled)
-    # Calls whose outcome is unknown (e.g. the HTTP call timed out after the product accepted it) block
-    # finalization until a controller probe resolves them to a terminal state within the drain bound.
     unresolved = list(ctx.gate.unknown)
     for item in list(ctx.live):
         if unresolved and hasattr(item, 'settle'):
             unresolved = item.settle(unresolved, max(0.0, drain_deadline - time.monotonic()))
     facts['unresolvedOutcomes'] = unresolved
+    order.append('drain')
     if worker is not None:
         worker.join(GRACE_SECONDS)
     facts['workerExited'] = worker is None or not worker.is_alive()
     close_live(ctx)
+    facts['order'] = list(order)
     facts['complete'] = (all(k['exited'] for k in facts['killed']) and not facts['revocationFailed']
-                         and facts['inflightRemaining'] == 0 and not facts['unresolvedOutcomes']
-                         and facts['workerExited'])
+                         and not facts['credentialAlive'] and facts['inflightRemaining'] == 0
+                         and not facts['unresolvedOutcomes'] and facts['workerExited'])
+    ctx.finalized = facts
     return facts
+
+
+shutdown_stage = finalize_stage      # kept for callers and tests written against the earlier name
 
 
 def stage_file(ctx, stage: str, name: str, value) -> str:
@@ -1168,6 +1210,7 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
         outcome, cause = 'undetermined', 'stage overrun not contained: ' + ', '.join(
             k for k, bad in (('session still running', not shutdown.get('workerExited')),
                              ('revocation failed', shutdown.get('revocationFailed')),
+                             ('a credential is still accepted', shutdown.get('credentialAlive')),
                              ('in-flight work unsettled', shutdown.get('inflightRemaining')),
                              ('an action outcome never resolved', shutdown.get('unresolvedOutcomes')),
                              ('CLI did not exit', not all(x.get('exited') for x in shutdown.get('killed') or [])))
@@ -1188,7 +1231,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         return {**result, 'outcome': 'fail', 'cause': str(exc)}
     if reason:
         return {**result, 'outcome': 'stage-unavailable', 'cause': reason}
-    row = {}
+    row, worker, exit_reason, unavailable = {}, None, 'normal', None
     try:
         within(ctx.remaining(), module.prepare, ctx, ctx=ctx)
         handoff_text = ctx.arc['handoffs'].get(STAGES[STAGES.index(stage) - 1]) if stage != 'setup' else None
@@ -1197,24 +1240,28 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         prompt = redact_bytes(prompt.encode(), ctx.slot.harness_secrets).decode()   # the model's first input too
         result['modelVisible']['promptSha256'] = sha256(prompt)
         row = within(ctx.remaining(), module.run, ctx, session, prompt, ctx=ctx) or {}
+        if row.get('failure'):
+            exit_reason = 'model-' + str(row['failure'].get('category'))
     except StageUnavailable as exc:
-        close_live(ctx)
-        return {**result, 'outcome': 'stage-unavailable', 'cause': str(exc)[:300]}
+        exit_reason, unavailable = 'unavailable', str(exc)[:300]
     except PhaseTimeout as exc:
-        shutdown = shutdown_stage(ctx, getattr(exc, 'worker', None))
+        exit_reason, worker = 'deadline', getattr(exc, 'worker', None)
+        row = {'failure': {'category': 'model', 'reason': str(exc)}}
+    except BaseException as exc:  # noqa: BLE001  (every exception, ValueError included, is finalized alike)
+        exit_reason = 'error:' + type(exc).__name__
+        row = {'failure': {'category': 'infrastructure', 'reason': f'{type(exc).__name__}: {str(exc)[:200]}'}}
+    finally:
+        shutdown = finalize_stage(ctx, exit_reason, worker)
+    if unavailable is not None and not scan_actions(ctx.private_dir / stage) and not ctx.gate.unknown \
+            and not ctx.gate.settled and shutdown['complete']:
+        return {**result, 'outcome': 'stage-unavailable', 'cause': unavailable}
+    if exit_reason != 'normal' or unavailable is not None:
         recovered = scan_actions(ctx.private_dir / stage)        # everything attempted through termination
-        row = {'actions': recovered, 'shutdown': shutdown, 'failure': {
-            'category': 'post-action-undetermined' if recovered else 'model', 'reason': str(exc)}}
-    except Exception as exc:
-        close_live(ctx)
-        recovered = scan_actions(ctx.private_dir / stage)
-        row = {'actions': recovered, 'failure': {
-            'category': 'post-action-undetermined' if recovered else 'infrastructure',
-            'reason': f'{type(exc).__name__}: {str(exc)[:200]}'}}
-    if 'shutdown' not in row:
-        # Every finalization (normal end, model end, error) takes the same ordered shutdown as an overrun:
-        # close the gate, kill any CLI, revoke, drain, resolve unknown outcomes; only then observe.
-        row = dict(row, shutdown=shutdown_stage(ctx, None))
+        if recovered or not row.get('actions'):
+            row = dict(row, actions=recovered or row.get('actions') or [])
+        if recovered and (row.get('failure') or {}).get('category') == 'infrastructure':
+            row['failure'] = dict(row['failure'], category='post-action-undetermined')
+    row = dict(row, shutdown=shutdown)
     actions = logged_actions(row)
     answer = row.get('finalAnswer') if isinstance(row.get('finalAnswer'), str) else None
     observations = []
@@ -1222,7 +1269,6 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         try:
             observations = within(ctx.remaining(), module.observe, ctx, row, ctx=ctx) or []
         except PhaseTimeout as exc:
-            shutdown_stage(ctx, getattr(exc, 'worker', None))
             observations = [{'assertion': 'observation', 'status': 'fail', 'reason': str(exc)}]
         except Exception as exc:
             observations = [{'assertion': 'observation', 'status': 'fail',
@@ -1346,7 +1392,7 @@ def run_status(stages: list[dict]) -> str:
     first = next((row for row in stages if row['outcome'] != 'pass'), None)
     if first is None:
         return 'completed'
-    if first['outcome'] in ('undetermined', 'stage-unavailable'):
+    if first['outcome'] in ('undetermined', 'stage-unavailable') or any(r['outcome'] == 'undetermined' for r in stages):
         return 'undetermined'
     if any(row['outcome'] == 'blocked' for row in stages):
         return 'blocked'

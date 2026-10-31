@@ -691,3 +691,90 @@ def test_unavailable_run_still_aggregates_in_the_denominator(tmp_path):
     raws = [(tmp_path / '001' / 'trial-receipt.json').read_bytes()]
     result, report = agg(tmp_path, ['001'], raws)
     assert (result['scheduled'], result['undetermined'], result['completed']) == (1, 1, 0)
+
+
+# ---------------------------------------------------------------- finalize_stage: every exit x revocation x pending
+
+EXITS = ('normal', 'model-end', 'model-error', 'value-error', 'deadline')
+REVOCATION = ('ok', 'fails', 'still-alive')
+PENDING = ('none', 'resolves', 'never')
+
+
+class LiveItem:
+    def __init__(self, revocation, pending):
+        self.revocation, self.pending = revocation, pending
+
+    def revoke(self):
+        return [{'principal': 'agent', 'status': 401 if self.revocation == 'fails' else 200}]
+
+    def probe(self):
+        return [{'principal': 'agent', 'status': 200 if self.revocation != 'ok' else 401,
+                 'alive': self.revocation != 'ok'}]
+
+    def settle(self, unknowns, timeout):
+        return [] if self.pending == 'resolves' else unknowns
+
+
+class MatrixStage(FakeStage):
+    def __init__(self, exit_reason, revocation, pending):
+        super().__init__('setup')
+        self.exit_reason, self.revocation, self.pending = exit_reason, revocation, pending
+
+    def run(self, ctx, session, prompt):
+        self.ctx = ctx
+        ctx.live.append(LiveItem(self.revocation, self.pending))
+
+        class Backend:
+            def execute(inner, kind, action):
+                if self.pending != 'none':
+                    raise TimeoutError('the product accepted it; the response never came')
+                return {'status': 'ok'}
+        backend = Backend()
+        R.screen_backend(backend, ctx)
+        ctx.live.append(backend)
+        try:
+            backend.execute('tool_call', {'tool': 'honua_update_features'})
+        except TimeoutError:
+            pass
+        actions = [act(status='pass' if self.pending == 'none' else 'unknown')]
+        if self.exit_reason == 'model-error':
+            raise RuntimeError('the CLI crashed')
+        if self.exit_reason == 'value-error':
+            raise ValueError('MCP request failed (uncorrelated response after dispatch)')
+        if self.exit_reason == 'deadline':
+            time.sleep(1.6)
+        row = {'finalAnswer': GOOD_ANSWER, 'actions': actions, 'nudges': 0}
+        if self.exit_reason == 'model-end':
+            row['failure'] = {'category': 'model', 'reason': 'the model stopped'}
+        return row
+
+    def observe(self, ctx, row):
+        ctx.finalize_order.append('observe')
+        return super().observe(ctx, row)
+
+
+@pytest.mark.parametrize('exit_reason', EXITS)
+@pytest.mark.parametrize('revocation', REVOCATION)
+@pytest.mark.parametrize('pending', PENDING)
+def test_finalize_stage_matrix(tmp_path, monkeypatch, exit_reason, revocation, pending):
+    monkeypatch.setattr(R, 'GRACE_SECONDS', 5)
+    monkeypatch.setattr(R, 'kill_cli_processes', lambda pids: [{'pid': 1, 'exited': True}])
+    arc = copy.deepcopy(ARC)
+    arc['limits']['setup']['maxSeconds'] = 1
+    slot = R.Slot('local-docker', 'none', 'arc-abcdef1234')
+    stage = MatrixStage(exit_reason, revocation, pending)
+    receipt, _ = run(tmp_path, arc=arc, slot=slot, mods=modules(setup=stage))
+    setup = receipt['stages'][0]
+    order = stage.ctx.finalize_order
+    assert order[:5] == ['gate', 'kill', 'revoke', 'probe', 'drain'], order
+    assert 'observe' not in order[:5] and order.count('gate') == 1, 'finalized exactly once, before observing'
+    complete = revocation == 'ok' and pending != 'never'
+    shutdown = setup.get('shutdown') or {}
+    assert shutdown.get('complete', complete) is complete
+    if not complete:
+        assert setup['outcome'] == 'undetermined', (setup['outcome'], setup['cause'])
+        assert receipt['status'] == 'undetermined'
+    elif exit_reason == 'normal' and pending == 'none':
+        assert setup['outcome'] == 'pass', setup['cause']
+    else:
+        assert setup['outcome'] in ('fail', 'undetermined')

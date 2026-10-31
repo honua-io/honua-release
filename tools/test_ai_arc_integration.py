@@ -550,3 +550,89 @@ def test_unknown_outcome_before_the_deadline_still_blocks_completion(tmp_path, m
         assert result['outcome'] == 'undetermined' and 'never resolved' in result['cause']
     finally:
         server.shutdown()
+
+
+def test_uncorrelated_response_after_dispatch_stays_unknown(tmp_path):
+    """Astra 7th review B1: the real HttpMcpBackend raises ValueError for a wrong response id AFTER
+    sending the operation; that outcome is unknown and the stage cannot complete."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    applied = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if body.get('method') == 'tools/call':
+                applied.append(body['params'])                 # the product accepted the mutation
+                reply = {'jsonrpc': '2.0', 'id': 999999, 'result': {'content': [], 'isError': False}}
+            elif 'id' in body:
+                reply = {'jsonrpc': '2.0', 'id': body['id'], 'result': {
+                    'protocolVersion': '2025-03-26', 'capabilities': {}, 'serverInfo': {'name': 'x'}, 'tools': []}}
+            else:
+                self.send_response(202)
+                self.end_headers()
+                return
+            raw = json.dumps(reply).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    endpoint = f'http://127.0.0.1:{server.server_address[1]}/mcp'
+
+    class Stage(R.StageModule):
+        stage, lane = 'ops', 'test'
+
+        def backends(self, ctx):
+            return {'honua': backends_mod.HttpMcpBackend(endpoint).start()}
+
+        def observe(self, ctx, row):
+            return [{'assertion': a, 'status': 'pass'} for a in R.required_assertions(ctx.arc, 'ops', ctx.target)]
+
+    class Session:
+        def run_stage(self, *, backends, **kw):
+            try:
+                backends['honua'].execute('tool_call', {'tool': 'honua_update_features', 'arguments': {'serviceId': 's'}})
+            except ValueError:
+                pass
+            return {'finalAnswer': 'It is updated and ready.', 'nudges': 0,
+                    'actions': [{'kind': 'tool_call', 'tool': 'honua_update_features', 'arguments': {}, 'status': 'fail'}]}
+    try:
+        arc = R.load_arc()
+        ctx = R.StageContext(arc=arc, target='local-docker', arm=R.arm_by_id(arc, 'A1'), variant='A',
+                             run_dir=tmp_path / 'run', private_dir=tmp_path / 'p',
+                             slot=R.Slot('local-docker', 'none', 'arc-abcdef123456'), candidate=CAND_IN, install=INSTALL,
+                             limits=arc['limits']['ops'], deadline=__import__('time').monotonic() + 60)
+        result = R.run_stage(ctx, Stage(), Session(), 'Update it.', None)
+        assert applied, 'the operation reached the product'
+        assert result['shutdown']['unresolvedOutcomes'] and result['shutdown']['complete'] is False
+        assert result['outcome'] == 'undetermined'
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.parametrize('exit_kind', ['normal', 'error'])
+def test_denied_revocation_on_normal_and_error_exits_is_undetermined(tmp_path, monkeypatch, exit_kind):
+    """Astra 7th review B2 on the real #1152 runtime: revocation denied (401) after a recorded query;
+    the session either finishes or the case raises afterwards. The gate closes first, the failure is
+    retained, the still-working credential is detected, and the stage is undetermined."""
+    def script(execute, corpus):
+        query(execute, {'where': corpus.CORRECT_WHERE})
+        if exit_kind == 'error':
+            raise OSError('the CLI pipe broke after the case')
+    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, revoke_status=401, deadline=300.0)
+    state.deny_revoke = True
+    try:
+        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        shutdown = result['shutdown']
+        assert shutdown['order'][:4] == ['gate', 'kill', 'revoke', 'probe']
+        assert shutdown['revocationFailed'] and shutdown['credentialAlive'] and shutdown['complete'] is False
+        assert [r['status'] for r in shutdown['revoked']] == [401]
+        assert result['outcome'] == 'undetermined'
+    finally:
+        server.shutdown()

@@ -41,7 +41,7 @@ def runtime_class():
             self.timeout = limits['maxSeconds']
             self.extra_secrets = extra_secrets if isinstance(extra_secrets, list) else list(extra_secrets)
             self.answers, self.withheld, self.catalog_redactions = {}, 0, 0
-            self.stacks, self.cancelled = [], []
+            self.stacks, self.cancelled, self.agent_keys = [], [], []
             self.gate = None
 
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
@@ -64,6 +64,7 @@ def runtime_class():
             if needs_approver:
                 stack = self._mint_approver(stack)
             self.stacks.append(stack)
+            self.agent_keys.append(os.environ.get(self.AGENT_ENV))
             # Live secret set: minted case keys join the arc's screen and redaction at once.
             for value in self._secrets:
                 if value not in self.extra_secrets:
@@ -94,6 +95,26 @@ def runtime_class():
                     self.cancelled.append(agent)
             return results
 
+        def probe(self):
+            """Each case agent credential must now be refused by the product (401/403)."""
+            import urllib.error
+            import urllib.request
+            results = []
+            for stack, key in zip(self.stacks, self.agent_keys):
+                if not key:
+                    continue
+                request = urllib.request.Request(f"{stack.base_url}/api/v1/admin/api-keys/", headers={'X-API-Key': key})
+                try:
+                    with urllib.request.urlopen(request, timeout=20) as response:
+                        status = response.status
+                except urllib.error.HTTPError as exc:
+                    status = exc.code
+                except Exception:  # noqa: BLE001
+                    status = None
+                results.append({'principal': (stack.extra.get('custody') or {}).get('agentPrincipalId'),
+                                'status': status, 'alive': status not in (401, 403)})
+            return results
+
         def raw_execute(self, stack, names):
             execute = super().raw_execute(stack, names)
 
@@ -106,8 +127,7 @@ def runtime_class():
                     result = execute(kind, action)
                 except BaseException as exc:
                     if gate is not None:
-                        gate.leave({'tool': action.get('tool'), 'outcome': 'refused' if isinstance(exc, ValueError) else 'error',
-                                'error': type(exc).__name__})
+                        gate.leave({'tool': action.get('tool'), 'outcome': 'error', 'error': type(exc).__name__})
                     raise
                 if gate is not None:
                     gate.leave({'tool': action.get('tool'), 'outcome': result.get('status')})
@@ -160,8 +180,8 @@ def private_actions(case_dir: Path) -> list[dict]:
 
 
 class Canceller:
-    """Registered in the stage's live set: the ordered shutdown calls ``revoke`` after the gate is
-    closed and the CLI is killed, and records every result (a failed revocation is not hidden)."""
+    """Registered in the stage's live set. Only finalize_stage drives it: ``revoke`` after the gate is
+    closed and the CLI killed (every result retained), then ``probe`` that each credential is refused."""
 
     def __init__(self, runtime):
         self.runtime, self.results = runtime, []
@@ -171,8 +191,8 @@ class Canceller:
         self.results.extend(results)
         return results
 
-    def close(self):
-        self.revoke()
+    def probe(self):
+        return self.runtime.probe()
 
 
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
