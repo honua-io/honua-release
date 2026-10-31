@@ -213,7 +213,7 @@ def case_context(stack, runtime):
 
 def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None,
                      credentials=(), scenario_id=None, model_actions=None, frozen=None, canaries=None,
-                     model_visible=(), customer_files=None):
+                     model_visible=(), customer_files=None, final_answers=(), action_results=()):
     """Score each pack assertion from the runner's own recorded responses, failing closed.
 
     With ``frozen`` (always, on the runner path) each assertion is scored only by its frozen
@@ -235,7 +235,8 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
         by_id[observation.assertion_id] = observation
     model_actions = dict(model_actions or {})
     ctx = projections.Context(records, roles, custody, run_facts, credentials, model_actions=model_actions,
-                              canaries=canaries, model_visible=model_visible, customer_files=customer_files)
+                              canaries=canaries, model_visible=model_visible, customer_files=customer_files,
+                              final_answers=final_answers, action_results=action_results)
     results = []
     for assertion in assertions:
         ruling = check_exclusion(scenario_id, assertion, expected[assertion])
@@ -264,8 +265,8 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 raise ValueError('observation is not a runner projection over recorded responses')
             steps = projections.referenced_steps(spec)
             text = json.dumps(spec)
-            if (not steps and '"custody"' not in text and '"run"' not in text and '$model-visible' not in text
-                    and '"attachmentSnapshots"' not in text):
+            if (not steps and '"custody"' not in text and '"run"' not in text and '"attachmentSnapshots"' not in text
+                    and not any(source in text for source in projections.PSEUDO_SOURCES)):
                 raise ValueError('projection reads no recorded evidence')
             for step in steps:
                 record = records.get(step)
@@ -901,6 +902,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                                               action_results=vault.action_results())
             roles.update(session_roles(session_ids, sessions))
             extras = case_context(stack, runtime)
+            extras['final_answers'] = tuple(run.final_answers)
+            extras['action_results'] = tuple(json.dumps(r['json'], sort_keys=True).encode() for r in vault.action_results())
             custody = runtime.custody(stack)  # includes runner facts recorded during observe (e.g. restarts)
         except Exception as exc:
             # After the session, an observation that cannot be made is a failed case, never a rerun.

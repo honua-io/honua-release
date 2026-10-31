@@ -151,6 +151,10 @@ class RoleBinding:
     completeness. The binding's own total/next_page/page_limit fields are refused. Authorship is
     either ``owner`` (a row field equal to RunRecord.agent_principal) or ``created_by`` (the id appears in
     the server's captured reply to a successful sealed agent call of that tool). Exactly one row must remain.
+    recorded:<name>: the canonical sha256 of the value at ``pointer`` in a seed- or between-phase record
+    (for "persisted unchanged" comparisons such as configuration or saved-document digests).
+    child:<kind>: one scalar at ``pointer`` in an observe-phase read that addresses the ``parent`` role's
+    resolved id (e.g. the layer inside a created map). Roles resolve in the frozen order.
     Runner roles (no binding needed): ``session:previous``, ``session:current``,
     ``session:visible-message-ids``, ``session:handoff-sha256`` (sha256 of the session-1 final answer).
     """
@@ -166,6 +170,7 @@ class RoleBinding:
     page_limit: dict | None = None  # created: {"param": "limit", "value": N}: the query asked for N rows, fewer came back
     created_by: dict | None = None  # created: {"tool": name, "pointer": "/result/..."}: the id is named by the
                                     # server's captured reply to a successful sealed agent call of that tool
+    parent: str | None = None       # child:<kind>: the role whose resource this observe-phase read addresses
 
 
 @dataclass(frozen=True)
