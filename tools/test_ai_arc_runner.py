@@ -203,8 +203,8 @@ def test_reference_links_are_masked_but_access_claims_are_not():
     assert '[reference link]' in masked and rows[0]['classification'] == 'reference'
     kept, rows = S.classify_links('Ready. Open https://wrong-deployment.example.invalid/ to use your new installation.', ())
     assert 'wrong-deployment' in kept and rows[0]['classification'] == 'claim'
-    kept, _ = S.classify_links('Your deployment is live at https://docs.honua.io/x', ())
-    assert 'docs.honua.io' in kept, 'a reference host presented as the deployment stays a claim'
+    kept, rows = S.classify_links('Your deployment is live at https://docs.honua.io/x', ())
+    assert rows == [{'host': 'docs.honua.io', 'classification': 'claim'}] and '[reference link]' not in kept
 
 
 # ---------------------------------------------------------------- unsafe attempts (released product shapes)

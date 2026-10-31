@@ -37,6 +37,19 @@ PORT_BASE, PORT_STRIDE, SLOTS_PER_HOST = 18080, 100, 3
 SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_KEYRING_PASSWORD')
 
 
+def resolve_alias(alias: str, run: Callable = subprocess.run) -> str:
+    """The HostName an SSH alias points at (``ssh -G``), so ssh without the user's config reaches it."""
+    if not HOST.fullmatch(alias):
+        raise ValueError('invalid host alias')
+    done = run(['ssh', '-G', alias], capture_output=True, text=True, timeout=20, check=False,
+               stdin=subprocess.DEVNULL)
+    for line in (done.stdout or '').splitlines():
+        key, _, value = line.partition(' ')
+        if key == 'hostname' and HOST.fullmatch(value.strip()):
+            return value.strip()
+    raise ValueError('could not resolve SSH alias ' + alias)
+
+
 def quickstart_compose(page: str) -> str:
     """The published quickstart's compose definition, exactly as the page prints it."""
     import g3_compose_quickstart as g3

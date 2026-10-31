@@ -817,7 +817,8 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                                   toolViewSha256=row.get('toolViewSha256'),
                                   systemContractSha256=row.get('systemContractSha256'),
                                   provenance=[{k: p.get(k) for k in ('agent', 'cliVersion', 'model', 'promptSha256',
-                                                                     'servedToolListsSha256', 'configSha256')}
+                                                                     'servedToolListsSha256', 'configSha256',
+                                                                     'mcpMethods', 'transcriptSha256')}
                                               for p in row.get('provenance') or [] if isinstance(p, dict)])
     if row.get('corpusCases'):
         result['corpusCases'] = row['corpusCases']
@@ -1323,7 +1324,10 @@ def build_slot(target: str, args, run_index: int = 0) -> Slot:
     if not match:
         raise SystemExit('--docker-host must be ssh://<host alias> of an ephemeral VM')
     import ai_arc_local
-    vm = ai_arc_local.VmSlot(host=match.group(1), user=args.ssh_user, identity_file=args.ssh_identity,
+    # #1160's shell runs ssh with HOME set beside the identity file, so it cannot read the controller's
+    # SSH config: resolve the alias to its HostName here (the known_hosts entry is keyed by it).
+    resolved = ai_arc_local.resolve_alias(match.group(1))
+    vm = ai_arc_local.VmSlot(host=resolved, user=args.ssh_user, identity_file=args.ssh_identity,
                              known_hosts=args.known_hosts, project=project, index=args.slot_index)
     return Slot(target=target, kind='vm', project=project, vm=vm)
 
