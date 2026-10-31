@@ -513,7 +513,8 @@ def test_runtime_proxy_omits_temperature_like_the_shipped_client(monkeypatch, tm
         monkeypatch.setattr(client, '_open', capture)
         with pytest.raises(Stop):
             client.complete([{'role': 'user', 'content': 'x'}], {'runNonce': 'n'})
-    assert 'temperature' not in sent[0] and sent[1]['temperature'] == 0
+    # Trunk's canary (#1157) also omits temperature by default; the runner pins the omission explicitly.
+    assert 'temperature' not in sent[0] and 'temperature' not in sent[1]
 
 
 def _record(step, phase='observe', status=200, body=None, path='/x', principal_id='admin', kind='http', arguments=None):
