@@ -22,7 +22,8 @@ from state import _projected_layer, messy_table
 def main() -> None:
     root = Path(os.environ['E2E_OUT'])
     base, key = os.environ['E2E_BASE'], os.environ['E2E_API_KEY']
-    evidence = {'project': os.environ['COMPOSE_PROJECT_NAME'], 'status': 'fail', 'layers': {}}
+    evidence = {'project': os.environ['COMPOSE_PROJECT_NAME'], 'status': 'fail',
+                'qualification': False, 'layers': {}}
     controller = None
     try:
         seed = json.loads((root / 'seed-manifest.json').read_text())
@@ -293,6 +294,8 @@ def main() -> None:
                     evidence['fault_restored_service_settings'] = service_settings()
                     if settings_data(evidence['service_settings']) != settings_data(evidence['fault_restored_service_settings']):
                         raise RuntimeError('service settings changed after interrupted migration restore')
+                if not evidence['fault_assessment']['rpo_zero']:
+                    raise RuntimeError('acknowledged writes lost during fault recovery')
         evidence['status'] = 'operations-pass'
         evidence['cleanup'] = 'pending'
         print('real Compose operations completed: town layers, anonymous public traffic, controller readback' +

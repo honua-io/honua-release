@@ -30,6 +30,7 @@ import json, os
 from pathlib import Path
 path = Path(os.environ['OPS_SMOKE_OUT']) / 'smoke-evidence.json'
 data = json.loads(path.read_text()) if path.exists() else {'project': os.environ['COMPOSE_PROJECT_NAME'], 'status': 'fail'}
+data['qualification'] = False
 data['cleanup'] = os.environ['OPS_SMOKE_CLEANUP']
 data['status'] = 'pass' if data.get('status') == 'operations-pass' and os.environ['OPS_SMOKE_EXIT'] == '0' else 'fail'
 path.write_text(json.dumps(data, sort_keys=True) + '\n')
