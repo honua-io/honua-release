@@ -91,8 +91,11 @@ Tracked product work, which this harness does not simulate:
 
 The ECS stage is unwired and cannot pass even if the product gaps close.
 The ECS image-convergence prerequisite is honua-server #6825, which remains open.
-`MigrationStateReader` and `ProposalCapture` are separately tested components,
-but are not yet connected to a verified task, trusted inter-job handoff, or approval. Before
+`MigrationStateReader`, `DatabaseJournal`, `ProposalCapture`, and the signed
+`ecs_handoff` envelope are separately tested components. A fake test covers the
+proxy, a distinct approver process, product state and controller readback. They
+are not yet connected to verified live task credentials, a protected signing-key
+and public-key handoff, or the real job-level approval policy. Before
 wiring, run the model in a separate credential-free job with the proposer-only
 MCP proxy, approve only IDs from its trusted recording ledger in a separate
 approver process, and implement independent migration-state, probe, schema and

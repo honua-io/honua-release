@@ -90,10 +90,13 @@ class MigrationStateReader:
 
     def __call__(self) -> dict:
         # The script is validated above and originates in the controller inventory.
-        count = self.session.query(
-            f"SELECT count(*) FROM public.schema_versions WHERE scriptname='{self.script}'")
-        if count not in ("0", "1"):
-            raise ObservationMissing("migration journal")
+        if isinstance(self.session, DatabaseJournal):
+            count = "1" if self.session.contains(self.script) else "0"
+        else:
+            count = self.session.query(
+                f"SELECT count(*) FROM public.schema_versions WHERE scriptname='{self.script}'")
+            if count not in ("0", "1"):
+                raise ObservationMissing("migration journal")
         params = {"logGroupName": self.log_group, "logStreamName": self.log_stream,
                   "startTime": self.start_time_ms, "startFromHead": True, "limit": 10000}
         messages = []
@@ -123,3 +126,50 @@ class MigrationStateReader:
         return {"evidence_id": self.evidence_id, "backend_pid": self.backend_pid,
                 "migration_failed": failure,
                 "journal_absent": count == "0"}
+
+
+class DatabaseJournal:
+    """Read the actual journal over a controller-owned PostgreSQL connection."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def contains(self, script: str) -> bool:
+        if not isinstance(script, str) or not re.fullmatch(r'[A-Za-z0-9._-]+\.sql', script):
+            raise ValueError('invalid migration script')
+        with self.connection.cursor() as cursor:
+            cursor.execute('SELECT count(*) FROM public.schema_versions WHERE scriptname = %s', (script,))
+            row = cursor.fetchone()
+        if not isinstance(row, (tuple, list)) or len(row) != 1 or type(row[0]) is not int or row[0] < 0:
+            raise ObservationMissing('migration journal')
+        return row[0] > 0
+
+    def scripts(self) -> list[str]:
+        with self.connection.cursor() as cursor:
+            cursor.execute('SELECT scriptname FROM public.schema_versions ORDER BY scriptname')
+            rows = cursor.fetchall()
+        if not isinstance(rows, list) or any(not isinstance(row, (tuple, list)) or len(row) != 1 or
+                                              not isinstance(row[0], str) for row in rows):
+            raise ObservationMissing('migration journal')
+        return [row[0] for row in rows]
+
+
+def open_controller_state(*, cluster: str, service: str, database_dsn: str):
+    """Open read-only ECS and PostgreSQL clients using only controller credentials.
+
+    The caller obtains the DSN from the controller's private cell state and must
+    close the returned database connection. No coordinates or secrets are logged.
+    """
+    if not isinstance(database_dsn, str) or not database_dsn:
+        raise ValueError('database connection missing')
+    import boto3
+    import psycopg
+    observer = EcsObserver(boto3.client('ecs', region_name=_REGION), cluster, service)
+    connection = psycopg.connect(database_dsn, autocommit=True,
+                                 options='-c default_transaction_read_only=on')
+    return observer, DatabaseJournal(connection)
+
+
+def controller_snapshot(ecs: EcsObserver, journal: DatabaseJournal) -> dict:
+    """Independently read the deployed service and committed migration journal."""
+    return {'ecs': ecs.task_digests(), 'journal': journal.scripts()}
