@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -29,7 +28,8 @@ def target_url(value):
 class CliRuntime(corpus.LocalRuntime):
     def __init__(self, *args, agent, timeout=600, target='local', target_config=None,
                  deployment_receipt=None, session_factory=CliModelSession, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, agent=agent, **kwargs)
+        import agent_e2e_cli_sessions  # registers W2 ModelSession implementations
         self.cli = session_factory(agent, self.model)
         self.timeout, self.target = timeout, target_url(target)
         self.target_config, self.deployment_receipt = target_config, deployment_receipt
@@ -75,49 +75,6 @@ class CliRuntime(corpus.LocalRuntime):
             raise
         return stack
 
-    def session(self, stack, prompt, number, *, clarifications=(), tokens_used=0):
-        from agent_e2e_mcp import McpError
-        catalog = self.mcp_client(stack)
-        try:
-            catalog.initialize()
-            tool_view = catalog.list_tools()
-        finally:
-            catalog.close()
-        names = {t['name'] for t in tool_view['tools']}
-
-        def collect(value):
-            if isinstance(value, dict):
-                for key, item in value.items():
-                    if isinstance(item, str) and (key.lower().endswith('id') or key.lower().endswith('url')):
-                        self._hints.append({'field': key, 'value': item})
-                    elif isinstance(item, (dict, list)): collect(item)
-            elif isinstance(value, list):
-                for item in value: collect(item)
-
-        def execute(kind, action):
-            client = self.mcp_client(stack)
-            try:
-                client.initialize()
-                return corpus.execute_customer_action(client, names, kind, action, collect)
-            except McpError as exc:
-                raise corpus.ActionOutcomeUnknown(exc.category) from exc
-            finally:
-                client.close()
-
-        try:
-            row = self.cli.run(prompt=prompt, tool_view=tool_view, execute=execute,
-                               log_dir=Path(stack.workdir) / f'session-{number}', session=number,
-                               max_actions=self.max_actions, max_turns=self.max_model_calls, timeout=self.timeout)
-        except CliFailure as exc:
-            stack.extra['actionLog'].extend(exc.progress['actions'])
-            self.cli_records.extend(exc.progress['provenance'])
-            raise corpus.SessionInterrupted(exc.category, exc.progress, str(exc)) from exc
-        stack.extra['actionLog'].extend(row['actions'])
-        self.cli_records.extend(row['provenance'])
-        if tokens_used + row['tokens'] > self.max_tokens:
-            raise corpus.SessionInterrupted('model', row, 'token budget exceeded')
-        return row
-
     def teardown(self, stack):
         if self.target != 'local' and 'recorder' in stack.extra:
             recorder = stack.extra['recorder']
@@ -160,7 +117,7 @@ def main(argv=None):
     receipt = corpus.execute_case(case_id=f'{args.scenario}:{args.variant}:local-docker',
                                  scenario=corpus.load_scenario(args.scenario), variant=args.variant, case=case,
                                  candidate_digest=candidate, runtime=runtime)
-    receipt.update(arm='native-cli/corpus-v1', agent=args.agent, cost=None, metering='subscription',
+    receipt.update(agent=args.agent, cost=None, metering='subscription',
                    target=args.target, serverImage=image, lockDigest=args.lock_digest,
                    temperaturePolicy='CLI default', cliSessions=runtime.cli_records,
                    modelVisibleScope='runner-controlled prompt, MCP responses, tool list, flags and config')

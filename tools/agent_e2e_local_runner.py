@@ -862,7 +862,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['controllerRecords'] = stack.extra['recorder'].index() if 'recorder' in stack.extra else []
             receipt['usage'] = [u for s in receipt['sessions'] for u in s['usage']]
             try:
-                receipt['cost'] = model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None
+                receipt['cost'] = (None if agent in ('claude-cli', 'codex-cli') else
+                                   model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None)
             except ValueError as exc:
                 receipt['cost'] = {'usd': None, 'reason': str(exc)}
             if seeded is not None:

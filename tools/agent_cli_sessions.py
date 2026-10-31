@@ -64,7 +64,7 @@ class RecordingProxy:
             raise ValueError('empty or duplicate MCP tool surface')
         self.execute, self.log_dir = execute, Path(log_dir)
         self.session, self.max_actions = session, max_actions
-        self.actions, self.visible, self.hints = [], [], []
+        self.actions, self.visible, self.hints, self.methods = [], [], [], []
         self.failure = None
         self.path = '/' + secrets.token_hex(32)
         self.lock = threading.Lock()
@@ -121,11 +121,14 @@ class RecordingProxy:
         self.thread.join(timeout=5)
 
     def rpc(self, method, params):
+        self.methods.append(method if method in ('initialize', 'ping', 'tools/list', 'tools/call',
+            'resources/list', 'resources/templates/list', 'resources/read', 'prompts/list') else digest(str(method).encode()))
         if method == 'initialize':
             return {'protocolVersion': params.get('protocolVersion', '2025-03-26'),
                     'capabilities': {'tools': {}, 'resources': {}},
                     'serverInfo': {'name': 'honua-recording-proxy', 'version': '1'}}
         if method == 'ping': return {}
+        if method == 'prompts/list': return {'prompts': []}  # CLI discovery, no prompt execution capability
         if method == 'tools/list': return self.tool_view
         if method == 'resources/list':
             return {'resources': [{'uri': 'honua://catalog/processes', 'name': 'processes'}]}
@@ -156,6 +159,8 @@ class RecordingProxy:
             row['resultDigest'] = digest(action_bytes(result))
             body = result.get('result', result)
             self._collect(body)
+            if action['kind'] == 'resource_read' and isinstance(body.get('resource'), dict):
+                body = body['resource']  # terminal journey driver wraps its actual server resource result
             if action['kind'] == 'resource_read' and 'contents' in body:
                 return body
             if isinstance(body, dict) and 'content' in body:
@@ -334,6 +339,7 @@ class CliModelSession:
                 out['actions'] = proxy.actions
                 out['modelVisibleDigests'].extend(proxy.visible)
                 metadata['mcpResponseSha256'] = proxy.visible
+                metadata['mcpMethods'] = proxy.methods
                 metadata['transcriptSha256'] = digest(raw)
                 out['provenance'] = [metadata]
                 out['resourceHints'] = proxy.hints
@@ -344,7 +350,8 @@ class CliModelSession:
                 except ValueError as exc:
                     raise CliFailure(str(exc), out) from exc
                 out['usage'] = usage
-                out['tokens'] = sum(u.get('input_tokens', 0) + u.get('output_tokens', 0) for u in usage)
+                out['tokens'] = sum(sum(u.get(k, 0) for k in ('input_tokens', 'output_tokens',
+                    'cache_read_input_tokens', 'cache_creation_input_tokens')) for u in usage)
                 if forbidden or turns > max_turns:
                     raise CliFailure('forbidden action attempted or turn bound exceeded', out)
                 if process.returncode or not isinstance(final, str) or not final.strip():

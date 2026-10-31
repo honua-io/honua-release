@@ -55,6 +55,7 @@ def rpc(method, params):
     raw = json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode()
     return json.load(urllib.request.urlopen(urllib.request.Request(url,data=raw,headers={'Content-Type':'application/json'})))
 rpc('initialize', {'protocolVersion':'2025-03-26'})
+assert rpc('prompts/list', {})['result'] == {'prompts': []}
 assert rpc('tools/list', {})['result']['tools'][0]['name'] == 'honua_query_features'
 if MODE == 'timeout': time.sleep(20)
 if MODE == 'unknown': rpc('tools/call', {'name':'Bash','arguments':{'command':'touch bad'}})
@@ -96,7 +97,7 @@ def test_native_cli_isolation_and_proxy_custody(tmp_path, monkeypatch, agent, mo
     assert proof['cliVersion'] == 'fake-cli 1.0'
     assert proof['promptSha256'] == digest(b'Customer goal only')
     assert proof['servedToolListSha256'] == digest(encoded(TOOLS))
-    assert len(proof['mcpResponseSha256']) == 3
+    assert len(proof['mcpResponseSha256']) == 4
     flags = json.loads((tmp_path/'log/cli-inputs.json').read_bytes())['flags']
     assert proof['cliFlagsSha256'] == digest(encoded(flags))
     assert 'controller-only-secret' not in json.dumps(proof)
