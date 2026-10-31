@@ -6,7 +6,7 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:d898b6a622d21c5ffcc3c050fcf8b0abf9a79d7ed0031266f4b36504ed676d03
+    sha256: sha256:e0353c0b2be8f9f15f3dfd320dd441899acea6899d848f20ea8cdfc14d3a6cb3
   compatibilityMatrix:
     path: compatibility-matrix.yaml
     sha256: sha256:1f3d2659e969f61ce5cd61ffc9057b0062ff066b780b03c52723a066cf430b4c
@@ -48,20 +48,20 @@ components:
   honua-console:
     source:
       repository: https://github.com/honua-io/honua-console
-      revision: 3f113f855ea2966768ecce09276c5282c74093e9
+      revision: 2f9917a3aec0eff9751bdfcb0f17b542ec98989f
     contractVersions: {}
     schemaVersions: {}
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-console
-      sourceRevision: 3f113f855ea2966768ecce09276c5282c74093e9
-      digest: sha256:a34b0fc8b8b50762d026122a057787a95711de61412cf5595d7620cfb81d75f4
+      sourceRevision: 2f9917a3aec0eff9751bdfcb0f17b542ec98989f
+      digest: sha256:38a1c2b38c09697f90716a3abbab5471e2ea5b79ed494c2a77fb7a80faa52da1
       architectures:
       - amd64
       - arm64
       platformDigests:
-        amd64: sha256:b87469923bf3d006eaa42f976a9054307edcaeed0e5405256a9590dc2ac8c9d0
-        arm64: sha256:f1387895e433889b7dab2cc63aa521dfc0b1fd6e3b8c25ccaea48478e062c039
+        amd64: sha256:81b172318381bf2559d2f5fe3160eda14eb6b1518454ce8760cdb043c1eab2cf
+        arm64: sha256:3b07040cb40e12a39c2a9a3fe321f4942e43fd38cd5e9bad31e230f1b373ecb9
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
@@ -189,15 +189,15 @@ components:
   honua-iac:
     source:
       repository: https://github.com/honua-io/honua-iac
-      revision: 3f83a15351dc7c56edba771eab982a58bf51f973
+      revision: fd00eadfe53b611cfdc3d10afd160e6010671ca6
     contractVersions: {}
     schemaVersions: {}
     artifacts:
     - kind: archive
-      coordinate: https://github.com/honua-io/honua-iac/archive/3f83a15351dc7c56edba771eab982a58bf51f973.tar.gz
-      version: 0.6.0
-      sourceRevision: 3f83a15351dc7c56edba771eab982a58bf51f973
-      sha256: sha256:6097693ebbe990dbd5437401bb192faaa202f6efc2ca0e2d77670b51c0f6f552
+      coordinate: https://github.com/honua-io/honua-iac/archive/fd00eadfe53b611cfdc3d10afd160e6010671ca6.tar.gz
+      version: 0.6.1
+      sourceRevision: fd00eadfe53b611cfdc3d10afd160e6010671ca6
+      sha256: sha256:f09493329774a1e6fe639a18a02930ed4bdc8d8231aec73c0b83c73c725cba4e
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
