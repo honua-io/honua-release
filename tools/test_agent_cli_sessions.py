@@ -157,6 +157,23 @@ def test_failed_shell_validation_is_model_failure(tmp_path):
         assert proxy.actions[0]['kind']=='shell_command'
 
 
+def test_proxy_never_returns_dynamic_credentials_from_any_backend(tmp_path):
+    def leak(*_):
+        return {'status':'ok','result':{'content':[{'type':'text',
+            'text':'{"secretAccessKey":"newly-issued-secret"}'}]}}
+    with RecordingProxy(TOOLS,leak,tmp_path,1,1) as proxy:
+        with pytest.raises(ValueError,match='credential'):
+            proxy.rpc('tools/call',{'name':'honua_query_features','arguments':{}})
+        assert proxy.failure_category=='post-action-undetermined'
+        assert proxy.actions[0]['status']=='unknown'
+
+
+def test_proxy_refuses_credential_bearing_tool_catalog(tmp_path):
+    tools={'tools':[{'name':'honua_query_features','description':'AWS_SECRET_ACCESS_KEY=example-secret'}]}
+    with pytest.raises(ValueError,match='credential'):
+        RecordingProxy(tools,lambda *_:None,tmp_path,1,1)
+
+
 @pytest.mark.parametrize('agent', ['claude-cli','codex-cli'])
 def test_provider_auth_only(tmp_path, agent):
     source=tmp_path/'source'; home=tmp_path/'home'; home.mkdir()

@@ -19,42 +19,15 @@ import threading
 from urllib.parse import urlsplit
 import urllib.request
 
-from agent_cli_sessions import digest
+from agent_cli_sessions import digest, screen_model_input
 from agent_e2e_local_recorder import write_private
 
 MAX_RESPONSE = 4 * 1024 * 1024
 _SAFE_ID = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\Z')
-_CREDENTIAL_FIELD = re.compile(
-    r'^(?:aws_?access_?key_?id|aws_?secret_?access_?key|access_?key_?id|secret_?access_?key|'
-    r'session_?token|access_?token|refresh_?token|password|passwd|pwd|api_?key|private_?key)$', re.I)
-_CREDENTIAL_TEXT = re.compile(
-    r'\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bpostgres(?:ql)?://[^\s:/]+:[^\s@]+@|'
-    r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*[^\s,}]+', re.I)
 
 
 def _screen(value, secrets):
-    raw = json.dumps(value, ensure_ascii=False).encode()
-    if any(secret and secret.encode() in raw for secret in secrets):
-        raise ValueError('upstream MCP response disclosed a controller credential')
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, dict):
-            for key, child in item.items():
-                if (_CREDENTIAL_FIELD.fullmatch(str(key)) and isinstance(child,str)
-                        and child.strip() and child.lower() not in ('redacted','[redacted]','***')):
-                    raise ValueError('upstream MCP response disclosed a credential field')
-                pending.append(child)
-        elif isinstance(item, list): pending.extend(item)
-        elif isinstance(item, str):
-            if _CREDENTIAL_TEXT.search(item):
-                raise ValueError('upstream MCP response disclosed credential-shaped text')
-            if item.lstrip().startswith(('{','[')):
-                try: nested = json.loads(item)
-                except (TypeError, ValueError): pass
-                else:
-                    if isinstance(nested,(dict,list)): pending.append(nested)
-    return value
+    return screen_model_input(value, secrets)
 
 
 class StdioMcpBackend:
@@ -339,7 +312,7 @@ class RemoteQuickstartShell:
         inline = any(command[i] in ('-f','--file') and command[i+1] == '-' for i in range(len(command)-1))
         source = args.get('stdin')
         if inline:
-            if (not isinstance(source,str) or len(source.encode()) > 65536 or '\x00' in source
+            if (not isinstance(source,str) or not source.endswith('\n') or len(source.encode()) > 65536 or '\x00' in source
                     or digest(source.encode()) != self.approved_compose_sha256):
                 raise ValueError('inline compose must match the runner-approved published quickstart')
         elif source is not None:
@@ -355,7 +328,7 @@ class RemoteQuickstartShell:
         if inline:
             fence = 'HONUA_' + self.approved_compose_sha256[7:39]
             if fence in source: raise ValueError('invalid compose input delimiter')
-            script += " <<'" + fence + "'\n" + source + ('' if source.endswith('\n') else '\n') + fence + '\n'
+            script += " <<'" + fence + "'\n" + source + fence + '\n'
         result = self._ssh(script)
         # A local quickstart can generate secrets in .env; compose config/logs and
         # arbitrary HTTP responses must not turn those into model-visible bytes.
@@ -380,8 +353,9 @@ class RemoteQuickstartShell:
         _screen(visible, [])
         return {'status':'ok' if result.returncode == 0 else 'fail',
                 'result':{'content':[{'type':'text','text':visible}],
-                          'isError':result.returncode != 0, 'exitCode':result.returncode,
-                          'outputSha256':digest(result.stdout)}}
+                          'isError':result.returncode != 0, 'exitCode':result.returncode},
+                '_recording':{'commandSha256':digest(script.encode()), 'stdoutSha256':digest(result.stdout),
+                              'stderrSha256':digest(result.stderr)}}
 
 
 class SshTunnel:

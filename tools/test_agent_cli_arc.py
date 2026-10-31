@@ -162,6 +162,7 @@ def test_remote_shell_never_invokes_local_docker_or_exposes_secret_output(tmp_pa
     result=shell.execute('shell_command',{'tool':'run_quickstart','arguments':{'command':'docker compose config'}})
     assert calls[0][0][0]=='ssh' and 'hidden-secret' not in json.dumps(result)
     assert b'--project-name arc-12345678' in calls[0][1]['input']
+    assert result['_recording']['commandSha256'].startswith('sha256:')
     assert '--' in calls[0][0] and 'StrictHostKeyChecking=yes' in calls[0][0]
 
 
@@ -200,6 +201,10 @@ def test_inline_compose_must_match_reviewed_published_bytes(tmp_path):
     assert shell.execute('shell_command',action)['status']=='ok'
     assert source.encode() in calls[0]
     action['arguments']['stdin']+='  privileged: true\n'
+    with pytest.raises(ValueError,match='approved'): shell.execute('shell_command',action)
+    no_newline=source.rstrip('\n')
+    shell.approved_compose_sha256=digest(no_newline.encode())
+    action['arguments']['stdin']=no_newline
     with pytest.raises(ValueError,match='approved'): shell.execute('shell_command',action)
 
 
