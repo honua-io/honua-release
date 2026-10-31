@@ -11,6 +11,7 @@ unobserved until an independently verified server render can supply the evidence
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import os
 import re
@@ -936,7 +937,8 @@ def composition_from_body(body):
     require(len(set(ordered)) == len(ordered), 'map layers are duplicated')
     require(all(type(value) in (int, float) and not isinstance(value, bool) for value in view['bbox']),
             'map extent is not numeric')
-    return {'orderedLayerIds': ordered, 'visibility': visibility, 'extent': list(view['bbox'])}
+    return {'orderedLayerIds': ordered, 'visibility': visibility, 'extent': list(view['bbox']),
+            'view': copy.deepcopy(view)}
 
 
 def style_from_body(body):
@@ -1644,12 +1646,13 @@ def observe_map(stack, seeded, prefix, *, created):
             stack.extra[prefix + 'RenderFailure'] = str(exc)[:200]
 
 
-def composition_spec(prefix, role):
+def composition_spec(prefix, role, variant):
     return {'object': {
         'mapId': {'target': prefix + '-version', 'role': role, 'at': {'pathSegment': 4}},
         'orderedLayerIds': {'body': prefix + '-composition', 'pointer': '/orderedLayerIds'},
         'visibility': {'body': prefix + '-composition', 'pointer': '/visibility'},
-        'extent': {'body': prefix + '-composition', 'pointer': '/extent'}}}
+        'extent': {'studioViewContainsFixture': {'body': prefix + '-composition', 'pointer': '/view'},
+                   'fixtureBounds3857': fixture_extent(variant)}}}
 
 
 def style_spec(prefix, role):

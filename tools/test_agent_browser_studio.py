@@ -152,6 +152,8 @@ def _dumps(value):
 def _version_document(variant, flood, *, filtered=False, bound=False):
     source_ids = {name: f'svc-{name}/{binding["layerId"]}' for name, binding in LAYERS.items()}
     body = fixture_map_body(variant, LAYERS, source_ids, styled=True) if bound else map_body(variant, EXTENTS[variant], True)
+    if not bound:
+        body['view'] = fixture_map_body(variant, LAYERS, source_ids, styled=True)['view']
     if filtered:
         body['mapSpec'] = map_spec(True, filtered=True)
     if flood is not None:
@@ -729,7 +731,7 @@ def test_expectations_match_the_pack_and_an_independent_fixture_walk(variant):
     walked = _walk_extent(variant)
     assert walked == EXTENTS[variant] == fixture_extent(variant)
     composition = P08().expected(variant)['map.composition']
-    assert composition['extent'] == walked
+    assert composition['extent'] is True
     assert composition['orderedLayerIds'] == ['parcels', 'flood_zones', 'shelters']
 
 

@@ -26,7 +26,7 @@ class P08(Scenario):
     def observe(self, stack, seeded, variant, run=None):
         observe_map(stack, seeded, 'p08', created=True)
         return [
-            Observation('map.composition', None, {'projection': 'extract/v1', 'spec': composition_spec('p08', 'created:map')}),
+            Observation('map.composition', None, {'projection': 'extract/v1', 'spec': composition_spec('p08', 'created:map', variant)}),
             Observation('render.actual', None, {'projection': 'extract/v1', 'spec': render_spec('p08')}),
             Observation('source-content.unchanged', None, {'projection': 'extract/v1', 'spec': source_content_spec('p08')}),
         ]

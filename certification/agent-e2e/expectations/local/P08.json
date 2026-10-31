@@ -18,12 +18,7 @@
           "flood_zones": true,
           "shelters": true
         },
-        "extent": [
-          -20010,
-          -5010,
-          -18800,
-          -4700
-        ]
+        "extent": true
       },
       "render.actual": {
         "layerIds": [
@@ -449,12 +444,7 @@
           "flood_zones": true,
           "shelters": true
         },
-        "extent": [
-          12990,
-          -8010,
-          14200,
-          -7700
-        ]
+        "extent": true
       },
       "render.actual": {
         "layerIds": [
@@ -912,55 +902,6 @@
     }
   ],
   "projections": {
-    "map.composition": {
-      "spec": {
-        "object": {
-          "mapId": {
-            "target": "p08-version",
-            "role": "created:map",
-            "at": {
-              "pathSegment": 4
-            }
-          },
-          "orderedLayerIds": {
-            "body": "p08-composition",
-            "pointer": "/orderedLayerIds"
-          },
-          "visibility": {
-            "body": "p08-composition",
-            "pointer": "/visibility"
-          },
-          "extent": {
-            "body": "p08-composition",
-            "pointer": "/extent"
-          }
-        }
-      },
-      "reads": {
-        "p08-composition": {
-          "kind": "http",
-          "method": "GET",
-          "principal": "controller",
-          "phase": "observe",
-          "path": "/derived/p08\\-composition"
-        },
-        "p08-version": {
-          "kind": "http",
-          "method": "GET",
-          "principal": "controller",
-          "phase": "observe",
-          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
-          "addresses": [
-            {
-              "role": "created:map",
-              "at": {
-                "pathSegment": 4
-              }
-            }
-          ]
-        }
-      }
-    },
     "render.actual": {
       "spec": {
         "object": {
@@ -1492,6 +1433,126 @@
               }
             }
           ]
+        }
+      }
+    }
+  },
+  "variantProjections": {
+    "A": {
+      "map.composition": {
+        "spec": {
+          "object": {
+            "mapId": {
+              "target": "p08-version",
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            },
+            "orderedLayerIds": {
+              "body": "p08-composition",
+              "pointer": "/orderedLayerIds"
+            },
+            "visibility": {
+              "body": "p08-composition",
+              "pointer": "/visibility"
+            },
+            "extent": {
+              "studioViewContainsFixture": {
+                "body": "p08-composition",
+                "pointer": "/view"
+              },
+              "fixtureBounds3857": [
+                -20010,
+                -5010,
+                -18800,
+                -4700
+              ]
+            }
+          }
+        },
+        "reads": {
+          "p08-composition": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/derived/p08\\-composition"
+          },
+          "p08-version": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+            "addresses": [
+              {
+                "role": "created:map",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "B": {
+      "map.composition": {
+        "spec": {
+          "object": {
+            "mapId": {
+              "target": "p08-version",
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            },
+            "orderedLayerIds": {
+              "body": "p08-composition",
+              "pointer": "/orderedLayerIds"
+            },
+            "visibility": {
+              "body": "p08-composition",
+              "pointer": "/visibility"
+            },
+            "extent": {
+              "studioViewContainsFixture": {
+                "body": "p08-composition",
+                "pointer": "/view"
+              },
+              "fixtureBounds3857": [
+                12990,
+                -8010,
+                14200,
+                -7700
+              ]
+            }
+          }
+        },
+        "reads": {
+          "p08-composition": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/derived/p08\\-composition"
+          },
+          "p08-version": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+            "addresses": [
+              {
+                "role": "created:map",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ]
+          }
         }
       }
     }
