@@ -29,10 +29,11 @@ def test_codex_debug_detects_calls_missing_from_json_events():
     assert codex_forbidden_diagnostics(plan, names, 'codex-cli 0.165.1')
     assert internal_events('codex-cli', 'codex-cli 0.165.0', b'', plan)[0]['kind'] == 'update_plan'
     assert internal_events('codex-cli', 'codex-cli 0.165.1', b'', plan) == []
-    plan_event = json.dumps({'type': 'item.updated', 'item': {'type': 'plan', 'id': 'item_0'}}).encode()
+    plan_event = json.dumps({'type': 'item.updated', 'item': {'type': 'todo_list', 'id': 'item_0',
+                            'items': [{'text': 'Check health', 'completed': False}]}}).encode()
     assert not parse_transcript('codex-cli', plan_event, names, 'codex-cli 0.165.0')[-1]
     assert parse_transcript('codex-cli', plan_event, names, 'codex-cli 0.165.1')[-1]
-    assert internal_events('codex-cli', 'codex-cli 0.165.0', plan_event, b'')[0]['kind'] == 'plan_event'
+    assert internal_events('codex-cli', 'codex-cli 0.165.0', plan_event, b'')[0]['kind'] == 'todo_list'
     assert internal_events('codex-cli', 'codex-cli 0.165.1', plan_event, b'') == []
 
 

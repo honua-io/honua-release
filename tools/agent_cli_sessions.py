@@ -394,9 +394,9 @@ def parse_transcript(agent, raw, names, version=None):
                 kind = item.get('type')
                 if kind == 'mcp_tool_call':
                     if item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
-                elif kind == 'plan':
+                elif kind == 'todo_list':
                     if 'update_plan' not in INTERNAL_TOOLS.get(agent, {}).get(version, ()): forbidden = True
-                elif kind not in ('agent_message', 'reasoning', 'plan', 'error', None):
+                elif kind not in ('agent_message', 'reasoning', 'error', None):
                     forbidden = True
                 if kind == 'agent_message' and event['type'] == 'item.completed': final = item.get('text')
             if event.get('type') == 'turn.completed':
@@ -419,7 +419,7 @@ def transcript_diagnostics(raw):
             if isinstance(detail, dict):
                 subtype = detail.get('type')
                 event['itemType'] = subtype if subtype in ('mcp_tool_call', 'agent_message',
-                    'reasoning', 'plan', 'command_execution', 'file_change', 'web_search') else 'other'
+                    'reasoning', 'todo_list', 'command_execution', 'file_change', 'web_search') else 'other'
             events.append(event)
         except (ValueError, UnicodeError):
             events.append({'type': 'invalid-json', 'lineSha256': digest(line)})
@@ -450,8 +450,8 @@ def internal_events(agent, version, stdout, stderr):
                 try: event = json.loads(line)
                 except (ValueError, UnicodeError): continue
                 if (isinstance(event, dict) and event.get('type') in ('item.started', 'item.updated', 'item.completed')
-                        and isinstance(event.get('item'), dict) and event['item'].get('type') == 'plan'):
-                    events.append({'kind': 'plan_event', 'eventSha256': digest(line)})
+                        and isinstance(event.get('item'), dict) and event['item'].get('type') == 'todo_list'):
+                    events.append({'kind': 'todo_list', 'eventSha256': digest(line)})
         for line in stderr.splitlines():
             text = line.decode('utf-8', errors='replace')
             if 'event.name="codex.tool_call_received"' not in text: continue
