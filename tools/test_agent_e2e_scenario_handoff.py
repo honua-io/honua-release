@@ -46,7 +46,7 @@ def _anonymous(server):
 
 
 def publish(server, *, mode='public', service_name='shelters', service_status=200,
-            proposals=None, detail_extra=None, refusal_body=None, count=12):
+            proposals=None, detail_extra=None, refusal_body=None, count=12, count_status=200):
     """Fixture catalogue. A document field named access is a lie the probe must ignore."""
     if proposals is None:
         proposals = [{'proposalId': 'proposal-1', 'kind': 'ServicePublish', 'status': 'Succeeded',
@@ -76,7 +76,7 @@ def publish(server, *, mode='public', service_name='shelters', service_status=20
         if path.split('?', 1)[0] == SERVICE+'/0/query':
             assert not anonymous and service_status == 200
             assert 'where=1%3D1' in path and 'returnCountOnly=true' in path and 'f=json' in path
-            return _json({'count': count})
+            return _json({'count': count} if count_status == 200 else {'code': 'query-failed'}, count_status)
         if path == '/api/v1/admin/proposals':
             assert not anonymous
             return _json({'proposals': proposals})
@@ -218,6 +218,13 @@ def test_unobserved_catalogue_raises_instead_of_emitting_an_empty_handoff(adapte
     server.respond = lambda method, path, raw: (500, {}, b'{"code":"down"}')
     with pytest.raises(PackError, match='catalogue was not observed'):
         scenario_handoff.observe_handoff(client(adapter, server, 'obs-missing'))
+
+
+@pytest.mark.parametrize('count_status,count', [(500, 12), (200, None), (200, -1)])
+def test_unobserved_count_on_a_served_layer_fails_closed(adapter, server, count_status, count):
+    publish(server, count=count, count_status=count_status)
+    with pytest.raises(PackError, match='feature count was not observed'):
+        scenario_handoff.observe_handoff(client(adapter, server, f'obs-count-{count_status}-{count}'))
 
 
 def test_verify_replaces_a_handler_document_with_candidate_reads(tmp_path, execution, server, monkeypatch):

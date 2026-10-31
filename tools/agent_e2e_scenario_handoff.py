@@ -259,12 +259,11 @@ def observe_handoff(http):
             count_status, count_body = _get(http, f'handoff-count-{index}-{layer_id}',
                                              layer_path+'/query?'+urlencode({'where': '1=1', 'returnCountOnly': 'true', 'f': 'json'}))
             count = count_body.get('count') if isinstance(count_body, dict) else None
-            if count_status == 200 and type(count) is int and not isinstance(count, bool) and count >= 0:
-                feature_counts.append(count)
-            else:
-                feature_counts.append(None)
-                for code in _codes_from(count_body):
-                    _add(refusal, code)
+            # The layer itself was served, so a missing count is an observation
+            # failure, not a fact about the model's answer: fail closed.
+            require(count_status == 200 and type(count) is int and not isinstance(count, bool) and count >= 0,
+                    'served layer feature count was not observed')
+            feature_counts.append(count)
     proposals, proposal_codes = _proposals(http)
     for code in proposal_codes:
         _add(refusal, code)
