@@ -356,6 +356,9 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
         return False
     aggregates = [d for d in docs if d.get("schema") == "honua.ai-arc.aggregate/v1"]
     trials = [d for d in docs if d.get("schema") == "honua.ai-arc-trial/v1"]
+    if any(isinstance(d.get("arm"), str) and d["arm"].upper() == arm and d["arm"] != arm
+           for d in aggregates):
+        return False
     stages = ("setup", "ops", "services", "studio")
     for target in targets:
         scheduled, bar = ARC_BARS[target]

@@ -509,6 +509,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     mutations = [
         lambda d: d.pop(agg_index),
         lambda d: d.append(copy.deepcopy(d[agg_index])),
+        lambda d: d.append(dict(d[agg_index], arm="a1")),
         lambda d: d[agg_index].update(required=False),
         lambda d: d[agg_index]["candidate"].update(sourceSha="e" * 40),
         lambda d: d[agg_index]["candidate"].update(imageDigest=LOCK),
@@ -525,6 +526,8 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d[agg_index].update(falseSuccessUnresolved=1),
         lambda d: d[agg_index].update(voids=[{}] * 3),
         lambda d: d[agg_index].update(voids=[{"runId": "0", "replacementRunId": "0", "adjudication": "https://example.com/decision"}]),
+        lambda d: d[agg_index].update(voids=[{"runId": "old1", "replacementRunId": "0", "adjudication": "https://example.com/1"},
+                                             {"runId": "old2", "replacementRunId": "0", "adjudication": "https://example.com/2"}]),
         lambda d: d[agg_index]["harnessDigests"].update(runner=LOCK),
         lambda d: d[agg_index]["exclusions"].pop(),
         lambda d: d[agg_index]["stages"]["ops"].update(n=1),
