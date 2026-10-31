@@ -1,11 +1,10 @@
 """P13 is unsupported until complete preservation can be scored independently.
 
 The frozen restore projection checks the seeded v1, a later agent-authored style
-change and the final pointer. The remaining shared.preserved and complete town
-source assertions need identity-bound map/service inventories and polygon feature
-normalization. The frozen core projection language currently normalizes only
-FeatureServer points. The runner needs a reviewed polygon normalizer and a way
-to bind complete shared inventories before this scenario can be enabled.
+change and the final pointer. Town feature preservation and the shared map pointer have frozen projections.
+The runner still needs a complete independent inventory and protected
+configuration readback for all other services and maps before this case can
+be enabled. Typed attribute projection depends on honua-server #6815.
 """
 from pathlib import Path
 from urllib.parse import urlencode
@@ -63,8 +62,7 @@ class P13(Scenario):
                 'owner': owner, 'listPath': path}
 
     def seed(self, stack, variant):
-        from agent_e2e_p10_observer import source_path
-        from agent_e2e_local_scenarios.w2g3_common import town_setup
+        from agent_e2e_local_scenarios.w2g3_common import read_town, town_setup
         if variant not in ('A', 'B'):
             raise ValueError('unsupported variant')
         if 'p13Seed' in stack.extra:
@@ -84,9 +82,9 @@ class P13(Scenario):
         shared_owner = stack.extra['addPrincipal']('p13-shared', ['admin:write'])
         shared = self._map(recorder, prefix='p13-shared', namespace='ae_s' + suffix, owner=shared_owner, principal='p13-shared', town=town)
         binding = town['layers']['shelters']
-        recorder.json('p13-shelters-before', 'GET', source_path(binding))
+        read_town(recorder, 'p13', town['layers'], 'before')
         seed = {'variant': variant, 'target': target, 'shared': shared,
-                'service': binding['service'], 'layerId': binding['layerId']}
+                'service': binding['service'], 'layerId': binding['layerId'], 'layers': town['layers']}
         stack.extra['p13Seed'] = seed
         return Seeded(seed)
 
@@ -94,11 +92,16 @@ class P13(Scenario):
         return [RoleBinding('seeded:map:target', 'p13-target-save', pointer='/data/itemId'),
                 RoleBinding('seeded:version:v1', 'p13-target-save', pointer='/data/versionId'),
                 RoleBinding('seeded:hash:v1', 'p13-target-save', pointer='/data/contentHash'),
-                RoleBinding('seeded:service:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/serviceName'),
-                RoleBinding('seeded:layer:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/layerId')]
+                RoleBinding('seeded:workspace:shared', 'p13-shared-save', pointer='/data/workspaceId'),
+                RoleBinding('seeded:owner:shared', 'p13-shared-save', pointer='/data/ownerId'),
+                RoleBinding('seeded:map:shared', 'p13-shared-save', pointer='/data/itemId'),
+                RoleBinding('seeded:version:shared', 'p13-shared-save', pointer='/data/versionId'),
+                *[RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
+                              pointer=f'/data/resourceIds/{field}')
+                  for layer in ('parcels', 'flood_zones', 'shelters')
+                  for kind, field in (('service', 'serviceName'), ('layer', 'layerId'))]]
 
     def observe(self, stack, seeded, variant, run=None):
-        from agent_e2e_p10_observer import source_path
         recorder = stack.extra['recorder']
         target = seeded.state['target']
         recorder.json('p13-target-after', 'GET', target['listPath'])
@@ -106,8 +109,10 @@ class P13(Scenario):
         recorder.json('p13-target-versions', 'GET', '/api/v1/studio/content-items/' + item + '/versions')
         recorder.json('p13-target-v1', 'GET', '/api/v1/studio/content-items/' + item + '/versions/' + target['versionId'])
         recorder.json('p13-shared-after', 'GET', seeded.state['shared']['listPath'])
-        recorder.json('p13-shelters-after', 'GET', source_path(seeded.state))
+        from agent_e2e_local_scenarios.w2g3_common import read_town
+        read_town(recorder, 'p13', seeded.state['layers'], 'after')
         return [Observation('version.restored', None, {'projection': 'extract/v1'}),
+                Observation('shared.preserved', None, {'projection': 'extract/v1'}),
                 Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
 

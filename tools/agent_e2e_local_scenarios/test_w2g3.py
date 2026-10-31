@@ -47,10 +47,12 @@ def test_p11_seed_idempotent_and_declares_recorded_source_projection(monkeypatch
             self.recorder = recorder
         def prepare(self, **kwargs):
             self.recorder.calls.append(('prepare', kwargs))
-            return {'layers': {'shelters': {'service': 'case-shelters', 'layerId': 1}}}
+            return {'layers': {name: {'service': 'case-' + name, 'layerId': i}
+                               for i, name in enumerate(('parcels', 'flood_zones', 'shelters'))}}
     class FakeRecorder:
         def __init__(self): self.calls = []
         def json(self, *args): self.calls.append(args)
+        def mcp_call(self, *args): self.calls.append(args)
     monkeypatch.setattr('agent_e2e_local_scenarios.w2g3_common.town_setup', lambda recorder, variant: FakeTown(recorder, None))
     recorder = FakeRecorder()
     stack = Stack('http://127.0.0.1:1', 'controller', None, 'case-123', 'compose.yml', str(tmp_path), 'sha256:test',
@@ -77,6 +79,7 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
                                for i, name in enumerate(('parcels', 'flood_zones', 'shelters'))}}
     class FakeRecorder:
         def __init__(self): self.calls = []; self.maps = {}
+        def mcp_call(self, *args): self.calls.append(args)
         def json(self, step, method, path, body=None, **kwargs):
             self.calls.append((step, method, path, body))
             prefix = step.rsplit('-', 1)[0]
@@ -109,7 +112,7 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
     assert seeded.state['target']['versionId'] != seeded.state['shared']['versionId']
     assert seeded.state['target']['owner'] != seeded.state['shared']['owner']
     observations = P13.scenario.observe(stack, seeded, variant)
-    assert [item.assertion_id for item in observations] == ['version.restored', 'source-content.unchanged']
+    assert [item.assertion_id for item in observations] == ['version.restored', 'shared.preserved', 'source-content.unchanged']
     with pytest.raises(ValueError):
         P13.scenario.seed(stack, 'B' if variant == 'A' else 'A')
 
@@ -118,7 +121,10 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
 @pytest.mark.parametrize('variant', ['A', 'B'])
 def test_seeded_shelter_preservation_rejects_mutation(scenario_id, variant):
     expected = load_expected(scenario_id, variant)['source-content.unchanged']
-    baseline = expected['resources']
+    baseline = copy.deepcopy(expected['resources'])
+    for resource in baseline:
+        resource['content']['serviceId'] = 'fixture-service'
+    expected = {**expected, 'resources': copy.deepcopy(baseline)}
     observed = {'profile': expected['profile'], 'before': copy.deepcopy(baseline), 'after': copy.deepcopy(baseline)}
     oracle.verify('source-content.unchanged', observed, expected)
     observed['after'][0]['content']['features'][0]['properties']['name'] = 'changed'
@@ -217,3 +223,70 @@ def test_restore_frozen_projection_with_recorded_http_and_wrong_live_history(tmp
             assert result[0]['status'] == ('fail' if wrong else 'pass')
     finally:
         server.shutdown(); server.server_close()
+
+
+@pytest.mark.parametrize('scenario_id', ['P11','P13'])
+@pytest.mark.parametrize('variant', ['A','B'])
+def test_frozen_town_projection_rejects_altered_polygon(scenario_id, variant):
+    from pathlib import Path
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_projections
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import score_assertions
+    root = Path(__file__).resolve().parents[2] / 'certification/agent-e2e/corpus'
+    roles, records = {}, {}
+    stem = scenario_id.lower()
+    for index, name in enumerate(('parcels', 'flood_zones', 'shelters')):
+        service = 'case-' + name
+        roles[f'seeded:service:{name}'] = service
+        roles[f'seeded:layer:{name}'] = index
+        features = json.loads((root/f'town-{variant}'/f'{name}.3857.geojson').read_text())['features']
+        params = {'tool':'honua_query_features', 'arguments':{'serviceId':service,'layerId':index}}
+        argraw = json.dumps(params).encode()
+        for phase, suffix in (('seed','before'),('observe','after')):
+            step = f'{stem}-{name.replace("_", "-")}-{suffix}'
+            body = {'jsonrpc':'2.0','id':1,'result':{'structuredContent':{'serviceId':service,
+                'returnedCount':len(features),'exceededTransferLimit':False,'resultOffset':0,
+                'geojson':{'type':'FeatureCollection','features':copy.deepcopy(features)}}}}
+            raw = json.dumps(body).encode()
+            records[step] = Record(step,phase,'mcp','controller','controller','POST','/mcp#tools/call',200,
+                raw,'sha256:'+hashlib.sha256(raw).hexdigest(),request_arguments_raw=argraw)
+    obs=Observation('source-content.unchanged',None,{'projection':'extract/v1'})
+    expected={'source-content.unchanged':load_expected(scenario_id,variant)['source-content.unchanged']}
+    def score():
+        return score_assertions(list(expected),[obs],expected,records=records,roles=roles,scenario_id=scenario_id,
+                                frozen=load_projections(scenario_id,variant))[0]['status']
+    assert score() == 'pass'
+    step=f'{stem}-flood-zones-after'; old=records[step]; body=old.json
+    body['result']['structuredContent']['geojson']['features'][0]['geometry']['coordinates'][0][0][0] += 42
+    raw=json.dumps(body).encode()
+    records[step]=Record(step,'observe','mcp','controller','controller','POST','/mcp#tools/call',200,
+        raw,'sha256:'+hashlib.sha256(raw).hexdigest(),request_arguments_raw=old.request_arguments_raw)
+    assert score() == 'fail'
+
+
+@pytest.mark.parametrize('variant', ['A','B'])
+def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_projections
+    from agent_e2e_local_recorder import Record
+    from agent_e2e_local_runner import score_assertions
+    roles={'seeded:workspace:shared':'shared-workspace','seeded:owner:shared':'shared-owner',
+           'seeded:map:shared':'shared-item','seeded:version:shared':'shared-v1'}
+    path='/api/v1/studio/content-items?family=map&workspaceId=shared-workspace&owner=shared-owner&limit=100'
+    def record(step,phase,current):
+        body={'data':{'total':1,'items':[{'itemId':'shared-item','currentVersionId':current,
+             'publishedVersionId':None,'ownerId':'shared-owner','workspaceId':'shared-workspace'}]}}
+        raw=json.dumps(body).encode()
+        return Record(step,phase,'http','controller','controller','GET',path,200,raw,
+                      'sha256:'+hashlib.sha256(raw).hexdigest())
+    records={'p13-shared-before':record('p13-shared-before','seed','shared-v1'),
+             'p13-shared-after':record('p13-shared-after','observe','shared-v1')}
+    expected={'shared.preserved':load_expected('P13',variant)['shared.preserved']}
+    obs=Observation('shared.preserved',None,{'projection':'extract/v1'})
+    def score():
+        return score_assertions(list(expected),[obs],expected,records=records,roles=roles,scenario_id='P13',
+                                frozen=load_projections('P13',variant))[0]['status']
+    assert score() == 'pass'
+    records['p13-shared-after']=record('p13-shared-after','observe','foreign-v2')
+    assert score() == 'fail'

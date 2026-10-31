@@ -2,8 +2,8 @@
 
 The runner needs a post-seed agent-owned job locator, a frozen projection for
 the persisted buffer artifact and an independently verified map/output binding.
-Complete source preservation also needs polygon normalization; typed attribute
-queries depend on honua-server #6815. A fixture buffer alone cannot prove the requested saved result was made.
+The frozen town feature projections use typed attributes, so they depend on
+honua-server #6815. A fixture buffer alone cannot prove the requested saved result was made.
 """
 from pathlib import Path
 
@@ -17,8 +17,7 @@ class P11(Scenario):
     supported_variants = ()
 
     def seed(self, stack, variant):
-        from agent_e2e_local_scenarios.w2g3_common import town_setup
-        from agent_e2e_p10_observer import source_path
+        from agent_e2e_local_scenarios.w2g3_common import read_town, town_setup
         if variant not in ('A', 'B'):
             raise ValueError('unsupported variant')
         if 'p11Seed' in stack.extra:
@@ -33,18 +32,20 @@ class P11(Scenario):
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
         binding = town['layers']['shelters']
-        recorder.json('p11-shelters-before', 'GET', source_path(binding))
-        seed = {'variant': variant, 'service': binding['service'], 'layerId': binding['layerId']}
+        read_town(recorder, 'p11', town['layers'], 'before')
+        seed = {'variant': variant, 'service': binding['service'], 'layerId': binding['layerId'], 'layers': town['layers']}
         stack.extra['p11Seed'] = seed
         return Seeded(seed)
 
     def roles(self, stack, seeded, variant, run=None):
-        return [RoleBinding('seeded:service:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/serviceName'),
-                RoleBinding('seeded:layer:shelters', 'publish-shelters-submit', pointer='/data/resourceIds/layerId')]
+        return [RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
+                            pointer=f'/data/resourceIds/{field}')
+                for layer in ('parcels', 'flood_zones', 'shelters')
+                for kind, field in (('service', 'serviceName'), ('layer', 'layerId'))]
 
     def observe(self, stack, seeded, variant, run=None):
-        from agent_e2e_p10_observer import source_path
-        stack.extra['recorder'].json('p11-shelters-after', 'GET', source_path(seeded.state))
+        from agent_e2e_local_scenarios.w2g3_common import read_town
+        read_town(stack.extra['recorder'], 'p11', seeded.state['layers'], 'after')
         return [Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
 

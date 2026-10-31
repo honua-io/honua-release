@@ -23,3 +23,13 @@ def town_setup(recorder, variant):
     town.manifest = {'files': rows}
     town.files = {row['path']: row for row in rows}
     return town
+
+
+def read_town(recorder, stem, layers, phase):
+    """Controller-owned complete geometry reads, for before/after preservation."""
+    for name in ('parcels', 'flood_zones', 'shelters'):
+        binding = layers[name]
+        recorder.mcp_call(f'{stem}-{name.replace("_", "-")}-{phase}', 'honua_query_features', {
+            'serviceId': binding['service'], 'layerId': int(binding['layerId']),
+            'where': '1=1', 'outFields': ['*'], 'limit': 1000, 'resultOffset': 0,
+            'returnGeometry': True, 'outSrid': 3857, 'geometryPrecision': -1})
