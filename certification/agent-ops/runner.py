@@ -350,6 +350,13 @@ def _live_session(state: dict, transcript: list[dict], row: dict, arm: str, limi
                 raise ValueError("action response lacks an explicit result")
         except (KeyError, TypeError, ValueError):
             result = {"ok": False, "error": "the arguments do not match this operation"}
+        except Exception as exc:
+            # Preserve the failed attempt even when the executor cannot return
+            # a structured result. The caller must still classify the crash.
+            transcript.append({"tool": parsed["tool"], "arguments": parsed["arguments"],
+                               "result": {"ok": False, "error": "executor-failed",
+                                          "error_type": type(exc).__name__}})
+            raise
         transcript.append({"tool": parsed["tool"], "arguments": parsed["arguments"], "result": result})
         messages.append({"role": "user", "content": json.dumps({"result": result}, default=str)})
     return priced, False, {"kind": "action_cap", "model_acted": priced,

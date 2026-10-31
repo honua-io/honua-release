@@ -776,3 +776,27 @@ def test_live_session_counts_nudge_and_failed_action_without_restarting(monkeypa
     assert len(instances) == 1 and lengths == [2, 4, 6]
     assert actions == [('example', {})]
     assert runner._attempt_counts(transcript) == {'actions': 1, 'nudges': 1, 'failed_actions': 1}
+
+
+def test_live_session_retains_failed_action_when_executor_crashes(monkeypatch):
+    import client
+    import pytest
+    import runner
+    class Endpoint:
+        configured = True
+        def validated_base_url(self): return 'http://127.0.0.1:1234'
+    class Model:
+        def __init__(self, endpoint): pass
+        def complete(self, messages, certification):
+            return json.dumps({'kind': 'tool_call', 'tool': 'example', 'arguments': {}}), {}, 0, {}
+    monkeypatch.setattr(client, 'build_endpoint', lambda arm: Endpoint())
+    monkeypatch.setattr(client, 'OperateClient', Model)
+    def crash(name, arguments):
+        raise RuntimeError('private detail must not enter transcript')
+    transcript = []
+    with pytest.raises(RuntimeError):
+        runner._live_session({'image_digest': 'sha256:test'}, transcript, {'id': 'trial', 'prompt': 'operate'},
+                             'primary', 2, allow_call=lambda: True, on_usage=lambda pair: None,
+                             execute_action=crash)
+    assert runner._attempt_counts(transcript)['failed_actions'] == 1
+    assert 'private detail' not in str(transcript)
