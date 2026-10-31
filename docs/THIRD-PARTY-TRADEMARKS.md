@@ -233,6 +233,27 @@ already-pinned check.
 
 ### Guard newly changed content
 
+`guard-vendor-event.yml` inspects issue titles and descriptions, issue comments,
+pull request reviews and inline review comments, and commit comments when the
+corresponding GitHub event is delivered. It reports only a generic result and
+does not print the submitted text. Invalid or oversized payloads fail the check.
+Specification and interoperability exceptions follow the same classifier used
+for pull request metadata.
+The event scanner also checks text joined across HTML markup and common inline
+Markdown formatting. It is not a complete GitHub Markdown renderer, so unusual
+rendering and encoding forms can evade or falsely trigger this detection.
+
+This is **post-publication detection**: the text is already visible when the
+event runs. It does not prevent or delete a submission, and a failed comment
+check does not block a pull request merge. Each repository needs a caller
+workflow with the relevant event triggers and a pinned `workflow_call` reference;
+the reusable workflow alone does not install organization-wide coverage. Events
+missed while Actions is disabled or unavailable require a separate audit.
+Commit-comment edits do not produce a supported event, and most activity made
+with a workflow's repository token does not trigger another workflow. Periodic
+API reconciliation is needed to detect those changes; this workflow does not
+provide that reconciliation.
+
 `guard-vendor-delta.yml` is a reusable pull request and merge queue check. It compares the
 candidate against the PR merge base (or merge queue base) without a committed baseline, classifies changed text in
 its full file context, and rejects new avoidable, confidential and nominative uses. The
