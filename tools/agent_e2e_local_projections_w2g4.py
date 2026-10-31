@@ -55,4 +55,18 @@ def observe_native_proposal(stack, seeded, prefix):
     proposal_id = output.get('proposalId') if isinstance(output, dict) else None
     if not isinstance(proposal_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', proposal_id):
         return None
-    return rec.json(prefix + '-proposal', 'GET', '/api/v1/admin/proposals/' + proposal_id)
+    request = selected[0].arguments
+    from agent_e2e_studio_observer import route_path
+    route_path(request.get('route'))
+    if request.get('visibility') != 'public':
+        raise ValueError('native proposal action did not request public visibility')
+    answer = rec.json(prefix + '-proposal', 'GET', '/api/v1/admin/proposals/' + proposal_id)
+    value = answer['observation']['body']
+    expected = [f'{key}={entry}' for key, entry in (
+        ('itemId', seeded.state['itemId']), ('versionId', seeded.state['versionId']),
+        ('contentHash', seeded.state['contentHash']), ('route', request['route']), ('visibility', 'public'))]
+    if (answer['observation']['httpStatus'] != 200 or not isinstance(value, dict)
+            or value.get('proposalId') != proposal_id or value.get('kind') != 'StudioDraftMutation'
+            or value.get('requestedBy') != rec.principals['agent'][1] or value.get('diff') != expected):
+        raise ValueError('native proposal differs from the sealed request and seeded map')
+    return answer

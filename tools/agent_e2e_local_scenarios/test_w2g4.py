@@ -509,7 +509,8 @@ def test_p20_private_projection_is_independent_but_clarification_still_fails(tmp
 
 
 @pytest.mark.parametrize('sid', ('P14', 'P17'))
-def test_proposal_result_is_only_a_locator_and_is_checked_with_fresh_read(tmp_path, monkeypatch, sid):
+@pytest.mark.parametrize('foreign', (False, True))
+def test_proposal_result_is_only_a_locator_and_is_checked_with_fresh_read(tmp_path, monkeypatch, sid, foreign):
     stack, candidate, vault = stack_fixture(tmp_path, monkeypatch)
     scenario = runner.load_scenario(sid)
     seeded = scenario.seed(stack, 'A')
@@ -525,11 +526,20 @@ def test_proposal_result_is_only_a_locator_and_is_checked_with_fresh_read(tmp_pa
     original = candidate.http
     def http(recorder, principal, method, path, raw, headers):
         if path == '/api/v1/admin/proposals/p-one':
-            return 200, json.dumps({'proposalId': 'p-one', 'status': 'AwaitingApproval', 'requestedBy': 'agent-id'}).encode()
+            item_id = OTHER_ITEM if foreign else seeded.state['itemId']
+            diff = [f'{key}={value}' for key, value in (
+                ('itemId', item_id), ('versionId', seeded.state['versionId']),
+                ('contentHash', seeded.state['contentHash']), ('route', '/chosen-by-model'), ('visibility', 'public'))]
+            return 200, json.dumps({'proposalId': 'p-one', 'kind': 'StudioDraftMutation',
+                'status': 'AwaitingApproval', 'requestedBy': 'agent-id', 'diff': diff}).encode()
         return original(recorder, principal, method, path, raw, headers)
     rec._http_factory = http
     rec.set_phase('observe')
-    scenario.observe(stack, seeded, 'A')
+    if foreign:
+        with pytest.raises(ValueError, match='native proposal differs'):
+            scenario.observe(stack, seeded, 'A')
+    else:
+        scenario.observe(stack, seeded, 'A')
     prefix = sid.lower()
     assert rec.records[prefix + '-action-result'].origin == 'session-result'
     assert rec.records[prefix + '-action-result'].replay_of.startswith('occ:1:1:')
