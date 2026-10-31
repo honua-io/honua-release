@@ -1,0 +1,177 @@
+"""Campaign scheduling: three slots per host, pause for adjudication, sealed reserve consumption, VM slots."""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import ai_arc_campaign as C  # noqa: E402
+import ai_arc_local as L  # noqa: E402
+
+
+def rows(n, prefix='local-docker:A1:'):
+    return [{'runId': f'{prefix}{i:03d}', 'variant': 'AB'[i % 2], 'caseId': None, 'set': None} for i in range(1, n + 1)]
+
+
+def fake_launch(out, statuses, log, gate=None):
+    def launch(row, slot):
+        log.append((row, slot, time.monotonic()))
+        if gate:
+            gate(row)
+        path = Path(out) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'runId': row['runId'], 'status': statuses.get(row['runId'], 'completed'),
+                                    'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:30:00Z'}))
+        return 0
+    return launch
+
+
+GOOD = {'finding': 'harness-fault', 'adjudication': 'https://github.com/honua-io/honua-release/issues/9',
+        'reviewerFamily': 'openai', 'adjudicatedAt': '2026-11-02T10:00:00Z'}
+RESERVE = [{'runId': 'local-docker:A1:r01', 'variant': 'H', 'caseId': 'r01', 'set': 'reserve'}]
+
+
+def adjudicate_later(tmp_path, decision, delay=0.3, run='local-docker-A1-001'):
+    written = []
+
+    def write():
+        time.sleep(delay)
+        written.append(time.monotonic())
+        (tmp_path / 'adjudications' / (run + '.json')).write_text(json.dumps(decision))
+    threading.Thread(target=write, daemon=True).start()
+    return written
+
+
+def test_three_concurrent_slots_per_host_and_no_reruns(tmp_path):
+    log, active, peak = [], [0], [0]
+    lock = threading.Lock()
+
+    def gate(row):
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        time.sleep(0.05)
+        with lock:
+            active[0] -= 1
+    results = C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(8), out=tmp_path, hosts=['h1', 'h2'],
+                             per_host=3, common=[], launch=fake_launch(tmp_path, {}, log, gate), wait_poll=0.01)
+    assert len(results) == 8 and len({r['runId'] for r, _, _ in log}) == 8 and peak[0] <= 6
+    assert {slot for _, slot, _ in log} <= {(h, i) for h in ('h1', 'h2') for i in range(3)}
+
+
+def test_valid_adjudication_resumes_with_the_reserve_routed_to_its_manifest(tmp_path):
+    log = []
+    written = adjudicate_later(tmp_path / 'c', GOOD)
+    (tmp_path / 'c' / 'adjudications').mkdir(parents=True)
+    results = C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path / 'c', hosts=['h1'],
+                             per_host=1, common=[], reserve_rows=RESERVE, wait_poll=0.01,
+                             launch=fake_launch(tmp_path / 'c', {'local-docker:A1:001': 'undetermined'}, log))
+    order = [r['runId'] for r, _, _ in log]
+    assert order[:2] == ['local-docker:A1:001', 'local-docker:A1:r01']
+    assert log[1][0]['set'] == 'reserve' and log[1][2] >= written[0]
+    voids = json.loads((tmp_path / 'c' / 'voids.json').read_text())
+    assert voids[0]['replacementRunId'] == 'local-docker:A1:r01' and len(results) == 4
+
+
+@pytest.mark.parametrize('bad', [dict(GOOD, reviewerFamily='anthropic'), dict(GOOD, reviewerFamily='unrecognized'),
+                                 dict(GOOD, adjudication='not-a-url'), dict(GOOD, adjudicatedAt='2026-11-02T09:00:00Z')])
+def test_invalid_adjudication_never_resumes(tmp_path, bad):
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(bad))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], reserve_rows=RESERVE, wait_poll=0.01, max_wait=0.5,
+                       launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001'], 'nothing else started'
+    state = json.loads((tmp_path / 'campaign-state.json').read_text())
+    assert state['pending'] == ['local-docker:A1:001'] and state['rejectedAdjudications']
+
+
+def test_terminal_undetermined_run_still_waits_for_adjudication(tmp_path):
+    log = []
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(1), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3,
+                       launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
+    assert (tmp_path / 'PENDING-ADJUDICATION').read_text().strip() == 'local-docker:A1:001'
+
+
+def test_third_void_stops_the_campaign(tmp_path):
+    log = []
+    statuses = {f'local-docker:A1:{i:03d}': 'undetermined' for i in range(1, 4)}
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    for i in range(1, 4):
+        (tmp_path / 'adjudications' / f'local-docker-A1-{i:03d}.json').write_text(json.dumps(GOOD))
+    reserves = [{'runId': f'local-docker:A1:r{i:02d}', 'variant': 'H', 'caseId': f'r{i:02d}', 'set': 'reserve'}
+                for i in range(1, 4)]
+    with pytest.raises(RuntimeError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], reserve_rows=reserves, wait_poll=0.01, launch=fake_launch(tmp_path, statuses, log))
+    assert len(json.loads((tmp_path / 'voids.json').read_text())) == 2
+
+
+def test_non_harness_finding_keeps_the_run_counted(tmp_path):
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps({'finding': 'product-failure'}))
+    C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                   common=[], reserve_rows=RESERVE, wait_poll=0.01,
+                   launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:002']
+    assert json.loads((tmp_path / 'voids.json').read_text()) == []
+
+
+def test_slots_validate_hosts_and_capacity():
+    assert C.slots(['a'], 3) == [('a', 0), ('a', 1), ('a', 2)]
+    with pytest.raises(ValueError):
+        C.slots(['a'], 4)
+    assert L.slot_ports(0) == (18080, 18081) and L.slot_ports(2) == (18280, 18281)
+    with pytest.raises(ValueError):
+        L.slot_ports(3)
+
+
+def test_vm_staging_keeps_secrets_off_argv_and_teardown_is_scoped(tmp_path):
+    calls = []
+
+    def run(argv, input=None, **kw):
+        calls.append((argv, (input or b'').decode()))
+        return subprocess.CompletedProcess(argv, 0, b'29.9.2\n', b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = L.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                  project='arc-abcdef123456', index=0, run=run)
+    vm.stage({'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'a' * 64})
+    argv, script = calls[0]
+    assert all(v not in ' '.join(argv) for v in vm.secrets.values()) and all(v in script for v in vm.secrets.values())
+    assert 'HONUA_IMAGE=ghcr.io/honua-io/honua-server@sha256:' in script and 'StrictHostKeyChecking=yes' in argv
+    vm.teardown()
+    teardown = calls[-1][1]
+    assert '--project-name arc-abcdef123456' in teardown and 'rm -rf -- /tmp/honua-arc-arc-abcdef123456' in teardown
+    with pytest.raises(ValueError):
+        L.VmSlot(host='h;rm -rf /', user='ubuntu', identity_file='i', known_hosts='k', project='arc-abcdef123456', index=0)
+
+
+def test_reserve_command_names_the_reserve_manifest(tmp_path, monkeypatch):
+    seen = []
+
+    def fake_run(command, timeout=None, **kw):
+        seen.append(command)
+        out = Path(command[command.index('--output') + 1])
+        out.mkdir(parents=True)
+        (out / 'trial-receipt.json').write_text(json.dumps({'status': 'completed'}))
+        return subprocess.CompletedProcess(command, 0)
+    monkeypatch.setattr(C.subprocess, 'run', fake_run)
+    C.run_campaign(target='local-docker', arm='A1', schedule_rows=[{'runId': 'local-docker:A1:h00', 'variant': 'H',
+                                                                    'caseId': 'h00', 'set': 'primary'}] + RESERVE,
+                   out=tmp_path, hosts=['h1'], per_host=1, common=[], wait_poll=0.01, max_wait=0.5)
+    sets = [c[c.index('--goal-set') + 1] for c in seen]
+    assert sets == ['primary', 'reserve']
