@@ -46,7 +46,7 @@ def _verify_runtime(project: str, compose_file: Path, image_ref: str, digest: st
     expected = docker('image', 'inspect', '--format', '{{.Id}}', image_ref)
     ports = docker('port', container, '8080/tcp').splitlines()
     if (not re.fullmatch(r'sha256:[a-f0-9]{64}', actual) or actual != expected or
-        not any(p.rsplit(':', 1)[-1] == str(origin.port) for p in ports)):
+        not any(p in {f'127.0.0.1:{origin.port}', f'0.0.0.0:{origin.port}'} for p in ports)):
         raise ValueError('trial server image or endpoint mismatch')
     return {'project': project, 'container': container, 'image_id': actual,
             'image_ref': image_ref, 'base_url': base_url}
@@ -109,10 +109,16 @@ def prepare_town(*, variant: str, namespace: str, base_url: str, credential_env:
         sync_directory(audit)
         return {'key': target.name, 'sha256': canonical_digest(record)}
 
+    def authorize_bound() -> None:
+        authorize()
+        if _verify_runtime(project, compose_file, image_ref, candidate_digest, base_url) != runtime:
+            raise ValueError('trial runtime changed during town setup')
+
     http = SetupHttp(base_url, credential_env,
                      identity={'candidateKey': candidate_digest, 'attemptId': namespace.replace('_', '-')},
-                     authorize=authorize, retain=retain, timeout=300)
+                     authorize=authorize_bound, retain=retain, timeout=300)
     result = TownSetup(http, manifest_path).prepare(variant=variant, namespace=namespace,
                                                    starting_state='published-town', connection_id=connection_id)
+    authorize_bound()
     result['runtime_identity'] = runtime
     return result

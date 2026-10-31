@@ -103,6 +103,13 @@ jobs:
         env:
           OPS_SMOKE_OUT: ${{ runner.temp }}/ops-real-smoke
         run: bash certification/agent-ops/real_smoke.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ops-real-compose-smoke
+          path: ${{ runner.temp }}/ops-real-smoke/smoke-evidence.json
+          if-no-files-found: ignore
+          retention-days: 90
 
   pilot-stub:
     if: github.event_name == 'pull_request'
@@ -254,7 +261,9 @@ jobs:
       packages: read
     steps:
       - name: Refuse live trials until real evidence is wired
-        run: echo "not-real: live trial execution and independent observations are not wired" && exit 1
+        run: |
+          echo "not-real: live trial execution and independent observations are not wired"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Refuse off trunk
         run: test "$GITHUB_REF" = refs/heads/trunk

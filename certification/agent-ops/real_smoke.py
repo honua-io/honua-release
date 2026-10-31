@@ -25,9 +25,11 @@ def main() -> None:
                         project=os.environ['COMPOSE_PROJECT_NAME'], compose_file=Path(os.environ['E2E_COMPOSE_FILE']),
                         image_ref=os.environ['HONUA_SERVER_IMAGE'], authorize=lambda: None)
     expected = {'parcels': 6, 'flood_zones': 1, 'shelters': 5}
+    layers = {}
     for name, binding in town['layers'].items():
         path = f"/rest/services/{binding['service']}/FeatureServer/{binding['layerId']}"
         observed = observe_layer(base, path, key)
+        layers[name] = observed
         if observed['count'] != expected[name]:
             raise RuntimeError('live town feature count mismatch')
     path = f"/rest/services/maui-inspections/FeatureServer/{publication['layerId']}"
@@ -43,9 +45,14 @@ def main() -> None:
     # The public write probe uses no credential; readback uses the controller key.
     readback = readback_writes(base, path, key, 'objectid', 'note', ids)
     result = assess_traffic(samples, readback)
+    evidence = {'project': os.environ['COMPOSE_PROJECT_NAME'], 'town': town,
+                'layers': layers, 'traffic': samples, 'readback': readback,
+                'assessment': result}
+    (Path(os.environ['OPS_SMOKE_OUT']) / 'smoke-evidence.json').write_text(
+        json.dumps(evidence, sort_keys=True) + '\n', encoding='utf-8')
     if not result['rpo_zero']:
         raise RuntimeError('live probe lost an acknowledged write')
-    print('real Compose smoke passed: town layers, customer traffic, controller readback')
+    print('real Compose smoke passed: town layers, anonymous public traffic, controller readback')
 
 
 if __name__ == '__main__':

@@ -34,3 +34,11 @@ def test_runtime_binding_rejects_other_container_or_port(tmp_path, monkeypatch):
         _verify_runtime('ops-' + 'a' * 32, compose, 'server@' + digest, digest, 'http://127.0.0.1:8124')
     with pytest.raises(ValueError, match='isolated'):
         _verify_runtime('production', compose, 'server@' + digest, digest, 'http://127.0.0.1:8123')
+    def wrong_host(argv, **kwargs):
+        if 'ps' in argv: output = container
+        elif 'port' in argv: output = '10.0.0.4:8123'
+        else: output = image_id
+        return subprocess.CompletedProcess(argv, 0, output, '')
+    monkeypatch.setattr(subprocess, 'run', wrong_host)
+    with pytest.raises(ValueError, match='endpoint mismatch'):
+        _verify_runtime('ops-' + 'a' * 32, compose, 'server@' + digest, digest, 'http://127.0.0.1:8123')

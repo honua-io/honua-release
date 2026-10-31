@@ -4,7 +4,8 @@
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 : "${OPS_SMOKE_OUT:?OPS_SMOKE_OUT must name a fresh private directory}"
-mkdir -p "$OPS_SMOKE_OUT"
+umask 077
+mkdir "$OPS_SMOKE_OUT"
 export COMPOSE_PROJECT_NAME="ops-$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 export E2E_SERVER_PORT="${OPS_SMOKE_PORT:-18747}"
 export E2E_BASE="http://127.0.0.1:$E2E_SERVER_PORT" HONUA_PUBLIC_BASE_URL="http://127.0.0.1:$E2E_SERVER_PORT"
