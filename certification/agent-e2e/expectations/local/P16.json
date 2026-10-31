@@ -1,32 +1,64 @@
 {
   "schemaVersion": 1,
-  "scenarioId": "P16",
-  "supportedVariants": [],
-  "unsupportedReason": "Unsupported on the frozen local Stack: key.read-only and key.revoked require positive and negative probes using the same actually issued secret before and after revocation. A final admin key listing cannot reconstruct that history. KeyPermissionProbe requires a retained issued-key consumer and distinct same-attempt observer. secrets.absent requires a complete independently scanned raw artifact inventory; observe must not read the model transcript. Bootstrap retirement and worker replacement evidence are also unavailable. No key or scan success may be inferred from final state.",
-  "provenance": {
-    "sources": [
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-A.json",
-        "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb"
-      },
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-B.json",
-        "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f"
-      }
-    ],
-    "derivation": "Town oracle fixtures contain no native governance, credential custody, issued-key history or clarification event identities. Null marks an unavailable expectation and must fail oracle.verify; it is never a passing baseline."
-  },
+  "scenario": "P16",
+  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner must securely capture and probe the same model-issued key before and after model-selected revocation, with a complete secret-scan inventory and real worker lifecycle custody. An admin key listing is not that evidence.",
   "variants": {
     "A": {
       "key.read-only": null,
-      "key.revoked": null,
+      "key.revoked": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 401
+          }
+        ]
+      },
       "secrets.absent": null,
       "custody.bootstrap-revoked": null,
       "custody.worker-replaced": null
     },
     "B": {
       "key.read-only": null,
-      "key.revoked": null,
+      "key.revoked": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": {
+              "$role": "created:key"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:service:item"
+            },
+            "status": 401
+          }
+        ]
+      },
       "secrets.absent": null,
       "custody.bootstrap-revoked": null,
       "custody.worker-replaced": null

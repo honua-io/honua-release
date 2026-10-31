@@ -1,29 +1,57 @@
 {
   "schemaVersion": 1,
-  "scenarioId": "P20",
-  "supportedVariants": [],
-  "unsupportedReason": "Unsupported on the frozen local Stack: clarification.required needs askedTopics, answerMessageIds and publicationAfterAnswers. Static town fixtures and final map permissions cannot establish whether or when the model asked either clarification. The interface explicitly forbids observe from reading the model transcript or claims, and provides no independent clarification event source. Private publication alone cannot satisfy the complete assertion list. No conversation-derived expectation or synthetic clarification receipt is permitted.",
-  "provenance": {
-    "sources": [
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-A.json",
-        "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb"
-      },
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-B.json",
-        "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f"
-      }
-    ],
-    "derivation": "Town oracle fixtures contain no native governance, credential custody, issued-key history or clarification event identities. Null marks an unavailable expectation and must fail oracle.verify; it is never a passing baseline."
-  },
+  "scenario": "P20",
+  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner needs a verified pair of same-named saved maps, authenticated operator and anonymous controls, a model-visible stable-id handoff, and a controller-verified publication event ordered after both clarification answers. The runner assigns the next topic after any question rather than verifying what was asked; it must record topic-matched clarification events, bind reply IDs as logical roles and prove publication followed both answers.",
   "variants": {
     "A": {
       "clarification.required": null,
-      "publication.private": null
+      "publication.private": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:operator"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": null,
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 401
+          }
+        ]
+      }
     },
     "B": {
       "clarification.required": null,
-      "publication.private": null
+      "publication.private": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:operator"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": null,
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 401
+          }
+        ]
+      }
     }
   }
 }

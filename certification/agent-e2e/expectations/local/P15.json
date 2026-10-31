@@ -1,35 +1,303 @@
 {
   "schemaVersion": 1,
-  "scenarioId": "P15",
-  "supportedVariants": [],
-  "unsupportedReason": "Unsupported on the frozen local Stack: publication.private and tenant.denied require authenticated operator, owner and outsider controls against the same saved map, including native tenant identity. Stack has no operator or outsider credential binding. custody.bootstrap-revoked and custody.worker-replaced also require original bootstrap retirement and isolated worker evidence. StudioTenantObserver and StudioCustodyObserver cannot be replaced by an admin read or an anonymous denial.",
-  "provenance": {
-    "sources": [
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-A.json",
-        "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb"
-      },
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-B.json",
-        "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f"
-      }
-    ],
-    "derivation": "Town oracle fixtures contain no native governance, credential custody, issued-key history or clarification event identities. Null marks an unavailable expectation and must fail oracle.verify; it is never a passing baseline."
-  },
+  "scenario": "P15",
+  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner needs a verified Studio saved-map fixture, operator membership and tenant-bound outsider identity. Its current addPrincipal mints tenant-independent API keys and custody labels key IDs as worker IDs. It must record real isolated bootstrap and task worker lifecycles before enabling the complete case.",
   "variants": {
     "A": {
-      "publication.private": null,
-      "tenant.denied": null,
+      "publication.private": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:operator"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": null,
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 401
+          }
+        ]
+      },
+      "tenant.denied": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:owner"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": {
+              "$role": "seeded:principal:agent"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 404
+          }
+        ]
+      },
       "custody.bootstrap-revoked": null,
       "custody.worker-replaced": null,
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s1",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "Kestrel Central",
+                    "source_id": "s1"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19400,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s2",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "Kestrel Central",
+                    "source_id": "s2"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -18800,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s3",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s3"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19100,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s4",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s4"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19700,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s5",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s5"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -20000,
+                      -4700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
     },
     "B": {
-      "publication.private": null,
-      "tenant.denied": null,
+      "publication.private": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:operator"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": null,
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 401
+          }
+        ]
+      },
+      "tenant.denied": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:owner"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": {
+              "$role": "seeded:principal:agent"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 404
+          }
+        ]
+      },
       "custody.bootstrap-revoked": null,
       "custody.worker-replaced": null,
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s101",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s101"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13300,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s102",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s102"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      14200,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s103",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s103"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13600,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s104",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s104"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13900,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s105",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s105"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13000,
+                      -7700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   }
 }

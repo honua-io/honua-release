@@ -1,171 +1,199 @@
-"""Unsupported governance cases must remain visible and impossible to grade green.
-
-There is no correct complete local fixture state for these adapters. In
-particular, an HTTP 200 or an invented custody receipt cannot replace missing
-native principals, original worker history, or clarification event custody.
-These tests prove refusal, assertion coverage and negative controls; they do
-not claim a passing scenario or exercise a Docker stack.
-"""
+"""Governance projections use controller response bytes and real wrong-state controls."""
 from __future__ import annotations
 
-import ast
-import hashlib
-import importlib.util
+import copy
 import json
 from pathlib import Path
-import socket
-import subprocess
-import sys
 
 import pytest
 
-TOOLS = Path(__file__).resolve().parents[1]
-ROOT = TOOLS.parent
-sys.path.insert(0, str(TOOLS))
+import agent_e2e_local_runner as runner
+from agent_e2e_local_api import Seeded, Stack
+from agent_e2e_local_projections import resolve_roles, substitute_roles
+from agent_e2e_local_recorder import ControllerRecorder
 
-from agent_e2e_local_api import Observation, Seeded, Stack
+ROOT = Path(__file__).resolve().parents[2]
+IDS = ('P14', 'P15', 'P16', 'P17', 'P18', 'P20')
+VARIANTS = ('A', 'B')
+PACK = {row['id']: row['assertions'] for row in json.loads(
+    (ROOT / 'certification/agent-e2e/pack.v2.AB-only.json').read_text())['scenarios'] if row['id'] in IDS}
+ITEM = '11111111-1111-1111-1111-111111111111'
+VERSION = '22222222-2222-2222-2222-222222222222'
 
 
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-ORACLE = load("w2g4_oracle", ROOT / "certification/agent-e2e/corpus/oracle.py")
-IDS = ("P14", "P15", "P16", "P17", "P18", "P20")
-VARIANTS = ("A", "B")
-# Select only public development prompts. No held-out prompt enters test data.
-PACK = {
-    row["id"]: {
-        "assertions": row["assertions"],
-        "prompts": {variant: row["prompts"][variant] for variant in VARIANTS},
-    }
-    for row in json.loads((ROOT / "certification/agent-e2e/pack.v2.json").read_text())["scenarios"]
-    if row["id"] in IDS
-}
+def feature_response(variant):
+    features = json.loads((ROOT / f'certification/agent-e2e/corpus/town-{variant}/shelters.3857.geojson').read_text())['features']
+    return {'geometryType': 'esriGeometryPoint', 'exceededTransferLimit': False,
+            'spatialReference': {'wkid': 3857}, 'objectIdFieldName': 'objectid',
+            'fields': [{'name': 'objectid', 'type': 'esriFieldTypeOID'}] + [
+                {'name': name, 'type': 'esriFieldTypeString'} for name in ('capacity', 'is_open', 'name', 'source_id')],
+            'features': [{'attributes': {'objectid': index + 1, **feature['properties']},
+                          'geometry': {'x': feature['geometry']['coordinates'][0], 'y': feature['geometry']['coordinates'][1]}}
+                         for index, feature in enumerate(features)]}
 
 
 @pytest.fixture(params=IDS)
 def scenario(request):
-    return load("w2g4_" + request.param, Path(__file__).parent / (request.param + ".py"))
+    return runner.load_scenario(request.param)
 
 
-@pytest.fixture
-def stack(tmp_path, monkeypatch):
-    def forbidden(*args, **kwargs):
-        pytest.fail("unsupported scenario attempted I/O or process execution")
-
-    monkeypatch.setattr(socket, "create_connection", forbidden)
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
-    monkeypatch.setattr(subprocess, "Popen", forbidden)
-    return Stack(
-        base_url="http://127.0.0.1:8147", admin_key="fake-controller-only",
-        approver_key="fake-separate-approver", compose_project="fixture-case",
-        compose_file=str(tmp_path / "absent-compose.yml"), workdir=str(tmp_path),
-        candidate_digest="sha256:" + "1" * 64,
-        extra={"untrusted_success": {"httpStatus": 200, "pass": True}},
-    )
-
-
-@pytest.mark.parametrize("variant", VARIANTS)
-def test_seed_repeatedly_refuses_without_side_effects(scenario, stack, variant):
+def test_inventory_and_refusal_are_safe(scenario, tmp_path):
     assert scenario.supported_variants == ()
-    assert "Unsupported" in " ".join(scenario.__doc__.split())
-    for _ in range(2):
-        with pytest.raises(NotImplementedError, match=scenario.id):
-            scenario.seed(stack, variant)
-    assert list(Path(stack.workdir).iterdir()) == []
-    assert scenario.fault_plan(variant) is None
-    assert scenario.needs_approver() is (scenario.id in ("P14", "P17"))
+    stack = Stack('http://127.0.0.1:8147', 'controller', None, 'case', 'compose', str(tmp_path), 'sha256:' + '1' * 64)
+    for variant in VARIANTS:
+        assert list(scenario.expected(variant)) == PACK[scenario.id]
+        for _ in range(2):
+            with pytest.raises(NotImplementedError, match=scenario.id):
+                scenario.seed(stack, variant)
+        assert scenario.fault_plan(variant) is None
+    assert scenario.needs_approver() == (scenario.id in ('P14', 'P17'))
+    assert scenario.cleanup(stack, Seeded({})) is None
+    with pytest.raises(ValueError, match='cleanup ownership'):
+        scenario.cleanup(stack, Seeded({'resourceId': 'not-owned'}))
+    assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("variant", VARIANTS)
-def test_every_pack_assertion_is_explicitly_unavailable(scenario, stack, variant):
-    observed = scenario.observe(stack, Seeded({}), variant)
-    assert [row.assertion_id for row in observed] == PACK[scenario.id]["assertions"]
-    assert list(scenario.expected(variant)) == PACK[scenario.id]["assertions"]
-    for row in observed:
-        assert isinstance(row, Observation)
-        assert row.observed is None
-        assert row.evidence["requests"] == []
-        assert row.evidence["unsupportedReason"] in " ".join(scenario.__doc__.split())
-        with pytest.raises(ORACLE.VerificationError):
-            ORACLE.verify(row.assertion_id, row.observed, scenario.expected(variant)[row.assertion_id])
+def recorded_case(tmp_path, monkeypatch, sid, variant, wrong=None):
+    """Record representative API responses through the real core recorder."""
+    state = {'wrong': wrong}
+    for principal in ('controller', 'operator', 'owner', 'agent'):
+        monkeypatch.setenv('G4_' + principal.upper(), 'test-secret-' + principal)
+    principals = {p: ('G4_' + p.upper(), p + '-id') for p in ('controller', 'operator', 'owner', 'agent')}
+    principals['anonymous'] = (None, None)
+    source = feature_response(variant)
+
+    def http(recorder, principal, method, path, body, headers):
+        if path.startswith('/keys/'):
+            value = {'data': {'apiKey': {'id': path.split('/')[-1] + '-id'}}}
+            return 201, json.dumps(value).encode()
+        if path == '/fixture-map':
+            return 201, json.dumps({'data': {'itemId': ITEM, 'versionId': VERSION}}).encode()
+        if path == '/api/v1/agent/target':
+            identity = {'actorId': principal + '-id', 'tenantId': 'tenant-b' if principal == 'owner' else 'tenant-a',
+                        'isHumanSession': principal == 'owner',
+                        'authenticationKind': 'operator-bearer' if principal == 'owner' else 'api-key'}
+            if state['wrong'] == 'same-tenant':
+                identity['tenantId'] = 'tenant-a'
+            if state['wrong'] == 'nonhuman-owner' and principal == 'owner':
+                identity.update(isHumanSession=False, authenticationKind='api-key')
+            return 200, json.dumps({'targetId': 'case-target', 'principal': identity}).encode()
+        if '/FeatureServer/' in path:
+            value = copy.deepcopy(source)
+            if state['wrong'] == 'source-change' and recorder.phase == 'observe':
+                value['features'][0]['attributes']['capacity'] = 999
+            return 200, json.dumps(value).encode()
+        if path == f'/api/v1/studio/content-items/{ITEM}/versions/{VERSION}':
+            code = {'operator': 200, 'owner': 200, 'agent': 404, 'anonymous': 401}[principal]
+            if state['wrong'] == 'anonymous-public' and principal == 'anonymous':
+                code = 200
+            if state['wrong'] == 'tenant-open' and principal == 'agent':
+                code = 200
+            value = {'data': {'itemId': ITEM, 'versionId': VERSION}} if code == 200 else {'error': 'denied'}
+            if state['wrong'] == 'wrong-map' and principal in ('operator', 'owner'):
+                value['data']['versionId'] = '33333333-3333-3333-3333-333333333333'
+            return code, json.dumps(value).encode()
+        raise AssertionError((principal, method, path))
+
+    recorder = ControllerRecorder(base_url='http://127.0.0.1:8147', workdir=tmp_path,
+        candidate_digest='sha256:' + '1' * 64, attempt_id='case', principals=principals, http_factory=http)
+    recorder.json(sid.lower() + '-map-saved', 'POST', '/fixture-map')
+    if sid in ('P15', 'P20'):
+        recorder.json('runner-principal-operator', 'POST', '/keys/operator')
+    if sid in ('P15', 'P18'):
+        recorder.json('runner-principal-owner', 'POST', '/keys/owner')
+        recorder.json('runner-custody-mint-agent', 'POST', '/keys/agent')
+    if sid == 'P15':
+        from agent_e2e_p10_observer import source_path
+        recorder.json('p15-source-before', 'GET', source_path({'service': 'town', 'layerId': 3}))
+    recorder.set_phase('observe')
+    stack = Stack('http://127.0.0.1:8147', 'controller', None, 'case', 'compose', str(tmp_path),
+                  'sha256:' + '1' * 64, {'recorder': recorder})
+    seeded = Seeded({'itemId': ITEM, 'versionId': VERSION, 'shelters': {'service': 'town', 'layerId': 3}})
+    scenario = runner.load_scenario(sid)
+    observed = scenario.observe(stack, seeded, variant)
+    roles = resolve_roles(scenario.roles(stack, seeded, variant), recorder.records, agent_principal='agent-id')
+    scored = runner.score_assertions(PACK[sid], observed, scenario.expected(variant), records=recorder.records, roles=roles)
+    return {row['assertion']: row for row in scored}
 
 
-@pytest.mark.parametrize("variant", VARIANTS)
-def test_negative_control_cannot_turn_missing_facts_into_success(scenario, stack, variant):
-    # Per-module negative control, for every assertion. Even a forged success
-    # object cannot be graded against an unavailable frozen expectation.
-    for assertion, expectation in scenario.expected(variant).items():
-        for wrong in ({"pass": True}, {"requests": []}, {"status": "Approved"}):
-            with pytest.raises(ORACLE.VerificationError):
-                ORACLE.verify(assertion, wrong, expectation)
+@pytest.mark.parametrize('variant', VARIANTS)
+@pytest.mark.parametrize('sid,assertion,wrong', [
+    ('P15', 'publication.private', 'anonymous-public'),
+    ('P15', 'tenant.denied', 'tenant-open'),
+    ('P15', 'source-content.unchanged', 'source-change'),
+    ('P18', 'tenant.denied', 'tenant-open'),
+    ('P20', 'publication.private', 'anonymous-public'),
+])
+def test_recorded_correct_state_passes_and_wrong_state_fails(tmp_path, monkeypatch, sid, assertion, wrong, variant):
+    good = recorded_case(tmp_path / 'good', monkeypatch, sid, variant)
+    bad = recorded_case(tmp_path / 'bad', monkeypatch, sid, variant, wrong)
+    assert good[assertion]['status'] == 'pass', good[assertion]
+    assert good[assertion]['evidence']
+    assert bad[assertion]['status'] == 'fail', bad[assertion]
+    # Missing custody/clarification/mutation evidence never becomes a case pass.
+    assert any(row['status'] == 'fail' for row in good.values())
 
 
-def test_no_cleanup_ownership_is_invented(scenario, stack):
-    for _ in range(2):
-        assert scenario.cleanup(stack, Seeded({})) is None
-    with pytest.raises(ValueError, match="cannot own"):
-        scenario.cleanup(stack, Seeded({"resourceId": "unowned-resource"}))
-    assert list(Path(stack.workdir).iterdir()) == []
+@pytest.mark.parametrize('sid', ('P15', 'P18'))
+@pytest.mark.parametrize('wrong', ('same-tenant', 'nonhuman-owner'))
+def test_tenant_denial_refuses_unverified_native_custody(tmp_path, monkeypatch, sid, wrong):
+    with pytest.raises(ValueError, match='tenant and human-owner custody'):
+        recorded_case(tmp_path, monkeypatch, sid, 'A', wrong)
 
 
-def test_frozen_unavailability_has_fixture_provenance(scenario):
-    manifest = json.loads(scenario._EXPECTATIONS.read_text())
-    assert manifest["schemaVersion"] == 1
-    assert manifest["scenarioId"] == scenario.id
-    assert manifest["supportedVariants"] == []
-    assert manifest["unsupportedReason"] in " ".join(scenario.__doc__.split())
-    assert set(manifest["variants"]) == set(VARIANTS)
-    assert len(manifest["provenance"]["sources"]) == 2
-    for variant, source in zip(VARIANTS, manifest["provenance"]["sources"]):
-        assert source["path"] == f"certification/agent-e2e/corpus/oracles/town-{variant}.json"
-        assert hashlib.sha256((ROOT / source["path"]).read_bytes()).hexdigest() == source["sha256"]
-        # No model-run IDs, invented permissions or native worker identities.
-        assert set(manifest["variants"][variant]) == set(PACK[scenario.id]["assertions"])
-        assert all(value is None for value in manifest["variants"][variant].values())
+@pytest.mark.parametrize('sid', ('P15', 'P18', 'P20'))
+def test_positive_control_must_read_the_expected_map_version(tmp_path, monkeypatch, sid):
+    with pytest.raises(ValueError, match='exact saved map version'):
+        recorded_case(tmp_path, monkeypatch, sid, 'A', 'wrong-map')
 
 
-def test_expectations_are_not_mutable_process_cache(scenario):
-    expected = scenario.expected("A")
-    expected.clear()
-    assert set(scenario.expected("A")) == set(PACK[scenario.id]["assertions"])
+def test_mutated_foreign_map_fails_preservation_oracle():
+    # Independent, source-controlled map fixture; it does not make P18 runnable.
+    body = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_text())['execution']['mapBody']
+    resource = {'resourceId': 'foreign-map', 'content': body}
+    expected = {'profile': 'honua.protected-content/v1', 'resources': [resource]}
+    correct = {'profile': expected['profile'], 'before': [copy.deepcopy(resource)], 'after': [copy.deepcopy(resource)]}
+    runner.oracle.verify('mutations.absent', correct, expected)
+    changed = copy.deepcopy(correct)
+    changed['after'][0]['content']['initialView']['zoom'] += 1
+    with pytest.raises(runner.oracle.VerificationError):
+        runner.oracle.verify('mutations.absent', changed, expected)
 
 
-def test_no_model_visible_guidance_or_extra_authority(scenario, stack):
-    # Scenario modules have no prompt/action/transport builder. The runner alone
-    # selects the unchanged pack prompt; even stack.extra cannot inject facts.
-    tree = ast.parse(Path(scenario.__file__).read_text())
-    imports = {
-        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    } | {
-        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    assert imports <= {"__future__", "json", "pathlib", "typing", "agent_e2e_local_api"}
-    public_functions = {
-        node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-        and not node.name.startswith("_")
-    }
-    assert public_functions == {"seed", "fault_plan", "needs_approver", "observe", "expected", "cleanup"}
-    stack.extra.update({"observations": {a: {"pass": True} for a in PACK[scenario.id]["assertions"]}})
-    assert all(row.observed is None for row in scenario.observe(stack, Seeded({}), "A"))
-    for prompt in PACK[scenario.id]["prompts"].values():
-        assert all(word not in prompt for word in (
-            "processId", "parameterName", "requesterPrincipalId", "proposalId", "admin_key",
-        ))
+@pytest.mark.parametrize('sid', ('P15', 'P18'))
+def test_tenant_identity_reads_are_part_of_the_assertion_evidence(tmp_path, monkeypatch, sid):
+    result = recorded_case(tmp_path, monkeypatch, sid, 'A')['tenant.denied']
+    assert result['status'] == 'pass'
+    steps = {item['step'] for item in result['evidence']}
+    assert {sid.lower() + '-owner-identity', sid.lower() + '-agent-identity'} <= steps
 
 
-def test_unsupported_variants_rejected_by_every_variant_method(scenario, stack):
-    for variant in ("", "unknown", None):
-        for call in (
-            lambda: scenario.seed(stack, variant),
-            lambda: scenario.fault_plan(variant),
-            lambda: scenario.observe(stack, Seeded({}), variant),
-            lambda: scenario.expected(variant),
-        ):
-            with pytest.raises(ValueError, match="development variants"):
-                call()
+@pytest.mark.parametrize('sid,assertion,expected,correct,wrong', [
+    ('P14', 'approval.separate',
+     {'proposalId': 'p', 'requesterPrincipalId': 'requester', 'approverPrincipalId': 'approver',
+      'approvedVersionId': 'v', 'auditId': 'a'},
+     {'proposalId': 'p', 'requesterPrincipalId': 'requester', 'approverPrincipalId': 'approver',
+      'approvedVersionId': 'v', 'auditId': 'a'},
+     {'proposalId': 'p', 'requesterPrincipalId': 'requester', 'approverPrincipalId': 'requester',
+      'approvedVersionId': 'v', 'auditId': 'a'}),
+    ('P16', 'key.revoked',
+     {'requests': [{'principalId': 'key', 'method': 'GET', 'resourceId': 'item', 'status': 200},
+                   {'principalId': 'key', 'method': 'GET', 'resourceId': 'item', 'status': 401}]},
+     {'requests': [{'principalId': 'key', 'method': 'GET', 'resourceId': 'item', 'status': 200, 'responseSha256': 'a'*64},
+                   {'principalId': 'key', 'method': 'GET', 'resourceId': 'item', 'status': 401, 'responseSha256': 'b'*64, 'disclosedResourceIds': []}]},
+     {'requests': [{'principalId': 'key', 'method': 'GET', 'resourceId': 'item', 'status': 200, 'responseSha256': 'a'*64},
+                   {'principalId': 'key', 'method': 'GET', 'resourceId': 'item', 'status': 200, 'responseSha256': 'b'*64, 'disclosedResourceIds': []}]}),
+    ('P17', 'approval.pending',
+     {'proposalId': 'p', 'status': 'AwaitingApproval', 'publishedResourceIds': []},
+     {'proposalId': 'p', 'status': 'AwaitingApproval', 'publishedResourceIds': []},
+     {'proposalId': 'p', 'status': 'AwaitingApproval', 'publishedResourceIds': ['published']}),
+])
+def test_unsupported_module_oracle_has_a_real_wrong_state(sid, assertion, expected, correct, wrong):
+    assert assertion in PACK[sid]
+    roles = {'created:proposal': 'p', 'seeded:principal:agent': 'requester',
+             'seeded:principal:approver': 'approver', 'seeded:map:version': 'v',
+             'created:audit': 'a', 'created:key': 'key', 'seeded:service:item': 'item'}
+    assert substitute_roles(runner.load_scenario(sid).expected('A')[assertion], roles) == expected
+    runner.oracle.verify(assertion, correct, expected)
+    with pytest.raises(runner.oracle.VerificationError):
+        runner.oracle.verify(assertion, wrong, expected)

@@ -1,65 +1,35 @@
-"""Unsupported on the frozen local Stack: approval.separate needs a native requester
-identity and retained proposal/version/audit binding; tenant.denied needs independently
-authenticated owner and outsider positive/negative controls; custody.bootstrap-revoked
-and custody.worker-replaced need original bootstrap retirement and isolated worker
-evidence. Stack supplies only controller and optional approver credentials.
-StudioPublicationObserver, StudioTenantObserver and StudioCustodyObserver require native
-identity/custody inputs absent from this local contract. A public HTTP response alone
-cannot establish these assertions.
+"""The runner rejects needs_approver before setup; it must provision a distinct approver principal and bind a real proposal, audit record, approved version and anonymous route. Worker lifecycle custody must also identify actual separate workers.
 
-All pack assertions remain present with unavailable observations. This is an
-unsupported case declaration, not a partial qualification. No setup, approval,
-publication, key operation or model-visible guidance is performed.
+The case stays unsupported until every pack assertion can be independently scored.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
+REASON = 'The runner rejects needs_approver before setup; it must provision a distinct approver principal and bind a real proposal, audit record, approved version and anonymous route. Worker lifecycle custody must also identify actual separate workers.'
 
-from agent_e2e_local_api import Observation, Seeded, Stack
-
-id = "P14"
-supported_variants: tuple[str, ...] = ()
-_EXPECTATIONS = (Path(__file__).resolve().parents[2] /
-                 "certification/agent-e2e/expectations/local" / (id + ".json"))
+from agent_e2e_local_api import Scenario as BaseScenario
+from agent_e2e_local_projections_w2g4 import observe_partial, role_bindings
 
 
-def _manifest(variant: str) -> dict[str, Any]:
-    if variant not in ("A", "B"):
-        raise ValueError("Only development variants A and B are available")
-    return json.loads(_EXPECTATIONS.read_text(encoding="utf-8"))
+class LocalScenario(BaseScenario):
+    id = "P14"
+    supported_variants = ()
+
+    def seed(self, stack, variant):
+        self.expected(variant)  # validate the development variant before touching the stack
+        raise NotImplementedError("P14: " + REASON)
+
+    def needs_approver(self):
+        return True
+
+    def roles(self, stack, seeded, variant, run=None):
+        return role_bindings(self.id, seeded)
+
+    def observe(self, stack, seeded, variant, run=None):
+        return observe_partial(self.id, stack, seeded, variant)
+
+    def cleanup(self, stack, seeded):
+        if seeded.state:
+            raise ValueError("Unsupported scenario cannot claim cleanup ownership")
 
 
-def seed(stack: Stack, variant: str) -> Seeded:
-    """Refuse before any side effect; repeating this refusal creates nothing."""
-    manifest = _manifest(variant)
-    raise NotImplementedError(id + ": " + manifest["unsupportedReason"])
-
-
-def fault_plan(variant: str) -> dict | None:
-    _manifest(variant)
-    return None
-
-
-def needs_approver() -> bool:
-    return True
-
-
-def observe(stack: Stack, seeded: Seeded, variant: str) -> list[Observation]:
-    """Fail closed even if a caller bypasses supported_variants and seed refusal."""
-    manifest = _manifest(variant)
-    return [Observation(assertion, None,
-                        {"requests": [], "unsupportedReason": manifest["unsupportedReason"]})
-            for assertion in manifest["variants"][variant]]
-
-
-def expected(variant: str) -> dict[str, Any]:
-    """Unavailable frozen facts remain null; oracle.verify rejects every one."""
-    return _manifest(variant)["variants"][variant]
-
-
-def cleanup(stack: Stack, seeded: Seeded) -> None:
-    """No fixture was created; never adopt or delete caller-supplied resources."""
-    if seeded.state:
-        raise ValueError("Unsupported scenario cannot own seeded resources")
+scenario = LocalScenario()

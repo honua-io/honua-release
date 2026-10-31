@@ -1,24 +1,26 @@
 {
   "schemaVersion": 1,
-  "scenarioId": "P14",
-  "supportedVariants": [],
-  "unsupportedReason": "Unsupported on the frozen local Stack: approval.separate needs a native requester identity and retained proposal/version/audit binding; tenant.denied needs independently authenticated owner and outsider positive/negative controls; custody.bootstrap-revoked and custody.worker-replaced need original bootstrap retirement and isolated worker evidence. Stack supplies only controller and optional approver credentials. StudioPublicationObserver, StudioTenantObserver and StudioCustodyObserver require native identity/custody inputs absent from this local contract. A public HTTP response alone cannot establish these assertions.",
-  "provenance": {
-    "sources": [
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-A.json",
-        "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb"
-      },
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-B.json",
-        "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f"
-      }
-    ],
-    "derivation": "Town oracle fixtures contain no native governance, credential custody, issued-key history or clarification event identities. Null marks an unavailable expectation and must fail oracle.verify; it is never a passing baseline."
-  },
+  "scenario": "P14",
+  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner rejects needs_approver before setup; it must provision a distinct approver principal and bind a real proposal, audit record, approved version and anonymous route. Worker lifecycle custody must also identify actual separate workers.",
   "variants": {
     "A": {
-      "approval.separate": null,
+      "approval.separate": {
+        "proposalId": {
+          "$role": "created:proposal"
+        },
+        "requesterPrincipalId": {
+          "$role": "seeded:principal:agent"
+        },
+        "approverPrincipalId": {
+          "$role": "seeded:principal:approver"
+        },
+        "approvedVersionId": {
+          "$role": "seeded:map:version"
+        },
+        "auditId": {
+          "$role": "created:audit"
+        }
+      },
       "publication.public": null,
       "tenant.denied": null,
       "custody.bootstrap-revoked": null,
@@ -26,7 +28,23 @@
       "source-content.unchanged": null
     },
     "B": {
-      "approval.separate": null,
+      "approval.separate": {
+        "proposalId": {
+          "$role": "created:proposal"
+        },
+        "requesterPrincipalId": {
+          "$role": "seeded:principal:agent"
+        },
+        "approverPrincipalId": {
+          "$role": "seeded:principal:approver"
+        },
+        "approvedVersionId": {
+          "$role": "seeded:map:version"
+        },
+        "auditId": {
+          "$role": "created:audit"
+        }
+      },
       "publication.public": null,
       "tenant.denied": null,
       "custody.bootstrap-revoked": null,

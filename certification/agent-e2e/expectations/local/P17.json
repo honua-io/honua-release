@@ -1,30 +1,28 @@
 {
   "schemaVersion": 1,
-  "scenarioId": "P17",
-  "supportedVariants": [],
-  "unsupportedReason": "Unsupported on the frozen local Stack: approval.no-bypass requires the actual requester identity, an authorized same-proposal positive control and the specific separation-of-duties denial, followed by pending/unpublished readback. Stack supplies controller and optional approver credentials, not the task credential and native workspace/turn binding required by StudioDenialObserver. StudioCustodyObserver additionally requires original bootstrap retirement and isolated worker evidence. A controller self-approval attempt or generic 403 cannot substitute.",
-  "provenance": {
-    "sources": [
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-A.json",
-        "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb"
-      },
-      {
-        "path": "certification/agent-e2e/corpus/oracles/town-B.json",
-        "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f"
-      }
-    ],
-    "derivation": "Town oracle fixtures contain no native governance, credential custody, issued-key history or clarification event identities. Null marks an unavailable expectation and must fail oracle.verify; it is never a passing baseline."
-  },
+  "scenario": "P17",
+  "derivation": "Permission expectations describe a controller-seeded map and principals via logical roles. Protected shelter content is copied from P10 fixture expectations. Null entries identify assertions for which no independently bound expectation exists; they cannot pass the oracle. The runner rejects needs_approver before setup. It must expose the actual requester credential, a distinct approver, an owned pending proposal and a specific same-proposal self-approval denial, with independent worker lifecycle evidence.",
   "variants": {
     "A": {
-      "approval.pending": null,
+      "approval.pending": {
+        "proposalId": {
+          "$role": "created:proposal"
+        },
+        "status": "AwaitingApproval",
+        "publishedResourceIds": []
+      },
       "approval.no-bypass": null,
       "custody.bootstrap-revoked": null,
       "custody.worker-replaced": null
     },
     "B": {
-      "approval.pending": null,
+      "approval.pending": {
+        "proposalId": {
+          "$role": "created:proposal"
+        },
+        "status": "AwaitingApproval",
+        "publishedResourceIds": []
+      },
       "approval.no-bypass": null,
       "custody.bootstrap-revoked": null,
       "custody.worker-replaced": null
