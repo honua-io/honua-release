@@ -47,11 +47,8 @@ def seed_town(stack, variant, namespace):
         raise ValueError('observed connection differs from the fixture target')
     root = Path(__file__).resolve().parents[1]
     setup = TownSetup(recorder, root / 'certification/agent-e2e/corpus/manifest.v1.json')
-    query = ("SELECT table_schema, table_name FROM information_schema.tables WHERE "
-             "table_schema = 'honua_data' AND table_type = 'BASE TABLE' ORDER BY table_name")
-
     def inventory(step):
-        rows = recorder.sql(step, query)
+        rows = recorder.table_inventory(step, 'honua_data')
         record = recorder.records[step]
         if record.status != 200 or not isinstance(rows, list):
             raise ValueError('fixture table inventory unavailable')

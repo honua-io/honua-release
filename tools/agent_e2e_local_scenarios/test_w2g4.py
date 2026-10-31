@@ -60,8 +60,10 @@ class RecordedCandidate:
         self.async_import = False
         self.jobs = {}
 
-    def sql(self, query):
-        return 200, json.dumps([{'table_schema': t['schema'], 'table_name': t['table']} for t in self.tables]).encode()
+    def sql(self, request):
+        from agent_e2e_local_runner import inventory_sql
+        assert request == {'op': 'inventory', 'schema': 'honua_data'}
+        return 200, json.dumps([{'table_schema': t['schema'], 'table_name': t['table']} for t in self.tables]).encode(), inventory_sql('honua_data')
 
     def http(self, recorder, principal, method, path, raw, headers):
         self.calls.append((recorder.phase, principal, method, path))
