@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,7 +66,10 @@ def run_cost(receipt: dict | None, target: str, spend: dict) -> dict:
                 'totalUsd': float(spend['perRunEstimateUsd']), 'basis': 'estimate (no receipt)',
                 'rateBasis': RATE_BASIS}
     tokens = {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}
-    keys = {'input': ('inputTokens', 'input_tokens'), 'output': ('outputTokens', 'output_tokens'),
+    # The Studio audit projection reports prompt_tokens / completion_tokens (agent_studio_session_audit);
+    # Sol d7af7588 item 1: they price as input and output.
+    keys = {'input': ('inputTokens', 'input_tokens', 'prompt_tokens', 'promptTokens'),
+            'output': ('outputTokens', 'output_tokens', 'completion_tokens', 'completionTokens'),
             'cacheRead': ('cacheReadInputTokens', 'cache_read_input_tokens'),
             'cacheWrite': ('cacheWriteInputTokens', 'cacheCreationInputTokens', 'cache_creation_input_tokens')}
     for stage in receipt.get('stages') or []:
@@ -92,6 +96,7 @@ class SpendLedger:
     def __init__(self, path: Path, spend: dict):
         self.path, self.spend = Path(path), spend
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.tokens = {}       # runId -> this campaign's live reservation (Sol d7af7588 item 2)
 
     def _locked(self, fn):
         import fcntl
@@ -111,8 +116,10 @@ class SpendLedger:
         """None when the launch fits under the cap (recorded as reserved), else the stop report."""
         def check(rows):
             spent = sum(r['totalUsd'] for r in rows if r.get('kind') == 'run')
-            open_ = sum(1 for r in rows if r.get('kind') == 'reserved'
-                        and not any(x.get('runId') == r['runId'] and x.get('kind') == 'run' for x in rows))
+            # A completion releases only the one reservation it names. A redispatch that reuses a schedule
+            # runId keeps its own live reservation (Sol d7af7588 item 2).
+            closed = {x.get('reservation') for x in rows if x.get('kind') == 'run' and x.get('reservation')}
+            open_ = sum(1 for r in rows if r.get('kind') == 'reserved' and r.get('reservation') not in closed)
             observed = [r['totalUsd'] for r in rows if r.get('kind') == 'run']
             estimate = max([float(self.spend['perRunEstimateUsd'])] + observed)
             projected = spent + estimate * (open_ + 1)
@@ -120,12 +127,15 @@ class SpendLedger:
                 return {'stopped': True, 'runId': run_id, 'spentUsd': round(spent, 2), 'openRuns': open_,
                         'perRunEstimateUsd': round(estimate, 2), 'projectedUsd': round(projected, 2),
                         'capUsd': self.spend['capUsd'], 'cliSubscriptionUsd': 'unknown'}
-            rows.append({'kind': 'reserved', 'runId': run_id, 'estimateUsd': round(estimate, 4)})
+            token = uuid.uuid4().hex
+            self.tokens[run_id] = token
+            rows.append({'kind': 'reserved', 'runId': run_id, 'reservation': token, 'estimateUsd': round(estimate, 4)})
             return None
         return self._locked(check)
 
     def record(self, run_id: str, cost: dict):
-        self._locked(lambda rows: rows.append({'kind': 'run', 'runId': run_id, **cost}))
+        token = self.tokens.pop(run_id, None)
+        self._locked(lambda rows: rows.append({'kind': 'run', 'runId': run_id, 'reservation': token, **cost}))
 
 
 def slots(hosts: list[str], per_host: int) -> list[tuple[str, int]]:
@@ -263,10 +273,29 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         queue.insert(0, reserve)
         return True
 
+    def scan_holds():
+        for hold in sorted((out / 'holds').glob('*.hold')) if (out / 'holds').is_dir() else []:
+            # A hold placed on any run, finished or in flight, is a suspected defect: nothing new starts
+            # until it is adjudicated (Sol 09e293be). A hold for a run not yet started blocks it too.
+            held = next((r['runId'] for r in results if r['runId'].replace(':', '-') + '.hold' == hold.name),
+                        None)
+            generation = hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
+            # An acknowledgement answers one hold generation; a fresh hold needs a fresh decision
+            # (Sol 4ac23739 item 2).
+            if held and held not in pending and adjudicated.get(held) != generation:
+                pending.append(held)
+
     started = time.monotonic()
     try:
         with lock:
             while queue or pending or len(results) < len(threads):
+                if stopped and len(results) >= len(threads):
+                    # Sol d7af7588 item 3: a spend stop drains independently of the launch barriers. Once every
+                    # running run has finished, the campaign ends (exit 3). Pending adjudications, including
+                    # holds placed on finished runs, are recorded in the state, not awaited.
+                    scan_holds()
+                    save_state()
+                    break
                 if pending:
                     cleared, generation = adjudicate(pending[0])
                     if cleared:
@@ -278,16 +307,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                         raise TimeoutError('runs await a valid adjudication: ' + ', '.join(pending))
                     lock.wait(wait_poll)
                     continue
-                for hold in sorted((out / 'holds').glob('*.hold')) if (out / 'holds').is_dir() else []:
-                    # A hold placed on any run, finished or in flight, is a suspected defect: nothing new starts
-                    # until it is adjudicated (Sol 09e293be). A hold for a run not yet started blocks it too.
-                    held = next((r['runId'] for r in results if r['runId'].replace(':', '-') + '.hold' == hold.name),
-                                None)
-                    generation = hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
-                    # An acknowledgement answers one hold generation; a fresh hold needs a fresh decision
-                    # (Sol 4ac23739 item 2).
-                    if held and held not in pending and adjudicated.get(held) != generation:
-                        pending.append(held)
+                scan_holds()
                 if pending:
                     continue
                 if any(h.name.endswith('.hold') for h in ((out / 'holds').iterdir() if (out / 'holds').is_dir() else [])
@@ -308,8 +328,6 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                     continue
                 if stopped:
                     lock.wait(wait_poll)
-                    if len(results) >= len(threads):
-                        break
                     continue
                 report = spend.reserve(queue[0]["runId"])
                 if report is not None:

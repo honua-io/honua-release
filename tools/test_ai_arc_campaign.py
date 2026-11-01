@@ -436,3 +436,55 @@ def test_the_workflow_passes_one_shared_spend_ledger_per_gate_campaign():
     assert 'args+=(--spend-ledger "$ledger")' in text
     assert 'artifacts/${{ matrix.target }}/spend-ledger.json' in text
     assert 'artifacts/${{ matrix.target }}/SPEND-CAP-REACHED' in text
+
+
+def test_studio_audit_usage_reaches_the_ledger_priced_as_input_and_output():
+    """Sol d7af7588 item 1: the Studio audit projection's prompt_tokens / completion_tokens survive the
+    receipt projection (usage_record) and are priced, so a real run never records zero Bedrock spend."""
+    import ai_arc_runner as R
+    audit = [{'prompt_tokens': 1_000_000, 'completion_tokens': 100_000}, {'prompt_tokens': 500_000, 'completion_tokens': 0}]
+    receipt = {'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:00:00Z',
+               'stages': [{'stage': 'studio', 'assistantUsage': R.usage_record(audit)}]}
+    bedrock = spend(2500)['rates']['bedrock']
+    cost = C.run_cost(receipt, 'local-docker', spend(2500))
+    assert cost['bedrockTokens']['input'] == 1_500_000 and cost['bedrockTokens']['output'] == 100_000
+    assert cost['bedrockUsd'] == round(1.5 * bedrock['inputPerMTok'] + 0.1 * bedrock['outputPerMTok'], 4) > 0
+
+
+def test_a_reused_run_id_keeps_its_own_live_reservation(tmp_path):
+    """Sol d7af7588 item 2: a redispatch reusing a schedule runId on the same ledger is not released by the
+    earlier dispatch's completion; cap $50, spent $1, a second $25 launch beside a live one is refused."""
+    path, doc = tmp_path / 'ledger.json', spend(cap=50, estimate=25)
+    first = C.SpendLedger(path, doc)
+    assert first.reserve('local-docker:A1:001') is None
+    first.record('local-docker:A1:001', {'totalUsd': 1.0})
+    again = C.SpendLedger(path, doc)               # a redispatch with the same schedule ids
+    assert again.reserve('local-docker:A1:001') is None
+    assert again.reserve('local-docker:A1:002') is not None    # 1 + 25 (live 001) + 25 > 50
+    rows_ = json.loads(path.read_text())
+    assert len({r['reservation'] for r in rows_ if r['kind'] == 'reserved'}) == 2
+
+
+def test_a_spend_stop_drains_even_with_a_pending_adjudication(tmp_path):
+    """Sol d7af7588 item 3: with the cap reached, an undetermined finisher's pending adjudication is recorded,
+    not awaited; the campaign ends once running runs finish and reports the stop."""
+    import ai_arc_runner as R
+    arc = json.loads(json.dumps(R.load_arc()))
+    arc['spendCap'] = spend(cap=50.5, estimate=25)        # two launches fit; the third would not
+    out = tmp_path / 'c'
+    statuses = {'local-docker:A1:001': 'undetermined'}
+
+    def after_the_stop(row):          # both runs are still in flight when the third launch hits the cap
+        deadline = time.monotonic() + 20
+        while not (out / 'SPEND-CAP-REACHED').is_file() and time.monotonic() < deadline:
+            time.sleep(0.01)
+    started = time.monotonic()
+    results = C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(4), out=out, hosts=['h1'],
+                             per_host=3, common=[], launch=fake_launch(out, statuses, [], gate=after_the_stop),
+                             wait_poll=0.01, arc=arc, max_wait=60)
+    assert time.monotonic() - started < 30
+    assert sorted(r['runId'] for r in results) == ['local-docker:A1:001', 'local-docker:A1:002']
+    assert (out / 'SPEND-CAP-REACHED').is_file()
+    state = json.loads((out / 'campaign-state.json').read_text())
+    assert state['spendCapStop'] and 'local-docker:A1:001' in state['pending']
+    assert (out / 'PENDING-ADJUDICATION').is_file()
