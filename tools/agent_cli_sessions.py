@@ -50,6 +50,37 @@ _CREDENTIAL_TEXT = re.compile(
     r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*[^\s,}]+', re.I)
 
 
+# Text that must never be written to disk in plaintext (a held-out run's sealed goals): cli-inputs.json records
+# only the prompt digest, and the session's own logs are scrubbed when it ends.
+_WITHHELD: list[str] = []
+WITHHELD_MARK = b'[held-out text withheld]'
+
+
+def withhold_texts(texts) -> None:
+    """Register the texts of this process's held-out case (or clear them with an empty list)."""
+    _WITHHELD[:] = [t for t in (texts or []) if isinstance(t, str) and len(t) >= 12]
+
+
+def withheld_forms() -> list[bytes]:
+    out = []
+    for text in _WITHHELD:
+        out += [text.encode(), json.dumps(text)[1:-1].encode(), json.dumps(text, ensure_ascii=False)[1:-1].encode()]
+    return [f for f in dict.fromkeys(out) if f]
+
+
+def scrub_file(path: Path) -> None:
+    """Replace every withheld text in ``path`` (in place); a missing file is left alone."""
+    forms = withheld_forms()
+    if not forms or not Path(path).is_file():
+        return
+    raw = Path(path).read_bytes()
+    clean = raw
+    for form in forms:
+        clean = clean.replace(form, WITHHELD_MARK)
+    if clean != raw:
+        Path(path).write_bytes(clean)
+
+
 def arc_scratch_root() -> Path:
     """Real-disk root for the arc's private controller state (trial private dirs, CLI scratch homes, the
     operator launcher). /tmp is wiped on reboot and the lane rules forbid it: HONUA_ARC_SCRATCH, default
@@ -266,6 +297,8 @@ class RecordingProxy:
                 self.failure_category = 'model'
                 raise ValueError(self.failure)
             raw = action_bytes(action)
+            for form in withheld_forms():
+                raw = raw.replace(form, WITHHELD_MARK)   # a held-out goal echoed into an argument never reaches disk
             path = self.log_dir / f'action-{len(self.actions) + 1:04d}.json'
             write_private(path, raw)
             row = {'session': self.session, 'sequence': len(self.actions) + 1,
@@ -601,7 +634,11 @@ class CliModelSession:
                 metadata['servedToolListsSha256'] = {name: digest(encoded(view)) for name, view in tool_views.items()}
                 metadata['stage'] = stage
                 out['provenance'] = [metadata]
-                write_private(log_dir / 'cli-inputs.json', encoded({'flags': args, 'prompt': prompt, 'tools': primary_view}))
+                held = any(text in prompt for text in _WITHHELD)
+                write_private(log_dir / 'cli-inputs.json', encoded({
+                    'flags': args, 'tools': primary_view,
+                    **({'prompt': {'withheld': 'held-out goal', 'promptSha256': digest(prompt.encode())}} if held
+                       else {'prompt': prompt})}))
                 # Files avoid pipe deadlocks and bound retained output. The process group includes children.
                 stdout_path, stderr_path = log_dir / 'cli-stdout.jsonl', log_dir / 'cli-stderr.log'
                 with os.fdopen(os.open(stdout_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600), 'w+b') as stdout, \
@@ -627,6 +664,8 @@ class CliModelSession:
                     stderr.seek(0)
                     stderr_raw = stderr.read(16_000_001)
                     metadata['exitCode'] = process.returncode
+                    for path in (stdout_path, stderr_path, debug_path, *(p.event_path for p in proxies.values())):
+                        scrub_file(path)        # a held-out goal the CLI echoed never stays on disk
                     metadata['elapsedSeconds'] = round(time.monotonic() - started, 3)
                     metadata['diagnosticPaths'] = {'stdout': str(stdout_path), 'stderr': str(stderr_path),
                         'proxy': {name: str(p.event_path) for name, p in proxies.items()}}

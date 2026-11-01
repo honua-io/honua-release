@@ -34,6 +34,7 @@ def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectation
                               candidate={'development': False})
     fixture, case = select_arc_case(context, context.case['goals']['studio'] + '\nPrevious model handoff')
     assert fixture == 'B' and case['prompts']['B'] == context.case['goals']['studio']
+    assert 'sharing' in __import__('agent_e2e_studio_arc').fixture_requirements(context.case['fixtures'], 'P08')
     with pytest.raises(ValueError, match='not bound'):
         select_arc_case(context, 'unrelated request')
     for scenario in ('P08', 'P09', 'P24'):
@@ -121,6 +122,15 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
     assert stack.compose_project == 'arc-12345678'
     assert stack.extra['needsStudioIdentity'] is True
     assert stack.extra['studioSigningKey'] == 'x' * 48
+    import base64
+    readers = stack.extra['studioReaderSubjects']
+    assert len(set(readers.values())) == 1
+    tokens = [value for value in runtime._secrets if isinstance(value, str) and value.startswith('Bearer ')]
+    claims = [json.loads(base64.urlsafe_b64decode((payload := token.split('.')[1]) + '=' * (-len(payload) % 4)))
+              for token in tokens]
+    assert {row['sub'] for row in claims} == set(readers.values())
+    assert all(row['scope'] == 'honua.mcp.read' for row in claims)
+    assert {row['sub']: row['roles'] for row in claims} == {readers['colleague']: ['operator']}
     assert callable(stack.extra['startConsole']) and callable(stack.extra['ensureConnection'])
     assert calls[0][1] == ['admin:write']
     assert runtime.pack_sha256 == 'sha256:' + 'b' * 64
@@ -194,7 +204,7 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
             vm=SimpleNamespace(secrets={'POSTGRES_PASSWORD': 'secret'}), harness_secrets=[]),
         candidate={'imageDigest': 'sha256:' + 'a' * 64}, arm={'agent': 'codex-cli', 'model': 'model'},
         limits={'maxTurns': 60, 'maxToolCalls': 60, 'maxSeconds': 2700},
-        arc={'studioAssistant': {'customerScript': []}}, gate=None, live=[], remaining=lambda: 100)
+        arc={'studioAssistant': {'customerScript': []}, 'targets': {'local-docker': {'goals': {'studio': {'A': 'ignored'}}}}}, gate=None, live=[], remaining=lambda: 100)
     stage = studio.arc_stage(context)
     stage.signing = 'x' * 48
     if sealed:
@@ -216,6 +226,8 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
     assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
     assert any(row.get('falseSuccess') for row in scores)
+    assert {r['assertion'] for r in scores if r['assertion'].endswith(':goal.services-lineage') and r['status'] == 'fail'} == {
+        'arm-browser:goal.services-lineage', 'console-assistant:goal.services-lineage'}
 
 
 def test_shared_project_drivers_get_distinct_fixture_names():
@@ -286,3 +298,39 @@ def test_admission_initializes_and_resumes_only_completed_operations():
     with pytest.raises(ValueError, match='admission'):
         initialize_admission(recorder)
     assert len(recorder.calls) == 1
+
+
+def test_studio_source_reads_use_adopted_database_identity(monkeypatch):
+    from types import SimpleNamespace
+    import subprocess
+    from agent_e2e_studio_arc import studio_runtime_class
+    runtime_type = studio_runtime_class()
+    runtime = runtime_type.__new__(runtime_type)
+    runtime.database_host = 'postgres'
+    runtime.database_name = 'customer_database'
+    runtime.database_user = 'customer_owner'
+    runtime._ensure_reader = lambda stack: None
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout='db-container\n' if command[1] == 'ps' else b'[]')
+    monkeypatch.setattr(subprocess, 'run', run)
+    stack = SimpleNamespace(compose_project='arc-customer')
+    assert runtime.psql(stack, 'SELECT 1', read_only=True) == (0, b'[]')
+    assert 'label=com.docker.compose.service=postgres' in calls[0]
+    assert 'label=com.docker.compose.project=arc-customer' in calls[0]
+    assert calls[1][calls[1].index('-U')+1] == 'corpus_reader'
+    assert calls[1][calls[1].index('-d')+1] == 'customer_database'
+    assert 'default_transaction_read_only=on' in ' '.join(calls[1])
+    runtime.psql(stack, 'SELECT 1', read_only=False)
+    assert calls[-1][calls[-1].index('-U')+1] == 'customer_owner'
+
+
+def test_studio_arc_contract_is_in_runner_digest_and_does_not_replace_p08():
+    import ai_arc_runner as arc
+    from agent_e2e_local_expectations import load_roles, load_projections
+    assert 'certification/ai-arc/studio-arc-expectations.json' in arc.RUNNER_FILES
+    assert any(r.role.startswith('seeded:') for r in load_roles('P08'))
+    assert not any(r.role.startswith('seeded:') for r in load_roles('P08', 'studio-arc'))
+    for variant in ('A', 'B'):
+        assert 'studioArcContent' in load_projections('P08', variant, 'studio-arc')['source-content.unchanged']['spec']
