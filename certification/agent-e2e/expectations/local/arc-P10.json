@@ -40,7 +40,8 @@
             "argument": "/connectionId",
             "role": "seeded:connection:shelters"
           }
-        ]
+        ],
+        "allowFaultKind": "response_lost_after_commit"
       }
     },
     {

@@ -77,7 +77,7 @@ def test_error_publication_result_never_selects_a_query():
     assert not any(call[0] == 'replay' for call in rec.calls)
 
 
-def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows():
+def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(tmp_path):
     import hashlib
     import json
     import agent_e2e_local_projections as projections
@@ -86,11 +86,11 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows()
     from agent_e2e_local_recorder import Record, action_bytes
     from agent_e2e_local_runner import score_assertions
 
-    def record(step, phase, kind, method, path, value, *, args=None, replay=None):
+    def record(step, phase, kind, method, path, value, *, args=None, replay=None, origin='controller'):
         raw = json.dumps(value, separators=(',', ':')).encode()
         return Record(step, phase, kind, 'controller', 'controller-id', method, path, 200, raw,
                       'sha256:' + hashlib.sha256(raw).hexdigest(), replay,
-                      action_bytes(args) if args is not None else None)
+                      action_bytes(args) if args is not None else None, origin=origin)
 
     expected = load_expected('P10', 'A', 'arc')
     rows = expected['source-content.unchanged']['resources'][0]['content']['rows']
@@ -132,7 +132,7 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows()
     publication = {'tool': 'honua_publish_service', 'status': 'pass',
                    'arguments': {'table': 'arc_shelters', 'schema': 'honua_data', 'connectionId': 'conn'},
                    'json': {'result': {'structuredContent': {
-                       'serviceName': 'agent-service'}}}}
+                       'serviceName': 'agent-service', 'status': 'Completed', 'operationId': 'service.publish'}}}}
     roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                       action_results=[publication])
     observations = [Observation(name, None, {'projection': 'extract/v1'}) for name in expected]
@@ -177,6 +177,46 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows()
     with pytest.raises(ValueError):
         projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                   action_results=[publication])
+    publication['arguments']['schema'] = 'honua_data'
+    publication.update(status='fail', _digest='sha256:' + 'a' * 64, _responseSha256='sha256:' + 'b' * 64)
+    confirm_path = '/api/v1/admin/services/agent-service/settings'
+    records['confirm'] = record('confirm', 'session-confirm', 'http', 'GET', confirm_path, {},
+                                origin='fault-confirmation')
+    event = {'kind': 'response_lost_after_commit', 'tool': 'honua_publish_service', 'forwarded': True,
+             'actionDigest': publication['_digest'], 'upstreamOutcome': 'ok', 'upstreamStatus': 200,
+             'upstreamResponseSha256': publication['_responseSha256'], 'committedResourceId': 'agent-service',
+             'confirmation': {'path': confirm_path, 'checks': [{'step': 'confirm', 'status': 200}]}}
+    roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                      action_results=[publication], run_facts={'faultEvents': [event]})
+    assert roles['created:service:shelters'] == 'agent-service'
+    for bad in ({**event, 'actionDigest': 'sha256:' + 'c' * 64},
+                {**event, 'upstreamResponseSha256': 'sha256:' + 'd' * 64},
+                {**event, 'committedResourceId': 'foreign'},
+                {**event, 'confirmation': {'path': confirm_path, 'checks': [{'step': 'absent', 'status': 200}]}}):
+        with pytest.raises(ValueError):
+            projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                      action_results=[publication], run_facts={'faultEvents': [bad]})
+
+    # The real action ledger captures the upstream reply while the agent receives a failure.
+    from agent_e2e_local_faults import FaultInjector
+    from agent_e2e_local_recorder import EvidenceVault
+    from agent_e2e_local_runner import ActionLog
+    log = ActionLog(tmp_path / 'actions', 1, {'honua_publish_service'}, 2)
+    vault = EvidenceVault('arc-test')
+    injector = FaultInjector(ArcP10('response_lost_after_commit').fault_plan('A'),
+                             confirm=lambda path: (200, 'confirm'))
+    selected = {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': publication['arguments']}
+    raw = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {
+        'serviceName': 'agent-service', 'status': 'Completed', 'operationId': 'service.publish'}}}).encode()
+    def execute(kind, action):
+        assert injector.lose(kind, action, {'status': 'ok'}, 200, raw)
+        return {'status': 'fail', '_rawResponse': (200, raw)}
+    log.dispatch('tool_call', selected, execute)
+    vault.append_actions(1, log.rows)
+    resolved = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                         action_results=vault.action_results(),
+                                         run_facts={'faultEvents': injector.events})
+    assert resolved['created:service:shelters'] == 'agent-service'
 
 
 def test_raw_p10_fault_fires_once_after_publication():
@@ -189,3 +229,35 @@ def test_raw_p10_fault_fires_once_after_publication():
     event = injector.intercept('tool_call', query)
     assert event and event['kind'] == 'http_503_once' and event['httpStatus'] == 503
     assert injector.intercept('tool_call', query) is None
+
+
+def test_lost_publication_fault_requires_upstream_success_and_controller_confirmation():
+    import json
+    from agent_e2e_local_faults import FaultInjector
+    plan = ArcP10('response_lost_after_commit').fault_plan('A')
+    checks = []
+    injector = FaultInjector(plan, confirm=lambda path: (checks.append(path) or (200, 'confirm')))
+    action_data = {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}}
+    raw = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {'serviceName': 'svc'}}}).encode()
+    assert injector.lose('tool_call', action_data, {'status': 'fail'}, 200, raw) is None
+    event = injector.lose('tool_call', action_data, {'status': 'ok'}, 200, raw)
+    assert event['kind'] == 'response_lost_after_commit' and event['forwarded'] is True
+    assert event['committedResourceId'] == 'svc'
+    assert checks == ['/api/v1/admin/services/svc/settings']
+    assert injector.lose('tool_call', action_data, {'status': 'ok'}, 200, raw) is None
+
+
+def test_lost_publication_requires_matching_recorded_fault_before_readback():
+    publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
+                                                    'connectionId': 'conn'}, status='fail')
+    query = action(2, 'honua_query_features', {'serviceId': 'agent-service', 'layerId': 2})
+    def run_with(digest):
+        rec = Recorder([publish, query])
+        state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
+        event = {'kind': 'response_lost_after_commit', 'forwarded': True, 'actionDigest': digest,
+                 'tool': 'honua_publish_service', 'committedResourceId': 'agent-service'}
+        ArcP10('response_lost_after_commit').observe(SimpleNamespace(extra={'recorder': rec}), state, 'A',
+                                                      SimpleNamespace(fault_events=(event,)))
+        return rec.calls
+    assert ('replay', 'p10-replay-query', 2) in run_with(publish.digest)
+    assert not any(call[0] == 'replay' for call in run_with('other'))

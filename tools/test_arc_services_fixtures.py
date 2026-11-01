@@ -48,7 +48,7 @@ def test_adapter_returns_named_failure_for_unmapped_or_incompatible_cases(tmp_pa
                   base_url='http://127.0.0.1:1', admin_key='unused', project='unused',
                   arm={}, limits={}, out_dir=tmp_path)
     for fixture, fault, reason in [('unknown', 'http_503_once', 'unmapped services fixture'),
-                                   ('town-A', 'response_lost_after_commit', 'fault is incompatible')]:
+                                   ('town-A', 'unsupported-fault', 'fault is incompatible')]:
         row, cases = ai_arc_services.run_fixture_services(**common, goal='request', fixture_id=fixture, fault=fault)
         assert cases == [] and row['failure']['category'] == 'model'
         assert reason in row['failure']['reason']
@@ -91,10 +91,11 @@ def test_harness_custody_is_retained_in_case_but_not_scored_as_agent_work():
     assert 'P15:publication.private' in [r['assertion'] for r in rows]
 
 
-def test_compatible_fault_requires_adopted_vm_before_dispatch(tmp_path):
+@pytest.mark.parametrize('fault', ['http_503_once', 'response_lost_after_commit'])
+def test_compatible_fault_requires_adopted_vm_before_dispatch(tmp_path, fault):
     import ai_arc_services
     row, cases = ai_arc_services.run_fixture_services(
-        goal='Synthetic request', fixture_id='town-A', fault='http_503_once',
+        goal='Synthetic request', fixture_id='town-A', fault=fault,
         candidate_digest='sha256:' + 'a' * 64, base_url='http://127.0.0.1:1', admin_key='unused',
         project='unused', arm={}, limits={}, out_dir=tmp_path)
     assert cases == [] and row['failure']['category'] == 'model'
@@ -113,6 +114,12 @@ def test_p15_link_requires_a_passing_agent_publication_and_fired_fault():
                     {**receipt, 'roles': {'created:service:shelters': 'foreign/route', 'child:layer:shelters': 2}}):
         with pytest.raises(ValueError):
             shared_publication(changed, b'retained', 'A')
+    lost = {**receipt, 'faultEvents': [{'kind': 'response_lost_after_commit', 'id': 'arc-p10-publish-lost',
+                                       'forwarded': True, 'committedResourceId': 'service'}]}
+    assert shared_publication(lost, b'retained', 'A', 'response_lost_after_commit')['service'] == 'service'
+    lost['faultEvents'][0]['committedResourceId'] = 'foreign'
+    with pytest.raises(ValueError):
+        shared_publication(lost, b'retained', 'A', 'response_lost_after_commit')
 
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
@@ -178,7 +185,8 @@ def test_adopted_connection_is_created_under_controller_custody(tmp_path):
     assert len(calls) == 1
 
 
-def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypatch, tmp_path):
+@pytest.mark.parametrize('fault', ['http_503_once', 'response_lost_after_commit'])
+def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypatch, tmp_path, fault):
     import hashlib
     import ai_arc_services
     seen = []
@@ -191,16 +199,19 @@ def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypat
     def execute_case(*, scenario, variant, case, **kwargs):
         seen.append((scenario.id, scenario.expectation_profile, case['prompts'][variant]))
         if scenario.id == 'P10':
+            event = ({'kind': 'http_503_once', 'id': 'arc-p10-query-503'} if fault == 'http_503_once' else
+                     {'kind': fault, 'id': 'arc-p10-publish-lost', 'forwarded': True,
+                      'committedResourceId': 'service'})
             return {'status': 'pass', 'roles': {'created:service:shelters': 'service',
                                                 'child:layer:shelters': 2},
-                    'faultEvents': [{'kind': 'http_503_once', 'id': 'arc-p10-query-503'}],
+                    'faultEvents': [event],
                     'sessions': [], 'assertions': [], 'nudges': 0}
         return {'status': 'pass', 'sessions': [], 'assertions': [], 'nudges': 0,
                 'roles': {'seeded:service:shelters': 'service', 'seeded:layer:shelters': 2}}
     monkeypatch.setattr(runner, 'execute_case', execute_case)
     cipher = Fernet(Fernet.generate_key())
     payload = json.loads(cipher.decrypt(cipher.encrypt(json.dumps({
-        'services': 'Synthetic runtime goal', 'fixtures': 'town-A', 'fault': 'http_503_once'}).encode())))
+        'services': 'Synthetic runtime goal', 'fixtures': 'town-A', 'fault': fault}).encode())))
     row, cases = ai_arc_services.run_fixture_services(
         goal=payload['services'], fixture_id=payload['fixtures'], fault=payload['fault'],
         scenarios=('P13',), variant='B', candidate_digest='sha256:' + 'a' * 64,

@@ -12,6 +12,11 @@ from agent_e2e_local_scenarios.P10 import P10
 class ArcP10(P10):
     expectation_profile = 'arc'
 
+    def __init__(self, fault='http_503_once'):
+        if fault not in ('http_503_once', 'response_lost_after_commit'):
+            raise ValueError('unsupported P10 fault')
+        self.fault = fault
+
     def seed(self, stack, variant):
         from agent_e2e_local_scenarios.w2g3_common import town_setup
         rec = stack.extra['recorder']
@@ -32,6 +37,11 @@ class ArcP10(P10):
         return load_roles('P10', 'arc')
 
     def fault_plan(self, variant):
+        if self.fault == 'response_lost_after_commit':
+            return {'kind': self.fault, 'id': 'arc-p10-publish-lost', 'after': None,
+                    'match': {'tool': 'honua_publish_service'}, 'commit': {
+                        'pointer': '/result/structuredContent/serviceName',
+                        'confirm': {'path': '/api/v1/admin/services/{id}/settings'}}}
         return {'kind': 'http_503_once', 'id': 'arc-p10-query-503',
                 'after': {'tool': 'honua_publish_service'}, 'match': {'tool': 'honua_query_features'}}
 
@@ -47,7 +57,11 @@ class ArcP10(P10):
         publications = []
         for index, action in enumerate(rec.actions()):
             args = action.arguments if isinstance(action.arguments, dict) else {}
-            if (action.kind != 'tool_call' or action.status != 'pass' or action.tool != 'honua_publish_service'
+            lost = [e for e in (run.fault_events if run is not None else ())
+                    if e.get('kind') == 'response_lost_after_commit' and e.get('forwarded') is True
+                    and e.get('actionDigest') == action.digest and e.get('tool') == 'honua_publish_service']
+            if (action.kind != 'tool_call' or (action.status != 'pass' and not (action.status == 'fail' and len(lost) == 1))
+                    or action.tool != 'honua_publish_service'
                     or args.get('schema') != state['schema'] or args.get('table') != state['table']
                     or args.get('connectionId') != state['connection']):
                 continue
@@ -57,6 +71,7 @@ class ArcP10(P10):
             service, layer = value.get('serviceName'), value.get('layerId')
             if (result.get('isError', False) is False and value.get('status') == 'Completed'
                     and value.get('operationId') == 'service.publish'
+                    and (not lost or str(lost[0].get('committedResourceId')) == str(service))
                     and isinstance(service, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
                     and str(layer).isdigit() and sum(row.get('serviceName') == service for row in rows) == 1):
                 publications.append((service, int(layer)))
