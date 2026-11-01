@@ -1706,3 +1706,41 @@ def test_pronoun_privacy_advice_about_named_secret_files(answer, fs):
     map named after the secret is the antecedent instead (Sol 03126bcf)."""
     handoff = {'resources': [], 'accessProbes': [], 'facts': {'statuses': ['published']}}
     assert S.false_success(answer, 'pass', handoff)['false_success'] is fs
+
+
+
+def test_a_held_out_run_leaves_no_goal_text_on_disk(tmp_path, monkeypatch):
+    """Coordinator (#1196): held-out goals are sealed; a run writes their digest, never their text, even when
+    the CLI echoes the prompt into its logs."""
+    import agent_cli_sessions as CS
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    case = primary['cases']['h00']
+
+    class Echo(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            log = ctx.private_dir / stage / 'cli'
+            log.mkdir(parents=True, exist_ok=True)
+            (log / 'cli-stdout.jsonl').write_text(json.dumps({'echo': prompt}) + '\n')   # a CLI echoing its input
+            (log / 'cli-inputs.json').write_text(json.dumps({'prompt': prompt}))
+            return row
+    run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00', session=Echo())
+    goals = [g.encode() for g in case['goals'].values()]
+    for path in tmp_path.rglob('*'):
+        if path.is_file() and 'sealed' not in path.name and not path.name.endswith('.json.enc'):
+            raw = path.read_bytes()
+            assert not any(g in raw for g in goals), path
+    assert CS._WITHHELD == [], 'the withheld set is cleared after the run'
+
+
+def test_cli_inputs_record_only_the_digest_of_a_withheld_prompt(tmp_path):
+    import agent_cli_sessions as CS
+    CS.withhold_texts(['Please install Honua on this machine with Docker for the held-out case'])
+    try:
+        assert CS.withheld_forms()
+        target = tmp_path / 'log.jsonl'
+        target.write_text('{"text": "Please install Honua on this machine with Docker for the held-out case"}')
+        CS.scrub_file(target)
+        assert b'held-out case' not in target.read_bytes() and CS.WITHHELD_MARK in target.read_bytes()
+    finally:
+        CS.withhold_texts([])

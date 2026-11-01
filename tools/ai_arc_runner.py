@@ -1809,6 +1809,11 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                'startedAt': now(), 'stages': []}
     outcomes, previous_answer = {}, None
     stage_defs = {s['id']: s for s in arc['stages']}
+    import agent_cli_sessions
+    # A held-out case's goals never reach disk in plaintext (CLI inputs record the digest; logs and exported
+    # evidence are scrubbed of them).
+    withheld = [g for g in (case or {}).get('goals', {}).values() if isinstance(g, str)]
+    agent_cli_sessions.withhold_texts(withheld)
     run_deadline = time.monotonic() + arc['runLimits']['maxSeconds']
     try:
         for stage in STAGES:
@@ -1849,12 +1854,13 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
             {'runId': run_id, 'stages': [{k: r.get(k) for k in ('stage', 'outcome', 'cause')} for r in receipt['stages']],
              'teardown': receipt['teardown']['status']}))
         evidence_dir = Path(evidence_dir or out_dir.parent / (out_dir.name + '.evidence'))
-        export_private(private, evidence_dir, slot.harness_secrets)
+        export_private(private, evidence_dir, list(slot.harness_secrets) + withheld)
         receipt['evidenceArtifact'] = {'name': evidence_artifact or evidence_dir.name,
                                        'files': [{'path': str(p.relative_to(evidence_dir)), 'sha256': sha256(p.read_bytes()),
                                                   'bytes': p.stat().st_size}
                                                  for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
         shutil.rmtree(private, ignore_errors=True)
+        agent_cli_sessions.withhold_texts([])
     receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
                             if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
                                      'consoleObservedIdentity', 'opsComposition', 'opsReconverged', 'slotPreparation')}
