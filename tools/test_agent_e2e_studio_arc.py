@@ -128,3 +128,11 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     assert seen == ['console-assistant', 'codex-cli']
     assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
     assert any(row.get('falseSuccess') for row in scores)
+
+
+def test_shared_project_drivers_get_distinct_fixture_names():
+    from agent_browser_studio import case_namespace
+    one = case_namespace('p08', '/home/eval/case-1')
+    two = case_namespace('p08', '/home/eval/case-2')
+    assert one != two and len(one) <= 36
+    assert one == case_namespace('p08', '/home/eval/case-1')

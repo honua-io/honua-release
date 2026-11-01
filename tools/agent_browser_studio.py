@@ -1663,6 +1663,11 @@ def seed_unstyled_map(recorder, variant, layers, owner):
     require(saved['observation']['httpStatus'] in (200, 201), 'unstyled map was not saved')
 
 
+def case_namespace(prefix, workdir):
+    """Keep case fixtures distinct even when drivers share a Compose project."""
+    return prefix + '_' + hashlib.sha256(str(workdir).encode()).hexdigest()[:16]
+
+
 def seed_case(scenario_id, stack, variant, *, create_map):
     from agent_e2e_local_api import Seeded
     key = scenario_id.lower() + 'Seed'
@@ -1703,7 +1708,9 @@ def seed_case(scenario_id, stack, variant, *, create_map):
         from agent_e2e_local_scenarios.w2g3_common import town_setup
         if 'connectionId' not in stack.extra:
             stack.extra['connectionId'] = stack.extra['ensureConnection']()
-        namespace = prefix + '_' + stack.compose_project.replace('-', '')[-16:]
+        # Multiple Studio drivers share the arc's Compose project but need
+        # distinct imported tables and service names.
+        namespace = case_namespace(prefix, stack.workdir)
         town = town_setup(recorder, variant).prepare(
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
