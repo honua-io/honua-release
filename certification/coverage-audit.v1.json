@@ -635,14 +635,14 @@
         "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/migration-cohort-2026-1.test.ts#L195",
         "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/js-migration-cohort-2026.1.json#L18"
       ],
-      "impact": "Real migration CLI installs registry runtimes, builds and runs Chromium, but reviewed browser source is one synthetic three-row HTTP FeatureServer. Cohort assertions compare static hand-counted codemod/readiness metrics; some admitted fixtures retain source-platform dependencies requiring documented manual work. These are useful foundations, not two existing apps passing fresh imported-service behavior.",
+      "impact": "Real migration CLI installs registry runtimes, builds and runs Chromium, but reviewed browser source is one synthetic three-row HTTP FeatureServer. Cohort assertions compare static hand-counted migration readiness metrics; some admitted fixtures retain source-platform dependencies requiring documented manual work. These are useful foundations, not two existing apps passing fresh imported-service behavior.",
       "acceptance": "Execute the required two existing applications against freshly imported services using installed runtimes and independent behavior assertions; retain manual-work limitations, source/package identities and actual candidate receipts.",
       "verification_receipt": null,
       "dimension": "live-evidence",
       "related_issues": [
         "https://github.com/honua-io/honua-release/issues/325"
       ],
-      "scope_note": "Existing application-migration qualification obligation; useful codemod/synthetic browser coverage is retained. No licensed licensed desktop or 2026.2 broad-migration scope is added.",
+      "scope_note": "Existing application-migration qualification obligation; useful migration/synthetic browser coverage is retained. No licensed licensed desktop or 2026.2 broad-migration scope is added.",
       "implementation_prs": [
         "https://github.com/honua-io/honua-migrate/pull/203"
       ],
@@ -922,7 +922,7 @@
       },
       "review_limits": [
         "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
-        "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
+        "Existing NC01–12 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
         "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
         "No fresh candidate or AWS qualification; no current CITE rate inferred from source. The 2026-10-18 supplement extends the bounded review to WCS/WPS/STAC/gRPC; source review remains partial."
       ],
@@ -1149,7 +1149,7 @@
         },
         {
           "kind": "fresh-app qualification/harness gap",
-          "claim": "Real migration CLI installs registry runtimes, builds and runs Chromium, but reviewed browser source is one synthetic three-row HTTP FeatureServer. Cohort assertions compare static hand-counted codemod/readiness metrics; some admitted fixtures retain source-platform dependencies requiring documented manual work. These are useful foundations, not two existing apps passing fresh imported-service behavior.",
+          "claim": "Real migration CLI installs registry runtimes, builds and runs Chromium, but reviewed browser source is one synthetic three-row HTTP FeatureServer. Cohort assertions compare static hand-counted migration readiness metrics; some admitted fixtures retain source-platform dependencies requiring documented manual work. These are useful foundations, not two existing apps passing fresh imported-service behavior.",
           "sources": [
             "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/migration-pipeline.test.ts#L255",
             "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/fixtures/js-migration-pipeline-app/browser-check.mjs#L10",
@@ -1165,8 +1165,6 @@
           "kind": "published-client qualification pending, producer PR exists",
           "claim": "Release frozen import gate retains142 supported plus10 N/A cells. Current PR644 is ready at497e7f4 with executable source/reference/recovery producers; own body reports package-only1pass141blocked and missing actual authored/native/candidate/published-curve inputs. Do not call producer implementation absent or full-fidelity certified.",
           "sources": [
-            "https://github.com/honua-io/honua-release/blob/a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935/certification/installed-clients/dotnet_import_fidelity.py#L62",
-            "https://github.com/honua-io/honua-release/blob/a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935/certification/installed-clients/dotnet_import_fidelity.py#L207",
             "https://github.com/honua-io/honua-release/pull/644"
           ],
           "owners": [
@@ -1346,7 +1344,7 @@
       },
       {
         "path": "certification/audits/2026-10-17/ai-gp-migration.json",
-        "sha256": "a3d988f04779f03001739b38d03e1dfc42d7438f26d0c8712bf343db10a43e01"
+        "sha256": "c628aa96b35f48c125f7534445211d01dffa65a0492f595e0aa9f4205be85e86"
       },
       {
         "path": "certification/audits/2026-10-17/deploy-isolation-raster.json",

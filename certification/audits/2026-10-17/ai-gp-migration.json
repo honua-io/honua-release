@@ -89,7 +89,7 @@
     },
     {
       "kind": "fresh-app qualification/harness gap",
-      "claim": "Real migration CLI installs registry runtimes, builds and runs Chromium, but reviewed browser source is one synthetic three-row HTTP FeatureServer. Cohort assertions compare static hand-counted codemod/readiness metrics; some admitted fixtures retain source-platform dependencies requiring documented manual work. These are useful foundations, not two existing apps passing fresh imported-service behavior.",
+      "claim": "Real migration CLI installs registry runtimes, builds and runs Chromium, but reviewed browser source is one synthetic three-row HTTP FeatureServer. Cohort assertions compare static hand-counted migration readiness metrics; some admitted fixtures retain source-platform dependencies requiring documented manual work. These are useful foundations, not two existing apps passing fresh imported-service behavior.",
       "sources": [
         "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/migration-pipeline.test.ts#L255",
         "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/fixtures/js-migration-pipeline-app/browser-check.mjs#L10",
@@ -105,8 +105,6 @@
       "kind": "published-client qualification pending, producer PR exists",
       "claim": "Release frozen import gate retains142 supported plus10 N/A cells. Current PR644 is ready at497e7f4 with executable source/reference/recovery producers; own body reports package-only1pass141blocked and missing actual authored/native/candidate/published-curve inputs. Do not call producer implementation absent or full-fidelity certified.",
       "sources": [
-        "https://github.com/honua-io/honua-release/blob/a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935/certification/installed-clients/dotnet_import_fidelity.py#L62",
-        "https://github.com/honua-io/honua-release/blob/a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935/certification/installed-clients/dotnet_import_fidelity.py#L207",
         "https://github.com/honua-io/honua-release/pull/644"
       ],
       "owners": [
@@ -140,5 +138,5 @@
       ]
     }
   ],
-  "not_duplicated": "NC01\u201312, especially server6299 notifications/cancelled, remain in existing audit. Durable job cancel/recovery gap here is distinct. No new AWS/model receipts inspected in this turn."
+  "not_duplicated": "NC01–12, especially server6299 notifications/cancelled, remain in existing audit. Durable job cancel/recovery gap here is distinct. No new AWS/model receipts inspected in this turn."
 }

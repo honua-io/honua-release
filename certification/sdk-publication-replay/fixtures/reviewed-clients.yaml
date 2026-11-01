@@ -76,18 +76,6 @@ clientArtifacts:
     - node
     - browser
     filename: sdk-0.2.2.tgz
-  honua-sdk-esri-compat:
-    ecosystem: npm
-    package: '@honua/sdk-esri-compat'
-    version: 0.2.2
-    integrity: sha512-dtZof0KD0tGLmZ91dN6ftt/MBiHQlAEu3hxlFeDXMwtmVMq7qMzNEMZ51xay7DVlfQbwnuTP8cxqv8op0ulNww==
-    repository: honua-io/honua-sdk-js
-    sourceSha: 076b4218f832725d57a8e23745fae75aeb9f4e5a
-    publicationState: published
-    targets:
-    - node
-    - browser
-    filename: sdk-esri-compat-0.2.2.tgz
   honua-react:
     ecosystem: npm
     package: '@honua/react'

@@ -52,19 +52,6 @@
     {
       "repo": "honua-release",
       "paths": [
-        "certification/sources/protocol-certification-production.v1.json"
-      ],
-      "tokens": [
-        "esri",
-        "arcgis"
-      ],
-      "reason": "Names existing upstream identifiers the nightly dispatches and classifies: the honua-io/honua-esri-compat repository and its esri-sdk-certification.yml workflow (also the honua-evidence producer and source_revisions key), and client-lane names the generator derives from release-owned inputs. They change when those repositories and inputs are renamed.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#425"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
         "tools/fixtures/candidate-resolution-2026-10-06/honua-server-c19f29d.json",
         "tools/fixtures/candidate-resolution-2026-10-26/honua-server-08ace24.json"
       ],
@@ -87,173 +74,6 @@
       "reason": "R35 /arcgis site-root alias, kept for client compatibility: clients that hard-code the vendor path convention; canonical root is /rest. Scoped to the two route tables that register it.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#425"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "platform-manifest.yaml",
-        "certification/installed-clients/matrix.json",
-        "certification/installed-clients/run.py",
-        "tools/mint_nightly_lock.py",
-        "tools/verify_client_artifacts.py",
-        "certification/sdk-publication-replay/selection.py",
-        "certification/sdk-publication-replay/run.py",
-        "certification/sdk-publication-replay/published-registry-observations.json",
-        "certification/sdk-publication-replay/published-sdk-016-registry-observations.json",
-        "certification/sdk-publication-replay/published-sdk-016-migrator.json",
-        "docs/2026.1-release-decision-overrides.json"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "@honua/sdk-esri-compat",
-        "honua-sdk-esri-compat",
-        "sdk-esri-compat-0.1.14.tgz",
-        "npm-honua-sdk-esri-compat-installed-runtime",
-        "sdk-esri-compat-0.1.15.tgz",
-        "2Fsdk-esri-compat/0.1.15",
-        "sdk-esri-compat-0.1.16.tgz",
-        "2Fsdk-esri-compat/0.1.16",
-        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.16.tgz"
-      ],
-      "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered. The frozen 0.1.15 publication replay records the same exact coordinate, encoded registry URL and served filename; historical observations remain unchanged. The separately recorded 0.1.16 publication and migrator consumer receipts retain those exact verified artifact identities. The 2026.1 attestation-exception ruling (sdk-attestation-exception-2026-10-27) names the exact pinned 0.2.10 coordinate it excuses.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-sdk-js#1994"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/sdk-publication-replay/published-registry-observations.json"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "//registry.npmjs.org/@honua/sdk-esri-compat/0.1.15"
-      ],
-      "reason": "Exact scheme-less registry coordinate recorded for the 0.1.15 publication replay.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-sdk-js#1994"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/sdk-publication-replay/published-sdk-016-registry-observations.json"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "//registry.npmjs.org/@honua/sdk-esri-compat/0.1.16"
-      ],
-      "reason": "Exact scheme-less registry coordinate recorded for the 0.1.16 publication replay.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-sdk-js#1994"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/executable-docs/evidence/sdk-source-build-20261012/initial/executable-docs.json",
-        "certification/executable-docs/evidence/sdk-source-build-20261012/corrected/executable-docs.json"
-      ],
-      "tokens": [
-        "esri",
-        "arcgis",
-        "runEsriCompatCodemod",
-        "scanArcGisUsage",
-        "Living Atlas"
-      ],
-      "reason": "Byte-for-byte retained hosted documentation receipts include immutable published package names and tarball URLs, public service URLs, and quoted SDK commands or comments. Renaming these observations would falsify evidence; exact file hashes, upstream document revisions and run identities are recorded beside each receipt. This exception is confined to the two retained raw reports.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#555"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "platform-manifest.yaml",
-        "certification/sdk-publication-replay/sdk-021/published-release-verification.v1.json",
-        "certification/sdk-publication-replay/sdk-021/registry-observations.json"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "sdk-esri-compat",
-        "@honua/sdk-esri-compat",
-        "honua-sdk-esri-compat",
-        "sdk-esri-compat-0.2.1.tgz",
-        "@honua/sdk-esri-compat@0.2.1",
-        "40honua/sdk-esri-compat@0.2.1",
-        "npm/@honua/sdk-esri-compat@0.2.1",
-        "//registry.npmjs.org/@honua/sdk-esri-compat/0.2.1",
-        "2Fsdk-esri-compat/0.2.1",
-        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.2.1.tgz"
-      ],
-      "reason": "Exact SDK 0.2.1 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#181"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "platform-manifest.yaml",
-        "certification/sdk-publication-replay/sdk-022/published-release-verification.v1.json",
-        "certification/sdk-publication-replay/sdk-022/registry-observations.json"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "sdk-esri-compat",
-        "@honua/sdk-esri-compat",
-        "honua-sdk-esri-compat",
-        "sdk-esri-compat-0.2.2.tgz",
-        "sdk-esri-compat-0.2.10.tgz",
-        "@honua/sdk-esri-compat@0.2.2",
-        "40honua/sdk-esri-compat@0.2.2",
-        "npm/@honua/sdk-esri-compat@0.2.2",
-        "//registry.npmjs.org/@honua/sdk-esri-compat/0.2.2",
-        "2Fsdk-esri-compat/0.2.2",
-        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.2.2.tgz"
-      ],
-      "reason": "Exact SDK 0.2.2 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations; the 2026-10-22 rc re-pin adds the selected 0.2.6 tarball filename. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#181"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "docs/platform-lock.v1.draft.yaml",
-        "docs/SDK-SERVER-COMPATIBILITY.md"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "@honua/sdk-esri-compat"
-      ],
-      "reason": "Generated from platform-manifest.yaml by generate_platform_lock.py and generate_compatibility_table.py, which copy each locked artifact's exact npm coordinate. Renaming it here would name a package the lock does not pin. Other identifiers and prose in these files remain checked.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#233"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/sdk-publication-replay/sdk-022/default-vanilla-ts/sdk-package-lock.json",
-        "certification/sdk-publication-replay/sdk-022/default-react-ts/sdk-package-lock.json"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "@honua/sdk-esri-compat",
-        "node_modules/@honua/sdk-esri-compat",
-        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.18.tgz"
-      ],
-      "reason": "Exact unmodified default-consumer lock coordinates. The generated migration tooling dependency resolves this historical package under its retained range; these observations do not advance the selected release cohort or endorse a vendor. Other versions, paths, identifiers and prose remain checked.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#181"
     },
     {
       "repo": "honua-release",
@@ -324,20 +144,6 @@
       "repo": "honua-release",
       "paths": [
         "certification/installed-clients/import_fidelity_reference.py",
-        "certification/installed-clients/import-fidelity-inputs.md"
-      ],
-      "identifiers": [
-        "honua-io/honua-esri-compat",
-        ".github/workflows/esri-sdk-certification.yml"
-      ],
-      "reason": "Exact existing owning repository and workflow path bind authenticated reference evidence to its actual producer. These names are identity checks, not new product terminology. Native desktop implementation details stay in the private producer repository.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#418"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/installed-clients/import_fidelity_reference.py",
         "certification/installed-clients/test_import_fidelity_reference.py"
       ],
       "identifiers": [
@@ -346,47 +152,6 @@
       "reason": "Exact frozen requirement ID crosscheck.honua-and-esri-clients from the unchanged requirements file; the consumer and negative control must address that governed cell. Other identifiers and prose remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#418"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/sdk-publication-replay/fixtures/reviewed-clients.yaml"
-      ],
-      "tokens": [
-        "esri"
-      ],
-      "identifiers": [
-        "honua-sdk-esri-compat",
-        "@honua/sdk-esri-compat",
-        "sdk-esri-compat-0.2.2.tgz"
-      ],
-      "reason": "This fixed historical SDK cohort fixture preserves the exact required manifest key, published npm coordinate and tarball filename. Substituting neutral names would stop exercising the real publication selector identity. Only these three lexical identifiers in this one fixture are covered; no prose, other paths or confidential terms are admitted. Revisit when the published package is renamed.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#181"
-    },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/coverage-audit.v1.json",
-        "certification/coverage-audit-summary.v1.json"
-      ],
-      "tokens": [
-        "esri",
-        "arcgis",
-        "honua_esri_compat",
-        "arcgis_python"
-      ],
-      "identifiers": [
-        "esri-compat",
-        "honua-io/honua-esri-compat",
-        "//github.com/honua-io/honua-esri-compat/issues/339",
-        "//github.com/honua-io/honua-esri-compat/pull/340",
-        "arcgis-python-",
-        "//github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/src/honua_esri_compat/lanes/arcgis_python.py"
-      ],
-      "reason": "Exact existing repository/source-key, client-lane and immutable source-path identifiers are needed to join the coverage audit to governed producers. Prose remains neutral; this does not admit licensed desktop detail or expand the baseline.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#652"
     },
     {
       "repo": "honua-release",
