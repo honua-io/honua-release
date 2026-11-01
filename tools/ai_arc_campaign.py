@@ -47,6 +47,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
     free = slots(hosts, per_host) if target == 'local-docker' else [(None, i) for i in range(per_host)]
     lock = threading.Condition()
     results, pending, voids, threads, rejected = [], [], [], [], {}
+    fs_decisions = []        # ARC v2: cross-family verdicts on false-success flags
     queue, reserves = list(schedule_rows), list(reserve_rows)
 
     def run_dir(row):
@@ -82,6 +83,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
 
     def save_state():
         (out / 'voids.json').write_text(json.dumps(voids, indent=2) + '\n')
+        (out / 'false-success-adjudications.json').write_text(json.dumps(fs_decisions, indent=2) + '\n')
         (out / 'campaign-state.json').write_text(json.dumps({'pending': pending, 'voids': voids,
                                                              'rejectedAdjudications': rejected,
                                                              'reservesLeft': [r['runId'] for r in reserves],
@@ -100,13 +102,40 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             with lock:
                 results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
                                 'receipt': str(path) if receipt else None})
-                if receipt is None or receipt['status'] == 'undetermined':
+                if receipt is None or receipt['status'] == 'undetermined' or receipt.get('falseSuccessFlags'):
+                    # A false-success flag is adjudicated before the next run, like a suspected harness fault.
                     pending.append(row['runId'])
                 free.append(slot)
                 save_state()
                 lock.notify_all()
 
+    def adjudicate_false_success(run_id, receipt):
+        """Every flag of the run has a valid cross-family verdict in adjudications/<run>.false-success.json."""
+        path = out / 'adjudications' / (run_id.replace(':', '-') + '.false-success.json')
+        if not path.is_file():
+            return False
+        try:
+            items = json.loads(path.read_text())
+            rows, _, unresolved = arc_runner.verify_false_success_adjudications(
+                arc, arm_spec, {run_id: receipt['falseSuccessFlags']}, items if isinstance(items, list) else [],
+                {run_id: receipt})
+        except ValueError as exc:
+            rejected[run_id] = str(exc)
+            return False
+        if unresolved:
+            return False
+        fs_decisions.extend(rows)
+        return True
+
     def adjudicate(run_id):
+        receipt_path = out / 'runs' / run_id.replace(':', '-') / 'trial-receipt.json'
+        receipt = json.loads(receipt_path.read_text()) if receipt_path.is_file() else None
+        if receipt is not None and receipt.get('falseSuccessFlags') and \
+                not any(r['runId'] == run_id for r in fs_decisions):
+            if not adjudicate_false_success(run_id, receipt):
+                return False
+        if receipt is not None and receipt.get('status') != 'undetermined':
+            return True
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
         if not path.is_file():
             return False

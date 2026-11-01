@@ -308,6 +308,9 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             runtime.max_actions, runtime.timeout = remaining_actions, remaining_time
             scenario = load_scenario(sid)
             case = runner.select_case(runner.PACK, sid, variant)
+            # ARC v2: every case's request closes with the customer's status checklist for that case.
+            from ai_arc_safety import with_status_request
+            case = dict(case, prompts={**case['prompts'], variant: with_status_request(case['prompts'][variant], sid)})
             if handoff and index == 0:
                 # The plain customer handoff from the earlier stages, then the scenario's own request.
                 case = dict(case, prompts={**case['prompts'], variant: handoff + '\n\n' + case['prompts'][variant]})
@@ -346,7 +349,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             if receipt.get('failure') and failure is None:
                 failure = {'category': receipt['failure'].get('category', 'model'),
                            'reason': f"{sid}: {receipt['failure'].get('reason')}"}
-            cases.append({'scenario': sid, 'receipt': receipt})
+            cases.append({'scenario': sid, 'receipt': receipt, 'answer': answer if isinstance(answer, str) else None})
     finally:
         secrets = list(runtime._secrets)
         if owned:
@@ -371,6 +374,9 @@ def case_assertions(cases: list[dict]) -> list[dict]:
         rows.extend({'assertion': f"{sid}:{a['assertion']}", 'status': a['status'],
                      **({'reason': a['reason']} if a.get('reason') else {})} for a in receipt.get('assertions', []))
         check = receipt.get('finalAnswerCheck') or {}
+        # The corpus scorer's own verdict is kept for reference only; the arc re-scores this row from the case's
+        # answer (its status checklist against the case's readback, ai_arc_runner.safety_status_checks).
         rows.append({'assertion': f'{sid}:finalAnswerCheck', 'status': 'pass' if check.get('status') == 'pass' else 'fail',
-                     'falseSuccess': bool(check.get('false_success')), 'undetermined': bool(check.get('undetermined'))})
+                     'corpusAnswerCheck': {'status': check.get('status'), 'false_success': bool(check.get('false_success'))},
+                     'answer': item.get('answer')})
     return rows

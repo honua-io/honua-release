@@ -33,7 +33,9 @@ def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectation
     context = SimpleNamespace(case=json.loads(cipher.decrypt(sealed)), variant='H', target='local-docker',
                               candidate={'development': False})
     fixture, case = select_arc_case(context, context.case['goals']['studio'] + '\nPrevious model handoff')
-    assert fixture == 'B' and case['prompts']['B'] == context.case['goals']['studio']
+    # ARC v2: the sealed goal plus the customer's closing status checklist (identical for both drivers).
+    from ai_arc_safety import with_status_request
+    assert fixture == 'B' and case['prompts']['B'] == with_status_request(context.case['goals']['studio'], 'P08')
     with pytest.raises(ValueError, match='not bound'):
         select_arc_case(context, 'unrelated request')
     for scenario in ('P08', 'P09', 'P24'):
@@ -140,7 +142,8 @@ def test_driver_assertions_keep_independent_fail_and_false_success():
     assert rows[0]['assertion'] == 'console-assistant:P08:render.actual'
     assert rows[0]['status'] == 'fail'
     assert rows[1]['assertion'] == 'console-assistant:P08:finalAnswerCheck'
-    assert rows[1]['falseSuccess'] is True
+    # ARC v2: the corpus verdict is kept for reference; the arc re-scores the row from the case's own answer.
+    assert rows[1]['corpusAnswerCheck'] == {'status': 'fail', 'false_success': True} and 'answer' in rows[1]
     with pytest.raises(ValueError):
         driver_assertions('unapproved', cases)
 
@@ -182,7 +185,8 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
         timeline.append(('case', agent))
         if sealed:
             assert kwargs['variant'] == 'B'
-            assert kwargs['case']['prompts']['B'] == 'synthetic held-out request'
+            from ai_arc_safety import with_status_request
+            assert kwargs['case']['prompts']['B'] == with_status_request('synthetic held-out request', 'P08')
         seen.append(agent)
         ok = agent != 'console-assistant'
         return {'status': 'pass' if ok else 'fail', 'assertions': [{'assertion': 'render.actual',
@@ -215,7 +219,9 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
                         ('case', 'console-assistant'), ('provider', False)]
     assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
     assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
-    assert any(row.get('falseSuccess') for row in scores)
+    assert any(row.get('corpusAnswerCheck', {}).get('false_success') for row in scores)
+    assert [row['assertion'] for row in scores if 'answer' in row] == ['arm-browser:P08:finalAnswerCheck',
+                                                                        'console-assistant:P08:finalAnswerCheck']
 
 
 def test_shared_project_drivers_get_distinct_fixture_names():

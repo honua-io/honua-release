@@ -609,6 +609,25 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         altered = copy.deepcopy(a1)
         mutate(altered)
         assert not evaluate(altered, a2)["admissible"], mutate
+    # ARC v2: a false-success flag admits only with a cross-family `rejected` verdict in the aggregate.
+    flagged = copy.deepcopy(a1)
+    trial = flagged[trial_index]
+    trial.update(falseSuccess=True, falseSuccessUnresolved=True,
+                 falseSuccessFlags=[{"stage": "setup", "flagId": "setup:running"}])
+    trial["stages"][0].update(falseSuccess=True, falseSuccessUnresolved=True,
+                              falseSuccessFlags=[{"flagId": "setup:running"}])
+    assert not evaluate(flagged, a2)["admissible"], "an unadjudicated flag never admits"
+    verdict = {"runId": trial["runId"], "flagId": "setup:running", "verdict": "rejected",
+               "adjudication": "https://github.com/honua-io/honua-release/pull/1#issuecomment-1"}
+    flagged[agg_index].update(falseSuccessFlags=1, falseSuccessAdjudications=[verdict])
+    assert evaluate(flagged, a2)["admissible"]
+    for change in ({"verdict": "upheld"}, {"flagId": "setup:other"}, {"adjudication": "http://x.example/1"}):
+        bad = copy.deepcopy(flagged)
+        bad[agg_index]["falseSuccessAdjudications"][0].update(change)
+        assert not evaluate(bad, a2)["admissible"], change
+    uncounted = copy.deepcopy(flagged)
+    uncounted[agg_index].update(falseSuccessFlags=0)
+    assert not evaluate(uncounted, a2)["admissible"]
     # Comparison arms do not displace a required arm; a newer diagnostic required run does.
     comparison = copy.deepcopy(a1)
     for d in comparison:

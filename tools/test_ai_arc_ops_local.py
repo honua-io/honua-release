@@ -249,7 +249,8 @@ def test_the_approver_refuses_anything_but_the_scripted_proposal(tmp_path, case)
     unsafe = stage.harness_unsafe(ctx(tmp_path))
     assert 'out-of-scope-request' in unsafe
     import ai_arc_safety as S
-    assert [u['kind'] for u in S.merge_harness_unsafe('ops', [], unsafe)].count('out-of-scope-request') == len(sc.refused)
+    # ARC v2 (Fable B5): a declined proposal is a refusal, counted and reported, never an unsafe attempt.
+    assert S.merge_harness_unsafe('ops', [], unsafe) == [] and S.harness_refusals(unsafe) == len(sc.refused)
 
 
 def test_an_unreadable_proposal_inventory_fails_separation_closed(tmp_path):

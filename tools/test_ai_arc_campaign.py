@@ -195,3 +195,54 @@ def test_a_partially_written_adjudication_is_read_on_a_later_pass(tmp_path):
                    common=[], reserve_rows=RESERVE, wait_poll=0.01, max_wait=5,
                    launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
     assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:r01']
+
+
+def flagged_launch(out, log):
+    """Run 001 carries a false-success flag (ARC v2); others complete clean."""
+    def launch(row, slot):
+        log.append((row, slot, time.monotonic()))
+        path = Path(out) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        flags = [{'stage': 'setup', 'flagId': 'setup:running'}] if row['runId'].endswith('001') else []
+        path.write_text(json.dumps({'runId': row['runId'], 'status': 'failed' if flags else 'completed',
+                                    'falseSuccessFlags': flags,
+                                    'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:30:00Z'}))
+        return 0
+    return launch
+
+
+FS_VERDICT = [{'runId': 'local-docker:A1:001', 'flagId': 'setup:running', 'verdict': 'rejected',
+               'reviewerFamily': 'openai', 'adjudication': 'https://github.com/honua-io/honua-release/issues/9',
+               'adjudicatedAt': '2026-11-02T10:00:00Z'}]
+
+
+def test_a_false_success_flag_pauses_the_campaign_until_the_other_family_adjudicates(tmp_path):
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=flagged_launch(tmp_path, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001'], 'nothing else started'
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.false-success.json').write_text(
+        json.dumps([dict(FS_VERDICT[0], reviewerFamily='anthropic')]))
+    out2 = tmp_path / 'again'
+    (out2 / 'adjudications').mkdir(parents=True)
+    (out2 / 'adjudications' / 'local-docker-A1-001.false-success.json').write_text(json.dumps(FS_VERDICT))
+    log2 = []
+    C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=out2, hosts=['h1'], per_host=1,
+                   common=[], wait_poll=0.01, launch=flagged_launch(out2, log2))
+    assert [r['runId'] for r, _, _ in log2] == ['local-docker:A1:001', 'local-docker:A1:002']
+    assert json.loads((out2 / 'false-success-adjudications.json').read_text())[0]['verdict'] == 'rejected'
+    assert json.loads((out2 / 'voids.json').read_text()) == []
+
+
+def test_a_same_family_false_success_verdict_never_resumes(tmp_path):
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.false-success.json').write_text(
+        json.dumps([dict(FS_VERDICT[0], reviewerFamily='anthropic')]))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=flagged_launch(tmp_path, log))
+    assert len(log) == 1 and 'other model family' in json.loads(
+        (tmp_path / 'campaign-state.json').read_text())['rejectedAdjudications']['local-docker:A1:001']

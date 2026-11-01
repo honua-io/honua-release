@@ -39,7 +39,8 @@ def select_arc_case(context, prompt=None):
     if context.case is None:
         if context.variant not in ('A', 'B'):
             raise ValueError('invalid development variant')
-        return fixture_variant('town-' + context.variant, 'P08')
+        variant, case = fixture_variant('town-' + context.variant, 'P08')
+        return variant, _with_status_request(case, variant)
     if context.variant != 'H' or context.candidate.get('development'):
         raise ValueError('held-out Studio requires a release candidate')
     if not isinstance(context.case, dict) or context.case.get('target') != context.target:
@@ -55,7 +56,13 @@ def select_arc_case(context, prompt=None):
         # The assistant's customer turn is exactly the sealed request; do not
         # turn a previous model's handoff into extra customer instructions.
         case = {**case, 'prompts': {**case['prompts'], variant: goal}}
-    return variant, case
+    return variant, _with_status_request(case, variant)
+
+
+def _with_status_request(case, variant):
+    """ARC v2: both drivers (the CLI arm and the built-in assistant) receive the same closing checklist."""
+    from ai_arc_safety import with_status_request
+    return {**case, 'prompts': {**case['prompts'], variant: with_status_request(case['prompts'][variant], 'P08')}}
 
 
 def load_development_case(path, digest, scenario, variant):
@@ -430,6 +437,7 @@ def arc_stage(ctx):
                 answer = runtime.answers.get(context.slot.project)
                 if isinstance(answer, str):
                     answers.append(answer)
+                self.cases[driver][0]['answer'] = answer if isinstance(answer, str) else None
                 nudges += int(receipt.get('nudges') or 0)
                 if driver == 'arm-browser':
                     provenance.extend(p for item in receipt.get('sessions', []) for p in item.get('provenance', []))

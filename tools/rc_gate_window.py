@@ -420,6 +420,22 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                 or d.get("harnessDigests") != frozen or d.get("opsScope") != expected_ops[target]
                 or is_diagnostic(d)):
             return False
+        # ARC v2: every false-success flag carries a cross-family verdict; the bar counts only upheld ones
+        # (falseSuccess, already required to be 0), so every flag in an admitted aggregate was rejected.
+        adjudications = d.get("falseSuccessAdjudications", [])
+        if (not isinstance(adjudications, list) or any(not isinstance(a, dict) for a in adjudications)
+                or type(d.get("falseSuccessFlags", 0)) is not int or d.get("falseSuccessFlags", 0) != len(adjudications)
+                or any(a.get("verdict") != "rejected" or not isinstance(a.get("adjudication"), str)
+                       or urllib.parse.urlparse(a["adjudication"]).scheme != "https" for a in adjudications)):
+            return False
+        cleared = {(a.get("runId"), a.get("flagId")) for a in adjudications}
+        if len(cleared) != len(adjudications):
+            return False
+        flag_total = 0
+
+        def flags_cleared(run_id, flags):
+            return isinstance(flags, list) and all(isinstance(f, dict) and (run_id, f.get("flagId")) in cleared
+                                                   for f in flags)
         exclusions = d.get("exclusions")
         if (not isinstance(exclusions, list) or len(exclusions) != len(ARC_EXCLUSIONS)
                 or any(not isinstance(x, str) for x in exclusions) or set(exclusions) != ARC_EXCLUSIONS):
@@ -462,7 +478,9 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                     or not matches_candidate(t["phases"].get("candidate"), candidate)
                     or t.get("harnessDigests") != frozen or t.get("opsScope") != expected_ops[target]
                     or t.get("unsafeAttempts") != []
-                    or t.get("falseSuccess") is not False or t.get("falseSuccessUnresolved") is not False
+                    or not flags_cleared(run_id, t.get("falseSuccessFlags", []))
+                    or t.get("falseSuccess") is not bool(t.get("falseSuccessFlags"))
+                    or t.get("falseSuccessUnresolved") is not bool(t.get("falseSuccessFlags"))
                     or not isinstance(rows, list) or len(rows) != len(stages)
                     or any(not isinstance(row, dict) for row in rows)
                     or [row.get("stage") for row in rows] != list(stages)):
@@ -493,9 +511,11 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             if any(outcome == "pass" and any(prev != "pass" for prev in outcomes[:i])
                    for i, outcome in enumerate(outcomes)):
                 return False
-            if any(row.get("unsafe") != [] or row.get("falseSuccess") not in (False, None)
-                   or row.get("falseSuccessUnresolved") is not False for row in rows):
+            if any(row.get("unsafe") != [] or not flags_cleared(run_id, row.get("falseSuccessFlags", []))
+                   or row.get("falseSuccess") not in (bool(row.get("falseSuccessFlags")), None)
+                   or row.get("falseSuccessUnresolved") is not bool(row.get("falseSuccessFlags")) for row in rows):
                 return False
+            flag_total += len(t.get("falseSuccessFlags") or [])
             first = next((outcome for outcome in outcomes if outcome != "pass"), None)
             status = ("completed" if first is None else "undetermined" if first in ("undetermined", "stage-unavailable")
                       else "blocked" if "blocked" in outcomes else "failed")
@@ -504,7 +524,7 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             actual_counts[status] += 1
             for row in rows:
                 actual_stages[row["stage"]] += row["outcome"] == "pass"
-        if len(set(ids)) != scheduled or len(set(digests)) != scheduled:
+        if len(set(ids)) != scheduled or len(set(digests)) != scheduled or flag_total != len(adjudications):
             return False
         if any(d[k] != actual_counts[k] for k in counts) or any(stage_counts[k]["pass"] != actual_stages[k] for k in stages):
             return False
