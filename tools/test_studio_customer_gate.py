@@ -2,8 +2,18 @@
 from copy import deepcopy
 import hashlib
 import json
+from pathlib import Path
 import pytest
+import yaml
 import studio_customer_gate as g
+
+
+def test_workflow_installs_lock_validator_dependencies_before_validation():
+    workflow = yaml.safe_load(Path('.github/workflows/gate-studio-customer-journey.yml').read_text())
+    steps = workflow['jobs']['customer']['steps']
+    validate = next(index for index, step in enumerate(steps) if 'validate_platform_lock.py' in step.get('run', ''))
+    installs = '\n'.join(step.get('run', '') for step in steps[:validate])
+    assert 'pyyaml' in installs.lower() and 'jsonschema' in installs.lower()
 
 
 def test_lock_must_bind_exact_bytes_manifest_and_both_component_pins():
