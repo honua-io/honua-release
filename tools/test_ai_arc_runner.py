@@ -366,8 +366,8 @@ def test_executed_subset_lists_unscored_and_keeps_the_candidate_invariant(tmp_pa
     scope_file(tmp_path, monkeypatch, ['diagnosis.recovered', 'approval.separate'])
     scope = R.ops_scope(ARC, 'local-docker')
     assert 'candidate.serving' not in scope['scored'] + scope['unscored']
-    assert R.required_assertions(ARC, 'ops', 'local-docker') == ['candidate.serving', 'diagnosis.recovered',
-                                                                 'approval.separate']
+    # ARC v2 (Fable S1): candidate.serving is read for services and Studio, not required of the ops stage.
+    assert R.required_assertions(ARC, 'ops', 'local-docker') == ['diagnosis.recovered', 'approval.separate']
 
     def observe(failing):
         return lambda ctx, row: [{'assertion': a, 'status': 'fail' if a == failing else 'pass'}
@@ -1371,7 +1371,7 @@ def test_the_ops_answer_is_judged_on_the_models_work_not_the_later_slot_preparat
     arc = R.load_arc()
     rows = [{'assertion': a, 'status': 'pass'} for a in ('upgrade.candidate-serving', 'rollback.prior-serving',
             'restore.migration-142', 'approval.separate', 'data.preserved')]
-    rows += [{'assertion': 'diagnosis.recovered', 'status': 'unscored'}, {'assertion': 'candidate.serving', 'status': 'fail'}]
+    rows += [{'assertion': 'diagnosis.recovered', 'status': 'pass'}, {'assertion': 'candidate.serving', 'status': 'fail'}]
     ctx = {'deploymentHosts': ['localhost'], 'nudges': 0, 'elapsedSeconds': 10}
     answer = 'The update to 2026.1-rc.2 completed and the rollback drill finished; the earlier release is serving again.'
     handoff = {'resources': [], 'accessProbes': [], 'facts': {'statuses': ['serving']}}
@@ -1947,6 +1947,46 @@ def test_an_image_needing_redaction_is_withheld_whole_and_the_manifest_reconcile
     assert b'synthetic-harness-secret-01' not in b''.join(p.read_bytes() for p in out.iterdir())
 
 
+def test_a_failed_harness_reconvergence_is_never_charged_to_the_arm(tmp_path):
+    """Fable S1 / Astra B5: the arm's ops passes on its own work; a slot preparation the product refuses leaves
+    services undetermined with a harness attribution, and the run is not a model failure."""
+    class Prep(FakeStage):
+        def prepare_next(self, ctx, observations):
+            return {'status': 'failed', 'reason': 'the product failed the re-convergence',
+                    'product': {'resolutionReason': 'restore-incomplete'}}
+    receipt, _ = run(tmp_path, mods=modules(ops=Prep('ops')))
+    ops, services = receipt['stages'][1], receipt['stages'][2]
+    assert ops['outcome'] == 'pass'
+    assert services['outcome'] == 'undetermined' and services['harnessFault'] is True
+    assert 'harness step, not the arm' in services['cause']
+    assert receipt['status'] in ('undetermined', 'blocked')
+
+
+def test_a_failed_slot_preparation_receipt_aggregates_as_an_undetermined_harness_run(tmp_path):
+    """Sol 755e3001 item 2: the preparation failure is retained as stage evidence and re-derived by the
+    aggregate, which counts the run in n as undetermined (a failed run) and never as the arm's failure."""
+    class Prep(FakeStage):
+        def prepare_next(self, ctx, observations):
+            return {'status': 'failed', 'reason': 'the product failed the re-convergence'}
+    names, raws = campaign(tmp_path, [True])
+    receipt, _ = run(tmp_path, name='002', mods=modules(ops=Prep('ops')), variant='B')
+    services = receipt['stages'][2]
+    assert services['outcome'] == 'undetermined' and services['harnessFault'] is True
+    assert set(services['evidence']) == {'actions', 'observations', 'handoff', 'context'} and not services['actions']
+    assert 'harness step, not the arm' in services['cause']
+    aggregate, _ = agg(tmp_path, names + ['002'], raws + [(tmp_path / '002' / 'trial-receipt.json').read_bytes()])
+    assert aggregate['scheduled'] == 2 and aggregate['undetermined'] == 1 and aggregate['completed'] == 1
+
+
+def test_a_converged_slot_preparation_in_context_is_never_a_harness_fault():
+    out = R.score_stage(ARC, 'local-docker', 'services', [{'assertion': 'x', 'status': 'pass'}], [], None, None,
+                        {'slotPreparation': {'status': 'converged'}}, ARC['limits']['services'])
+    assert 'slot preparation' not in str(out['cause'])
+    out = R.score_stage(ARC, 'local-docker', 'services', [{'assertion': 'x', 'status': 'pass'}], [], None, None,
+                        {'slotPreparation': {'status': 'timeout'}}, ARC['limits']['services'])
+    assert out['outcome'] == 'undetermined' and 'slot preparation' in out['cause']
+
+
 def test_restricted_directories_are_never_enumerated(monkeypatch):
     """Sol 09ce8951: a held-out folder named by a path literal is pruned before traversal, not filtered after."""
     walked = []
@@ -2002,3 +2042,28 @@ def test_an_image_containing_a_held_out_goal_is_withheld_whole(tmp_path):
     doc = json.loads((out / 'manifest.json').read_text())
     assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['goal-in-image'] == 1
     assert goal.encode() not in b''.join(p.read_bytes() for p in out.iterdir())
+
+
+def test_every_committed_arc_input_is_bound_and_sealed_files_are_not(tmp_path, monkeypatch):
+    """Coordinator 11-01: the services fixture map (#1196) and the Studio requirements file (#1198) bind the
+    runner digest by folder, whatever their names or however they are loaded."""
+    R._closure_files.cache_clear()
+    closure = R.runner_closure()
+    assert 'certification/ai-arc/arc.v1.json' in closure and 'certification/ai-arc/gating-scope.json' in closure
+    assert not any(R._restricted(Path(f)) for f in closure)
+    assert not any(f.endswith('.sealed') or 'heldout' in f.lower() for f in closure)
+    folder = tmp_path / 'certification' / 'ai-arc'
+    folder.mkdir(parents=True)
+    (folder / 'studio-fixture-requirements.json').write_text('{"a": 1}')
+    (folder / 'heldout.v1.sealed').write_text('opaque')
+    (folder / 'HELDOUT.md').write_text('x')
+    monkeypatch.setattr(R, 'ROOT', tmp_path)
+    monkeypatch.setattr(R, 'RUNNER_FILES', ())
+    monkeypatch.setattr(R, 'RUNTIME_EXTRA', ())
+    R._closure_files.cache_clear()
+    assert R.runner_closure() == ['certification/ai-arc/studio-fixture-requirements.json']
+    before = R.harness_digests()['runner']
+    (folder / 'studio-fixture-requirements.json').write_text('{"a": 2}')
+    R._closure_files.cache_clear()
+    assert R.harness_digests()['runner'] != before
+    R._closure_files.cache_clear()
