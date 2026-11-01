@@ -301,3 +301,31 @@ def test_a_fresh_hold_after_an_adjudication_needs_a_fresh_decision(tmp_path):
         C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
                        common=[], wait_poll=0.01, max_wait=1.0, launch=fake_launch(tmp_path, {}, log, gate=gate))
     assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:002']
+
+
+
+def test_a_hold_replaced_during_validation_stays_pending(tmp_path, monkeypatch):
+    """Sol 96b2546f: the acknowledged generation is the one captured before validation."""
+    import ai_arc_runner as AR
+    log = []
+    holds = tmp_path / 'holds'
+    holds.mkdir(parents=True)
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    real = AR.check_adjudication
+
+    def replacing(*a, **k):
+        time.sleep(0.01)
+        (holds / 'local-docker-A1-001.hold').write_text('replaced during validation\n')
+        return real(*a, **k)
+    monkeypatch.setattr(AR, 'check_adjudication', replacing)
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (holds / 'local-docker-A1-001.hold').write_text('first\n')
+            time.sleep(0.02)
+            (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(
+                json.dumps(dict(GOOD, finding='product-failure')))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.5, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']

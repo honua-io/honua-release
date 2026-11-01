@@ -124,7 +124,23 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                 save_state()
                 lock.notify_all()
 
+    def hold_generation(run_id):
+        hold = out / 'holds' / (run_id.replace(':', '-') + '.hold')
+        try:
+            return hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
+        except OSError:
+            return None
+
     def adjudicate(run_id):
+        """(cleared, hold generation it answered). The generation is captured before validation; a hold
+        replaced meanwhile leaves the run pending for a fresh decision (Sol 96b2546f)."""
+        generation = hold_generation(run_id)
+        cleared = _adjudicate(run_id)
+        if cleared and hold_generation(run_id) != generation:
+            return False, None
+        return cleared, generation
+
+    def _adjudicate(run_id):
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
         if not path.is_file():
             return False
@@ -160,11 +176,9 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         with lock:
             while queue or pending or len(results) < len(threads):
                 if pending:
-                    if adjudicate(pending[0]):
-                        done = pending.pop(0)
-                        hold = out / 'holds' / (done.replace(':', '-') + '.hold')
-                        adjudicated[done] = (hashlib.sha256(hold.read_bytes()).hexdigest() + ':'
-                                             + str(hold.stat().st_mtime_ns)) if hold.is_file() else None
+                    cleared, generation = adjudicate(pending[0])
+                    if cleared:
+                        adjudicated[pending.pop(0)] = generation
                         save_state()
                         continue
                     save_state()
