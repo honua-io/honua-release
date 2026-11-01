@@ -1744,14 +1744,15 @@ RUNTIME_EXTRA = ('certification/installed-clients/render_png.py', 'certification
 CLOSURE_DIRS = ('tools', 'certification/agent-ops')
 
 
-@functools.lru_cache(maxsize=1)
-def _closure_files() -> tuple[str, ...]:
+@functools.lru_cache(maxsize=8)
+def _closure_files(root: str, roots: tuple) -> tuple[str, ...]:
     return tuple(_runner_closure())
 
 
 def runner_closure() -> list[str]:
-    """The file set (cached per process: imports do not change while it runs); bytes are hashed on every call."""
-    return list(_closure_files())
+    """The file set, cached per (root, RUNNER_FILES) for the process (imports do not change while it runs); bytes
+    are hashed on every call."""
+    return list(_closure_files(str(ROOT), tuple(RUNNER_FILES)))
 
 
 def _runner_closure() -> list[str]:
