@@ -705,34 +705,32 @@ def _iac_operands(program: str, args: list[str]) -> list[str]:
 
 
 INTERPRETERS = {'python': '-c', 'python3': '-c', 'node': '-e', 'perl': '-e', 'ruby': '-e', 'php': '-r'}
-INTERPRETER_EFFECT = re.compile(r"open\([^)]*['\"][wax+]|os\.(?:remove|unlink|rmdir|system|popen|exec|environ|getenv)|"
-                                r"shutil\.|subprocess|pathlib.*\.(?:write|unlink)|\bunlink|writeFile|rmSync|child_process|"
-                                r"process\.env|\bsystem\(|`|requests\.(?:post|put|delete|patch)|urlopen|\bENV\b|getenv", re.I)
+STRING_LITERAL = re.compile(r"(['\"])((?:\\.|(?!\1).)*)\1")
 ENV_LITERAL = re.compile(r"(?:^|[^\w.])\.env\b|keyring|key-ring|secrets/", re.I)
 
 
+INTERPRETER_NAME = re.compile(r'(?:python(?:\d+(?:\.\d+)?)?|pypy3?|node(?:js)?|deno|bun|ruby|irb|perl|php|lua(?:jit)?|'
+                              r'Rscript|pwsh|powershell|osascript|tclsh|wish|groovy|jshell)', re.I)
+
+
 def _interpreter(program: str, args: list[str]) -> list[str]:
-    """An inline interpreter body: a secret path read is a secret read; any other file, process, environment or
-    network effect cannot be established and is unclassified; pure computation (parsing JSON on stdin) is fine."""
-    flag = INTERPRETERS.get(program)
-    if not flag:
+    """Release-session ruling (2026-11-01 21:21 UTC): an interpreter's file, network and process effects are not
+    modelled, so every interpreter program (inline -c/-e body, module or script, from a file or stdin) is a
+    coverage gap: never pure computation. Literal operands are still judged, so a secret file named in the body
+    (open("server.pem")) or on the command line is reported as a secret read beside the gap. Only a bare
+    --help/--version runs nothing."""
+    if not INTERPRETER_NAME.fullmatch(program):
         return []
-    body = next((args[i + 1] for i, a in enumerate(args) if a == flag and i + 1 < len(args)), None)
-    if body is None and '-m' in args:
-        module = args[args.index('-m') + 1] if args.index('-m') + 1 < len(args) else ''
-        if module in ('json.tool', 'platform', 'site', 'pip'):
-            return []
-        _gap('an interpreter module')
+    if args and all(a in HELP or a in ('-v', 'version') for a in args):
         return []
-    if body is None:
-        if any(not a.startswith('-') for a in args) and not any(a in HELP for a in args):
-            _gap('an interpreter script file')
-        return []
-    if SECRET_PATH.search(body) or ENV_LITERAL.search(body):
-        return ['secret-in-chat-or-agent-file']
-    if INTERPRETER_EFFECT.search(body):
-        _gap('an interpreter body with effects')
-    return []
+    flag = INTERPRETERS.get(program, '-c' if program.lower().startswith(('python', 'pypy')) else '-e')
+    body = next((args[i + 1] for i, a in enumerate(args) if a == flag and i + 1 < len(args)), '')
+    texts = [body] + [m.group(2) for m in STRING_LITERAL.finditer(body)] + list(args)
+    found = []
+    if any(SECRET_PATH.search(t.strip().lstrip('<>+&| ').strip()) or ENV_LITERAL.search(t) for t in texts if t):
+        found.append('secret-in-chat-or-agent-file')
+    _gap('an interpreter program (its effects are not modelled)')
+    return found
 
 
 def classify_anywhere(program: str, args: list[str], redirs, ports, cwd_outside=False, expands=False) -> list[str]:
@@ -782,6 +780,8 @@ def classify_inner(program: str, args: list[str], ports=None, raw: str | None = 
                               expands=expands_secret(raw if raw is not None else ' '.join(args)))
     if program in SHELLS or program == 'eval':
         body = ' '.join(words) if program == 'eval' else _shell_body(words)
+        if not body and not (words and all(w in HELP for w in words)):
+            _gap('a shell script or stdin program in a container (not modelled)')
         try:
             lines, subs = _scan(body or '')
         except Unmodeled as exc:
@@ -1023,8 +1023,15 @@ def _classify_segment(tokens, expands, stdin, project, approved_compose, ports, 
             body = ' '.join(args) if program == 'eval' else _shell_body(args)
             if body:
                 found += again(body)
-            elif any(_reads_secret_file([a]) for a in args):
+            else:
+                if any(_reads_secret_file([a]) for a in args):
+                    found.append('secret-in-chat-or-agent-file')
+                if not (args and all(a in HELP for a in args)):
+                    _gap('a shell script or stdin program (not modelled)')
+        elif program in ('source', '.'):
+            if any(_reads_secret_file([a]) for a in args):
                 found.append('secret-in-chat-or-agent-file')
+            _gap('a sourced script (not modelled)')
         elif any(a in HELP for a in args[:1]):
             pass
         elif program in HOST_MUTATE and not _host_read(program, args):
