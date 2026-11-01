@@ -1853,3 +1853,126 @@ def test_an_export_failure_still_deletes_private_evidence_and_clears_the_registr
     with pytest.raises(ValueError):
         run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00')
     assert _private_dirs(tmp_path) == [] and _CS._WITHHELD == []
+
+
+def test_the_runner_digest_closes_over_transitive_and_path_loaded_dependencies():
+    """Astra B6: helpers the stages import (directly or through other helpers), files loaded by path and the
+    executing workflow are all bound; mutating any of them changes the digest."""
+    closure = R.runner_closure()
+    for name in ('tools/agent_e2e_scenario_backend.py', 'tools/agent_e2e_p10_observer.py',
+                 'tools/agent_e2e_studio_observer.py', 'certification/installed-clients/render_png.py',
+                 'certification/terminal-journey/live_driver.py', '.github/workflows/ai-arc.yml',
+                 'tools/ai_arc_runner.py', 'tools/ai_arc_ops_local.py'):
+        assert name in closure, name
+    assert 'certification/terminal-journey/targets/local-docker.json' in closure      # path-loaded config
+    assert 'certification/agent-e2e/expectations/local/P10.json' in closure
+    assert not any(m in f.lower() for f in closure for m in ('heldout', 'held-out', 'held_out', '.sealed'))
+    assert 'certification/agent-e2e/pack.v2.json' not in closure
+    assert not any(Path(f).name.startswith('test_') for f in closure)
+
+
+def test_mutating_a_transitive_helper_changes_the_runner_digest(monkeypatch):
+    before = R.harness_digests()['runner']
+    target = R.ROOT / 'certification/terminal-journey/targets/local-docker.json'   # P15's map body (Sol 4a50cf3a)
+    real = Path.read_bytes
+
+    def read(self):
+        raw = real(self)
+        return raw + b'\n# mutated\n' if self == target else raw
+    monkeypatch.setattr(Path, 'read_bytes', read)
+    assert R.harness_digests()['runner'] != before
+
+def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_path):
+    """Founder request: screenshots are retained as evidence files, named by step, and scoring is unchanged."""
+    import hashlib
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    image = png()
+    E._reset_for_tests()
+
+    class Shooting(FakeStage):
+        def observe(self, ctx, row):
+            E.current().retain('step', '0001-studio_click', image, expected_sha256=hashlib.sha256(image).hexdigest(),
+                               url='http://127.0.0.1:8137/studio', check_url=True)
+            return super().observe(ctx, row)
+    with_images, _ = run(tmp_path, name='img', mods=modules(studio=Shooting('studio')))
+    E._reset_for_tests()
+    without, _ = run(tmp_path, name='plain')
+    files = [f['path'] for f in with_images['evidenceArtifact']['files']]
+    assert 'studio/screenshots/001-step-0001-studio_click.png' in files and 'studio/screenshots/manifest.json' in files
+    kept = next(f for f in with_images['evidenceArtifact']['files'] if f['path'].endswith('.png'))
+    assert kept['sha256'] == 'sha256:' + hashlib.sha256(image).hexdigest()
+    strip = lambda r: [{k: s.get(k) for k in ('stage', 'outcome', 'cause', 'falseSuccess')} for s in r['stages']]
+    assert strip(with_images) == strip(without)
+    assert E.current() is None, 'the sink is off after the Studio stage'
+
+
+def test_an_unavailable_studio_stage_still_closes_its_sink(tmp_path):
+    """Sol 02c55045 item 2: every exit closes the stage's sink."""
+    import ai_arc_evidence_images as E
+    E._reset_for_tests()
+    run(tmp_path, mods=modules(studio=FakeStage('studio', unavailable='no Console on this slot')))
+    assert E.current() is None
+    E._reset_for_tests()
+
+
+def test_a_studio_stage_whose_sink_cannot_start_still_passes(tmp_path, monkeypatch):
+    """Sol d9aa66b5 item 2: evidence initialization never changes the stage outcome."""
+    import ai_arc_evidence_images as E
+    E._reset_for_tests()
+    monkeypatch.setattr(E.Sink, '_manifest', lambda self: (_ for _ in ()).throw(OSError('disk full')))
+    receipt, _ = run(tmp_path)
+    assert receipt['stages'][3]['outcome'] == 'pass'
+    E._reset_for_tests()
+
+
+
+def test_an_image_needing_redaction_is_withheld_whole_and_the_manifest_reconciled(tmp_path):
+    """Sol 0b9bd1d5: export never alters a PNG (its hash is bound to the action log)."""
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    E._reset_for_tests()
+    sink = E.open_sink(tmp_path / 'private' / 'studio' / 'screenshots', owner='run')
+    clean, dirty = png(salt=1), png(salt=2) + b'synthetic-harness-secret-01'
+    sink.retain('render', 'clean', clean)
+    sink.retain('render', 'dirty', dirty)
+    E.close_sink(sink)
+    E._reset_for_tests()
+    R.export_private(tmp_path / 'private', tmp_path / 'out', ['synthetic-harness-secret-01'])
+    out = tmp_path / 'out' / 'studio' / 'screenshots'
+    pngs = sorted(p.name for p in out.glob('*.png'))
+    assert pngs == ['001-render-clean.png'] and (out / pngs[0]).read_bytes() == clean
+    doc = json.loads((out / 'manifest.json').read_text())
+    assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['secret-in-image'] == 1
+    assert b'synthetic-harness-secret-01' not in b''.join(p.read_bytes() for p in out.iterdir())
+
+
+def test_restricted_directories_are_never_enumerated(monkeypatch):
+    """Sol 09ce8951: a held-out folder named by a path literal is pruned before traversal, not filtered after."""
+    walked = []
+    real = R.os.walk
+
+    def walk(top, *a, **k):
+        for current, dirs, files in real(top, *a, **k):
+            walked.append(current)
+            yield current, dirs, files
+    monkeypatch.setattr(R.os, 'walk', walk)
+    R._closure_files.cache_clear()
+    R.runner_closure()
+    R._closure_files.cache_clear()
+    assert not any(m in str(w).lower() for w in walked for m in ('heldout', 'held-out', 'held_out'))
+    assert R._restricted(R.ROOT / 'certification/agent-ops/held-out') and R._restricted(R.ROOT / 'x/heldout.v1.sealed')
+
+
+def test_an_oversized_referenced_folder_fails_closed(tmp_path, monkeypatch):
+    """Sol 09ce8951: no silent cap; more files than the digest binds is an error."""
+    folder = tmp_path / 'certification' / 'big'
+    folder.mkdir(parents=True)
+    for i in range(6):
+        (folder / f'f{i}.json').write_text('{}')
+    monkeypatch.setattr(R, 'ROOT', tmp_path)
+    monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 5)
+    with pytest.raises(ValueError):
+        R._bindable_files(folder)
+    monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 6)
+    assert len(R._bindable_files(folder)) == 6
