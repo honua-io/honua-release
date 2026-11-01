@@ -758,7 +758,7 @@ def test_an_executed_subset_waits_only_on_gates_covering_scored_assertions():
 
 def test_the_ecs_option_c_decision_is_recorded_but_not_applied_without_founder_approval():
     scope = json.loads((R.ROOT / 'certification/ai-arc/gating-scope.json').read_text())
-    assert scope['opsScope'] == {'aws-ecs': 'not-gating', 'local-docker': 'executed-subset'} and scope['approvedBy'] is None
+    assert scope['opsScope'] == {'aws-ecs': 'not-gating', 'local-docker': 'full'} and scope['approvedBy'] is None
     assert R.ops_scope(ARC, 'aws-ecs')['mode'] == 'full', 'no founder approval: scored in full'
 
 
