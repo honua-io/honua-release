@@ -375,7 +375,10 @@ def test_run_cost_prices_bedrock_tokens_and_compute_and_leaves_the_subscription_
                           {'stage': 'setup', 'assistantUsage': None}]}
     cost = C.run_cost(receipt, 'local-docker', spend(2500))
     rates = spend(2500)['rates']
-    assert cost['bedrockUsd'] == round(3.0 + 1.5 + 0.6, 4) and cost['cliSubscriptionUsd'] == 'unknown'
+    bedrock = rates['bedrock']
+    assert cost['bedrockUsd'] == round(bedrock['inputPerMTok'] + 0.1 * bedrock['outputPerMTok']
+                                       + 2 * bedrock['cacheReadPerMTok'], 4) and cost['cliSubscriptionUsd'] == 'unknown'
+    assert cost['rateBasis']['compute'].startswith('estimate') and 'price list' in cost['rateBasis']['bedrock']
     assert cost['computeUsd'] == round(2 * rates['vmHourUsd'], 4)
     assert C.run_cost(receipt, 'aws-ecs', spend(2500))['computeUsd'] == round(2 * rates['awsCellHourUsd'], 4)
     assert C.run_cost(None, 'local-docker', spend(2500, 40))['totalUsd'] == 40
@@ -411,3 +414,25 @@ def test_campaigns_sharing_a_ledger_share_one_cap(tmp_path):
                             out=tmp_path / 'b', hosts=['h1'], per_host=1, common=[],
                             launch=fake_launch(tmp_path / 'b', {}, []), wait_poll=0.01, arc=arc, ledger=shared)
     assert len(first) == 1 and len(second) == 1 and (tmp_path / 'b' / 'SPEND-CAP-REACHED').is_file()
+
+
+def test_the_bedrock_rates_are_the_us_profile_price_list_rates_and_compute_is_labelled_an_estimate():
+    """Laptop decision 11-01: the us. cross-region profile bills at the Regional CRIS on-demand rates
+    (AmazonBedrockFoundationModels us-east-1); VM and cell rates are labelled estimates."""
+    import ai_arc_runner as R
+    doc = R.load_arc()['spendCap']['rates']
+    bedrock = doc['bedrock']
+    assert (bedrock['inputPerMTok'], bedrock['outputPerMTok'], bedrock['cacheReadPerMTok'],
+            bedrock['cacheWritePerMTok']) == (3.3, 16.5, 0.33, 4.125)
+    assert bedrock['model'].startswith('us.anthropic.claude-sonnet-4-6') and 'Regional CRIS' in bedrock['basis']
+    assert doc['vmBasis'].startswith('ESTIMATE') and doc['awsCellBasis'].startswith('ESTIMATE')
+
+
+def test_the_workflow_passes_one_shared_spend_ledger_per_gate_campaign():
+    """Astra S4: every target and arm dispatched for one goal set and candidate lock shares one ledger outside
+    the workspace, and the ledger and any stop are retained in the campaign artifact."""
+    text = (Path(__file__).resolve().parents[1] / '.github' / 'workflows' / 'ai-arc.yml').read_text()
+    assert 'ledger="$HOME/.honua-ai-arc/spend/${GOAL_SET}-${LOCK_DIGEST#sha256:}.json"' in text
+    assert 'args+=(--spend-ledger "$ledger")' in text
+    assert 'artifacts/${{ matrix.target }}/spend-ledger.json' in text
+    assert 'artifacts/${{ matrix.target }}/SPEND-CAP-REACHED' in text

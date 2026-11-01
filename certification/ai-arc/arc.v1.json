@@ -596,15 +596,16 @@
       "bedrock": {
         "model": "us.anthropic.claude-sonnet-4-6 (Studio built-in assistant)",
         "region": "us-east-1",
-        "inputPerMTok": 3.0,
-        "outputPerMTok": 15.0,
-        "cacheReadPerMTok": 0.3,
-        "cacheWritePerMTok": 3.75
+        "inputPerMTok": 3.3,
+        "outputPerMTok": 16.5,
+        "cacheReadPerMTok": 0.33,
+        "cacheWritePerMTok": 4.125,
+        "basis": "verified: AWS public price list, offer AmazonBedrockFoundationModels us-east-1 (publicationDate 2026-10-12T08:40:08Z), Claude Sonnet 4.6 (Amazon Bedrock Edition), On-demand Inference, Regional CRIS (the us. cross-region inference profile): USE1_InputTokenCount, USE1_OutputTokenCount, USE1_CacheReadInputTokenCount, USE1_CacheWriteInputTokenCount (5-minute) per 1M tokens. The Global profile is cheaper ($3/$15/$0.30/$3.75) and is not the profile the product calls."
       },
       "vmHourUsd": 0.68,
-      "vmBasis": "c6i.4xlarge on-demand us-east-1 (honua-iac aws-eval-docker-hosts default), charged per run-hour as if the whole host (conservative)",
+      "vmBasis": "ESTIMATE (not verified against the price list): c6i.4xlarge on-demand us-east-1 (honua-iac aws-eval-docker-hosts default), charged per run-hour as if the whole host (conservative)",
       "awsCellHourUsd": 1.5,
-      "awsCellBasis": "estimate for one release cell slot (ECS, RDS share, ALB share) per run-hour"
+      "awsCellBasis": "ESTIMATE (not verified against the price list): one release cell slot (ECS, RDS share, ALB share) per run-hour"
     },
     "cliSubscription": "unknown: the CLI arms run on flat subscriptions; recorded as unknown, never priced",
     "rule": "Astra S4: the campaign stops scheduling when spent plus the per-run estimate (the larger of perRunEstimateUsd and the most expensive observed run) for every open run and the next one would exceed capUsd; running runs finish and the stop is reported (SPEND-CAP-REACHED, exit 3). One ledger per gate campaign (--spend-ledger) is shared by every target and arm."

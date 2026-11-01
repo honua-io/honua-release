@@ -40,13 +40,19 @@ def suspected_harness_fault(receipt: dict) -> bool:
     prep = (receipt.get('slotFacts') or {}).get('slotPreparation') or {}
     return isinstance(prep, dict) and prep.get('status') not in (None, 'skipped', 'converged')
 
-def _hours(receipt: dict) -> float:
+def _hours(receipt: dict) -> float | None:
     from datetime import datetime
     try:
         a, b = (datetime.fromisoformat(str(receipt[k]).replace('Z', '+00:00')) for k in ('startedAt', 'finishedAt'))
         return max(0.0, (b - a).total_seconds() / 3600)
     except (KeyError, ValueError, TypeError):
         return None
+
+
+# Every ledger row says which figures are measured against a published price and which are estimates.
+RATE_BASIS = {'bedrock': 'AWS public price list (Regional CRIS on-demand, us-east-1)',
+              'compute': 'estimate (VM and AWS cell hourly rates are not verified against the price list)',
+              'cliSubscription': 'unknown (flat subscription; never priced)'}
 
 
 def run_cost(receipt: dict | None, target: str, spend: dict) -> dict:
@@ -56,7 +62,8 @@ def run_cost(receipt: dict | None, target: str, spend: dict) -> dict:
     rates = spend['rates']
     if not isinstance(receipt, dict):
         return {'bedrockUsd': None, 'computeUsd': None, 'cliSubscriptionUsd': 'unknown',
-                'totalUsd': float(spend['perRunEstimateUsd']), 'basis': 'estimate (no receipt)'}
+                'totalUsd': float(spend['perRunEstimateUsd']), 'basis': 'estimate (no receipt)',
+                'rateBasis': RATE_BASIS}
     tokens = {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}
     keys = {'input': ('inputTokens', 'input_tokens'), 'output': ('outputTokens', 'output_tokens'),
             'cacheRead': ('cacheReadInputTokens', 'cache_read_input_tokens'),
@@ -73,7 +80,9 @@ def run_cost(receipt: dict | None, target: str, spend: dict) -> dict:
     compute = hours * hourly if hours is not None else float(spend['perRunEstimateUsd'])
     return {'bedrockUsd': round(bedrock_usd, 4), 'bedrockTokens': tokens, 'computeUsd': round(compute, 4),
             'computeHours': None if hours is None else round(hours, 3), 'cliSubscriptionUsd': 'unknown',
-            'totalUsd': round(bedrock_usd + compute, 4), 'basis': 'receipt'}
+            'totalUsd': round(bedrock_usd + compute, 4),
+            'basis': 'receipt' if hours is not None else 'receipt (no wall clock: compute is the per-run estimate)',
+            'rateBasis': RATE_BASIS}
 
 
 class SpendLedger:
