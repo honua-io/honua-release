@@ -132,3 +132,8 @@ def test_supported_filter_requires_both_saved_rules_and_rendered_labels():
     body['mapSpec']['layers'][-1].pop('filter')
     records['p08-version'] = record({'data': {'envelope': {'body': body}}}, '2026-11-01T00:00:00Z')
     assert checks()['goal.filters'] == 'fail'
+
+
+def test_unrecognized_goal_fails_closed_even_when_map_is_correct():
+    rows = score_goal({}, 'Add a buildings layer as well', 'A', recognized=False)
+    assert any(row['assertion'] == 'goal.unsupported-instructions' and row['status'] == 'fail' for row in rows)

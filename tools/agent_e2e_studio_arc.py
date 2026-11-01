@@ -123,13 +123,13 @@ def ui_provenance(records, session_rows, customer, handle_lookup):
     return True
 
 
-def score_goal(records, goal, variant):
+def score_goal(records, goal, variant, *, recognized=True):
     """Score frozen authored properties; explicitly reject unsupported goal features."""
     from agent_browser_studio import package_body, style_from_body, map_spec, label_ids
     from agent_e2e_local_expectations import load_expected
     out = []
     text = goal.casefold()
-    filter_requested = bool(re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed)\b', text))
+    filter_requested = bool(re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed|open)\b', text))
     def result(name, predicate, reason):
         out.append({'assertion': name, 'status': 'pass' if predicate else 'fail',
                     **({} if predicate else {'reason': reason})})
@@ -147,8 +147,11 @@ def score_goal(records, goal, variant):
         result('goal.authored-style', False, 'authored map style is unavailable or unsupported')
         result('goal.labels', False, 'saved label field or independent label render is unavailable')
         body = {}
+    if not recognized:
+        result('goal.unsupported-instructions', False,
+               'unsupported: the full goal has no frozen requirement interpretation')
     if filter_requested:
-        supported = ('open' in text and 'capacity' in text and re.search(r'(?:over|above|more than|>)\s*50\b', text))
+        supported = ('open' in text and re.search(r'\b(capacity|room|hold)\b', text) and re.search(r'(?:over|above|more than|>)\s*50\b', text))
         layers = body.get('mapSpec', {}).get('layers', []) if isinstance(body.get('mapSpec'), dict) else []
         wanted = map_spec(True, filtered=True)['layers'][-1]['filter']
         shelter = [row for row in layers if isinstance(row, dict) and
@@ -163,7 +166,7 @@ def score_goal(records, goal, variant):
     unsupported = [name for name, pattern in (
         ('colour', r'\b(red|green|orange|purple|yellow|black|white)\b'),
         ('export', r'\b(export|download|print|pdf|image file)\b'),
-        ('additional analysis', r'\b(buffer|heatmap|cluster|aggregate|calculate|geocode)\b'))
+        ('additional analysis', r'\b(buffer|heatmap|cluster|aggregate|calculate|geocode|500\s*met(?:re|er)s?)\b'))
         if re.search(pattern, text)]
     for name in unsupported:
         result('goal.unsupported-' + name.replace(' ', '-'), False,
@@ -583,7 +586,7 @@ def arc_stage(ctx):
                     def expected(self, variant):
                         expected = dict(super().expected(variant))
                         expected['render.actual'] = load_expected(
-                            'P24' if re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed)\b',
+                            'P24' if re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed|open)\b',
                                                case['prompts'][variant], re.I) else 'P09', variant)['render.actual']
                         return expected
                 scenario = ArcStudioScenario()
@@ -598,7 +601,12 @@ def arc_stage(ctx):
                         provision_local_server(context.slot.vm, self.signing)
                 stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
                 goal = case['prompts'][fixture]
-                checks = score_goal(stack.extra['recorder'].records if stack else {}, goal, fixture)
+                # Interpret only fully frozen goals. An unknown request can
+                # contain requirements a keyword search would silently miss.
+                known_goals = context.arc['targets'][context.target]['goals']['studio'].values()
+                recognized = goal in known_goals
+                checks = score_goal(stack.extra['recorder'].records if stack else {}, goal, fixture,
+                                    recognized=recognized)
                 if driver == 'arm-browser':
                     try:
                         evidence = []
