@@ -105,7 +105,8 @@ class RecordedCandidate:
             if not self.published:
                 status, value = 404, {'error': 'not found'}
             elif principal == 'anonymous' and self.wrong != 'anonymous-public':
-                status, value = 401, {'error': 'authentication required'}
+                status = {'anonymous-forbidden': 403, 'anonymous-missing': 404}.get(self.wrong, 401)
+                value = {'error': 'authentication required'}
                 if self.wrong == 'disclosure':
                     value['itemId'] = ITEM
             else:
@@ -145,11 +146,11 @@ def stack_fixture(tmp_path, monkeypatch, variant='A'):
     return stack, candidate, vault
 
 
-def seal_publication(recorder, vault, tmp_path, state, *, foreign=False):
+def seal_publication(recorder, vault, tmp_path, state, *, foreign=False, route='/chosen-by-model'):
     # Same runtime-sealed ActionLog protocol as the trunk fake candidate tests.
     log = runner.ActionLog(tmp_path / 'actions', 1, {'honua_studio_propose_publication'}, 10)
     args = {k: state[k] for k in ('itemId', 'versionId', 'contentHash')}
-    args.update(route='/chosen-by-model', visibility='team')
+    args.update(route=route, visibility='team')
     if foreign:
         args['itemId'] = DRAFT
     log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_studio_propose_publication', 'arguments': args},
@@ -164,7 +165,8 @@ def p15_case(tmp_path, monkeypatch, variant='A', wrong=None):
     rec = stack.extra['recorder']
     candidate.wrong = wrong
     if wrong != 'no-action':
-        seal_publication(rec, vault, tmp_path, seeded.state, foreign=wrong == 'foreign-action')
+        seal_publication(rec, vault, tmp_path, seeded.state, foreign=wrong == 'foreign-action',
+                         route='/bad?query' if wrong == 'invalid-route' else '/chosen-by-model')
     candidate.published = wrong != 'unpublished'
     rec.set_phase('observe')
     observations = scenario.observe(stack, seeded, variant)
@@ -201,7 +203,8 @@ def test_p15_complete_recorded_state_and_seed_idempotence(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize('variant', ('A', 'B'))
 @pytest.mark.parametrize('wrong,assertion', [
-    ('anonymous-public', 'publication.private'), ('disclosure', 'publication.private'),
+    ('anonymous-public', 'publication.private'), ('anonymous-missing', 'publication.private'),
+    ('disclosure', 'publication.private'),
     ('unpublished', 'publication.private'), ('foreign-action', 'publication.private'),
     ('no-action', 'publication.private'), ('source-change', 'source-content.unchanged'),
     ('bootstrap-live', 'custody.bootstrap-revoked')])
@@ -212,6 +215,18 @@ def test_p15_wrong_live_state_fails_real_oracle(tmp_path, monkeypatch, variant, 
     assert bad[assertion]['status'] == 'fail', bad[assertion]
     if wrong in ('anonymous-public', 'disclosure', 'source-change', 'bootstrap-live'):
         assert 'unrecorded' not in bad[assertion].get('reason', '')
+
+
+def test_p15_invalid_route_fails_publication_without_erasing_independent_evidence(tmp_path, monkeypatch):
+    result, _, _ = p15_case(tmp_path, monkeypatch, wrong='invalid-route')
+    assert result['publication.private']['status'] == 'fail'
+    assert result['source-content.unchanged']['status'] == 'pass'
+    assert result['custody.bootstrap-revoked']['status'] == 'pass'
+
+
+def test_p15_anonymous_forbidden_is_also_a_valid_denial(tmp_path, monkeypatch):
+    result, _, _ = p15_case(tmp_path, monkeypatch, wrong='anonymous-forbidden')
+    assert result['publication.private']['status'] == 'pass', result
 
 
 @pytest.mark.parametrize('wrong', ('admin-operator', 'wrong-version', 'wrong-hash', 'personal'))

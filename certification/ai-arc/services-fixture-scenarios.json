@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "fixtures": {
+    "town-A": {"variant": "A", "scenarios": ["P10", "P15"]},
+    "town-B": {"variant": "B", "scenarios": ["P10", "P15"]}
+  },
+  "maxP10Queries": 5
+}

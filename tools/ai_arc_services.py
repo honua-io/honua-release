@@ -17,6 +17,7 @@ keeps, in the stage's private evidence: each full case receipt, the action log a
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -34,7 +35,7 @@ def runtime_class():
         """#1152 LocalRuntime on an adopted arc stack."""
 
         def __init__(self, *, base_url, admin_key, project, candidate_digest, agent, model, limits, private_root,
-                     extra_secrets=()):
+                     extra_secrets=(), vm=None):
             super().__init__(None, model=model, release_id='honua-ai-arc', agent=agent,
                              max_model_calls=limits['maxTurns'], max_actions=limits['maxToolCalls'])
             self.arc = {'base_url': base_url, 'admin_key': admin_key, 'project': project,
@@ -46,6 +47,29 @@ def runtime_class():
             self.minted, self.outstanding = [], set()
             self.lock = threading.Lock()
             self.gate = None
+            self.vm = vm
+            self.shared_service = None
+
+        def psql(self, stack, sql, *, read_only):
+            """Run runner-generated structured SQL on the adopted slot's actual database container."""
+            if self.vm is None or self.vm.project != self.arc['project']:
+                raise ValueError('adopted database slot is missing or does not match the ARC project')
+            import shlex
+            if read_only:
+                self._ensure_reader(stack)
+            project = self.vm.project
+            listing = self.vm.ssh(shlex.join(['docker', 'ps', '-q', '--filter',
+                'label=com.docker.compose.project=' + project, '--filter', 'label=com.docker.compose.service=postgres']))
+            ids = listing.stdout.decode().split() if listing.returncode == 0 else []
+            if len(ids) != 1 or not re.fullmatch(r'[0-9a-f]{12,64}', ids[0]):
+                raise RuntimeError('no unique database container for the adopted slot')
+            env = (['-e', 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000 '
+                          f'-c search_path={runner.SQL_SEARCH_PATH.replace(" ", "")}'] if read_only else [])
+            command = ['docker', 'exec', *env, ids[0], 'psql', '-U',
+                       self.READER_ROLE if read_only else 'honua', '-d', 'honua', '-X', '-q', '-A', '-t',
+                       '-v', 'ON_ERROR_STOP=1', '-c', sql]
+            result = self.vm.ssh(shlex.join(command), timeout=300)
+            return result.returncode, result.stdout
 
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
             if candidate_digest != self.arc['candidate']:
@@ -63,7 +87,11 @@ def runtime_class():
             stack = Stack(base_url=self.arc['base_url'], admin_key=self.arc['admin_key'], approver_key=None,
                           compose_project=project, compose_file='', workdir=str(case_dir),
                           candidate_digest=candidate_digest, extra={'needsApprover': needs_approver})
+            if self.shared_service is not None:
+                stack.extra['arcSharedService'] = dict(self.shared_service)
             self._prepare(stack, list(agent_permissions))
+            if self.vm is not None:
+                stack.extra['ensureConnection'] = lambda: self.ensure_arc_connection(stack)
             if needs_approver:
                 stack = self._mint_approver(stack)
             self.stacks.append(stack)
@@ -73,6 +101,28 @@ def runtime_class():
                 if value not in self.extra_secrets:
                     self.extra_secrets.append(value)
             return stack
+
+        def ensure_arc_connection(self, stack):
+            """Create the fixture's connection on the adopted Compose network, with controller custody."""
+            if self.vm is None or self.vm.project != self.arc['project']:
+                raise ValueError('adopted database slot is missing or does not match the ARC project')
+            secret = self.vm.secrets.get('POSTGRES_PASSWORD')
+            if not isinstance(secret, str) or not secret:
+                raise ValueError('adopted database credential is unavailable')
+            if secret not in self._secrets:
+                self._secrets.append(secret)
+            if secret not in self.extra_secrets:
+                self.extra_secrets.append(secret)
+            rec = stack.extra['recorder']
+            answer = rec.json('arc-p10-connection-create', 'POST', '/api/v1/admin/connections/', {
+                'name': stack.compose_project + '-fixture', 'host': 'postgres', 'port': 5432,
+                'databaseName': 'honua', 'username': 'honua', 'password': secret,
+                'sslRequired': False, 'sslMode': 'Disable'})
+            body = answer['observation']['body']
+            identity = body.get('data', {}).get('connectionId') if isinstance(body, dict) else None
+            if answer['observation']['httpStatus'] != 201 or not isinstance(identity, str) or not identity:
+                raise ValueError('adopted fixture connection was not created')
+            return identity
 
         def _recorder(self, stack, principals):
             """Credential custody at the acquisition boundary. Before a mint is dispatched it is recorded as
@@ -260,18 +310,73 @@ class Canceller:
         return self.runtime.probe()
 
 
+def shared_publication(receipt, retained_bytes, variant, fault='http_503_once'):
+    """Bind the next case to the prior passing P10 receipt and its fired fault."""
+    roles = receipt.get('roles') or {}
+    service, layer = roles.get('created:service:shelters'), roles.get('child:layer:shelters')
+    events = receipt.get('faultEvents') or []
+    expected_id = {'http_503_once': 'arc-p10-query-503',
+                   'response_lost_after_commit': 'arc-p10-publish-lost'}.get(fault)
+    if (receipt.get('status') != 'pass' or not isinstance(service, str)
+            or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
+            or type(layer) is not int or layer < 0 or len(events) != 1
+            or expected_id is None or events[0].get('kind') != fault or events[0].get('id') != expected_id
+            or (fault == 'response_lost_after_commit' and
+                (events[0].get('forwarded') is not True or events[0].get('committedResourceId') != service))):
+        raise ValueError('prior P10 did not prove a passing agent publication and required fault')
+    return {'variant': variant, 'service': service, 'layerId': layer,
+            'caseReceiptSha256': 'sha256:' + hashlib.sha256(retained_bytes).hexdigest()}
+
+
+def run_fixture_services(*, goal, fixture_id, fault, **kwargs):
+    """ARC held-out entry point; a missing fixture field is a named stage failure."""
+    if not isinstance(goal, str) or not goal.strip() or not isinstance(fixture_id, str) or not isinstance(fault, str):
+        return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
+                'failure': {'category': 'model', 'reason': 'services goal, fixture ID or fault is missing'},
+                'withheld': 0, 'catalogRedactions': 0}, []
+    # These are ignored by fixture mode; the committed catalog supplies both.
+    kwargs.pop('scenarios', None)
+    kwargs.pop('variant', None)
+    return run_services(scenarios=(), variant=None, goal=goal, fixture_id=fixture_id, fault=fault, **kwargs)
+
+
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
                  handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None, private_root=None,
-                 register=None, gate=None):
+                 register=None, gate=None, goal=None, fixture_id=None, fault=None, vm=None):
     """Run each services scenario once on the adopted stack under one shared stage budget.
 
     Returns (row, cases). ``row`` carries every action (with its recorded status), the private final
     answers, nudges and the first case failure; ``out_dir`` receives the retained case evidence."""
     import agent_e2e_local_runner as runner
+    fixture_cases = None
+    if any(value is not None for value in (goal, fixture_id, fault)):
+        try:
+            fixture_variant, fixture_cases = runner.select_fixture_cases(goal=goal, fixture_id=fixture_id)
+            scenarios, variant = tuple(fixture_cases), fixture_variant
+            if fault not in ('http_503_once', 'response_lost_after_commit'):
+                raise ValueError('services fault is incompatible with fixture scenarios')
+            from agent_e2e_local_scenarios.arc_p10 import ArcP10
+            from agent_e2e_local_scenarios.arc_p15 import ArcP15
+            fixture_scenarios = {'P10': ArcP10(fault), 'P15': ArcP15()}
+            if set(scenarios) != set(fixture_scenarios):
+                raise ValueError('services fixture has an unsupported scenario inventory')
+            plans = [fixture_scenarios[sid].fault_plan(variant) for sid in scenarios]
+            if not isinstance(fault, str) or not any(p and p.get('kind') == fault for p in plans):
+                raise ValueError('services fault is incompatible with fixture scenarios')
+            if vm is None:
+                raise OSError('services adopted VM slot is missing')
+        except (ImportError, OSError, ValueError) as exc:
+            reason = str(exc)[:200] or type(exc).__name__
+            return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
+                    'failure': {'category': 'harness-error' if isinstance(exc, (ImportError, OSError)) else 'model',
+                                'reason': reason}, 'withheld': 0,
+                    'catalogRedactions': 0}, []
     try:
         import agent_e2e_cli_sessions  # noqa: F401  (registers claude-cli / codex-cli with #1152)
-    except ImportError as exc:
-        raise RuntimeError('CLI corpus sessions (#1160) are not installed') from exc
+    except ImportError:
+        return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
+                'failure': {'category': 'harness-error', 'reason': 'CLI corpus sessions (#1160) are not installed'},
+                'withheld': 0, 'catalogRedactions': 0}, []
     deadline = deadline or (time.monotonic() + limits['maxSeconds'])
     owned = private_root is None
     # The write-ahead ledger lives in the stage's private evidence, so a timeout recovers it.
@@ -283,7 +388,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     cls = runtime_class()
     runtime = cls(base_url=base_url, admin_key=admin_key, project=project, candidate_digest=candidate_digest,
                   agent=arm['agent'], model=arm['model'], limits=limits, private_root=private_root,
-                  extra_secrets=extra_secrets)
+                  extra_secrets=extra_secrets, vm=vm)
     runtime.gate = gate
     if register is not None:
         register(Canceller(runtime))
@@ -296,8 +401,25 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     load_scenario = load_scenario or runner.load_scenario
     out_dir = Path(out_dir)
     cases, actions, answers, nudges, failure = [], [], [], 0, None
+
+    def prior_receipt_intact():
+        try:
+            raw = (out_dir / 'P10' / 'case-receipt.json').read_bytes()
+        except OSError:
+            return False
+        return ('sha256:' + hashlib.sha256(raw).hexdigest() == runtime.shared_service['caseReceiptSha256'])
+
     try:
         for index, sid in enumerate(scenarios):
+            if fixture_cases is not None and sid == 'P15' and runtime.shared_service is None:
+                failure = failure or {'category': 'model', 'reason': 'P15 requires the agent publication from P10'}
+                cases.append({'scenario': sid, 'receipt': {'status': 'fail', 'assertions': [], 'failure': failure}})
+                continue
+            if fixture_cases is not None and sid == 'P15' and not prior_receipt_intact():
+                failure = failure or {'category': 'harness-error', 'reason': 'P10 retained receipt changed before P15'}
+                cases.append({'scenario': sid, 'receipt': {'status': 'infrastructure', 'assertions': [],
+                                                           'failure': failure}})
+                continue
             remaining_actions = limits['maxToolCalls'] - len(actions)
             remaining_time = int(deadline - time.monotonic())
             if remaining_actions <= 0 or remaining_time <= 0:
@@ -306,8 +428,8 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                 failure = failure or {'category': 'model', 'reason': 'stage budget exhausted before ' + sid}
                 continue
             runtime.max_actions, runtime.timeout = remaining_actions, remaining_time
-            scenario = load_scenario(sid)
-            case = runner.select_case(runner.PACK, sid, variant)
+            scenario = fixture_scenarios[sid] if fixture_cases is not None else load_scenario(sid)
+            case = fixture_cases[sid] if fixture_cases is not None else runner.select_case(runner.PACK, sid, variant)
             # ARC v2: every case's request closes with the customer's status checklist for that case.
             from ai_arc_safety import with_status_request
             case = dict(case, prompts={**case['prompts'], variant: with_status_request(case['prompts'][variant], sid)})
@@ -318,6 +440,20 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             receipt = runner.execute_case(case_id=f'{sid}:{variant}:local-docker', scenario=scenario,
                                           variant=variant, case=case, candidate_digest=candidate_digest,
                                           runtime=runtime)
+            if fixture_cases is not None and sid == 'P15':
+                receipt['harnessPerformed'] = [{
+                    'operation': 'seed-saved-draft-map', 'steps': ['p15-map-draft', 'p15-map-saved'],
+                    'status': 'harness-performed',
+                    'credit': 'none; only agent sharing and access control are scored'}]
+                receipt['priorCaseReceiptSha256'] = runtime.shared_service['caseReceiptSha256']
+                if not prior_receipt_intact():
+                    failure = failure or {'category': 'harness-error', 'reason': 'P10 retained receipt changed during P15'}
+                roles = receipt.get('roles') or {}
+                if (receipt.get('status') != 'infrastructure' and
+                        (roles.get('seeded:service:shelters') != runtime.shared_service['service']
+                         or roles.get('seeded:layer:shelters') != runtime.shared_service['layerId'])):
+                    receipt['status'] = 'fail'
+                    receipt['failure'] = {'category': 'model', 'reason': 'P15 prior service binding differs'}
             new_dirs = [d for d in runtime.workdirs if d not in before]
             statuses = [a.get('status') for s in receipt.get('sessions', []) for a in s.get('actions', [])]
             for case_dir in new_dirs:
@@ -340,8 +476,14 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             (out_dir / sid).mkdir(parents=True, exist_ok=True)
             from ai_arc_runner import redact_bytes
             # Redacted at write time (minted case keys and the controller credential never stored).
-            (out_dir / sid / 'case-receipt.json').write_bytes(
-                redact_bytes(json.dumps(receipt, sort_keys=True).encode(), [*runtime._secrets, *runtime.extra_secrets]))
+            retained = redact_bytes(json.dumps(receipt, sort_keys=True).encode(),
+                                    [*runtime._secrets, *runtime.extra_secrets])
+            (out_dir / sid / 'case-receipt.json').write_bytes(retained)
+            if fixture_cases is not None and sid == 'P10' and receipt.get('status') != 'infrastructure':
+                try:
+                    runtime.shared_service = shared_publication(receipt, retained, variant, fault)
+                except ValueError as exc:
+                    failure = failure or {'category': 'model', 'reason': str(exc)}
             answer = runtime.answers.get(f'{project}-{sid.lower()}')
             if isinstance(answer, str):
                 answers.append(answer)
@@ -349,6 +491,13 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             if receipt.get('failure') and failure is None:
                 failure = {'category': receipt['failure'].get('category', 'model'),
                            'reason': f"{sid}: {receipt['failure'].get('reason')}"}
+            if receipt.get('status') == 'infrastructure' and not receipt.get('sessions') and failure is None:
+                failure = {'category': 'infrastructure', 'beforeCaseActions': True,
+                           'reason': f'{sid}: setup or seed could not complete'}
+            custody = next((a for a in receipt.get('assertions', [])
+                            if sid == 'P15' and a.get('assertion') == 'custody.bootstrap-revoked'), None)
+            if custody and custody.get('status') != 'pass' and failure is None:
+                failure = {'category': 'harness-error', 'reason': 'P15 bootstrap custody evidence failed'}
             cases.append({'scenario': sid, 'receipt': receipt, 'answer': answer if isinstance(answer, str) else None})
     finally:
         secrets = list(runtime._secrets)
@@ -372,7 +521,8 @@ def case_assertions(cases: list[dict]) -> list[dict]:
                          'reason': str(receipt.get('infrastructure'))[:200]})
             continue
         rows.extend({'assertion': f"{sid}:{a['assertion']}", 'status': a['status'],
-                     **({'reason': a['reason']} if a.get('reason') else {})} for a in receipt.get('assertions', []))
+                     **({'reason': a['reason']} if a.get('reason') else {})} for a in receipt.get('assertions', [])
+                    if not (sid == 'P15' and a.get('assertion') == 'custody.bootstrap-revoked'))
         check = receipt.get('finalAnswerCheck') or {}
         # The corpus scorer's own verdict is kept for reference only; the arc re-scores this row from the case's
         # answer (its status checklist against the case's readback, ai_arc_runner.safety_status_checks).

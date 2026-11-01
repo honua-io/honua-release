@@ -8,6 +8,7 @@ time. Nothing here is derived from a model run.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from pathlib import Path
 
@@ -57,6 +58,49 @@ def check_exclusion(scenario_id, assertion, value, target=TARGET):
 
 DIRECTORY = ROOT / 'certification/agent-e2e/expectations/local'
 
+ARC_CATALOG = ROOT / 'certification/ai-arc/services-fixture-scenarios.json'
+ARC_CATALOG_SHA256 = '620989ddc5f9d6cc4126c5ca49f6f8f3cb865c09bcd5ea21375fa7c60cc6fc16'
+
+
+def fixture_catalog():
+    """Validate the exact committed selection and budget bytes before using them."""
+    raw = ARC_CATALOG.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != ARC_CATALOG_SHA256:
+        raise ValueError('services fixture catalog digest differs')
+    document = json.loads(raw)
+    if (set(document) != {'schemaVersion', 'fixtures', 'maxP10Queries'} or document['schemaVersion'] != 1
+            or type(document['maxP10Queries']) is not int or not 1 <= document['maxP10Queries'] <= 10
+            or not isinstance(document['fixtures'], dict)):
+        raise ValueError('invalid services fixture catalog')
+    for key, row in document['fixtures'].items():
+        if (not isinstance(key, str) or not isinstance(row, dict) or set(row) != {'variant', 'scenarios'}
+                or row['variant'] not in ('A', 'B') or not isinstance(row['scenarios'], list)
+                or not row['scenarios'] or len(set(row['scenarios'])) != len(row['scenarios'])
+                or any(s not in ('P10', 'P15') for s in row['scenarios'])):
+            raise ValueError('invalid services fixture entry')
+    return document
+
+
+def fixture_scenarios(fixture_id):
+    row = fixture_catalog()['fixtures'].get(fixture_id) if isinstance(fixture_id, str) else None
+    if row is None:
+        raise ValueError('unmapped services fixture')
+    return row['variant'], tuple(row['scenarios'])
+
+
+def fixture_variant(fixture_id, scenario_id):
+    """Resolve an admitted fixture/scenario pair; never infer a scenario from customer prose."""
+    variant, scenarios = fixture_scenarios(fixture_id)
+    if scenario_id not in scenarios:
+        raise ValueError('no frozen expectations for this fixture and scenario')
+    return variant
+
+
+def load_fixture_expected(fixture_id, scenario_id, profile=None):
+    """Load expectations keyed by fixture identity, not by a customer prompt variant."""
+    variant = fixture_variant(fixture_id, scenario_id)
+    return load_expected(scenario_id, variant, profile) if profile else load_expected(scenario_id, variant)
+
 
 def _oracle():
     from agent_e2e_local_runner import oracle
@@ -89,11 +133,11 @@ def load_document(scenario_id, profile=None):
         if document.get('schemaVersion') != 1 or document.get('scenario') != 'P08':
             raise ValueError('invalid Studio arc expectation identity')
         return document
-    if profile is not None:
-        raise ValueError('unsupported expectation profile')
     if not re.fullmatch(r'P\d\d', str(scenario_id)):
         raise ValueError('invalid scenario id')
-    path = DIRECTORY / f'{scenario_id}.json'
+    if profile not in (None, 'arc') or (profile == 'arc' and scenario_id not in ('P10', 'P15')):
+        raise ValueError('unknown expectation profile')
+    path = DIRECTORY / f'{"arc-" if profile == "arc" else ""}{scenario_id}.json'
     document = json.loads(path.read_text(encoding='utf-8'))
     if document.get('schemaVersion') != 1 or document.get('scenario') != scenario_id:
         raise ValueError('expectation document identity differs')
@@ -102,10 +146,10 @@ def load_document(scenario_id, profile=None):
     return document
 
 
-def load_expected(scenario_id, variant):
+def load_expected(scenario_id, variant, profile=None):
     if variant not in ('A', 'B'):
         raise ValueError('only development variants A and B are enabled')
-    document = load_document(scenario_id)
+    document = load_document(scenario_id, profile) if profile else load_document(scenario_id)
     assertions = document['variants'].get(variant)
     if not isinstance(assertions, dict) or not assertions:
         raise ValueError('no frozen expectation for this variant')
