@@ -540,8 +540,21 @@ def evaluate(spec, ctx, *, item=None, step=None):
                     'full published query or source rows are incomplete')
             observed = [{'geometry': f.get('geometry'), 'properties': f.get('properties')}
                         for f in published if isinstance(f, dict)]
+            def normalized_geometry(value):
+                if isinstance(value, dict):
+                    return {key: normalized_geometry(item) for key, item in value.items()}
+                if isinstance(value, list):
+                    return [normalized_geometry(item) for item in value]
+                if type(value) in (int, float):
+                    return float(value)
+                return value
+
+            def normalized_row(row):
+                require(isinstance(row, dict) and set(row) == {'geometry', 'properties'}
+                        and isinstance(row['properties'], dict), 'invalid fixture or published row')
+                return canonical({'geometry': normalized_geometry(row['geometry']), 'properties': row['properties']})
             require(len(observed) == len(published) and
-                    sorted(map(canonical, observed)) == sorted(map(canonical, source.json)),
+                    sorted(map(normalized_row, observed)) == sorted(map(normalized_row, source.json)),
                     'published service contents differ from the raw fixture table')
         return sorted(ids)
     raise ProjectionError('unknown projection operation: ' + ','.join(sorted(keys)))
