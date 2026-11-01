@@ -23,7 +23,7 @@ def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectation
     sealed = cipher.encrypt(json.dumps(original).encode())
     context = SimpleNamespace(case=json.loads(cipher.decrypt(sealed)), variant='H', target='local-docker',
                               candidate={'development': False})
-    fixture, case = select_arc_case(context, context.case['goals']['studio'])
+    fixture, case = select_arc_case(context, context.case['goals']['studio'] + '\nPrevious model handoff')
     assert fixture == 'B' and case['prompts']['B'] == context.case['goals']['studio']
     for scenario in ('P08', 'P09', 'P24'):
         assert fixture_variant('town-B', scenario)[0] == 'B'

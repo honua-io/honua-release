@@ -52,7 +52,9 @@ def select_arc_case(context, prompt=None):
     if prompt is not None:
         if not isinstance(prompt, str) or goal not in prompt:
             raise ValueError('held-out Studio prompt is not bound to the sealed goal')
-        case = {**case, 'prompts': {**case['prompts'], variant: prompt}}
+        # The assistant's customer turn is exactly the sealed request; do not
+        # turn a previous model's handoff into extra customer instructions.
+        case = {**case, 'prompts': {**case['prompts'], variant: goal}}
     return variant, case
 
 
@@ -375,7 +377,7 @@ def arc_stage(ctx):
 
         def run(self, context, session, prompt):
             from ai_arc_runner import redact_bytes
-            actions, answers, provenance, records, failure = [], [], [], [], None
+            actions, answers, provenance, records, visible, failure = [], [], [], [], [], None
             nudges = 0
             cli_subjects = set()
             cli_keys = set()
@@ -403,6 +405,8 @@ def arc_stage(ctx):
                     if driver == 'console-assistant':
                         provision_local_server(context.slot.vm, self.signing)
                 self.cases[driver] = [{'scenario': 'P08', 'receipt': receipt}]
+                visible.extend(digest for item in receipt.get('sessions', [])
+                               for digest in item.get('modelVisibleDigests', []))
                 if len(runtime.customer_subjects) != 1 or len(runtime.customer_keys) != 1:
                     raise ValueError('Studio customer identity evidence is unavailable')
                 if driver == 'console-assistant':
@@ -436,7 +440,8 @@ def arc_stage(ctx):
             return {'actions': actions, 'finalAnswer': answers[-1] if answers else None, 'utterances': answers,
                     'nudges': nudges, 'failure': failure, 'nestedAnswerChecks': True,
                     'provenance': provenance, 'sessionRecords': records, 'assistantModel': assistant.get('model'),
-                    'assistantRegion': assistant.get('region'), 'assistantUsage': assistant.get('usage')}
+                    'assistantRegion': assistant.get('region'), 'assistantUsage': assistant.get('usage'),
+                    'modelVisibleDigests': visible}
 
         def observe(self, context, row):
             return [item for driver, cases in self.cases.items() for item in driver_assertions(driver, cases)]
