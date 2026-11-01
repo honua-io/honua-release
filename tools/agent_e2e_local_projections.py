@@ -540,21 +540,33 @@ def evaluate(spec, ctx, *, item=None, step=None):
                     'full published query or source rows are incomplete')
             observed = [{'geometry': f.get('geometry'), 'properties': f.get('properties')}
                         for f in published if isinstance(f, dict)]
-            def normalized_geometry(value):
-                if isinstance(value, dict):
-                    return {key: normalized_geometry(item) for key, item in value.items()}
-                if isinstance(value, list):
-                    return [normalized_geometry(item) for item in value]
-                if type(value) in (int, float):
-                    return float(value)
-                return value
+            from decimal import Decimal
 
-            def normalized_row(row):
-                require(isinstance(row, dict) and set(row) == {'geometry', 'properties'}
-                        and isinstance(row['properties'], dict), 'invalid fixture or published row')
-                return canonical({'geometry': normalized_geometry(row['geometry']), 'properties': row['properties']})
-            require(len(observed) == len(published) and
-                    sorted(map(normalized_row, observed)) == sorted(map(normalized_row, source.json)),
+            def equivalent(left, right):
+                if type(left) in (int, float) and type(right) in (int, float):
+                    a, b = Decimal(str(left)), Decimal(str(right))
+                    return a.is_finite() and b.is_finite() and a == b
+                if type(left) is not type(right):
+                    return False
+                if isinstance(left, dict):
+                    return left.keys() == right.keys() and all(equivalent(left[k], right[k]) for k in left)
+                if isinstance(left, list):
+                    return len(left) == len(right) and all(equivalent(a, b) for a, b in zip(left, right))
+                return left == right
+
+            def by_source_id(rows):
+                out = {}
+                for row in rows:
+                    require(isinstance(row, dict) and set(row) == {'geometry', 'properties'}
+                            and isinstance(row['properties'], dict), 'invalid fixture or published row')
+                    identity = row['properties'].get('source_id')
+                    require(isinstance(identity, str) and identity and identity not in out,
+                            'fixture or published rows lack unique source ids')
+                    out[identity] = row
+                return out
+            actual, wanted = by_source_id(observed), by_source_id(source.json)
+            require(len(observed) == len(published) and actual.keys() == wanted.keys()
+                    and all(equivalent(actual[key], wanted[key]) for key in wanted),
                     'published service contents differ from the raw fixture table')
         return sorted(ids)
     raise ProjectionError('unknown projection operation: ' + ','.join(sorted(keys)))

@@ -142,6 +142,10 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows()
     assert [row['status'] for row in scored] == ['pass', 'pass'], scored
     full_result['result']['structuredContent']['geojson']['features'][0]['geometry']['coordinates'] = [
         float(x) for x in rows[0]['geometry']['coordinates']]
+    for feature in full_result['result']['structuredContent']['geojson']['features']:
+        if type(feature['properties'].get('capacity')) is int:
+            feature['properties']['capacity'] = float(feature['properties']['capacity'])
+            break
     records['arc-p10-published-full'] = record('arc-p10-published-full', 'observe', 'mcp', 'POST',
                                                '/mcp#tools/call', full_result,
                                                args={'tool': 'honua_query_features', 'arguments': full_args})
@@ -149,6 +153,14 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows()
                                   scenario_id='P10', model_actions=model_actions,
                                   frozen=load_projections('P10', 'A', 'arc'))
     assert equivalent[0]['status'] == 'pass', equivalent
+    full_result['result']['structuredContent']['geojson']['features'][0]['properties']['is_open'] = 1
+    records['arc-p10-published-full'] = record('arc-p10-published-full', 'observe', 'mcp', 'POST',
+                                               '/mcp#tools/call', full_result,
+                                               args={'tool': 'honua_query_features', 'arguments': full_args})
+    wrong_type = score_assertions(list(expected), observations, expected, records=records, roles=roles,
+                                  scenario_id='P10', model_actions=model_actions,
+                                  frozen=load_projections('P10', 'A', 'arc'))
+    assert wrong_type[0]['status'] == 'fail'
     full_result['result']['structuredContent']['geojson']['features'] = []
     records['arc-p10-published-full'] = record('arc-p10-published-full', 'observe', 'mcp', 'POST',
                                                '/mcp#tools/call', full_result,
