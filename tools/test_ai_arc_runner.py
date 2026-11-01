@@ -1762,6 +1762,94 @@ def test_a_held_out_goal_in_an_answer_or_a_cause_never_reaches_evidence_or_the_r
                      mods=modules(services=FakeStage('services', unavailable='no fixtures for ' + case['goals']['services'])))
     raws = [p.read_bytes() for p in tmp_path.rglob('*') if p.is_file() and 'sealed' not in p.name]
     assert not any(g.encode() in raw for raw in raws for g in case['goals'].values())
+    # Sol 199fb5c 3: the goal marker is not the credential marker, so the quoted goal is not a secret disclosure;
+    # ops passes as it would without the quotation and the injected services cause is what the run reports.
+    by_stage = {row['stage']: row for row in receipt['stages']}
+    assert by_stage['ops']['outcome'] == 'pass' and by_stage['ops']['unsafe'] == []
+    assert by_stage['services']['outcome'] == 'stage-unavailable'
+    assert by_stage['services']['cause'].startswith('no fixtures for ')
+    assert CS_MARK.decode() in by_stage['services']['cause'] and '[redacted]' not in by_stage['services']['cause']
+    # Sol 199fb5c 1: the returned receipt (what the trial CLI prints) is the sanitized one.
+    assert not any(g in json.dumps(receipt) for g in case['goals'].values())
+    assert receipt['arcCause']['stage'] == 'services' and CS_MARK.decode() in receipt['arcCause']['cause']
     rows = R.schedule(ARC, 'local-docker', A1, primary, 1)
     agg(tmp_path, None, [(tmp_path / 'h00' / 'trial-receipt.json').read_bytes()], rows=rows,
         goal_sets={'primary': primary})                                # evidence still verifies after redaction
+
+
+import agent_cli_sessions as _CS  # noqa: E402
+CS_MARK = _CS.WITHHELD_MARK
+
+
+def test_the_trial_cli_prints_no_held_out_goal(tmp_path, monkeypatch, capsys):
+    """Sol 199fb5c 1: the trial command prints arcCause from the returned receipt; it carries no goal text."""
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    case = primary['cases']['h00']
+    real = R.run_trial
+
+    def wired(**kw):
+        kw.update(modules=modules(services=FakeStage('services', unavailable='cannot serve ' + case['goals']['services'])),
+                  private_root=tmp_path, session=FakeSession())
+        return real(**kw)
+    monkeypatch.setattr(R, 'run_trial', wired)
+    monkeypatch.setattr(R, 'candidate_from_lock', lambda *a, **k: CAND_IN)
+    monkeypatch.setattr(R, 'build_slot', lambda target, args, run_index=0: R.Slot(target, 'none', 'arc-abcdef1234'))
+    assert R.main(['trial', '--target', 'local-docker', '--arm', 'A1', '--run-id', 'local-docker:A1:h00',
+                   '--variant', 'H', '--case-id', 'h00', '--goal-set', 'primary', '--output', str(tmp_path / 'h00'),
+                   '--lock-digest', 'x', '--lock-path', 'x']) == 0
+    out = capsys.readouterr().out
+    printed = json.loads(out.strip().splitlines()[-1])
+    assert printed['arcCause']['stage'] == 'services'
+    assert not any(g in out for g in case['goals'].values())
+
+
+class _Boom:
+    host = 'h'
+
+    def __init__(self, raise_teardown):
+        self.raise_teardown = raise_teardown
+
+    def teardown(self):
+        if self.raise_teardown:
+            raise TimeoutError('teardown timed out')
+        return {'status': 'clean', 'steps': []}
+
+
+def _private_dirs(tmp_path):
+    return [p for p in tmp_path.iterdir() if p.name.startswith('honua-arc-private-')]
+
+
+def test_a_teardown_failure_still_deletes_private_evidence_and_clears_the_registry(tmp_path, monkeypatch):
+    """Sol 199fb5c 2: a raising VM teardown is a failed teardown on a kept receipt; nothing private survives."""
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    slot = R.Slot('local-docker', 'none', 'arc-abcdef1234')
+    slot.vm = _Boom(True)
+    receipt, _ = run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00', slot=slot)
+    assert receipt['teardown']['status'] == 'failed' and receipt['teardownClean'] is False
+    assert receipt['status'] != 'completed'
+    assert _private_dirs(tmp_path) == [] and _CS._WITHHELD == []
+
+
+def test_a_run_record_write_failure_still_deletes_private_evidence_and_clears_the_registry(tmp_path, monkeypatch):
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    real = R.write_private
+
+    def failing(path, raw, *a, **k):
+        if Path(path).name == 'run-record.json':
+            raise OSError('disk full')
+        return real(path, raw, *a, **k)
+    monkeypatch.setattr(R, 'write_private', failing)
+    with pytest.raises(OSError):
+        run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00')
+    assert _private_dirs(tmp_path) == [] and _CS._WITHHELD == []
+
+
+def test_an_export_failure_still_deletes_private_evidence_and_clears_the_registry(tmp_path, monkeypatch):
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+
+    def failing(*a, **k):
+        raise ValueError('hash failed')
+    monkeypatch.setattr(R, 'export_private', failing)
+    with pytest.raises(ValueError):
+        run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00')
+    assert _private_dirs(tmp_path) == [] and _CS._WITHHELD == []

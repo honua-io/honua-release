@@ -978,6 +978,26 @@ def redact_bytes(raw: bytes, secrets) -> bytes:
     return raw
 
 
+def redact_goals(raw: bytes) -> bytes:
+    """Replace this process's held-out goal texts (raw, JSON-escaped and base64 forms) with their own marker.
+    The marker is distinct from the credential marker, so a quoted goal is never scored as secret disclosure."""
+    try:
+        import agent_cli_sessions
+    except ImportError:
+        return raw
+    import base64
+    forms = agent_cli_sessions.withheld_forms()
+    forms += [base64.b64encode(t.encode()) for t in agent_cli_sessions._WITHHELD]
+    for form in sorted(dict.fromkeys(forms), key=len, reverse=True):
+        raw = raw.replace(form, agent_cli_sessions.WITHHELD_MARK)
+    return raw
+
+
+def scrub_bytes(raw: bytes, secrets) -> bytes:
+    """Held-out goals first (goal marker), then credentials (credential marker)."""
+    return redact_bytes(redact_goals(raw), secrets)
+
+
 def _as_text(value):
     return value.decode('utf-8', 'replace') if isinstance(value, (bytes, bytearray)) else str(value)
 
@@ -1336,7 +1356,7 @@ def withheld_texts() -> list[str]:
 def stage_file(ctx, stage: str, name: str, value) -> str:
     """Write one stage evidence file, redacted with the secrets known now; return its digest."""
     raw = value if isinstance(value, bytes) else canonical(value)
-    raw = redact_bytes(raw, list(ctx.slot.harness_secrets) + withheld_texts())
+    raw = scrub_bytes(raw, list(ctx.slot.harness_secrets))
     write_private(ctx.private_dir / stage / name, raw)
     return sha256(raw)
 
@@ -1611,10 +1631,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                              for p in row.get('provenance') or []])}
     # Held-out goals are redacted with the secrets before anything is scored, hashed or stored, so the scored
     # bytes, the evidence and the receipt agree (Sol be3c1598 item 1).
-    secrets = list(ctx.slot.harness_secrets) + withheld_texts()
-    red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
+    secrets = list(ctx.slot.harness_secrets)
+    red = lambda value: json.loads(scrub_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, handoff_r, context_r = red(actions), red(observations), red(handoff), red(context)
-    answer_r = redact_bytes(answer.encode(), secrets).decode() if answer is not None else None
+    answer_r = scrub_bytes(answer.encode(), secrets).decode() if answer is not None else None
     scored = score_stage(ctx.arc, ctx.target, stage, observations_r, actions_r, answer_r, handoff_r, context_r,
                          ctx.limits)
     evidence = {'actions': stage_file(ctx, stage, 'actions.json', actions_r),
@@ -1825,61 +1845,64 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     # evidence are scrubbed of them).
     withheld = [g for g in (case or {}).get('goals', {}).values() if isinstance(g, str)]
     agent_cli_sessions.withhold_texts(withheld)
-    run_deadline = time.monotonic() + arc['runLimits']['maxSeconds']
+    # Outermost: whatever fails (stages, teardown, the run record, export, hashing or the receipt), the private
+    # unredacted evidence is deleted and the withheld registry cleared (Sol be3c1598 3, 199fb5c 2).
     try:
-        for stage in STAGES:
-            prerequisites = [d for d in stage_defs[stage]['dependsOn'] if outcomes.get(d) != 'pass']
-            if prerequisites:
-                first = prerequisites[0]
-                receipt['stages'].append(_empty_stage(stage, 'blocked', f'prerequisite {first} was {outcomes.get(first)}',
-                                                      blockedBy=first))
-                outcomes[stage] = 'blocked'
-                continue
-            limits = arc['limits'][stage]
-            deadline = min(run_deadline, time.monotonic() + limits['maxSeconds'])
-            if deadline <= time.monotonic():
-                receipt['stages'].append(_empty_stage(stage, 'fail', 'run wall-clock limit exhausted'))
-                outcomes[stage] = 'fail'
-                continue
-            ctx = StageContext(arc=arc, target=target, arm=arm, variant=variant, run_dir=out_dir,
-                               private_dir=private, slot=slot, candidate=candidate, install=install, limits=limits,
-                               deadline=deadline, case=case, options=dict(options or {}))
-            goal = (case['goals'][stage] if case else
-                    arc['targets'][target]['goals'].get(stage, {}).get(variant, '(scenario requests)'))
-            try:
-                result = run_stage(ctx, modules[stage], session, goal, previous_answer)
-            except Exception as exc:  # noqa: BLE001  (a harness defect never loses the run's receipt)
-                result = harness_error_stage(ctx, modules[stage], exc)
-            receipt['stages'].append(result)
-            outcomes[stage] = result['outcome']
-            answer_path = private / stage / 'final-answer.txt'
-            if answer_path.is_file():
-                previous_answer = answer_path.read_text(encoding='utf-8')
-    finally:
-        closer_steps = run_closers(slot)
-        receipt['teardown'] = slot.vm.teardown() if slot.vm else {'status': 'clean', 'steps': []}
-        receipt['teardown'] = merge_teardown(receipt['teardown'], closer_steps)
-        # A runner-authored record exists for every run, so a run that never reached a session (for
-        # example setup stage-unavailable) still has retained evidence and stays in the denominator.
-        write_private(private / 'run-record.json', canonical(
-            {'runId': run_id, 'stages': [{k: r.get(k) for k in ('stage', 'outcome', 'cause')} for r in receipt['stages']],
-             'teardown': receipt['teardown']['status']}))
-        evidence_dir = Path(evidence_dir or out_dir.parent / (out_dir.name + '.evidence'))
+        run_deadline = time.monotonic() + arc['runLimits']['maxSeconds']
         try:
-            export_private(private, evidence_dir, list(slot.harness_secrets) + withheld)
+            for stage in STAGES:
+                prerequisites = [d for d in stage_defs[stage]['dependsOn'] if outcomes.get(d) != 'pass']
+                if prerequisites:
+                    first = prerequisites[0]
+                    receipt['stages'].append(_empty_stage(stage, 'blocked', f'prerequisite {first} was {outcomes.get(first)}',
+                                                          blockedBy=first))
+                    outcomes[stage] = 'blocked'
+                    continue
+                limits = arc['limits'][stage]
+                deadline = min(run_deadline, time.monotonic() + limits['maxSeconds'])
+                if deadline <= time.monotonic():
+                    receipt['stages'].append(_empty_stage(stage, 'fail', 'run wall-clock limit exhausted'))
+                    outcomes[stage] = 'fail'
+                    continue
+                ctx = StageContext(arc=arc, target=target, arm=arm, variant=variant, run_dir=out_dir,
+                                   private_dir=private, slot=slot, candidate=candidate, install=install, limits=limits,
+                                   deadline=deadline, case=case, options=dict(options or {}))
+                goal = (case['goals'][stage] if case else
+                        arc['targets'][target]['goals'].get(stage, {}).get(variant, '(scenario requests)'))
+                try:
+                    result = run_stage(ctx, modules[stage], session, goal, previous_answer)
+                except Exception as exc:  # noqa: BLE001  (a harness defect never loses the run's receipt)
+                    result = harness_error_stage(ctx, modules[stage], exc)
+                receipt['stages'].append(result)
+                outcomes[stage] = result['outcome']
+                answer_path = private / stage / 'final-answer.txt'
+                if answer_path.is_file():
+                    previous_answer = answer_path.read_text(encoding='utf-8')
+        finally:
+            closer_steps = run_closers(slot)
+            try:
+                receipt['teardown'] = slot.vm.teardown() if slot.vm else {'status': 'clean', 'steps': []}
+            except Exception as exc:  # noqa: BLE001  (a failed teardown is recorded, never a lost receipt)
+                receipt['teardown'] = {'status': 'failed', 'steps': [
+                    {'step': 'vm', 'status': 'failed', 'error': f'{type(exc).__name__}: {str(exc)[:160]}'}]}
+            receipt['teardown'] = merge_teardown(receipt['teardown'], closer_steps)
+            # A runner-authored record exists for every run, so a run that never reached a session (for
+            # example setup stage-unavailable) still has retained evidence and stays in the denominator.
+            write_private(private / 'run-record.json', canonical(
+                {'runId': run_id, 'stages': [{k: r.get(k) for k in ('stage', 'outcome', 'cause')} for r in receipt['stages']],
+                 'teardown': receipt['teardown']['status']}))
+            evidence_dir = Path(evidence_dir or out_dir.parent / (out_dir.name + '.evidence'))
+            export_private(private, evidence_dir, list(slot.harness_secrets))
             receipt['evidenceArtifact'] = {'name': evidence_artifact or evidence_dir.name,
                                            'files': [{'path': str(p.relative_to(evidence_dir)),
                                                       'sha256': sha256(p.read_bytes()), 'bytes': p.stat().st_size}
                                                      for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
-        finally:
-            # Whatever failed above, the private (unredacted) evidence never outlives the run (Sol be3c1598 3).
-            shutil.rmtree(private, ignore_errors=True)
-    receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
-                            if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
-                                     'consoleObservedIdentity', 'opsComposition', 'opsReconverged', 'slotPreparation')}
-    try:
+        receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
+                                if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
+                                         'consoleObservedIdentity', 'opsComposition', 'opsReconverged', 'slotPreparation')}
         return finish_trial(receipt, out_dir)
     finally:
+        shutil.rmtree(private, ignore_errors=True)
         agent_cli_sessions.withhold_texts([])
 
 
@@ -1938,10 +1961,10 @@ def harness_error_stage(ctx, module, exc) -> dict:
                'shutdown': shutdown, 'harnessUnsafe': harness_unsafe, 'sessions': []}
     # Held-out goals are redacted with the secrets before anything is scored, hashed or stored, so the scored
     # bytes, the evidence and the receipt agree (Sol be3c1598 item 1).
-    secrets = list(ctx.slot.harness_secrets) + withheld_texts()
-    red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
+    secrets = list(ctx.slot.harness_secrets)
+    red = lambda value: json.loads(scrub_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, context_r = red(actions), red(observations), red(context)
-    answer_r = redact_bytes(answer.encode(), secrets).decode() if answer is not None else None
+    answer_r = scrub_bytes(answer.encode(), secrets).decode() if answer is not None else None
     result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
     result.update(score_stage(ctx.arc, ctx.target, stage, observations_r, actions_r, answer_r, None, context_r,
                               ctx.limits))
@@ -1981,13 +2004,14 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
         if path.suffix == '.json' and b'bodyBase64' in raw:
             try:
                 doc = json.loads(raw)
-                body = base64.b64decode(doc.get('bodyBase64') or b'')
+                body = redact_goals(base64.b64decode(doc.get('bodyBase64') or b''))
                 for form in forms:
                     body = body.replace(form, b'[redacted]')
                 doc['bodyBase64'] = base64.b64encode(body).decode()
                 raw = json.dumps(doc, sort_keys=True).encode()
             except (ValueError, TypeError):
                 pass
+        raw = redact_goals(raw)
         for form in forms:
             raw = raw.replace(form, b'[redacted]')
         target = out_dir / path.relative_to(private)
@@ -2016,12 +2040,13 @@ def finish_trial(receipt: dict, out_dir: Path) -> dict:
     receipt['costUsd'] = None
     receipt['finishedAt'] = now()
     raw = json.dumps(receipt, indent=2, sort_keys=True).encode() + b'\n'
-    # No held-out goal in any receipt field (causes, failure reasons, assertion details, slot facts).
-    raw = redact_bytes(raw, withheld_texts()) if withheld_texts() else raw
+    # No held-out goal in any receipt field (causes, failure reasons, assertion details, slot facts), and the
+    # caller (the trial CLI prints arcCause) gets the same sanitized receipt that was written (Sol 199fb5c 1).
+    raw = redact_goals(raw)
     if len(raw) > MAX_RECEIPT_BYTES:
         raise ValueError('run receipt exceeds the 1 MB member bound the admission gate reads')
     write_private(out_dir / 'trial-receipt.json', raw)
-    return receipt
+    return json.loads(raw)
 
 
 # --------------------------------------------------------------------------- aggregate
