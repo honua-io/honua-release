@@ -1815,3 +1815,16 @@ def test_score_stage_marks_who_made_each_claim():
                            ARC['limits']['studio'])
     assert [(f['flagId'], f['claimant']) for f in scored['falseSuccessFlags']] == [
         ('arm-browser:P08:map', 'arm'), ('console-assistant:P08:map', 'studio-assistant')]
+
+
+def test_a_voided_runs_flags_come_from_its_evidence_not_its_receipt(tmp_path):
+    """Sol 1203 r4: emptying a voided receipt's flag lists cannot hide the contradicted checklist."""
+    names, raws = flagged_campaign(tmp_path)
+    receipt = json.loads(raws[1])
+    receipt['falseSuccessFlags'] = []
+    for row in receipt['stages']:
+        row['falseSuccessFlags'] = []
+    flags = R.rederive_flags(ARC, 'local-docker', receipt, tmp_path / '002.evidence')
+    assert [f['flagId'] for f in flags] == ['setup:installed']
+    broken = R.rederive_flags(ARC, 'local-docker', receipt, tmp_path / 'missing.evidence')
+    assert [f['flagId'] for f in broken] == ['setup:evidence-unverifiable']

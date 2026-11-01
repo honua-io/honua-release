@@ -1743,6 +1743,39 @@ def verify_cli_sessions(row: dict, folder: Path, pinned: str) -> None:
         raise ValueError(f"{row['stage']}: the receipt's session summary contradicts the retained sessions")
 
 
+def rederive_flags(arc: dict, target: str, receipt: dict, folder: Path | None) -> list[dict]:
+    """A run's false-success flags re-scored from its retained stage evidence, never read from the receipt (a
+    voided run whose receipt does not verify still has its claims judged). Stage evidence that cannot be
+    re-scored is itself an unresolved flag."""
+    out = []
+    for row in receipt.get('stages') or []:
+        if not isinstance(row, dict) or not row.get('evidence'):
+            continue
+        try:
+            again = _rescore_stage(arc, target, row, Path(folder))
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            out.append({'stage': row.get('stage'), 'flagId': f"{row.get('stage')}:evidence-unverifiable",
+                        'claimant': 'arm', 'item': 'the stage evidence could not be re-scored: ' + str(exc)[:120]})
+            continue
+        out += [{'stage': row['stage'], **flag} for flag in again['falseSuccessFlags']]
+    return out
+
+
+def _rescore_stage(arc: dict, target: str, row: dict, folder: Path) -> dict:
+    evidence = row.get('evidence')
+    if not isinstance(evidence, dict) or not {'actions', 'observations', 'handoff', 'context'} <= set(evidence):
+        raise ValueError(f"{row['stage']}: stage evidence is not retained")
+    files = {}
+    for name, digest in evidence.items():
+        path = folder / row['stage'] / {'finalAnswer': 'final-answer.txt'}.get(name, name + '.json')
+        if not path.is_file() or sha256(path.read_bytes()) != digest:
+            raise ValueError(f"{row['stage']}: retained {name} evidence is missing or altered")
+        files[name] = path.read_bytes()
+    answer = files['finalAnswer'].decode('utf-8') if 'finalAnswer' in files else None
+    return score_stage(arc, target, row['stage'], json.loads(files['observations']), json.loads(files['actions']),
+                       answer, json.loads(files['handoff']), json.loads(files['context']), arc['limits'][row['stage']])
+
+
 def verify_stage_evidence(arc: dict, target: str, row: dict, folder: Path) -> None:
     """Re-derive one stage from its retained evidence; any disagreement rejects the run."""
     evidence = row.get('evidence')
@@ -2501,12 +2534,10 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
     for run in voided:
         if run not in by_id:
             continue
-        try:   # a voided run's flags are re-derived from its retained evidence like any other
-            facts = verify_run(arc, by_id[run], target=target, arm_id=arm_id, candidate=candidate, digests=digests,
-                               row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run))
-            observed_flags[run] = facts['flags']
-        except (ValueError, OSError, KeyError):
-            observed_flags[run] = list(by_id[run].get('falseSuccessFlags') or [])   # the void's own fault
+        # A voided run's claims are re-scored from its retained stage evidence, never taken from its receipt.
+        folder = evidence_for(run)
+        observed_flags[run] = rederive_flags(arc, target, by_id[run], folder) if folder is not None else [
+            {'stage': None, 'flagId': 'evidence-unavailable', 'claimant': 'arm'}] if by_id[run].get('stages') else []
     observed_flags = {run: v for run, v in observed_flags.items() if v}
     fs_rows, false_claims, unresolved = verify_false_success_adjudications(
         arc, arm, observed_flags, list(false_success_adjudications or []), by_id, counted=set(counted))
