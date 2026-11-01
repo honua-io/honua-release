@@ -173,7 +173,7 @@ def read_state(vm) -> dict | None:
                 'echo "REDISRC=$?"; echo "REDIS=$r"\n'
               + f'echo "READY=$(curl -s -o /dev/null -w %{{http_code}} http://127.0.0.1:{int(vm.http_port)}'
                 '/healthz/ready)"\n'
-              + f'echo "ROOT=$(curl -s -o /dev/null -w %{{http_code}} http://127.0.0.1:{int(vm.http_port)}/)"\n')
+              + f'echo "ROOT=$(curl -s -L --max-redirs 3 -o /dev/null -w %{{http_code}} http://127.0.0.1:{int(vm.http_port)}/)"\n')
     done = vm.ssh(script, 120)
     out = done.stdout.decode('utf-8', 'replace') if isinstance(done.stdout, bytes) else str(done.stdout or '')
     fields = dict(line.split('=', 1) for line in out.splitlines() if '=' in line)
@@ -881,6 +881,10 @@ class LocalOps:
             ctx.slot.harness_secrets.extend(k['key'] for k in (proposer, approver))
             mcp = HttpMcpBackend(self.manager.base + '/mcp', header='X-API-Key', token=proposer['key'],
                                  workflow_view='full').start()
+            status, listing = self.manager.request('GET', '/api/v1/admin/proposals/', ctx.slot.controller['admin_key'])
+            if status != 200 or not isinstance(listing.get('proposals'), list):
+                return {'status': 'failed', 'reason': 'the proposal inventory could not be read before preparation'}
+            existing = {p.get('proposalId') for p in listing['proposals'] if isinstance(p, dict)}
             result = mcp.execute('tool_call', {'tool': 'honua_propose_platform_release_convergence',
                                                'arguments': {'reason': 'arc slot preparation for stage 3'}})
             content = (result.get('result') or {}).get('structuredContent') or {}
@@ -891,6 +895,15 @@ class LocalOps:
                                                                 'targetVersion', 'servingArtifactReference')},
                         'targets': [{k: t.get(k) for k in ('targetId', 'outcome', 'message')}
                                     for t in content.get('targets') or [] if isinstance(t, dict)]}
+            entry = next((t for t in content.get('targets') or [] if isinstance(t, dict)
+                          and t.get('proposalId') == pids[0]), None)
+            if (len(pids) != 1 or pids[0] in existing or entry is None or entry.get('targetId') != 'compose-local'
+                    or entry.get('outcome') != 'ProposalCreated'):
+                # Only a fresh proposal this preparation created, for this slot's target, is approved and
+                # exempted from unbound() (Sol 2bd7f086 item 2).
+                return {'status': 'failed', 'reason': 'no fresh, slot-bound convergence proposal',
+                        'proposalIds': pids[:3], 'reused': [p for p in pids if p in existing][:3],
+                        'target': {k: (entry or {}).get(k) for k in ('targetId', 'outcome', 'message')}}
             if pids[0] in {a['proposalId'] for a in self.scenario.approvals}:
                 # The product handed back the session's already-executed convergence instead of a new one
                 # (its terminal proposals stay active; honua-server #6849/#6852): nothing would run.
@@ -937,7 +950,9 @@ class LocalOps:
                 resources.append({'url': url, 'served': True, 'httpStatus': 200})
                 probes.append({'method': 'GET', 'url': url, 'worked': True, 'httpStatus': 200})
         return {'resources': resources, 'accessProbes': probes,
-                'facts': {'statuses': statuses, 'servingRelease': serving}}
+                'facts': {'statuses': statuses, 'servingRelease': serving,
+                          'releases': {'candidate': RELEASE_VERSION,
+                                       'prior': ctx.install.get('release') if ctx is not None else None}}}
 
     def deployment_hosts(self, ctx):
         return ('localhost', '127.0.0.1', '::1')

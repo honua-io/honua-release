@@ -859,3 +859,50 @@ def test_the_ops_handoff_carries_the_slot_urls_only_when_the_controller_read_rea
     sc.states.append(dict(state(PRIOR, 140), phase='done', rootOk=True))
     urls = {r['url'] for r in stage.handoff_observations(c, '')['resources']}
     assert urls == {f'http://localhost:{c.slot.vm.http_port}/', f'http://localhost:{c.slot.vm.http_port}/healthz/ready'}
+
+
+
+@pytest.mark.parametrize('case', ['reused-foreign', 'foreign-target', 'not-created', 'two-proposals'])
+def test_slot_preparation_approves_only_a_fresh_slot_bound_proposal(tmp_path, monkeypatch, case):
+    """Sol 2bd7f086 item 2: a returned, already-existing or foreign proposal is never approved or exempted."""
+    listing = [{'proposalId': 'prop-old00001', 'status': 'Executed'}]
+    sc = scenario(HAPPY, manager=FakeManager(listing=listing))
+    happy_run(sc)
+    stage, c = stage_for(sc), ctx(tmp_path)
+    target = {'reused-foreign': ('prop-old00001', 'aws-prod', 'ProposalCreated'),
+              'foreign-target': ('prop-new00001', 'aws-prod', 'ProposalCreated'),
+              'not-created': ('prop-new00001', 'compose-local', 'Failed'),
+              'two-proposals': ('prop-new00001', 'compose-local', 'ProposalCreated')}[case]
+    targets = [{'proposalId': target[0], 'targetId': target[1], 'outcome': target[2]}]
+    if case == 'two-proposals':
+        targets.append({'proposalId': 'prop-new00002', 'targetId': 'compose-local', 'outcome': 'ProposalCreated'})
+
+    class Keys:
+        def __init__(self, *a):
+            pass
+
+        def mint(self, name):
+            return {'name': name, 'key': name + '-k', 'id': name}
+
+        def revoke(self):
+            return []
+
+        def probe(self):
+            return []
+
+    class Mcp:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            return self
+
+        def execute(self, kind, action):
+            return {'status': 'ok', 'result': {'structuredContent': {'targets': targets}}}
+    import agent_cli_backends
+    monkeypatch.setattr(O, 'Keys', Keys)
+    monkeypatch.setattr(agent_cli_backends, 'HttpMcpBackend', Mcp)
+    out = O.LocalOps.reconverge(stage, c)
+    assert out['status'] == 'failed' and not stage.harness_proposals
+    assert not [x for x in sc.manager.calls if x[1].endswith('/approve') and str(x[2]).startswith('arc-harness')]
+    assert stage.harness_unsafe(c) == ['approval-unbound'], 'the executed foreign proposal stays unbound'
