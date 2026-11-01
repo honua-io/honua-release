@@ -44,7 +44,8 @@ def select_arc_case(context, prompt=None):
         raise ValueError('held-out Studio requires a release candidate')
     if not isinstance(context.case, dict) or context.case.get('target') != context.target:
         raise ValueError('held-out Studio case target differs')
-    goal = (context.case.get('goals') or {}).get('studio')
+    goals = context.case.get('goals')
+    goal = goals.get('studio') if isinstance(goals, dict) else None
     if not isinstance(goal, str) or not goal.strip():
         raise ValueError('held-out Studio goal is unavailable')
     variant, case = fixture_variant(context.case.get('fixtures'), 'P08')
