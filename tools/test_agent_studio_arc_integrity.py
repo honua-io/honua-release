@@ -217,17 +217,21 @@ def test_other_principal_mcp_edit_between_ui_create_and_save_fails(tmp_path):
 def test_sharing_requires_authenticated_colleague_and_denied_outsider():
     from agent_e2e_studio_arc import sharing_from_records
     version = {'itemId': 'item', 'versionId': 'version', 'contentHash': 'hash'}
-    def response(body, principal, identity, status=200, path='/map'):
+    def response(body, principal, identity, status=200, path='/api/v1/studio/content-items/item/versions/version'):
         row = record(body, '2026-11-01T00:00:00Z')
         row.principal, row.principal_id, row.status, row.path = principal, identity, status, path
+        row.method, row.phase, row.origin = 'GET', 'observe', 'controller'
         return row
     records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z'),
-        'studio-share-colleague-auth': response({}, 'agent-user', 'colleague'),
-        'studio-share-outsider-auth': response({}, 'agent-user', 'outsider'),
+        'studio-share-colleague-auth': response({}, 'agent-user', 'colleague', path='/api/v1/studio/content-items?family=map&limit=1'),
+        'studio-share-outsider-auth': response({}, 'agent-user', 'outsider', path='/api/v1/studio/content-items?family=map&limit=1'),
         'studio-share-colleague': response({'data': version}, 'agent-user', 'colleague'),
         'studio-share-outsider': response({}, 'agent-user', 'outsider', 403),
         'studio-share-anonymous': response({}, 'anonymous', None, 401)}
     assert sharing_from_records(records)
+    records['studio-share-outsider'].path = '/different'
+    assert not sharing_from_records(records)
+    records['studio-share-outsider'].path = records['studio-share-colleague'].path
     records['studio-share-outsider'].status = 200
     assert not sharing_from_records(records)
     records['studio-share-outsider'].status = 403

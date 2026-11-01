@@ -159,7 +159,9 @@ def ui_provenance(records, session_rows, customer, handle_lookup):
 
 def sharing_from_records(records):
     """Require a distinct authenticated colleague and outsider on the exact saved version."""
+    from agent_browser_studio import version_path
     version = _record(records, 'p08-version')['data']
+    expected_path = version_path(version.get('itemId'), version.get('versionId'))
     colleague = records['studio-share-colleague']
     outsider = records['studio-share-outsider']
     anonymous = records['studio-share-anonymous']
@@ -172,7 +174,10 @@ def sharing_from_records(records):
             and outsider.principal_id == auth_outsider.principal_id
             and auth_colleague.status == auth_outsider.status == 200 and colleague.status == 200
             and outsider.status in (401, 403, 404) and anonymous.status in (401, 403, 404)
-            and colleague.path == outsider.path == anonymous.path
+            and colleague.path == outsider.path == anonymous.path == expected_path
+            and auth_colleague.path == auth_outsider.path == '/api/v1/studio/content-items?family=map&limit=1'
+            and all(r.method == 'GET' and r.phase == 'observe' and r.origin == 'controller'
+                    for r in (colleague, outsider, anonymous, auth_colleague, auth_outsider))
             and all(r.sha256 == 'sha256:' + hashlib.sha256(r.raw).hexdigest()
                     for r in (colleague, outsider, anonymous, auth_colleague, auth_outsider))):
         return False
