@@ -193,7 +193,7 @@ def probe_sharing(recorder, stack, mint_reader):
     try:
         for name in ('colleague', 'outsider'):
             subject = stack.extra['studioReaderSubjects'][name]
-            token = mint_reader(subject)
+            token = mint_reader(subject, 'operator' if name == 'colleague' else 'reader')
             os.environ[env] = token
             recorder.principals['agent-user'] = (env, subject)
             recorder.json('studio-share-' + name + '-auth', 'GET', '/api/v1/studio/content-items?family=map&limit=1', principal='agent-user')
@@ -477,16 +477,18 @@ def studio_runtime_class():
             self.customer_subjects = set()
             self.customer_keys = set()
 
-        def mint_reader(self, subject):
+        def mint_reader(self, subject, role='reader'):
+            if role not in ('operator', 'reader'):
+                raise ValueError('unapproved Studio reader role')
             import base64
             import hmac
             import agent_e2e_local_runner as runner
             fixture = runner._live_driver_module().local_fixture
-            token = fixture._tenant_token(self.signing_key, subject=subject, tenant='public', role='reader')
+            token = fixture._tenant_token(self.signing_key, subject=subject, tenant='public', role=role)
             header, payload, _ = token.removeprefix('Bearer ').split('.')
             claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
             claims['scope'] = 'honua.mcp.read'
-            claims['roles'] = ['reader']
+            claims['roles'] = [role]
             payload = base64.urlsafe_b64encode(json.dumps(claims, separators=(',', ':')).encode()).rstrip(b'=').decode()
             signed = (header + '.' + payload).encode()
             signature = base64.urlsafe_b64encode(hmac.new(self.signing_key.encode(), signed, hashlib.sha256).digest()).rstrip(b'=').decode()
@@ -544,8 +546,8 @@ def studio_runtime_class():
             if len(readers) != 2 or readers & self.customer_subjects:
                 raise ValueError('Studio readers are not distinct customers')
             # Mint at setup; later reads refresh the same subjects' short-lived tokens.
-            for subject in stack.extra['studioReaderSubjects'].values():
-                self.mint_reader(subject)
+            for name, subject in stack.extra['studioReaderSubjects'].items():
+                self.mint_reader(subject, 'operator' if name == 'colleague' else 'reader')
             self.stacks.append(stack)
             if getattr(self, 'initialize_studio_admission', False):
                 initialize_admission(stack.extra['recorder'])

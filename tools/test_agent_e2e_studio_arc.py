@@ -128,7 +128,8 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
     claims = [json.loads(base64.urlsafe_b64decode((payload := token.split('.')[1]) + '=' * (-len(payload) % 4)))
               for token in tokens]
     assert {row['sub'] for row in claims} == set(readers.values())
-    assert all(row['scope'] == 'honua.mcp.read' and row['roles'] == ['reader'] for row in claims)
+    assert all(row['scope'] == 'honua.mcp.read' for row in claims)
+    assert {row['sub']: row['roles'] for row in claims} == {readers['colleague']: ['operator'], readers['outsider']: ['reader']}
     assert callable(stack.extra['startConsole']) and callable(stack.extra['ensureConnection'])
     assert calls[0][1] == ['admin:write']
     assert runtime.pack_sha256 == 'sha256:' + 'b' * 64

@@ -298,7 +298,7 @@ def test_sharing_probe_uses_distinct_users_and_restores_credentials(monkeypatch)
     monkeypatch.setenv('HONUA_ARC_STUDIO_READER_BEARER', 'previous')
     stack = SimpleNamespace(extra={'studioReaderSubjects': {'colleague': 'user-one', 'outsider': 'user-two'}})
     recorder = Recorder()
-    probe_sharing(recorder, stack, lambda subject: 'token-' + subject)
+    probe_sharing(recorder, stack, lambda subject, role: 'token-' + subject + '-' + role)
     assert recorder.calls[0][2][1] == 'user-one' and recorder.calls[2][2][1] == 'user-two'
     assert recorder.calls[-1][1] == 'anonymous'
     assert recorder.principals['agent-user'] == ('previous-env', 'customer')
