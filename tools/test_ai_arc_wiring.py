@@ -135,9 +135,12 @@ def test_studio_names_each_missing_driver(tmp_path, monkeypatch):
     import agent_e2e_studio_arc as studio
     ctx = ctx_for(tmp_path, 'local-docker', 'studio')
     stage = studio.arc_stage(ctx)
-    monkeypatch.delitem(sys.modules, 'agent_browser_studio', raising=False)
+    # A None entry makes the import raise ImportError, whether or not the module exists on this tree
+    # (#1162's browser has merged to trunk; the built-in assistant driver is #1188's).
+    monkeypatch.setitem(sys.modules, 'agent_browser_studio', None)
     assert '#1162' in stage.unavailable(ctx)
     monkeypatch.setitem(sys.modules, 'agent_browser_studio', types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, 'agent_e2e_console_assistant', None)
     assert 'agent_e2e_console_assistant' in stage.unavailable(ctx)
     assert stage.sign_in_probe(type('C', (), {'slot': R.Slot('local-docker', 'vm', 'arc-abcdef1234',
                                                              facts={'consoleBaseUrl': 'x'})})())['ok'] is False
