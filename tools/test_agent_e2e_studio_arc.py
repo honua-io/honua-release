@@ -136,3 +136,13 @@ def test_shared_project_drivers_get_distinct_fixture_names():
     two = case_namespace('p08', '/home/eval/case-2')
     assert one != two and len(one) <= 36
     assert one == case_namespace('p08', '/home/eval/case-1')
+
+
+def test_action_rows_retain_recorded_outcomes_and_exclude_customer_polling():
+    from agent_e2e_studio_arc import scored_actions
+    rows = [{'kind': 'tool_call', 'tool': 'studio_chat_observe', 'arguments': {}},
+            {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}}]
+    result = scored_actions('console-assistant', rows, [{'status': 'pass'}, {'status': 'fail'}])
+    assert result == [{'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}, 'status': 'fail'}]
+    with pytest.raises(ValueError, match='action evidence'):
+        scored_actions('arm-browser', rows, [{'status': 'pass'}])

@@ -157,6 +157,20 @@ def driver_assertions(driver, cases):
     return [{**row, 'assertion': driver + ':' + row['assertion']} for row in case_assertions(cases)]
 
 
+def scored_actions(driver, actions, receipts):
+    """Join private requests to their runner-recorded outcomes before filtering."""
+    if len(actions) != len(receipts):
+        raise ValueError('Studio action evidence is incomplete')
+    joined = []
+    for action, receipt in zip(actions, receipts):
+        if receipt.get('status') not in ('pass', 'fail', 'unknown'):
+            raise ValueError('Studio action evidence has an invalid outcome')
+        if driver == 'console-assistant' and str(action.get('tool', '')).startswith('studio_'):
+            continue
+        joined.append({**action, 'status': receipt['status']})
+    return joined
+
+
 RESTORED_PACK = Path('/home/mike/honua-io/handoffs/rc2-lanes/pack.v2.AB-only.json')
 RESTORED_PACK_DIGEST = 'sha256:62f6f3361a781817f50524a7c78bf2c1369e00344a8d711f378ae75fbdd6d6a6'
 
@@ -265,12 +279,9 @@ def arc_stage(ctx):
                 for directory in runtime.workdirs:
                     runner.export_case_evidence(directory, target / 'export', runtime._secrets)
                     selected = services.private_actions(Path(directory))
-                    if driver == 'console-assistant':
-                        # Customer typing, navigation and polling remain in the case evidence;
-                        # only the assistant's dispatched product tools are model actions.
-                        selected = [action for action in selected
-                                    if not str(action.get('tool', '')).startswith('studio_')]
-                    actions.extend(selected)
+                    outcomes = [action for entry in receipt.get('sessions', [])
+                                for action in entry.get('actions', [])]
+                    actions.extend(scored_actions(driver, selected, outcomes))
                 answer = runtime.answers.get(context.slot.project)
                 if isinstance(answer, str):
                     answers.append(answer)
