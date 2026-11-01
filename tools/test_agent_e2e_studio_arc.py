@@ -34,6 +34,7 @@ def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectation
                               candidate={'development': False})
     fixture, case = select_arc_case(context, context.case['goals']['studio'] + '\nPrevious model handoff')
     assert fixture == 'B' and case['prompts']['B'] == context.case['goals']['studio']
+    assert 'sharing' in __import__('agent_e2e_studio_arc').fixture_requirements(context.case['fixtures'], 'P08')
     with pytest.raises(ValueError, match='not bound'):
         select_arc_case(context, 'unrelated request')
     for scenario in ('P08', 'P09', 'P24'):
@@ -123,13 +124,13 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
     assert stack.extra['studioSigningKey'] == 'x' * 48
     import base64
     readers = stack.extra['studioReaderSubjects']
-    assert len(set(readers.values())) == 2
+    assert len(set(readers.values())) == 1
     tokens = [value for value in runtime._secrets if isinstance(value, str) and value.startswith('Bearer ')]
     claims = [json.loads(base64.urlsafe_b64decode((payload := token.split('.')[1]) + '=' * (-len(payload) % 4)))
               for token in tokens]
     assert {row['sub'] for row in claims} == set(readers.values())
     assert all(row['scope'] == 'honua.mcp.read' for row in claims)
-    assert {row['sub']: row['roles'] for row in claims} == {readers['colleague']: ['operator'], readers['outsider']: ['reader']}
+    assert {row['sub']: row['roles'] for row in claims} == {readers['colleague']: ['operator']}
     assert callable(stack.extra['startConsole']) and callable(stack.extra['ensureConnection'])
     assert calls[0][1] == ['admin:write']
     assert runtime.pack_sha256 == 'sha256:' + 'b' * 64

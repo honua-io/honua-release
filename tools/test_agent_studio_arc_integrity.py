@@ -81,17 +81,16 @@ def test_style_label_and_unsupported_goal_negatives():
             'mapSpec': map_spec(True)}
     records = {'p08-version': record({'data': {'envelope': {'body': body}}}, '2026-11-01T00:00:00Z'),
                'p08-render': record({'visibleLabelSourceIds': label_ids('P09', 'A')}, '2026-11-01T00:00:00Z')}
-    def scores(goal):
-        return {r['assertion']: r['status'] for r in score_goal(records, goal, 'A')}
-    assert set(scores('style and labels').values()) == {'pass'}
+    def scores(requirements):
+        return {r['assertion']: r['status'] for r in score_goal(records, requirements, 'A')}
+    assert set(scores({'style', 'labels'}).values()) == {'pass'}
     body['mapSpec']['layers'][1]['paint']['fill-color'] = '#ff0000'
     records['p08-version'] = record({'data': {'envelope': {'body': body}}}, '2026-11-01T00:00:00Z')
-    assert scores('style and labels')['goal.authored-style'] == 'fail'
-    assert scores('share with operators')['goal.sharing'] == 'fail'
-    assert scores('filter only parcels')['goal.filters'] == 'fail'
-    assert scores('make it red')['goal.unsupported-colour'] == 'fail'
+    assert scores({'style', 'labels'})['goal.authored-style'] == 'fail'
+    assert scores({'sharing'})['goal.sharing'] == 'fail'
+    assert scores({'filter'})['goal.filters'] == 'fail'
     records['p08-render'] = record({'visibleLabelSourceIds': []}, '2026-11-01T00:00:00Z')
-    assert scores('labels')['goal.labels'] == 'fail'
+    assert scores({'labels'})['goal.labels'] == 'fail'
 
 
 def test_browser_gate_records_native_create_and_save(tmp_path):
@@ -125,8 +124,7 @@ def test_supported_filter_requires_both_saved_rules_and_rendered_labels():
             'mapSpec': map_spec(True, filtered=True)}
     records = {'p08-version': record({'data': {'envelope': {'body': body}}}, '2026-11-01T00:00:00Z'),
                'p08-render': record({'visibleLabelSourceIds': label_ids('P24', 'A')}, '2026-11-01T00:00:00Z')}
-    goal = 'Show only open shelters with capacity over 50'
-    def checks(): return {r['assertion']: r['status'] for r in score_goal(records, goal, 'A')}
+    def checks(): return {r['assertion']: r['status'] for r in score_goal(records, {'filter'}, 'A')}
     assert checks()['goal.filters'] == 'pass'
     assert checks()['goal.labels'] == 'pass'
     body['mapSpec']['layers'][-1].pop('filter')
@@ -134,18 +132,18 @@ def test_supported_filter_requires_both_saved_rules_and_rendered_labels():
     assert checks()['goal.filters'] == 'fail'
 
 
-def test_unrecognized_goal_fails_closed_even_when_map_is_correct():
-    rows = score_goal({}, 'Add a buildings layer as well', 'A', recognized=False)
-    assert any(row['assertion'] == 'goal.unsupported-instructions' and row['status'] == 'fail' for row in rows)
-
-
-def test_recognized_development_goals_are_pinned_to_fixture_variant():
-    from agent_e2e_studio_arc import STUDIO_GOAL_SHA256
-    from ai_arc_runner import ARC_PATH
-    arc = json.loads(ARC_PATH.read_text())
-    goals = arc['targets']['local-docker']['goals']['studio']
-    assert {variant: hashlib.sha256(goal.encode()).hexdigest() for variant, goal in goals.items()} == STUDIO_GOAL_SHA256
-    assert STUDIO_GOAL_SHA256['A'] != STUDIO_GOAL_SHA256['B']
+def test_fixture_requirements_are_digest_pinned_and_unknown_fails(tmp_path):
+    from agent_e2e_studio_arc import fixture_requirements, REQUIREMENTS_PATH
+    from ai_arc_runner import RUNNER_FILES
+    assert fixture_requirements('town-A', 'P08') == frozenset({'layers', 'style', 'labels', 'sharing'})
+    assert fixture_requirements('town-B', 'P08') == fixture_requirements('town-A', 'P08')
+    with pytest.raises(ValueError, match='requirements'):
+        fixture_requirements('unknown', 'P08')
+    bad = tmp_path / 'requirements.json'
+    bad.write_bytes(REQUIREMENTS_PATH.read_bytes() + b' ')
+    with pytest.raises(ValueError, match='digest'):
+        fixture_requirements('town-A', 'P08', path=bad)
+    assert 'certification/ai-arc/studio-fixture-requirements.json' in RUNNER_FILES
 
 
 def test_publication_requires_active_exact_public_version():
@@ -168,12 +166,6 @@ def test_publication_requires_active_exact_public_version():
     route['policy']['share']['allowAnonymous'] = True
     page['nextCursor'] = 'another-page'
     assert not public_publication(records())
-
-
-def test_open_map_is_not_a_filter_but_open_shelters_are():
-    from agent_e2e_studio_arc import requests_filter
-    assert not requests_filter('Let the operator team open it')
-    assert requests_filter('Show open shelters with room for more than 50 people')
 
 
 def test_p08_never_seeds_a_saved_map(monkeypatch):
@@ -214,30 +206,33 @@ def test_other_principal_mcp_edit_between_ui_create_and_save_fails(tmp_path):
     assert ui_provenance(records, rows, customer, unrelated)
 
 
-def test_sharing_requires_authenticated_colleague_and_denied_outsider():
+def test_sharing_requires_team_publication_colleague_and_anonymous_denial():
     from agent_e2e_studio_arc import sharing_from_records
     version = {'itemId': 'item', 'versionId': 'version', 'contentHash': 'hash'}
-    def response(body, principal, identity, status=200, path='/api/v1/studio/content-items/item/versions/version'):
+    path = '/api/v1/studio/published/team/map'
+    def response(body, principal, identity, status=200, route=path):
         row = record(body, '2026-11-01T00:00:00Z')
-        row.principal, row.principal_id, row.status, row.path = principal, identity, status, path
+        row.principal, row.principal_id, row.status, row.path = principal, identity, status, route
         row.method, row.phase, row.origin = 'GET', 'observe', 'controller'
         return row
+    artifact = {**version, 'publicationId': 'request', 'visibility': 'team'}
+    publication = {'itemId': 'item', 'versionId': 'version', 'requestId': 'request',
+                   'status': 'Accepted', 'intent': {'route': '/team/map', 'visibility': 'team'}}
     records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z'),
-        'studio-share-colleague-auth': response({}, 'agent-user', 'colleague', path='/api/v1/studio/content-items?family=map&limit=1'),
-        'studio-share-outsider-auth': response({}, 'agent-user', 'outsider', path='/api/v1/studio/content-items?family=map&limit=1'),
-        'studio-share-colleague': response({'data': version}, 'agent-user', 'colleague'),
-        'studio-share-outsider': response({}, 'agent-user', 'outsider', 403),
+        'p08-maps': record({'data': {'items': [{'itemId': 'item', 'publishedVersionId': 'version'}]}}, '2026-11-01T00:00:00Z'),
+        'studio-share-publication': response({'data': publication}, 'controller', 'admin', route='/api/v1/studio/content-items/item/versions/version/publish-requests/request'),
+        'studio-share-controller': response({'data': artifact}, 'controller', 'admin'),
+        'studio-share-colleague-auth': response({}, 'agent-user', 'colleague', route='/api/v1/studio/content-items?family=map&limit=1'),
+        'studio-share-colleague': response({'data': artifact}, 'agent-user', 'colleague'),
         'studio-share-anonymous': response({}, 'anonymous', None, 401)}
     assert sharing_from_records(records)
-    records['studio-share-outsider'].path = '/different'
+    records['studio-share-anonymous'].status = 200
     assert not sharing_from_records(records)
-    records['studio-share-outsider'].path = records['studio-share-colleague'].path
-    records['studio-share-outsider'].status = 200
+    records['studio-share-anonymous'].status = 401
+    records['p08-maps'] = record({'data': {'items': [{'itemId': 'item'}]}}, '2026-11-01T00:00:00Z')
     assert not sharing_from_records(records)
-    records['studio-share-outsider'].status = 403
-    records['studio-share-colleague'] = response({'data': {'itemId': 'item', 'versionId': 'other', 'contentHash': 'hash'}}, 'agent-user', 'colleague')
-    assert not sharing_from_records(records)
-    records['studio-share-outsider-auth'].status = 401
+    records['p08-maps'] = record({'data': {'items': [{'itemId': 'item', 'publishedVersionId': 'version'}]}}, '2026-11-01T00:00:00Z')
+    records['studio-share-publication'] = response({'data': {**publication, 'intent': {'route': '/team/map', 'visibility': 'public'}}}, 'controller', 'admin', route='/api/v1/studio/content-items/item/versions/version/publish-requests/request')
     assert not sharing_from_records(records)
 
 
@@ -287,23 +282,64 @@ def test_recording_proxy_cannot_forward_removed_studio_mutation(tmp_path):
         proxy.server.server_close()
 
 
-def test_sharing_probe_uses_distinct_users_and_restores_credentials(monkeypatch):
+def test_unpublished_probe_checks_colleague_and_restores_credentials(monkeypatch):
     import os
     from agent_e2e_studio_arc import probe_sharing
     version = {'itemId': 'item', 'versionId': 'version', 'contentHash': 'hash'}
     class Recorder:
         def __init__(self):
-            self.records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z')}
+            self.records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z'),
+                'p08-maps': record({'data': {'items': [{'itemId': 'item'}]}}, '2026-11-01T00:00:00Z')}
             self.principals = {'agent-user': ('previous-env', 'customer')}
             self.calls = []
         def json(self, step, method, path, principal):
             self.calls.append((step, principal, self.principals.get(principal),
                                os.environ.get('HONUA_ARC_STUDIO_READER_BEARER')))
     monkeypatch.setenv('HONUA_ARC_STUDIO_READER_BEARER', 'previous')
-    stack = SimpleNamespace(extra={'studioReaderSubjects': {'colleague': 'user-one', 'outsider': 'user-two'}})
+    stack = SimpleNamespace(extra={'studioReaderSubjects': {'colleague': 'user-one'}})
     recorder = Recorder()
     probe_sharing(recorder, stack, lambda subject, role: 'token-' + subject + '-' + role)
-    assert recorder.calls[0][2][1] == 'user-one' and recorder.calls[2][2][1] == 'user-two'
+    assert recorder.calls[0][2][1] == 'user-one' and recorder.calls[1][2][1] == 'user-one'
     assert recorder.calls[-1][1] == 'anonymous'
     assert recorder.principals['agent-user'] == ('previous-env', 'customer')
     assert os.environ['HONUA_ARC_STUDIO_READER_BEARER'] == 'previous'
+
+
+def test_team_sharing_probe_discovers_controller_observed_publication(monkeypatch):
+    from agent_e2e_studio_arc import probe_sharing, sharing_from_records
+    version = {'itemId': 'item', 'versionId': 'version', 'contentHash': 'hash'}
+    artifact = {**version, 'publicationId': 'req', 'visibility': 'team'}
+    event = {'auditId': 1, 'action': 'operation.completed', 'outcome': 'Success',
+             'resourceType': 'operation_instance', 'resourceId': 'op_1',
+             'details': 'operationId=studio.content.create-publication-request;status=Completed'}
+    class Recorder:
+        def __init__(self):
+            self.records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z'),
+                'p08-maps': record({'data': {'items': [{'itemId': 'item', 'publishedVersionId': 'version'}]}}, '2026-11-01T00:00:00Z'),
+                'studio-audit-before-0': record({'items': []}, '2026-11-01T00:00:00Z'),
+                'studio-audit-after-0': record({'items': [event]}, '2026-11-01T00:00:00Z')}
+            self.principals = {'agent-user': ('original', 'owner')}
+        def json(self, step, method, path, principal='controller'):
+            if step.startswith('studio-share-handle-'):
+                body = {'data': {'operationInstanceId': 'op_1', 'operationId': 'studio.content.create-publication-request',
+                    'status': 'Completed', 'resourceIds': {'itemId': 'item', 'versionId': 'version', 'requestId': 'req'}}}
+            elif step == 'studio-share-publication':
+                body = {'data': {'requestId': 'req', 'itemId': 'item', 'versionId': 'version', 'status': 'Accepted',
+                                 'intent': {'route': '/team/map', 'visibility': 'team'}}}
+            elif step in ('studio-share-controller', 'studio-share-colleague'):
+                body = {'data': artifact}
+            else:
+                body = {}
+            row = record(body, '2026-11-01T00:00:00Z')
+            row.principal, row.principal_id = principal, self.principals.get(principal, (None, None))[1]
+            row.method, row.path, row.phase, row.origin = method, path, 'observe', 'controller'
+            row.status = 401 if step == 'studio-share-anonymous' else 200
+            self.records[step] = row
+    rec = Recorder()
+    stack = SimpleNamespace(extra={'studioReaderSubjects': {'colleague': 'colleague'}})
+    probe_sharing(rec, stack, lambda subject, role: 'token')
+    assert sharing_from_records(rec.records)
+    assert rec.records['studio-share-controller'].path == '/api/v1/studio/published/team/map'
+    assert rec.principals['agent-user'] == ('original', 'owner')
+    rec.records['studio-share-anonymous'].status = 200
+    assert not sharing_from_records(rec.records)

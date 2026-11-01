@@ -11,8 +11,8 @@ from agent_e2e_studio_customer_session import MODEL
 
 CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/manifest.v1.json'
 CORPUS_MANIFEST_SHA256 = '166fad2a58cdfb5560882181a1c0afe04b81442401a1b465d28d6dc9710f846e'
-STUDIO_GOAL_SHA256 = {'A': 'f79e6d0becd0f7fbcbffe29742530d714e818368b8fc9ac78965cc8ef3d2f945',
-                      'B': 'c05933ddd8890090323712acb27f4fce4c859922cfc1f2f89970a2c5c54d6e88'}
+REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / 'certification/ai-arc/studio-fixture-requirements.json'
+REQUIREMENTS_SHA256 = '2d1068e996fa501a0e3742ccf7aaa4da98ea6040e58b33e6eae18dc21e3e7687'
 
 
 def _instant(value):
@@ -158,51 +158,100 @@ def ui_provenance(records, session_rows, customer, handle_lookup):
 
 
 def sharing_from_records(records):
-    """Require a distinct authenticated colleague and outsider on the exact saved version."""
-    from agent_browser_studio import version_path
+    """Verify an active team/org publication and live colleague/anonymous reads."""
+    from agent_e2e_studio_observer import route_path
     version = _record(records, 'p08-version')['data']
-    expected_path = version_path(version.get('itemId'), version.get('versionId'))
+    rows = _record(records, 'p08-maps')['data']['items']
+    current = [row for row in rows if row.get('itemId') == version.get('itemId')]
+    request = _record(records, 'studio-share-publication')['data']
+    intent = request.get('intent') if isinstance(request, dict) else None
+    visibility = intent.get('visibility') if isinstance(intent, dict) else None
+    visibility = visibility.strip().casefold() if isinstance(visibility, str) else None
+    if not (len(current) == 1 and current[0].get('publishedVersionId') == version.get('versionId')
+            and isinstance(intent, dict) and visibility in ('team', 'organization')
+            and request.get('status') == 'Accepted' and request.get('itemId') == version.get('itemId')
+            and request.get('versionId') == version.get('versionId')):
+        return False
+    path = route_path(intent.get('route'))
+    request_id = request.get('requestId')
+    from agent_browser_studio import version_path
+    if (not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,80}', request_id)
+            or records['studio-share-publication'].path != version_path(version['itemId'], version['versionId']) + '/publish-requests/' + request_id
+            or any(records[name].method != 'GET' or records[name].phase != 'observe'
+                   for name in ('studio-share-publication', 'studio-share-controller'))):
+        return False
+    controller = _record(records, 'studio-share-controller')['data']
     colleague = records['studio-share-colleague']
-    outsider = records['studio-share-outsider']
     anonymous = records['studio-share-anonymous']
-    auth_colleague = records['studio-share-colleague-auth']
-    auth_outsider = records['studio-share-outsider-auth']
-    if not (colleague.principal == outsider.principal == auth_colleague.principal == auth_outsider.principal == 'agent-user'
-            and anonymous.principal == 'anonymous' and colleague.principal_id and outsider.principal_id
-            and colleague.principal_id != outsider.principal_id
-            and colleague.principal_id == auth_colleague.principal_id
-            and outsider.principal_id == auth_outsider.principal_id
-            and auth_colleague.status == auth_outsider.status == 200 and colleague.status == 200
-            and outsider.status in (401, 403, 404) and anonymous.status in (401, 403, 404)
-            and colleague.path == outsider.path == anonymous.path == expected_path
-            and auth_colleague.path == auth_outsider.path == '/api/v1/studio/content-items?family=map&limit=1'
+    auth = records['studio-share-colleague-auth']
+    if not (colleague.principal == auth.principal == 'agent-user' and colleague.principal_id
+            and colleague.principal_id == auth.principal_id and anonymous.principal == 'anonymous'
+            and auth.status == 200 and colleague.status == 200 and anonymous.status in (401, 403)
+            and colleague.path == anonymous.path == records['studio-share-controller'].path == path
+            and auth.path == '/api/v1/studio/content-items?family=map&limit=1'
             and all(r.method == 'GET' and r.phase == 'observe' and r.origin == 'controller'
-                    for r in (colleague, outsider, anonymous, auth_colleague, auth_outsider))
+                    for r in (colleague, anonymous, auth))
             and all(r.sha256 == 'sha256:' + hashlib.sha256(r.raw).hexdigest()
-                    for r in (colleague, outsider, anonymous, auth_colleague, auth_outsider))):
+                    for r in (colleague, anonymous, auth))):
         return False
     data = colleague.json.get('data', {}) if isinstance(colleague.json, dict) else {}
-    return all(isinstance(version.get(k), str) and version[k] and data.get(k) == version[k]
-               for k in ('itemId', 'versionId', 'contentHash'))
+    return (all(isinstance(version.get(k), str) and version[k] and
+                data.get(k) == controller.get(k) == version[k] for k in ('itemId', 'versionId', 'contentHash'))
+            and data.get('publicationId') == controller.get('publicationId') == request.get('requestId')
+            and isinstance(data.get('visibility'), str) and isinstance(controller.get('visibility'), str)
+            and data['visibility'].strip().casefold() == controller['visibility'].strip().casefold() == visibility)
 
 
 def probe_sharing(recorder, stack, mint_reader):
-    """Perform scoped reads with two runner-minted users; no credentials reach the agent."""
+    """Use controller audit and reads to locate the real published Studio route."""
     import os
     from agent_browser_studio import version_path
+    from agent_e2e_studio_observer import route_path
     version = _record(recorder.records, 'p08-version')['data']
+    rows = _record(recorder.records, 'p08-maps')['data']['items']
+    match = [row for row in rows if row.get('itemId') == version['itemId']]
+    published = len(match) == 1 and match[0].get('publishedVersionId') == version['versionId']
     path = version_path(version['itemId'], version['versionId'])
+    if published:
+        before, after = _events(recorder.records, 'before'), _events(recorder.records, 'after')
+        candidates = [event for key, event in after.items() if key not in before
+                      and event.get('action') == 'operation.completed' and event.get('outcome') == 'Success'
+                      and event.get('resourceType') == 'operation_instance'
+                      and event.get('details', '').split(';')[:2] ==
+                          ['operationId=studio.content.create-publication-request', 'status=Completed']]
+        if len(candidates) > 50:
+            raise ValueError('too many Studio publication operations')
+        found = []
+        for event in candidates:
+            op = event.get('resourceId')
+            if not isinstance(op, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', op):
+                raise ValueError('invalid Studio publication handle')
+            step = 'studio-share-handle-' + hashlib.sha256(op.encode()).hexdigest()[:32]
+            recorder.json(step, 'GET', '/api/v1/operations/handles/' + op)
+            handle = _record(recorder.records, step)['data']
+            ids = handle.get('resourceIds', {})
+            if (handle.get('status') == 'Completed' and handle.get('operationId') == 'studio.content.create-publication-request'
+                    and handle.get('operationInstanceId') == op and ids.get('itemId') == version['itemId']
+                    and ids.get('versionId') == version['versionId'] and isinstance(ids.get('requestId'), str)):
+                found.append(ids['requestId'])
+        if len(found) != 1 or not re.fullmatch(r'[A-Za-z0-9-]{1,80}', found[0]):
+            raise ValueError('saved map has no unique controller-observed publication')
+        recorder.json('studio-share-publication', 'GET', path + '/publish-requests/' + found[0])
+        request = _record(recorder.records, 'studio-share-publication')['data']
+        intent = request.get('intent') if isinstance(request, dict) else None
+        if not isinstance(intent, dict):
+            raise ValueError('publication intent is unavailable')
+        path = route_path(intent.get('route'))
+        recorder.json('studio-share-controller', 'GET', path)
     old_entry = recorder.principals.get('agent-user')
     env = 'HONUA_ARC_STUDIO_READER_BEARER'
     old_token = os.environ.get(env)
     try:
-        for name in ('colleague', 'outsider'):
-            subject = stack.extra['studioReaderSubjects'][name]
-            token = mint_reader(subject, 'operator' if name == 'colleague' else 'reader')
-            os.environ[env] = token
-            recorder.principals['agent-user'] = (env, subject)
-            recorder.json('studio-share-' + name + '-auth', 'GET', '/api/v1/studio/content-items?family=map&limit=1', principal='agent-user')
-            recorder.json('studio-share-' + name, 'GET', path, principal='agent-user')
+        subject = stack.extra['studioReaderSubjects']['colleague']
+        os.environ[env] = mint_reader(subject, 'operator')
+        recorder.principals['agent-user'] = (env, subject)
+        recorder.json('studio-share-colleague-auth', 'GET', '/api/v1/studio/content-items?family=map&limit=1', principal='agent-user')
+        recorder.json('studio-share-colleague', 'GET', path, principal='agent-user')
         recorder.json('studio-share-anonymous', 'GET', path, principal='anonymous')
     finally:
         if old_entry is None:
@@ -243,18 +292,30 @@ def public_publication(records):
     return len(matches) == 1 and isinstance(matches[0], str) and bool(matches[0])
 
 
-def requests_filter(goal):
-    return bool(re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed)\b'
-                          r'|\bopen\s+shelters?\b', goal, re.I))
+def fixture_requirements(fixture_id, scenario, *, path=REQUIREMENTS_PATH):
+    if not isinstance(fixture_id, str) or not isinstance(scenario, str):
+        raise ValueError('invalid Studio fixture requirements key')
+    raw = Path(path).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != REQUIREMENTS_SHA256:
+        raise ValueError('Studio requirements digest mismatch')
+    doc = json.loads(raw)
+    rows = doc.get('fixtures', {}) if isinstance(doc, dict) and doc.get('schemaVersion') == 1 else {}
+    found = rows.get(fixture_id, {}).get(scenario) if isinstance(rows.get(fixture_id), dict) else None
+    permitted = {'layers', 'style', 'labels', 'filter', 'publication', 'sharing'}
+    if (not isinstance(found, list) or not found
+            or any(not isinstance(item, str) or item not in permitted for item in found)
+            or len(set(found)) != len(found)
+            or not {'layers', 'style', 'labels'} <= set(found)):
+        raise ValueError('fixture lacks frozen Studio requirements')
+    return frozenset(found)
 
 
-def score_goal(records, goal, variant, *, recognized=True):
+def score_goal(records, requirements, variant):
     """Score frozen authored properties; explicitly reject unsupported goal features."""
     from agent_browser_studio import package_body, style_from_body, map_spec, label_ids
     from agent_e2e_local_expectations import load_expected
     out = []
-    text = goal.casefold()
-    filter_requested = requests_filter(goal)
+    filter_requested = 'filter' in requirements
     def result(name, predicate, reason):
         out.append({'assertion': name, 'status': 'pass' if predicate else 'fail',
                     **({} if predicate else {'reason': reason})})
@@ -272,11 +333,7 @@ def score_goal(records, goal, variant, *, recognized=True):
         result('goal.authored-style', False, 'authored map style is unavailable or unsupported')
         result('goal.labels', False, 'saved label field or independent label render is unavailable')
         body = {}
-    if not recognized:
-        result('goal.unsupported-instructions', False,
-               'unsupported: the full goal has no frozen requirement interpretation')
     if filter_requested:
-        supported = ('open' in text and re.search(r'\b(capacity|room|hold)\b', text) and re.search(r'(?:over|above|more than|>)\s*50\b', text))
         layers = body.get('mapSpec', {}).get('layers', []) if isinstance(body.get('mapSpec'), dict) else []
         wanted = map_spec(True, filtered=True)['layers'][-1]['filter']
         shelter = [row for row in layers if isinstance(row, dict) and
@@ -286,24 +343,16 @@ def score_goal(records, goal, variant, *, recognized=True):
             visible = _record(records, 'p08-render').get('visibleLabelSourceIds') == label_ids('P24', variant)
         except Exception:
             visible = False
-        result('goal.filters', bool(supported and shelter and all(row.get('filter') == wanted for row in shelter) and visible),
+        result('goal.filters', bool(shelter and all(row.get('filter') == wanted for row in shelter) and visible),
                'unsupported filter or saved and rendered filter do not match the frozen fixture')
-    unsupported = [name for name, pattern in (
-        ('colour', r'\b(red|green|orange|purple|yellow|black|white)\b'),
-        ('export', r'\b(export|download|print|pdf|image file)\b'),
-        ('additional analysis', r'\b(buffer|heatmap|cluster|aggregate|calculate|geocode|500\s*met(?:re|er)s?)\b'))
-        if re.search(pattern, text)]
-    for name in unsupported:
-        result('goal.unsupported-' + name.replace(' ', '-'), False,
-               'unsupported requested requirement: ' + name)
-    if re.search(r'\b(public|publish|published|publishing)\b', text):
+    if 'publication' in requirements:
         try:
             published = public_publication(records)
         except Exception:
             published = False
         result('goal.publication', published,
                'active public publication for the exact saved version is unavailable')
-    if re.search(r'\b(share|shared|sharing|operator|operators|team|access|accessible)\b', text):
+    if 'sharing' in requirements:
         try:
             shared = sharing_from_records(records)
         except (KeyError, ValueError, TypeError):
@@ -340,6 +389,7 @@ def select_arc_case(context, prompt=None):
     if context.case is None:
         if context.variant not in ('A', 'B'):
             raise ValueError('invalid development variant')
+        fixture_requirements('town-' + context.variant, 'P08')
         variant, case = fixture_variant('town-' + context.variant, 'P08')
         if prompt is not None:
             goal = context.arc['targets'][context.target]['goals']['studio'][context.variant]
@@ -355,6 +405,7 @@ def select_arc_case(context, prompt=None):
     goal = goals.get('studio') if isinstance(goals, dict) else None
     if not isinstance(goal, str) or not goal.strip():
         raise ValueError('held-out Studio goal is unavailable')
+    fixture_requirements(context.case.get('fixtures'), 'P08')
     variant, case = fixture_variant(context.case.get('fixtures'), 'P08')
     if prompt is not None:
         if not isinstance(prompt, str) or goal not in prompt:
@@ -545,14 +596,12 @@ def studio_runtime_class():
                                                                    'studioGate': self.gate})
             self._prepare(stack, list(agent_permissions))
             import secrets
-            stack.extra['studioReaderSubjects'] = {'colleague': 'arc-colleague-' + secrets.token_hex(12),
-                                                   'outsider': 'arc-outsider-' + secrets.token_hex(12)}
-            readers = set(stack.extra['studioReaderSubjects'].values())
-            if len(readers) != 2 or readers & self.customer_subjects:
-                raise ValueError('Studio readers are not distinct customers')
-            # Mint at setup; later reads refresh the same subjects' short-lived tokens.
-            for name, subject in stack.extra['studioReaderSubjects'].items():
-                self.mint_reader(subject, 'operator' if name == 'colleague' else 'reader')
+            subject = 'arc-colleague-' + secrets.token_hex(12)
+            if subject in self.customer_subjects:
+                raise ValueError('Studio colleague is not a distinct customer')
+            stack.extra['studioReaderSubjects'] = {'colleague': subject}
+            # Mint at setup; later reads refresh the same subject's short-lived token.
+            self.mint_reader(subject, 'operator')
             self.stacks.append(stack)
             if getattr(self, 'initialize_studio_admission', False):
                 initialize_admission(stack.extra['recorder'])
@@ -745,6 +794,8 @@ def arc_stage(ctx):
                 if driver == 'arm-browser' and getattr(session, 'cli', None) is not None:
                     runtime.cli = session.cli
                 fixture, case = select_arc_case(context, prompt)
+                fixture_id = context.case['fixtures'] if context.case is not None else 'town-' + fixture
+                requirements = fixture_requirements(fixture_id, 'P08')
                 # Use the P09 authored-render oracle with P08's newly created map.
                 from agent_e2e_local_scenarios.P08 import P08
                 from agent_e2e_local_expectations import load_expected
@@ -758,7 +809,7 @@ def arc_stage(ctx):
                     def expected(self, variant):
                         expected = dict(super().expected(variant))
                         expected['render.actual'] = load_expected(
-                            'P24' if requests_filter(case['prompts'][variant]) else 'P09', variant)['render.actual']
+                            'P24' if 'filter' in requirements else 'P09', variant)['render.actual']
                         return expected
                 scenario = ArcStudioScenario()
                 try:
@@ -774,24 +825,20 @@ def arc_stage(ctx):
                 if stack and stack.extra.get('arcLineageVerified') is True:
                     receipt['studioServicesHandoff'] = stack.extra['arcServicesHandoff']
                 goal = case['prompts'][fixture]
-                if stack and re.search(r'\b(public|publish|published|publishing)\b', goal, re.I):
+                if stack and 'publication' in requirements:
                     try:
                         stack.extra['recorder'].json('studio-publications-0', 'GET',
                                                      '/api/v1/console/publications/?limit=200')
                         receipt['controllerRecords'] = stack.extra['recorder'].index()
                     except Exception:
                         pass  # Missing or incomplete controller evidence fails the assertion.
-                if stack and re.search(r'\b(share|shared|sharing|operator|operators|team|access|accessible)\b', goal, re.I):
+                if stack and 'sharing' in requirements:
                     try:
                         probe_sharing(stack.extra['recorder'], stack, runtime.mint_reader)
                         receipt['controllerRecords'] = stack.extra['recorder'].index()
                     except (KeyError, ValueError, OSError):
                         pass  # Unsupported sharing and failed probes remain scored failures.
-                # Interpret only fully frozen goals. An unknown request can
-                # contain requirements a keyword search would silently miss.
-                recognized = hashlib.sha256(goal.encode()).hexdigest() == STUDIO_GOAL_SHA256.get(fixture)
-                checks = score_goal(stack.extra['recorder'].records if stack else {}, goal, fixture,
-                                    recognized=recognized)
+                checks = score_goal(stack.extra['recorder'].records if stack else {}, requirements, fixture)
                 lineage = bool(stack and stack.extra.get('arcLineageVerified') is True)
                 checks.append({'assertion': 'goal.services-lineage', 'status': 'pass' if lineage else 'fail',
                                **({} if lineage else {'reason': 'stage-three verified service handoff unavailable'})})
