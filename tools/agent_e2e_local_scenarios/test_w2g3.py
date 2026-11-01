@@ -416,7 +416,7 @@ def test_p11_frozen_geometry_and_map_reject_wrong_state(variant):
         raw=json.dumps(data).encode(); argraw=json.dumps(args).encode() if args else None
         return Record(step,'observe',kind,principal,principal,'POST' if kind=='mcp' else 'GET',path,200,raw,
                       'sha256:'+hashlib.sha256(raw).hexdigest(),request_arguments_raw=argraw,origin=origin)
-    esri={'spatialReference':{'wkid':3857}}
+    feature_response={'spatialReference':{'wkid':3857}}
     result={'jsonrpc':'2.0','id':1,'result':{'isError':False,'structuredContent':{'returnedCount':1,'resultOffset':0,
         'exceededTransferLimit':False,'geojson':{'type':'FeatureCollection','features':[{'properties':{'source_id':facts['sourceId']},
         'geometry':{'type':'Polygon','coordinates':[ring]}}]}}}}
@@ -424,7 +424,7 @@ def test_p11_frozen_geometry_and_map_reject_wrong_state(variant):
     saved={'data':{'versionId':version,'envelope':{'body':{'view':{'bbox':rect,'crs':'EPSG:3857'},'layers':[{'id':child,'sourceId':service,'visible':True}]}}}}
     current={'data':{'total':1,'items':[{'itemId':item,'currentVersionId':version}]}}
     published={'jsonrpc':'2.0','id':2,'result':{'structuredContent':{'sourceJobId':job,'status':'Completed'}}}
-    records={'p11-result-esri':record('p11-result-esri','http',f'/rest/services/{service}/FeatureServer/{layer}/query?f=json',esri),
+    records={'p11-result-feature':record('p11-result-feature','http',f'/rest/services/{service}/FeatureServer/{layer}/query?f=json',feature_response),
              'p11-result-geojson':record('p11-result-geojson','mcp','/mcp#tools/call',result,args={'tool':'honua_query_features','arguments':{'serviceId':service,'layerId':layer}}),
              'p11-map-version':record('p11-map-version','http',f'/api/v1/studio/content-items/{item}/versions/{version}',saved),
              'p11-map-current':record('p11-map-current','http','/api/v1/studio/content-items?family=map',current),

@@ -1208,7 +1208,7 @@
       "spec": {
         "object": {
           "srid": {
-            "body": "p11-result-esri",
+            "body": "p11-result-feature",
             "pointer": "/spatialReference/wkid"
           },
           "sourceId": {
@@ -1222,7 +1222,7 @@
         }
       },
       "reads": {
-        "p11-result-esri": {
+        "p11-result-feature": {
           "kind": "http",
           "method": "GET",
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?.+",

@@ -113,7 +113,7 @@ class P11(Scenario):
             if len(layers) == 1 and type(layers[0].get('id')) is int:
                 layer = layers[0]['id']
                 from agent_e2e_p10_observer import source_path
-                recorder.json('p11-result-esri', 'GET', source_path({'service':service,'layerId':layer}))
+                recorder.json('p11-result-feature', 'GET', source_path({'service':service,'layerId':layer}))
                 recorder.mcp_call('p11-result-geojson', 'honua_query_features', {
                     'serviceId':service,'layerId':layer,'where':'1=1','outFields':['*'],
                     'limit':1000,'resultOffset':0,'returnGeometry':True,'outSrid':3857,'geometryPrecision':-1})
