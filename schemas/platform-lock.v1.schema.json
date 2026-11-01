@@ -202,7 +202,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["kind", "coordinate", "version", "sourceRevision"],
       "properties": {
-        "kind": {"enum": ["npm", "nuget", "wheel", "image", "oci-chart", "terraform", "spec", "archive", "other"]},
+        "kind": {"enum": ["npm", "nuget", "wheel", "image", "executor-image", "oci-chart", "terraform", "spec", "archive", "other"]},
         "coordinate": {"type": "string", "minLength": 1},
         "version": {"type": "string", "minLength": 1},
         "sourceRevision": {"$ref": "#/$defs/gitRevision"},
@@ -218,7 +218,7 @@
       "allOf": [
         {"if": {"properties": {"kind": {"const": "npm"}}}, "then": {"required": ["integrity"]}},
         {"if": {"properties": {"kind": {"enum": ["nuget", "wheel", "terraform", "spec", "archive"]}}}, "then": {"required": ["sha256"]}},
-        {"if": {"properties": {"kind": {"const": "image"}}}, "then": {"required": ["digest", "platformDigests", "architectures"]}},
+        {"if": {"properties": {"kind": {"enum": ["image", "executor-image"]}}}, "then": {"required": ["digest", "platformDigests", "architectures"]}},
         {"if": {"properties": {"kind": {"const": "oci-chart"}}}, "then": {"required": ["digest", "sha256", "architectures"]}}
       ]
     }

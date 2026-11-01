@@ -397,7 +397,7 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
             if not digest:
                 errors.append(f'{context}: cannot bind attestations without a published digest')
                 continue
-            if artifact['kind'] in {'image', 'oci-chart'}:
+            if artifact['kind'] in {'image', 'oci-chart', 'executor-image'}:
                 oci(name, artifact['coordinate'], digest, context,
                     component['source']['repository'], artifact.get('sourceRevision', ''),
                     data['components'][name])

@@ -144,6 +144,51 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     return {"kind": kinds.get(prefix, "other"), "coordinate": name or str(coordinate)}
 
 
+def _compose_executor(component: dict[str, Any], server: dict[str, Any] | None, path: str, refuse,
+                      image_inspector) -> dict[str, Any] | None:
+    """The product's Compose executor image (ARC v2 B1): the shipped quickstart package runs it beside the server.
+
+    Declared once, as ``components.honua-server.composeExecutor`` {image, digest, architectures, platformDigests,
+    artifactSourceRevision}. It is locked as its own explicitly typed ``executor-image`` artifact, digest-pinned
+    and bound to the serving image's source revision and version, and never as a second ``image`` row (every
+    consumer of the server image keeps its single-image identity)."""
+    declared = component.get("composeExecutor")
+    if not isinstance(declared, dict):
+        refuse(f"{path}: exactly one Compose executor image must be declared as a mapping", "MECHANICAL")
+        return None
+    image, digest = declared.get("image"), declared.get("digest")
+    if not isinstance(image, str) or "@" in image or ":" not in image.rsplit("/", 1)[-1]:
+        refuse(f"{path}.image: an immutable per-sha registry tag (repository:tag) is not declared", "AT-CUT")
+        return None
+    if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
+        refuse(f"{path}.digest: immutable registry digest is not declared", "AT-CUT")
+        return None
+    revision = declared.get("artifactSourceRevision")
+    server_revision = (server or {}).get("sourceRevision")
+    if not isinstance(revision, str) or not server_revision or revision != server_revision:
+        refuse(f"{path}.artifactSourceRevision: {revision!r} is not the serving image's source revision "
+               f"{server_revision!r}", "AT-CUT")
+        return None
+    if not (server or {}).get("version"):
+        refuse(f"{path}: the serving image's platform version is not bound", "AT-CUT")
+        return None
+    architectures = declared.get("architectures")
+    if not architectures:
+        refuse(f"{path}.architectures: registry architecture set is not declared", "AT-CUT")
+        return None
+    row = {"kind": "executor-image", "coordinate": image.rsplit(":", 1)[0], "version": server["version"],
+           "sourceRevision": revision, "digest": digest, "architectures": architectures}
+    try:
+        row["platformDigests"] = image_platform_digests(declared.get("platformDigests"), index_digest=digest,
+                                                        architectures=architectures)
+        if image_inspector is not None:
+            verify_image_platform_digests(row, image_inspector)
+    except (TypeError, ValueError) as exc:
+        refuse(f"{path}.platformDigests: {exc}", "AT-CUT")
+        return None
+    return row
+
+
 def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
              qualification=False, decision_overrides: Path | None = None) -> Draft:
     """Derive a draft; the CLI also requires live registry architecture verification."""
@@ -385,6 +430,10 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
                 else:
                     seed["version"] = platform_version
 
+        if name == PUBLISHER and "composeExecutor" in component:
+            executor = _compose_executor(component, seed, f"{cpath}.composeExecutor", refuse, image_inspector)
+            if executor:
+                entry["artifacts"].append(executor)
         for published in published_by_component[name]:
             if not seed or (published["kind"], published["coordinate"]) != (seed["kind"], seed["coordinate"]):
                 entry["artifacts"].append(published)

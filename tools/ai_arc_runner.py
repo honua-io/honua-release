@@ -669,34 +669,68 @@ def package_lock_for(arc: dict, cand: dict) -> dict:
 
 
 def observe_local_handoff(ctx: StageContext, answer: str | None) -> dict | None:
-    """Fetch each loopback URL on the slot's port that the answer gives the customer (anonymous GET)."""
+    """Fetch each loopback URL on the slot's ports that the answer gives the customer (anonymous GET): the serving
+    port, and for the shipped quickstart package also its management port (B1/S4: the package exposes the
+    manager's API and MCP endpoint, which a correct answer names). The management port is read through its own
+    runner-owned tunnel, opened only when the answer names it."""
     from urllib.parse import urlsplit
     from agent_e2e_handoff import URL, _url
     base, http = ctx.slot.controller.get('base_url'), ctx.options.get('http')
     if not base or http is None or not isinstance(answer, str):
         return None
-    port = str(ctx.slot.vm.http_port) if ctx.slot.vm else None
+    vm = ctx.slot.vm
+    bases = {str(vm.http_port): base} if vm else {}
+    manager = str(vm.manager_port) if vm is not None and getattr(vm, 'packaged', False) else None
+    opened = []
+
+    def base_for(port):
+        if port in bases:
+            return bases[port]
+        if port != manager:
+            return None
+        import ai_arc_local
+        tunnel = (ctx.options.get('handoff_tunnel') or ai_arc_local.Tunnel)(vm, int(port))
+        opened.append(tunnel)
+        bases[port] = tunnel.base_url
+        return bases[port]
     resources, probes = [], []
-    for raw in URL.findall(safety.clean_answer(answer))[:10]:
-        url = _url(raw)
-        parts = urlsplit(url or '')
-        if not url or (parts.hostname or '') not in ('localhost', '127.0.0.1', '::1') or str(parts.port) != port:
-            continue
-        path = (parts.path or '/') + (('?' + parts.query) if parts.query else '')
-        answer_row = http('GET', base + path, None)
-        hops = 0
-        # Follow same-origin redirects (e.g. the root sending a browser to sign-in), at most three.
-        while answer_row.get('status') in (301, 302, 303, 307, 308) and hops < 3:
-            target = urlsplit(answer_row.get('location') or '')
-            if target.netloc and (target.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
-                break
-            path = (target.path or '/') + (('?' + target.query) if target.query else '')
-            answer_row, hops = http('GET', base + path, None), hops + 1
-        status = answer_row.get('status')
-        ok = type(status) is int and 200 <= status <= 299
-        resources.append({'url': url, 'served': ok, 'httpStatus': status})
-        probes.append({'method': 'GET', 'url': url, 'worked': ok, 'httpStatus': status})
-    return {'resources': resources, 'accessProbes': probes, 'facts': {}}
+    try:
+        for raw in URL.findall(safety.clean_answer(answer))[:10]:
+            url = _url(raw)
+            parts = urlsplit(url or '')
+            if not url or (parts.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
+                continue
+            try:
+                origin = base_for(str(parts.port))
+            except Exception:  # noqa: BLE001  (an unreadable port is recorded, never guessed served)
+                resources.append({'url': url, 'served': False, 'httpStatus': None})
+                probes.append({'method': 'GET', 'url': url, 'worked': False, 'httpStatus': None})
+                continue
+            if origin is None:
+                continue
+            path = (parts.path or '/') + (('?' + parts.query) if parts.query else '')
+            answer_row = http('GET', origin + path, None)
+            hops = 0
+            # Follow same-origin redirects (e.g. the root sending a browser to sign-in), at most three.
+            while answer_row.get('status') in (301, 302, 303, 307, 308) and hops < 3:
+                target = urlsplit(answer_row.get('location') or '')
+                if target.netloc and (target.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
+                    break
+                path = (target.path or '/') + (('?' + target.query) if target.query else '')
+                answer_row, hops = http('GET', origin + path, None), hops + 1
+            status = answer_row.get('status')
+            ok = type(status) is int and 200 <= status <= 299
+            resources.append({'url': url, 'served': ok, 'httpStatus': status})
+            probes.append({'method': 'GET', 'url': url, 'worked': ok, 'httpStatus': status})
+    finally:
+        for tunnel in opened:
+            tunnel.close()
+    # The status the answer may claim for the stack ("serving") is the controller's own readiness read, never the
+    # answer's: the serving port's /healthz/ready answering 2xx (shakeout 11-01: an accurate "Serving API: ..."
+    # line was scored as an unobserved status).
+    ready = http('GET', base + '/healthz/ready', None)
+    serving = type(ready.get('status')) is int and 200 <= ready['status'] <= 299
+    return {'resources': resources, 'accessProbes': probes, 'facts': {'statuses': ['serving'] if serving else []}}
 
 
 class AwsSetup(DelegatingStage):
@@ -2784,10 +2818,9 @@ def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str 
     lock = json.loads(raw)
     component = lock['components']['honua-server']
     revision = (component.get('source') or {}).get('revision')
-    # The product's Compose executor image ships beside the server image in the same component (ARC v2 B1): in a
-    # release lock it is a schema-valid image artifact whose version names it (is_executor_artifact); it is never
-    # the candidate's serving image.
-    images = [a for a in component.get('artifacts', []) if a.get('kind') == 'image' and not is_executor_artifact(a)]
+    # The product's Compose executor ships beside the server in the same component as its own explicitly typed
+    # executor-image artifact (ARC v2 B1), so it is never one of the serving images.
+    images = [a for a in component.get('artifacts', []) if a.get('kind') == 'image']
     digests = [a.get('digest') for a in images]
     digest = candidate_digest or (digests[0] if len(digests) == 1 else None)
     if digest not in digests or not SHA.fullmatch(revision or ''):
@@ -2806,30 +2839,17 @@ def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str 
             'image': 'ghcr.io/honua-io/honua-server', **executor_image(component, development=False)}
 
 
-EXECUTOR_VERSION = re.compile(r'.*(?:^|[-+.])compose-executor$')
-
-
-def is_executor_artifact(artifact: dict) -> bool:
-    """A release platform lock (schemas/platform-lock.v1.schema.json) names the Compose executor as an ``image``
-    artifact of the honua-server component, published by honua-server under a ``compose-executor`` tag, so its
-    ``version`` ends in ``compose-executor`` (e.g. ``2026.1.0-rc.2-compose-executor``)."""
-    return artifact.get('kind') == 'image' and bool(EXECUTOR_VERSION.fullmatch(str(artifact.get('version') or '')))
-
-
 def executor_image(component: dict, development: bool) -> dict:
-    """The lock's product Compose executor image (the quickstart package's third image), when it names exactly one.
-    Development locks (ai_arc_dev_candidate.sh) carry a local ``executor-image`` row; release locks carry a
-    schema-valid ``image`` artifact (``coordinate`` + ``digest``) recognised by is_executor_artifact (Sol/Codex
-    review on #1208: the release lock contract has no ``executor-image`` kind and no ``reference``)."""
-    artifacts = component.get('artifacts', [])
-    if development:
-        rows = [a for a in artifacts if a.get('kind') == 'executor-image']
-        if len(rows) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', str(rows[0].get('digest', ''))):
-            return {}
-        return {'executorImage': rows[0]['digest']}           # a local image id on the eval hosts
-    rows = [a for a in artifacts if is_executor_artifact(a)]
+    """The lock's product Compose executor image (the quickstart package's third image), when exactly one
+    ``executor-image`` artifact names it. A release lock (tools/generate_platform_lock.py from
+    ``components.honua-server.composeExecutor``) carries its registry ``coordinate`` and index ``digest``; a
+    development lock (ai_arc_dev_candidate.sh) carries the local image id. Selected by that explicit kind only,
+    never by order, version or name."""
+    rows = [a for a in component.get('artifacts', []) if a.get('kind') == 'executor-image']
     if len(rows) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', str(rows[0].get('digest', ''))):
         return {}
+    if development:
+        return {'executorImage': rows[0]['digest']}           # a local image id on the eval hosts
     coordinate = str(rows[0].get('coordinate') or '')
     if not re.fullmatch(r'[a-z0-9][a-z0-9./-]*', coordinate):
         return {}
