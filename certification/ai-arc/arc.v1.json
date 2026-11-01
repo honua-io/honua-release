@@ -372,7 +372,7 @@
         "minArcPasses": 17
       },
       "customerNotes": {
-        "setup": "Release: Honua {release}. Server image: {image}. I already created the compose file, the secrets file and the key ring from the guide in the install folder, and the secrets file already names that exact server image, so please don't make new ones. Use port {port} for Honua on this machine; the port after it is free for the other one."
+        "setup": "Release: Honua {release}. Server image: {image}. I already created the compose file, the secrets file and the key ring from the guide in the install folder, and the secrets file already names that exact server image and sets Honua to port {port} on this machine (the port after it for the other one), so please don't make new ones or override them."
       }
     },
     "aws-ecs": {
