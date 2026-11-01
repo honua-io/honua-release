@@ -1,7 +1,7 @@
 {
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
-  "sha": "fb14b50eaf8f88a5b3e78815116e7852605f194b",
+  "sha": "8dc94aead8ac22ad146684c95a6ad40c54a04996",
   "total": 23,
   "files": {
     "artifacts/terminal-journey-issue-123.md": 1,
