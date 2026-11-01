@@ -1,24 +1,25 @@
 # ARC services fixture interface
 
-The fixture identifier selects the corpus data and its frozen expectations. It does not identify
-which task the customer requested. A trusted case-to-scenario assignment must accompany the
-in-memory goal; the runner never guesses a task from customer prose. Missing or unknown assignments
-and expectations fail closed before a session is started.
+`services-fixture-scenarios.json` is a committed fixture-to-scenario catalog. Its exact SHA-256
+is pinned in `agent_e2e_local_expectations.py`; it is also listed in `ai_arc_runner.RUNNER_FILES`.
+Catalog loading checks both digest and schema. The fixture ID alone selects every scenario and the
+corpus variant; the caller cannot select a scenario or change the query budget.
 
-| Fixture ID | Corpus variant | Scenario expectations available |
+| Fixture ID | Corpus variant | Scenarios |
 | --- | --- | --- |
-| town-A | A | P10, P12, P13 |
-| town-B | B | P10, P12, P13 |
+| town-A | A | P10, P15 |
+| town-B | B | P10, P15 |
 
-P07 has neither a scenario module nor frozen local expectations on this checkout; it is refused.
-P12 requires a server restart between sessions, which the current adopted ARC runtime refuses; the
-ARC adapter rejects it before starting a session. The catalog does
-not admit other fixture IDs, including fixtures without frozen expectations.
+The ARC owner integrates through `ai_arc_services.run_fixture_services`, passing the decrypted goal in
+memory as `goal`, plus `fixture_id` and `fault`. Unknown fixtures, missing expectations, and faults
+without a compatible scenario plan return a named model-category failure, before agent dispatch.
+The existing P10 and P15 scenarios publish fixtures as the controller, and neither defines a fault
+plan. Therefore the fixture entry point currently fails closed: it is not admission-ready. A
+successful implementation must import raw inputs, prove the agent published the service with its
+own recorded action and live readback, and inject a compatible fault before removing the guard.
 
-The ARC owner can call `ai_arc_services.run_services` with `goal`, `fixture_id` and the authoritative
-`scenario_id`, and `scenarios` containing exactly that ID. `variant` must agree with the catalog.
-The goal remains in memory until passed to the agent session; the runner substitutes it for the
-pack prompt and scores against the fixture's frozen expectations. The caller must not derive the
-scenario from arbitrary goal text, and is responsible for obtaining the assignment from an
-integrity-bound catalog. This interface does not install the manifest's fault: fault admission and
-injection require separate integration.
+P10 scores the last model query, including a failed or foreign final query, and records the count
+of all feature queries. The catalog freezes a limit of five; exceeding it fails the filter assertion.
+The runner replays only the selected sealed action with controller credentials and scores the
+result against the frozen oracle. P15 bootstrap custody remains in the case receipt as harness
+evidence; it is not agent-work credit.

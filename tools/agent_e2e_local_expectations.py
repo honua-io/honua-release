@@ -8,6 +8,7 @@ time. Nothing here is derived from a model run.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from pathlib import Path
 
@@ -57,20 +58,42 @@ def check_exclusion(scenario_id, assertion, value, target=TARGET):
 
 DIRECTORY = ROOT / 'certification/agent-e2e/expectations/local'
 
-# This catalog is an explicit admission allow-list, not an inference from goal text.
-# P07 cannot be admitted until both its scenario and frozen expectations land.
-ARC_FIXTURES = {
-    'town-A': {'variant': 'A', 'scenarios': ('P10', 'P12', 'P13')},
-    'town-B': {'variant': 'B', 'scenarios': ('P10', 'P12', 'P13')},
-}
+ARC_CATALOG = ROOT / 'certification/ai-arc/services-fixture-scenarios.json'
+ARC_CATALOG_SHA256 = '620989ddc5f9d6cc4126c5ca49f6f8f3cb865c09bcd5ea21375fa7c60cc6fc16'
+
+
+def fixture_catalog():
+    """Validate the exact committed selection and budget bytes before using them."""
+    raw = ARC_CATALOG.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != ARC_CATALOG_SHA256:
+        raise ValueError('services fixture catalog digest differs')
+    document = json.loads(raw)
+    if (set(document) != {'schemaVersion', 'fixtures', 'maxP10Queries'} or document['schemaVersion'] != 1
+            or type(document['maxP10Queries']) is not int or not 1 <= document['maxP10Queries'] <= 10
+            or not isinstance(document['fixtures'], dict)):
+        raise ValueError('invalid services fixture catalog')
+    for key, row in document['fixtures'].items():
+        if (not isinstance(key, str) or not isinstance(row, dict) or set(row) != {'variant', 'scenarios'}
+                or row['variant'] not in ('A', 'B') or not isinstance(row['scenarios'], list)
+                or not row['scenarios'] or len(set(row['scenarios'])) != len(row['scenarios'])
+                or any(s not in ('P10', 'P15') for s in row['scenarios'])):
+            raise ValueError('invalid services fixture entry')
+    return document
+
+
+def fixture_scenarios(fixture_id):
+    row = fixture_catalog()['fixtures'].get(fixture_id) if isinstance(fixture_id, str) else None
+    if row is None:
+        raise ValueError('unmapped services fixture')
+    return row['variant'], tuple(row['scenarios'])
 
 
 def fixture_variant(fixture_id, scenario_id):
     """Resolve an admitted fixture/scenario pair; never infer a scenario from customer prose."""
-    row = ARC_FIXTURES.get(fixture_id) if isinstance(fixture_id, str) else None
-    if row is None or scenario_id not in row['scenarios']:
+    variant, scenarios = fixture_scenarios(fixture_id)
+    if scenario_id not in scenarios:
         raise ValueError('no frozen expectations for this fixture and scenario')
-    return row['variant']
+    return variant
 
 
 def load_fixture_expected(fixture_id, scenario_id):
