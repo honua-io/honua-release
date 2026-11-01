@@ -609,6 +609,9 @@ def arc_stage(ctx):
                                 evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
                                                  'resultRawPath': str(directory / (stem + '.response'))})
                         recorder = stack.extra['recorder']
+                        for action in recorder.actions():
+                            if action.tool in ('studio_ui_create', 'studio_ui_save') and action.status == 'pass':
+                                recorder.action_result(f'studio-ui-response-{action.session}-{action.sequence}', action)
                         def handle_lookup(operation_id):
                             step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
                             if step not in recorder.records:
@@ -646,6 +649,17 @@ def arc_stage(ctx):
                     json.dumps(receipt, sort_keys=True).encode(), context.slot.harness_secrets))
                 for directory in runtime.workdirs:
                     runner.export_case_evidence(directory, target / 'export', runtime._secrets)
+                    # Preserve the runner's request evidence as well as the sealed
+                    # lifecycle responses exported with controller records.
+                    action_dir = target / 'export' / 'browser-actions'
+                    for path in sorted(Path(directory).glob('session-*/action-*.json')):
+                        selected_action = json.loads(path.read_bytes())
+                        if selected_action.get('tool') in ('studio_ui_create', 'studio_ui_save',
+                                                           'studio_click', 'studio_type', 'studio_press'):
+                            action_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                            name = path.parent.name + '-' + path.name
+                            runner.write_private(action_dir / name, redact_bytes(path.read_bytes(),
+                                [*context.slot.harness_secrets, *runtime._secrets]))
                     selected = services.private_actions(Path(directory))
                     outcomes = [action for entry in receipt.get('sessions', [])
                                 for action in entry.get('actions', [])]
