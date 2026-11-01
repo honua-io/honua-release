@@ -145,11 +145,11 @@ def stack_fixture(tmp_path, monkeypatch, variant='A'):
     return stack, candidate, vault
 
 
-def seal_publication(recorder, vault, tmp_path, state, *, foreign=False):
+def seal_publication(recorder, vault, tmp_path, state, *, foreign=False, route='/chosen-by-model'):
     # Same runtime-sealed ActionLog protocol as the trunk fake candidate tests.
     log = runner.ActionLog(tmp_path / 'actions', 1, {'honua_studio_propose_publication'}, 10)
     args = {k: state[k] for k in ('itemId', 'versionId', 'contentHash')}
-    args.update(route='/chosen-by-model', visibility='team')
+    args.update(route=route, visibility='team')
     if foreign:
         args['itemId'] = DRAFT
     log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_studio_propose_publication', 'arguments': args},
@@ -164,7 +164,8 @@ def p15_case(tmp_path, monkeypatch, variant='A', wrong=None):
     rec = stack.extra['recorder']
     candidate.wrong = wrong
     if wrong != 'no-action':
-        seal_publication(rec, vault, tmp_path, seeded.state, foreign=wrong == 'foreign-action')
+        seal_publication(rec, vault, tmp_path, seeded.state, foreign=wrong == 'foreign-action',
+                         route='/bad?query' if wrong == 'invalid-route' else '/chosen-by-model')
     candidate.published = wrong != 'unpublished'
     rec.set_phase('observe')
     observations = scenario.observe(stack, seeded, variant)
@@ -212,6 +213,13 @@ def test_p15_wrong_live_state_fails_real_oracle(tmp_path, monkeypatch, variant, 
     assert bad[assertion]['status'] == 'fail', bad[assertion]
     if wrong in ('anonymous-public', 'disclosure', 'source-change', 'bootstrap-live'):
         assert 'unrecorded' not in bad[assertion].get('reason', '')
+
+
+def test_p15_invalid_route_fails_publication_without_erasing_independent_evidence(tmp_path, monkeypatch):
+    result, _, _ = p15_case(tmp_path, monkeypatch, wrong='invalid-route')
+    assert result['publication.private']['status'] == 'fail'
+    assert result['source-content.unchanged']['status'] == 'pass'
+    assert result['custody.bootstrap-revoked']['status'] == 'pass'
 
 
 @pytest.mark.parametrize('wrong', ('admin-operator', 'wrong-version', 'wrong-hash', 'personal'))
