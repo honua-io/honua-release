@@ -60,7 +60,7 @@ class P10(Scenario):
         """The first query of the seeded layer, from the verified action log."""
         for action in actions:
             arguments = action.arguments if isinstance(action.arguments, dict) else {}
-            if (action.kind == 'tool_call' and action.tool == QUERY_TOOL
+            if (action.status == 'pass' and action.kind == 'tool_call' and action.tool == QUERY_TOOL
                     and str(arguments.get('serviceId')) == str(seeded.state['service'])
                     and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
                 return action
