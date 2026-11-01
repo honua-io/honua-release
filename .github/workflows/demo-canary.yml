@@ -8,7 +8,7 @@
 # against the ALWAYS-ON public demo deployment. Optional burn mode authenticates the selected candidate; it is
 # NOT wired as a release-train gate job. Its output (a versioned live-canary-evidence.json envelope) is
 # meant to be consumed/joined by honua-evidence (honua-io/honua-evidence#8), the same "produce evidence
-# out-of-band, consume it with freshness bounds" shape as the honua-esri-compat lane.
+# out-of-band, consume it with freshness bounds" shape as the former protocol evidence lane.
 #
 # Honesty (AGENTS.md): geocoding-latency is REPORT-ONLY (honua-server#2948, known-broken pending VPC
 # egress) and never fails the run. Every other check/probe can genuinely fail — and a failure that is

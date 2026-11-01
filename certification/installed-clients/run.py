@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 DEFAULT_MATRIX = Path(__file__).with_name("matrix.json")
 FLOATING = re.compile(r"(?:^|[-.])(latest|next|local|snapshot)(?:$|[-.])|[*^~<>]", re.I)
-DRIVERS = {"npm-companion", "npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget", "nuget-import-fidelity"}
+DRIVERS = {"npm-companion", "npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget"}
 # Regression drivers: a published SDK, command-line client or the MCP proxy drives the candidate
 # through a scenario contract (scenarios/*.json) with fixture-computed oracles (regression.py,
 # oracles.py).
@@ -45,7 +45,6 @@ FIXTURE_DB_PASSWORD = "honua"
 EXECUTABLE_CONTRACTS = {"help", "mcp-stdio", "mcp-proxy"}
 BLOCKER = re.compile(r"https://github\.com/honua-io/[A-Za-z0-9_.-]+/issues/[0-9]+")
 SETUP_BLOCKER = "https://github.com/honua-io/honua-sdk-js/issues/1875"
-IMPORT_BLOCKER = "https://github.com/honua-io/honua-release/issues/418"
 # A blocked cell is a declaration, not only a blocker link: who owns closing it, why it is blocked
 # and the release line that owes the fix (founder decision D6, 2026-10-26).
 DECLARATION_FIELDS = ("owner", "reason", "target")
@@ -68,7 +67,6 @@ GA_CLOUD_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
 NOT_APPLICABLE = "not-applicable"
 NUGET_ORG = "https://api.nuget.org/v3/index.json"
 DOTNET_PROBE = ROOT / "e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.cs"
-_IMPORT_FIDELITY = None
 _PROBES = None
 _REGRESSION = None
 
@@ -322,7 +320,6 @@ def install_npm(
 # the selected published archive and installed lock match the manifest identity.
 COMPANION_PROBES = {
     "honua-sdk": ("@honua/sdk", "assert.equal(typeof api.createHonua, 'function'); const client = api.createHonua(); await client.dispose();"),
-    "honua-sdk-esri-compat": ("@honua/sdk-esri-compat", "const graphic = new api.GraphicCompat({attributes: {id: 17}}); assert.equal(graphic.attributes.id, 17);"),
     "honua-react": ("@honua/react", "const React = await import('react'); const {renderToString} = await import('react-dom/server'); assert.equal(typeof api.useQuery, 'function'); assert.equal(renderToString(React.createElement(api.HonuaProvider, {client:{}}, React.createElement('span', null, 'installed-react'))), '<span>installed-react</span>');"),
     "honua-geometry": ("@honua/geometry", "assert.deepEqual(api.bbox({type:'Point', coordinates:[12,34]}), [12,34,12,34]);"),
     "honua-app-platform": ("@honua/app-platform", "const workspace = api.createHonuaAppWorkspace(); assert.ok(workspace.state); workspace.dispose();"),
@@ -586,19 +583,6 @@ def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
         if proc.returncode:
             return False, (proc.stdout + proc.stderr)[-2000:]
     return True, "exact PyPI wheel installed in an isolated target and sha256 matched"
-
-
-def _import_fidelity():
-    global _IMPORT_FIDELITY
-    if _IMPORT_FIDELITY is None:
-        path = Path(__file__).with_name("dotnet_import_fidelity.py")
-        spec = importlib.util.spec_from_file_location("dotnet_import_fidelity", path)
-        if spec is None or spec.loader is None:
-            raise CertificationError("could not load the .NET import-fidelity gate")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        _IMPORT_FIDELITY = module
-    return _IMPORT_FIDELITY
 
 
 def _regression():
@@ -867,15 +851,6 @@ def _interop() -> _Interop:
     return _INTEROP
 
 
-def evaluate_import_fidelity(manifest: dict[str, Any], receipt: dict[str, Any] | None) -> tuple[str, str]:
-    """Consume a published-SDK receipt. Missing evidence stays a fail; nothing is synthesized."""
-    try:
-        verdict = _import_fidelity().evaluate(manifest, receipt)
-    except Exception as exc:
-        return "fail", f"import fidelity gate could not evaluate the receipt: {exc}"
-    return verdict["status"], verdict["reason"]
-
-
 def ruled_declarations(path: Path = DECISION_OVERRIDES) -> dict[str, str]:
     """Cells a founder ruling accepts as declared limitations, mapped to the ruling's target.
 
@@ -1018,7 +993,6 @@ def run_cell(
     cell: dict[str, Any],
     manifest: dict[str, Any],
     work: Path,
-    import_fidelity_receipt: dict[str, Any] | None,
 ) -> tuple[str, str]:
     pins = manifest["clientArtifacts"]
     pin = pins[cell["artifact"]]
@@ -1046,10 +1020,6 @@ def run_cell(
         ok, detail = install_pypi(pin, work)
     elif driver == "nuget":
         ok, detail = install_nuget(pin, work)
-    elif driver == "nuget-import-fidelity":
-        if import_fidelity_receipt is None:
-            return f"blocked:{IMPORT_BLOCKER}", "no published-.NET-SDK consumer receipt; missing evidence is not a pass"
-        return evaluate_import_fidelity(manifest, import_fidelity_receipt)
     else:
         return "fail", f"no executor for driver {driver!r}"
     return ("pass" if ok else "fail"), detail
@@ -1145,7 +1115,6 @@ def execute(
     manifest: dict[str, Any],
     matrix: dict[str, Any],
     evidence_uri: str,
-    import_fidelity_receipt: dict[str, Any] | None = None,
     endpoint_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pins = manifest["clientArtifacts"]
@@ -1173,7 +1142,7 @@ def execute(
                 # The suite judges each step against the matrix itself (blocked steps included).
                 status, detail, steps = suite.get(cell["id"], ("fail", "the suite produced no result for this cell", []))
             else:
-                observed, detail = run_cell(cell, manifest, base / cell["id"], import_fidelity_receipt)
+                observed, detail = run_cell(cell, manifest, base / cell["id"])
                 status, detail = classify(cell, observed, detail)
             result = {
                 "cell": cell["id"], "operationId": cell["scenario"], "target": cell["driver"],
@@ -1219,11 +1188,6 @@ def main() -> int:
     target.add_argument("--live", action="store_true", help="boot and seed the single real server/PostgreSQL target")
     target.add_argument("--endpoint-context", type=Path,
                         help="private prepared endpoint context from the trusted provisioner; never boots Docker")
-    parser.add_argument(
-        "--import-fidelity-receipt",
-        type=Path,
-        help="receipt from a clean published .NET SDK consumer; omitted evidence fails that cell",
-    )
     args = parser.parse_args()
     try:
         manifest, matrix = load_inputs(args.manifest, args.matrix)
@@ -1243,14 +1207,6 @@ def main() -> int:
             raise CertificationError("--evidence-uri is required")
         if args.validate_only:
             return 0
-        import_fidelity_receipt = None
-        if args.import_fidelity_receipt:
-            try:
-                import_fidelity_receipt = json.loads(args.import_fidelity_receipt.read_text())
-            except (OSError, json.JSONDecodeError) as exc:
-                raise CertificationError(f"import fidelity receipt is not readable JSON: {exc}") from exc
-            if not isinstance(import_fidelity_receipt, dict):
-                raise CertificationError("import fidelity receipt must be a JSON object")
         if args.endpoint_context:
             import endpoint
             context = endpoint.read_context(args.endpoint_context)
@@ -1258,8 +1214,7 @@ def main() -> int:
             endpoint.require_client_transport(context)
             with endpoint.client_environment(context):
                 endpoint.verify_live_identity(context, manifest)
-                receipt = execute(manifest, matrix, args.evidence_uri,
-                                  import_fidelity_receipt=import_fidelity_receipt, endpoint_context=context)
+                receipt = execute(manifest, matrix, args.evidence_uri, endpoint_context=context)
                 endpoint.verify_live_identity(context, manifest)
             receipt = endpoint.redact_receipt(receipt, context, os.environ.get("E2E_API_KEY", ""))
         elif args.live:
@@ -1269,15 +1224,11 @@ def main() -> int:
                                       env={**os.environ, "E2E_PSQL": " ".join([*compose, "exec", "-T", "db", "psql", "-U", "honua", "-d", "honua"])})
                 if seed.returncode:
                     raise CertificationError("the immutable fixture could not be seeded")
-                receipt = execute(
-                    manifest, matrix, args.evidence_uri, import_fidelity_receipt=import_fidelity_receipt
-                )
+                receipt = execute(manifest, matrix, args.evidence_uri)
             finally:
                 subprocess.run([*compose, "down", "-v"], cwd=ROOT, capture_output=True)
         else:
-            receipt = execute(
-                manifest, matrix, args.evidence_uri, import_fidelity_receipt=import_fidelity_receipt
-            )
+            receipt = execute(manifest, matrix, args.evidence_uri)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(receipt, indent=2) + "\n")
         print(json.dumps(receipt, indent=2))

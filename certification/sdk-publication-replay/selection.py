@@ -2,8 +2,8 @@
 import copy
 import re
 
-SDK_FAMILY = ('honua-sdk-js', 'honua-sdk', 'honua-sdk-esri-compat',
-              'honua-react', 'honua-geometry', 'honua-app-platform')
+SDK_FAMILY = ('honua-sdk-js', 'honua-sdk', 'honua-react',
+              'honua-geometry', 'honua-app-platform')
 CLIENTS = (*SDK_FAMILY, 'honua-mcp-server', 'create-honua-app')
 PIN_FIELDS = ('version', 'sourceSha', 'integrity', 'filename', 'publicationState')
 

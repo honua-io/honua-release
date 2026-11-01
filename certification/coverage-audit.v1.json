@@ -1,6 +1,6 @@
 {
   "schema": "honua.coverage-audit-input/v1",
-  "revision": "2026-10-26.1",
+  "revision": "2026-10-31.1",
   "tracking_issue": "https://github.com/honua-io/honua-release/issues/652",
   "scope": "All governed rows inventoried; licensed desktop implementation remains external. Source review does not qualify a candidate or change supported scope. The bounded deeper reviews remain partial-source-review: sampled source assertions and existing proof obligations only, not exhaustive execution, AWS qualification or a new release gate.",
   "reviewed_sources": {
@@ -19,10 +19,6 @@
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
       "commit": "e1f3cd7163392bbb5abf7d1a21123e953a4e7c53"
-    },
-    "esri-compat": {
-      "repository": "honua-io/honua-esri-compat",
-      "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
     },
     "geospatial-mcp": {
       "repository": "honua-io/geospatial-mcp",
@@ -608,7 +604,6 @@
         ]
       },
       "sources": [
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/services/arcgis.py#L627",
         "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/runs/cli.py#L153",
         "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/runs/cli.py#L28"
       ],
@@ -927,7 +922,7 @@
       },
       "review_limits": [
         "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
-        "Existing NC01–12 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
+        "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
         "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
         "No fresh candidate or AWS qualification; no current CITE rate inferred from source. The 2026-10-18 supplement extends the bounded review to WCS/WPS/STAC/gRPC; source review remains partial."
       ],
@@ -1143,7 +1138,6 @@
           "kind": "confirmed existing implementation defect",
           "claim": "Source-service apply still collects all start responses before emitting; later start failure loses earlier queued IDs. Reconciliation CLI prints mismatched/partial and returns normally. Generic durable core is not wired to service adapters in reviewed source (register_executor has definition but no production registrations); its FakeExecutor tests cannot establish actual service resume.",
           "sources": [
-            "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/services/arcgis.py#L627",
             "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/runs/cli.py#L153",
             "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/runs/cli.py#L28"
           ],

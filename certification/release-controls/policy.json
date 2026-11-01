@@ -89,18 +89,6 @@
         "mikemcdougall"
       ]
     },
-    "honua-esri-compat": {
-      "release_refs": [
-        "refs/heads/release/*"
-      ],
-      "required_checks": [],
-      "tag_refs": [],
-      "check_qualification": "The contracts job runs on every pull_request, and it is failing on trunk as of 2026-10-30. A red context is not a release-line denominator.",
-      "tag_qualification": "publication tag namespace and signing applicability require qualification",
-      "code_owners": [
-        "mikemcdougall"
-      ]
-    },
     "honua-evidence": {
       "release_refs": [
         "refs/heads/release/*"

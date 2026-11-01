@@ -15,7 +15,6 @@ The 16 S1s are the release gate; 12 GitHub issues filed (collect's 5 sync facets
 | geospatial-grpc | 🔴 | 2 | 15 | 5 |
 | honua-console | 🔴 | 1 | 15 | 5 |
 | honua-devops | 🔴 | 1 | 14 | 6 |
-| honua-esri-compat | 🔴 | 1 | 25 | 8 |
 | honua-iac | 🔴 | 1 | 15 | 11 |
 | honua-sdk-python | 🔴 | 1 | 16 | 9 |
 | geospatial-mcp | 🔴 | 1 | 16 | 6 |
@@ -24,8 +23,6 @@ The 16 S1s are the release gate; 12 GitHub issues filed (collect's 5 sync facets
 | honua-sdk-dotnet | 🟡 | 0 | 13 | 11 |
 
 ## Cross-cutting themes (fix once, benefit everywhere)
-1. **Errors that look like success (~62 findings).** GeoServices/Esri return errors as HTTP 200 with an `{error}` envelope; clients that don't inspect the body treat failures as data. Confirmed in sdk-js (#309) and sdk-python (#122); esri-compat cert lane false-passes image checks (#25). **Action: audit honua-sdk-dotnet for the same pattern; add a shared "is this an Esri error envelope?" guard to every client + the cert harness.**
-2. **Weak gates / false conformance (~73).** Gates that don't gate: grpc breaking-change gate misses RPC deletion/rename (#44), grpc `buf generate` is outright broken (#45), mcp conformance reports FULL while ignoring coverage (#25/geospatial-mcp), esri-compat cert false-pass (#25). These mask other defects — fix first.
 3. **Shipped-artifact integrity (~43).** Artifacts that don't actually build/install: sdk-js CDN/browser bundle never built in CI (#310), iac customer tarball breaks `terraform init` for all examples (#81), grpc codegen broken (#45). **Add a "consume the published artifact" smoke test to each release pipeline.**
 4. **Idempotency / duplicate-on-sync (~44).** No idempotency keys → duplicate server features on retry/restart/re-edit. honua-collect (#102, 5 facets); mobile sync paths adjacent. Data-integrity; release-critical for field collection.
 5. **Over-advertised docs/claims (~42).** Recurring platform pattern: mobile ships a fabricated "AR utility-visualization example" (README only, cites a non-existent SDK) listed as a delivered capability; parity overstatements. Credibility risk at launch — reconcile every "Current Capabilities" claim with code.
@@ -39,7 +36,6 @@ The 16 S1s are the release gate; 12 GitHub issues filed (collect's 5 sync facets
 
 ## Coverage caveats (honest gaps)
 - honua-server excluded (separate track).
-- Large repos had honestly-reported unreached areas: sdk-js webmap/XML(XXE) parsers + esri-compat layer + web-components XSS sinks; console business logic; mobile TS embed + viewmodels; many request/response model types live in upstream `Honua.Sdk.*` NuGet (not in the mobile repo) so some contract checks were out of reach. A second deeper pass on those hot spots is worth it for the 3 largest repos.
 - Apache-2.0 vs Elastic License 2.0: honua-mobile is Apache-2.0 (not ELv2) — confirm intended licensing per repo.
 
 ## Recommended next steps

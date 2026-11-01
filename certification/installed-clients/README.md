@@ -11,14 +11,13 @@ cell with `status: blocked` must name the issue that blocks it in `blockedBy` an
 (GitHub login), a `reason` and a `target` release line such as `2026.1.x`. It still runs on
 every execution and is reported `blocked` only when its specific named blocker is observed.
 Installation, integrity, infrastructure, handshake, and supplied-evidence validation failures
-remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v1` catalog;
-the import-fidelity blocker requires an absent complete passing receipt until live qualification finishes. If a blocked cell starts
-passing, it is reported as a failure until the matrix row is set back to `active`, so a fix is
-observed rather than assumed. The receipt is `pass` with `declaredLimitations` when every blocked
-cell is declared and listed by the founder ruling `dotnet-declared-blocked-2026-10-26` in
-`docs/2026.1-release-decision-overrides.json`; any other blocked cell makes it `blocked`. `run.py` exits 0 only when every active cell passes and no blocked
-cell passes silently or fails for an unexpected reason. `run.py --verify-receipt <receipt>` checks a receipt against the matrix, and
-the workflow asserts nothing else.
+remain fatal. If a blocked cell starts passing, it is reported as a failure until the matrix row is
+set back to `active`, so a fix is observed rather than assumed. The receipt is `pass` with
+`declaredLimitations` when every blocked cell is declared and listed by the founder ruling
+`dotnet-declared-blocked-2026-10-26` in `docs/2026.1-release-decision-overrides.json`; any other
+blocked cell makes it `blocked`. `run.py` exits 0 only when every active cell passes and no blocked
+cell passes silently or fails for an unexpected reason. `run.py --verify-receipt <receipt>` checks a
+receipt against the matrix, and the workflow asserts nothing else.
 
 Every cell is executable. Both npm lanes download the registry tarball and recompute its SHA-512
 before installation; lockfile metadata alone is not accepted as byte proof. The MCP lanes co-install
@@ -44,18 +43,6 @@ The NuGet cell restores the pinned `Honua.Sdk` from anonymous nuget.org into a c
 an isolated package folder and a cleared source list. It checks that the restored `.nupkg` matches
 the manifest's sha256 and came from nuget.org, then builds and runs the shared GeoServices error
 probe against the candidate. A release-mode run therefore cannot pass with an ecosystem missing.
-
-The service/layer import cell (`nuget-service-layer-import-fidelity`,
-[honua-release#317](https://github.com/honua-io/honua-release/issues/317)) is part of this same
-matrix, not a second certification framework. Its requirement IDs are the frozen import-fidelity
-scorecard denominator plus the published-SDK journey (discover, select, apply, wait,
-cancellation/recovery, reconciliation, fixtures, and Esri cross-checks). `time_query_parity` stays
-not-applicable and is outside the pass denominator. The cell consumes a receipt from a clean
-consumer of the manifest-pinned public NuGet package (`--import-fidelity-receipt`). It does not
-pack a checkout, restore a local feed, or synthesize a receipt. Omitted, skipped, stale,
-source-built, waived, released, wrong-pin, mocked-seam, or shrunk-denominator evidence fails.
-No producer emits that receipt yet, so the cell is blocked by
-[honua-release#418](https://github.com/honua-io/honua-release/issues/418).
 
 The Python admin cell installs the pinned wheel with its declared dependencies and imports both
 admin clients. Every manifest client artifact must have a matrix cell; omissions fail validation.
@@ -96,9 +83,9 @@ context alone is not cloud attestation; qualification comes from the trusted wor
 deployment and retained receipt. The receipt contains the nonsecret deployment binding only.
 
 Redis-off retains the existing serving and typed-refusal scenarios. It does not run or claim the
-full installed-client workflow suite. Both Redis-on runs retain all 41 matrix cells, including
-their blockers; missing import-fidelity proof retains all 142 supported requirements and ten
-not-applicable requirements. A closed upstream issue cannot reactivate a row without a real
+full installed-client workflow suite. Both Redis-on runs retain all 39 current matrix cells,
+including their declared blockers and unsupported scenarios; this suite does not claim to qualify
+retired client-import coverage. A closed upstream issue cannot reactivate a row without a real
 published-pin replay and reviewed matrix change. Missing fixture prerequisites report blocked,
 identity/install/oracle failures report fail, and neither outcome qualifies a cell.
 
@@ -172,79 +159,7 @@ python -m pytest certification/installed-clients/test_regression.py \
 These self-tests inject faulty responses to verify that the gate rejects them.
 A passing self-test run does not replace the live installed-client release receipt.
 
-The producer for release [#418](https://github.com/honua-io/honua-release/issues/418)
-is `produce_import_fidelity.py`. It restores the exact manifest-pinned public
-`Honua.Sdk` into a fresh temporary consumer, checks the nupkg digest, public restore
-sources and copied/loaded assembly bytes, and uses the SDK for every operation
-under test. `--live` owns a disposable, uniquely named candidate/PostGIS/Redis
-stack; it never imports into a shared server. Candidate image, registry digest
-and image source revision are checked against the selected manifest. Baseline
-observations include actual source snapshots before/after import, target
-readback and independent PostGIS counts. Numeric checks preserve exact int64,
-null, empty and boolean semantics and bound geometry tolerance to `1e-8`.
-
-```sh
-python certification/installed-clients/produce_import_fidelity.py --live \
-  --evidence-uri "$EVIDENCE_URI" \
-  --output artifacts/dotnet-import-fidelity-receipt.json
-```
-
-The installed-client workflows expose `qualify_import_fidelity` for an explicit
-qualification attempt and forward the resulting receipt to
-`run.py --import-fidelity-receipt`. The default remains the existing #418 blocker.
-A requested qualification uploads its receipt and observations even when it
-fails. `--package-only` and `--case NAME` are diagnostic subsets: every unexecuted
-requirement remains blocked, and the producer exits nonzero. They cannot mint a
-passing certification.
-
-The producer also executes authored-source roles through
-`import_fidelity_journeys.py`: whole-service relationship application and physical
-join-edge checks, attachment downloads and hashes, cancel/retry with prior-row
-fingerprints, a failed overwrite, and committed geometry/value/time-metadata fault controls
-with SDK restoration. The server#4420 cell measures actual PostGIS vectors and
-fresh GDAL-decoded SDK GeoJSON outputs; a missing output never substitutes the
-baseline. Install `gdal-bin` for this independent reader.
-
-The frozen repoint/rollback cell now exercises one application configuration slot
-inside the persistent clean public-SDK consumer. Original-source reads, a switch
-to the imported candidate, and restoration use the same consumer-issued identity
-and revisions 1/2/3. Read commands cannot supply endpoint overrides. Actual SDK
-request paths are observed without retaining queries, headers or bodies. The SDK
-captures constructor options: each read creates the supported client from the
-stored application configuration; this makes no claim of hot mutation of a single
-SDK object. This producer currently owns a disposable local candidate, so a
-credential-bearing candidate configuration must be loopback.
-
-The journey changes only its owned imported text-label fixture to a discriminating
-marker, checks complete fresh target values/schema/geometry, rolls the configured
-application back to the unchanged original source, and restores the imported
-fixture through the SDK even on failure. A no-op switch or cached source response
-cannot pass. Transition replies are correlated in the private consumer pipe. After
-an uncertain switch/restore acknowledgement, a fresh status read reconciles the
-actual slot and restores it if necessary; an already restored revision is never
-blindly retried. Unknown cleanup state and the original failed observation remain
-failures, with configuration and fixture cleanup recorded separately. Missing authored input, unsuitable published SDK bytes, failed
-readback or failed restoration remains non-pass; the matrix stays blocked.
-
-`check_import_client_readback.py` is an existing-job PR control: it restores the
-exact public NuGet package, verifies loaded assembly bytes, and uses the actual
-consumer process against controlled loopback HTTP fixtures. It checks distinct
-original/imported data, actual requests, credential isolation, stale/wrong
-configuration and override refusals. It emits `qualification: false`, no import
-receipt. Controlled fixtures do not replace an actual authored-source import,
-PostGIS readback or candidate qualification.
-
-These executable paths are **not a completed qualification receipt**. Real
-rich-source fixtures, native observations, a suitable published SDK and the
-fixed immutable candidate must be available before every path can pass. The
-142 supported and ten not-applicable cells are unchanged. Source-client
-limitations never waive a target import requirement. The matrix row stays
-blocked until a complete passing receipt exists and is reviewed.
-
-See [the authored-source and native-reference contract](import-fidelity-inputs.md)
-for exact inputs and owner handoff. The existing native certification owner
-retains its Windows execution lane; this producer consumes authenticated raw
-observations and never adopts a native client's reported verdict.
+Client-import qualification is retired. This repository does not retain its former producer, fixtures, or proof records, and the current certification inventory makes no claim for that coverage. Existing package installation and API probe cells remain separate checks.
 
 The MCP plan-validation requests and semantic oracles are shared in
 `mcp_plan_validation.py`. The installed proxy imports that pure helper. Canonical

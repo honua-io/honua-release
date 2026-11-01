@@ -172,16 +172,16 @@ def recorded_registry(monkeypatch):
     return reads
 
 
-# These expectations are transcribed from the captured registry responses and
-# independent sha256sum output, never computed by the verifier under test.
+# The npm package bytes are synthetic; Python and NuGet identities use captured registry responses.
+# Expected digests are fixed here rather than computed by the verifier under test.
 RECORDED_PINS = json.loads((RECORDED / 'pins.json').read_text())
 
 
-def test_recorded_registries_return_verified_artifact_identities(monkeypatch):
+def test_registry_and_synthetic_fixtures_return_verified_artifact_identities(monkeypatch):
     reads = recorded_registry(monkeypatch)
     assert vca.verify_manifest({'clientArtifacts': RECORDED_PINS}, include_identities=True) == {
         'js': {'version': '0.1.12', 'sourceRevision': '1102d2d55916340edca13cb28411df8da8206f92',
-               'sha256': 'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'},
+               'sha256': 'sha256:4cfdb7c24b2457969f910e46ba1b5b04e794e9d878e7d3a64d19210856dc6032'},
         'python': {'version': '0.1.12', 'sourceRevision': '12670676a1e8acb835e911c358adbf46a731120a',
                    'sha256': 'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'},
         'dotnet': {'version': '1.10.1', 'sourceRevision': '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
@@ -214,14 +214,17 @@ def test_recorded_identity_drift_never_returns_an_identity(monkeypatch, name, fi
 
 
 @pytest.mark.parametrize('name,filename,message', [
-    ('js', 'npm.tgz', 'npm bytes'),
+    ('js', 'npm-package.synthetic.tgz', 'npm bytes'),
     ('python', 'pypi.whl', 'wheel bytes'),
     ('dotnet', 'nuget.nupkg', 'NuGet bytes'),
 ])
 def test_recorded_package_corruption_refuses_identity(monkeypatch, name, filename, message):
     recorded_registry(monkeypatch)
     request = vca._request
-    url = json.loads((RECORDED / 'urls.json').read_text())[filename]
+    if filename == 'npm-package.synthetic.tgz':
+        url = json.loads((RECORDED / 'npm-metadata.synthetic.json').read_text())['dist']['tarball']
+    else:
+        url = json.loads((RECORDED / 'urls.json').read_text())[filename]
     monkeypatch.setattr(vca, '_request', lambda target, **kw:
                         request(target, **kw) + (b'corrupted' if target == url else b''))
     with pytest.raises(vca.VerificationError, match=message):

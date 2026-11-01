@@ -50,9 +50,9 @@ A candidate is promoted to a platform label only after **all** gates pass, in or
 
 | # | Gate | What it does | Closes |
 |---|---|---|---|
-| a | **Build + full test suite** | Every repo builds; the *entire* test suite runs and passes (no env-gated tests silently skipped as "green"); coverage floor on critical paths | esri-compat#25 (false-pass cert), test-integrity S2s |
+| a | **Build + full test suite** | Every repo builds; the *entire* test suite runs and passes (no env-gated tests silently skipped as "green"); coverage floor on critical paths | test-integrity S2s |
 | b | **Contract / breaking-change** | proto breaking-change (buf — incl. RPC/service deletion+rename), REST/OpenAPI diff, SDK public-API diff; breaking change ⇒ forced MAJOR or fail | grpc#44 (gate misses deletion), grpc#45 (codegen broken) |
-| c | **Cross-repo conformance** | Esri/OGC/STAC conformance suites (real assertions), SDK↔server, console↔server, `version-contract-drift`, the compat matrix | mcp#25 (FULL false claim), esri-compat#25 |
+| c | **Cross-repo conformance** | GeoServices REST/OGC/STAC conformance suites (real assertions), SDK↔server, console↔server, `version-contract-drift`, the compat matrix | geospatial-mcp#25 (FULL false claim); GeoServices REST producer remains blocked pending #1186 |
 | d | **Artifact-consumption** | Actually consume each *published* artifact from a staging registry: `npm/nuget/pip install`, `terraform init` the tarball, `helm template/install`, `docker pull && run && /healthz`, run codegen | sdk-js#310 (CDN bundle never built), iac#81 (terraform init broken), grpc#45 |
 | e | **Security review** | SCA/deps, secret scan, SAST (CodeQL), container scan (Trivy), IaC scan (checkov/tfsec), license compliance | security S1/S2s, console#233 |
 | f | **SBOM + provenance** | CycloneDX/SPDX SBOM per artifact; SLSA provenance; sign artifacts + manifest | (new capability) |

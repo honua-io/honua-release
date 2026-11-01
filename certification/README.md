@@ -12,7 +12,6 @@ linked migration ledger owns the resulting producer reds.
 
 Retires the audit's "false conformance" findings at the gate level (both now fixed upstream):
 - **geospatial-mcp#25** — the conformance checker reported `FULL` while ignoring resource-family coverage.
-- **honua-esri-compat#25** — image/tile cert false-passed any >100-byte body.
 
 The gate is the release-repo half that **runs** the suites against the pinned candidate and turns the
 result into a verdict that can FAIL — and refuses to manufacture a green (AGENTS.md):
@@ -20,7 +19,7 @@ result into a verdict that can FAIL — and refuses to manufacture a green (AGEN
 | job | kind | what it does |
 |---|---|---|
 | `conformance-mcp` | **real** | clones `geospatial-mcp` **trunk** (the maintained suite that carries the `geospatial-mcp#25` resource-coverage fix — the Phase 0 manifest still pins a pre-fix sha, recorded for traceability), runs its `conformance/check_manifest.py` (`--strict`, with a coverage-only fallback), and parses the verdict with `parse_conformance.py`. **Fails** on any manifest `FAIL`, on a reference impl that is not `FULL` (the exact `geospatial-mcp#25` overstatement), or on **no verdict at all** (vacuous / no evidence). The parser is self-tested in-job before it is trusted. |
-| `conformance-esri-geoservices` | blocked | evidence identifier `honua-esri-compat:conformance-esri-geoservices` has no candidate-bound result. |
+| `conformance-geoservices-rest` | blocked | No reviewed candidate-bound producer is available; see issue #1186. |
 | `conformance-ogc-stac` | blocked | OGC API (CITE TEAM Engine) + STAC conformance run against a deployed candidate (Phase B). |
 
 **enforcement** (same contract as `gate-artifact-consume`): `bootstrap` (default) tolerates a

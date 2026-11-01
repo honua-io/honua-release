@@ -88,7 +88,6 @@
         "executable-docs",
         "genuine-model-journey",
         "update-rollback",
-        "esri-bundle",
         "cite"
       ],
       "properties": {
@@ -134,9 +133,6 @@
         "update-rollback": {
           "const": "qualifying"
         },
-        "esri-bundle": {
-          "const": "qualifying"
-        },
         "cite": {
           "const": "qualifying"
         }
@@ -144,7 +140,7 @@
     },
     "evidence": {
       "type": "array",
-      "minItems": 15,
+      "minItems": 14,
       "items": {
         "$ref": "#/$defs/evidence"
       }

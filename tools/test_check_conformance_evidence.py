@@ -11,7 +11,7 @@ from check_conformance_evidence import (
     evaluate_conformance,
     non_implemented_cite_suites,
     parse_cite_status,
-    summarize_esri_bundle,
+    summarize_geoservices_rest_bundle,
 )
 
 import pytest
@@ -60,7 +60,7 @@ CONFIG = {
             "https://api.stacspec.org/v1.0.0/collections",
         ]
     },
-    "esri": {"expectedImage": "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8"},
+    "geoservices-rest": {"expectedImage": "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8"},
 }
 
 GOOD_STAC = {
@@ -71,7 +71,7 @@ GOOD_STAC = {
     "errors": [],
 }
 
-GOOD_ESRI = summarize_esri_bundle(
+GOOD_PROTOCOL_BUNDLE = summarize_geoservices_rest_bundle(
     [{"image": "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8", "checks": [{"id": "FS-OP-QUERY", "status": "pass"}]}]
 )
 
@@ -115,13 +115,13 @@ def test_snapshot_without_a_review_date_is_rejected_loudly():
 # ---------------------------------------------------------------------------------------------
 def test_fully_federated_candidate_passes():
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "pass", [r for r in rows if r["status"] != "pass"]
     assert _status(rows, "cite:lineage") == "pass"
     assert _status(rows, "cite:suites") == "pass"
     assert _status(rows, "stac:validator") == "pass"
-    assert _status(rows, "esri:binding") == "pass"
+    assert _status(rows, "geoservices-rest:binding") == "pass"
 
 
 def test_ancestor_lineage_is_accepted_deliberately():
@@ -130,7 +130,7 @@ def test_ancestor_lineage_is_accepted_deliberately():
     # evidence gate already proved out.
     for relation in ("identical", "ancestor", "descendant"):
         rows, _ = evaluate_conformance(
-            CANDIDATE, parse_cite_status(CITE_STATUS_MD), relation, GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+            CANDIDATE, parse_cite_status(CITE_STATUS_MD), relation, GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
         )
         assert _status(rows, "cite:lineage") == "pass", relation
 
@@ -140,7 +140,7 @@ def test_ancestor_lineage_is_accepted_deliberately():
 # ---------------------------------------------------------------------------------------------
 def test_diverged_lineage_fails():
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "cite:lineage") == "fail"
@@ -150,7 +150,7 @@ def test_stale_snapshot_fails_rather_than_blocking():
     # Obtained-but-too-old is a decided failure, not a bootstrap gap.
     late = datetime(2026, 9, 30, tzinfo=timezone.utc)
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=late
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=late
     )
     assert overall == "fail"
     assert _status(rows, "cite:freshness") == "fail"
@@ -159,7 +159,7 @@ def test_stale_snapshot_fails_rather_than_blocking():
 def test_a_regressed_suite_fails():
     regressed = CITE_STATUS_MD.replace("| WFS 2.0 | `basic` | 167 / 167 |", "| WFS 2.0 | `basic` | 160 / 167 |")
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(regressed), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(regressed), "ancestor", GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "fail"
     assert "WFS 2.0 160/167" in next(r["why"] for r in rows if r["check"] == "cite:suites")
@@ -169,7 +169,7 @@ def test_a_vanished_required_suite_fails():
     # Dropping a row must not read as "nothing regressed" -- that shrinks the denominator silently.
     shrunk = "\n".join(line for line in CITE_STATUS_MD.splitlines() if not line.startswith("| WMTS 1.0"))
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(shrunk), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(shrunk), "ancestor", GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "cite:coverage") == "fail"
@@ -178,7 +178,7 @@ def test_a_vanished_required_suite_fails():
 def test_all_passed_false_fails_even_when_the_table_looks_clean():
     doctored = CITE_STATUS_MD.replace("allPassed=true", "allPassed=false")
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(doctored), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(doctored), "ancestor", GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "cite:allPassed") == "fail"
@@ -187,7 +187,7 @@ def test_all_passed_false_fails_even_when_the_table_looks_clean():
 def test_missing_stac_conformance_class_fails():
     stripped = {"conformsTo": ["https://api.stacspec.org/v1.0.0/core"], "errors": []}
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", stripped, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", stripped, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "stac:conformance-classes") == "fail"
@@ -196,38 +196,38 @@ def test_missing_stac_conformance_class_fails():
 def test_stac_validator_errors_fail():
     broken = dict(GOOD_STAC, errors=["item-search: sortby not honoured"])
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", broken, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", broken, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "stac:validator") == "fail"
 
 
-def test_esri_bundle_for_a_different_image_fails():
+def test_geoservices_rest_bundle_for_a_different_image_fails():
     # Evidence about another build reads as a pass unless the binding is checked. This is the exact
     # failure mode the candidate-binding work exists to prevent, applied to a federated source.
-    wrong = summarize_esri_bundle([{"image": "ghcr.io/honua-io/honua-server:nightly-aot-deadbee", "checks": []}])
+    wrong = summarize_geoservices_rest_bundle([{"image": "ghcr.io/honua-io/honua-server:nightly-aot-deadbee", "checks": []}])
     rows, overall = evaluate_conformance(
         CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, wrong, CONFIG, now=NOW
     )
     assert overall == "fail"
-    assert _status(rows, "esri:binding") == "fail"
+    assert _status(rows, "geoservices-rest:binding") == "fail"
 
 
-def test_esri_bundle_bound_by_manifest_digest_passes():
+def test_geoservices_rest_bundle_bound_by_manifest_digest_passes():
     digest = "sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a"
-    config = {**CONFIG, "esri": {**CONFIG["esri"], "expectedDigest": digest}}
-    by_digest = summarize_esri_bundle(
+    config = {**CONFIG, "geoservices-rest": {**CONFIG["geoservices-rest"], "expectedDigest": digest}}
+    by_digest = summarize_geoservices_rest_bundle(
         [{"image": f"ghcr.io/honua-io/honua-server@{digest}", "checks": []}]
     )
     rows, overall = evaluate_conformance(
         CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, by_digest, config, now=NOW
     )
     assert overall == "pass"
-    assert _status(rows, "esri:binding") == "pass"
+    assert _status(rows, "geoservices-rest:binding") == "pass"
 
 
-def test_esri_lane_failures_fail():
-    failing = summarize_esri_bundle(
+def test_geoservices_rest_lane_failures_fail():
+    failing = summarize_geoservices_rest_bundle(
         [
             {
                 "image": "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8",
@@ -239,13 +239,13 @@ def test_esri_lane_failures_fail():
         CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, failing, CONFIG, now=NOW
     )
     assert overall == "fail"
-    assert "IS-OP-TILE" in next(r["why"] for r in rows if r["check"] == "esri:lanes")
+    assert "IS-OP-TILE" in next(r["why"] for r in rows if r["check"] == "geoservices-rest:lanes")
 
 
 def test_summarize_walks_both_cert_and_coverage_shapes():
     # The harness emits CERT records keyed by test_case_id and operation-coverage records keyed by
     # id. A summary blind to either dimension would under-report.
-    summary = summarize_esri_bundle(
+    summary = summarize_geoservices_rest_bundle(
         [
             {"results": [{"test_case_id": "CERT-CONN-01", "status": "fail", "notes": "no VTS"}]},
             {"coverage": [{"id": "IS-OP-LEGEND", "status": "fail"}]},
@@ -259,26 +259,26 @@ def test_summarize_walks_both_cert_and_coverage_shapes():
 # Blocked paths — honest bootstrap, never a fake pass
 # ---------------------------------------------------------------------------------------------
 def test_unfetchable_snapshot_blocks_and_never_passes():
-    rows, overall = evaluate_conformance(CANDIDATE, None, None, GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW)
+    rows, overall = evaluate_conformance(CANDIDATE, None, None, GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW)
     assert overall == "blocked"
     assert _status(rows, "cite:snapshot") == "blocked"
 
 
 def test_undecidable_lineage_blocks():
     rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), None, GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), None, GOOD_STAC, GOOD_PROTOCOL_BUNDLE, CONFIG, now=NOW
     )
     assert overall == "blocked"
     assert _status(rows, "cite:lineage") == "blocked"
 
 
-def test_missing_stac_and_esri_block_rather_than_pass():
+def test_missing_stac_and_geoservices_rest_block_rather_than_pass():
     rows, overall = evaluate_conformance(
         CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", None, None, CONFIG, now=NOW
     )
     assert overall == "blocked"
     assert _status(rows, "stac:validator") == "blocked"
-    assert _status(rows, "esri:bundle") == "blocked"
+    assert _status(rows, "geoservices-rest:bundle") == "blocked"
 
 
 def test_fail_outranks_blocked():

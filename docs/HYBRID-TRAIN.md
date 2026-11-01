@@ -21,7 +21,7 @@ instead of every new evidence source re-litigating "does this run in CI or not."
 ```mermaid
 flowchart LR
     subgraph Local["Local evidence pass (operator-run, out-of-band)"]
-        A["honua-esri-compat<br/>(private evidence producer)"] -->|".cert.json envelopes"| E
+        A["GeoServices REST producer<br/>(currently unavailable)"] -->|"candidate-bound evidence"| E
         B["Heavy local e2e<br/>(EKS/AKS control-plane, long-running drills)"] -->|"evidence artifacts"| E
         C["demo-canary<br/>(scheduled, against the always-on<br/>public demo.honua.io deployment)"] -->|"live-canary-evidence.json"| E
         E["honua-evidence<br/>(joins evidence onto capability-matrix.v1.json,<br/>carries freshness/lineage metadata)"]
@@ -51,15 +51,15 @@ candidate (AGENTS.md: "Both humans and AI use this one workflow_dispatch"). It d
 things depending on the lane:
 - For lanes it CAN run itself (canonical checks, terraform-provisioned cloud cells, contract/SBOM/
   security scans) — it runs them **for real**, live, every cut.
-- For lanes that only exist as local evidence (esri-compat, demo-canary, DR drills) — it **consumes**
+- For lanes that only exist as local evidence (GeoServices REST, demo-canary, DR drills) — it **consumes**
   the pushed envelope with an explicit **freshness bound** (`certification/evidence-freshness.yaml`,
   `tools/check_evidence_freshness.py`, honua-release#60) and a **lineage check** (is this evidence
   actually about the candidate's pinned commit, not a stale/unrelated snapshot?). Missing, stale, or
   lineage-diverged evidence is `blocked` (bootstrap) / `fail` (a real cut) — **never a fake pass**.
 
-The esri-compat consumption model set the pattern (see the honua-io/honua-release#61 issue comments):
+The former GeoServices REST evidence producer is unavailable; candidate-bound certification remains blocked pending issue #1186:
 committed/pushed `.cert.json` envelopes carry a timestamp + the target server SHA/URL; the
-certification gate's `conformance-esri-geoservices` lane *reads* that evidence rather than executing
+certification gate's `conformance-geoservices-rest` lane remains blocked instead of accepting unbound evidence or executing
 the licensed toolchain in-train. `demo-canary.yml` (this PR) follows the identical shape for the live
 demo-deployment proof: it runs on its own 6-hour schedule against `https://demo.honua.io`, independent
 of any specific release candidate, and writes a versioned `live-canary-evidence.json` envelope for
@@ -108,8 +108,8 @@ itself declares report-only (that is `check_geocoding_latency`).
 | Cloud-tier canary probes (`e2e/canary_probes.py`, generic mode) | **Hosted**, per cloud cell, live | Same — reachability-only probes run for real; probes needing seeded data honestly BLOCK on a bare cell (no seed-data story yet — a gap, not a lie). |
 | Terraform parity cells (aws-serverless/ecs/eks) | **Hosted**, OIDC into AWS | `e2e-cloud-aws.yml`; self-skips `cloud-creds-unset` until `HONUA_AWS_ROLE_ARN` is wired. |
 | MCP/Studio/GP-execute/top-demo extended scenarios | **Neither yet** — hardcoded `blocked` | Needs the driver toolchain packaged as a harness image (honua-release#35). Not a hybrid-lane decision; a genuine gap. |
-| `honua-esri-compat:desktop-client` | **External evidence** | Consumed by evidence identifier and freshness bound. |
-| honua-esri-compat (license-free: `arcgis` Python, .NET metadata, raw REST) | Could run **either** place | No license dependency, but currently ships as part of the same local evidence producer; a future PR could promote these specific lanes to hosted-live (see honua-io/honua-release#61 issue comment on `conformance-esri-geoservices`). |
+| GeoServices REST desktop-client evidence | **Unavailable** | Remains blocked until candidate-bound evidence is restored. |
+| GeoServices REST protocol lanes | Not currently produced | Keep blocked until a reviewed candidate-bound producer and artifact contract are available (#1186). |
 | demo-canary (`.github/workflows/demo-canary.yml`) | **Local-by-schedule** (hosted runner, but targets the persistent public demo, not a train-provisioned cell) | The demo is a standing deployment the train doesn't own or tear down; it is evidence *about* a live environment, not a certifying check *of* the candidate being cut. |
 | Terraform DR drills (honua-terraform) | **Local**, its own runbook cadence | DR drills are expensive/slow and target real backup infrastructure; captured via `dr-evidence-template.json` (honua-io/honua-evidence#8). |
 
@@ -126,7 +126,7 @@ else."* This is that list, for the first real (non-dry-run) train cut:
 | Cloud-tier data-dependent canary probes (render+query smoke, per-service WMS/WMTS/WCS, tile.json) against a bare terraform-provisioned cell | No seed-data provisioning story for ephemeral cloud cells yet — legitimately unprovable, reported `blocked`, not faked. | Follow-up to honua-release#61 (not yet filed as its own issue — seed-data-on-provision is a natural next increment once #35's harness image work is scoped). |
 | Cloud-tier `security-headers`: the HSTS half, on a plain-HTTP parity cell | The ephemeral cells publish a raw cloud load balancer with no certificate and no DNS name to put one on, and RFC 6797 §7.2 requires a client to IGNORE `Strict-Transport-Security` received over plain HTTP — honua-server deliberately does not emit it there. The probe asserts the four transport-independent headers on every cell and HSTS only on an `https://` endpoint (the serverless cell's API Gateway, and demo.honua.io), and its pass message names the header it did not assert so a green cell never reads as "HSTS verified". | Not a harness gap: proving HSTS on these cells would need per-run certificates and DNS. The `https://` serverless cell proves it for the candidate. |
 | `gate_evidence` CITE-freshness producer | honua-evidence has not yet landed per-suite CITE freshness metadata in `capability-matrix.v1.json`'s `freshness` block. | honua-io/honua-evidence#8 |
-| `conformance-esri-geoservices` license-free lanes as a LIVE (not evidence-consumed) check | Currently ships only via the local esri-compat evidence producer; promoting the license-free subset to a hosted-live check is a candidate follow-up, not release-1 scope. | honua-io/honua-release#61 issue comment |
+| `conformance-geoservices-rest` | Stays blocked while no candidate-bound producer exists; issue #1186 tracks the replacement contract. | honua-release #1186 |
 | Demo-canary's key-gated probes (metrics, admin-metrics-health, deploy-preflight, capability-manifest `available=true`) | `HONUA_DEMO_API_KEY` is an optional secret; without it these honestly report `blocked`. | Wire the secret (see below) to promote these to live pass/fail. |
 
 Everything **not** in this table is fail-closed from release-1: a capability advertised GA without

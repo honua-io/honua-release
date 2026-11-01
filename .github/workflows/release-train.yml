@@ -325,7 +325,7 @@ jobs:
       lock_digest: ${{ needs.freeze.outputs.lock_digest }}
     secrets: inherit            # RELEASE_GH_TOKEN for the honua-iac dispatch wrapper + cross-repo checkout
 
-  gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
+  gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, geoservices-rest certification)
     if: ${{ !inputs.freeze_only }}
     needs: [gate_build_test, gate_contract]
     uses: ./.github/workflows/certification.yml

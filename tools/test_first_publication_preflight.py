@@ -180,8 +180,6 @@ class World:
             return 200, self.grpc_body
         if url == preflight.BSR_ZIP_URL:
             return 200, self.bsr_body
-        if url == "https://pypi.org/pypi/honua-esri-assess/json":
-            return 404, b"missing"
         if url.startswith("https://pypi.org/pypi/") and url.endswith("/json"):
             package = url.split("/pypi/")[1].split("/")[0]
             version = {"honua-sdk": "0.1.11", "honua-admin": "0.1.8"}.get(package, "0.7.1")
@@ -302,7 +300,6 @@ def test_fixture_world_names_the_operator_boundaries_without_invented_digests():
     helm = next(blocker for blocker in receipt["blockers"] if blocker["kind"] == "blocked-on-candidate")
     assert "v<semver>-aot" in helm["boundary"]
     assert _channel(receipt, "iac:git-archive")["disposition"] == "supported-by-git-url"
-    assert _channel(receipt, "pypi:honua-esri-assess")["disposition"] == "absent-retired"
     assert not any(blocker["channels"] == ["iac:git-archive"] for blocker in receipt["blockers"])
 
 

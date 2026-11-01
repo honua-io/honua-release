@@ -539,15 +539,6 @@
       "version": "0.1.8"
     },
     {
-      "disposition": "absent-retired",
-      "http_status": 404,
-      "id": "pypi:honua-esri-assess",
-      "publication": "PyPI honua-esri-assess",
-      "urls": [
-        "https://pypi.org/pypi/honua-esri-assess/json"
-      ]
-    },
-    {
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [

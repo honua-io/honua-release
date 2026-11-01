@@ -37,7 +37,7 @@ The checker requires these classes and refuses an undeclared, missing, duplicate
 | Tier | Required classes |
 | --- | --- |
 | Nightly | `build-test`, `contract`, `sbom`, `security`, `upgrade`, `capacity-soak`, `dr`, `lambda-certification`, `protocol-ledger`, `deterministic-journey`, `nightly-model-journey`, `executable-docs` |
-| Qualifying | `genuine-model-journey`, `update-rollback`, `esri-bundle`, `cite` |
+| Qualifying | `genuine-model-journey`, `update-rollback`, `cite` |
 
 Nightly classes come from the minting train and appear in its report's `evidenceClasses` array.
 Qualifying classes are produced against the selected lock during its burn. Every retained receipt must
@@ -131,7 +131,7 @@ from the receipt's completion, so no receipt can hold the promotion window open:
 | Classes | Maximum `freshUntil` after completion |
 | --- | --- |
 | All nightly classes, `genuine-model-journey`, `update-rollback` | 7 days |
-| `esri-bundle`, `cite` | 14 days |
+| `cite` | 14 days |
 
 A producer may set a shorter bound. A declared class with no maximum in the checker refuses. Nightly
 evidence completes at minting, so a lock must start its burn within five days of minting to reach hour

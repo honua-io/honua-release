@@ -43,7 +43,7 @@
     },
     "geoservices-rest-matrix": {
       "repository": "honua-io/honua-release",
-      "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
+      "commit": "12da05777d2e75798b2a970e1711a07424b60b57"
     }
   }
 }

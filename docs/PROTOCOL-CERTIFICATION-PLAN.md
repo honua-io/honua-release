@@ -152,7 +152,7 @@ Aggregate percentages never override a failed required cell. The target for rele
 1. Make the denominator executable in [honua-release#158](https://github.com/honua-io/honua-release/issues/158).
 2. Implement the normalized ledger and governed guide inventory in [honua-evidence#22](https://github.com/honua-io/honua-evidence/issues/22).
 3. Repair the current cloud-native lane and add canonical consumers in [honua-server#3377](https://github.com/honua-io/honua-server/issues/3377).
-4. Complete the Esri addressable matrix and SOAP discovery boundary in [honua-esri-compat#74](https://github.com/honua-io/honua-esri-compat/issues/74).
+4. Restore candidate-bound GeoServices REST certification evidence through the reviewed producer contract tracked in [honua-release#1186](https://github.com/honua-io/honua-release/issues/1186).
 5. Deliver Kerchunk through [honua-server#3378](https://github.com/honua-io/honua-server/issues/3378) and COPC through [#2442](https://github.com/honua-io/honua-server/issues/2442), [#3289](https://github.com/honua-io/honua-server/issues/3289), and [#3290](https://github.com/honua-io/honua-server/issues/3290).
 6. Join existing SDK, gRPC, MCP, CITE, deployment, upgrade, security, and provenance producers.
 7. Run the exact-candidate release matrix, publish immutable evidence, and promote only after both certification boundaries pass.
@@ -167,7 +167,7 @@ Aggregate percentages never override a failed required cell. The target for rele
 | Cloud-native lane repair/clients | honua-server #3377 | PR/nightly/release | #158, #22 | green pinned workflow and normalized receipts |
 | Kerchunk | honua-server #3378 | nightly/release after promotion | raster/storage security design | implemented surface and client receipts |
 | COPC | honua-server #2442/#3289/#3290 | nightly/release after promotion | 3D capability work | PDAL-verified range-serving receipts |
-| Esri and SOAP discovery | honua-esri-compat #74 | PR/nightly/release | Windows licensed runner, #158 | zero required skips and exact-candidate cert JSON |
+| GeoServices REST certification evidence | honua-release #1186 | nightly/release | reviewed candidate-bound producer contract | exact-candidate evidence bundle and zero required skips |
 | SDK matrices | sdk-js #39/#1113, sdk-python #21/#197, sdk-dotnet #31/#294, server #3381 | PR/nightly/release | server candidate and #158 | versioned SDK coverage snapshots |
 | gRPC | geospatial-grpc #88 (parent #18) | PR/nightly/release | generated clients and shared fixtures | fixture-versioned client receipts |
 | MCP | geospatial-mcp #78 (parent #1/#5) | PR/nightly/release | conformance corpus | deterministic transport/eval receipts |

@@ -17,14 +17,13 @@ No live settings have been changed. #236 remains must-fix-before-cut.
 
 The fresh `snapshot-2026-09-06-windows.json` records each repository's exact
 default-branch SHA, observed controls, and observation time. Its companion
-`audit-2026-09-06-windows.json` remains **fail for all 17 repositories**. The release
+The current adopted inventory covers **16 repositories**; all controls remain unqualified until the quality contract below is met. The release
 promise still unmet is the adopted quality contract sections 4.4, 10.1 and 14:
 reviewed release lines with required checks, no unreviewed bypass, and signed
 native publication tags where applicable. Merging the proposal did not activate
 these controls or provide an independent reviewer.
 
-The four missing check denominators remain IaC, demo-infra, evidence and Esri
-compatibility. The existing contexts in the other repositories still need the
+The two missing check denominators are IaC and evidence. The existing contexts in the other repositories still need the
 implementation qualification described below. No collaborator was added and no
 repository setting was changed. The lane requested an authorized additional
 human owner; it cannot invent one or approve Mike-authored work as Mike.
@@ -78,8 +77,7 @@ unrenderable. This repository change does not call the rules API and does not
 install a ruleset. Organization rules still need admin:org and must not be used,
 because required checks differ by repository.
 
-The four empty denominators (IaC, demo-infra, evidence, Esri compatibility) were
-the 2026-09-06 recorded failures. demo-infra is no longer empty. Rendering a
+The retired producer was removed from the active inventory. Two empty denominators (IaC and evidence) remain; demo-infra now has a nonempty denominator. demo-infra is no longer empty. Rendering a
 repository whose `required_checks` list is empty still raises; no empty-check
 ruleset can be installed by copying the output. Existing required contexts are
 **not** automatically evidence that their aggregate implementations fail closed.

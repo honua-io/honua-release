@@ -95,7 +95,7 @@ compliance.
 | honua-sdk-dotnet certification fragments | [honua-sdk-dotnet#323](https://github.com/honua-io/honua-sdk-dotnet/issues/323) | [honua-sdk-dotnet#317](https://github.com/honua-io/honua-sdk-dotnet/pull/317) | migration required |
 | geospatial-grpc certification fragments | [geospatial-grpc#99](https://github.com/honua-io/geospatial-grpc/issues/99) | [geospatial-grpc#91](https://github.com/honua-io/geospatial-grpc/pull/91) | migration required |
 | geospatial-mcp certification fragments | [geospatial-mcp#81](https://github.com/honua-io/geospatial-mcp/issues/81) | [geospatial-mcp#79](https://github.com/honua-io/geospatial-mcp/pull/79), [geospatial-mcp#80](https://github.com/honua-io/geospatial-mcp/pull/80) | migration required |
-| honua-esri-compat matrix fragments | [honua-esri-compat#98](https://github.com/honua-io/honua-esri-compat/issues/98) | [honua-esri-compat#75](https://github.com/honua-io/honua-esri-compat/issues/75) | migration required; licensed runner also open |
+| GeoServices REST certification | [honua-release#1186](https://github.com/honua-io/honua-release/issues/1186) | candidate-bound producer and artifact contract | producer unavailable; remains blocked |
 | honua-evidence `client-interop-cert-v1` normalizer | [honua-evidence#51](https://github.com/honua-io/honua-evidence/issues/51) | [honua-evidence#44](https://github.com/honua-io/honua-evidence/pull/44) | migration required |
 
 The governing rollout decision is

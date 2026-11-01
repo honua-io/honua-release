@@ -75,7 +75,7 @@ def test_npm_proposal_verifies_recorded_package_bytes(monkeypatch):
     current['sourceSha'] = 'a' * 40
     result = proposal.propose({'clientArtifacts': {'js': current}}, 'js', '0.1.12')
     assert result['verifiedIdentity']['sourceRevision'] == '1102d2d55916340edca13cb28411df8da8206f92'
-    assert result['verifiedIdentity']['sha256'] == 'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'
+    assert result['verifiedIdentity']['sha256'] == 'sha256:4cfdb7c24b2457969f910e46ba1b5b04e794e9d878e7d3a64d19210856dc6032'
     assert result['candidateQualification'] == 'pending'
 
 

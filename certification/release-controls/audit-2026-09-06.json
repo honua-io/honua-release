@@ -30,11 +30,6 @@
       "catch-all human CODEOWNERS not verified",
       "no independent human code owner available to approve owner-authored changes"
     ],
-    "honua-esri-compat": [
-      "required_checks must be a nonempty, unique denominator",
-      "catch-all human CODEOWNERS not verified",
-      "no independent human code owner available to approve owner-authored changes"
-    ],
     "honua-evidence": [
       "required_checks must be a nonempty, unique denominator",
       "catch-all human CODEOWNERS not verified",

@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS
 ---------------
-`gate_conformance`'s `conformance-ogc-stac` and `conformance-esri-geoservices` lanes were
+`gate_conformance`'s `conformance-ogc-stac` and `conformance-geoservices-rest` lanes were
 hardcoded `status=blocked` with no implementation behind them. That is honest under a dry run,
 but on a real cut (`enforcement: strict`) blocked is promoted to FAIL, so a candidate could never
 be released with those lanes as written -- and setting the `HONUA_SERVER_URL` their `why` strings
@@ -18,7 +18,7 @@ Meanwhile the evidence those lanes need already exists and is already sha-bound:
         ingests it as the `cite` producer of capability-matrix.v1.json.
   STAC  the candidate serves its declared STAC API conformance classes, which a validator can check
         against the spec -- CITE covers OGC API/OWS, never STAC.
-  Esri  honua-esri-compat's license-free lanes emit per-service `.cert.json` evidence with an
+  GeoServices REST  retired producer's license-free lanes emit per-service `.cert.json` evidence with an
         operation-coverage denominator generated from honua-server's own parity index.
 
 So this gate federates rather than re-certifies. It applies the SAME lineage rule the freeze-phase
@@ -34,15 +34,15 @@ PURITY
 ------
 Like check_slo.py / check_upgrade.py / check_evidence_freshness.py, the decision core makes no
 network or VCS calls. The workflow shim fetches docs/cite-status.md, asks the GitHub compare API
-for the ancestry relation, runs the STAC validator, and downloads the Esri bundle; it hands all of
+for the ancestry relation, runs the STAC validator, and downloads the GeoServices REST bundle; it hands all of
 that in as plain values. Everything here is pure and unit-testable.
 
-    evaluate_conformance(candidate_sha, cite, cite_lineage, stac, esri, config, now=None)
+    evaluate_conformance(candidate_sha, cite, cite_lineage, stac, geoservices_rest, config, now=None)
         -> (rows, overall)   # overall in {pass, fail, blocked}
 
     python tools/check_conformance_evidence.py --manifest platform-manifest.yaml \
         --cite-status _conformance/cite-status.md --cite-lineage ancestor \
-        --stac-report _conformance/stac.json --esri-bundle _conformance/esri/
+        --stac-report _conformance/stac.json --geoservices-rest-bundle _conformance/geoservices-rest/
 
 BLOCKED vs FAIL
 ---------------
@@ -132,8 +132,8 @@ def parse_cite_status(text: str | None) -> dict | None:
     }
 
 
-def summarize_esri_bundle(cert_docs: list[dict] | None) -> dict | None:
-    """Reduce a set of honua-esri-compat ``.cert.json`` documents to a gate-legible summary.
+def summarize_geoservices_rest_bundle(cert_docs: list[dict] | None) -> dict | None:
+    """Reduce a set of retired producer ``.cert.json`` documents to a gate-legible summary.
 
     Counts every nested record carrying a fail verdict, under either the CERT (`test_case_id` /
     `status`) or operation-coverage (`id` / `status`) shapes the harness emits. Both shapes are
@@ -387,38 +387,38 @@ def _evaluate_stac(stac, cfg, rows) -> None:
         rows.append(_row("stac:validator", "pass", "STAC API validator reported no errors against the candidate"))
 
 
-def _evaluate_esri(esri, cfg, rows) -> None:
-    if esri is None:
+def _evaluate_geoservices_rest(geoservices_rest, cfg, rows) -> None:
+    if geoservices_rest is None:
         rows.append(
             _row(
-                "esri:bundle",
+                "geoservices-rest:bundle",
                 "blocked",
-                "no honua-esri-compat certification bundle was supplied for this candidate",
+                "no candidate-bound GeoServices REST certification bundle was supplied for this candidate",
             )
         )
         return
 
-    if not esri.get("documents"):
-        rows.append(_row("esri:bundle", "blocked", "the supplied Esri bundle contained no .cert.json documents"))
+    if not geoservices_rest.get("documents"):
+        rows.append(_row("geoservices-rest:bundle", "blocked", "the supplied GeoServices REST bundle contained no .cert.json documents"))
         return
 
-    failures = esri.get("failures") or []
+    failures = geoservices_rest.get("failures") or []
     if failures:
         head = "; ".join(f"{f['id']}: {f['notes']}"[:120] for f in failures[:3])
         more = f" (+{len(failures) - 3} more)" if len(failures) > 3 else ""
         rows.append(
             _row(
-                "esri:lanes",
+                "geoservices-rest:lanes",
                 "fail",
-                f"{len(failures)} Esri certification failure(s) across {esri['documents']} document(s): {head}{more}",
+                f"{len(failures)} GeoServices REST certification failure(s) across {geoservices_rest['documents']} document(s): {head}{more}",
             )
         )
     else:
         rows.append(
             _row(
-                "esri:lanes",
+                "geoservices-rest:lanes",
                 "pass",
-                f"no failures across {esri['documents']} Esri certification document(s)",
+                f"no failures across {geoservices_rest['documents']} GeoServices REST certification document(s)",
             )
         )
 
@@ -427,32 +427,32 @@ def _evaluate_esri(esri, cfg, rows) -> None:
     expected_image = (cfg or {}).get("expectedImage")
     expected_digest = (cfg or {}).get("expectedDigest")
     expected_refs = [ref for ref in (expected_image, expected_digest) if ref]
-    images = esri.get("images") or []
+    images = geoservices_rest.get("images") or []
     if not expected_refs:
         return
     if not images:
         rows.append(
             _row(
-                "esri:binding",
+                "geoservices-rest:binding",
                 "blocked",
-                "the Esri bundle records no candidate image reference, so it cannot be bound to the pin",
+                "the GeoServices REST bundle records no candidate image reference, so it cannot be bound to the pin",
             )
         )
     elif any(ref in image for ref in expected_refs for image in images):
         matched = next(ref for ref in expected_refs if any(ref in image for image in images))
-        rows.append(_row("esri:binding", "pass", f"Esri bundle certifies the pinned candidate image {matched}"))
+        rows.append(_row("geoservices-rest:binding", "pass", f"GeoServices REST bundle certifies the pinned candidate image {matched}"))
     else:
         rows.append(
             _row(
-                "esri:binding",
+                "geoservices-rest:binding",
                 "fail",
-                f"Esri bundle certifies {images} but the manifest pins {expected_refs} -- the evidence "
+                f"GeoServices REST bundle certifies {images} but the manifest pins {expected_refs} -- the evidence "
                 f"is about a different build",
             )
         )
 
 
-ALL_SECTIONS = ("cite", "stac", "esri")
+ALL_SECTIONS = ("cite", "stac", "geoservices-rest")
 
 
 def evaluate_conformance(
@@ -460,7 +460,7 @@ def evaluate_conformance(
     cite: dict | None,
     cite_lineage: str | None,
     stac: dict | None,
-    esri: dict | None,
+    geoservices_rest: dict | None,
     config: dict | None = None,
     now: datetime | None = None,
     sections: tuple[str, ...] | list[str] | None = None,
@@ -484,8 +484,8 @@ def evaluate_conformance(
         _evaluate_cite(candidate_sha, cite, cite_lineage, config.get("cite") or {}, now, rows)
     if "stac" in selected:
         _evaluate_stac(stac, config.get("stac") or {}, rows)
-    if "esri" in selected:
-        _evaluate_esri(esri, config.get("esri") or {}, rows)
+    if "geoservices-rest" in selected:
+        _evaluate_geoservices_rest(geoservices_rest, config.get("geoservices-rest") or {}, rows)
 
     if any(r["status"] == "fail" for r in rows):
         overall = "fail"
@@ -508,7 +508,7 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
 def _pinned_server(manifest_path: Path) -> tuple[str | None, str | None, str | None]:
     """Return the candidate manifest's pinned honua-server (sha, image, digest).
 
-    The image is read here rather than configured in conformance-evidence.yaml so the Esri bundle is
+    The image is read here rather than configured in conformance-evidence.yaml so the GeoServices REST bundle is
     always bound to the exact build being released; a hand-maintained expectation could drift from
     the pin and would then certify the wrong artifact.
     """
@@ -555,7 +555,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cite-status", help="path to a fetched copy of honua-server docs/cite-status.md")
     parser.add_argument("--cite-lineage", help="identical|ancestor|descendant|diverged (from the compare API)")
     parser.add_argument("--stac-report", help="path to the STAC validator JSON report")
-    parser.add_argument("--esri-bundle", help="directory of honua-esri-compat .cert.json evidence")
+    parser.add_argument("--geoservices-rest-bundle", help="directory of candidate-bound GeoServices REST .cert.json evidence")
     parser.add_argument("--config", default=str(CONFIG_PATH))
     parser.add_argument(
         "--capability-matrix",
@@ -566,16 +566,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sections",
         default=",".join(ALL_SECTIONS),
-        help="comma-separated evidence families to evaluate (cite,stac,esri) -- one lane per family",
+        help="comma-separated evidence families to evaluate (cite,stac,geoservices-rest) -- one lane per family",
     )
     args = parser.parse_args(argv)
 
     config = load_config(Path(args.config))
     candidate_sha, candidate_image, candidate_digest = _pinned_server(Path(args.manifest))
     if candidate_image:
-        config.setdefault("esri", {})["expectedImage"] = candidate_image
+        config.setdefault("geoservices-rest", {})["expectedImage"] = candidate_image
     if candidate_digest:
-        config.setdefault("esri", {})["expectedDigest"] = candidate_digest
+        config.setdefault("geoservices-rest", {})["expectedDigest"] = candidate_digest
     config.setdefault("cite", {})["nonImplementedSuites"] = non_implemented_cite_suites(
         _read_json(args.capability_matrix)
     )
@@ -595,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
         cite,
         args.cite_lineage,
         _read_json(args.stac_report),
-        summarize_esri_bundle(_read_cert_docs(args.esri_bundle)),
+        summarize_geoservices_rest_bundle(_read_cert_docs(args.geoservices_rest_bundle)),
         config,
         sections=[s.strip() for s in args.sections.split(",") if s.strip()],
     )

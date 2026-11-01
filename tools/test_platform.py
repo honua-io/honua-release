@@ -289,13 +289,13 @@ def test_exact_candidate_rejects_historical_off_trunk_server_pin_with_origin():
     server_sha = manifest["components"]["honua-server"]["sha"]
     client = StubCompareClient(
         statuses={server_sha: "diverged"},
-        branches={server_sha: ["fix/2026.1-esri-defects"]},
+        branches={server_sha: ["fix/2026.1-protocol-defects"]},
     )
     f = vp.validate(manifest, matrix, None, exact_candidate=True, reachability_client=client)
     error = next(e for e in f.errors if "components.honua-server.sha" in e)
     assert server_sha in error
     assert "honua-io/honua-server" in error
-    assert "fix/2026.1-esri-defects" in error
+    assert "fix/2026.1-protocol-defects" in error
 
 
 def test_every_required_manifest_pin_family_is_enumerated():
@@ -514,12 +514,9 @@ def test_structure_keeps_evidence_sources_out_of_components():
     assert f.ok, f.errors
 
 
-def test_structure_rejects_floating_evidence_producer_ref():
-    manifest, matrix = _real_files()
-    manifest = copy.deepcopy(manifest)
-    manifest["evidenceSources"]["esri-compat"]["producerSha"] = "trunk"
-    f = vp.validate(manifest, matrix, None)
-    assert not f.ok and any("evidenceSources.esri-compat.producerSha" in e for e in f.errors)
+def test_manifest_has_no_retired_protocol_evidence_producer():
+    manifest, _ = _real_files()
+    assert not any("compat" in key for key in manifest["evidenceSources"])
 
 
 def test_exact_candidate_rejects_local_or_unpublished_client():
@@ -580,12 +577,12 @@ def test_exact_candidate_rejects_a_bound_image_with_no_platform_stamp():
         in error for error in f.errors), f.errors
 
 
-def test_legacy_evidence_pin_cannot_drift_from_manifest():
+def test_legacy_evidence_pin_coherence_keeps_demos_only():
     manifest, _ = _real_files()
-    config = {"esri": {"evidenceRef": "f" * 40}}
+    config = {"demos": {"sourceRef": "f" * 40}}
     f = vp.Findings()
     vp.check_legacy_evidence_pin_coherence(manifest, config, f)
-    assert not f.ok and any("evidenceSources.esri-compat" in e for e in f.errors)
+    assert not f.ok and any("evidenceSources.demos" in e for e in f.errors)
 
 
 def test_structure_requires_explicit_aws_runtime_architectures():

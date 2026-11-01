@@ -84,7 +84,6 @@ COMPONENT_CHANNELS = {
 DEFERRED_EXPERIMENTAL = "deferred-experimental"
 # clientArtifacts rows published to npmjs. honua-sdk-js is required; a companion is probed when pinned.
 NPM_CLIENT_ROWS = ("honua-sdk-js", "honua-mcp-server")
-PYPI_RETIRED = "honua-esri-assess"
 PYPI_MIGRATE = "honua-migrate"
 
 ANONYMOUS_HEADERS = {"User-Agent": "honua-release-preflight", "Accept": "*/*"}
@@ -1074,17 +1073,7 @@ def build_receipt(
             urls=[pypi_json_url(PYPI_MIGRATE)],
             version=migrate_version,
         ))
-    retired = transport.get(pypi_json_url(PYPI_RETIRED))
-    retired_status = _status_only(retired.status, pypi_json_url(PYPI_RETIRED), allowed={200, 404})
-    if retired_status == 200:
-        raise PreflightError("retired PyPI name honua-esri-assess is listed; do not treat it as the migrate coordinate")
-    channels.append(_channel(
-        "pypi:honua-esri-assess",
-        "PyPI honua-esri-assess",
-        "absent-retired",
-        http_status=404,
-        urls=[pypi_json_url(PYPI_RETIRED)],
-    ))
+
 
     for row, artifact in view["npm"]:
         channels.append(_npm_published(transport, row, artifact))
@@ -1418,7 +1407,6 @@ def audit(receipt: dict, manifest: dict | None = None) -> None:
         "nuget:Geospatial.Grpc",
         "nuget:Honua.Sdk",
         "pypi:honua-admin",
-        "pypi:honua-esri-assess",
         "pypi:honua-migrate",
         "pypi:honua-sdk",
         "qgis:honua-qgis-plugin",

@@ -1,0 +1,8 @@
+{
+  "name": "@honua/sdk-js",
+  "version": "0.1.12",
+  "dist": {
+    "integrity": "sha512-oyLJJMYokw1q8CHSloXMbjiLuth6hXPC3Efeo0wlQ+zug61L/QXVQlXXo8r9BgGi0Utogtu3iLP2EPxeP+s2Tw==",
+    "tarball": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.12.tgz"
+  }
+}

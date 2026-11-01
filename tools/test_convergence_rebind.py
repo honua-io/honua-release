@@ -22,7 +22,7 @@ class StubGitHub:
         self.root = root
 
     def head(self, repository):
-        return {"honua-io/honua-esri-compat": "1" * 40, "cloudnativegeo/cloud-optimized-geospatial-formats-guide": "2" * 40}[repository]
+        return {"honua-io/honua-release": "1" * 40, "cloudnativegeo/cloud-optimized-geospatial-formats-guide": "2" * 40}[repository]
 
     def trunk_commits(self, repository, limit):
         # The SDK harness: the newest green trunk commit with the dispatch contract.

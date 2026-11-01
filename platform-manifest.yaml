@@ -1109,16 +1109,6 @@ clientArtifacts:
     publicationState: "published"
     targets: [node, browser]
     filename: "sdk-0.2.10.tgz"
-  honua-sdk-esri-compat:
-    ecosystem: "npm"
-    package: "@honua/sdk-esri-compat"
-    version: "0.2.10"
-    integrity: "sha512-tK7PV5rAa3bVVWtE7n9iD+G1vuVIQRADaG0C7EfBmkUJpUgaKVSJz6gtemonn/nSTKSF3fTYHwX13b1WdRn1AQ=="
-    repository: "honua-io/honua-sdk-js"
-    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
-    publicationState: "published"
-    targets: [node, browser]
-    filename: "sdk-esri-compat-0.2.10.tgz"
   honua-react:
     ecosystem: "npm"
     package: "@honua/react"
@@ -1189,19 +1179,6 @@ clientArtifacts:
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
 evidenceSources:
-  esri-compat:
-    repository: honua-io/honua-esri-compat
-    workflowPath: .github/workflows/esri-sdk-certification.yml
-    # REFRESHED 2026-08-27, 167b510a -> ece4c3a2 (trunk HEAD, #76 "test: bind live fixture evidence
-    # to a candidate"). NOT GREEN: 2 failures in the licensed client surface this producer covers, and
-    # calling it green would be the "reads as a pass" failure this file warns about above.
-    # certification/conformance-evidence.yaml evidenceRef is updated to the SAME value in this
-    # commit; validate_platform.check_legacy_evidence_pin_coherence hard-fails if they disagree.
-    producerSha: "ece4c3a2f68557fe8329e9932de36193d0732894"
-    trustedEvents: [workflow_dispatch]
-    trustedBranch: trunk
-    artifactIdentity: esri-certification-bundle
-    evidencePolicyRevision: conformance-evidence-v1
   cite:
     repository: honua-io/honua-server
     workflowPath: .github/workflows/cite-evidence-report.yml

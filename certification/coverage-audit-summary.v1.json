@@ -2,17 +2,17 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-26-complete.26",
-  "requirements_digest": "sha256:3d1760bcbbfb0076d2e213900231a16adf2f16ac44376fd5af7f352fb450a4cf",
-  "production_digest": "sha256:c0a2dc7adf6975ff23036a6326eb4281240f0ee759ae3bd303689197d809fddb",
-  "audit_digest": "sha256:505ccf6c8b2793a38c26a8860e2918d66948f843cdfa7d3a776c4e1dc8189fff",
-  "rows_digest": "sha256:46fcd7c5dabdfedfca7c443172d568b6b780ee3d184d3d6bc528617d62ea389d",
+  "requirements_digest": "sha256:8009cc0f01d87c3b5a4f8cca9284e83747bfe88e7fc95f3e0ca5cca981e0a96d",
+  "production_digest": "sha256:dc42fe8ce0d981e1fd112b2f2f30c54fabb12553c21ca77d4acddb147f3b84f5",
+  "audit_digest": "sha256:34901dac1d29f3c1ebe1700294877d4037ef01a5ee74711e16a224beec72409b",
+  "rows_digest": "sha256:82e27cc187d47f43ae77913af4b4b8c575aba31e7baa425befbd5b2fea9bde33",
   "rows": 2405,
   "non_licensed_rows": 2403,
   "external_licensed_rows": 2,
   "non_licensed_registration": {
     "not-addressable": 394,
-    "registered": 1279,
-    "unproduced": 730
+    "registered": 514,
+    "unproduced": 1495
   },
   "non_licensed_assertion_review": {
     "findings-recorded": 483,
@@ -48,18 +48,6 @@
       },
       "governed": null,
       "same_revision": false
-    },
-    {
-      "source": "esri-compat",
-      "reviewed": {
-        "repository": "honua-io/honua-esri-compat",
-        "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
-      },
-      "governed": {
-        "repository": "honua-io/honua-esri-compat",
-        "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
-      },
-      "same_revision": true
     },
     {
       "source": "geospatial-grpc",

@@ -104,11 +104,6 @@ components:
       sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
       integrity: sha512-5CrY3zyY+97nnbuERfvHOOgTco4eB+ELZ2UuvYsLT8A7d23bmg8KSiKD6T7HJFfeG4zAsdggz+lw6a+DGm/cuA==
     - kind: npm
-      coordinate: '@honua/sdk-esri-compat'
-      version: 0.2.10
-      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
-      integrity: sha512-tK7PV5rAa3bVVWtE7n9iD+G1vuVIQRADaG0C7EfBmkUJpUgaKVSJz6gtemonn/nSTKSF3fTYHwX13b1WdRn1AQ==
-    - kind: npm
       coordinate: '@honua/react'
       version: 0.2.10
       sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44

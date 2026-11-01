@@ -178,7 +178,7 @@ def _requirements(*cells, complete=True):
             "sdk-dotnet": {"commit": SHA},
             "geospatial-grpc": {"commit": SHA},
             "geospatial-mcp": {"commit": SHA},
-            cert._owned_source_name({"deployment_target": "windows-licensed"}): {"commit": SHA},
+            cert._owned_source_name({"capability_key": "geoservices-rest.feature-server"}): {"commit": SHA},
         },
         "requirements": [
             {field: cell[field] for field in cert.REQUIREMENT_FIELDS if field in cell}

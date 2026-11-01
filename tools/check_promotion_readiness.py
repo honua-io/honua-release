@@ -72,13 +72,11 @@ def _load(path: Path, field: str) -> dict[str, Any]:
 
 # R21: required classes and their production tier. Additional consumed classes must
 # be explicitly declared too; declarations cannot change these mandated tiers.
-COMPATIBILITY_CERTIFICATE_CLASS = "esri-bundle"
-
 EVIDENCE_CLASSES = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
-    **dict.fromkeys(("genuine-model-journey", "update-rollback", COMPATIBILITY_CERTIFICATE_CLASS, "cite"), "qualifying"),
+    **dict.fromkeys(("genuine-model-journey", "update-rollback", "cite"), "qualifying"),
 }
 # Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target. Lambda (aws-serverless) joins
 # EKS/Helm (owner amendment 2026-10-16) as informational Preview. Preview evidence cannot replace
@@ -92,7 +90,7 @@ MAX_FRESHNESS = {
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients",
                      "genuine-model-journey", "update-rollback"), timedelta(days=7)),
-    **dict.fromkeys((COMPATIBILITY_CERTIFICATE_CLASS, "cite"), timedelta(days=14)),
+    **dict.fromkeys(("cite",), timedelta(days=14)),
 }
 CANARY_SLOT = timedelta(hours=6, minutes=30)
 # Redis-on retains the full journey. Redis-off requires explicit limited serving/refusal metadata;

@@ -441,7 +441,7 @@ def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | 
     if evidence_config is None:
         return
     sources = manifest.get("evidenceSources") or {}
-    pairs = (("esri-compat", "esri", "evidenceRef"), ("demos", "demos", "sourceRef"))
+    pairs = (("demos", "demos", "sourceRef"),)
     for source_name, section, field_name in pairs:
         canonical = str((sources.get(source_name) or {}).get("producerSha", ""))
         legacy = str((evidence_config.get(section) or {}).get(field_name, ""))

@@ -16,7 +16,7 @@ from test_check_promotion_readiness import NOW, OTHER_LOCK, _fixture, _stamp
 
 REPO = "honua-io/honua-release"
 QUALIFY = ".github/workflows/qualify.yml"
-QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "esri-bundle", "cite")
+QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "cite")
 
 
 @pytest.fixture(autouse=True)
@@ -164,14 +164,6 @@ def test_qualifying_receipt_from_a_run_outside_its_producer_allowlist_refuses(tm
     row = next(row for row in fixture[0]["evidence"] if row["class"] == "cite")
     gh.runs[row["runId"]][field] = value
     with pytest.raises(fetcher.FetchError, match="identity"):
-        fetcher.fetch(fixture[0], gh, tmp_path / "fetched")
-
-
-def test_class_without_an_allowlisted_producer_refuses(tmp_path, monkeypatch):
-    fixture = _fixture(tmp_path / "source")
-    gh = FakeGitHub(fixture)
-    monkeypatch.delitem(fetcher.RECEIPT_PRODUCERS, "esri-bundle")
-    with pytest.raises(fetcher.FetchError, match="esri-bundle has no allowlisted producer"):
         fetcher.fetch(fixture[0], gh, tmp_path / "fetched")
 
 
@@ -472,5 +464,5 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
         assert failed == {'evidence:update-rollback'}, decision['checks']
     else:
         assert decision['status'] == 'refused'
-        for name in ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite'):
+        for name in ('genuine-model-journey', 'update-rollback', 'cite'):
             assert decision['checks']['evidence:' + name]['status'] == 'fail'

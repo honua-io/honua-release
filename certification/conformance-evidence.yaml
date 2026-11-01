@@ -57,30 +57,14 @@ releaseScope:
   # runs and its row stays in gate-report.json with its own status; the report marks it
   # `decided: advisory` with the `reportAs` label, and it does not count toward overallStatus for
   # the listed releases. Removing an entry restores the lane as required. Every field is required.
-  conformance-esri-geoservices:
+  conformance-geoservices-rest:
     requirement: advisory
     releases: ["2026.1"]
     decidedOn: "2026-10-22"
-    reason: "operator ruling 2026-10-22: GeoServices desktop and QGIS client certification deferred past rc"
+    reason: "the former evidence producer is retired; protocol certification remains blocked until a reviewed candidate-bound producer is available"
     reportAs: "not certified for 2026.1"
 
-esri:
-  # Desktop scripting, .NET, and the SDK-driven GeoServices/OGC/auth/geoprocessing lanes emit
-  # per-service `.cert.json` evidence.
-  # Desktop results are referenced only by their private producer evidence identifiers.
-  #
-  # `expectedImage` is NOT configured here: it is derived from the candidate manifest's pinned
-  # honua-server image at evaluation time, so the bundle is bound to the exact build being released.
-  # Evidence about a different build is worse than no evidence, because it reads as a pass.
-  #
-  # The canonical producer pin is configured in platform-manifest.yaml. This value is
-  # retained temporarily for older federation consumers and is checked for equality by the manifest
-  # validator; it must never become parallel configuration truth.
-  #
-  # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
-  # is the backstop: a bundle for the wrong image fails rather than silently certifying.
-  evidenceRepo: honua-io/honua-esri-compat
-  evidenceRef: ece4c3a2f68557fe8329e9932de36193d0732894   # 2026-08-27 refresh: live fixture evidence bound to a candidate
+geoservices-rest: {}
 
 demos:
   # e2e S9 drives the five backend-facing honua-site demos against the booted candidate. The demos

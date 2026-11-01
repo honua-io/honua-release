@@ -100,7 +100,7 @@ founder-approved exception to the pre-rc.3 gate freeze; no other required gate c
   function/alias and before/after/rollback versions, executed serving assertions and teardown inventory
   and outcomes. Re-read contracts from the booted candidate. A source-built substitute or health-only
   receipt cannot discharge the bill's application upgrade/rollback items.
-- [ ] Produce fresh Esri and CITE evidence against this lock during the burn, with immutable provenance
+- [ ] Confirm CITE evidence is fresh and bound to this lock; GeoServices REST certification remains blocked until a reviewed producer is available (#1186)
   and bounds of at most 14 days. Every qualifying class is declared and bound to this digest; no class
   is carried forward from another lock or hand-minted outside a workflow.
 - [ ] Verify Lambda Preview labeling consistency. The matrix row is `preview` / `pending`; supported
@@ -116,7 +116,7 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
 - [ ] Run `tools/check_promotion_readiness.py` against the committed record, selected retained lock and
   verified immutable evidence. Require the minting train, 48-hour burn, seven canaries, nightly journey
   tier, qualifying journey tier, declarations, bindings and unexpired evidence within each class's
-  policy maximum (7 days; 14 days for Esri and CITE). Later strict trains
+  policy maximum (7 days; 14 days for CITE). Later strict trains
   certify their own locks and are not prerequisites. Promotion remains open after hour 72 while all
   evidence stays within its freshness bound.
 - [ ] Pass the GA documentation gates ([release#379](https://github.com/honua-io/honua-release/issues/379))

@@ -22,7 +22,7 @@ LAMBDA_IMAGE = "sha256:" + "c" * 64
 NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "capacity-soak", "dr",
                    "lambda-certification", "protocol-ledger", "deterministic-journey", "nightly-model-journey",
                    "executable-docs", "installed-clients")
-QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "esri-bundle", "cite")
+QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "cite")
 CLASSES = {**dict.fromkeys(NIGHTLY_CLASSES, "nightly"), **dict.fromkeys(QUALIFYING_CLASSES, "qualifying")}
 # Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target; Lambda and EKS are Preview.
 GA_CELLS = ("aws-ecs/redis-off", "aws-ecs/redis-on")
@@ -33,7 +33,7 @@ JOURNEYS = {
     "genuine-model-journey": ("genuine-model", GA_CELLS),
 }
 MAX_FRESHNESS_DAYS = {**dict.fromkeys(NIGHTLY_CLASSES, 7), "genuine-model-journey": 7,
-                      "update-rollback": 7, "esri-bundle": 14, "cite": 14}
+                      "update-rollback": 7, "cite": 14}
 JOURNEY_CELL_CASES = [(name, cell) for name, (_, cells) in JOURNEYS.items() for cell in cells]
 
 

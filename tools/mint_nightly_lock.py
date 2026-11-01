@@ -78,7 +78,7 @@ PUBLISHER_WORKFLOWS = {
     'honua-io/honua-iac': 'attest-source-archive.yml',
 }
 JS_WORKFLOWS = {'@honua/sdk-js': 'publish-js-sdk.yml',
-                **{package: 'publish-js-sdk.yml' for package in ('@honua/sdk', '@honua/sdk-esri-compat',
+                **{package: 'publish-js-sdk.yml' for package in ('@honua/sdk',
                     '@honua/react', '@honua/geometry', '@honua/app-platform')},
                 '@honua/mcp-server': 'publish-mcp-server.yml',
                 'create-honua-app': 'publish-create-honua-app.yml'}

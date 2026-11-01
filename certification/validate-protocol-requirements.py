@@ -934,7 +934,7 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
             f"{row.get('maturity')!r} for {row['capability_key']!r}, which the pinned matrix has not implemented."
         )
     expected_summary = {
-        "ruling": "QGIS desktop checks",
+        "ruling": "R40",
         "drivers": {
             driver: {
                 must_fix: sum(row["release_bucket"] == must_fix for row in driver_rows),

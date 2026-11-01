@@ -72,8 +72,6 @@ on:
     secrets:
       RELEASE_GH_TOKEN:
         required: false
-      HONUA_ESRI_COMPAT_TOKEN:
-        required: false
     outputs:
       overall_status:
         description: "pass | fail | blocked — aggregate of all conformance jobs"
@@ -257,130 +255,21 @@ jobs:
           prefix: cert-
 
   # ───────────────────────────────────────────────────────────────────────────
-  # geoservices-conformance — BLOCKED: the protocol interop lanes need a live candidate server AND a
-  # private producer evidence identifier. The false-pass that mattered is fixed upstream; this job runs the lanes once a candidate
-  # endpoint + toolchain are provided (HONUA_SERVER_URL), and reports BLOCKED until then.
+  # geoservices-rest — fail closed until candidate-bound evidence is restored.
   # ───────────────────────────────────────────────────────────────────────────
-  conformance-esri-geoservices:
+  conformance-geoservices-rest:
     needs: [scope]
     if: ${{ needs.scope.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Use the immutable candidate inputs
-        if: ${{ inputs.candidate_ref }}
-        uses: ./.github/actions/candidate-input
-        with:
-          candidate_ref: ${{ inputs.candidate_ref }}
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.11'
-
-      - name: Install gate dependencies
-        run: pip install --quiet pyyaml
-
-      # The evidence producer is pinned in platform-manifest.yaml evidenceSources. A bundle built by
-      # a different revision of the harness measures a different denominator and cannot certify this
-      # candidate.
-      - name: Resolve the pinned evidence revision
-        id: pin
-        run: |
-          set -euo pipefail
-          readarray -t PIN < <(python - <<'PY'
-          import yaml
-          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("esri-compat") or {}
-          print(source.get("repository", ""))
-          print(source.get("producerSha", ""))
-          print(source.get("artifactIdentity", ""))
-          PY
-          )
-          REPO="${PIN[0]:-}"; SHA="${PIN[1]:-}"; ARTIFACT="${PIN[2]:-}"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
-          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
-          echo "pinned evidence source: $REPO@${SHA:-<unpinned>}#$ARTIFACT"
-
-      # The producer repository is private, so this needs a token with read access to it. Without
-      # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
-      - name: Check out the pinned Esri certification evidence
-        id: evidence
-        continue-on-error: true
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ steps.pin.outputs.repo }}
-          ref: ${{ steps.pin.outputs.sha }}
-          path: _conformance/esri-compat
-          token: ${{ secrets.HONUA_ESRI_COMPAT_TOKEN || secrets.RELEASE_GH_TOKEN || github.token }}
-
-      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
-      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
-      - name: Record the fixture revisions this job checked out
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        env:
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          EVIDENCE_REPO: ${{ steps.pin.outputs.repo }}
-        run: >-
-          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate certification --job conformance-esri-geoservices
-          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
-          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
-          "$EVIDENCE_REPO=_conformance/esri-compat"
-      - name: Upload the fixture revision record
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: fixture-revisions-certification-conformance-esri-geoservices
-          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
-          if-no-files-found: error
-          overwrite: true
-
-      - name: Federate GeoServices REST certification evidence
-        run: |
-          set -uo pipefail
-          # Read the CERTIFIED bundle for this label, never the whole evidence/ tree. Scanning
-          # everything would also judge evidence/samples/ -- curated fixtures that may legitimately
-          # contain failing cases -- and fail the release on a sample. Narrow, then fall back.
-          BUNDLE=""
-          for CANDIDATE in \
-            "_conformance/esri-compat/evidence/certified/${{ inputs.platform_label }}" \
-            "_conformance/esri-compat/evidence/certified"; do
-            if [ -d "$CANDIDATE" ] && [ -n "$(find "$CANDIDATE" -name '*.cert.json' -print -quit)" ]; then
-              BUNDLE="$CANDIDATE"; break
-            fi
-          done
-          if [ -z "$BUNDLE" ]; then
-            echo "no certified protocol bundle found for ${{ inputs.platform_label }}" >&2
-          fi
-          ARGS=(--manifest platform-manifest.yaml --sections esri --json-out _conformance/esri.json)
-          [ -n "$BUNDLE" ] && ARGS+=(--esri-bundle "$BUNDLE")
-          set +e
-          python tools/check_conformance_evidence.py "${ARGS[@]}" | tee _conformance/esri.log
-          RC=$?
-          set -e
-          STATUS="$(python -c "import json;print(json.load(open('_conformance/esri.json'))['overallStatus'])" 2>/dev/null || echo blocked)"
-          WHY="$(python -c "
-          import json
-          rows = json.load(open('_conformance/esri.json'))['rows']
-          bad = [r for r in rows if r['status'] != 'pass'] or rows
-          print('; '.join(f\"{r['check']}: {r['why']}\" for r in bad[:3]))
-          " 2>/dev/null || echo 'Protocol evidence could not be evaluated')"
-          {
-            echo "status=$STATUS"
-            echo "source=federated:${{ steps.pin.outputs.repo }}@${{ steps.pin.outputs.sha }}#${{ steps.pin.outputs.artifact }}"
-            echo "why=$WHY"
-          } >> "$GITHUB_ENV"
-      - name: Emit fragment
-        if: always()
+      - name: Emit blocked protocol evidence fragment
         uses: ./.github/actions/gate-fragment
         with:
-          gate: conformance-esri-geoservices
-          status: ${{ env.status || 'blocked' }}
-          source: ${{ env.source || 'blocked' }}
-          why: ${{ env.why || 'blocked' }}
+          gate: conformance-geoservices-rest
+          status: blocked
+          source: retired-producer
+          why: "No reviewed candidate-bound producer exists; see honua-release#1186"
           enforcement: ${{ inputs.enforcement }}
           prefix: cert-
 
@@ -543,7 +432,7 @@ jobs:
   # (Identical decision logic to gate-artifact-consume so the train sees one report schema.)
   # ───────────────────────────────────────────────────────────────────────────
   report:
-    needs: [scope, conformance-mcp, conformance-esri-geoservices, conformance-ogc-stac]
+    needs: [scope, conformance-mcp, conformance-geoservices-rest, conformance-ogc-stac]
     if: ${{ always() && needs.scope.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     outputs:

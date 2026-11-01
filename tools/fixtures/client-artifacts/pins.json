@@ -3,7 +3,7 @@
     "ecosystem": "npm",
     "package": "@honua/sdk-js",
     "version": "0.1.12",
-    "integrity": "sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ==",
+    "integrity": "sha512-oyLJJMYokw1q8CHSloXMbjiLuth6hXPC3Efeo0wlQ+zug61L/QXVQlXXo8r9BgGi0Utogtu3iLP2EPxeP+s2Tw==",
     "repository": "honua-io/honua-sdk-js",
     "sourceSha": "1102d2d55916340edca13cb28411df8da8206f92",
     "publicationState": "published"

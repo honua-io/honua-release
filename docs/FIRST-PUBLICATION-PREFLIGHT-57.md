@@ -37,7 +37,6 @@ channel whose component `platform-manifest.yaml` lists under `experimental:` (st
 | npm `@honua/sdk-js` 0.1.14 | Downloaded `sdk-js-0.1.14.tgz` sha256 `28457a24296f5d495bd57f95a1bc282fceb67ad5e9983c8e507701f54171a396`; its SRI matches `clientArtifacts` integrity, registry `gitHead` is the pinned `sourceSha` `984425f9`, and `package/package.json` names `@honua/sdk-js` 0.1.14. |
 | npm `@honua/mcp-server` 0.1.14 | Downloaded `mcp-server-0.1.14.tgz` sha256 `1907f20eb96ba8b928734c429a8efedfdad76f5a006a214dbc0862c588dd8628`; SRI, `gitHead` `704eb957` and package name/version match `clientArtifacts.honua-mcp-server`. |
 | honua-iac v0.2.0 | `registry.terraform.io/v1/modules/honua-io` is HTTP 404. The supported coordinate is the manifest Git archive; the downloaded tag tarball (sha256 `c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89`) matches `artifactSha256`. Git-URL sourcing is the path this repo already publishes. |
-| PyPI `honua-esri-assess` | Still HTTP 404. The retired name is not the migrate coordinate. GitHub still has the old `honua-esri-assess-*` releases; `honua-migrate-v0.7.1` also exists. |
 
 nuget.org lists all 16 `Honua.Sdk*` IDs, including `Honua.Sdk.Studio`, at `1.6.4`, `1.7.0`,
 `1.8.0`, `1.9.0`, `1.10.0`, `1.10.1`, `1.10.2`, and `1.10.3`. The newest `Honua.Sdk` is the manifest pin; its

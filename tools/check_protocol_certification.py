@@ -58,10 +58,8 @@ OPTIONAL_CELL_FIELDS = {"client_package", "client_package_digest", "test_ids", "
 SOURCE_HOST_CLIENT = "Honua server public protocol integration harness"
 SOURCE_HOST_LANE = "server-protocol-harness"
 SOURCE_HOST_PROFILE = "source-test-host-http-adapter"
-# R40 (honua-release#376): a desktop ledger cell names the driver that produced it, and the receipt
-# identity binds that same driver. Buckets are the cut obligation, not a second result vocabulary.
-# The licensed scripting driver id is the suffix of the lane prefix already listed below.
-_LICENSED_DESKTOP_LANE_PREFIXES: tuple[str, ...] = ()
+# R40 (honua-release#376): QGIS desktop ledger cells name the driver that produced them.
+# Buckets are the cut obligation, not a second result vocabulary.
 CLIENT_DRIVERS = {"pyqgis", "qgis-ui"}
 RELEASE_BUCKETS = {"must-fix-before-cut", "prove-against-candidate"}
 # R38 (honua-release#376): a client_version of the form <major>.<minor>.x names a release line. Any
@@ -118,10 +116,9 @@ def _owned_source_name(cell: dict) -> str:
         return "geospatial-grpc"
     if lane.startswith("mcp-"):
         return "geospatial-mcp"
-    # The production map assigns the governed licensed desktop target to one producer by deployment
-    # target, keeping desktop-client lanes unnamed (R30).
-    if cell.get("deployment_target") == "windows-licensed" or lane.startswith(_LICENSED_DESKTOP_LANE_PREFIXES):
-        return "esri-compat"
+    # GeoServices REST operation requirements are owned by their neutral protocol matrix.
+    if str(cell.get("capability_key", "")).startswith("geoservices-rest."):
+        return "geoservices-rest-matrix"
     return "server"
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 # D7 (2026-10-26): the .NET certification producer records the installed NuGet package's

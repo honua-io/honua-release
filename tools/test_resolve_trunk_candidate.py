@@ -1543,6 +1543,11 @@ def replay_registry(monkeypatch):
     metadata_url = f"https://pypi.org/pypi/{pin['package']}/{pin['version']}/json"
     assert metadata_url not in responses
     responses[metadata_url] = (RECORDED / 'pypi-metadata.synthetic.json').read_bytes()
+    js_pin = recorded_pins()['js']
+    npm_metadata_url = f"https://registry.npmjs.org/%40honua%2Fsdk-js/{js_pin['version']}"
+    npm_metadata = json.loads((RECORDED / 'npm-metadata.synthetic.json').read_text())
+    responses[npm_metadata_url] = (RECORDED / 'npm-metadata.synthetic.json').read_bytes()
+    responses[npm_metadata['dist']['tarball']] = (RECORDED / 'npm-package.synthetic.tgz').read_bytes()
     monkeypatch.setattr(verifier, '_request', lambda url, **kw: responses[url])
 
 
@@ -1595,7 +1600,7 @@ def test_resolve_pins_every_sdk_to_verified_primary_package_and_reads_declaratio
         'dotnet': ('1.10.1', '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
                    'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd'),
         'js': ('0.1.12', '1102d2d55916340edca13cb28411df8da8206f92',
-               'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'),
+               'sha256:4cfdb7c24b2457969f910e46ba1b5b04e794e9d878e7d3a64d19210856dc6032'),
         'python': ('0.1.12', '12670676a1e8acb835e911c358adbf46a731120a',
                    'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'),
     }

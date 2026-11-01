@@ -147,9 +147,8 @@ def verify_running_image(container: dict[str, Any], image: dict[str, Any], pin: 
 
     The container's local image id is a config id on the classic store and the index digest on the
     containerd store, so it is never compared with the registry digest. As in
-    installed-clients/produce_import_fidelity.py::candidate_identity, the container must name the
-    pinned tag@digest reference, its image must carry the pinned source revision label, and one of
-    the image's RepoDigests must be the pinned index digest.
+    the container must name the pinned tag@digest reference, its image must carry the pinned source
+    revision label, and one of the image's RepoDigests must be the pinned index digest.
     """
     if (container.get("Config") or {}).get("Image") != pin["image"]:
         raise ProducerError(f"{instance} was not started from the pinned {pin['image']}")

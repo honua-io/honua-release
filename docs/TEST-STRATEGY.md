@@ -101,8 +101,7 @@ These terms are intentionally distinct. Passing one class of proof must not be r
 | Vendor-certified | An external vendor or standards body has completed its formal certification process |
 
 OGC CITE evidence is conformance evidence, not an OGC certification claim until the result is submitted
-through the OGC Compliance Program. Licensed ArcGIS evidence is Honua's ArcGIS compatibility evidence, not
-an Esri-issued certification.
+through the OGC Compliance Program. Honua test results do not imply certification by an external vendor.
 
 ### Required proof for each supported surface
 
@@ -134,7 +133,7 @@ candidate inputs; it reruns any lane whose result cannot be safely reused.
 |---|---|---|---|
 | PR | Prevent local contract and behavior regressions | Changed route/operation tests, Fast integration tests, architecture and matrix drift, client compile/contract tests, inexpensive canonical-client smoke | Change-aware selection, no licensed desktop, no full CITE, no cloud matrix |
 | Nightly | Continuously prove broad interoperability and find drift early | Full server shards, containerized canonical clients, browser suites, SDK matrices, PyQGIS/GDAL, STAC validators, cloud-native validators, scheduled conformance suites | Parallel scheduled lanes, pinned tool caches, bounded fixtures, cloud targets on separate cadence |
-| Release | Certify one immutable candidate | Exact-image CITE, full canonical-client matrix, licensed ArcGIS clients, required desktop/BI evidence, artifact consumption, upgrade, security, provenance, and evidence publication | Reuse only SHA/digest-equivalent fresh results; expensive work runs once per candidate |
+| Release | Certify one immutable candidate | Exact-image CITE, full canonical-client matrix, required desktop/BI evidence, artifact consumption, upgrade, security, provenance, and evidence publication | Reuse only SHA/digest-equivalent fresh results; expensive work runs once per candidate |
 
 PR CI remains deliberately small. Adding a release requirement does not imply adding it to the PR gate.
 
@@ -145,7 +144,7 @@ authoritative component evidence:
 
 - `honua-server` feature catalog, capability matrix, public-interface proof ledger, CITE status, and client
   certification matrix.
-- `honua-esri-compat` operation matrices and licensed evidence.
+- GeoServices REST operation matrices; candidate-bound certification remains blocked until a reviewed producer is available (#1186).
 - Official JavaScript, Python, and .NET SDK compatibility results.
 - Cloud-native format validator and client evidence.
 - `platform-manifest.yaml`, `compatibility-matrix.yaml`, candidate image digests, and artifact versions.
@@ -200,25 +199,13 @@ The following work precedes expansion because a broken or misleading gate cannot
 
 ### Protocol and client plan
 
-#### GeoServices REST and Esri clients
+#### GeoServices REST protocol certification
 
-| Surface | Required canonical clients | Completion requirement |
-|---|---|---|
-| FeatureServer | Evidence `honua-esri-compat:feature-server` | Candidate-bound result recorded by identifier |
-| MapServer | Evidence `honua-esri-compat:map-server` | Candidate-bound result recorded by identifier |
-| ImageServer | Evidence `honua-esri-compat:image-server` | Candidate-bound result recorded by identifier |
-| GeometryServer | Evidence `honua-esri-compat:geometry-server` | Candidate-bound result recorded by identifier |
-| GPServer | Evidence `honua-esri-compat:gp-server` | Candidate-bound result recorded by identifier |
-| GeocodeServer | Evidence `honua-esri-compat:geocode-server` | Candidate-bound result recorded by identifier |
-| VectorTileServer | ArcGIS clients and MapLibre | Metadata, style, tile retrieval, and rendering pass |
-| SceneServer/I3S | Evidence `honua-esri-compat:scene-server` | Candidate-bound result recorded by identifier |
-| VersionManagementServer | Evidence `honua-esri-compat:version-management-server` | Candidate-bound result recorded by identifier |
-| Portal/Sharing | Evidence `honua-esri-compat:portal-sharing` | Candidate-bound result recorded by identifier |
-| NAServer | Evidence `honua-esri-compat:network-analysis` | Candidate-bound result recorded by identifier |
-| Mobile/Field Maps | Licensed Field Maps run | Authentication, discovery, offline package, edits, and synchronization pass |
-
-The Esri matrix is complete when 100% of supported, client-addressable operation cells pass. `not-applicable`
-is allowed only when the client cannot issue the operation; required operations may not certify as `skip`.
+The supported operation denominator remains in `certification/sources/geoservices-rest/matrix`. No
+current producer emits candidate-bound certification evidence for those rows. The release gate stays
+blocked until the reviewed producer and artifact contract tracked in
+[honua-release#1186](https://github.com/honua-io/honua-release/issues/1186) are available. The
+operation matrix does not imply that a client suite has passed.
 
 #### OGC protocols
 
@@ -319,7 +306,7 @@ A platform candidate is Honua-certified only when:
 | Wave | Scope | Exit condition |
 |---|---|---|
 | 0: Trustworthy signals | Federated manifest, validator pinning, CNG repair, Cesium wiring, FlatGeobuf gate, skip/freshness enforcement | Three consecutive complete green nightlies; no orphaned required lane |
-| 1: Existing supported surfaces | Esri skip burn-down, COG, HDF5/NetCDF, Zarr, PMTiles, 3D Tiles, STAC assets, GeoArrow, WPS | Every currently supported surface has its required canonical-client or validator proof |
+| 1: Existing supported surfaces | GeoServices REST certification blocker, COG, HDF5/NetCDF, Zarr, PMTiles, 3D Tiles, STAC assets, GeoArrow, WPS | Every currently supported surface has its required canonical-client or validator proof |
 | 2: Platform clients | SDK operation matrices, generated gRPC clients, MCP SDK, identity, Portal, and mobile evidence | Cross-repo compatibility matrix is executable for the supported version window |
 | 3: New capabilities | Kerchunk and COPC implementation plus canonical-client certification | Capabilities move from roadmap to supported only after release-tier proof passes |
 | 4: External certification | Exact-RC evidence publication and formal standards/vendor submissions where desired | External claims link to accepted third-party certification artifacts |
@@ -344,7 +331,7 @@ A platform candidate is Honua-certified only when:
 
 `honua-release` owns the umbrella program, aggregate gate, release binding, and published certification bundle.
 `honua-evidence` owns evidence ingestion and the generated capability/evidence join. Component repositories own
-their implementations, fast tests, and emitted evidence. `honua-esri-compat` owns licensed Esri execution.
+their implementations, fast tests, and emitted evidence. Candidate-bound GeoServices REST evidence remains blocked under #1186.
 Official SDK repositories own their SDK-specific operation matrices. Cross-repository issues are linked to an
 umbrella issue in `honua-release`; release-blocking children carry the release gate label appropriate to the
 target train.

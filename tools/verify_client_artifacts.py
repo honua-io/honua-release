@@ -192,7 +192,7 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
     from mint_nightly_lock import signer_workflow, verify_publisher_bundle
 
     package, version = str(artifact['package']), str(artifact['version'])
-    split_packages = {'@honua/sdk', '@honua/sdk-esri-compat', '@honua/react',
+    split_packages = {'@honua/sdk', '@honua/react',
                       '@honua/geometry', '@honua/app-platform'}
     repository = 'honua-io/honua-sdk-js'
     if package not in split_packages or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository:

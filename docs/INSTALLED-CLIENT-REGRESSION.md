@@ -209,7 +209,6 @@ Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `H
 | Cell | Blocked steps | Blocker | Owner | Target |
 |---|---|---|---|---|
 | `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client. OGC API Tiles is not supported in the .NET SDK for 2026.1. | `mikemcdougall` | `2026.1.x` |
-| `nuget-service-layer-import-fidelity` | the cell | [honua-release#418](https://github.com/honua-io/honua-release/issues/418): no producer emits the published-.NET-SDK import-fidelity receipt | `mikemcdougall` | `2026.1.x` |
 
 Every other cell is active. The earlier blockers on the `*-sdk-geoservices`, `pypi-sdk-ogc-tiles` and
 `interop-api-key-revocation` cells were closed by the re-pins that flipped them.

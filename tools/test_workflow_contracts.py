@@ -244,11 +244,12 @@ def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks(
 def test_conformance_gate_consumes_manifest_pinned_evidence_producers():
     jobs = _workflow("certification.yml")["jobs"]
     mcp = "\n".join(_step_text(step) for step in jobs["conformance-mcp"]["steps"])
-    esri = "\n".join(_step_text(step) for step in jobs["conformance-esri-geoservices"]["steps"])
+    geoservices_rest = "\n".join(_step_text(step) for step in jobs["conformance-geoservices-rest"]["steps"])
     cite = "\n".join(_step_text(step) for step in jobs["conformance-ogc-stac"]["steps"])
     assert 'get("evidenceSources")' in mcp and 'get("mcp")' in mcp
     assert "checkout_component.sh" in mcp and "clone --depth 1" not in mcp
-    assert 'get("evidenceSources")' in esri and 'get("esri-compat")' in esri
+    assert "retired-producer" in geoservices_rest and "#1186" in geoservices_rest
+    assert "checkout" not in geoservices_rest
     assert 'get("evidenceSources")' in cite and 'get("cite")' in cite
     assert "/trunk/docs/cite-status.md" not in cite
 
@@ -1210,7 +1211,7 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                         'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
                         'executable-docs', 'installed-clients')
-    QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
+    QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'cite')
     train = _workflow('release-train.yml')['jobs']['report']['steps']
     binding = next(step for step in train if step.get('name') == 'Bind the report to the exact candidate and train identity')
     assert 'mint_nightly_lock.py --declare-evidence' in binding['run']
@@ -1228,14 +1229,14 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 
 
 
-def test_report_declaration_command_emits_all_seventeen_classes(tmp_path):
+def test_report_declaration_command_emits_all_sixteen_classes(tmp_path):
     import json
     import subprocess
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                         'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
                         'executable-docs', 'installed-clients')
-    QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
+    QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'cite')
     report = {'generatedAt': '2026-09-30T06:04:00Z', 'gates': [],
               'candidate': {'train': {'runId': '4242', 'runAttempt': 1},
                             'artifacts': {'platform-manifest.yaml': {'sha256': 'a' * 64}}}}

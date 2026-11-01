@@ -194,13 +194,6 @@
       "body_sha256": "b82014934f66beeb9e05a37f65357c4b50db0349d25d68d818ed0319dd4feb40"
     },
     {
-      "coordinate": "honua-esri-assess",
-      "url": "https://pypi.org/pypi/honua-esri-assess/json",
-      "observed_at": "2026-09-06T20:22:48.978271+00:00",
-      "http_status": 404,
-      "body_sha256": "b82014934f66beeb9e05a37f65357c4b50db0349d25d68d818ed0319dd4feb40"
-    },
-    {
       "coordinate": "@honua-io/embed",
       "url": "https://registry.npmjs.org/@honua-io%2fembed",
       "observed_at": "2026-09-06T20:22:48.976215+00:00",
