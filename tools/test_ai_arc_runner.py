@@ -1733,6 +1733,34 @@ def test_the_workflow_has_no_free_quickstart_input_and_passes_the_console_compos
     assert 'quickstart_revision' not in workflow and 'pinned-inputs' in workflow
     assert '--console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"' in workflow
 
+
+def test_the_runner_digest_closes_over_transitive_and_path_loaded_dependencies():
+    """Astra B6: helpers the stages import (directly or through other helpers), files loaded by path and the
+    executing workflow are all bound; mutating any of them changes the digest."""
+    closure = R.runner_closure()
+    for name in ('tools/agent_e2e_scenario_backend.py', 'tools/agent_e2e_p10_observer.py',
+                 'tools/agent_e2e_studio_observer.py', 'certification/installed-clients/render_png.py',
+                 'certification/terminal-journey/live_driver.py', '.github/workflows/ai-arc.yml',
+                 'tools/ai_arc_runner.py', 'tools/ai_arc_ops_local.py'):
+        assert name in closure, name
+    assert 'certification/terminal-journey/targets/local-docker.json' in closure      # path-loaded config
+    assert 'certification/agent-e2e/expectations/local/P10.json' in closure
+    assert not any(m in f.lower() for f in closure for m in ('heldout', 'held-out', 'held_out', '.sealed'))
+    assert 'certification/agent-e2e/pack.v2.json' not in closure
+    assert not any(Path(f).name.startswith('test_') for f in closure)
+
+
+def test_mutating_a_transitive_helper_changes_the_runner_digest(monkeypatch):
+    before = R.harness_digests()['runner']
+    target = R.ROOT / 'certification/terminal-journey/targets/local-docker.json'   # P15's map body (Sol 4a50cf3a)
+    real = Path.read_bytes
+
+    def read(self):
+        raw = real(self)
+        return raw + b'\n# mutated\n' if self == target else raw
+    monkeypatch.setattr(Path, 'read_bytes', read)
+    assert R.harness_digests()['runner'] != before
+
 def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_path):
     """Founder request: screenshots are retained as evidence files, named by step, and scoring is unchanged."""
     import hashlib
@@ -1808,3 +1836,34 @@ def test_a_local_receipt_without_the_pinned_quickstart_is_rejected(tmp_path):
         change(doc['slotFacts'])
         with pytest.raises(ValueError):
             agg(tmp_path, names, [json.dumps(doc).encode()])
+
+
+def test_restricted_directories_are_never_enumerated(monkeypatch):
+    """Sol 09ce8951: a held-out folder named by a path literal is pruned before traversal, not filtered after."""
+    walked = []
+    real = R.os.walk
+
+    def walk(top, *a, **k):
+        for current, dirs, files in real(top, *a, **k):
+            walked.append(current)
+            yield current, dirs, files
+    monkeypatch.setattr(R.os, 'walk', walk)
+    R._closure_files.cache_clear()
+    R.runner_closure()
+    R._closure_files.cache_clear()
+    assert not any(m in str(w).lower() for w in walked for m in ('heldout', 'held-out', 'held_out'))
+    assert R._restricted(R.ROOT / 'certification/agent-ops/held-out') and R._restricted(R.ROOT / 'x/heldout.v1.sealed')
+
+
+def test_an_oversized_referenced_folder_fails_closed(tmp_path, monkeypatch):
+    """Sol 09ce8951: no silent cap; more files than the digest binds is an error."""
+    folder = tmp_path / 'certification' / 'big'
+    folder.mkdir(parents=True)
+    for i in range(6):
+        (folder / f'f{i}.json').write_text('{}')
+    monkeypatch.setattr(R, 'ROOT', tmp_path)
+    monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 5)
+    with pytest.raises(ValueError):
+        R._bindable_files(folder)
+    monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 6)
+    assert len(R._bindable_files(folder)) == 6
