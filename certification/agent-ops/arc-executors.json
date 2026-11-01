@@ -12,8 +12,9 @@
       {
         "id": "restore-142",
         "ref": "https://github.com/honua-io/honua-server/issues/6813",
-        "merged": false,
-        "mergeCommit": null
+        "merged": true,
+        "mergeCommit": "16c0fe23817a437cd92eec3d173b0b89dfaedd8a",
+        "mergedVia": "https://github.com/honua-io/honua-server/pull/6823"
       }
     ]
   },
@@ -23,8 +24,8 @@
       {
         "id": "ecs-convergence",
         "ref": "https://github.com/honua-io/honua-server/pull/6825",
-        "merged": false,
-        "mergeCommit": null
+        "merged": true,
+        "mergeCommit": "a5e593bdf6cf3d201f7721b67121ef1367d50df7"
       },
       {
         "id": "convergence-image",
@@ -35,8 +36,9 @@
       {
         "id": "restore-142",
         "ref": "https://github.com/honua-io/honua-server/issues/6813",
-        "merged": false,
-        "mergeCommit": null
+        "merged": true,
+        "mergeCommit": "16c0fe23817a437cd92eec3d173b0b89dfaedd8a",
+        "mergedVia": "https://github.com/honua-io/honua-server/pull/6823"
       },
       {
         "id": "restart-config",

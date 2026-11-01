@@ -97,14 +97,20 @@ def test_aws_setup_maps_the_harness_checks_and_binds_its_approval(tmp_path):
 
 def test_ops_refuses_until_every_executor_is_merged(tmp_path, monkeypatch):
     import arc_ops
-    reason = arc_ops.arc_stage(ctx_for(tmp_path, 'local-docker', 'ops')).unavailable(None)
-    assert 'restore-142' in reason and 'pull/6824' not in reason, 'only open gates are named (#6824 merged)'
+    # Recorded data: every local executor is merged (#6823, #6824); the ECS cell gates are not.
+    assert arc_ops.open_gates('local-docker') == []
     reason = arc_ops.arc_stage(ctx_for(tmp_path, 'aws-ecs', 'ops')).unavailable(None)
     assert 'honua-iac/issues/351' in reason
     gates = tmp_path / 'gates.json'
     spec = json.loads(arc_ops.GATES.read_text())
+    open_spec = json.loads(json.dumps(spec))
+    open_spec['local-docker']['executors'][0].update(merged=False, mergeCommit=None)
+    gates.write_text(json.dumps(open_spec))
+    monkeypatch.setattr(arc_ops, 'GATES', gates)
+    reason = arc_ops.arc_stage(ctx_for(tmp_path, 'local-docker', 'ops')).unavailable(None)
+    assert 'not merged' in reason and open_spec['local-docker']['executors'][0]['id'] in reason
     for gate in spec['local-docker']['executors']:
-        gate['merged'] = True
+        gate.update(merged=True, mergeCommit=None)
     gates.write_text(json.dumps(spec))
     monkeypatch.setattr(arc_ops, 'GATES', gates)
     assert arc_ops.open_gates('local-docker'), 'merged without a recorded merge commit stays open'
@@ -120,7 +126,7 @@ def test_ops_refuses_until_every_executor_is_merged(tmp_path, monkeypatch):
 def test_ops_stage_delegates_through_the_gate(tmp_path):
     ctx = ctx_for(tmp_path, 'local-docker', 'ops')
     reason = R.OpsStage().unavailable(ctx)
-    assert reason and 'not merged' in reason
+    assert reason and ('not merged' in reason or 'product_ops, #1164' in reason)
 
 
 # ---------------------------------------------------------------- Studio (in Console)
