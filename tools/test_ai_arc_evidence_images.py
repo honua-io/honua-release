@@ -25,53 +25,74 @@ def png(width=2, height=2, salt=0):
 
 @pytest.fixture
 def sink(tmp_path):
-    E.configure(tmp_path / 'shots')
-    yield tmp_path / 'shots'
-    E.configure(None)
+    handle = E.open_sink(tmp_path / 'shots')
+    yield handle
+    E.close_sink(handle)
 
 
-def manifest(d):
-    return json.loads((d / 'manifest.json').read_text())
+def manifest(s):
+    return json.loads((s.directory / 'manifest.json').read_text())
 
 
 def test_a_kept_image_is_byte_identical_to_the_action_logs_hash(sink):
     image = png()
-    name = E.retain('step', '0001-studio_click', image, expected_sha256=hashlib.sha256(image).hexdigest(),
-                    url='http://127.0.0.1:8137/studio/maps/1')
-    kept = sink / name
+    name = sink.retain('step', '0001-studio_click', image, expected_sha256=hashlib.sha256(image).hexdigest(),
+                       url='http://127.0.0.1:8137/studio/maps/1', check_url=True)
+    kept = sink.directory / name
     assert kept.read_bytes() == image and (kept.stat().st_mode & 0o777) == 0o600
     row = manifest(sink)['kept'][0]
     assert row['sha256'] == row['actionLogSha256'] == 'sha256:' + hashlib.sha256(image).hexdigest()
 
 
 def test_a_hash_mismatch_is_never_kept(sink):
-    assert E.retain('step', 'x', png(), expected_sha256='0' * 64) is None
-    assert manifest(sink)['dropped']['hash-mismatch'] == 1 and not list(sink.glob('*.png'))
+    assert sink.retain('step', 'x', png(), expected_sha256='0' * 64) is None
+    assert manifest(sink)['dropped']['hash-mismatch'] == 1 and not list(sink.directory.glob('*.png'))
 
 
 @pytest.mark.parametrize('url', ['http://127.0.0.1:4180/oauth2/sign_in', 'http://x/signin?next=/', 'http://x/login',
                                  'http://x/auth/callback?code=abc', 'http://x/settings/api-keys', 'http://x/token',
-                                 'unknown://sign-in'])
+                                 None, ''])
 def test_sign_in_and_credential_pages_are_never_kept(sink, url):
-    assert E.retain('step', 'x', png(), url=url) is None
+    assert sink.retain('step', 'x', png(), url=url, check_url=True) is None
     assert manifest(sink)['dropped']['credential-page'] == 1
 
 
 def test_size_count_and_format_caps_hold(sink, monkeypatch):
     monkeypatch.setattr(E, 'MAX_BYTES', 200)
-    assert E.retain('step', 'big', png(64, 64)) is None
-    assert E.retain('step', 'text', b'not a png') is None
+    assert sink.retain('step', 'big', png(64, 64)) is None
+    assert sink.retain('step', 'text', b'not a png') is None
     monkeypatch.setattr(E, 'MAX_BYTES', 2 * 1024 * 1024)
     for i in range(E.MAX_IMAGES + 5):
-        E.retain('step', f'{i}', png(salt=i))
+        sink.retain('render', f'{i}', png(salt=i))
     m = manifest(sink)
-    assert len(m['kept']) == E.MAX_IMAGES == len(list(sink.glob('*.png')))
-    assert m['dropped'] == {'cap': 5, 'size': 1, 'credential-page': 0, 'not-png': 1, 'hash-mismatch': 0}
+    assert len(m['kept']) == E.MAX_IMAGES == len(list(sink.directory.glob('*.png')))
+    assert {k: v for k, v in m['dropped'].items() if v} == {'cap': 5, 'size': 1, 'not-png': 1}
 
 
-def test_nothing_is_kept_when_the_sink_is_off(tmp_path):
-    E.configure(None)
-    assert E.retain('step', 'x', png()) is None
+def test_nothing_is_current_when_no_stage_has_a_sink():
+    assert E.current() is None
+
+
+def test_a_late_writer_from_a_closed_sink_never_reaches_the_next_runs_evidence(tmp_path):
+    """Sol 02c55045 item 1: a delayed producer holds run A's sink; run B's folder never receives it."""
+    a = E.open_sink(tmp_path / 'a')
+    late = E.current()
+    E.close_sink(a)
+    b = E.open_sink(tmp_path / 'b')
+    try:
+        assert late.retain('step', 'from-a', png()) is None and a.dropped['closed'] == 1
+        assert not list((tmp_path / 'b').glob('*.png')) and E.current() is b
+        E.close_sink(a)                                   # closing an old sink never disables the newer one
+        assert E.current() is b
+    finally:
+        E.close_sink(b)
+
+
+def test_retention_io_failure_never_raises(sink, monkeypatch):
+    """Sol 02c55045 item 3: a manifest write failure is counted, not raised."""
+    monkeypatch.setattr(E.Sink, '_manifest', lambda self: (_ for _ in ()).throw(OSError('disk full')))
+    assert sink.retain('render', 'x', png()) is None
+    assert sink.dropped['io-error'] == 1
 
 
 def test_the_browser_server_keeps_the_screenshot_the_action_log_binds(sink, tmp_path):
@@ -84,7 +105,8 @@ def test_the_browser_server_keeps_the_screenshot_the_action_log_binds(sink, tmp_
     server.lock, server.page = OriginLock('http://127.0.0.1:8137'), page
     _status, _text, digest = server.perform('studio_navigate', {'url': '/studio/maps'})
     row = manifest(sink)['kept'][0]
-    assert row['sha256'] == 'sha256:' + digest and (sink / row['file']).read_bytes() == BLUE_PNG
+    assert row['sha256'] == row['actionLogSha256'] == 'sha256:' + digest
+    assert (sink.directory / row['file']).read_bytes() == BLUE_PNG and log.rows[0]['status'] == 'pass'
     assert row['label'] == '0001-studio_navigate'
     page.url = 'http://127.0.0.1:8137/oauth2/sign_in'      # e.g. the session expired mid-stage
     server.perform('studio_click', {'selector': '[data-test=save]'})
@@ -102,3 +124,18 @@ def test_no_scorer_or_observer_reads_the_evidence_images():
     source = (ROOT / 'tools/ai_arc_evidence_images.py').read_text()
     assert not any(t in source for t in ('read_bytes', 'read_text', '.read(', "'rb'", 'os.O_RDONLY')), \
         'the sink never reads files'
+
+
+
+def test_a_retention_failure_leaves_the_action_outcome_and_digest_intact(sink, tmp_path, monkeypatch):
+    """Sol 02c55045 item 3: evidence I/O can never change the action's status or its sealed digest."""
+    from test_agent_browser_studio import FakePage, ActionLog, BLUE_PNG
+    from agent_browser_studio import StudioBrowserServer, OriginLock
+    monkeypatch.setattr(E.Sink, '_manifest', lambda self: (_ for _ in ()).throw(OSError('disk full')))
+    page = FakePage(BLUE_PNG)
+    page.url = 'http://127.0.0.1:8137/studio'
+    log = ActionLog(tmp_path / 'log', 1, set(), 20)
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, str(tmp_path), page_factory=lambda lock: page)
+    server.lock, server.page = OriginLock('http://127.0.0.1:8137'), page
+    status, _text, digest = server.perform('studio_navigate', {'url': '/studio/maps'})
+    assert status == 'ok' and digest == hashlib.sha256(BLUE_PNG).hexdigest() and log.rows[0]['status'] == 'pass'

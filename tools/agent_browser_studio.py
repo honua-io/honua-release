@@ -668,6 +668,10 @@ class StudioBrowserServer:
         self._http_thread = None
         self._poisoned = False
         self.owner_timeout = OWNER_TIMEOUT
+        import ai_arc_evidence_images
+        # The evidence sink open when this server starts (one Studio stage); a closed sink rejects late writes.
+        self._evidence = ai_arc_evidence_images.current()
+        self._shot_seq = 0
 
     def start(self):
         from agent_e2e_local_api import McpEndpoint
@@ -808,6 +812,8 @@ class StudioBrowserServer:
         except (TypeError, ValueError):
             selected['arguments'] = {'refused': 'unserializable'}
 
+        shot = {}
+
         def execute(_kind, _action):
             status, text = 'fail', 'refused'
             try:
@@ -833,15 +839,11 @@ class StudioBrowserServer:
                     pass
             digest = hashlib.sha256(png).hexdigest() if png else None
             if png:
-                # Evidence only (never read by the scorer): the same bytes whose digest the action log binds.
-                import ai_arc_evidence_images
-                self._shot_seq = getattr(self, '_shot_seq', 0) + 1
+                shot['png'] = png
                 try:
-                    url = self.page.current_url() if self.page is not None else None
+                    shot['url'] = self.page.current_url() if self.page is not None else None
                 except Exception:  # noqa: BLE001  (an unknown URL may be a sign-in page: never kept)
-                    url = 'unknown://sign-in'
-                ai_arc_evidence_images.retain('step', f'{self._shot_seq:04d}-{name}', png,
-                                              expected_sha256=digest, url=url)
+                    shot['url'] = None
             result = {'status': status, 'text': text[:8000], 'screenshotSha256': digest}
             # The action is written before execution. Its result, including the screenshot digest,
             # is retained separately and bound by the runner's response digest and action chain.
@@ -849,6 +851,13 @@ class StudioBrowserServer:
             return {**result, '_rawResponse': (200, action_bytes(response))}
 
         result = self.action_log.dispatch('tool_call', selected, execute)
+        if self._evidence is not None and shot.get('png'):
+            # Evidence only, kept after the action log sealed the result, and only with the sealed digest.
+            # Retention never raises, so it cannot change the action's outcome.
+            self._shot_seq += 1
+            self._evidence.retain('step', f'{self._shot_seq:04d}-{name}', shot['png'],
+                                  expected_sha256=result.get('screenshotSha256') or '', url=shot.get('url'),
+                                  check_url=True)
         # Not evidence. Tests corrupt this to prove the sealed action log is the recorder's.
         self.decoy.append('side-log-is-not-evidence')
         return result['status'], result['text'], result['screenshotSha256']
@@ -1674,6 +1683,8 @@ map.once('idle',async()=>{
 
 def record_independent_render(stack, seeded, prefix, version_step, *, render_body=None, default_colors=None):
     """Score controller exports and a separate runner-owned composite from saved state."""
+    import ai_arc_evidence_images
+    evidence = ai_arc_evidence_images.current()       # captured when this observation starts
     recorder, variant = stack.extra['recorder'], seeded.state['variant']
     fixtures = seeded.state.get('layers') or {}
     require(set(fixtures) == set(LAYER_NAMES), 'render fixture bindings are incomplete')
@@ -1704,8 +1715,8 @@ def record_independent_render(stack, seeded, prefix, version_step, *, render_bod
         http_status=200, loaded_layer_ids=rendering['loadedLayerIds'],
         visible_label_source_ids=rendering['visibleLabelSourceIds'], browser_errors=[])
     recorder.store_derived(prefix + '-render', measurement)
-    import ai_arc_evidence_images
-    ai_arc_evidence_images.retain('render', prefix + '-independent', rendering['png'])
+    if evidence is not None:
+        evidence.retain('render', prefix + '-independent', rendering['png'])
 
 
 def verify_saved_default_fill(recorder, version_step, export_step, *, service, layer_id, expected_rgba, minimum_pixels):
@@ -1715,6 +1726,8 @@ def verify_saved_default_fill(recorder, version_step, export_step, *, service, l
     a single default fill, and does not claim to observe labels or authored styles.
     """
     import base64
+    import ai_arc_evidence_images
+    evidence = ai_arc_evidence_images.current()       # captured when this observation starts
     require(isinstance(expected_rgba, (tuple, list)) and len(expected_rgba) == 4
             and all(type(v) is int and 0 <= v <= 255 for v in expected_rgba)
             and type(minimum_pixels) is int and minimum_pixels > 0, 'invalid frozen render expectation')
@@ -1727,8 +1740,8 @@ def verify_saved_default_fill(recorder, version_step, export_step, *, service, l
     try:
         raw = base64.b64decode(observation['rawBodyBase64'], validate=True)
         width, height, pixel = _decode_png(raw)
-        import ai_arc_evidence_images
-        ai_arc_evidence_images.retain('render', export_step + '-server-export', raw)
+        if evidence is not None:
+            evidence.retain('render', export_step + '-server-export', raw)
     except (ValueError, TypeError) as exc:
         raise ProjectionError('server export is not a decodable PNG') from exc
     require(width >= 256 and height >= 256, 'server export is too small')

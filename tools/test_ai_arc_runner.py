@@ -1717,8 +1717,8 @@ def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_pa
 
     class Shooting(FakeStage):
         def observe(self, ctx, row):
-            E.retain('step', '0001-studio_click', image, expected_sha256=hashlib.sha256(image).hexdigest(),
-                     url='http://127.0.0.1:8137/studio')
+            E.current().retain('step', '0001-studio_click', image, expected_sha256=hashlib.sha256(image).hexdigest(),
+                               url='http://127.0.0.1:8137/studio', check_url=True)
             return super().observe(ctx, row)
     with_images, _ = run(tmp_path, name='img', mods=modules(studio=Shooting('studio')))
     without, _ = run(tmp_path, name='plain')
@@ -1728,4 +1728,11 @@ def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_pa
     assert kept['sha256'] == 'sha256:' + hashlib.sha256(image).hexdigest()
     strip = lambda r: [{k: s.get(k) for k in ('stage', 'outcome', 'cause', 'falseSuccess')} for s in r['stages']]
     assert strip(with_images) == strip(without)
-    assert E._state['dir'] is None, 'the sink is off after the Studio stage'
+    assert E.current() is None, 'the sink is off after the Studio stage'
+
+
+def test_an_unavailable_studio_stage_still_closes_its_sink(tmp_path):
+    """Sol 02c55045 item 2: every exit closes the stage's sink."""
+    import ai_arc_evidence_images as E
+    run(tmp_path, mods=modules(studio=FakeStage('studio', unavailable='no Console on this slot')))
+    assert E.current() is None

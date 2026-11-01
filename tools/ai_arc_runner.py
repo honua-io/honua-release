@@ -1505,13 +1505,23 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
 
 
 def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previous_answer: str | None) -> dict:
+    """One stage. Studio controller screenshots and server renders are kept as evidence files under the stage's
+    private evidence (exported with the run, never read by the scorer): the stage owns its sink, closed in an
+    outer finally on every exit, so no later writer reaches it."""
+    from ai_arc_evidence_images import open_sink, close_sink
+    sink = open_sink(ctx.private_dir / 'studio' / 'screenshots') if module.stage == 'studio' else None
+    try:
+        return _run_stage(ctx, module, session, goal, previous_answer, sink)
+    finally:
+        close_sink(sink)
+
+
+def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previous_answer: str | None,
+               sink=None) -> dict:
+    from ai_arc_evidence_images import close_sink
     stage = module.stage
     result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
     started = time.monotonic()
-    import ai_arc_evidence_images
-    # Studio controller screenshots and server renders are kept as evidence files under the stage's private
-    # evidence (exported with the run, never read by the scorer); the sink is off outside this stage.
-    ai_arc_evidence_images.configure(ctx.private_dir / 'studio' / 'screenshots' if module.stage == 'studio' else None)
     row, worker, exit_reason, unavailable = {}, None, 'normal', None
     try:
         reason = within(ctx.remaining(), module.unavailable, ctx, ctx=ctx)
@@ -1559,7 +1569,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         except Exception as exc:
             observations = [{'assertion': 'observation', 'status': 'fail',
                              'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}]
-    ai_arc_evidence_images.configure(None)
+    close_sink(sink)
     stage_elapsed = round(time.monotonic() - started, 1)    # the model's stage, before any slot preparation
     prepare = getattr(module, 'prepare_next', None)
     if callable(prepare):
