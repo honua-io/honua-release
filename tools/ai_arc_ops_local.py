@@ -172,7 +172,8 @@ def read_state(vm) -> dict | None:
               + 'r=$(' + slot_compose(vm, 'ps', '--all', '--format', '{{.State}}', 'redis') + ' 2>/dev/null); '
                 'echo "REDISRC=$?"; echo "REDIS=$r"\n'
               + f'echo "READY=$(curl -s -o /dev/null -w %{{http_code}} http://127.0.0.1:{int(vm.http_port)}'
-                '/healthz/ready)"\n')
+                '/healthz/ready)"\n'
+              + f'echo "ROOT=$(curl -s -o /dev/null -w %{{http_code}} http://127.0.0.1:{int(vm.http_port)}/)"\n')
     done = vm.ssh(script, 120)
     out = done.stdout.decode('utf-8', 'replace') if isinstance(done.stdout, bytes) else str(done.stdout or '')
     fields = dict(line.split('=', 1) for line in out.splitlines() if '=' in line)
@@ -187,7 +188,8 @@ def read_state(vm) -> dict | None:
     return {'imageId': image, 'schema': int(parts[0]), 'has142': parts[1] == '1',
             'marker': parts[2], 'aiTable': parts[3] == 'true',
             'redisRunning': fields.get('REDIS', '').strip() == 'running',
-            'ready': fields.get('READY', '').strip() == '200'}
+            'ready': fields.get('READY', '').strip() == '200',
+            'rootOk': fields.get('ROOT', '').strip().isdigit() and 200 <= int(fields['ROOT'].strip()) < 300}
 
 
 def run_sql(vm, statement: str) -> bool:
@@ -926,7 +928,16 @@ class LocalOps:
             if any(a['operationStatus'] in ('failed', 'cancelled', 'indeterminate', 'denied', 'rejected')
                    for a in sc.approvals):
                 statuses.append('failed')
-        return {'resources': [], 'accessProbes': [], 'facts': {'statuses': statuses, 'servingRelease': serving}}
+        resources, probes = [], []
+        vm = getattr(getattr(ctx, 'slot', None), 'vm', None)
+        if serving is not None and vm is not None:
+            # The controller's own ready read of the slot (curl on the VM): the customer's localhost URLs.
+            for path in (('/', '/healthz/ready') if sc.states[-1].get('rootOk') else ('/healthz/ready',)):
+                url = f'http://localhost:{int(vm.http_port)}{path}'
+                resources.append({'url': url, 'served': True, 'httpStatus': 200})
+                probes.append({'method': 'GET', 'url': url, 'worked': True, 'httpStatus': 200})
+        return {'resources': resources, 'accessProbes': probes,
+                'facts': {'statuses': statuses, 'servingRelease': serving}}
 
     def deployment_hosts(self, ctx):
         return ('localhost', '127.0.0.1', '::1')

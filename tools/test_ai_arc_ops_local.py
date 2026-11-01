@@ -845,3 +845,17 @@ def test_slot_preparation_never_converges_with_a_live_key(tmp_path, monkeypatch,
     stage.reconverge = reconverge
     out = stage.prepare_next(c)
     assert out['status'] == 'credential-alive' and out['credentials']['alive'] is True
+
+
+
+def test_the_ops_handoff_carries_the_slot_urls_only_when_the_controller_read_ready(tmp_path):
+    sc = scenario([state(PRIOR, 140, ready=False)])
+    sc.step()
+    stage, c = stage_for(sc), ctx(tmp_path)
+    assert stage.handoff_observations(c, '')['resources'] == []
+    sc.states.append(dict(state(PRIOR, 140), phase='done'))
+    assert {r['url'] for r in stage.handoff_observations(c, '')['resources']} == \
+        {f'http://localhost:{c.slot.vm.http_port}/healthz/ready'}
+    sc.states.append(dict(state(PRIOR, 140), phase='done', rootOk=True))
+    urls = {r['url'] for r in stage.handoff_observations(c, '')['resources']}
+    assert urls == {f'http://localhost:{c.slot.vm.http_port}/', f'http://localhost:{c.slot.vm.http_port}/healthz/ready'}
