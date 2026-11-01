@@ -57,13 +57,15 @@ class P10(Scenario):
 
     @staticmethod
     def selected_query(actions, seeded):
-        """The first query of the seeded layer, from the verified action log."""
-        for action in actions:
-            arguments = action.arguments if isinstance(action.arguments, dict) else {}
-            if (action.status == 'pass' and action.kind == 'tool_call' and action.tool == QUERY_TOOL
-                    and str(arguments.get('serviceId')) == str(seeded.state['service'])
-                    and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
-                return action
+        """Only the last query is eligible, including failures and queries of other layers."""
+        queries = [a for a in actions if a.kind == 'tool_call' and a.tool == QUERY_TOOL]
+        if not queries:
+            return None
+        action = queries[-1]
+        arguments = action.arguments if isinstance(action.arguments, dict) else {}
+        if (action.status == 'pass' and str(arguments.get('serviceId')) == str(seeded.state['service'])
+                and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
+            return action
         return None
 
     def observe(self, stack, seeded, variant, run=None):
@@ -72,31 +74,9 @@ class P10(Scenario):
         binding = {'service': seeded.state['service'], 'layerId': seeded.state['layerId']}
         recorder.json('p10-source-after', 'GET', source_path(binding))
         actions = recorder.actions()
-        candidates = [a for a in actions if self.selected_query([a], seeded) is not None]
-        query = candidates[0] if candidates else None
-        if len(candidates) > 1:
-            # Selection uses only controller replays of sealed calls and the frozen
-            # fixture expectation. The selected request is replayed again below and
-            # the runner independently validates and scores that recorded response.
-            from agent_e2e_local_runner import oracle
-            expected = self.expected(variant)['filter.exact']
-            for index, candidate in enumerate(candidates):
-                try:
-                    result = recorder.replay(f'p10-query-candidate-{index + 1}', candidate)
-                    value = result['structuredContent']
-                    ids = [f['properties']['source_id'] for f in value['geojson']['features']]
-                    if (result.get('isError', False) is not False
-                            or str(value['serviceId']) != str(seeded.state['service'])
-                            or str(value['layerId']) != str(seeded.state['layerId'])
-                            or value['exceededTransferLimit'] is not False or value['resultOffset'] != 0
-                            or value['returnedCount'] != len(ids)
-                            or candidate.arguments.get('returnCountOnly', False) is not False):
-                        continue
-                    oracle.verify('filter.exact', {'resourceIds': ids}, expected)
-                    query = candidate
-                    break
-                except Exception:
-                    continue
+        from agent_e2e_local_expectations import fixture_catalog
+        count = sum(a.kind == 'tool_call' and a.tool == QUERY_TOOL for a in actions)
+        query = self.selected_query(actions, seeded) if count <= fixture_catalog()['maxP10Queries'] else None
         if query is not None:
             try:
                 recorder.replay('p10-replay-query', query)

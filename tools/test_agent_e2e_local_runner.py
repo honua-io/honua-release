@@ -2689,11 +2689,11 @@ def test_reader_prepared_before_case_credentials_and_failure_tears_down(monkeypa
     assert calls == ['setup', 'reader', 'teardown']
 
 
-def test_p10_correct_query_survives_later_verification_query(candidate, tmp_path):
+def test_p10_correct_query_does_not_override_later_wrong_query(candidate, tmp_path):
     receipt, _, _ = run_case(candidate, tmp_path, [tool(CORRECT_WHERE), tool('1=1'), FINAL])
-    assert receipt['status'] == 'pass', receipt
+    assert receipt['status'] == 'fail', receipt
     replay = next(row for row in receipt['controllerRecords'] if row['step'] == 'p10-replay-query')
-    assert replay['replayOf'].startswith('occ:1:1:')
+    assert replay['replayOf'].startswith('occ:1:2:')
 
 
 def test_p10_exploration_before_correct_query_is_not_scored_as_the_task(candidate, tmp_path):
@@ -2709,13 +2709,20 @@ def test_p10_multiple_wrong_queries_do_not_pass(candidate, tmp_path):
     assert next(row for row in receipt['assertions'] if row['assertion'] == 'filter.exact')['status'] == 'fail'
 
 
+def test_p10_query_spray_exceeds_frozen_budget(candidate, tmp_path):
+    receipt, _, _ = run_case(candidate, tmp_path, [tool(CORRECT_WHERE)] * 6 + [FINAL])
+    assert receipt['status'] == 'fail'
+    assert receipt['queryBudget'] == {'count': 6, 'limit': 5}
+
+
 def test_fixture_case_does_not_trust_scenario_expected(candidate, tmp_path):
     class MisleadingP10(FakeP10):
         def expected(self, variant):
             return {}
 
-    variant, fixture_case = runner.select_fixture_case(
-        goal='Find the matching shelters.', fixture_id='town-A', scenario_id='P10')
+    variant, fixture_cases = runner.select_fixture_cases(
+        goal='Find the matching shelters.', fixture_id='town-A')
+    fixture_case = fixture_cases['P10']
     model = FakeModel([tool(CORRECT_WHERE), FINAL])
     runtime = FakeRuntime(candidate.base_url, model, tmp_path)
     receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=MisleadingP10(),
