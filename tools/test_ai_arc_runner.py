@@ -1613,3 +1613,20 @@ def test_the_assistant_credit_guard_fails_closed_on_unreadable_or_incomplete_aud
     row = R.assistant_credit_row(ctx, _dt.datetime(2026, 11, 1, tzinfo=_dt.timezone.utc),
                                  lambda c: {'customer-assistant'})
     assert row['status'] == 'fail', row
+
+
+def test_the_studio_row_keeps_the_assistants_usage_refusals_and_actual_prompts(tmp_path):
+    """Coordinator (#1188): the finalized stage row preserves what the Studio adapter reports."""
+    script = 'sha256:' + 'c' * 64
+    extra = {'assistantRegion': 'us-east-1',
+             'assistantUsage': {'inputTokens': 1200, 'outputTokens': 300, 'note': 'x' * 500, 'flag': True},
+             'provenance': [{'agent': A1['agent'], 'cliVersion': A1['cliVersion'], 'model': A1['model'],
+                             'promptSha256': script}],
+             'actions': [act(), dict(act(), refusal='out-of-scope'), dict(act(), refusal='not-admitted')]}
+    receipt, _ = run(tmp_path, mods=modules(studio=FakeStage('studio', extra_row=extra)))
+    studio = receipt['stages'][3]
+    assert studio['assistantRegion'] == 'us-east-1'
+    assert studio['assistantUsage']['inputTokens'] == 1200 and studio['assistantUsage']['outputTokens'] == 300
+    assert len(studio['assistantUsage']['note']) == 80 and studio['assistantUsage']['flag'] is None
+    assert studio['refusals'] == {'not-admitted': 1, 'out-of-scope': 1} and studio['refused'] == 1
+    assert studio['modelVisible']['promptDigests'] == [script]

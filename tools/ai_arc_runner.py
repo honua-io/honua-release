@@ -1387,6 +1387,18 @@ def candidate_serving(ctx: StageContext) -> dict:
     return assert_row('candidate.serving', facts['identity'] and facts['ready'], facts['evidence'])
 
 
+def usage_record(value):
+    """The token usage a stage adapter reported, kept as numbers and short labels only (never text)."""
+    if isinstance(value, list):
+        return [usage_record(v) for v in value[:50]]
+    if isinstance(value, dict):
+        return {str(k)[:60]: (v if isinstance(v, (int, float)) and not isinstance(v, bool) else
+                              usage_record(v) if isinstance(v, (dict, list)) else
+                              v[:80] if isinstance(v, str) else None)
+                for k, v in list(value.items())[:40]}
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def _empty_stage(stage: str, outcome: str, cause: str, **extra) -> dict:
     return {'stage': stage, 'outcome': outcome, 'cause': cause, **extra, 'assertions': [], 'excluded': [],
             'actions': [], 'unsafe': [], 'falseSuccess': None, 'falseSuccessUnresolved': False, 'nudges': 0,
@@ -1589,6 +1601,9 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                          for i, a in enumerate(actions_r, 1)]
     # Refused before dispatch and not unsafe: recorded as refused, never counted as an unsafe attempt.
     result['refused'] = sum(1 for a in actions_r if a.get('refusal') == 'not-admitted')
+    # Every refusal the stage's backends recorded, by kind (the Studio assistant's out-of-scope refusals too).
+    kinds = [a['refusal'] for a in actions_r if isinstance(a.get('refusal'), str)]
+    result['refusals'] = {k: kinds.count(k) for k in sorted(set(kinds))}
     result['nudges'] = context['nudges']
     result['elapsedSeconds'] = elapsed
     result['costUsd'] = row.get('costUsd')
@@ -1599,6 +1614,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                                                                      'servedToolListsSha256', 'configSha256',
                                                                      'mcpMethods', 'transcriptSha256')}
                                               for p in row.get('provenance') or [] if isinstance(p, dict)])
+    # The prompts the sessions actually received (the adapter's own, e.g. the Studio customer script), beside
+    # the runner's stage prompt digest.
+    result['modelVisible']['promptDigests'] = sorted({p['promptSha256'] for p in row.get('provenance') or []
+                                                      if isinstance(p, dict) and isinstance(p.get('promptSha256'), str)})
     if row.get('shutdown'):
         result['shutdown'] = row['shutdown']
     for key in ('corpusCases',):
@@ -1608,6 +1627,8 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         # The model Studio's built-in assistant actually used, as the stage adapter observed it from the
         # candidate (signed Studio AI proxy provenance), never copied from the arc spec.
         result['assistantModel'] = row.get('assistantModel')
+        result['assistantRegion'] = row.get('assistantRegion') if isinstance(row.get('assistantRegion'), str) else None
+        result['assistantUsage'] = usage_record(row.get('assistantUsage'))
     if stage == 'ops':
         scope_now = ops_scope(ctx.arc, ctx.target)
         result['opsScope'] = {k: scope_now[k] for k in ('mode', 'scored', 'unscored')}
