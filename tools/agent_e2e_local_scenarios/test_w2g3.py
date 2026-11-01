@@ -14,10 +14,10 @@ from agent_e2e_local_scenarios import P11
 
 
 @pytest.mark.parametrize('scenario_id', ['P08', 'P09', 'P11', 'P13', 'P19'])
-def test_runner_discovers_fail_closed_scenarios(scenario_id):
+def test_runner_discovers_scenarios(scenario_id):
     scenario = load_scenario(scenario_id)
     assert scenario.id == scenario_id
-    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P11', 'P13') else ())
+    assert scenario.supported_variants == (('A', 'B') if scenario_id in ('P08', 'P09', 'P11', 'P13') else ())
     assert scenario.fault_plan('A') is None
     assert scenario.sessions_required() == 1
 
