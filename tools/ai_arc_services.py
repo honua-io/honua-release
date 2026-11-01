@@ -34,7 +34,7 @@ def runtime_class():
         """#1152 LocalRuntime on an adopted arc stack."""
 
         def __init__(self, *, base_url, admin_key, project, candidate_digest, agent, model, limits, private_root,
-                     extra_secrets=()):
+                     extra_secrets=(), vm=None):
             super().__init__(None, model=model, release_id='honua-ai-arc', agent=agent,
                              max_model_calls=limits['maxTurns'], max_actions=limits['maxToolCalls'])
             self.arc = {'base_url': base_url, 'admin_key': admin_key, 'project': project,
@@ -46,6 +46,28 @@ def runtime_class():
             self.minted, self.outstanding = [], set()
             self.lock = threading.Lock()
             self.gate = None
+            self.vm = vm
+
+        def psql(self, stack, sql, *, read_only):
+            """Run runner-generated structured SQL on the adopted slot's actual database container."""
+            if self.vm is None or self.vm.project != self.arc['project']:
+                raise ValueError('adopted database slot is missing or does not match the ARC project')
+            import shlex
+            if read_only:
+                self._ensure_reader(stack)
+            project = self.vm.project
+            listing = self.vm.ssh(shlex.join(['docker', 'ps', '-q', '--filter',
+                'label=com.docker.compose.project=' + project, '--filter', 'label=com.docker.compose.service=db']))
+            ids = listing.stdout.decode().split() if listing.returncode == 0 else []
+            if len(ids) != 1 or not re.fullmatch(r'[0-9a-f]{12,64}', ids[0]):
+                raise RuntimeError('no unique database container for the adopted slot')
+            env = (['-e', 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000 '
+                          f'-c search_path={runner.SQL_SEARCH_PATH.replace(" ", "")}'] if read_only else [])
+            command = ['docker', 'exec', *env, ids[0], 'psql', '-U',
+                       self.READER_ROLE if read_only else 'honua', '-d', 'honua', '-X', '-q', '-A', '-t',
+                       '-v', 'ON_ERROR_STOP=1', '-c', sql]
+            result = self.vm.ssh(shlex.join(command), timeout=300)
+            return result.returncode, result.stdout
 
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
             if candidate_digest != self.arc['candidate']:
@@ -274,7 +296,7 @@ def run_fixture_services(*, goal, fixture_id, fault, **kwargs):
 
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
                  handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None, private_root=None,
-                 register=None, gate=None, goal=None, fixture_id=None, fault=None):
+                 register=None, gate=None, goal=None, fixture_id=None, fault=None, vm=None):
     """Run each services scenario once on the adopted stack under one shared stage budget.
 
     Returns (row, cases). ``row`` carries every action (with its recorded status), the private final
@@ -311,7 +333,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     cls = runtime_class()
     runtime = cls(base_url=base_url, admin_key=admin_key, project=project, candidate_digest=candidate_digest,
                   agent=arm['agent'], model=arm['model'], limits=limits, private_root=private_root,
-                  extra_secrets=extra_secrets)
+                  extra_secrets=extra_secrets, vm=vm)
     runtime.gate = gate
     if register is not None:
         register(Canceller(runtime))

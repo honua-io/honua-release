@@ -114,3 +114,32 @@ def test_town_setup_verifies_only_selected_fixture(monkeypatch, variant):
     monkeypatch.setattr(common, 'verify_corpus', lambda root, manifest: seen.extend(r['path'] for r in manifest['files']))
     common.town_setup(object(), variant)
     assert len(seen) == 3 and all(path.startswith('town-' + variant + '/') for path in seen)
+
+
+def test_adopted_sql_uses_matching_remote_project_and_one_quoted_sql_argument(tmp_path):
+    import shlex
+    from types import SimpleNamespace
+    import ai_arc_services
+    calls = []
+    class Vm:
+        project = 'arc-test'
+        def ssh(self, script, timeout=300):
+            calls.append(shlex.split(script))
+            return SimpleNamespace(returncode=0, stdout=(b'abcdef012345\n' if len(calls) == 1 else b'[]\n'))
+    runtime = ai_arc_services.runtime_class()(
+        base_url='http://127.0.0.1:1', admin_key='unused', project='arc-test',
+        candidate_digest='sha256:' + 'a' * 64, agent='codex-cli', model='test',
+        limits={'maxTurns': 1, 'maxToolCalls': 1, 'maxSeconds': 1}, private_root=tmp_path, vm=Vm())
+    verified = []
+    runtime._ensure_reader = lambda stack: verified.append(stack)
+    stack = object()
+    sql = "SELECT 'a; b'"
+    assert runtime.psql(stack, sql, read_only=True) == (0, b'[]\n')
+    assert verified == [stack]
+    assert 'label=com.docker.compose.project=arc-test' in calls[0]
+    assert calls[1][-2:] == ['-c', sql]
+    assert 'default_transaction_read_only=on' in ' '.join(calls[1])
+    runtime.vm.project = 'foreign'
+    with pytest.raises(ValueError, match='does not match'):
+        runtime.psql(stack, sql, read_only=True)
+    assert len(calls) == 2
