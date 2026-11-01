@@ -538,10 +538,16 @@ class LocalSetup(StageModule):
     def prepare(self, ctx):
         import ai_arc_local
         page = Path(ctx.options['quickstart']).read_text(encoding='utf-8')
+        pin = ctx.arc['quickstart']
+        given = ctx.options.get('quickstart_revision')
+        if given and given != pin['revision']:
+            raise ValueError('the quickstart revision is not the arc pin')
+        if sha256(page) != pin['sha256']:
+            raise ValueError('the quickstart page is not the pinned bytes')
         self.page = page
         self.compose = ai_arc_local.quickstart_compose(page)
         ctx.slot.facts['quickstart'] = {'pageSha256': sha256(page), 'composeSha256': sha256(self.compose),
-                                        'revision': ctx.options.get('quickstart_revision')}
+                                        'revision': pin['revision']}
         ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install, self.compose)
         ctx.slot.harness_secrets.extend(ctx.slot.vm.secrets.values())
         ctx.slot.controller['admin_key'] = ctx.slot.vm.secrets['HONUA_ADMIN_PASSWORD']
@@ -784,8 +790,12 @@ class StudioStage(DelegatingStage):
             # does (pinned image, #6828), as harness slot preparation for this stage.
             import ai_arc_local
             try:
-                staged = ai_arc_local.stage_console(ctx.slot.vm, Path(ctx.options['console_compose']).read_text(),
-                                                    ctx.options.get('console_compose_revision'), ctx.arc['console'])
+                pin = ctx.arc['console']['compose']
+                text = Path(ctx.options['console_compose']).read_text()
+                given = ctx.options.get('console_compose_revision')
+                if sha256(text) != pin['sha256'] or (given and given != pin['revision']):
+                    raise ValueError('the Console compose is not the arc pin')
+                staged = ai_arc_local.stage_console(ctx.slot.vm, text, pin['revision'], ctx.arc['console'])
             except Exception as exc:  # noqa: BLE001
                 return f'Honua Console could not be added to the slot ({type(exc).__name__}): ' + gap
             tunnel = ai_arc_local.Tunnel(ctx.slot.vm, staged['port'])
@@ -1737,6 +1747,25 @@ def supported_services(arc: dict) -> list[str]:
     return out
 
 
+def pinned_inputs(arc: dict, out: Path, fetch=None) -> dict:
+    """The quickstart page and the Console compose at the arc spec's pinned commits (public honua-server raw
+    files), each written only if its sha256 equals the pin."""
+    import urllib.request
+    fetch = fetch or (lambda url: urllib.request.urlopen(url, timeout=60).read())
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    written = {}
+    for name, pin in (('quickstart.md', arc['quickstart']), ('docker-compose.yml', arc['console']['compose'])):
+        if not SHA.fullmatch(pin['revision']) or pin['repo'] != 'honua-io/honua-server':
+            raise ValueError('invalid pin for ' + name)
+        raw = fetch(f"https://raw.githubusercontent.com/{pin['repo']}/{pin['revision']}/{pin['path']}")
+        if sha256(raw) != pin['sha256']:
+            raise ValueError(f'{name} at the pinned revision does not match its pinned sha256')
+        (out / name).write_bytes(raw)
+        written[name] = {'revision': pin['revision'], 'sha256': pin['sha256']}
+    return written
+
+
 def harness_digests() -> dict:
     def files(patterns):
         rows = []
@@ -2045,6 +2074,11 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
                 or goal.get('manifestSha256') != manifest['sha256'] or goal.get('sealedSha256') != manifest['sealedSha256'] \
                 or goal.get('fixtures') != case['fixtures'] or goal.get('fault') != case['fault']:
             raise ValueError('held-out run is not bound to its sealed manifest case')
+    quickstart = (receipt.get('slotFacts') or {}).get('quickstart')
+    if target == 'local-docker' and quickstart is not None and (
+            quickstart.get('pageSha256') != arc['quickstart']['sha256']
+            or quickstart.get('revision') != arc['quickstart']['revision']):
+        raise ValueError('run receipt used another quickstart than the arc pin')
     install = arc['versionPair']['install']
     if receipt.get('phases', {}).get('install') != {'release': install['release'], 'sourceSha': install['sourceRevision'],
                                                     'imageDigest': install['imageDigest']}:
@@ -2417,6 +2451,8 @@ def main(argv=None) -> int:
     agg.add_argument('--output', type=Path, required=True)
     agg.add_argument('--report', type=Path, required=True)
     sub.add_parser('check', help='validate the arc definition and its model-visible strings')
+    pins = sub.add_parser('pinned-inputs', help='fetch the pinned quickstart and Console compose, digest-checked')
+    pins.add_argument('--out', type=Path, required=True)
     sub.add_parser('freeze-services', help='list the corpus scenarios supported for A and B on this checkout')
     args = parser.parse_args(argv)
     arc = load_arc()
@@ -2432,6 +2468,9 @@ def main(argv=None) -> int:
         arm = arm_by_id(arc, args.arm)
         print(json.dumps(schedule(arc, args.target, arm, load_goal_set('primary') if args.held_out else None,
                                   args.trials), separators=(',', ':')))
+        return 0
+    if args.command == 'pinned-inputs':
+        print(json.dumps(pinned_inputs(arc, args.out)))
         return 0
     if args.command == 'trial':
         arm = arm_by_id(arc, args.arm)

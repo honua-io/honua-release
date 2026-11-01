@@ -1706,3 +1706,25 @@ def test_pronoun_privacy_advice_about_named_secret_files(answer, fs):
     map named after the secret is the antecedent instead (Sol 03126bcf)."""
     handoff = {'resources': [], 'accessProbes': [], 'facts': {'statuses': ['published']}}
     assert S.false_success(answer, 'pass', handoff)['false_success'] is fs
+
+
+def test_pinned_inputs_are_fetched_at_the_pins_and_digest_checked(tmp_path):
+    """ARC v2 (Fable S5, B3): the quickstart and Console compose come from the arc spec's pins only."""
+    pages = {}
+    for pin in (ARC['quickstart'], ARC['console']['compose']):
+        url = f"https://raw.githubusercontent.com/{pin['repo']}/{pin['revision']}/{pin['path']}"
+        pages[url] = b'bytes-for-' + pin['path'].encode()
+    arc = json.loads(json.dumps(ARC))
+    arc['quickstart']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('quickstart.md'))])
+    arc['console']['compose']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('docker-compose.yml'))])
+    got = R.pinned_inputs(arc, tmp_path / 'in', fetch=pages.__getitem__)
+    assert set(got) == {'quickstart.md', 'docker-compose.yml'} and (tmp_path / 'in' / 'quickstart.md').is_file()
+    arc['quickstart']['sha256'] = 'sha256:' + '0' * 64
+    with pytest.raises(ValueError):
+        R.pinned_inputs(arc, tmp_path / 'in2', fetch=pages.__getitem__)
+
+
+def test_the_workflow_has_no_free_quickstart_input_and_passes_the_console_compose():
+    workflow = (R.ROOT / '.github/workflows/ai-arc.yml').read_text()
+    assert 'quickstart_revision' not in workflow and 'pinned-inputs' in workflow
+    assert '--console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"' in workflow
