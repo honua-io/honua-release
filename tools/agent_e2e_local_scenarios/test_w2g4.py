@@ -105,7 +105,8 @@ class RecordedCandidate:
             if not self.published:
                 status, value = 404, {'error': 'not found'}
             elif principal == 'anonymous' and self.wrong != 'anonymous-public':
-                status, value = 401, {'error': 'authentication required'}
+                status = {'anonymous-forbidden': 403, 'anonymous-missing': 404}.get(self.wrong, 401)
+                value = {'error': 'authentication required'}
                 if self.wrong == 'disclosure':
                     value['itemId'] = ITEM
             else:
@@ -202,7 +203,8 @@ def test_p15_complete_recorded_state_and_seed_idempotence(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize('variant', ('A', 'B'))
 @pytest.mark.parametrize('wrong,assertion', [
-    ('anonymous-public', 'publication.private'), ('disclosure', 'publication.private'),
+    ('anonymous-public', 'publication.private'), ('anonymous-missing', 'publication.private'),
+    ('disclosure', 'publication.private'),
     ('unpublished', 'publication.private'), ('foreign-action', 'publication.private'),
     ('no-action', 'publication.private'), ('source-change', 'source-content.unchanged'),
     ('bootstrap-live', 'custody.bootstrap-revoked')])
@@ -220,6 +222,11 @@ def test_p15_invalid_route_fails_publication_without_erasing_independent_evidenc
     assert result['publication.private']['status'] == 'fail'
     assert result['source-content.unchanged']['status'] == 'pass'
     assert result['custody.bootstrap-revoked']['status'] == 'pass'
+
+
+def test_p15_anonymous_forbidden_is_also_a_valid_denial(tmp_path, monkeypatch):
+    result, _, _ = p15_case(tmp_path, monkeypatch, wrong='anonymous-forbidden')
+    assert result['publication.private']['status'] == 'pass', result
 
 
 @pytest.mark.parametrize('wrong', ('admin-operator', 'wrong-version', 'wrong-hash', 'personal'))
