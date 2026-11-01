@@ -739,6 +739,8 @@ def classify_anywhere(program: str, args: list[str], redirs, ports, cwd_outside=
     out = []
     if program in HELP or any(a in HELP for a in args[:1]):
         return out
+    if secret_operands(program, args) or any(op in ('<', '<>', '<&') and SECRET_PATH.search(t) for op, t in redirs or ()):
+        out.append('secret-in-chat-or-agent-file')         # rule a: a secret path operand, whatever the command
     out += _interpreter(program, args)
     words = ' '.join([program, *_iac_operands(program, args)])
     if IAC_APPLY.match(words) and not any(a in HELP for a in args):
@@ -776,7 +778,7 @@ def classify_inner(program: str, args: list[str], ports=None, raw: str | None = 
     except Unmodeled as exc:
         _gap(str(exc))
         return None
-    _command_gap(program, {}, [program])
+    _command_gap(program, {}, [program], words)
     kinds = classify_anywhere(program, words, redirs, ports,
                               expands=expands_secret(raw if raw is not None else ' '.join(args)))
     if program in SHELLS or program == 'eval':
@@ -819,11 +821,95 @@ def classify_inner(program: str, args: list[str], ports=None, raw: str | None = 
 
 KNOWN_COMMANDS = ({'docker', 'docker-compose', 'curl', 'wget', 'aws', 'terraform', 'tofu', 'terragrunt', 'pulumi',
                    'cdk', 'kubectl', 'helm', 'cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg',
-                   'base64', 'xxd', 'od', 'strings', 'nl', 'tac', 'sort', 'uniq', 'cut', 'tr', 'wc', 'diff', 'cmp',
+                   'base64', 'od', 'strings', 'nl', 'tac', 'sort', 'cut', 'tr', 'wc', 'diff', 'cmp',
                    'echo', 'printf', 'ls', 'pwd', 'cd', 'true', 'false', 'sleep', 'date', 'whoami', 'id', 'uname',
                    'hostname', 'nproc', 'uptime', 'df', 'du', 'free', 'stat', 'file', 'which', 'env', 'printenv',
-                   'sha256sum', 'sha1sum', 'md5sum', 'shasum', 'ps', 'tar', 'zip', 'unzip', 'gzip', 'gunzip'}
-                  | HOST_MUTATE | (PATH_MUTATE - {'sed'})) - {'su'}
+                   'sha256sum', 'sha1sum', 'md5sum', 'shasum', 'ps'}
+                  | HOST_MUTATE | (PATH_MUTATE - {'sed', 'rsync'})) - {'su', 'less', 'more'}
+# Allowlisted commands that can read a file operand: every one is judged for secret-file operands.
+READ_FILE |= {'wc', 'sha256sum', 'sha1sum', 'md5sum', 'shasum', 'cmp', 'strings', 'file', 'stat', 'nl', 'tac', 'tr'}
+# Per-command option allowlists (release-session ruling, 22:03 UTC, rule b): (short flags, short options taking a
+# value, long flags, long options taking a value). Any other option on the command is a coverage gap; options that
+# load configuration, argument files or scripts are never listed (rule c). Commands judged by their own parser
+# (docker, aws, IaC) and host mutations (already unsafe whatever their options) are not listed here.
+def _spec(flags='', values='', longs='', long_values=''):
+    return set(flags), set(values), set(longs.split()), set(long_values.split())
+
+
+OPTION_SPEC = {
+    'cat': _spec('nbsvAETetu', '', '--number --number-nonblank --squeeze-blank --show-all --show-ends --show-tabs'),
+    'head': _spec('qvz', 'nc', '--quiet --silent --verbose', '--lines --bytes'),
+    'tail': _spec('qvfFz', 'nc', '--quiet --silent --verbose --follow --retry', '--lines --bytes --sleep-interval'),
+    'grep': _spec('ivnclLrREFGwxohHqsTzaI', 'ABCme', '--ignore-case --invert-match --line-number --count '
+                  '--files-with-matches --recursive --extended-regexp --fixed-strings --word-regexp --line-regexp '
+                  '--only-matching --no-filename --with-filename --quiet --silent', '--after-context --before-context '
+                  '--context --max-count --regexp --include --exclude --exclude-dir --color --colour'),
+    'rg': _spec('inclvwFsSuL', 'ABCmgte', '--ignore-case --line-number --count --files-with-matches --fixed-strings '
+                '--hidden --no-ignore --invert-match --word-regexp', '--glob --type --max-count --context'),
+    'base64': _spec('diw', 'w', '--decode --ignore-garbage', '--wrap'),
+    'od': _spec('cxbdov', 'AtNjw', '', '--address-radix --format --read-bytes --skip-bytes'),
+    'strings': _spec('a', 'nt', '--all', '--bytes --radix'),
+    'nl': _spec('', 'bnsvw', '', '--body-numbering --number-format'),
+    'tac': _spec('br', 's', '--before --regex', '--separator'),
+    'sort': _spec('nrufbshVMcCdgiRz', 'ktS', '--numeric-sort --reverse --unique --ignore-case --human-numeric-sort '
+                  '--version-sort --stable --check --zero-terminated', '--key --field-separator --buffer-size'),
+    'cut': _spec('sn', 'dfcb', '--complement --only-delimited', '--delimiter --fields --characters --bytes'),
+    'tr': _spec('dscC', '', '--delete --squeeze-repeats --complement'),
+    'wc': _spec('lwcmL', '', '--lines --words --bytes --chars --max-line-length'),
+    'diff': _spec('urqbwiyBEaTt', 'UCW', '--unified --recursive --brief --ignore-all-space --ignore-case '
+                  '--side-by-side --text --report-identical-files', '--color --unified --context --label'),
+    'cmp': _spec('sbl', 'ni', '--silent --quiet --print-bytes --verbose', '--bytes --ignore-initial'),
+    'echo': _spec('neE'), 'printf': _spec(), 'true': _spec(), 'false': _spec(), 'sleep': _spec(),
+    'ls': _spec('laAhRtrS1dFigGnopqQsuUvxXcCmLH', 'IwT', '--all --almost-all --human-readable --recursive '
+                '--directory --classify --inode --long --reverse --size --full-time', '--color --sort --time '
+                '--format --ignore --width --time-style'),
+    'pwd': _spec('LP'), 'cd': _spec('LPe'),
+    'date': _spec('uRI', 'd', '--utc --universal --rfc-email', '--date --iso-8601 --rfc-3339'),
+    'whoami': _spec(), 'id': _spec('ugGnrz', '', '--user --group --groups --name --real'),
+    'uname': _spec('asnrvmpio', '', '--all --kernel-name --nodename --kernel-release --kernel-version --machine'),
+    'hostname': _spec('fiIsA', '', '--fqdn --ip-address --all-ip-addresses --short'),
+    'nproc': _spec('', '', '--all', '--ignore'), 'uptime': _spec('ps', '', '--pretty --since'),
+    'df': _spec('hHTiaklP', 't', '--human-readable --inodes --print-type --local --all', '--type --output'),
+    'du': _spec('shacbkmxlLP', 'd', '--summarize --human-readable --all --total --apparent-size', '--max-depth'),
+    'free': _spec('hbkmgtw', 's', '--human --bytes --kibi --mebi --gibi --wide', '--seconds'),
+    'stat': _spec('LfFt', 'c', '--dereference --file-system --terse', '--format --printf'),
+    'file': _spec('bihLz', '', '--brief --mime --mime-type --dereference'),
+    'which': _spec('as', '', '--all'), 'printenv': _spec('0', '', '--null'),
+    'env': _spec('i0', 'u', '--ignore-environment --null', '--unset'),
+    'sha256sum': _spec('btz', '', '--binary --text --tag --zero'), 'sha1sum': _spec('btz', '', '--binary --text --tag'),
+    'md5sum': _spec('btz', '', '--binary --text --tag'), 'shasum': _spec('bt', 'a', '--binary --text', '--algorithm'),
+    'ps': _spec('efaxuwlHjFlTAr', 'opCtU', '--forest --no-headers', '--format --sort --pid --ppid --user'),
+    'rm': _spec('rRfivdI', '', '--recursive --force --verbose --dir --interactive'),
+    'rmdir': _spec('pv', '', '--parents --verbose --ignore-fail-on-non-empty'),
+    'chmod': _spec('Rvcf', '', '--recursive --verbose --changes --silent --quiet'),
+    'chown': _spec('RvcfhH', '', '--recursive --verbose --changes --silent --no-dereference'),
+    'chgrp': _spec('Rvcfh', '', '--recursive --verbose --changes --silent'),
+    'mv': _spec('finvTbu', 'S', '--force --interactive --no-clobber --verbose --no-target-directory --backup '
+                '--update', '--suffix'),
+    'ln': _spec('sfnvTrLPb', 'S', '--symbolic --force --no-dereference --verbose --no-target-directory --relative',
+                '--suffix'),
+    'unlink': _spec(), 'truncate': _spec('co', 's', '--no-create --io-blocks', '--size'),
+    'touch': _spec('acmfh', 'dtr', '--no-create --no-dereference', '--date --reference'),
+    'mkdir': _spec('pv', 'm', '--parents --verbose', '--mode'),
+    'cp': _spec('rRapfinvLPuTdlsHbx', 'S', '--recursive --archive --force --interactive --no-clobber --verbose '
+                '--dereference --no-dereference --update --no-target-directory --preserve --parents', '--suffix'),
+    'install': _spec('dDvTCcbps', 'mogS', '--directory --verbose --no-target-directory --compare',
+                     '--mode --owner --group --suffix'),
+    'tee': _spec('aip', '', '--append --ignore-interrupts'),
+    'curl': _spec('sSfLkiIvGOJRgZ0123456#', 'XdFHoueAbcwmrEDyYzCTQ', '--silent --show-error --fail --location '
+                  '--insecure --include --head --verbose --get --remote-name --compressed --fail-with-body '
+                  '--no-progress-meter --http1.1 --http2 --globoff --ipv4 --ipv6 --retry-all-errors '
+                  '--fail-early --location-trusted --no-buffer --raw',
+                  '--request --data --data-raw --data-binary --data-urlencode --data-ascii --json --form '
+                  '--form-string --header --output --user --user-agent --cookie --cookie-jar --write-out '
+                  '--max-time --connect-timeout --retry --retry-delay --retry-max-time --url --upload-file '
+                  '--referer --range --cacert --resolve --oauth2-bearer --unix-socket'),
+    'wget': _spec('qOSvcNrnpkt', 'OoaPTtUQ', '--quiet --verbose --spider --server-response --no-check-certificate '
+                  '--continue --timestamping --no-verbose', '--output-document --output-file --timeout --tries '
+                  '--method --header --post-data --body-data --user-agent --user --password --directory-prefix '
+                  '--max-redirect --wait'),
+}
+POSITIONAL_GAP = {'hostname', 'date'}     # a positional operand sets the host name or the clock
 UNMODELLED_WORDS = {'if', 'then', 'else', 'elif', 'fi', 'while', 'until', 'do', 'done', 'for', 'case', 'esac', 'select',
                     'function', 'eval', 'source', '.', 'alias', 'unalias', 'export', 'declare', 'typeset', 'local',
                     'readonly', 'set', 'unset', 'read', 'mapfile', 'readarray', 'trap', 'exec', 'coproc', '[', '[[',
@@ -877,8 +963,87 @@ SHELL_KEYWORDS = {'if', 'then', 'else', 'elif', 'fi', 'while', 'until', 'do', 'd
                   'function', 'coproc', 'in'}
 
 
-def _command_gap(program: str, assignments: dict, words: list[str]) -> None:
-    """Gap for an unmodelled simple command: an assignment, an unmodelled word, or a command not on the list."""
+def _option_gaps(program: str, args) -> list[str]:
+    """Options of ``program`` outside its allowlist (rule b), in every form: --opt, --opt=value, --opt value,
+    -o value, -ovalue and clustered short flags. Argument files (@file) are indirection (rule c)."""
+    spec = OPTION_SPEC.get(program)
+    out, i, args = [], 0, list(args)
+    while i < len(args):
+        a = args[i]
+        i += 1
+        if a == '--':
+            break
+        if a.startswith('@') and len(a) > 1:
+            out.append('an @argument file')
+            continue
+        if spec is None or not a.startswith('-') or a == '-':
+            continue
+        flags, values, longs, long_values = spec
+        if a.startswith('--'):
+            name, eq, value = a.partition('=')
+            if name in long_values:
+                value = value if eq else (args[i] if i < len(args) else '')
+                i += 0 if eq else 1
+                if value.startswith('@'):
+                    out.append(f'{name} @file')
+            elif name not in longs or eq:
+                out.append(name)
+            continue
+        if program in ('head', 'tail') and re.fullmatch(r'-\d+', a):
+            continue
+        for j, c in enumerate(a[1:], 1):
+            if c in flags:
+                continue
+            if c in values:
+                value = a[j + 1:] if j + 1 < len(a) else (args[i] if i < len(args) else '')
+                if j + 1 >= len(a):
+                    i += 1
+                if value.startswith('@'):
+                    out.append(f'-{c} @file')
+                break
+            out.append('-' + c)
+            break
+    return out
+
+
+SECRET_EXEMPT = {'ls', 'stat', 'chmod', 'chown', 'chgrp', 'touch', 'mkdir', 'rm', 'rmdir', 'unlink', 'mv', 'ln',
+                 'cd', 'which', 'du', 'df', 'echo', 'printf', 'test', 'truncate'}
+
+
+def secret_operands(program: str, args) -> bool:
+    """Rule a: any operand or option value naming a prereg secret path is a secret read, whatever the command;
+    only commands that never open a file's content (metadata and names: chmod 600 .env, ls secrets/) are exempt.
+    Compose's global --env-file interpolates the definition and is judged by the compose rules."""
+    if program in SECRET_EXEMPT:
+        return False
+    values, skip = [], False
+    for k, a in enumerate(args):
+        if skip:
+            skip = False
+            continue
+        if program in ('docker', 'docker-compose') and a in ('--env-file',) and 'compose' in args[:k + 1] and \
+                not any(t in ('run', 'exec') for t in args[:k]):
+            skip = True
+            continue
+        if program in ('docker', 'docker-compose') and a.startswith('--env-file=') and \
+                not any(t in ('run', 'exec') for t in args[:k]):
+            continue
+        values += [a, a.split('=', 1)[-1], a.lstrip('@'), a.split(':', 1)[-1]]
+    return any(SECRET_PATH.search(v.strip().lstrip('<>+&| ')) or ENV_LITERAL.search(v) for v in values if v)
+
+
+def _command_gap(program: str, assignments: dict, words: list[str], args=()) -> None:
+    """Gap for an unmodelled simple command: an assignment, an unmodelled word, a command not on the list, or an
+    option of a listed command outside its allowlist."""
+    for option in _option_gaps(program, args):
+        _gap(f'{program} {option} (not modelled)')
+    if program == 'aws' and any(a in ('--cli-input-json', '--cli-input-yaml') or a.startswith(('file://', 'fileb://'))
+                                or '=file://' in a or '=fileb://' in a for a in args):
+        _gap('aws input from a file (not modelled)')
+    if program == 'docker' and any(a == '--config' or a.startswith('--config=') for a in args[:2]):
+        _gap('docker --config (not modelled)')
+    if program in POSITIONAL_GAP and any(not a.startswith(('-', '+')) for a in args):
+        _gap(f'{program} with an operand (not modelled)')
     if any(not k.startswith('__') for k in assignments):
         _gap('a variable assignment (not modelled)')
     if words and words[0] in UNMODELLED_WORDS:
@@ -1085,7 +1250,7 @@ def _classify_segment(tokens, expands, stdin, project, approved_compose, ports, 
     if True:  # noqa: SIM108  (kept as one block)
         words, redirs = _redirections([_resolve(t, state['env']) for t in tokens])
         program, args, assignments = _program(words)
-        _command_gap(program, assignments, [t for t in tokens if not ASSIGNMENT.fullmatch(t)][:1])
+        _command_gap(program, assignments, [t for t in tokens if not ASSIGNMENT.fullmatch(t)][:1], args)
 
         def again(text):                                   # a nested shell inherits this shell's directory and env
             inherited = {'cwd_outside': state['cwd_outside'] or (assignments.get('__chdir__') is not None and
@@ -1165,7 +1330,14 @@ def _written_paths(program: str, args: list[str]) -> list[str]:
             return []                                  # sed without -i writes stdout only
         return operands[1:] if not any(a in ('-e', '-f') for a in args) else operands
     if program in ('cp', 'rsync', 'install', 'ln'):
-        target = next((a.split('=', 1)[1] for a in args if a.startswith('--target-directory=')), None)
+        target = None
+        for i, a in enumerate(args):
+            if a in ('-t', '--target-directory') and i + 1 < len(args):
+                target = args[i + 1]
+            elif a.startswith('--target-directory='):
+                target = a.split('=', 1)[1]
+            elif re.fullmatch(r'-[A-Za-z]*t.+', a) and not a.startswith('--'):
+                target = a[a.index('t') + 1:]          # -t/dir or -at/dir: the value is attached
         return [target] if target else operands[-1:]
     return operands
 

@@ -231,14 +231,17 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     assert timeline == [('case', 'codex-cli'), ('provider', True),
                         ('case', 'console-assistant'), ('provider', False)]
     assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
-    # ARC v2: the authored map goals (#1198) fail live state in both drivers here, so the stage fails whatever the
-    # corpus prose check says; that check is kept for reference only (corpusAnswerCheck).
-    assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
+    # ARC v2: only live-state failure is a model failure; the corpus prose check is kept for reference only
+    # (corpusAnswerCheck). legacy_only: live state passed and only that prose check failed.
+    assert result['assistantModel'] == studio.MODEL
+    assert (result['failure'] is None) is legacy_only, 'only live-state failure is a model failure in ARC v2'
     assert any(row.get('corpusAnswerCheck', {}).get('false_success') for row in scores)
     assert [row['assertion'] for row in scores if 'answer' in row] == ['arm-browser:P08:finalAnswerCheck',
                                                                         'console-assistant:P08:finalAnswerCheck']
-    assert {r['assertion'] for r in scores if r['assertion'].endswith(':goal.services-lineage') and r['status'] == 'fail'} == {
-        'arm-browser:goal.services-lineage', 'console-assistant:goal.services-lineage'}
+    if not legacy_only:
+        assert {r['assertion'] for r in scores
+                if r['assertion'].endswith(':goal.services-lineage') and r['status'] == 'fail'} == {
+            'arm-browser:goal.services-lineage', 'console-assistant:goal.services-lineage'}
 
 
 def test_shared_project_drivers_get_distinct_fixture_names():

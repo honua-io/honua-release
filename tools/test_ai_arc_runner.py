@@ -2095,7 +2095,12 @@ UNMODELLED_CONSTRUCTS = ROUND9_PROBES + [
     '{ cat x; }', 'sleep 9 &', 'export X=1', 'read -r line', 'xargs cat < list', 'nc outside.example 80',
     'docker compose exec honua sh -c "cat /app/*"', 'docker compose run --rm honua sh -c "u=x; curl -X DELETE $u"',
     """docker compose exec honua sh -c 'for f in a; do cat "$f"; done'""", 'unknown-tool --do-things',
-    'python3 -c "print(1)"', 'bash ./install.sh']
+    'python3 -c "print(1)"', 'bash ./install.sh',
+    # Sol 1203 r10
+    "tar -cf /dev/null --checkpoint=1 --checkpoint-action='exec=rm -f /tmp/arc-outside' compose.yaml",
+    'gzip -c .env', 'cp --target-directory /tmp source.txt', 'cp -t /tmp source.txt', 'curl --config request.conf',
+    'curl -K req.conf http://localhost:18080/', 'sort -o /etc/hosts list', 'date -s 2020-01-01', 'hostname other',
+    'env -S "cat .env"', 'wget -i urls.txt', 'rsync -e ssh a b:']
 
 
 @pytest.mark.parametrize('command', UNMODELLED_CONSTRUCTS)
