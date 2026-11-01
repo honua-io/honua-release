@@ -303,6 +303,30 @@ class FakeRuntime(runner.LocalRuntime):
         self.torn_down = True
 
 
+def test_studio_controller_audit_event_fails_the_case(candidate, tmp_path, monkeypatch):
+    import agent_studio_session_audit
+
+    class StudioCase(FakeP10):
+        def seed(self, stack, variant):
+            seeded = super().seed(stack, variant)
+            stack.extra['needsStudioBrowser'] = True
+            return seeded
+
+    snapshots = iter(({1: 'admin'}, {1: 'admin', 2: 'admin'}))
+    monkeypatch.setattr(agent_studio_session_audit, 'snapshot', lambda recorder, label: next(snapshots))
+    runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+    runtime.session = lambda *args, **kwargs: {
+        'actions': [], 'modelVisibleDigests': [], 'usage': [], 'provenance': [], 'nudges': 0,
+        'clarifications': [], 'tokens': 0, 'messageIds': [], 'finalAnswer': 'done',
+    }
+    case_data = {'prompts': {'A': 'A synthetic customer request.'}, 'assertions': ['filter.exact']}
+    receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=StudioCase(), variant='A',
+                                  case=case_data, candidate_digest=DIGEST, runtime=runtime)
+    assert receipt['status'] == 'fail'
+    assert 'controller principal appeared' in receipt['failure']['reason']
+    assert runtime.torn_down
+
+
 def case(variant='A'):
     return runner.select_case(runner.PACK, 'P10', variant)
 

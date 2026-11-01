@@ -440,6 +440,26 @@ def test_console_attachment_requires_approved_host_and_pinned_image(tmp_path, mo
         CaseConsole(stack, 'ghcr.io/honua-io/honua-console:latest')
 
 
+def test_case_console_never_receives_the_controller_key(tmp_path, monkeypatch):
+    import agent_browser_studio as studio
+    calls = []
+    stack = Stack('http://127.0.0.1:8137', 'controller-secret', None, 'g41', 'f', str(tmp_path), DIGEST, {})
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://honua-eval-4')
+    monkeypatch.setenv('HONUA_ADMIN_API_KEY', 'inherited-controller-secret')
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs['env']))
+        return SimpleNamespace(returncode=1, stdout='')
+
+    monkeypatch.setattr(studio.subprocess, 'run', run)
+    with pytest.raises(RuntimeError, match='could not start'):
+        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64)
+    command, env = calls[0]
+    assert 'HONUA_ADMIN_API_KEY' not in command
+    assert 'HONUA_ADMIN_API_KEY' not in env
+    assert 'controller-secret' not in command
+
+
 def test_case_console_must_match_the_reviewed_image_and_manifest(tmp_path, monkeypatch):
     import agent_browser_studio as studio
     from agent_e2e_local_runner import LocalRuntime

@@ -113,13 +113,14 @@ class CaseConsole:
         self._created = False
         self._tunnel = None
         self.url = None
-        env = dict(os.environ, DOCKER_HOST=self._docker_host, HONUA_ADMIN_API_KEY=stack.admin_key)
+        env = dict(os.environ, DOCKER_HOST=self._docker_host)
+        env.pop('HONUA_ADMIN_API_KEY', None)
         command = ['docker', 'run', '--detach', '--name', self.name,
                    '--label', 'honua.corpus.case=' + stack.compose_project,
                    '--network', stack.compose_project + '_default', '--publish', '127.0.0.1::8080',
                    '--env', 'ASPNETCORE_ENVIRONMENT=Development', '--env', 'ASPNETCORE_URLS=http://+:8080',
                    '--env', 'Studio__EmbedJsStudio=true',
-                   '--env', 'HONUA_SERVER_BASE_URL=http://server:8080', '--env', 'HONUA_ADMIN_API_KEY',
+                   '--env', 'HONUA_SERVER_BASE_URL=http://server:8080',
                    '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
                    '--tmpfs', '/tmp:noexec,nosuid,size=100m', image]
         if edge_secret is not None:

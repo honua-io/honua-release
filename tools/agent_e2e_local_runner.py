@@ -966,6 +966,12 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         stage_customer_handoffs(stack, frozen_customer_handoffs(scenario, variant), receipt, runtime)
         if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
             runtime.attest(stack, 'customerFiles:before', {f['corpusPath']: f['sha256'] for f in stack.extra['customerFiles']}, [])
+        studio_audit_before = None
+        if stack.extra.get('needsStudioBrowser'):
+            from agent_studio_session_audit import snapshot
+            if session_count != 1:
+                raise ValueError('Studio audit guard requires one customer session')
+            studio_audit_before = snapshot(recorder, 'before')
         recorder.set_phase('session')
         sessions, session_ids = [], []
         clarifications = list(case.get('clarifications') or [])
@@ -1002,6 +1008,14 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                         receipt.setdefault('betweenSessions', []).append({'afterSession': number, 'restart': fact})
         acted = bool(all_actions())
         recorder.set_phase('observe')
+        if studio_audit_before is not None:
+            from agent_studio_session_audit import snapshot, verify
+            try:
+                verify(studio_audit_before, snapshot(recorder, 'after'))
+            except (ProjectionError, OSError, ValueError) as exc:
+                raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
+                    'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
+                    'messageIds': []}, f'Studio session audit failed: {exc}') from exc
         custody = runtime.custody(stack)
         clar = tuple(c for s in sessions for c in s.get('clarifications', []))
         injector = stack.extra.get('faultInjector')
