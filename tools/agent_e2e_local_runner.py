@@ -1017,6 +1017,12 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                 raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
                     'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
                     'messageIds': []}, f'Studio session audit failed: {exc}') from exc
+        if agent == 'console-assistant':
+            # The Studio driver is not admissible until controller-verified
+            # provider, region and usage evidence has been bound to this case.
+            raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
+                'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
+                'messageIds': []}, 'Studio assistant provenance is not yet verified')
         custody = runtime.custody(stack)
         clar = tuple(c for s in sessions for c in s.get('clarifications', []))
         injector = stack.extra.get('faultInjector')
@@ -1237,7 +1243,9 @@ class _GatewayLog:
         return execution
 
 
-SESSIONS = {'bedrock-proxy': BedrockProxySession}
+from agent_e2e_studio_customer_session import StudioCustomerSession  # noqa: E402
+
+SESSIONS = {'bedrock-proxy': BedrockProxySession, 'console-assistant': StudioCustomerSession}
 
 
 def register_session(name, factory):
@@ -1836,7 +1844,10 @@ class LocalRuntime:
         canary = _canary()
         tool_view = self.tool_view(stack)
         names = set(canary._tool_names(tool_view))
-        action_log = ActionLog(Path(stack.workdir) / f'session-{number}', number, names, self.max_actions)
+        # Browser observations are recorded too; the Studio assistant's own
+        # model and tool calls have separate hard limits in its browser gate.
+        action_limit = 6000 if self.agent == 'console-assistant' else self.max_actions
+        action_log = ActionLog(Path(stack.workdir) / f'session-{number}', number, names, action_limit)
         raw = self.raw_execute(stack, names)
         injector = stack.extra.get('faultInjector')
         if injector is not None:
@@ -1860,7 +1871,8 @@ class LocalRuntime:
             if stack.extra.get('needsStudioBrowser'):
                 from agent_browser_studio import open_studio_browser
                 server = open_studio_browser(stack, action_log,
-                    identity=self._console_identities.get(stack.compose_project))
+                    identity=self._console_identities.get(stack.compose_project),
+                    scripted_customer=self.agent == 'console-assistant')
                 studio_servers.append(server)
                 endpoint = server.endpoint
 

@@ -7,6 +7,42 @@ import pytest
 from agent_browser_studio import OriginLock, PlaywrightPage
 
 
+def test_chat_state_reads_visible_messages_and_tool_calls_without_eval():
+    pytest.importorskip('playwright.sync_api')
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            body = (b'<section data-testid="studio-chat"><p data-testid="studio-chat-message" '
+                    b'data-role="assistant" data-status="complete"><span '
+                    b'data-testid="studio-chat-message-text">A question?</span><span '
+                    b'data-testid="studio-chat-tool-call">A tool</span></p></section>')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = None
+    try:
+        page = PlaywrightPage(OriginLock(f'http://127.0.0.1:{server.server_port}'))
+        page.goto('/')
+        assert page.chat_state() == {'assistantMessages': 1, 'toolCalls': 1, 'streaming': False,
+                                     'status': 'complete', 'text': 'A question?', 'modelCalls': 0,
+                                     'dispatchedToolCalls': 0, 'boundHit': False}
+    finally:
+        if page is not None:
+            page.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_console_assistant_stream_does_not_block_browser_actions():
     pytest.importorskip('playwright.sync_api')
     started, release = threading.Event(), threading.Event()

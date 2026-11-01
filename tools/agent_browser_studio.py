@@ -378,7 +378,7 @@ def render_contract():
 class PlaywrightPage:
     """Controller page. It screenshots and reads attributes. It has no evaluate tool."""
 
-    def __init__(self, origin, identity=None):
+    def __init__(self, origin, identity=None, assistant_log=None):
         use_worktree_browsers()
         from playwright.sync_api import sync_playwright
         self.origin = origin
@@ -386,6 +386,10 @@ class PlaywrightPage:
         self._initial_document = True
         self._origin_failed = False
         self._identity = identity
+        self._assistant_log = assistant_log
+        self._assistant_model_calls = 0
+        self._assistant_tool_calls = 0
+        self._assistant_bound_hit = False
         self._identity_tokens = []
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(**launch_options())
@@ -434,6 +438,12 @@ class PlaywrightPage:
         # direct continuation allows response chunks to reach the chat promptly.
         if (route.request.method == 'POST'
                 and urlsplit(url).path == '/api/agent-workspace/agent/ai'):
+            if self._assistant_log is not None:
+                if self._assistant_model_calls >= 60:
+                    self._assistant_bound_hit = True
+                    route.abort('blockedbyclient')
+                    return
+                self._assistant_model_calls += 1
             headers = dict(route.request.headers)
             if self._identity is not None:
                 token = self._identity['mintToken']()
@@ -455,19 +465,48 @@ class PlaywrightPage:
                     'X-Honua-Edge-Auth': self._identity['edgeSecret'],
                     'X-Forwarded-User': self._identity['subject'],
                     'X-Forwarded-Access-Token': token.removeprefix('Bearer ')}
-            response = route.fetch(**fetch_args)
-            headers = dict(response.headers)
-            location = headers.get('location')
-            if 300 <= response.status < 400 and location and not self.origin.allows(urljoin(url, location)):
-                self.aborted.append(urljoin(url, location))
-                route.abort('blockedbyclient')
-                return
-            if route.request.resource_type == 'document':
-                ws_origin = ('wss://' if self.origin.scheme == 'https' else 'ws://') + self.origin.origin.split('://', 1)[1]
-                policy = f"connect-src 'self' {ws_origin}; frame-src 'self'; object-src 'none'; base-uri 'self'"
-                previous = headers.get('content-security-policy')
-                headers['content-security-policy'] = previous + ', ' + policy if previous else policy
-            route.fulfill(response=response, headers=headers)
+            def fetch():
+                response = route.fetch(**fetch_args)
+                headers = dict(response.headers)
+                location = headers.get('location')
+                if 300 <= response.status < 400 and location and not self.origin.allows(urljoin(url, location)):
+                    self.aborted.append(urljoin(url, location))
+                    raise OriginLocked('refused cross-origin redirect')
+                if route.request.resource_type == 'document':
+                    ws_origin = ('wss://' if self.origin.scheme == 'https' else 'ws://') + self.origin.origin.split('://', 1)[1]
+                    policy = f"connect-src 'self' {ws_origin}; frame-src 'self'; object-src 'none'; base-uri 'self'"
+                    previous = headers.get('content-security-policy')
+                    headers['content-security-policy'] = previous + ', ' + policy if previous else policy
+                route.fulfill(response=response, headers=headers)
+                return response
+
+            if self._assistant_log is not None and route.request.method == 'POST' and \
+                    urlsplit(url).path == '/api/agent-workspace/agent/mcp':
+                payload = route.request.post_data_json
+                if not isinstance(payload, dict):
+                    raise OriginLocked('refused malformed assistant MCP request')
+                if payload.get('method') == 'tools/call':
+                    params = payload.get('params')
+                    if not isinstance(params, dict) or not isinstance(params.get('name'), str) \
+                            or not isinstance(params.get('arguments'), dict):
+                        raise OriginLocked('refused malformed assistant tool call')
+                    if self._assistant_tool_calls >= 60:
+                        self._assistant_bound_hit = True
+                        raise OriginLocked('assistant tool call bound exceeded')
+                    self._assistant_tool_calls += 1
+                    selected = {'kind': 'tool_call', 'tool': params['name'], 'arguments': params['arguments']}
+                    self._assistant_log.names.add(params['name'])
+
+                    def recorded(_kind, _action):
+                        response = fetch()
+                        raw = response.body()
+                        require(len(raw) <= MAX_BODY, 'assistant tool response exceeds bound')
+                        return {'status': 'ok' if 200 <= response.status < 300 else 'fail',
+                                '_rawResponse': (response.status, raw)}
+
+                    self._assistant_log.dispatch('tool_call', selected, recorded)
+                    return
+            fetch()
         except Exception:
             route.abort('blockedbyclient')
 
@@ -525,6 +564,24 @@ class PlaywrightPage:
         self._check_origin()
         return (text or '')[:8000]
 
+    def chat_state(self):
+        """Read the visible Studio chat without evaluating page code."""
+        self._check_origin()
+        chat = self._page.locator('[data-testid="studio-chat"]')
+        if chat.count() != 1:
+            raise BrowserUnavailable('Studio chat is unavailable or ambiguous')
+        messages = chat.locator('[data-testid="studio-chat-message"][data-role="assistant"]')
+        last = messages.last if messages.count() else None
+        result = {'assistantMessages': messages.count(), 'toolCalls': chat.locator(
+            '[data-testid="studio-chat-tool-call"]').count(),
+            'streaming': chat.locator('[data-testid="studio-chat-cancel"]').count() > 0,
+            'status': last.get_attribute('data-status') if last else None,
+            'text': last.locator('[data-testid="studio-chat-message-text"]').inner_text(timeout=5000) if last else '',
+            'modelCalls': self._assistant_model_calls, 'dispatchedToolCalls': self._assistant_tool_calls,
+            'boundHit': self._assistant_bound_hit}
+        self._check_origin()
+        return result
+
     def close(self):
         try:
             self._browser.close()
@@ -535,12 +592,16 @@ class PlaywrightPage:
 class StudioBrowserServer:
     """Loopback MCP server. Tools are the allowlist above; evaluate and devtools are absent."""
 
-    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=(), identity=None):
+    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=(), identity=None,
+                 scripted_customer=False):
         self.studio_url = studio_url
         self.action_log = action_log
         self.fixture_dir = fixture_dir
         self.page_factory = page_factory
         self.identity = identity
+        self.scripted_customer = scripted_customer
+        if scripted_customer:
+            self.action_log.names.update(('studio_chat_observe', 'studio_customer_type'))
         self.token = secrets.token_hex(24)
         self._sensitive = tuple(value for value in sensitive if isinstance(value, str) and len(value) >= 8)
         self.page = None
@@ -558,7 +619,8 @@ class StudioBrowserServer:
         self.lock = OriginLock(self.studio_url)
         self._owner = _DaemonOwner()
         try:
-            factory = self.page_factory or (lambda lock: PlaywrightPage(lock, identity=self.identity))
+            factory = self.page_factory or (lambda lock: PlaywrightPage(
+                lock, identity=self.identity, assistant_log=self.action_log if self.scripted_customer else None))
             self.page = self._owner.submit(factory, self.lock).result(timeout=self.owner_timeout)
             if isinstance(self.page, PlaywrightPage):
                 self._owner.idle = self.page.pump_events
@@ -691,9 +753,14 @@ class StudioBrowserServer:
         def execute(_kind, _action):
             status, text = 'fail', 'refused'
             try:
-                if not isinstance(name, str) or name not in TOOLS or set(arguments) != TOOL_ARGS[name]:
+                internal_chat = self.scripted_customer and name == 'studio_chat_observe' and arguments == {}
+                internal_type = (self.scripted_customer and name == 'studio_customer_type'
+                                 and set(arguments) == {'selector', 'text'})
+                if not (internal_chat or internal_type) and (not isinstance(name, str) or name not in TOOLS
+                                                              or set(arguments) != TOOL_ARGS[name]):
                     raise OriginLocked('tool is not available')
-                text = getattr(self, '_' + name)(arguments)
+                text = (self._studio_chat_observe() if internal_chat else
+                        self._studio_customer_type(arguments) if internal_type else getattr(self, '_' + name)(arguments))
                 status = 'ok'
             except OriginLocked as exc:
                 text = str(exc)
@@ -734,6 +801,15 @@ class StudioBrowserServer:
         self.page.fill(_selector(arguments['selector']), text)
         return 'typed'
 
+    def _studio_customer_type(self, arguments):
+        text = arguments['text']
+        if not isinstance(text, str) or len(text) > 8192 or '\x00' in text:
+            raise OriginLocked('refused customer text')
+        if arguments['selector'] != '[data-testid="studio-chat-input"]':
+            raise OriginLocked('refused customer input')
+        self.page.fill(arguments['selector'], text)
+        return 'typed'
+
     def _studio_press(self, arguments):
         if not isinstance(arguments['key'], str) or not KEY.fullmatch(arguments['key']):
             raise OriginLocked('refused key')
@@ -741,7 +817,9 @@ class StudioBrowserServer:
         return 'pressed'
 
     def _studio_snapshot(self, _arguments):
-        text = self.page.snapshot_text()
+        return self._screen_text(self.page.snapshot_text())
+
+    def _screen_text(self, text):
         values = self._sensitive + (self.token,)
         if self.identity is not None:
             values += (self.identity['edgeSecret'],)
@@ -759,6 +837,11 @@ class StudioBrowserServer:
         except ValueError:
             raise OriginLocked('refused sensitive page content') from None
         return text
+
+    def _studio_chat_observe(self):
+        state = self.page.chat_state()
+        state['text'] = self._screen_text(state['text'])
+        return json.dumps(state, separators=(',', ':'))
 
     def _studio_upload(self, arguments):
         path = resolve_fixture(self.fixture_dir, arguments['name'])
@@ -798,7 +881,7 @@ def _tool_result(status, text, digest):
             'structuredContent': {'screenshotSha256': digest}}
 
 
-def open_studio_browser(stack, action_log, *, identity=None):
+def open_studio_browser(stack, action_log, *, identity=None, scripted_customer=False):
     """Start the studio MCP server for one session. The runner stops it."""
     origin = stack.extra.get('consoleUrl') or stack.extra.get('studioUrl')
     require(isinstance(origin, str) and origin, 'case has no provisioned Console origin')
@@ -807,7 +890,7 @@ def open_studio_browser(stack, action_log, *, identity=None):
     sensitive = (stack.admin_key, stack.approver_key, os.environ.get('HONUA_CORPUS_AGENT_KEY'),
                  os.environ.get('HONUA_CORPUS_BOOTSTRAP_KEY'))
     server = StudioBrowserServer(origin, action_log, fixture, page_factory=stack.extra.get('studioPageFactory'),
-                                 sensitive=sensitive, identity=identity)
+                                 sensitive=sensitive, identity=identity, scripted_customer=scripted_customer)
     server.start()
     return server
 
