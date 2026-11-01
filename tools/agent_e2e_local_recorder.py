@@ -270,7 +270,8 @@ class EvidenceVault:
                 continue
             action = json.loads(raw)
             out.append({'tool': action.get('tool'), 'kind': action.get('kind'), 'status': status, 'json': message,
-                        'arguments': action.get('arguments'), '_digest': _digest, '_responseSha256': raw_sha})
+                        'arguments': action.get('arguments'), '_digest': _digest, '_responseSha256': raw_sha,
+                        '_responseHttpStatus': _http})
         return out
 
     def model_actions(self):
