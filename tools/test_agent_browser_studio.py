@@ -206,7 +206,7 @@ def _query_document(variant, name):
     features = []
     for index, feature in enumerate(document['features']):
         coords = feature['geometry']['coordinates']
-        geometry = {'x': coords[0], 'y': coords[1]} if kind == 'Point' else {'rings': _esri_rings(coords)}
+        geometry = {'x': coords[0], 'y': coords[1]} if kind == 'Point' else {'rings': _polygon_rings(coords)}
         features.append({'attributes': {'id': index, **feature['properties']}, 'geometry': geometry})
     return {'geometryType': 'esriGeometryPoint' if kind == 'Point' else 'esriGeometryPolygon',
             'spatialReference': {'wkid': 3857}, 'exceededTransferLimit': False,
@@ -214,7 +214,7 @@ def _query_document(variant, name):
             'features': features}
 
 
-def _esri_rings(rings):
+def _polygon_rings(rings):
     result = []
     for index, ring in enumerate(rings):
         area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(ring, ring[1:]))
@@ -724,7 +724,7 @@ def test_expectations_match_the_pack_and_an_independent_fixture_walk(variant):
             fixture = oracle.fixture_expectation(variant, 'features.exact', layer=row['resourceId'])
             for feature in fixture['features']:
                 if feature['geometry']['type'] == 'Polygon':
-                    feature['geometry']['coordinates'] = _esri_rings(feature['geometry']['coordinates'])
+                    feature['geometry']['coordinates'] = _polygon_rings(feature['geometry']['coordinates'])
             assert 'tolerance' not in row['content']
             assert row['content']['srid'] == 3857
             assert row['content']['features'] == sorted(fixture['features'], key=lambda feature: feature['properties']['source_id'])
