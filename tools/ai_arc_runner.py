@@ -1357,6 +1357,8 @@ def stage_verdict(arc: dict, target: str, stage: str, assertions: list[dict], ro
     failure = row.get('failure')
     by_id = {a['assertion']: a for a in assertions}
     required = [a for a in required_assertions(arc, stage, target) if not is_excluded(a, target, arc['exclusions'])]
+    if failure and failure.get('category') == 'harness-error':
+        return 'undetermined', 'harness error: ' + str(failure.get('reason'))[:200]
     if (failure and failure.get('category') == 'infrastructure'
             and (not actions or failure.get('beforeCaseActions') is True)):
         return 'undetermined', 'session infrastructure (unreplayed): ' + str(failure.get('reason'))[:200]

@@ -1041,6 +1041,53 @@ def audited_map_sources(records, action_results, custody, agent_principal, map_i
     return output
 
 
+def imported_role(binding, records):
+    """Replay completed_import over retained seed evidence; never issue a request."""
+    from agent_e2e_pack import PackError
+    from agent_e2e_scenario_operations import completed_import
+    accepted = records[binding.step]
+    require(binding.step.startswith('import-') and binding.pointer in ('/physicalTableName', '/schema')
+            and binding.items is None and accepted.phase == 'seed' and accepted.kind == 'http'
+            and accepted.method == 'POST', 'invalid background import role')
+    slug = binding.step.removeprefix('import-')
+    require(binding.before == 'before-tables-' + slug and binding.before in records,
+            'background import lacks frozen discovery baseline')
+    before = records[binding.before]
+    require(before.phase == 'seed' and before.kind == 'http' and before.method == 'GET'
+            and before.status == 200 and re.fullmatch(
+                r'/api/v1/admin/connections/[0-9a-fA-F-]{36}/tables', before.path),
+            'background import baseline is not table discovery')
+    prefix = 'complete-' + slug
+    polls = [r for key, r in records.items() if key.startswith(prefix + '-poll-')]
+    completed = [r for r in polls if isinstance(r.json, dict) and type(r.json.get('status')) is int
+                 and r.json['status'] == 2]
+    require(len(completed) == 1, 'background import lacks one recorded completion')
+
+    def answer(record):
+        return {'observation': {'httpStatus': record.status, 'body': record.json},
+                'reference': {'step': record.step}}
+
+    class RetainedHttp:
+        def json(self, step, method, path):
+            require(step in records, 'background import evidence is missing: ' + step)
+            record = records[step]
+            require(record.phase == 'seed' and record.kind == 'http' and record.method == method
+                    and record.path == path and record.principal == before.principal,
+                    'background import evidence request differs: ' + step)
+            if step == prefix + '-tables-after':
+                require(same_request(before, record), 'background import discovery scope changed')
+            return answer(record)
+
+    try:
+        result = completed_import(RetainedHttp(), answer(accepted),
+            table=completed[0].json.get('tableName'), feature_count=completed[0].json.get('featuresProcessed'),
+            step=prefix, before_tables=answer(before), connection=before.path.split('/')[5],
+            poll_seconds=0, sleep=lambda _: None)
+    except PackError as exc:
+        raise ProjectionError('background import evidence: ' + str(exc)) from exc
+    return result['table' if binding.pointer == '/physicalTableName' else 'schema']
+
+
 def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None, run_facts=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
@@ -1052,6 +1099,9 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                 and name not in roles, 'invalid or duplicate logical role: ' + str(name))
         require(binding.step in records, 'role binds an unrecorded step: ' + name)
         record = records[binding.step]
+        if name.startswith('seeded:') and record.status == 202 and binding.before is not None:
+            roles[name] = imported_role(binding, records)
+            continue
         require(record.json is not None and record.status in (200, 201), 'role source read failed: ' + name)
         if name.startswith('audited:'):
             parts = name.split(':')

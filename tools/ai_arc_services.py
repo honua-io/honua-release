@@ -364,16 +364,19 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             if not isinstance(fault, str) or not any(p and p.get('kind') == fault for p in plans):
                 raise ValueError('services fault is incompatible with fixture scenarios')
             if vm is None:
-                raise ValueError('services adopted VM slot is missing')
+                raise OSError('services adopted VM slot is missing')
         except (ImportError, OSError, ValueError) as exc:
             reason = str(exc)[:200] or type(exc).__name__
             return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
-                    'failure': {'category': 'model', 'reason': reason}, 'withheld': 0,
+                    'failure': {'category': 'harness-error' if isinstance(exc, (ImportError, OSError)) else 'model',
+                                'reason': reason}, 'withheld': 0,
                     'catalogRedactions': 0}, []
     try:
         import agent_e2e_cli_sessions  # noqa: F401  (registers claude-cli / codex-cli with #1152)
-    except ImportError as exc:
-        raise RuntimeError('CLI corpus sessions (#1160) are not installed') from exc
+    except ImportError:
+        return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
+                'failure': {'category': 'harness-error', 'reason': 'CLI corpus sessions (#1160) are not installed'},
+                'withheld': 0, 'catalogRedactions': 0}, []
     deadline = deadline or (time.monotonic() + limits['maxSeconds'])
     owned = private_root is None
     # The write-ahead ledger lives in the stage's private evidence, so a timeout recovers it.
@@ -435,6 +438,10 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                                           variant=variant, case=case, candidate_digest=candidate_digest,
                                           runtime=runtime)
             if fixture_cases is not None and sid == 'P15':
+                receipt['harnessPerformed'] = [{
+                    'operation': 'seed-saved-draft-map', 'steps': ['p15-map-draft', 'p15-map-saved'],
+                    'status': 'harness-performed',
+                    'credit': 'none; only agent sharing and access control are scored'}]
                 receipt['priorCaseReceiptSha256'] = runtime.shared_service['caseReceiptSha256']
                 if not prior_receipt_intact():
                     failure = failure or {'category': 'harness-error', 'reason': 'P10 retained receipt changed during P15'}

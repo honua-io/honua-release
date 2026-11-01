@@ -148,7 +148,8 @@ class RoleBinding:
     """How the runner resolves one logical role to a live id from recorded responses.
 
     seeded:<kind>:<name>: ``step`` is a seed-phase record and ``pointer`` must select
-    exactly one scalar.
+    exactly one scalar. For a 202 import, ``before`` pins the table discovery baseline;
+    the resolver replays completed_import over recorded completion and discovery evidence.
     created:<kind>[:<name>]: ``step`` is an observe-phase enumeration, ``items`` selects its
     rows and ``id`` the identity inside a row. BOTH ``owner`` (row pointer whose value must equal
     RunRecord.agent_principal) and ``before`` (a complete seed-phase enumeration of the same path by
