@@ -272,6 +272,8 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     if any(value is not None for value in (goal, fixture_id, scenario_id)):
         if scenarios != [scenario_id] and scenarios != (scenario_id,):
             raise ValueError('fixture case requires exactly its authoritative scenario')
+        if scenario_id not in ('P10', 'P13'):
+            raise ValueError('scenario is not supported by the adopted ARC runtime')
         fixture_variant, fixture_case = runner.select_fixture_case(
             goal=goal, fixture_id=fixture_id, scenario_id=scenario_id)
         if variant != fixture_variant:
