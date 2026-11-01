@@ -98,7 +98,7 @@ def remote_docker_host():
 
 class CaseConsole:
     """A digest-pinned quickstart Console attached to one remote case network."""
-    def __init__(self, stack, image, *, edge_secret=None, agent_key=None, release_id=None):
+    def __init__(self, stack, image, *, edge_secret=None):
         self.host = remote_docker_host()
         if self.host is None:
             raise ValueError('Console requires an approved remote eval Docker host')
@@ -106,6 +106,9 @@ class CaseConsole:
             raise ValueError('invalid case Compose project')
         if not re.fullmatch(r'ghcr\.io/honua-io/honua-console@sha256:[0-9a-f]{64}', image):
             raise ValueError('Console image is not the pinned digest')
+        server_host = stack.extra.get('serverHost', 'server')
+        if server_host not in ('server', 'honua'):
+            raise ValueError('invalid case server host')
         self.name = stack.compose_project + '-console-' + secrets.token_hex(16)
         self._project = stack.compose_project
         self._docker_host = 'ssh://' + self.host
@@ -122,7 +125,7 @@ class CaseConsole:
                    '--network', stack.compose_project + '_default', '--publish', '127.0.0.1::8080',
                    '--env', 'ASPNETCORE_ENVIRONMENT=Development', '--env', 'ASPNETCORE_URLS=http://+:8080',
                    '--env', 'Studio__EmbedJsStudio=true',
-                   '--env', 'HONUA_SERVER_BASE_URL=http://server:8080',
+                   '--env', 'HONUA_SERVER_BASE_URL=http://' + server_host + ':8080',
                    '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
                    '--tmpfs', '/tmp:noexec,nosuid,size=100m', image]
         if edge_secret is not None:
@@ -131,14 +134,6 @@ class CaseConsole:
             env['Honua__Console__Auth__EdgeForwarded__SharedSecret'] = edge_secret
             command[-1:-1] = ['--env', 'Honua__Console__Auth__Mode=EdgeForwarded',
                                '--env', 'Honua__Console__Auth__EdgeForwarded__SharedSecret']
-        if agent_key is not None:
-            if (not isinstance(agent_key, str) or not agent_key or agent_key == stack.admin_key
-                    or not isinstance(release_id, str) or not release_id):
-                raise ValueError('invalid customer agent credential or release')
-            env.update(HONUA_AGENT_API_KEY=agent_key, HONUA_NATIVE_MODEL_ENABLED='true',
-                       HONUA_AGENT_RELEASE_ID=release_id)
-            command[-1:-1] = ['--env', 'HONUA_AGENT_API_KEY', '--env', 'HONUA_NATIVE_MODEL_ENABLED',
-                               '--env', 'HONUA_AGENT_RELEASE_ID']
         try:
             self._attempted = True
             result = subprocess.run(command, env=env, capture_output=True, timeout=180, check=False)
@@ -451,7 +446,7 @@ class PlaywrightPage:
         # the admitted document enforces same-origin connect redirects, while
         # direct continuation allows response chunks to reach the chat promptly.
         if (route.request.method == 'POST'
-                and urlsplit(url).path == '/api/agent-workspace/agent/ai'):
+                and urlsplit(url).path == '/api/agent-workspace/studio/ai'):
             if self._assistant_log is not None:
                 if self._assistant_model_calls >= 60:
                     self._assistant_bound_hit = True
@@ -495,7 +490,7 @@ class PlaywrightPage:
                 return response
 
             if self._assistant_log is not None and route.request.method == 'POST' and \
-                    urlsplit(url).path == '/api/agent-workspace/agent/mcp':
+                    urlsplit(url).path == '/api/agent-workspace/studio/mcp':
                 payload = route.request.post_data_json
                 if not isinstance(payload, dict):
                     raise OriginLocked('refused malformed assistant MCP request')

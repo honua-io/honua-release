@@ -33,15 +33,31 @@ def studio_provider_environment():
     """Customer's explicit Bedrock provider and disclosure approval; no credentials."""
     prefix = 'StudioAiProxy__'
     return {prefix + key: value for key, value in {
-        'Enabled': 'true', 'DefaultProvider': 'primary',
-        'Providers__primary__Kind': 'bedrock', 'Providers__primary__Model': MODEL,
-        'Providers__primary__Region': 'us-east-1',
+        'Enabled': 'true', 'DefaultProvider': 'bedrock',
+        'Providers__bedrock__Kind': 'bedrock', 'Providers__bedrock__Model': MODEL,
+        'Providers__bedrock__Region': 'us-east-1', 'Providers__bedrock__SupportsTools': 'true',
         'Disclosure__WorkloadDataClassification': 'unclassified',
-        'Disclosure__Approvals__0__Provider': 'primary', 'Disclosure__Approvals__0__Kind': 'bedrock',
+        'Disclosure__Approvals__0__Provider': 'bedrock', 'Disclosure__Approvals__0__Kind': 'bedrock',
         'Disclosure__Approvals__0__Destination': 'aws-bedrock:us-east-1',
         'Disclosure__Approvals__0__Model': MODEL, 'Disclosure__Approvals__0__UseCase': 'studio-chat',
         'Disclosure__Approvals__0__DataClassification': 'unclassified',
     }.items()}
+
+
+def initialize_admission(recorder):
+    """Use the documented operator operations; do not bypass pending approval."""
+    policy = {'windowSeconds': 60, 'maxOperationSeconds': 300, 'deploymentAttempts': 120,
+              'actorAttempts': 60, 'cohortAttempts': 60, 'workflowAttempts': 60,
+              'deploymentConcurrency': 8, 'actorConcurrency': 4, 'cohortConcurrency': 2,
+              'workflowConcurrency': 1}
+    for action, params in (('initialize', {'policy': json.dumps(policy, separators=(',', ':'))}),
+                           ('resume', {})):
+        response = recorder.json('studio-admission-' + action, 'POST',
+            '/api/v1/operations/admin.ai.admission.' + action + '/submit', {'parameters': params})['observation']
+        body = response.get('body')
+        data = body.get('data') if isinstance(body, dict) else None
+        if response.get('httpStatus') != 200 or not isinstance(data, dict) or data.get('status') != 'Completed':
+            raise ValueError('Studio admission ' + action + ' was not completed')
 
 
 def provision_local_server(slot, signing_key):
@@ -65,26 +81,23 @@ def provision_local_server(slot, signing_key):
            'Oidc__Generic__ClientId': 'terminal-journey',
            'Oidc__TokenValidation__SymmetricSigningKey': signing_key,
            'Studio__EndUserAuthorization__Enabled': 'true',
-           'StudioAiProxy__TranscriptSigning__KeyId': 'studio-arc-transcript',
-           'StudioAiProxy__TranscriptSigning__PrivateKeyReference': 'env://HONUA_STUDIO_TRANSCRIPT_SEED',
-           'HONUA_STUDIO_TRANSCRIPT_SEED': '${HONUA_STUDIO_TRANSCRIPT_SEED}'}
-    override = yaml.safe_dump({'services': {'server': {'image': '${HONUA_STUDIO_ACTIVE_IMAGE}',
+           'AiExecutionAdmission__Backend': 'postgres', 'AiExecutionAdmission__DeploymentId': slot.project,
+           'AWS_REGION': 'us-east-1'}
+    override = yaml.safe_dump({'services': {'honua': {'image': '${HONUA_STUDIO_ACTIVE_IMAGE}',
                                                         'environment': env}}}, sort_keys=True)
     fence = 'HONUA_STUDIO_' + secrets.token_hex(12)
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(str(remote)) + '\n'
-              + 'server_id=$(' + slot.compose('-f', 'compose.yaml', 'ps', '-q', 'server') + ')\n'
+              + 'server_id=$(' + slot.compose('-f', 'compose.yaml', 'ps', '-q', 'honua') + ')\n'
               + '[ -n "$server_id" ]\n'
               + 'HONUA_STUDIO_ACTIVE_IMAGE=$(docker inspect --format "{{.Image}}" "$server_id")\n'
               + 'case "$HONUA_STUDIO_ACTIVE_IMAGE" in sha256:*) ;; *) exit 1 ;; esac\n'
               + 'export HONUA_STUDIO_ACTIVE_IMAGE\n'
-              + "HONUA_STUDIO_TRANSCRIPT_SEED=$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')\n"
-              + 'export HONUA_STUDIO_TRANSCRIPT_SEED\n'
               + f"cat > studio-customer.yaml <<'{fence}'\n{override}{fence}\n"
               + slot.compose('-f', 'compose.yaml', '-f', 'studio-customer.yaml', 'up', '-d', '--no-deps',
-                             '--wait', '--wait-timeout', '240', 'server') + '\n')
+                             '--wait', '--wait-timeout', '240', 'honua') + '\n')
     if slot.ssh(script, timeout=300).returncode:
         raise RuntimeError('could not configure the local Studio server')
-    return {'provider': 'primary', 'region': 'us-east-1', 'model': MODEL}
+    return {'provider': 'bedrock', 'region': 'us-east-1', 'model': MODEL}
 
 
 def studio_runtime_class():
@@ -97,12 +110,13 @@ def studio_runtime_class():
 
     class StudioRuntime(base):
         def __init__(self, *, signing_key, database_password, pack_digest, database_name='honua',
-                     database_user='honua', **kwargs):
+                     database_user='honua', database_host='postgres', **kwargs):
             super().__init__(**kwargs)
             self.signing_key = signing_key
             self.database_password = database_password
             self.database_name = database_name
             self.database_user = database_user
+            self.database_host = database_host
             self.pack_sha256 = pack_digest
             self._secrets.extend((signing_key, database_password))
             self.extra_secrets.extend((signing_key, database_password))
@@ -130,6 +144,7 @@ def studio_runtime_class():
                           compose_project=self.arc['project'], compose_file='', workdir=str(case_dir),
                           candidate_digest=candidate_digest, extra={'needsStudioIdentity': True,
                                                                    'studioSigningKey': self.signing_key,
+                                                                   'serverHost': 'honua',
                                                                    'studioGate': self.gate})
             self._prepare(stack, list(agent_permissions))
             stack.extra['startConsole'] = lambda: self.start_console(stack)
@@ -142,7 +157,7 @@ def studio_runtime_class():
 
         def fixture_connection(self, stack):
             rec = stack.extra['recorder']
-            body = {'name': 'studio-' + Path(stack.workdir).name, 'host': 'db', 'port': 5432,
+            body = {'name': 'studio-' + Path(stack.workdir).name, 'host': self.database_host, 'port': 5432,
                     'databaseName': self.database_name, 'username': self.database_user,
                     'password': self.database_password, 'sslRequired': False, 'sslMode': 'Disable'}
             result = rec.json('studio-fixture-connection', 'POST', '/api/v1/admin/connections/', body)['observation']
@@ -277,6 +292,7 @@ def arc_stage(ctx):
                 stack = runtime.setup('P08:' + context.variant + ':local-docker', context.candidate['imageDigest'])
                 browser = None
                 try:
+                    initialize_admission(stack.extra['recorder'])
                     runtime.start_console(stack)
                     log = runner.ActionLog(Path(stack.workdir) / 'sign-in-probe', 1, set(), 200)
                     browser = open_studio_browser(stack, log, identity=runtime._console_identities[stack.compose_project],

@@ -243,8 +243,8 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
                 _seed_publications(self.recorder)
                 return {'layers': {name: dict(binding) for name, binding in LAYERS.items()}}
 
-        import agent_e2e_scenario_backend
-        monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+        from agent_e2e_local_scenarios import w2g3_common
+        monkeypatch.setattr(w2g3_common, 'town_setup', lambda recorder, variant: Town(recorder, None))
     import agent_browser_studio
     monkeypatch.setattr(agent_browser_studio, 'observed_fixture_source_ids', lambda _rec, layers:
                         {name: f'svc-{name}/{binding["layerId"]}' for name, binding in layers.items()})
@@ -807,8 +807,8 @@ def test_seed_is_idempotent(monkeypatch, tmp_path):
             calls.append(kwargs['variant'])
             return {'layers': {name: {'service': 'svc', 'layerId': 1} for name in LAYER_NAMES}}
 
-    import agent_e2e_scenario_backend
-    monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+    from agent_e2e_local_scenarios import w2g3_common
+    monkeypatch.setattr(w2g3_common, 'town_setup', lambda recorder, variant: Town(recorder, None))
 
     def factory(recorder, principal, method, path, body, headers):
         if path == LIST_PATH:
@@ -1147,7 +1147,7 @@ def test_missing_saved_label_rule_is_not_style_evidence():
         style_from_body(body)
 
 
-def test_assistant_console_receives_only_the_runner_minted_agent_key(tmp_path, monkeypatch):
+def test_assistant_console_does_not_inherit_an_agent_key(tmp_path, monkeypatch):
     import agent_browser_studio as studio
     calls = []
     stack = Stack('http://127.0.0.1:8137', 'controller-secret', None, 'g41', 'f', str(tmp_path), DIGEST, {})
@@ -1158,10 +1158,8 @@ def test_assistant_console_receives_only_the_runner_minted_agent_key(tmp_path, m
         return SimpleNamespace(returncode=1, stdout='')
     monkeypatch.setattr(studio.subprocess, 'run', run)
     with pytest.raises(RuntimeError, match='could not start'):
-        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64,
-                           agent_key='customer-agent-key', release_id='rc2')
+        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64)
     command, env = calls[0]
-    assert env['HONUA_AGENT_API_KEY'] == 'customer-agent-key'
-    assert env['HONUA_NATIVE_MODEL_ENABLED'] == 'true'
-    assert 'customer-agent-key' not in command
+    assert 'HONUA_AGENT_API_KEY' not in env
+    assert 'HONUA_NATIVE_MODEL_ENABLED' not in env
     assert 'HONUA_ADMIN_API_KEY' not in env

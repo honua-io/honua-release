@@ -35,7 +35,7 @@ def test_assistant_tool_calls_are_logged_before_dispatch_and_bounded(tmp_path):
     page._assistant_log, page._assistant_tool_calls, page._assistant_bound_hit = log, 0, False
 
     class Route:
-        request = SimpleNamespace(url='http://127.0.0.1:8137/api/agent-workspace/agent/mcp', method='POST',
+        request = SimpleNamespace(url='http://127.0.0.1:8137/api/agent-workspace/studio/mcp', method='POST',
                                   resource_type='fetch', post_data_json={
                                       'method': 'tools/call', 'params': {'name': 'tool', 'arguments': {}}})
         def __init__(self):
@@ -68,7 +68,7 @@ def test_assistant_model_calls_are_bounded(tmp_path):
     page._assistant_log, page._assistant_model_calls, page._assistant_bound_hit = object(), 0, False
 
     class Route:
-        request = SimpleNamespace(url='http://127.0.0.1:8137/api/agent-workspace/agent/ai', method='POST',
+        request = SimpleNamespace(url='http://127.0.0.1:8137/api/agent-workspace/studio/ai', method='POST',
                                   headers={})
         def __init__(self):
             self.continued, self.aborted = False, False

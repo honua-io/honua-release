@@ -55,7 +55,7 @@ def test_console_assistant_stream_does_not_block_browser_actions():
 
         def do_GET(self):
             if self.path == '/':
-                body = (b'<button id="go" onclick="fetch(\'/api/agent-workspace/agent/ai\', '
+                body = (b'<button id="go" onclick="fetch(\'/api/agent-workspace/studio/ai\', '
                         b'{method:\'POST\'}).then(r => r.body.getReader().read()).then(() => '
                         b'document.querySelector(\'#status\').textContent=\'received\')">Start</button>'
                         b'<span id="status">waiting</span>')
@@ -118,7 +118,7 @@ def test_console_assistant_stream_cannot_follow_cross_origin_redirect():
             pass
 
         def do_GET(self):
-            body = (b'<button id="go" onclick="fetch(\'/api/agent-workspace/agent/ai\', '
+            body = (b'<button id="go" onclick="fetch(\'/api/agent-workspace/studio/ai\', '
                     b'{method:\'POST\'}).catch(() => document.querySelector(\'#status\').textContent=\'blocked\')">'
                     b'Start</button><span id="status">waiting</span>')
             self.send_response(200)

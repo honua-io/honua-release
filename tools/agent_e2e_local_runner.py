@@ -1692,12 +1692,7 @@ class LocalRuntime:
         identity = self._console_identities.get(stack.compose_project)
         if identity is None:
             raise ValueError('case has no minted Console customer identity')
-        assistant = getattr(self, 'agent', None) == 'console-assistant'
-        if assistant and not os.environ.get(self.AGENT_ENV):
-            raise ValueError('case has no minted customer agent credential')
-        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'],
-                              agent_key=os.environ.get(self.AGENT_ENV) if assistant else None,
-                              release_id=self.release_id if assistant else None)
+        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
         try:
             self.attest(stack, 'studioConsoleImage', pin, [])
         except Exception:

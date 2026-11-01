@@ -10,12 +10,16 @@ from agent_e2e_local_recorder import ProjectionError, require
 _INSPECT = r'''
 import json, subprocess, sys
 project, provider = sys.argv[1:]
-query = subprocess.run(['docker', 'ps', '-q', '--filter', 'label=com.docker.compose.project=' + project,
-                        '--filter', 'label=com.docker.compose.service=server'], capture_output=True, text=True)
-ids = query.stdout.split()
-if query.returncode or len(ids) != 1:
+ids = set()
+for service in ('server', 'honua'):
+    query = subprocess.run(['docker', 'ps', '-q', '--filter', 'label=com.docker.compose.project=' + project,
+                            '--filter', 'label=com.docker.compose.service=' + service], capture_output=True, text=True)
+    if query.returncode:
+        sys.exit(1)
+    ids.update(query.stdout.split())
+if len(ids) != 1:
     sys.exit(1)
-result = subprocess.run(['docker', 'inspect', ids[0]], capture_output=True, text=True)
+result = subprocess.run(['docker', 'inspect', next(iter(ids))], capture_output=True, text=True)
 if result.returncode:
     sys.exit(1)
 row = json.loads(result.stdout)[0]

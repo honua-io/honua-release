@@ -25,8 +25,8 @@ def test_pack_is_digest_bound_and_only_accepts_ab(tmp_path):
 
 def test_bedrock_provider_config_is_scoped_and_has_no_credentials():
     env = studio_provider_environment()
-    assert env['StudioAiProxy__Providers__primary__Model'] == 'us.anthropic.claude-sonnet-4-6'
-    assert env['StudioAiProxy__Providers__primary__Region'] == 'us-east-1'
+    assert env['StudioAiProxy__Providers__bedrock__Model'] == 'us.anthropic.claude-sonnet-4-6'
+    assert env['StudioAiProxy__Providers__bedrock__Region'] == 'us-east-1'
     assert env['StudioAiProxy__Disclosure__Approvals__0__Destination'] == 'aws-bedrock:us-east-1'
     assert not any('AWS_' in k or 'ApiKey' in k for k in env)
 
@@ -36,6 +36,7 @@ def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
     from agent_e2e_studio_arc import provision_local_server
     class Slot:
         remote_dir = '/tmp/arc-owned'
+        project = 'arc-12345678'
         def compose(self, *args):
             return 'docker compose ' + ' '.join(args)
         def ssh(self, script, timeout):
@@ -46,7 +47,7 @@ def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
         provision_local_server(slot, 'x' * 48)
     slot.remote_dir = '/home/eval/arc-owned'
     result = provision_local_server(slot, 'x' * 48)
-    assert result == {'provider': 'primary', 'region': 'us-east-1', 'model': 'us.anthropic.claude-sonnet-4-6'}
+    assert result == {'provider': 'bedrock', 'region': 'us-east-1', 'model': 'us.anthropic.claude-sonnet-4-6'}
     assert 'x' * 48 not in str(result)
     assert 'Oidc__TokenValidation__SymmetricSigningKey' in slot.script
     assert 'AWS_ACCESS_KEY' not in slot.script
@@ -180,3 +181,21 @@ def test_closed_stage_blocks_browser_and_network_before_dispatch():
     page._stage_gate = gate
     page._gate(route)
     assert route.aborted == 'blockedbyclient'
+
+
+def test_admission_initializes_and_resumes_only_completed_operations():
+    from agent_e2e_studio_arc import initialize_admission
+    class Recorder:
+        def __init__(self, status): self.status, self.calls = status, []
+        def json(self, step, method, path, body):
+            self.calls.append((step, method, path, body))
+            return {'observation': {'httpStatus': 200, 'body': {'data': {'status': self.status}}}}
+    recorder = Recorder('Completed')
+    initialize_admission(recorder)
+    assert [x[2] for x in recorder.calls] == ['/api/v1/operations/admin.ai.admission.initialize/submit',
+                                              '/api/v1/operations/admin.ai.admission.resume/submit']
+    assert 'policy' in recorder.calls[0][3]['parameters']
+    recorder = Recorder('RequiresApproval')
+    with pytest.raises(ValueError, match='admission'):
+        initialize_admission(recorder)
+    assert len(recorder.calls) == 1
