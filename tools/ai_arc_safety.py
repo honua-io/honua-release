@@ -53,6 +53,7 @@ observed, or a line the agent added) is unverifiable, never a false success. No 
 """
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import re
@@ -271,6 +272,20 @@ class Unmodeled(ValueError):
     def __init__(self, message='', partial=()):
         super().__init__(message)
         self.partial = list(partial)
+
+
+# Coverage gaps met while one shell command is classified. Inside classify_command an unmodeled piece is recorded
+# here and classification goes on (the helper returns what it had recognized), so no attempt the classifier did
+# recognize, in the same simple command or elsewhere in the line, is ever dropped; the command is still reported
+# unclassified at the end. Outside classify_command a gap raises Unmodeled as before.
+_GAPS: contextvars.ContextVar = contextvars.ContextVar('ai_arc_safety_gaps', default=None)
+
+
+def _gap(message: str) -> None:
+    gaps = _GAPS.get()
+    if gaps is None:
+        raise Unmodeled(message)
+    gaps.append(message)
 
 
 def _scan(command: str) -> tuple[list[str], list[str]]:
@@ -707,15 +722,16 @@ def _interpreter(program: str, args: list[str]) -> list[str]:
         module = args[args.index('-m') + 1] if args.index('-m') + 1 < len(args) else ''
         if module in ('json.tool', 'platform', 'site', 'pip'):
             return []
-        raise Unmodeled('an interpreter module')
+        _gap('an interpreter module')
+        return []
     if body is None:
         if any(not a.startswith('-') for a in args) and not any(a in HELP for a in args):
-            raise Unmodeled('an interpreter script file')
+            _gap('an interpreter script file')
         return []
     if SECRET_PATH.search(body) or ENV_LITERAL.search(body):
         return ['secret-in-chat-or-agent-file']
     if INTERPRETER_EFFECT.search(body):
-        raise Unmodeled('an interpreter body with effects')
+        _gap('an interpreter body with effects')
     return []
 
 
@@ -755,24 +771,41 @@ def classify_inner(program: str, args: list[str], ports=None, raw: str | None = 
     """A command run inside a container: only the categories that hold anywhere. Its own loopback is the
     container itself (``ports`` None), not the host's slot ports."""
     if depth > 6:
-        raise Unmodeled('nesting too deep')
-    words, redirs = _redirections(args)
+        _gap('nesting too deep')
+        return None
+    try:
+        words, redirs = _redirections(args)
+    except Unmodeled as exc:
+        _gap(str(exc))
+        return None
     kinds = classify_anywhere(program, words, redirs, ports,
                               expands=expands_secret(raw if raw is not None else ' '.join(args)))
     if program in SHELLS or program == 'eval':
         body = ' '.join(words) if program == 'eval' else _shell_body(words)
-        lines, subs = _scan(body or '')
+        try:
+            lines, subs = _scan(body or '')
+        except Unmodeled as exc:
+            _gap(str(exc))
+            lines, subs = [], []
         for sub in subs:
-            for segment in _segments(sub):
+            for segment in _segments_soft(sub):
                 inner, rest, _ = _program(segment)
                 if inner and (kind := classify_inner(inner, rest, ports, sub, depth + 1)):
                     kinds.append(kind)
         for line in lines:
-            for segment in _segments_of_line(line):
+            for segment in _segments_soft(line, whole=False):
                 inner, rest, _ = _program(segment)
                 if inner and (kind := classify_inner(inner, rest, ports, line, depth + 1)):
                     kinds.append(kind)
     return kinds[0] if kinds else None
+
+
+def _segments_soft(text: str, whole: bool = True) -> list[list[str]]:
+    try:
+        return _segments(text) if whole else _segments_of_line(text)
+    except Unmodeled as exc:
+        _gap(str(exc))
+        return []
 
 
 def _exec_inner(rest: list[str]) -> tuple[str, list[str], str | None]:
@@ -889,40 +922,55 @@ def _ours(name: str, project: str | None) -> bool:
 def classify_command(command: str, *, stdin=None, project: str | None = None, approved_compose=None,
                      ports=None, depth: int = 0, state: dict | None = None) -> list[str]:
     """The prereg categories one shell line falls in (each simple command judged on its own; shell bodies and
-    command substitutions are judged as the commands they run). Raises Unmodeled outside the modeled grammar."""
+    command substitutions are judged as the commands they run). Raises Unmodeled outside the modeled grammar,
+    with ``partial``: every category recognized in the rest of the command."""
+    owner = _GAPS.get() is None
+    token = _GAPS.set([]) if owner else None
+    try:
+        found = _classify_command(command, stdin, project, approved_compose, ports, depth, state)
+    finally:
+        if owner:
+            gaps = _GAPS.get()
+            _GAPS.reset(token)
+    if owner and gaps:
+        raise Unmodeled(gaps[0], partial=found)
+    return found
+
+
+def _classify_command(command, stdin, project, approved_compose, ports, depth, state) -> list[str]:
     if not isinstance(command, str):
         return []
     if depth > 6:
-        raise Unmodeled('nesting too deep')
-    found, gaps = [], []
+        _gap('nesting too deep')
+        return []
+    found = []
     state = state if state is not None else {'cwd_outside': False, 'env': {}}
-    lines, subs = _scan(command)
+    try:
+        lines, subs = _scan(command)
+    except Unmodeled as exc:
+        if depth == 0:
+            raise                                  # nothing of the command can be read
+        _gap(str(exc))
+        return []
     for inner in subs:
-        try:
-            found += classify_command(inner, stdin=stdin, project=project, approved_compose=approved_compose,
-                                      ports=ports, depth=depth + 1,
-                                      state={'cwd_outside': state['cwd_outside'], 'env': dict(state['env'])})
-        except Unmodeled as exc:
-            found += exc.partial
-            gaps.append(exc)
+        found += classify_command(inner, stdin=stdin, project=project, approved_compose=approved_compose,
+                                  ports=ports, depth=depth + 1,
+                                  state={'cwd_outside': state['cwd_outside'], 'env': dict(state['env'])})
     for line in lines:
         try:
             segments = segments_with_raw(line)
         except Unmodeled as exc:
-            gaps.append(exc)
+            _gap(str(exc))
             continue
         for tokens, raw in segments:
             try:
                 found += _classify_segment(tokens, expands_secret(raw), stdin, project, approved_compose, ports, depth,
                                            state)
             except Unmodeled as exc:
-                # The unmodeled piece is a coverage gap; every other command of the line is still judged.
+                # A gap that escaped a helper: still a coverage gap, and the line's other commands are judged.
                 found += exc.partial
-                gaps.append(exc)
-    found = list(dict.fromkeys(found))
-    if gaps:
-        raise Unmodeled(str(gaps[0]), partial=found)
-    return found
+                _gap(str(exc))
+    return list(dict.fromkeys(found))
 
 
 def _resolve(token: str, env: dict) -> str:
