@@ -265,6 +265,15 @@ def allowed_tool(name) -> bool:
 
 # --------------------------------------------------------------------------- the harness
 
+def proposal_inventory(body) -> bool:
+    """A complete, readable proposal inventory: every row an object with a proposal id and a status, and no
+    further page. Discarded rows cannot prove the absence of an approver bypass (Sol 53fa4bef)."""
+    rows = body.get('proposals') if isinstance(body, dict) else None
+    return (isinstance(rows, list) and not any(bool(body.get(k)) for k in ('hasMore', 'truncated', 'nextCursor', 'next'))
+            and all(isinstance(p, dict) and isinstance(p.get('proposalId'), str) and p['proposalId']
+                    and isinstance(p.get('status'), str) for p in rows))
+
+
 def inventory(body) -> list[dict] | None:
     """The manager's API-key list, or None when the body is not one (missing list, non-object rows, rows
     without a name and id): an unreadable inventory never proves a mint absent (Sol 706b3997 item 5)."""
@@ -866,6 +875,8 @@ class LocalOps:
         if status != 200 or not isinstance(body.get('proposals'), list):
             return ['inventory-unreadable']               # fail closed: separation is unproven
         listing = body['proposals']
+        if not proposal_inventory(body):
+            return ['inventory-unreadable']
         approved = {a['proposalId'] for a in self.scenario.approvals if a['status'] in (200, 201, 202, 204)}
         approved |= self.harness_proposals            # the harness's own slot preparation, after the session
         return [p.get('proposalId') for p in listing if isinstance(p, dict)
@@ -883,7 +894,7 @@ class LocalOps:
             mcp = HttpMcpBackend(self.manager.base + '/mcp', header='X-API-Key', token=proposer['key'],
                                  workflow_view='full').start()
             status, listing = self.manager.request('GET', '/api/v1/admin/proposals/', ctx.slot.controller['admin_key'])
-            if status != 200 or not isinstance(listing.get('proposals'), list):
+            if status != 200 or not proposal_inventory(listing):
                 return {'status': 'failed', 'reason': 'the proposal inventory could not be read before preparation'}
             existing = {p.get('proposalId') for p in listing['proposals'] if isinstance(p, dict)}
             result = mcp.execute('tool_call', {'tool': 'honua_propose_platform_release_convergence',

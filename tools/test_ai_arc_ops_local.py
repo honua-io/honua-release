@@ -954,3 +954,19 @@ def test_reconvergence_stops_at_the_products_terminal_failure(tmp_path, monkeypa
     out = O.LocalOps.reconverge(stage, c)
     assert out['status'] == 'failed' and out['product']['resolutionReason'] == 'restore-incomplete'
     assert time.monotonic() - started < 5
+
+
+
+@pytest.mark.parametrize('listing,extra', [([None], {}), (['x'], {}), ([{'status': 'Executed'}], {}),
+                                           ([{'proposalId': 'p1'}], {}), ([], {'hasMore': True})])
+def test_an_unreadable_inventory_row_fails_separation_closed(tmp_path, listing, extra):
+    """Sol 53fa4bef item 1: {"proposals":[null]} passed approval.separate."""
+    manager = FakeManager(listing=listing)
+    base = manager.request
+    manager.request = lambda m, path, k, payload=None: (200, {'proposals': listing, **extra}) \
+        if path == '/api/v1/admin/proposals/' else base(m, path, k, payload)
+    sc = scenario(HAPPY, manager=manager)
+    happy_run(sc)
+    stage, c = stage_for(sc), ctx(tmp_path)
+    assert stage.harness_unsafe(c) == ['approval-unbound']
+    assert rows(stage, c)['approval.separate'] == 'fail'
