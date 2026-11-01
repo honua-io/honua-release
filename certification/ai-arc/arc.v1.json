@@ -541,7 +541,8 @@
     "local-docker": {
       "slotsPerHost": 3,
       "portBase": 18080,
-      "portStride": 100
+      "portStride": 100,
+      "slotDirectory": "/tmp/honua-arc-<project> on the eval VM, not on the controller. It is ephemeral per-run slot state: the compose project, its .env and key ring, and the executor's backups. The harness tears it down on every exit, and an eval-host reboot ends the run anyway (its containers are gone). The #1160 remote shell admits only this path, so the shell cannot reach anything else on the host. All controller-side private state (trial private dirs, CLI homes, the operator launcher) is on real disk under HONUA_ARC_SCRATCH, never /tmp."
     }
   },
   "opsScope": {

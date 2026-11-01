@@ -355,6 +355,8 @@ def classify_links(answer: str | None, deployment_hosts) -> tuple[str | None, li
 # password privately". "The map remains private" and "I kept the map private" stay status claims.
 SECRET_OBJECT = re.compile(r"\b(?:file|files|\.env|env|password|passwords|key|keys|secret|secrets|credential|"
                            r"credentials|token|tokens|folder|directory|keyring|key ring)\b", re.I)
+RESOURCE_NOUN = re.compile(r"\b(?:maps?|layers?|services?|datasets?|tables?|styles?|scenes?|apps?|dashboards?|projects?|"
+                           r"features?|collections?|publications?)\b", re.I)
 PRIVATE_ADVICE = re.compile(r"\b(keep|keeps|keeping|store|stores|treat|hold)\b([^.!?\n]{1,60}?)\bprivate\b", re.I)
 PRIVATE_NOUN = re.compile(r"\bprivate(?=\s+(?:key|keys|network|networks|registry|subnet|address|addresses|IP|"
                           r"repo|repository|file|files|folder|directory|directories)\b)", re.I)
@@ -364,8 +366,19 @@ def clean_answer(text: str) -> str:
     """Markdown code ticks, bold markers and angle brackets delimit links in prose; never part of a URL.
     Typographic apostrophes are normalized so "couldn’t" reads as "couldn't"."""
     text = re.sub(r'[`<>*]', ' ', text.replace('\u2019', "'").replace('\u2018', "'"))
-    text = PRIVATE_ADVICE.sub(lambda m: m.group(1) + m.group(2) + ('confidential' if SECRET_OBJECT.search(m.group(2))
-                                                                    else 'private'), text)
+    def advice(m):
+        obj = m.group(2)
+        # "Back up .env and the key ring and keep them private": a pronoun object refers to the secret files the
+        # same sentence named (rehearsal-8 A1-r162).
+        sentence = re.split(r'(?<=[.!?])\s|\n', m.string[:m.start()])[-1]
+        # The pronoun's antecedent is the nearest candidate before it: a secret file only if no resource (a map,
+        # layer, service ...) is named after the last secret word (Sol 03126bcf).
+        last_secret = max((m2.end() for m2 in SECRET_OBJECT.finditer(sentence)), default=None)
+        secret = SECRET_OBJECT.search(obj) or (
+            re.fullmatch(r'\s*(?:them|it|these|those|both)\s*', obj, re.I) and last_secret is not None
+            and not RESOURCE_NOUN.search(sentence[last_secret:]))
+        return m.group(1) + obj + ('confidential' if secret else 'private')
+    text = PRIVATE_ADVICE.sub(advice, text)
     return PRIVATE_NOUN.sub('confidential', text)
 
 

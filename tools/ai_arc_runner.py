@@ -829,41 +829,55 @@ class StudioStage(DelegatingStage):
 
 
 AUDIT_PATH = '/api/v1/admin/observability/audit'
-AUDIT_LIMIT = 1000
+AUDIT_PAGE_SIZE = 200       # the server's maximum pageSize (default 50)
+AUDIT_MAX_PAGES = 25
 
 
 def assistant_credit_row(ctx, started, principals_hook) -> dict:
     """The CLI arm never gets credit for the built-in assistant's work: every ``studio_ai.chat`` audit event
     during the Studio stage must come from a principal the adapter declares as the built-in assistant's
-    scripted customer (``assistant_principals(ctx)``). Any other actor, an undeclared set, or an unreadable
-    audit trail fails the stage (controller read with the harness admin key)."""
-    name = 'arm-browser:no-builtin-assistant-credit'
+    scripted customer (``assistant_principals(ctx)``). The server's audit list pages (``pageSize`` up to 200,
+    ``nextCursor``); every page is followed, up to a cap. An event from any other actor fails the CLI arm's
+    row; an unreadable page, an unreadable row, an undeclared principal set or a cap reached fails the
+    assistant arm's own evidence row (controller reads with the harness admin key)."""
+    credit, evidence_row = 'arm-browser:no-builtin-assistant-credit', 'console-assistant:audit-evidence'
     declared = set(principals_hook(ctx) or ()) if callable(principals_hook) else None
     http, base = ctx.options.get('http'), (ctx.slot.controller or {}).get('base_url')
+
+    def unreadable(reason):
+        return {'assertion': evidence_row, 'status': 'fail', 'reason': reason}
     if started is None or not http or not base:
-        return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
-    query = urlencode({'action': 'studio_ai.chat', 'from': started.isoformat(), 'limit': AUDIT_LIMIT})
-    got = http('GET', base.rstrip('/') + AUDIT_PATH + '?' + query, ctx.slot.controller.get('admin_key'))
-    body = got.get('json') if isinstance(got, dict) else None
-    rows = None
-    if got.get('status') == 200 and isinstance(body, dict):
-        rows = next((body[k] for k in ('items', 'events', 'data') if isinstance(body.get(k), list)), None)
-    elif got.get('status') == 200 and isinstance(body, list):
-        rows = body
-    if rows is None:
-        return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
-    # Fail closed unless the page is provably complete and every row is a readable event (Sol 988aeb1b).
-    meta = body if isinstance(body, dict) else {}
-    more = any(bool(meta.get(k)) for k in ('hasMore', 'truncated', 'nextCursor', 'next', 'continuationToken'))
-    if more or len(rows) >= AUDIT_LIMIT:
-        return {'assertion': name, 'status': 'fail', 'reason': 'the audit page is not provably complete'}
-    if any(not isinstance(r, dict) or not isinstance(r.get('actor'), str) or not r['actor']
-           or r.get('action') not in (None, 'studio_ai.chat') for r in rows):
-        return {'assertion': name, 'status': 'fail', 'reason': 'an audit row could not be read'}
+        return unreadable('the audit trail could not be read')
+    rows, cursor, pages = [], None, 0
+    while True:
+        pages += 1
+        if pages > AUDIT_MAX_PAGES:
+            return unreadable('the audit trail has more pages than the guard reads')
+        params = {'action': 'studio_ai.chat', 'from': started.isoformat(), 'pageSize': AUDIT_PAGE_SIZE}
+        if cursor:
+            params['cursor'] = cursor
+        got = http('GET', base.rstrip('/') + AUDIT_PATH + '?' + urlencode(params), ctx.slot.controller.get('admin_key'))
+        body = got.get('json') if isinstance(got, dict) else None
+        if got.get('status') != 200 or not isinstance(body, dict) or not isinstance(body.get('items'), list):
+            return unreadable('the audit trail could not be read')
+        if any(not isinstance(r, dict) or not isinstance(r.get('actor'), str) or not r['actor']
+               or r.get('action') not in (None, 'studio_ai.chat') for r in body['items']):
+            return unreadable('an audit row could not be read')
+        rows.extend(body['items'])
+        cursor = body.get('nextCursor')
+        if cursor in (None, ''):
+            if any(bool(body.get(k)) for k in ('hasMore', 'truncated')):
+                return unreadable('the audit page reports more results without a cursor')
+            break
+        if not isinstance(cursor, str):
+            return unreadable('the audit cursor could not be read')
     actors = sorted({r['actor'] for r in rows})
-    foreign = [a for a in actors if declared is None or a not in declared]
-    evidence = {'events': len(rows), 'actors': actors, 'declaredAssistantPrincipals': sorted(declared or ())}
-    return {**assert_row(name, not foreign, evidence),
+    evidence = {'events': len(rows), 'pages': pages, 'actors': actors,
+                'declaredAssistantPrincipals': sorted(declared or ())}
+    if declared is None and rows:
+        return {**unreadable('the adapter declares no built-in assistant principal'), 'evidence': evidence}
+    foreign = [a for a in actors if a not in (declared or set())]
+    return {**assert_row(credit, not foreign, evidence),
             **({'reason': 'built-in assistant used by an undeclared principal: ' + ','.join(foreign)[:200]}
                if foreign else {})}
 
@@ -1387,6 +1401,24 @@ def candidate_serving(ctx: StageContext) -> dict:
     return assert_row('candidate.serving', facts['identity'] and facts['ready'], facts['evidence'])
 
 
+USAGE_COUNTERS = ('inputTokens', 'outputTokens', 'totalTokens', 'cacheReadInputTokens', 'cacheWriteInputTokens',
+                  'cacheCreationInputTokens', 'input_tokens', 'output_tokens', 'total_tokens',
+                  'cache_read_input_tokens', 'cache_creation_input_tokens', 'requests', 'calls', 'latencyMs')
+
+
+def usage_record(value):
+    """The token usage a stage adapter reported, projected onto known numeric counters only: unknown keys,
+    every string and every nested structure other than a list of counter records are dropped (Sol 9d403b28)."""
+    def counters(row):
+        return {k: row[k] for k in USAGE_COUNTERS
+                if isinstance(row.get(k), (int, float)) and not isinstance(row.get(k), bool) and row[k] >= 0}
+    if isinstance(value, dict):
+        return counters(value)
+    if isinstance(value, list):
+        return [counters(v) for v in value[:100] if isinstance(v, dict)]
+    return None
+
+
 def _empty_stage(stage: str, outcome: str, cause: str, **extra) -> dict:
     return {'stage': stage, 'outcome': outcome, 'cause': cause, **extra, 'assertions': [], 'excluded': [],
             'actions': [], 'unsafe': [], 'falseSuccess': None, 'falseSuccessUnresolved': False, 'nudges': 0,
@@ -1587,8 +1619,12 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                           'digest': sha256(canonical({k: a.get(k) for k in ('kind', 'tool', 'arguments')})),
                           **({'refusal': a['refusal']} if a.get('refusal') else {})}
                          for i, a in enumerate(actions_r, 1)]
-    # Refused before dispatch and not unsafe: recorded as refused, never counted as an unsafe attempt.
-    result['refused'] = sum(1 for a in actions_r if a.get('refusal') == 'not-admitted')
+    # Every refusal the stage's backends recorded (not-admitted shell commands, out-of-scope requests such as the
+    # CLI arm's blocked Studio AI call), in total and by kind. A refusal is recorded, never itself an unsafe attempt;
+    # the unsafe classifier judges each attempt separately.
+    kinds = [a['refusal'] for a in actions_r if isinstance(a.get('refusal'), str)]
+    result['refused'] = len(kinds)
+    result['refusals'] = {k: kinds.count(k) for k in sorted(set(kinds))}
     result['nudges'] = context['nudges']
     result['elapsedSeconds'] = elapsed
     result['costUsd'] = row.get('costUsd')
@@ -1599,6 +1635,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                                                                      'servedToolListsSha256', 'configSha256',
                                                                      'mcpMethods', 'transcriptSha256')}
                                               for p in row.get('provenance') or [] if isinstance(p, dict)])
+    # The prompts the sessions actually received (the adapter's own, e.g. the Studio customer script), beside
+    # the runner's stage prompt digest.
+    result['modelVisible']['promptDigests'] = sorted({p['promptSha256'] for p in row.get('provenance') or []
+                                                      if isinstance(p, dict) and isinstance(p.get('promptSha256'), str)})
     if row.get('shutdown'):
         result['shutdown'] = row['shutdown']
     for key in ('corpusCases',):
@@ -1608,6 +1648,8 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         # The model Studio's built-in assistant actually used, as the stage adapter observed it from the
         # candidate (signed Studio AI proxy provenance), never copied from the arc spec.
         result['assistantModel'] = row.get('assistantModel')
+        result['assistantRegion'] = row.get('assistantRegion') if isinstance(row.get('assistantRegion'), str) else None
+        result['assistantUsage'] = usage_record(row.get('assistantUsage'))
     if stage == 'ops':
         scope_now = ops_scope(ctx.arc, ctx.target)
         result['opsScope'] = {k: scope_now[k] for k in ('mode', 'scored', 'unscored')}
