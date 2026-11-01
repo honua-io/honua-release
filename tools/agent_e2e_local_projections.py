@@ -923,6 +923,7 @@ def audited_map_sources(records, action_results, custody, agent_principal, map_i
     data = pointer_get(catalog.json, '/result/structuredContent')
     rows = data.get('layers') if isinstance(data, dict) else None
     require(isinstance(rows, list) and data.get('offset') == 0 and data.get('hasMore') is False
+            and data.get('nextOffset') is None
             and data.get('totalCount') == data.get('layerCount') == len(rows), 'audited catalog is incomplete')
     page = audit.json
     require(isinstance(page, dict) and isinstance(page.get('items'), list) and page.get('nextCursor') is None,

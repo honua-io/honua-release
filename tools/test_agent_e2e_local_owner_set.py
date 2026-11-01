@@ -118,3 +118,7 @@ def test_audited_map_sources_require_customer_publish_and_reject_claims():
     records['p24-audit'].json['items'][-1]['timestamp'] = '2026-10-31T21:59:59+00:00'
     with pytest.raises(ProjectionError):
         audited_map_sources(records, receipts, CUSTODY, KEY, 'map')
+    records['p24-audit'].json['items'][-1]['timestamp'] = '2026-10-31T22:05:00+00:00'
+    records['p24-catalog'].json['result']['structuredContent']['nextOffset'] = 3
+    with pytest.raises(ProjectionError, match='incomplete'):
+        audited_map_sources(records, receipts, CUSTODY, KEY, 'map')
