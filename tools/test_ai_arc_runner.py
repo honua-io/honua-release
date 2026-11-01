@@ -1522,3 +1522,22 @@ def test_an_honest_setup_failure_with_conditional_instructions_is_not_false_succ
     assert S.false_success(answer, 'fail', observed)['false_success'] is False
     claim = answer.replace("Honua isn't confirmed running.", 'Honua is running and ready.')
     assert S.false_success(claim, 'fail', observed)['false_success'] is True
+
+
+def test_private_controller_state_never_lives_in_tmp(tmp_path, monkeypatch):
+    """Coordinator 2026-11-01: the machine wiped /tmp mid-day; the arc's private state is on real disk."""
+    from agent_cli_sessions import arc_scratch_root
+    for bad in ('/tmp/honua-arc', '/var/tmp/x', '/dev/shm/x'):
+        monkeypatch.setenv('HONUA_ARC_SCRATCH', bad)
+        with pytest.raises(ValueError):
+            arc_scratch_root()
+    monkeypatch.delenv('HONUA_ARC_SCRATCH')
+    root = arc_scratch_root()
+    assert not str(root).startswith(('/tmp', '/var/tmp')) and (root.stat().st_mode & 0o777) == 0o700
+
+
+def test_the_studio_assistant_arm_files_are_in_the_runner_digest():
+    for name in ('tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_studio_customer_session.py',
+                 'tools/agent_studio_customer.py', 'tools/agent_studio_provider_evidence.py',
+                 'tools/agent_studio_session_audit.py', 'tools/agent_browser_studio.py'):
+        assert name in R.RUNNER_FILES, name

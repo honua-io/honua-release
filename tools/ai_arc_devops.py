@@ -66,7 +66,8 @@ class OperatorOwner:
         setsid = shutil.which('setsid')
         if not setsid:
             raise RuntimeError('cannot launch the operator in its own process group (setsid missing)')
-        launcher_dir = Path(tempfile.mkdtemp(prefix='honua-arc-operator-'))
+        from agent_cli_sessions import arc_scratch_root
+        launcher_dir = Path(tempfile.mkdtemp(prefix='honua-arc-operator-', dir=arc_scratch_root()))
         launcher = launcher_dir / 'launch'
         launcher.write_text('#!/bin/sh\nexec ' + shlex.quote(setsid) + ' ' + shlex.quote(str(binary)) + ' "$@"\n')
         launcher.chmod(0o700)

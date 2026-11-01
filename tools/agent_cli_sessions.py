@@ -50,6 +50,18 @@ _CREDENTIAL_TEXT = re.compile(
     r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*[^\s,}]+', re.I)
 
 
+def arc_scratch_root() -> Path:
+    """Real-disk root for the arc's private controller state (trial private dirs, CLI scratch homes, the
+    operator launcher). /tmp is wiped on reboot and the lane rules forbid it: HONUA_ARC_SCRATCH, default
+    ~/.cache/honua-arc, mode 0700; a root under /tmp or /var/tmp is refused."""
+    root = Path(os.environ.get('HONUA_ARC_SCRATCH') or Path.home() / '.cache' / 'honua-arc').expanduser().resolve()
+    if any(str(root) == t or str(root).startswith(t + '/') for t in ('/tmp', '/var/tmp', '/dev/shm')):
+        raise ValueError('the arc scratch root must be on real disk, not ' + str(root))
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    return root
+
+
 def digest(raw):
     return 'sha256:' + hashlib.sha256(raw).hexdigest()
 
@@ -529,7 +541,7 @@ class CliModelSession:
                'messageIds': [f'S{session}-customer'], 'finalAnswer': None,
                'toolViewSha256': digest(encoded(primary_view)), 'systemContractSha256': digest(contract.encode())}
         self._progress = out
-        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir='/tmp') as scratch:
+        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir=arc_scratch_root()) as scratch:
             home = Path(scratch)
             # No repository or ancestor instructions may be reachable through cwd discovery.
             if any((p / name).exists() for p in (home, *home.parents)

@@ -275,7 +275,10 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     deadline = deadline or (time.monotonic() + limits['maxSeconds'])
     owned = private_root is None
     # The write-ahead ledger lives in the stage's private evidence, so a timeout recovers it.
-    private_root = Path(private_root or tempfile.mkdtemp(prefix='honua-arc-services-'))
+    if private_root is None:
+        from agent_cli_sessions import arc_scratch_root
+        private_root = tempfile.mkdtemp(prefix='honua-arc-services-', dir=arc_scratch_root())
+    private_root = Path(private_root)
     private_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     cls = runtime_class()
     runtime = cls(base_url=base_url, admin_key=admin_key, project=project, candidate_digest=candidate_digest,

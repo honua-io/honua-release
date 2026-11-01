@@ -69,7 +69,11 @@ RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc
                 'tools/agent_e2e_local_mcp_proxy.py', 'tools/agent_e2e_local_faults.py',
                 'tools/g3_compose_quickstart.py', 'tools/ai_arc_devops.py',
                 'certification/agent-ops/arc_ops.py', 'certification/agent-ops/arc-executors.json',
-                'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py', 'tools/ai_arc_ops_local.py')
+                'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py', 'tools/ai_arc_ops_local.py',
+                # The Studio built-in assistant arm (#1188): its customer session, transcript, provider evidence
+                # and session audit change stage-4 behavior and scoring.
+                'tools/agent_e2e_studio_customer_session.py', 'tools/agent_studio_customer.py',
+                'tools/agent_studio_provider_evidence.py', 'tools/agent_studio_session_audit.py')
 SCORER_GLOBS = ('tools/agent_e2e_handoff.py', 'certification/agent-e2e/corpus/oracle.py',
                 'tools/agent_e2e_local_projections.py', 'tools/agent_e2e_local_expectations.py',
                 'certification/agent-e2e/pack.v2.AB-only.json',
@@ -1686,7 +1690,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     if out_dir.exists():
         raise FileExistsError('run directory exists; every attempt is kept and never replaced')
     out_dir.mkdir(parents=True, mode=0o700)
-    private = Path(tempfile.mkdtemp(prefix='honua-arc-private-', dir=private_root))
+    from agent_cli_sessions import arc_scratch_root
+    private = Path(tempfile.mkdtemp(prefix='honua-arc-private-', dir=private_root or arc_scratch_root()))
     os.chmod(private, 0o700)
     modules = modules or default_modules(arc, target)
     install = arc['versionPair']['install']
