@@ -2540,8 +2540,8 @@ def verify_false_success_adjudications(arc: dict, arm: dict, flags: dict, adjudi
     # Every observed flag, a voided run's too, must carry a valid verdict: a void never hides a claim.
     total = sum(len(v) for v in flags.values())
     counted = set(flags) if counted is None else set(counted)
-    # Scoring section: a verdict on a run that was later voided is checked but not counted. An unadjudicated flag
-    # on a voided run still stays unresolved (the campaign never resumes past it).
+    # ``counted`` limits the upheld total and the returned rows (a voided run's verdict is checked either way). The
+    # aggregate passes no ``counted``: its headline totals cover every attempt (#1199); countedIncidents the rest.
     upheld = sum(1 for r in rows if r['verdict'] == 'upheld' and r['runId'] in counted)
     unresolved = total - len(rows)
     return [r for r in rows if r['runId'] in counted], upheld, unresolved
