@@ -60,6 +60,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
     free = slots(hosts, per_host) if target == 'local-docker' else [(None, i) for i in range(per_host)]
     lock = threading.Condition()
     results, pending, voids, threads, rejected = [], [], [], [], {}
+    adjudicated = set()
     queue, reserves = list(schedule_rows), list(reserve_rows)
 
     def run_dir(row):
@@ -154,12 +155,27 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             while queue or pending or len(results) < len(threads):
                 if pending:
                     if adjudicate(pending[0]):
-                        pending.pop(0)
+                        adjudicated.add(pending.pop(0))
                         save_state()
                         continue
                     save_state()
                     if max_wait is not None and time.monotonic() - started > max_wait:
                         raise TimeoutError('runs await a valid adjudication: ' + ', '.join(pending))
+                    lock.wait(wait_poll)
+                    continue
+                for hold in sorted((out / 'holds').glob('*.hold')) if (out / 'holds').is_dir() else []:
+                    # A hold placed on any run, finished or in flight, is a suspected defect: nothing new starts
+                    # until it is adjudicated (Sol 09e293be). A hold for a run not yet started blocks it too.
+                    held = next((r['runId'] for r in results if r['runId'].replace(':', '-') + '.hold' == hold.name),
+                                None)
+                    if held and held not in pending and held not in adjudicated:
+                        pending.append(held)
+                if pending:
+                    continue
+                if any(h.name.endswith('.hold') for h in ((out / 'holds').iterdir() if (out / 'holds').is_dir() else [])
+                       if not any(r['runId'].replace(':', '-') + '.hold' == h.name for r in results)):
+                    if max_wait is not None and time.monotonic() - started > max_wait:
+                        raise TimeoutError('a run is on hold before it finished')
                     lock.wait(wait_poll)
                     continue
                 if (out / 'HOLD').is_file():

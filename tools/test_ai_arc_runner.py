@@ -577,7 +577,8 @@ def test_void_requires_retained_original_other_family_chronology_and_reserve(tmp
     ok = void('local-docker:A1:h00', original)
     result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets, voids=[ok])
     assert result['voids'] == [{'runId': 'local-docker:A1:h00', 'adjudication': ok['adjudication'],
-                                'replacementRunId': 'local-docker:A1:r00'}]
+                                'replacementRunId': 'local-docker:A1:r00',
+                                'originalReceiptDigest': R.sha256(raws[0])}]
     assert result['completed'] == 1 and [r['runId'] for r in result['runs']] == ['local-docker:A1:r00']
     for bad in (void('local-docker:A1:h00', original, reviewerFamily='unrecognized-family'),
                 void('local-docker:A1:h00', original, reviewerFamily='anthropic'),

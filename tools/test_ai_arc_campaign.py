@@ -230,3 +230,32 @@ def test_an_operator_hold_stops_new_launches(tmp_path):
         C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(1), out=tmp_path, hosts=['h1'], per_host=1,
                        common=[], wait_poll=0.01, max_wait=0.3, launch=fake_launch(tmp_path, {}, log))
     assert log == []
+
+
+def test_a_hold_placed_on_a_finished_run_stops_launches_until_adjudicated(tmp_path):
+    """Sol 09e293be item 2: per-run holds are checked before every launch, not only when a run finishes."""
+    log = []
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (tmp_path / 'holds').mkdir(exist_ok=True)
+            (tmp_path / 'holds' / 'local-docker-A1-001.hold').write_text('suspect scorer\n')
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.4, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']
+    assert (tmp_path / 'PENDING-ADJUDICATION').read_text().strip() == 'local-docker:A1:001'
+
+
+def test_a_hold_on_an_in_flight_run_blocks_other_free_slots(tmp_path):
+    log, release = [], threading.Event()
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (tmp_path / 'holds').mkdir(exist_ok=True)
+            (tmp_path / 'holds' / 'local-docker-A1-001.hold').write_text('watching\n')
+            release.wait(0.5)
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=2,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert len(log) <= 2, 'at most the run already launched beside it'
