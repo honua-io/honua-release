@@ -146,7 +146,7 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     path.write_text(json.dumps(data))
     monkeypatch.setattr(studio, 'RESTORED_PACK', path)
     monkeypatch.setattr(studio, 'RESTORED_PACK_DIGEST', 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest())
-    seen = []
+    seen, timeline = [], []
     class Runtime:
         def __init__(self, *, agent, project, **kwargs):
             self.agent = agent
@@ -160,11 +160,15 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
         def probe(self): return []
     monkeypatch.setattr(studio, 'studio_runtime_class', lambda: Runtime)
     provisioned = []
-    monkeypatch.setattr(studio, 'provision_local_server',
-                        lambda *args, **kwargs: provisioned.append(kwargs.get('enable_assistant', False)))
+    def provision(*args, **kwargs):
+        enabled = kwargs.get('enable_assistant', False)
+        provisioned.append(enabled)
+        timeline.append(('provider', enabled))
+    monkeypatch.setattr(studio, 'provision_local_server', provision)
     monkeypatch.setattr(runner, 'load_scenario', lambda name: object())
     def execute_case(**kwargs):
         agent = kwargs['runtime'].agent
+        timeline.append(('case', agent))
         if sealed:
             assert kwargs['variant'] == 'B'
             assert kwargs['case']['prompts']['B'] == 'synthetic held-out request'
@@ -196,6 +200,8 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     scores = stage.observe(context, result)
     assert seen == ['codex-cli', 'console-assistant']
     assert provisioned == [True, False]
+    assert timeline == [('case', 'codex-cli'), ('provider', True),
+                        ('case', 'console-assistant'), ('provider', False)]
     assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
     assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
     assert any(row.get('falseSuccess') for row in scores)
