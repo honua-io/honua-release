@@ -297,6 +297,8 @@ class RecordingProxy:
                 self.failure_category = 'model'
                 raise ValueError(self.failure)
             raw = action_bytes(action)
+            for form in withheld_forms():
+                raw = raw.replace(form, WITHHELD_MARK)   # a held-out goal echoed into an argument never reaches disk
             path = self.log_dir / f'action-{len(self.actions) + 1:04d}.json'
             write_private(path, raw)
             row = {'session': self.session, 'sequence': len(self.actions) + 1,

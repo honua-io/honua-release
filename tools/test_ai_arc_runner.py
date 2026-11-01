@@ -1744,3 +1744,24 @@ def test_cli_inputs_record_only_the_digest_of_a_withheld_prompt(tmp_path):
         assert b'held-out case' not in target.read_bytes() and CS.WITHHELD_MARK in target.read_bytes()
     finally:
         CS.withhold_texts([])
+
+
+def test_a_held_out_goal_in_an_answer_or_a_cause_never_reaches_evidence_or_the_receipt(tmp_path, monkeypatch):
+    """Sol be3c1598: redaction precedes hashing and scoring (evidence verifies), and the receipt is covered."""
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    case = primary['cases']['h00']
+    goal = case['goals']['ops']
+
+    class Quoting(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            if stage == 'ops':
+                row['finalAnswer'] = 'You asked: ' + goal + ' Done; the update finished.'
+            return row
+    receipt, _ = run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00', session=Quoting(),
+                     mods=modules(services=FakeStage('services', unavailable='no fixtures for ' + case['goals']['services'])))
+    raws = [p.read_bytes() for p in tmp_path.rglob('*') if p.is_file() and 'sealed' not in p.name]
+    assert not any(g.encode() in raw for raw in raws for g in case['goals'].values())
+    rows = R.schedule(ARC, 'local-docker', A1, primary, 1)
+    agg(tmp_path, None, [(tmp_path / 'h00' / 'trial-receipt.json').read_bytes()], rows=rows,
+        goal_sets={'primary': primary})                                # evidence still verifies after redaction

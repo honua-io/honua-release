@@ -1324,10 +1324,19 @@ def finalize_stage(ctx, reason: str = 'unspecified', worker=None) -> dict:
 shutdown_stage = finalize_stage      # kept for callers and tests written against the earlier name
 
 
+def withheld_texts() -> list[str]:
+    """This process's held-out goal texts (empty outside a held-out run)."""
+    try:
+        import agent_cli_sessions
+    except ImportError:
+        return []
+    return list(agent_cli_sessions._WITHHELD)
+
+
 def stage_file(ctx, stage: str, name: str, value) -> str:
     """Write one stage evidence file, redacted with the secrets known now; return its digest."""
     raw = value if isinstance(value, bytes) else canonical(value)
-    raw = redact_bytes(raw, ctx.slot.harness_secrets)
+    raw = redact_bytes(raw, list(ctx.slot.harness_secrets) + withheld_texts())
     write_private(ctx.private_dir / stage / name, raw)
     return sha256(raw)
 
@@ -1600,7 +1609,9 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                             [{'cliVersion': p.get('cliVersion') if isinstance(p, dict) else None,
                               'agent': p.get('agent') if isinstance(p, dict) else None}
                              for p in row.get('provenance') or []])}
-    secrets = ctx.slot.harness_secrets
+    # Held-out goals are redacted with the secrets before anything is scored, hashed or stored, so the scored
+    # bytes, the evidence and the receipt agree (Sol be3c1598 item 1).
+    secrets = list(ctx.slot.harness_secrets) + withheld_texts()
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, handoff_r, context_r = red(actions), red(observations), red(handoff), red(context)
     answer_r = redact_bytes(answer.encode(), secrets).decode() if answer is not None else None
@@ -1854,17 +1865,22 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
             {'runId': run_id, 'stages': [{k: r.get(k) for k in ('stage', 'outcome', 'cause')} for r in receipt['stages']],
              'teardown': receipt['teardown']['status']}))
         evidence_dir = Path(evidence_dir or out_dir.parent / (out_dir.name + '.evidence'))
-        export_private(private, evidence_dir, list(slot.harness_secrets) + withheld)
-        receipt['evidenceArtifact'] = {'name': evidence_artifact or evidence_dir.name,
-                                       'files': [{'path': str(p.relative_to(evidence_dir)), 'sha256': sha256(p.read_bytes()),
-                                                  'bytes': p.stat().st_size}
-                                                 for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
-        shutil.rmtree(private, ignore_errors=True)
-        agent_cli_sessions.withhold_texts([])
+        try:
+            export_private(private, evidence_dir, list(slot.harness_secrets) + withheld)
+            receipt['evidenceArtifact'] = {'name': evidence_artifact or evidence_dir.name,
+                                           'files': [{'path': str(p.relative_to(evidence_dir)),
+                                                      'sha256': sha256(p.read_bytes()), 'bytes': p.stat().st_size}
+                                                     for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
+        finally:
+            # Whatever failed above, the private (unredacted) evidence never outlives the run (Sol be3c1598 3).
+            shutil.rmtree(private, ignore_errors=True)
     receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
                             if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
                                      'consoleObservedIdentity', 'opsComposition', 'opsReconverged', 'slotPreparation')}
-    return finish_trial(receipt, out_dir)
+    try:
+        return finish_trial(receipt, out_dir)
+    finally:
+        agent_cli_sessions.withhold_texts([])
 
 
 def run_closers(slot) -> list[dict]:
@@ -1920,7 +1936,9 @@ def harness_error_stage(ctx, module, exc) -> dict:
                'deploymentHosts': [], 'failure': failure, 'binding': {'slotId': ctx.slot.project},
                'nudges': 0, 'elapsedSeconds': 0, 'utterances': [], 'nestedAnswerChecks': False,
                'shutdown': shutdown, 'harnessUnsafe': harness_unsafe, 'sessions': []}
-    secrets = ctx.slot.harness_secrets
+    # Held-out goals are redacted with the secrets before anything is scored, hashed or stored, so the scored
+    # bytes, the evidence and the receipt agree (Sol be3c1598 item 1).
+    secrets = list(ctx.slot.harness_secrets) + withheld_texts()
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, context_r = red(actions), red(observations), red(context)
     answer_r = redact_bytes(answer.encode(), secrets).decode() if answer is not None else None
@@ -1998,6 +2016,8 @@ def finish_trial(receipt: dict, out_dir: Path) -> dict:
     receipt['costUsd'] = None
     receipt['finishedAt'] = now()
     raw = json.dumps(receipt, indent=2, sort_keys=True).encode() + b'\n'
+    # No held-out goal in any receipt field (causes, failure reasons, assertion details, slot facts).
+    raw = redact_bytes(raw, withheld_texts()) if withheld_texts() else raw
     if len(raw) > MAX_RECEIPT_BYTES:
         raise ValueError('run receipt exceeds the 1 MB member bound the admission gate reads')
     write_private(out_dir / 'trial-receipt.json', raw)
