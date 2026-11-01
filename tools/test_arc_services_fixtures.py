@@ -48,7 +48,7 @@ def test_adapter_returns_named_failure_for_unmapped_or_incompatible_cases(tmp_pa
                   base_url='http://127.0.0.1:1', admin_key='unused', project='unused',
                   arm={}, limits={}, out_dir=tmp_path)
     for fixture, fault, reason in [('unknown', 'http_503_once', 'unmapped services fixture'),
-                                   ('town-A', 'http_503_once', 'fault is incompatible')]:
+                                   ('town-A', 'response_lost_after_commit', 'fault is incompatible')]:
         row, cases = ai_arc_services.run_fixture_services(**common, goal='request', fixture_id=fixture, fault=fault)
         assert cases == [] and row['failure']['category'] == 'model'
         assert reason in row['failure']['reason']
@@ -91,20 +91,28 @@ def test_harness_custody_is_retained_in_case_but_not_scored_as_agent_work():
     assert 'P15:publication.private' in [r['assertion'] for r in rows]
 
 
-def test_agent_publication_guard_blocks_even_a_compatible_fault(monkeypatch, tmp_path):
+def test_compatible_fault_requires_adopted_vm_before_dispatch(tmp_path):
     import ai_arc_services
-    original = runner.load_scenario
-    class Wrapped:
-        def __init__(self, scenario): self.scenario = scenario
-        def __getattr__(self, name): return getattr(self.scenario, name)
-        def fault_plan(self, variant): return {'kind': 'http_503_once'}
-    monkeypatch.setattr(runner, 'load_scenario', lambda sid: Wrapped(original(sid)))
     row, cases = ai_arc_services.run_fixture_services(
         goal='Synthetic request', fixture_id='town-A', fault='http_503_once',
         candidate_digest='sha256:' + 'a' * 64, base_url='http://127.0.0.1:1', admin_key='unused',
         project='unused', arm={}, limits={}, out_dir=tmp_path)
     assert cases == [] and row['failure']['category'] == 'model'
-    assert 'publication from raw inputs' in row['failure']['reason']
+    assert 'VM slot is missing' in row['failure']['reason']
+
+
+def test_p15_link_requires_a_passing_agent_publication_and_fired_fault():
+    import hashlib
+    from ai_arc_services import shared_publication
+    receipt = {'status': 'pass', 'roles': {'created:service:shelters': 'service', 'child:layer:shelters': 2},
+               'faultEvents': [{'kind': 'http_503_once', 'id': 'arc-p10-query-503'}]}
+    link = shared_publication(receipt, b'retained', 'A')
+    assert link == {'variant': 'A', 'service': 'service', 'layerId': 2,
+                    'caseReceiptSha256': 'sha256:' + hashlib.sha256(b'retained').hexdigest()}
+    for changed in ({**receipt, 'status': 'fail'}, {**receipt, 'faultEvents': []},
+                    {**receipt, 'roles': {'created:service:shelters': 'foreign/route', 'child:layer:shelters': 2}}):
+        with pytest.raises(ValueError):
+            shared_publication(changed, b'retained', 'A')
 
 
 @pytest.mark.parametrize('variant', ['A', 'B'])
@@ -143,3 +151,62 @@ def test_adopted_sql_uses_matching_remote_project_and_one_quoted_sql_argument(tm
     with pytest.raises(ValueError, match='does not match'):
         runtime.psql(stack, sql, read_only=True)
     assert len(calls) == 2
+
+
+def test_adopted_connection_is_created_under_controller_custody(tmp_path):
+    from types import SimpleNamespace
+    import ai_arc_services
+    secret = 'fixture-database-secret'
+    vm = SimpleNamespace(project='arc-test', secrets={'POSTGRES_PASSWORD': secret})
+    runtime = ai_arc_services.runtime_class()(
+        base_url='http://127.0.0.1:1', admin_key='unused', project='arc-test',
+        candidate_digest='sha256:' + 'a' * 64, agent='codex-cli', model='test',
+        limits={'maxTurns': 1, 'maxToolCalls': 1, 'maxSeconds': 1}, private_root=tmp_path, vm=vm)
+    calls = []
+    class Rec:
+        def json(self, step, method, path, body):
+            calls.append((step, method, path, body))
+            return {'observation': {'httpStatus': 201, 'body': {'data': {'connectionId': 'conn'}}}}
+    stack = SimpleNamespace(compose_project='arc-test-p10', extra={'recorder': Rec()})
+    assert runtime.ensure_arc_connection(stack) == 'conn'
+    assert calls[0][3]['host'] == 'db' and calls[0][3]['password'] == secret
+    assert secret in runtime._secrets and secret in runtime.extra_secrets
+    vm.project = 'foreign'
+    with pytest.raises(ValueError):
+        runtime.ensure_arc_connection(stack)
+    assert len(calls) == 1
+
+
+def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypatch, tmp_path):
+    import hashlib
+    import ai_arc_services
+    seen = []
+    class FakeRuntime:
+        def __init__(self, **kwargs):
+            self._secrets, self.extra_secrets, self.workdirs, self.answers = [], [], [], {}
+            self.withheld = self.catalog_redactions = 0
+            self.shared_service = None
+    monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: FakeRuntime)
+    def execute_case(*, scenario, variant, case, **kwargs):
+        seen.append((scenario.id, scenario.expectation_profile, case['prompts'][variant]))
+        if scenario.id == 'P10':
+            return {'status': 'pass', 'roles': {'created:service:shelters': 'service',
+                                                'child:layer:shelters': 2},
+                    'faultEvents': [{'kind': 'http_503_once', 'id': 'arc-p10-query-503'}],
+                    'sessions': [], 'assertions': [], 'nudges': 0}
+        return {'status': 'pass', 'sessions': [], 'assertions': [], 'nudges': 0,
+                'roles': {'seeded:service:shelters': 'service', 'seeded:layer:shelters': 2}}
+    monkeypatch.setattr(runner, 'execute_case', execute_case)
+    cipher = Fernet(Fernet.generate_key())
+    payload = json.loads(cipher.decrypt(cipher.encrypt(json.dumps({
+        'services': 'Synthetic runtime goal', 'fixtures': 'town-A', 'fault': 'http_503_once'}).encode())))
+    row, cases = ai_arc_services.run_fixture_services(
+        goal=payload['services'], fixture_id=payload['fixtures'], fault=payload['fault'],
+        scenarios=('P13',), variant='B', candidate_digest='sha256:' + 'a' * 64,
+        base_url='http://127.0.0.1:1', admin_key='unused', project='arc-test',
+        arm={'agent': 'codex-cli', 'model': 'fake'}, limits={'maxTurns': 10, 'maxToolCalls': 10, 'maxSeconds': 60},
+        out_dir=tmp_path / 'retained', private_root=tmp_path / 'private', cli=object(), vm=object())
+    assert row['failure'] is None and [c['scenario'] for c in cases] == ['P10', 'P15']
+    assert seen == [('P10', 'arc', 'Synthetic runtime goal'), ('P15', 'arc', 'Synthetic runtime goal')]
+    p10 = (tmp_path / 'retained/P10/case-receipt.json').read_bytes()
+    assert cases[1]['receipt']['priorCaseReceiptSha256'] == 'sha256:' + hashlib.sha256(p10).hexdigest()

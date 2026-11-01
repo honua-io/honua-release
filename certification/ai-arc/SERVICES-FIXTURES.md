@@ -5,21 +5,27 @@ is pinned in `agent_e2e_local_expectations.py`; it is also listed in `ai_arc_run
 Catalog loading checks both digest and schema. The fixture ID alone selects every scenario and the
 corpus variant; the caller cannot select a scenario or change the query budget.
 
-| Fixture ID | Corpus variant | Scenarios |
-| --- | --- | --- |
-| town-A | A | P10, P15 |
-| town-B | B | P10, P15 |
+| Fixture ID | Corpus variant | Scenarios | Supported fault |
+| --- | --- | --- | --- |
+| town-A | A | P10, P15 | http_503_once |
+| town-B | B | P10, P15 | http_503_once |
 
-The ARC owner integrates through `ai_arc_services.run_fixture_services`, passing the decrypted goal in
-memory as `goal`, plus `fixture_id` and `fault`. Unknown fixtures, missing expectations, and faults
-without a compatible scenario plan return a named model-category failure, before agent dispatch.
-The existing P10 and P15 scenarios publish fixtures as the controller, and neither defines a fault
-plan. Therefore the fixture entry point currently fails closed: it is not admission-ready. A
-successful implementation must import raw inputs, prove the agent published the service with its
-own recorded action and live readback, and inject a compatible fault before removing the guard.
+The ARC owner integrates through `ai_arc_services.run_fixture_services`, passing the decrypted goal
+in memory as `goal`, plus `fixture_id`, `fault`, and `vm=ctx.slot.vm`. Unknown fixtures, missing
+expectations, and faults without a compatible scenario plan return a named model-category failure
+before agent dispatch. `response_lost_after_commit` has no reviewed service plan and is refused.
 
-P10 scores the last model query, including a failed or foreign final query, and records the count
+P10 seeds imported fixture tables without publishing a service. Its frozen roles require a completed
+agent `honua_publish_service` call on the exact seeded schema, table and connection, plus a new live
+service and layer. The controller reads all published features and the raw table independently and
+requires them to match, as well as comparing before/after table snapshots to the frozen fixture.
+It scores the last model query, including a failed or foreign final query, and records the count
 of all feature queries. The catalog freezes a limit of five; exceeding it fails the filter assertion.
 The runner replays only the selected sealed action with controller credentials and scores the
-result against the frozen oracle. P15 bootstrap custody remains in the case receipt as harness
-evidence; it is not agent-work credit.
+result against the frozen oracle. The 503 is injected once on a query after the publication action;
+P15 runs only if P10 passes and the fault actually fired.
+
+P15 uses the live service bound to the retained P10 case receipt and checks the service and layer
+again before seeding its saved map. Its bootstrap custody remains in the case receipt as harness
+evidence; it is not agent-work credit. The adopted slot supplies the SQL transport, which verifies
+the reviewed reader role and uses the same structured preflight as the local runner.
