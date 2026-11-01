@@ -745,6 +745,8 @@ class ActionLog:
             row.update(resultRawSha256='sha256:' + hashlib.sha256(raw).hexdigest(), resultRawPath=str(result_path),
                        resultHttpStatus=status)
         row['status'] = 'pass' if execution.get('status') in ('ok', 'pass') else 'fail'
+        if execution.get('refusal') == 'out-of-scope':
+            row['refusal'] = 'out-of-scope'
         row['resultDigest'] = 'sha256:' + hashlib.sha256(action_bytes(execution)).hexdigest()
         return execution
 

@@ -133,6 +133,7 @@ class CaseConsole:
                 raise ValueError('Console edge secret is invalid')
             env['Honua__Console__Auth__EdgeForwarded__SharedSecret'] = edge_secret
             command[-1:-1] = ['--env', 'Honua__Console__Auth__Mode=EdgeForwarded',
+                               '--env', 'Honua__Console__Auth__EdgeForwarded__ServerSessionIssuer=https://terminal-journey.invalid',
                                '--env', 'Honua__Console__Auth__EdgeForwarded__SharedSecret']
         try:
             self._attempted = True
@@ -452,6 +453,7 @@ class PlaywrightPage:
                 self.aborted.append(url)
                 route.abort('blockedbyclient')
                 if self._refusal_log is not None:
+                    self._refusal_log.names.add('studio_ai.chat')
                     selected = {'kind': 'tool_call', 'tool': 'studio_ai.chat', 'arguments': {}}
                     self._refusal_log.dispatch('tool_call', selected,
                         lambda _kind, _action: {'status': 'fail', 'refusal': 'out-of-scope'})

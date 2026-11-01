@@ -225,7 +225,8 @@ def scored_actions(driver, actions, receipts):
         if driver == 'console-assistant' and action.get('tool') in (*TOOLS, 'studio_chat_observe',
                                                                      'studio_customer_type'):
             continue
-        joined.append({**action, 'status': receipt['status']})
+        joined.append({**action, 'status': receipt['status'],
+                       **({'refusal': 'out-of-scope'} if receipt.get('refusal') == 'out-of-scope' else {})})
     return joined
 
 

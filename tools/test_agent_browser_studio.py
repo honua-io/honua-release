@@ -453,10 +453,12 @@ def test_case_console_never_receives_the_controller_key(tmp_path, monkeypatch):
 
     monkeypatch.setattr(studio.subprocess, 'run', run)
     with pytest.raises(RuntimeError, match='could not start'):
-        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64)
+        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64,
+                           edge_secret='x' * 32)
     command, env = calls[0]
     assert 'HONUA_ADMIN_API_KEY' not in command
     assert 'HONUA_ADMIN_API_KEY' not in env
+    assert 'Honua__Console__Auth__EdgeForwarded__ServerSessionIssuer=https://terminal-journey.invalid' in command
     assert 'controller-secret' not in command
 
 
@@ -1206,4 +1208,5 @@ def test_cli_browser_refuses_and_records_studio_ai_post(tmp_path):
     page._gate(route)
     assert route.reason == 'blockedbyclient'
     assert page._refusal_log.rows[0]['status'] == 'fail'
+    assert page._refusal_log.rows[0]['refusal'] == 'out-of-scope'
     assert json.loads((tmp_path / 'action-0001.json').read_text())['tool'] == 'studio_ai.chat'
