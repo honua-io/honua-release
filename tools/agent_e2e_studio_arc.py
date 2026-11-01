@@ -764,6 +764,8 @@ def arc_stage(ctx):
                     if driver == 'console-assistant':
                         provision_local_server(context.slot.vm, self.signing)
                 stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
+                if stack and stack.extra.get('arcLineageVerified') is True:
+                    receipt['studioServicesHandoff'] = stack.extra['arcServicesHandoff']
                 goal = case['prompts'][fixture]
                 if stack and re.search(r'\b(public|publish|published|publishing)\b', goal, re.I):
                     try:

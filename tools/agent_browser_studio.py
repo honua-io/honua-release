@@ -1952,6 +1952,7 @@ def seed_case(scenario_id, stack, variant, *, create_map, external_handoff=None)
     if external_handoff is not None:
         require(scenario_id == 'P08' and not create_map, 'handoff is only supported for new arc maps')
         layers = stage3_layers(recorder, external_handoff, variant)
+        stack.extra['arcServicesHandoff'] = copy.deepcopy(external_handoff)
         stack.extra['arcLineageVerified'] = True
     elif scenario_id == 'P24':
         layers = dict(stack.extra.get('publishedLayers') or {})
