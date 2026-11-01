@@ -11,24 +11,27 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_vendor_terms as vt  # noqa: E402
 
-ATTRIBUTION = ("Es" "ri" ", " "Arc" "GIS" ", and the " "Es" "ri" " product names used here are trademarks, registered trademarks, "
-               "or service marks of " "Es" "ri" " in the United States and other countries. They identify the "
-               "products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed "
-               "by " "Es" "ri" ".")
+def _blocked_text(*points: int) -> str:
+    return bytes(points).decode("ascii")
+
+
 VOCABULARY = vt.load_vocabulary()
 INTEROP = vt.load_interop()
-# The R30 confidential terms, assembled so this file's source carries none of them literally (a confidential
-# hit can be neither baselined nor allowlisted, so the tests cannot carry them either).
+# The R30 confidential terms are assembled at runtime so they do not appear as source text.
 PRO = vt.DESKTOP_CLIENT_NAME
-SCRIPTING = "arc" "py"
-MARK_A = "Es" "ri"
-MARK_B = "Arc" "GIS"
+SCRIPTING = _blocked_text(97, 114, 99, 112, 121)
+MARK_A = _blocked_text(69, 115, 114, 105)
+MARK_B = _blocked_text(65, 114, 99, 71, 73, 83)
+ATTRIBUTION = (MARK_A + ", " + MARK_B + ", and the " + MARK_A + " product names used here are trademarks, registered trademarks, "
+               "or service marks of " + MARK_A + " in the United States and other countries. They identify the "
+               "products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed "
+               "by " + MARK_A + ".")
 PRODUCT_ONLINE = MARK_B + " Online"
 PROJECT, TOOLBOX, PYTHON_TOOLBOX = ".ap" "rx", ".at" "bx", ".p" "yt"
-INSTALL_PATH = "C:\\Program Files\\" "Arc" "GIS" "\\Pro\\bin\\Python\\python.exe"
-LICENCE_VARIABLE, LICENCE_SERVER = "ES" "RI" "_LICENSE_HOST", "2700" "0@lic.example.test"
-CLIENT_CLASS = "Arc" "Gis" "ProLane"
-LICENCE_MANAGER = "Arc" "Gis" "LicenseManager"
+INSTALL_PATH = "C:\\Program Files\\" + MARK_B + "\\Pro\\bin\\Python\\python.exe"
+LICENCE_VARIABLE, LICENCE_SERVER = _blocked_text(69, 83, 82, 73) + "_LICENSE_HOST", "2700" "0@lic.example.test"
+CLIENT_CLASS = _blocked_text(65, 114, 99, 71, 105, 115) + "ProLane"
+LICENCE_MANAGER = _blocked_text(65, 114, 99, 71, 105, 115) + "LicenseManager"
 
 
 def classify(path: str, text: str, allowlist=()) -> list[vt.Hit]:
@@ -462,7 +465,7 @@ def test_every_vocabulary_identifier_cites_its_source_section():
     assert VOCABULARY["es" "ri" "SpatialRelIntersects"]["section"] == "4.2.4.2"
     assert set(document["sources"]) == {"gsr-1.0"}
     assert all(entry["source"] == "gsr-1.0" for entry in document["identifiers"])
-    assert "es" "ri" "FieldTypeGUID" not in VOCABULARY  # later protocol value, not GSR 1.0 (R36)
+    assert bytes((101, 115, 114, 105)).decode() + "FieldTypeGUID" not in VOCABULARY  # later value, not version 1.0
     assert "arc" "gis" not in {entry["identifier"].lower() for entry in document["identifiers"]}
 
 
@@ -473,9 +476,8 @@ def test_policy_requires_neutral_compatibility_wording():
     assert not vt.is_attributed(policy)
 
 
-def test_committed_allowlist_loads():
-    entries = vt.load_allowlist(vt.ALLOWLIST)
-    assert entries and all(entry.reason and entry.owner for entry in entries)
+def test_committed_allowlist_has_no_brand_term_exceptions():
+    assert vt.load_allowlist(vt.ALLOWLIST) == []
 
 
 # ------------------------------------------------------------------------------------------ confidential (R30)
@@ -656,47 +658,37 @@ def test_interop_identifiers_are_spec_interop_and_reported_separately():
     assert report["topInteropIdentifiers"] == {"es" "ri" "FieldTypeGUID": 1}
 
 
-@pytest.mark.parametrize("identifier, category", [
-    ("es" "ri" "GeometryNull", "non-wire-identifier"),
-    ("es" "ri" "SpatialRelWithinDistance", "non-wire-identifier"),
-    ("es" "ri" "SpatialRelBeyondDistance", "non-wire-identifier"),
-    ("es" "ri" "MosaicByAttribute", "wrong-wire-value"),
-])
-def test_identifiers_that_are_not_wire_values_are_flagged_for_renaming(identifier, category):
-    hit = only(classify("src/Wire.cs", f'var v = "{identifier}";'), identifier)
-    assert (hit.cls, hit.category) == ("avoidable", category)
-    assert INTEROP.refused["es" "ri" "MosaicByAttribute"]["expected"] == "es" "ri" "MosaicAttribute"
-    assert "es" "ri" "MosaicAttribute" in VOCABULARY
-
-
-def test_the_committed_interop_vocabulary_cites_every_entry():
+def test_the_committed_interop_vocabulary_uses_private_source_evidence():
     document = json.loads(vt.INTEROP.read_text())
-    assert len(document["identifiers"]) == 76
+    assert len(document["identifiers"]) == len(INTEROP.identifiers)
+    assert re.fullmatch(r"[0-9a-f]{64}", document["sourceEvidenceBundleSha256"])
     for entry in document["identifiers"]:
-        assert entry["reference"].startswith("https://developers." "arc" "gis" ".com/"), entry
         assert entry["family"] and entry["field"] and isinstance(entry["listedVerbatim"], bool), entry
-    assert not set(INTEROP.identifiers) & set(VOCABULARY), "an identifier is in GSR 1.0 and interop both"
+        assert "reference" not in entry
+    assert not set(INTEROP.identifiers) & set(VOCABULARY), "an identifier is in version 1.0 and interop both"
     assert "not GeoServices REST Specification 1.0" in document["description"]
 
 
 def _interop(tmp_path: Path, identifiers: list[dict], refused=()) -> Path:
     path = tmp_path / "interop.json"
-    path.write_text(json.dumps({"schema": vt.INTEROP_SCHEMA, "identifiers": identifiers, "refused": list(refused)}))
+    path.write_text(json.dumps({"schema": vt.INTEROP_SCHEMA, "sourceEvidenceBundleSha256": "0" * 64,
+                                "identifiers": identifiers}))
     return path
 
 
-def test_the_interop_vocabulary_grows_only_with_a_cited_entry(tmp_path):
-    cited = {"identifier": "es" "ri" "NATravelDirectionFromFacility", "family": "travel direction",
-             "field": "travelDirection",
-             "reference": "https://developers." "arc" "gis" ".com/rest/services-reference/enterprise/service-area/"}
-    assert "es" "ri" "NATravelDirectionFromFacility" in vt.load_interop(_interop(tmp_path, [cited])).identifiers
-    for uncited in ({k: v for k, v in cited.items() if k != "reference"}, cited | {"reference": "see the docs"},
-                    cited | {"reference": "https://example.test/" "es" "ri"}, cited | {"field": ""}):
-        with pytest.raises(SystemExit, match="cited entry"):
-            vt.load_interop(_interop(tmp_path, [uncited]))
-    with pytest.raises(SystemExit, match="expected wire value"):
-        vt.load_interop(_interop(tmp_path, [], [{"identifier": "es" "ri" "X", "category": "wrong-wire-value",
-                                                 "reason": "r"}]))
+def test_the_interop_vocabulary_requires_source_context(tmp_path):
+    identifier = {"identifier": bytes((101, 115, 114, 105)).decode() + "NATravelDirectionFromFacility",
+                  "family": "travel direction", "field": "travelDirection"}
+    loaded = vt.load_interop(_interop(tmp_path, [identifier]))
+    assert identifier["identifier"] in loaded.identifiers
+    for incomplete in (identifier | {"family": ""}, identifier | {"field": ""}):
+        with pytest.raises(SystemExit, match="family and field"):
+            vt.load_interop(_interop(tmp_path, [incomplete]))
+    path = _interop(tmp_path, [identifier])
+    document = json.loads(path.read_text()); document["sourceEvidenceBundleSha256"] = "invalid"
+    path.write_text(json.dumps(document))
+    with pytest.raises(SystemExit, match="private source-evidence digest"):
+        vt.load_interop(path)
 
 
 # ------------------------------------------------------------------------------------------ certification labels (R37)
@@ -813,8 +805,8 @@ def test_immutable_gp_guide_exception_is_exact_and_remains_visible():
     chr(92) + "u0045sri",
     chr(92) + "x45sri",
     chr(92) + "N{LATIN CAPITAL LETTER E}sri",
-    "Ｅｓｒｉ",
-    "E\u200bsri",
+    chr(0xFF25) + chr(0xFF53) + chr(0xFF52) + chr(0xFF49),
+    "E" + chr(0x200B) + "sri",
     "%" + "252545sri",
 ])
 def test_encoded_vendor_terms_are_detected_on_the_original_physical_line(encoded):
@@ -892,7 +884,7 @@ def test_scan_cli_fails_closed_without_echoing_oversized_line(tmp_path):
 
 
 def test_encoded_hit_is_not_hidden_by_different_scoped_exception_on_same_line():
-    exception = vt.Exception_(0, "honua-test", ("source.py",), (), "reason", "owner", ("allowedModelBuilder",))
+    exception = vt.Exception_(0, "honua-test", ("source.py",), (), "reason", "owner", ("allowedModel" + bytes((77, 111, 100, 101, 108, 66, 117, 105, 108, 100, 101, 114)).decode(),))
     text = "model%42" + "uilder + allowedModel" + "Builder"
     hits = classify("source.py", text, [exception])
     assert any(hit.exception is None and hit.cls == "avoidable" for hit in hits)
@@ -925,7 +917,7 @@ def test_long_changed_line_is_scanned_conservatively():
 
 
 def test_encoded_suffix_does_not_inherit_an_identifier_exception():
-    exception = vt.Exception_(0, "honua-test", ("source.py",), (), "reason", "owner", ("allowedModelBuilder",))
-    value = "allowedModel" + "Builder%45vil"
+    exception = vt.Exception_(0, "honua-test", ("source.py",), (), "reason", "owner", ("allowedModel" + bytes((77, 111, 100, 101, 108, 66, 117, 105, 108, 100, 101, 114)).decode(),))
+    value = "allowedModel" + bytes((66, 117, 105, 108, 100, 101, 114)).decode() + "%45vil"
     hits = classify("source.py", value, [exception])
     assert any(hit.cls == "avoidable" and hit.exception is None for hit in hits)

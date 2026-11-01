@@ -358,7 +358,7 @@ class StyleControls(unittest.TestCase):
         self.assertEqual(value["snapshots"]["applied"], state.snapshot(FIXTURE, authored, execute=execute))
         self.assertEqual(1, len(queries)); sql = queries[0]
         self.assertNotIn("DISTINCT", sql); self.assertEqual(1, sql.count("WITH mappings"))
-        self.assertIn("'esri-feature-layer'", sql)
+        self.assertIn("'geoservices-rest-feature-layer'", sql)
         self.assertIn("metadata_v2_current", sql); self.assertIn("honua.layer_style_refs", sql)
         for forbidden in ("encrypted_connection_string", "PGPASSWORD", "INSERT ", "UPDATE ", "DELETE "):
             self.assertNotIn(forbidden, sql)

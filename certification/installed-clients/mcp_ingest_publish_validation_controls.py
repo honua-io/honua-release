@@ -276,7 +276,7 @@ class IngestPublishControls(unittest.TestCase):
             self.assertNotIn(secret, calls[0])
         self.assertIn("active.revision", calls[0])
         self.assertNotIn("SELECT DISTINCT", calls[0])
-        self.assertIn("pub->>'publicationType'='esri-feature-layer'", calls[0])
+        self.assertIn("pub->>'publicationType'='geoservices-rest-feature-layer'", calls[0])
         self.assertIn("pub->>'resourceId'=binding->>'resourceId'", calls[0])
         self.assertIn("ST_AsGeoJSON", calls[0])
         self.assertEqual(observed, expected)

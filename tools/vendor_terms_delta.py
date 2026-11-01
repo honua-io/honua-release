@@ -1,4 +1,4 @@
-"""Reject newly introduced vendor terminology without requiring a historical baseline."""
+"""Reject new repository content and metadata terms before a candidate can merge."""
 from __future__ import annotations
 
 import argparse
@@ -46,8 +46,12 @@ def known_binary_asset(path: str, data: bytes) -> bool:
 def binary_contains_visible_mark(data: bytes, classifier: policy.Classifier, path: str) -> bool:
     # Opaque assets are not fully inspectable. Screen plainly encoded text using
     # the same word boundaries and protocol exceptions as source files.
-    names = ('es' + 'ri', 'arc' + 'gis', 'arc' + 'py', 'arc' + 'map', 'arc' + 'catalog',
-             'arc' + 'objects', 'arc' + 'sde', 'arc' + 'ims', 'living' + ' ' + 'atlas', 'model' + 'builder')
+    text = lambda *points: bytes(points).decode('ascii')
+    names = (text(101, 115, 114, 105), text(97, 114, 99, 103, 105, 115), text(97, 114, 99, 112, 121),
+             text(97, 114, 99, 109, 97, 112), text(97, 114, 99, 99, 97, 116, 97, 108, 111, 103),
+             text(97, 114, 99, 111, 98, 106, 101, 99, 116, 115), text(97, 114, 99, 115, 100, 101),
+             text(97, 114, 99, 105, 109, 115), text(108, 105, 118, 105, 110, 103, 32, 97, 116, 108, 97, 115),
+             text(109, 111, 100, 101, 108, 98, 117, 105, 108, 100, 101, 114))
     lowered = data.lower()
     for encoding in ('latin-1', 'utf-16-le', 'utf-16-be'):
         probe_encoding = 'ascii' if encoding == 'latin-1' else encoding
@@ -425,7 +429,8 @@ def visible_markdown_text(text: str) -> str:
     return text
 
 
-def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
+def find_pr_metadata_hits(repo: str, payload: dict, *, path_prefix: str = "pull-request",
+                          _classifier: policy.Classifier | None = None) -> list[policy.Hit]:
     pr = payload.get('pull_request')
     if not isinstance(pr, dict) or not isinstance(pr.get('title'), str):
         raise RuntimeError('Pull request metadata is missing or invalid')
@@ -434,7 +439,7 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
         body = ''
     if not isinstance(body, str):
         raise RuntimeError('Pull request description is invalid')
-    classifier = policy.Classifier(
+    classifier = _classifier or policy.Classifier(
         repo,
         policy.load_vocabulary(),
         policy.load_allowlist(policy.ALLOWLIST),
@@ -443,7 +448,7 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
         normalize_rendered=False,
     )
     findings: list[policy.Hit] = []
-    for path, text in (('pull-request-title.md', pr['title']), ('pull-request-body.md', body)):
+    for path, text in ((f'{path_prefix}-title.md', pr['title']), (f'{path_prefix}-body.md', body)):
         validate_scan_bounds(text)
         html_visible = visible_html_text(text)
         markdown_visible = visible_markdown_text(html_visible)
@@ -474,6 +479,35 @@ def find_pr_metadata_hits(repo: str, payload: dict) -> list[policy.Hit]:
     return findings
 
 
+def find_commit_metadata_hits(root: Path, repo: str, base: str, head: str) -> list[policy.Hit]:
+    """Inspect title and body for every commit introduced by this candidate range."""
+    if not re.fullmatch(r"[0-9a-f]{40}", base) or not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise RuntimeError("Commit range revisions are invalid")
+    raw = git(root, "rev-list", base + ".." + head).stdout
+    commits = [value.decode("ascii") for value in raw.splitlines() if value]
+    if len(commits) > 2000:
+        raise RuntimeError("Commit range exceeds the inspection limit")
+    classifier = policy.Classifier(
+        repo,
+        policy.load_vocabulary(),
+        policy.load_allowlist(policy.ALLOWLIST),
+        policy.load_interop(),
+        skip_encoded=False,
+        normalize_rendered=False,
+    )
+    findings: list[policy.Hit] = []
+    for sha in commits:
+        size = int(git(root, "cat-file", "-s", sha).stdout.strip())
+        if size > 1_000_000:
+            raise RuntimeError("Commit metadata exceeds the inspection limit")
+        message = git(root, "show", "-s", "--format=%B", sha).stdout.decode("utf-8", errors="replace").strip("\n")
+        title, separator, body = message.partition("\n")
+        payload = {"pull_request": {"title": title, "body": body if separator else ""}}
+        findings.extend(find_pr_metadata_hits(repo, payload, path_prefix=f"commit-message-{sha}",
+                                              _classifier=classifier))
+    return findings
+
+
 def annotation_property(value: str) -> str:
     # Paths come from the proposed tree, so they must not inject workflow commands.
     return (value.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
@@ -496,6 +530,8 @@ def main() -> int:
             if not comparison_base:
                 raise RuntimeError('Pull request merge base is missing')
         findings = find_new_hits(args.root, args.repo, comparison_base, args.head)
+        if args.event_name in ('pull_request', 'pull_request_target', 'merge_group'):
+            findings.extend(find_commit_metadata_hits(args.root, args.repo, comparison_base, args.head))
         if args.event_name in ('pull_request', 'pull_request_target'):
             if args.event is None:
                 raise RuntimeError('Pull request event payload is required')

@@ -1,6 +1,7 @@
 name: vendor-terms-delta
 
 on:
+  # The delta command scans changed files, PR title/body, and every new commit title/body.
   pull_request:
     types: [opened, synchronize, reopened, edited]
   merge_group:

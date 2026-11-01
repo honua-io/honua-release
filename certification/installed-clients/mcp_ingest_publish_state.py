@@ -83,7 +83,7 @@ def snapshot(fixture_bytes, bootstrap, observations, *, execute, inspect_target)
         "CROSS JOIN LATERAL jsonb_array_elements(snapshot.document->'publications') pub "
         "CROSS JOIN LATERAL jsonb_array_elements(snapshot.document->'storageBindings') binding "
         "WHERE svc#>>'{metadata,name}'=" + literal(published["serviceName"]) + " AND pub->>'serviceId'=svc#>>'{metadata,id}' "
-        "AND pub->>'publicationType'='esri-feature-layer' AND pub->>'isPrimary'='true' "
+        "AND pub->>'publicationType'='geoservices-rest-feature-layer' AND pub->>'isPrimary'='true' "
         "AND pub->>'storageBindingId'=binding#>>'{metadata,id}' "
         "AND pub->>'resourceId'=binding->>'resourceId'), "
         "registry AS (SELECT json_build_object('connectionId',connection_id::text,'name',name,'host',host,'port',port,"

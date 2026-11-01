@@ -52,6 +52,16 @@ class DeltaTests(unittest.TestCase):
         head = commit(root, 'int value = 1;\n// ' + 'Es' + 'ri adapter\n')
         assert any(h.cls == 'avoidable' for h in guard.find_new_hits(root, 'fixture', base, head))
 
+    def test_commit_title_and_body_are_scanned_before_merge(self):
+        root = repo(self.tmp_path)
+        base = commit(root, 'int value = 1;\n')
+        subprocess.run(['git', '-C', str(root), 'commit', '--allow-empty', '-qm',
+                        bytes((69, 115, 114, 105)).decode() + ' client\nMigration notes'],
+                       check=True, capture_output=True)
+        head = git(root, 'rev-parse', 'HEAD')
+        findings = guard.find_commit_metadata_hits(root, 'fixture', base, head)
+        assert any(hit.cls == 'avoidable' for hit in findings)
+
     def test_workflow_product_name_is_detected_in_code_and_metadata(self):
         root = repo(self.tmp_path)
         mark = 'Model' + 'Builder'

@@ -601,7 +601,7 @@ def committed_database(initial, current, authored, published):
         service_id, resource_id, binding_id = (item["metadata"]["id"] for item in (svc,res,binding))
         publications = collections["publications"]
         types = {row.get("publicationType"):row for row in publications.values()}
-        if set(types) != {"esri-feature-layer","stac-collection"}:
+        if set(types) != {"geoservices-rest-feature-layer","stac-collection"}:
             raise ValueError("new graph has unrelated/duplicate publication protocols")
         if (service_id != mapping["publication"]["serviceId"] or svc["metadata"].get("name") != authored["serviceName"]
                 or svc.get("route") != "/rest/services/"+authored["serviceName"]+"/FeatureServer"
@@ -613,7 +613,7 @@ def committed_database(initial, current, authored, published):
             raise ValueError("new canonical service/resource/binding relationship differs from actual returned source")
         for kind, row in types.items():
             if (row.get("serviceId") != service_id or row.get("resourceId") != resource_id or row.get("storageBindingId") != binding_id
-                    or row.get("isPrimary") is not (kind == "esri-feature-layer")
+                    or row.get("isPrimary") is not (kind == "geoservices-rest-feature-layer")
                     or not isinstance(row.get("identifier"),dict) or row["identifier"].get("value") != str(mapping["publication"]["layerId"])
                     or row["identifier"].get("isNumeric") is not True):
                 raise ValueError("new publication conflates physical storage and public route index")

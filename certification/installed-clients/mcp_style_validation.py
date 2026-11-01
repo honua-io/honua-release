@@ -17,7 +17,7 @@ from render_png import decode_png, render_expectations
 
 SCHEMA = "honua.mcp-canonical-style-scenario/v1"
 OPERATIONS = ["tools/call:get_style", "tools/call:apply_style_preset"]
-ENCODINGS = {"mapbox-style": "application/vnd.mapbox.style+json", "esri-drawing-info": "application/vnd.esri.drawinginfo+json",
+ENCODINGS = {"mapbox-style": "application/vnd.mapbox.style+json", "geoservices-rest-drawing-info": "application/vnd.geoservices-rest.drawinginfo+json",
              "sld-1.0.0": "application/vnd.ogc.sld+xml;version=1.0", "sld-1.1.0": "application/vnd.ogc.sld+xml;version=1.1"}
 
 

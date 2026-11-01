@@ -154,7 +154,7 @@ def database_snapshot(authored, password):
         "CROSS JOIN LATERAL jsonb_array_elements(document->'publications') pub "
         "CROSS JOIN LATERAL jsonb_array_elements(document->'storageBindings') binding "
         "WHERE svc#>>'{metadata,name}'="+literal(service)+" AND pub->>'serviceId'=svc#>>'{metadata,id}' "
-        "AND pub->>'publicationType'='esri-feature-layer' AND pub->>'isPrimary'='true' "
+        "AND pub->>'publicationType'='geoservices-rest-feature-layer' AND pub->>'isPrimary'='true' "
         "AND pub->>'storageBindingId'=binding#>>'{metadata,id}' AND pub->>'resourceId'=binding->>'resourceId'), "
         f'source_rows AS (SELECT id,attributes AS properties,ST_AsGeoJSON(geom)::json AS geometry,ST_SRID(geom) AS srid FROM public."{table}" ORDER BY id LIMIT 3), '
         "features AS (SELECT objectid AS id,layer_id AS \"layerId\",attributes,ST_AsGeoJSON(geometry)::json AS geometry,"

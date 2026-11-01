@@ -8,7 +8,7 @@ REST services are not GSR 1.0 vocabulary; they are hand-reviewed in ``geoservice
 and classed ``spec-interop``. The PDF is pinned by sha256 so a regenerated vocabulary is reproducible; it
 is not vendored here.
 
-Download the pinned PDF from ``SPEC_URL`` to ``/tmp/gsr.pdf``, then run:
+Use the source artifact recorded in the private evidence bundle, save it as ``/tmp/gsr.pdf``, then run:
 
     python3 -m pip install pypdf
     python3 tools/vendor-terms/generate_geoservices_identifiers.py --spec-pdf /tmp/gsr.pdf
@@ -29,10 +29,8 @@ HERE = Path(__file__).resolve().parent
 OUTPUT = HERE / "geoservices-identifiers.v1.json"
 
 _WIRE_PREFIX = "es" + "ri"
-_SPEC_HOST = "www." + _WIRE_PREFIX + ".com"
-_REST_PREFIX = ("Arc" + "GIS").lower()
-SPEC_URL = "https://" + _SPEC_HOST + "/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf"
 SPEC_SHA256 = "de002ce4fc95c180c8f3e9adeebd073ebc8b45b94bd1841d133fc1273271ae12"
+SOURCE_EVIDENCE_SHA256 = "c1877839b608d9ea3a3039164834d2914bdbddf368727a3f33c34dce2e0bf44d"
 SCHEMA = "honua.vendor-terms.geoservices-identifiers.v1"
 
 IDENTIFIER = re.compile(r"\b" + re.escape(_WIRE_PREFIX) + r"[A-Za-z0-9_]+")
@@ -124,17 +122,12 @@ def build(text_pages: list[str], pdf_sha256: str) -> dict:
         "sources": {
             "gsr-1.0": {
                 "title": "GeoServices REST Specification Version 1.0",
-            "edition": _WIRE_PREFIX.capitalize() + " white paper J-9948, September 2010 (submitted to the OGC)",
-                "url": SPEC_URL,
+                "sourceReference": "J-9948, September 2010, technical paper submitted to the OGC",
+                "sourceEvidenceBundleSha256": SOURCE_EVIDENCE_SHA256,
                 "sha256": pdf_sha256,
             },
         },
-        "notes": [
-            "The 1.0 specification defines no JSON key and no URL path segment that contains '" + _WIRE_PREFIX
-            + "' or '" + _REST_PREFIX + "'; jsonKeys and pathSegments are therefore empty. The '"
-            + "/" + _REST_PREFIX + "/rest/services' URL "
-            "root is a server-instance naming convention, not a specification requirement.",
-        ],
+        "notes": ["No JSON keys or URL segments are listed because the specification defines none."],
         "jsonKeys": [],
         "pathSegments": [],
         "identifiers": spec,

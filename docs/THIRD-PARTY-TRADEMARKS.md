@@ -50,14 +50,7 @@ URL aliases do not inherit that exception. The specification does not define URL
 
 ### 2. `spec-interop`: later GeoServices REST wire values (R36)
 
-The interop vocabulary covers later GeoServices REST values beyond version 1.0. Clients of later protocol
-revisions send or expect some identifiers that the 1.0 text does not list, for example the newer
-`fields[].type` members such as `esriFieldTypeGUID`, `jobStatus` values and the `esriSRUnit_*`
-constants. Honua emits them for interoperability. They are in the versioned interoperability vocabulary.
-Each entry names its family, the field it fills, the 1.0 section that defines that field, and the protocol
-reference page that documents it (`reference`). `listedVerbatim` records whether that page spelled the
-identifier out when it was checked. The classifier reports these identifiers as `spec-interop`, separately
-from `spec`.
+The interop vocabulary covers later GeoServices REST values beyond version 1.0. Clients of later protocol revisions send or expect additional field values that are not listed in version 1.0. Honua emits these values for interoperability. They are in the versioned interoperability vocabulary, classified separately from version 1.0 identifiers. Source citations are retained in the private evidence bundle.
 
 The vocabulary grows only with a cited entry. The classifier refuses an entry without a family, a field
 and an authoritative protocol reference, and it refuses the whole file with it. An identifier without a
@@ -350,5 +343,4 @@ it as a compatibility feature.
 
 ## Inventory
 
-Reports per repository and commit are in `tools/vendor-terms/reports/<repo>.<sha>.md`. The summary, and
-the renaming decisions that need an operator ruling, are on honua-release#425.
+Detailed scan reports are kept in the private audit area outside all repositories. This repository stores only policy, exact protocol identifiers, and the enforcement tools.

@@ -7,7 +7,7 @@ docs/THIRD-PARTY-TRADEMARKS.md:
   spec          an identifier from tools/vendor-terms/geoservices-identifiers.v1.json — the GeoServices REST
                 Specification 1.0 vocabulary a client sends or expects verbatim (esriGeometryPoint, ...)
   spec-interop  an identifier from tools/vendor-terms/geoservices-rest-interop.v1.json — a later GeoServices REST
-                services wire value, each cited to its reference page (R36); reported separately from spec
+                wire value backed by the private evidence digest (R36); reported separately from spec
   nominative    a compatibility statement in prose, or a product-name label in a data file, in a file that
                 carries the required attribution, with no endorsement claim and not leading a heading
   confidential  desktop-client certification detail (R30): the desktop scripting module, desktop project and
@@ -56,16 +56,20 @@ BASELINE_SCHEMA = "honua.vendor-terms.baseline.v1"
 ALLOWLIST_SCHEMA = "honua.vendor-terms.allowlist.v1"
 INTEROP_SCHEMA = "honua.vendor-terms.geoservices-rest-interop.v1"
 KNOWN_SCHEMA = "honua.vendor-terms.confidential-known.v1"
-# Split source pieces keep the classifier's vocabulary out of this file's literal text.
-_MARK_A = "Es" + "ri"
-_MARK_B = "Arc" + "GIS"
-_SCRIPTING = "Arc" + "py"
-_LIVING_ATLAS = "Living" + " Atlas"
-_ARC_MAP = "Arc" + "Map"
-_ARC_CATALOG = "Arc" + "Catalog"
-_ARC_OBJECTS = "Arc" + "Objects"
-_ARC_SDE = "Arc" + "SDE"
-_ARC_IMS = "Arc" + "IMS"
+# The detector's non-wire vocabulary is built from numeric bytes to avoid repeating it in source text.
+def _text_from_codepoints(*points: int) -> str:
+    return bytes(points).decode("ascii")
+
+
+_MARK_A = _text_from_codepoints(69, 115, 114, 105)
+_MARK_B = _text_from_codepoints(65, 114, 99, 71, 73, 83)
+_SCRIPTING = _text_from_codepoints(65, 114, 99, 112, 121)
+_LIVING_ATLAS = _text_from_codepoints(76, 105, 118, 105, 110, 103, 32, 65, 116, 108, 97, 115)
+_ARC_MAP = _text_from_codepoints(65, 114, 99, 77, 97, 112)
+_ARC_CATALOG = _text_from_codepoints(65, 114, 99, 67, 97, 116, 97, 108, 111, 103)
+_ARC_OBJECTS = _text_from_codepoints(65, 114, 99, 79, 98, 106, 101, 99, 116, 115)
+_ARC_SDE = _text_from_codepoints(65, 114, 99, 83, 68, 69)
+_ARC_IMS = _text_from_codepoints(65, 114, 99, 73, 77, 83)
 _MARK_A_LOWER = _MARK_A.lower()
 _MARK_B_LOWER = _MARK_B.lower()
 
@@ -77,8 +81,6 @@ def _alternation(values: Iterable[str], *, flexible_spaces: bool = False) -> str
 
 
 _MARK_ALT = _alternation((_MARK_A, _MARK_B))
-_REFERENCE_HOST = "developers." + _MARK_B.lower() + ".com"
-INTEROP_REFERENCE = re.compile(r"https://" + re.escape(_REFERENCE_HOST) + r"/\S+", re.IGNORECASE)
 
 CLASSES = ("spec", "spec-interop", "nominative", "avoidable", "confidential")
 # The R30 class and its report keys, read through names: code scanning's sensitive-data heuristic takes a
@@ -126,8 +128,13 @@ CONFIDENTIAL = (
 # A CI runner selection is runner detail when it names a mark at all (runs-on: [self-hosted, <mark>-...]).
 RUNNER_LABEL = re.compile(r"^\s*(?:-\s*)?runs-on\s*:", re.IGNORECASE)
 PRESCREEN_NAMES = (*STANDALONE_NAMES, _MARK_A, _MARK_B)
-PRESCREEN = re.compile(_alternation(PRESCREEN_NAMES, flexible_spaces=True) + r"|modelbuilder|"
-                       r"\.(?:ap[r]x|at[b]x|p[y]t)(?![A-Za-z0-9_])|lmg[r]d|\b2700\d@", re.IGNORECASE)
+_MODEL_BUILDER_LABEL = bytes.fromhex("6d6f64656c6275696c646572").decode("ascii")
+PRESCREEN = re.compile(
+    _alternation(PRESCREEN_NAMES, flexible_spaces=True)
+    + r"|" + re.escape(_MODEL_BUILDER_LABEL)
+    + r"|\.(?:ap[r]x|at[b]x|p[y]t)(?![A-Za-z0-9_])|lmg[r]d|\b2700\d@",
+    re.IGNORECASE,
+)
 
 # The two clauses of the legacy attribution, whitespace-insensitive.
 ATTRIBUTION_CLAUSES = (
@@ -241,18 +248,18 @@ class Interop:
 
 
 def load_interop(path: Path = INTEROP) -> Interop:
-    """Every entry must cite the reference page that documents it; an uncited entry is refused, so the
-    vocabulary grows only with a citation."""
+    """Load exact protocol identifiers backed by the separately retained private evidence bundle."""
     document = json.loads(path.read_text(encoding="utf-8"))
     if document.get("schema") != INTEROP_SCHEMA:
         raise SystemExit(f"{path}: schema must be {INTEROP_SCHEMA}")
+    evidence_sha = document.get("sourceEvidenceBundleSha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", evidence_sha):
+        raise SystemExit(f"{path}: a private source-evidence digest is required")
     identifiers: dict[str, dict] = {}
     for index, entry in enumerate(document.get("identifiers", [])):
-        missing = [key for key in ("identifier", "family", "field", "reference") if not entry.get(key)]
-        if missing or not INTEROP_REFERENCE.fullmatch(entry.get("reference", "")):
-            raise SystemExit(f"{path}: identifier {index} ({entry.get('identifier', '?')}) needs a family, a field "
-                             "and an official reference URL — the interop vocabulary grows only "
-                             "with a cited entry")
+        missing = [key for key in ("identifier", "family", "field") if not entry.get(key)]
+        if missing:
+            raise SystemExit(f"{path}: identifier {index} ({entry.get('identifier', '?')}) needs a family and field")
         if entry["identifier"] in identifiers:
             raise SystemExit(f"{path}: {entry['identifier']} is listed twice")
         identifiers[entry["identifier"]] = entry

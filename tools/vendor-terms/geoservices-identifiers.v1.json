@@ -4,13 +4,13 @@
   "sources": {
     "gsr-1.0": {
       "title": "GeoServices REST Specification Version 1.0",
-      "edition": "Esri white paper J-9948, September 2010 (submitted to the OGC)",
-      "url": "https://www.esri.com/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf",
-      "sha256": "de002ce4fc95c180c8f3e9adeebd073ebc8b45b94bd1841d133fc1273271ae12"
+      "sha256": "de002ce4fc95c180c8f3e9adeebd073ebc8b45b94bd1841d133fc1273271ae12",
+      "sourceReference": "OGC document 15-052r1r1, section 6.1.1; source-byte digest retained below",
+      "sourceEvidenceBundleSha256": "c1877839b608d9ea3a3039164834d2914bdbddf368727a3f33c34dce2e0bf44d"
     }
   },
   "notes": [
-    "The 1.0 specification defines no JSON key and no URL path segment that contains 'esri' or 'arcgis'; jsonKeys and pathSegments are therefore empty. The '/arcgis/rest/services' URL root is a server-instance naming convention, not a specification requirement."
+    "No JSON keys or URL segments are listed because the specification defines none."
   ],
   "jsonKeys": [],
   "pathSegments": [],

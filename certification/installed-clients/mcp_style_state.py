@@ -35,7 +35,7 @@ def snapshot(fixture, authored, *, execute):
         "CROSS JOIN LATERAL jsonb_array_elements(snap.document->'storageBindings') binding "
         "CROSS JOIN LATERAL jsonb_array_elements(snap.document->'resources') resource "
         "WHERE svc#>>'{metadata,id}'=" + literal(area["serviceId"]) + " AND pub->>'serviceId'=svc#>>'{metadata,id}' "
-        "AND pub->>'publicationType'='esri-feature-layer' AND pub->>'isPrimary'='true' "
+        "AND pub->>'publicationType'='geoservices-rest-feature-layer' AND pub->>'isPrimary'='true' "
         "AND (pub#>>'{identifier,value}')::integer=" + str(area["layerId"]) + " "
         "AND pub->>'storageBindingId'=binding#>>'{metadata,id}' AND pub->>'resourceId'=binding->>'resourceId' "
         "AND pub->>'resourceId'=resource#>>'{metadata,id}'), "

@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import unittest
+from datetime import datetime as RealDateTime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -47,29 +48,35 @@ class GitHubAuditTests(unittest.TestCase):
         base = "repos/example/project"
         pr_url = "https://github.com/example/project/pull/3"
         comment_url = "https://github.com/example/project/pull/3#discussion_r7"
+        commit_url = "https://github.com/example/project/commit/abc123"
         data = {
             f"{base}/issues?state=all&per_page=100": [
                 {"html_url": pr_url, "pull_request": {}},
                 {"html_url": "https://github.com/example/project/issues/2", "title": "Safe", "body": None},
             ],
             f"{base}/pulls?state=all&per_page=100": [{"html_url": pr_url, "title": "Safe", "body": "", "number": 3}],
-            f"{base}/pulls/comments?per_page=100": [{"html_url": comment_url, "body": "Es" + "ri client"}],
+            f"{base}/pulls/comments?per_page=100": [{"html_url": comment_url, "body": bytes((69, 115, 114, 105)).decode() + " client"}],
             f"{base}/pulls/3/reviews?per_page=100": [{"html_url": pr_url + "#review-8", "body": "Safe"}],
+            f"{base}/commits?since=2026-08-02T00%3A00%3A00Z&per_page=100": [
+                {"html_url": commit_url, "commit": {"message": bytes((69, 115, 114, 105)).decode() + " client\nDetails"}}],
         }
         api = FakeAPI(data)
         scanner = audit.Audit(api)
         output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            scanner.repository("example/project")
+        with patch.object(audit, "datetime") as clock:
+            clock.now.return_value = RealDateTime(2026, 10, 31, tzinfo=audit.timezone.utc)
+            with contextlib.redirect_stdout(output):
+                scanner.repository("example/project")
         records = [json.loads(line) for line in output.getvalue().splitlines()]
-        self.assertEqual(scanner.items, 4)
-        self.assertEqual(scanner.findings, 1)
+        self.assertEqual(scanner.items, 5)
+        self.assertEqual(scanner.findings, 2)
         self.assertEqual(scanner.failures, 0)
-        self.assertEqual([r["url"] for r in records if r["type"] == "finding"], [comment_url])
-        self.assertNotIn("Es" + "ri client", output.getvalue())
+        self.assertEqual({r["url"] for r in records if r["type"] == "finding"}, {comment_url, commit_url})
+        self.assertNotIn(bytes((69, 115, 114, 105)).decode() + " client", output.getvalue())
         self.assertIn(f"{base}/issues/comments?per_page=100", api.calls)
         self.assertIn(f"{base}/comments?per_page=100", api.calls)
         self.assertIn(f"{base}/pulls/3/reviews?per_page=100", api.calls)
+        self.assertTrue(any(call.startswith(f"{base}/commits?since=") for call in api.calls))
 
     def test_unavailable_endpoint_is_not_treated_as_empty(self):
         base = "repos/example/project"

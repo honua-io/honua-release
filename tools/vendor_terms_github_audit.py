@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Read-only REST inventory of issue, pull request, review, and comment text.
+"""Read-only REST inventory of issue, pull request, review, comment, and recent commit text.
 
 Outputs JSON lines containing item URLs, counts, and endpoint coverage, never
 submitted text. An error or request limit marks the result incomplete. REST
 pagination is not a snapshot; this does not inspect discussions, releases,
-git history, wikis, attachments, deleted content, or repositories hidden from
-the authenticated account.
+older git history, wikis, attachments, deleted content, or repositories hidden
+from the authenticated account.
 """
 
 import argparse
@@ -16,6 +16,7 @@ import selectors
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 import vendor_terms_event as event_guard
@@ -214,6 +215,21 @@ class Audit:
         for surface, route in (("conversation_comments", "issues/comments"),
                                ("review_comments", "pulls/comments"), ("commit_comments", "comments")):
             self.endpoint(repo, surface, f"{base}/{route}?per_page=100", lambda item, kind=surface: self.item(repo, kind, item))
+        since = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def commit_message(item):
+            if not isinstance(item, dict):
+                raise Incomplete("Invalid commit")
+            commit = item.get("commit")
+            message = commit.get("message") if isinstance(commit, dict) else None
+            if not isinstance(message, str):
+                raise Incomplete("Missing commit message")
+            title, separator, body = message.partition("\n")
+            self.item(repo, "recent_commit_message", {
+                "html_url": item.get("html_url"), "title": title, "body": body if separator else ""}, title=True)
+
+        self.endpoint(repo, "recent_commit_messages",
+                      f"{base}/commits?{urlencode({'since': since, 'per_page': 100})}", commit_message)
         for number in prs:
             if number % self.review_shards != self.review_shard:
                 continue
@@ -259,8 +275,9 @@ def main() -> int:
     for repo in sorted(set(repos), key=str.lower):
         audit.repository(repo)
     status = ("incomplete" if audit.failures else
-              "complete-for-selected-review-shard" if args.review_shards > 1 else "complete-for-visible-rest-surfaces")
-    emit({"type": "summary", "status": status,
+              "complete-for-selected-review-shard-and-recent-commits" if args.review_shards > 1
+              else "complete-for-visible-rest-and-recent-commits")
+    emit({"type": "summary", "status": status, "commit_window_days": 90,
           "repositories": len(set(repos)), "items": audit.items, "findings": audit.findings,
           "incomplete_endpoints": audit.failures, "requests": api.requests,
           "review_shard": args.review_shard, "review_shards": args.review_shards})

@@ -109,7 +109,10 @@ def test_check_pass_when_surfaces_match(tmp_path: Path, monkeypatch) -> None:
     base = tmp_path / "baselines" / "2026.1"
     _seed_baseline(base, surfaces)
     status, _why, rows = cs.check("2026.1", tmp_path, _manifest(tmp_path), tmp_path / "baselines")
-    assert status == "pass", rows
+    assert status == "blocked", rows
+    server = next(item for item in rows if item["component"] == "honua-server")
+    assert server["status"] == "blocked"
+    assert "neutral published server artifact" in server["why"]
 
 
 def test_check_fails_on_drift(tmp_path: Path, monkeypatch) -> None:
@@ -176,7 +179,7 @@ def test_check_python_module_export_removal_is_breaking(tmp_path: Path, monkeypa
     assert "honua: export connect" in row["why"]
 
 
-def test_check_openapi_drift_stays_a_document_fail(tmp_path: Path, monkeypatch) -> None:
+def test_server_openapi_surface_stays_blocked_until_neutral_artifact(tmp_path: Path, monkeypatch) -> None:
     before = _json({"openapi": "3.0.3", "paths": {}})
     after = _json({"openapi": "3.0.3", "paths": {"/x": {}}})
     surfaces = {c: {"public-api.json": before} for c in cs.SURFACE_COMPONENTS}
@@ -187,11 +190,11 @@ def test_check_openapi_drift_stays_a_document_fail(tmp_path: Path, monkeypatch) 
     base = tmp_path / "baselines" / "2026.1"
     _seed_baseline(base, seeded)
     status, why, rows = cs.check("2026.1", tmp_path, _manifest(tmp_path), tmp_path / "baselines")
-    assert status == "fail"
+    assert status == "blocked"
     row = next(item for item in rows if item["component"] == "honua-server")
-    assert "OpenAPI document changed in ['openapi.json']" in row["why"]
-    assert "ADDITIVE" not in row["why"] and "BREAKING" not in row["why"]
-    assert "OpenAPI document changed" in why
+    assert row["status"] == "blocked"
+    assert "neutral published server artifact" in row["why"]
+    assert "OpenAPI document changed" not in why
 
 
 def test_check_fails_on_added_artifact(tmp_path: Path, monkeypatch) -> None:
@@ -201,8 +204,8 @@ def test_check_fails_on_added_artifact(tmp_path: Path, monkeypatch) -> None:
     base = tmp_path / "baselines" / "2026.1"
     _seed_baseline(base, {c: {"public-api.json": f"{{{c}}}\n"} for c in cs.SURFACE_COMPONENTS})
     status, why, _rows = cs.check("2026.1", tmp_path, _manifest(tmp_path), tmp_path / "baselines")
-    assert status == "fail"
-    assert "honua-server" in why
+    assert status == "blocked"
+    assert "honua-server=blocked" in why
 
 
 # ── TypeScript entry-point surface (honua-release#104) ──────────────────────

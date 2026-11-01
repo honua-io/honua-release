@@ -122,7 +122,7 @@ def database(authored,published):
     document["services"].append({"metadata":{"id":"canonical-service-7","name":authored["serviceName"]},"route":"/rest/services/"+authored["serviceName"]+"/FeatureServer","publicationIds":["own-feature","own-stac"]})
     document["resources"].append({"metadata":metadata("own-resource"),"type":"feature-dataset","primaryStorageBindingId":"own-binding","storageBindingIds":["own-binding"]})
     document["storageBindings"].append({"metadata":metadata("own-binding"),"resourceId":"own-resource","connectionId":GUID,"storageLayerId":physical,"locator":"public."+authored["table"]})
-    for identifier,kind,primary in (("own-feature","esri-feature-layer",True),("own-stac","stac-collection",False)):
+    for identifier,kind,primary in (("own-feature","geoservices-rest-feature-layer",True),("own-stac","stac-collection",False)):
         document["publications"].append({"metadata":metadata(identifier),"serviceId":"canonical-service-7","resourceId":"own-resource","storageBindingId":"own-binding",
             "publicationType":kind,"isPrimary":primary,"identifier":{"value":"0","isNumeric":True}})
     return initial,current
