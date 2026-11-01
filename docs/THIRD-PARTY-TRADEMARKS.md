@@ -213,9 +213,14 @@ python3 tools/check_vendor_terms.py confidential-known --root . --repo honua-rel
 - The committed inventory reports list avoidable hits only. Confidential hits appear as counts by
   category, and avoidable hits under a confidential path are counted but not listed.
 - Lockfiles, source maps, binary files and bundled build output (`.js` or `.css` averaging more than
-  1,000 characters a line) are skipped, and the report counts them. Every other text file is scanned,
-  whatever its size: tracked files plus untracked files that are not ignored, or the blobs of `--git-ref`.
-  A symlink's own path is classified like any other path; its target is not followed.
+  1,000 characters a line) are skipped, and the report counts them. Other text files are scanned from
+  tracked files and untracked files that are not ignored, or from the blobs of `--git-ref`. The scanner
+  checks HTML entities, percent and common source escapes, and Unicode normalization; it fails closed on
+  encoded or Unicode-containing lines over 1,000,000 characters, normalized lines over 1,000,000
+  characters, or more than eight nested decoding passes. To bound matching work, a line with a term
+  also fails above 512 term matches or with a matching token longer than 4,096 characters. On longer
+  changed lines it may report a raw and decoded occurrence separately. A symlink's own path is classified;
+  its target is not followed.
 - Other repositories adopt the gate by calling the reusable workflow, once their baseline is committed
   here:
 
@@ -230,6 +235,124 @@ jobs:
 `tools_ref` is required and must be a full commit sha, never a branch such as `trunk`. The classifier,
 vocabularies, allowlist, baselines and ledgers a caller runs therefore cannot change under an
 already-pinned check.
+
+### Install the event and audit callers
+
+The reviewable examples in [`docs/examples/vendor-guard/`](examples/vendor-guard/)
+provide separate per-repository caller workflows for event detection and the
+scheduled REST audit. Their full SHA pins the reviewed reusable workflows and
+trusted scanner code; **the pinned commit must first be available on GitHub**.
+Update both pins together to a reviewed, reachable full commit SHA before
+installation. Copy the examples to `.github/workflows/` on each target default
+branch and verify Actions, workflow access policies, token read permissions, and
+actual event delivery there. Installing these examples is a per-repository
+change; they do not configure an organization ruleset or install themselves.
+
+The event caller detects text only after publication and cannot block or remove
+it. The audit caller scans only content its repository token can read; scheduled
+runs cover one of 16 review shards per day. Check run outcomes and rerun every
+missing shard with `workflow_dispatch` and `review_shard` in the range 0–15.
+Disabled Actions, missed schedules, request budgets, repository visibility,
+unsupported events and out-of-scope surfaces prevent a clean-run claim from
+implying organization-wide coverage. The separate delta workflow is needed for
+code and PR metadata checks; these callers do not enforce a branch ruleset.
+
+### Guard newly changed content
+
+`guard-vendor-event.yml` inspects issue titles and descriptions, issue comments,
+pull request reviews and inline review comments, and commit comments when the
+corresponding GitHub event is delivered. It reports only a generic result and
+does not print the submitted text. Invalid or oversized payloads fail the check.
+Specification and interoperability exceptions follow the same classifier used
+for pull request metadata.
+The event scanner also checks text joined across HTML markup and common inline
+Markdown formatting. It is not a complete GitHub Markdown renderer, so unusual
+rendering and encoding forms can evade or falsely trigger this detection.
+The vocabulary includes a visual-workflow product name that can also occur as a
+generic programming identifier. A lexical match is an audit signal, not a legal
+conclusion. Code-delta findings can use the documented exception process where
+appropriate; pull-request metadata and event checks do not apply that allowlist,
+so a generic match there still requires manual review or rewording.
+
+This is **post-publication detection**: the text is already visible when the
+event runs. It does not prevent or delete a submission, and a failed comment
+check does not block a pull request merge. Each repository needs a caller
+workflow with the relevant event triggers and a pinned `workflow_call` reference;
+the reusable workflow alone does not install organization-wide coverage. Events
+missed while Actions is disabled or unavailable require a separate audit.
+Commit-comment edits do not produce a supported event, and most activity made
+with a workflow's repository token does not trigger another workflow. Periodic
+API reconciliation is needed to detect those changes; this workflow does not
+provide that reconciliation.
+
+For a read-only REST sweep of currently visible GitHub content, run:
+
+```bash
+python3 tools/vendor_terms_github_audit.py --org honua-io --max-requests 1000
+```
+
+Use `--repo owner/name` to scope a run to one repository. The audit enumerates
+issues, pull requests, conversation comments, inline review comments, commit
+comments, and each pull request's review bodies. Its JSON lines contain item
+URLs and per-surface coverage, never submitted text. Exit 1 means findings;
+exit 2 means a request, payload, permission, or request-budget failure left the
+sweep incomplete. Failed requests are not retried automatically. Results cover
+only repositories and content visible to the authenticated `gh` account; compare
+the repository inventory with an organization-owner inventory. Pagination is not
+an atomic snapshot, so repeat or reconcile a sweep after concurrent changes.
+Discussions and replies, release notes, git history, wikis, attachments, deleted
+content, and hidden repositories are outside this REST sweep.
+`audit-vendor-github.yml` schedules this sweep for its repository and can
+be called by a pinned workflow in another repository. It is not an
+organization-wide schedule: each repository needs its own scheduled caller and
+read access to its issues, pull requests, and contents. To fit large repositories
+within token limits, daily runs inspect one of 16 deterministic pull-request
+review shards; other listed REST surfaces are inspected each run. A single
+sharded run is not a complete review-body audit: all 16 successful shards are
+needed, and missed days must be rerun. The command accepts `--review-shards`
+and `--review-shard` to rerun a specific shard; without them it scans all reviews.
+The scheduled workflow also accepts an optional `review_shard` input for a
+manual or reusable-workflow rerun. A run that reports findings but no incomplete
+endpoints scanned its selected shard; a failed job alone does not distinguish
+findings from incomplete coverage, so inspect its summary record.
+The 1,000-request budget,
+GitHub rate limits, disabled Actions, and token permissions can leave a run
+incomplete; its failure must not be interpreted as a clean audit.
+
+`guard-vendor-delta.yml` is a reusable pull request and merge queue check. It compares the
+candidate against the PR merge base (or merge queue base) without a committed baseline, classifies changed text in
+its full file context, and rejects new avoidable, confidential and nominative uses. The
+specification and interoperability vocabularies and approved exceptions still apply. New path
+components are checked as well. Existing findings on unchanged lines do not block the check.
+The check also examines HTML entities, percent encoding, and common source-code escapes, including nested
+combinations up to a bounded depth; deeper encodings fail closed. An additional Unicode
+normalization pass checks compatibility characters and ignores invisible format characters and
+variation selectors. Unicode-containing lines over 100,000 characters and normalized changes
+over 16 Mi characters fail closed to bound normalization memory use.
+It cannot prove
+what dynamically constructed strings or every language-specific encoding will produce at runtime.
+Escape scanning is conservative: raw strings and nested escapes can be flagged even when the
+language displays an escape literally or evaluates fewer decoding layers. Review an approved
+exception when that occurs. Embedded names are checked conservatively; the overlap between a
+preceding `e` and a capitalized `Srid` is exempted. An all-lowercase spatial-reference name can
+still be ambiguous and may need an approved exception.
+
+The check also inspects pull request titles and descriptions when a pull request event runs.
+GitHub ruleset workflows ignore event activity filters, so a title or description edit after a
+passing check may not rerun it. The check fails closed if either revision, a changed submodule,
+Git LFS pointers, or changed text in a supported source file cannot be inspected. Changed blobs
+over 64 MiB, more than 1,000,000 changed lines per file, candidate text over 16 MiB, tokens over 4,096 characters, and inputs with excessive inspection work fail closed to bound
+resource use. Recognized binary assets are checked for plainly encoded terms, but compressed and
+visual content is not inspected. Other binary content fails closed. It does not inspect issue
+titles, comments, or review text. These require a separate
+event-driven integration; a branch ruleset alone cannot prevent their submission. Install and
+verify the workflow in the target repositories before making its status mandatory; a required
+check that never runs would block merges.
+
+```bash
+python3 tools/vendor_terms_delta.py --root ../honua-server --repo honua-server \
+  --base <target-commit> --head <candidate-commit>
+```
 
 ## Requesting an exception
 

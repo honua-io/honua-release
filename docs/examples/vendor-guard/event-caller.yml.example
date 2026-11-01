@@ -1,0 +1,19 @@
+# Copy to .github/workflows/vendor-terms-event.yml on the default branch.
+# The pinned release commit must be reachable from GitHub before enabling.
+name: vendor-terms-event
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  commit_comment:
+    types: [created]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    uses: honua-io/honua-release/.github/workflows/guard-vendor-event.yml@c4500a143aa41879ea6d964afb3178c975304506
