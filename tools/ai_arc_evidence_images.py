@@ -30,7 +30,7 @@ CREDENTIAL_PAGE = re.compile(r'(?:^|[/?#&=._-])(?:oauth2?|sign[-_]?in|sign[-_]?o
 DROP_REASONS = ('cap', 'size', 'credential-page', 'not-png', 'hash-mismatch', 'closed', 'io-error')
 
 _lock = threading.Lock()
-_current = {'sink': None}
+_current = {'sink': None, 'opened': None, 'refused': 0}
 
 
 def credential_page(url) -> bool:
@@ -101,7 +101,8 @@ class Sink:
             return None
 
     def _manifest(self):
-        raw = json.dumps({'schema': 'honua.ai-arc.evidence-images/v1', 'maxBytes': MAX_BYTES, 'maxImages': MAX_IMAGES,
+        raw = json.dumps({'schema': 'honua.ai-arc.evidence-images/v1', 'owner': getattr(self, 'owner', None),
+                          'maxBytes': MAX_BYTES, 'maxImages': MAX_IMAGES,
                           'kept': self.kept, 'dropped': self.dropped,
                           'rule': 'evidence only; never read by the scorer; credential pages are never kept'},
                          sort_keys=True, indent=1).encode()
@@ -111,14 +112,33 @@ class Sink:
         tmp.replace(self.directory / 'manifest.json')
 
 
-def open_sink(directory) -> Sink:
-    """Open the stage's sink (closing any previous one) and make it current."""
-    sink = Sink(directory)
+def open_sink(directory, owner: str = '') -> Sink | None:
+    """Open the one evidence sink this process may have (a trial runs in its own process: ai_arc_campaign
+    starts one per run), owned by ``owner`` (the run id). Any later open in the same process, for another run
+    or stage, gets no sink and retention stays off, so a late producer from an earlier run can only ever find
+    that run's (closed) sink or none (Sol d9aa66b5). A sink that cannot be initialized also leaves retention
+    off: evidence is optional and never changes a stage's outcome. Never raises."""
     with _lock:
-        previous, _current['sink'] = _current['sink'], sink
-    if previous is not None:
-        previous.close()
+        if _current['opened'] is not None:
+            _current['refused'] += 1
+            return None
+        _current['opened'] = str(owner)[:120] or 'unnamed'
+    try:
+        sink = Sink(directory)
+        sink.owner = _current['opened']
+    except Exception:  # noqa: BLE001
+        return None
+    with _lock:
+        _current['sink'] = sink
     return sink
+
+
+def _reset_for_tests() -> None:
+    """Tests only: forget that this process opened a sink."""
+    with _lock:
+        if _current['sink'] is not None:
+            _current['sink'].close()
+        _current.update(sink=None, opened=None, refused=0)
 
 
 def close_sink(sink) -> None:

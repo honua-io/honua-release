@@ -1714,6 +1714,7 @@ def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_pa
     import ai_arc_evidence_images as E
     from test_ai_arc_evidence_images import png
     image = png()
+    E._reset_for_tests()
 
     class Shooting(FakeStage):
         def observe(self, ctx, row):
@@ -1721,6 +1722,7 @@ def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_pa
                                url='http://127.0.0.1:8137/studio', check_url=True)
             return super().observe(ctx, row)
     with_images, _ = run(tmp_path, name='img', mods=modules(studio=Shooting('studio')))
+    E._reset_for_tests()
     without, _ = run(tmp_path, name='plain')
     files = [f['path'] for f in with_images['evidenceArtifact']['files']]
     assert 'studio/screenshots/001-step-0001-studio_click.png' in files and 'studio/screenshots/manifest.json' in files
@@ -1734,5 +1736,17 @@ def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_pa
 def test_an_unavailable_studio_stage_still_closes_its_sink(tmp_path):
     """Sol 02c55045 item 2: every exit closes the stage's sink."""
     import ai_arc_evidence_images as E
+    E._reset_for_tests()
     run(tmp_path, mods=modules(studio=FakeStage('studio', unavailable='no Console on this slot')))
     assert E.current() is None
+    E._reset_for_tests()
+
+
+def test_a_studio_stage_whose_sink_cannot_start_still_passes(tmp_path, monkeypatch):
+    """Sol d9aa66b5 item 2: evidence initialization never changes the stage outcome."""
+    import ai_arc_evidence_images as E
+    E._reset_for_tests()
+    monkeypatch.setattr(E.Sink, '_manifest', lambda self: (_ for _ in ()).throw(OSError('disk full')))
+    receipt, _ = run(tmp_path)
+    assert receipt['stages'][3]['outcome'] == 'pass'
+    E._reset_for_tests()

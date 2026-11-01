@@ -1509,7 +1509,8 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
     private evidence (exported with the run, never read by the scorer): the stage owns its sink, closed in an
     outer finally on every exit, so no later writer reaches it."""
     from ai_arc_evidence_images import open_sink, close_sink
-    sink = open_sink(ctx.private_dir / 'studio' / 'screenshots') if module.stage == 'studio' else None
+    sink = open_sink(ctx.private_dir / 'studio' / 'screenshots', owner=ctx.slot.project) \
+        if module.stage == 'studio' else None
     try:
         return _run_stage(ctx, module, session, goal, previous_answer, sink)
     finally:

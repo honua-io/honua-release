@@ -23,9 +23,16 @@ def png(width=2, height=2, salt=0):
             + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
 
 
+@pytest.fixture(autouse=True)
+def fresh_process():
+    E._reset_for_tests()          # each test stands in for one trial process
+    yield
+    E._reset_for_tests()
+
+
 @pytest.fixture
 def sink(tmp_path):
-    handle = E.open_sink(tmp_path / 'shots')
+    handle = E.open_sink(tmp_path / 'shots', owner='run-a')
     yield handle
     E.close_sink(handle)
 
@@ -74,18 +81,39 @@ def test_nothing_is_current_when_no_stage_has_a_sink():
 
 
 def test_a_late_writer_from_a_closed_sink_never_reaches_the_next_runs_evidence(tmp_path):
-    """Sol 02c55045 item 1: a delayed producer holds run A's sink; run B's folder never receives it."""
-    a = E.open_sink(tmp_path / 'a')
-    late = E.current()
+    """Sol 02c55045 item 1 / d9aa66b5 item 1: one sink per (trial) process. A second open, for another run,
+    gets no sink; a late producer from run A, whenever it is constructed, finds A's closed sink or none."""
+    a = E.open_sink(tmp_path / 'a', owner='run-a')
+    captured_early = E.current()
     E.close_sink(a)
-    b = E.open_sink(tmp_path / 'b')
-    try:
-        assert late.retain('step', 'from-a', png()) is None and a.dropped['closed'] == 1
-        assert not list((tmp_path / 'b').glob('*.png')) and E.current() is b
-        E.close_sink(a)                                   # closing an old sink never disables the newer one
-        assert E.current() is b
-    finally:
-        E.close_sink(b)
+    b = E.open_sink(tmp_path / 'b', owner='run-b')
+    assert b is None and E.current() is None, 'a second run in the same process gets no sink'
+    captured_late = E.current()                         # a delayed run-A producer constructed now
+    assert captured_late is None
+    assert captured_early.retain('step', 'from-a', png()) is None and a.dropped['closed'] == 1
+    assert not (tmp_path / 'b').exists()
+
+
+def test_a_browser_server_constructed_late_keeps_nothing(tmp_path):
+    """Sol d9aa66b5 item 1: delayed producer construction after its run's sink closed."""
+    from test_agent_browser_studio import FakePage, ActionLog, BLUE_PNG
+    from agent_browser_studio import StudioBrowserServer, OriginLock
+    a = E.open_sink(tmp_path / 'a', owner='run-a')
+    E.close_sink(a)
+    E.open_sink(tmp_path / 'b', owner='run-b')
+    page = FakePage(BLUE_PNG)
+    page.url = 'http://127.0.0.1:8137/studio'
+    log = ActionLog(tmp_path / 'log', 1, set(), 20)
+    server = StudioBrowserServer('http://127.0.0.1:8137', log, str(tmp_path), page_factory=lambda lock: page)
+    server.lock, server.page = OriginLock('http://127.0.0.1:8137'), page
+    server.perform('studio_navigate', {'url': '/studio/maps'})
+    assert not list((tmp_path / 'a').glob('*.png')) and not (tmp_path / 'b').exists()
+
+
+def test_sink_initialization_failure_leaves_retention_off(tmp_path, monkeypatch):
+    """Sol d9aa66b5 item 2: never raises; the stage continues without retention."""
+    monkeypatch.setattr(E.Sink, '_manifest', lambda self: (_ for _ in ()).throw(OSError('disk full')))
+    assert E.open_sink(tmp_path / 'shots', owner='run-a') is None and E.current() is None
 
 
 def test_retention_io_failure_never_raises(sink, monkeypatch):
