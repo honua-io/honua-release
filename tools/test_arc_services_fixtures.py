@@ -245,3 +245,61 @@ def test_adopted_database_identity_matches_quickstart_fixture():
     assert 'postgres' in compose['services']
     env = compose['services']['honua']['environment']
     assert 'Host=postgres;Database=honua;Username=honua;' in env['ConnectionStrings__DefaultConnection']
+
+
+def test_raw_p10_seed_infrastructure_is_not_charged_to_agent(monkeypatch, tmp_path):
+    import ai_arc_services
+    class FakeRuntime:
+        def __init__(self, **kwargs):
+            self._secrets, self.extra_secrets, self.workdirs, self.answers = [], [], [], {}
+            self.withheld = self.catalog_redactions = 0
+            self.shared_service = None
+    monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: FakeRuntime)
+    monkeypatch.setattr(runner, 'execute_case', lambda **kwargs: {
+        'status': 'infrastructure', 'infrastructure': [{'phase': 'setup-or-seed'}], 'sessions': [],
+        'assertions': [], 'nudges': 0})
+    row, cases = ai_arc_services.run_fixture_services(
+        goal='Synthetic request', fixture_id='town-A', fault='http_503_once',
+        candidate_digest='sha256:' + 'a' * 64, base_url='http://127.0.0.1:1', admin_key='unused',
+        project='arc-test', arm={'agent': 'codex-cli', 'model': 'fake'},
+        limits={'maxTurns': 10, 'maxToolCalls': 10, 'maxSeconds': 60},
+        out_dir=tmp_path / 'retained', private_root=tmp_path / 'private', cli=object(), vm=object())
+    assert row['failure']['category'] == 'infrastructure'
+    assert row['failure']['beforeCaseActions'] is True
+    assert [case['scenario'] for case in cases] == ['P10', 'P15']
+
+
+def test_raw_p15_seed_infrastructure_after_p10_actions_is_undetermined(monkeypatch, tmp_path):
+    import ai_arc_services
+    from ai_arc_runner import stage_verdict
+    class FakeRuntime:
+        def __init__(self, **kwargs):
+            self._secrets, self.extra_secrets, self.workdirs, self.answers = [], [], [], {}
+            self.withheld = self.catalog_redactions = 0
+            self.shared_service = None
+    monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: FakeRuntime)
+    monkeypatch.setattr(ai_arc_services, 'private_actions', lambda _: [{'tool': 'honua_publish_service'}])
+    monkeypatch.setattr(runner, 'export_case_evidence', lambda *_: None)
+    def execute_case(*, scenario, runtime, **kwargs):
+        if scenario.id == 'P10':
+            case_dir = tmp_path / 'p10-actions'
+            case_dir.mkdir()
+            runtime.workdirs.append(str(case_dir))
+            return {'status': 'pass', 'sessions': [{'actions': [{'status': 'pass'}]}], 'assertions': [],
+                    'roles': {'created:service:shelters': 'service', 'child:layer:shelters': 2},
+                    'faultEvents': [{'kind': 'http_503_once', 'id': 'arc-p10-query-503'}], 'nudges': 0}
+        return {'status': 'infrastructure', 'infrastructure': [{'phase': 'setup-or-seed'}],
+                'sessions': [], 'assertions': [], 'nudges': 0}
+    monkeypatch.setattr(runner, 'execute_case', execute_case)
+    row, cases = ai_arc_services.run_fixture_services(
+        goal='Synthetic request', fixture_id='town-A', fault='http_503_once',
+        candidate_digest='sha256:' + 'a' * 64, base_url='http://127.0.0.1:1', admin_key='unused',
+        project='arc-test', arm={'agent': 'codex-cli', 'model': 'fake'},
+        limits={'maxTurns': 10, 'maxToolCalls': 10, 'maxSeconds': 60},
+        out_dir=tmp_path / 'retained', private_root=tmp_path / 'private', cli=object(), vm=object())
+    assert len(row['actions']) == 1 and cases[1]['receipt']['status'] == 'infrastructure'
+    assert row['failure']['category'] == 'infrastructure' and row['failure']['beforeCaseActions'] is True
+    arc = {'stages': [{'id': 'services', 'required': {'local-docker': []}}], 'exclusions': []}
+    verdict, _ = stage_verdict(arc, 'local-docker', 'services', [], row, row['actions'], {}, [],
+                               {'maxSeconds': 60, 'maxToolCalls': 10, 'maxContinueNudges': 1}, 1)
+    assert verdict == 'undetermined'
