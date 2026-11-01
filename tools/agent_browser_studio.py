@@ -500,6 +500,26 @@ class PlaywrightPage:
                 route.fulfill(response=response, headers=headers)
                 return response
 
+            # Capture native Studio lifecycle traffic independently of model claims.
+            # This route is reached only by the origin-locked signed-in browser.
+            path = urlsplit(url).path
+            lifecycle = (path == '/api/studio/v1/studio/package-drafts' or
+                         re.fullmatch(r'/api/studio/v1/studio/package-drafts/[A-Za-z0-9-]+/content-versions', path))
+            if lifecycle and getattr(self, '_refusal_log', None) is not None and route.request.method == 'POST':
+                from datetime import datetime, timezone
+                tool = 'studio_ui_create' if path.endswith('/package-drafts') else 'studio_ui_save'
+                selected = {'kind': 'tool_call', 'tool': tool, 'arguments': {
+                    'path': path, 'startedAt': datetime.now(timezone.utc).isoformat()}}
+                self._refusal_log.names.add(tool)
+                def lifecycle_request(_kind, _action):
+                    response = fetch()
+                    raw = response.body()
+                    require(len(raw) <= MAX_BODY, 'Studio lifecycle response exceeds bound')
+                    return {'status': 'ok' if 200 <= response.status < 300 else 'fail',
+                            '_rawResponse': (response.status, raw)}
+                self._refusal_log.dispatch('tool_call', selected, lifecycle_request)
+                return
+
             if self._assistant_log is not None and route.request.method == 'POST' and \
                     urlsplit(url).path == '/api/agent-workspace/studio/mcp':
                 payload = route.request.post_data_json
@@ -1769,6 +1789,8 @@ def snapshot_sources(recorder, prefix, layers, when, *, variant='A'):
     from agent_e2e_p10_observer import source_path
     from urllib.parse import quote
     for name, slug in SOURCE_LAYERS:
+        if name not in layers:
+            continue
         raw = f'{prefix}-src-{slug}-{when}-raw'
         fixture = json.loads(fixture_path(variant, name).read_text(encoding='utf-8'))
         fields = sorted({field for feature in fixture['features'] for field in feature['properties']})
@@ -1825,7 +1847,82 @@ def case_namespace(prefix, workdir):
     return prefix + '_' + hashlib.sha256(str(workdir).encode()).hexdigest()[:16]
 
 
-def seed_case(scenario_id, stack, variant, *, create_map):
+def stage3_layers(recorder, handoff, variant):
+    """Re-read each stage-three publication handle and audit with controller credentials."""
+    from datetime import datetime, timezone
+    from urllib.parse import quote
+    require(isinstance(handoff, dict) and handoff.get('variant') == variant
+            and handoff.get('fixtureId') == 'town-' + variant
+            and handoff.get('schema') == 'honua.ai-arc.studio-services/v1'
+            and isinstance(handoff.get('principal'), str) and handoff['principal']
+            and isinstance(handoff.get('layers'), dict) and set(handoff['layers']) <= set(LAYER_NAMES),
+            'stage-three service handoff is unavailable')
+    from agent_e2e_studio_arc_sources import validate_sources
+    validate_sources(handoff)
+    key = handoff.get('agentKeyId')
+    require(isinstance(key, str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', key)
+            and handoff['principal'] in (key, 'api-key:' + key, 'apikey:api-key:' + key),
+            'stage-three principal is not the runner-bound agent key')
+    def instant(value):
+        try:
+            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            require(value.tzinfo is not None, 'stage-three timestamp lacks timezone')
+            return value.astimezone(timezone.utc)
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ProjectionError('invalid stage-three timestamp') from exc
+    start, end = instant(handoff.get('startedAt')), instant(handoff.get('endedAt'))
+    require(start <= end, 'stage-three time window is invalid')
+    events, cursor = {}, None
+    for page in range(20):
+        path = '/api/v1/admin/observability/audit?pageSize=200'
+        if cursor is not None:
+            path += '&cursor=' + quote(cursor, safe='')
+        answer = recorder.json(f'stage3-audit-{page}', 'GET', path)['observation']
+        body = answer.get('body')
+        require(answer.get('httpStatus') == 200 and isinstance(body, dict) and isinstance(body.get('items'), list),
+                'stage-three audit is unavailable')
+        for event in body['items']:
+            require(isinstance(event, dict) and type(event.get('auditId')) is int and event['auditId'] not in events,
+                    'stage-three audit is malformed')
+            events[event['auditId']] = event
+        cursor = body.get('nextCursor')
+        if cursor is None:
+            break
+        require(isinstance(cursor, str) and 0 < len(cursor) <= 2048, 'invalid audit cursor')
+    else:
+        raise ProjectionError('stage-three audit is incomplete')
+    layers = {}
+    for name, slug in SOURCE_LAYERS:
+        if name not in handoff['layers']:
+            continue
+        item = handoff['layers'][name]
+        require(isinstance(item, dict) and isinstance(item.get('service'), str)
+                and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', item['service'])
+                and type(item.get('layerId')) is int and item['layerId'] >= 0
+                and isinstance(item.get('operationInstanceId'), str)
+                and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', item['operationInstanceId'])
+                and type(item.get('auditId')) is int, 'invalid stage-three layer binding')
+        event = events.get(item['auditId'])
+        require(isinstance(event, dict) and event.get('resourceId') == item['operationInstanceId']
+                and event.get('resourceType') == 'operation_instance' and event.get('action') == 'operation.completed'
+                and event.get('actor') == handoff['principal'] and event.get('outcome') == 'Success'
+                and event.get('details', '').split(';')[:2] == ['operationId=service.publish', 'status=Completed']
+                and start <= instant(event.get('timestamp')) <= end, 'stage-three publish audit does not match')
+        answer = recorder.json('publish-' + slug + '-submit', 'GET',
+                               '/api/v1/operations/handles/' + item['operationInstanceId'])['observation']
+        data = answer.get('body', {}).get('data', {})
+        resources = data.get('resourceIds', {}) if isinstance(data, dict) else {}
+        require(answer.get('httpStatus') == 200 and data.get('operationInstanceId') == item['operationInstanceId']
+                and data.get('operationId') == 'service.publish' and data.get('status') == 'Completed'
+                and resources.get('serviceName') == item['service']
+                and str(resources.get('layerId')) == str(item['layerId']), 'stage-three publish handle differs')
+        layers[name] = {'service': item['service'], 'layerId': item['layerId']}
+    require(len({(v['service'], v['layerId']) for v in layers.values()}) == len(layers),
+            'stage-three layer identities collide')
+    return layers
+
+
+def seed_case(scenario_id, stack, variant, *, create_map, external_handoff=None):
     from agent_e2e_local_api import Seeded
     key = scenario_id.lower() + 'Seed'
     if key in stack.extra:
@@ -1859,7 +1956,13 @@ def seed_case(scenario_id, stack, variant, *, create_map):
     stack.extra['studioFixtureDir'] = str(fixture_dir)
     recorder = stack.extra['recorder']
     prefix = scenario_id.lower()
-    if scenario_id == 'P24':
+    if external_handoff is not None:
+        require(scenario_id == 'P08' and not create_map, 'handoff is only supported for new arc maps')
+        layers = stage3_layers(recorder, external_handoff, variant)
+        from agent_e2e_studio_arc_sources import seed_sources
+        seed_sources(stack, external_handoff)
+        stack.extra['arcServicesHandoff'] = copy.deepcopy(external_handoff)
+    elif scenario_id == 'P24':
         layers = dict(stack.extra.get('publishedLayers') or {})
     else:
         from agent_e2e_local_scenarios.w2g3_common import town_setup
@@ -1875,6 +1978,8 @@ def seed_case(scenario_id, stack, variant, *, create_map):
                   for name in LAYER_NAMES}
     if layers:
         snapshot_sources(recorder, prefix, layers, 'before', variant=variant)
+    if external_handoff is not None:
+        stack.extra['arcLineageVerified'] = False
     if create_map:
         seed_unstyled_map(recorder, variant, layers, stack.extra.get('agentPrincipal'))
     rows = items_of(recorder.json(prefix + '-maps-before', 'GET', LIST_PATH)['observation']['body'])
@@ -1908,6 +2013,14 @@ def observe_map(stack, seeded, prefix, *, created):
     recorder.json(prefix + '-version', 'GET', version_path(row.get('itemId'), row.get('currentVersionId')))
     render_body = default_colors = None
     saved_body = package_body(recorder.records[prefix + '-version'].json)
+    if stack.extra.get('arcServicesHandoff') is not None:
+        from agent_e2e_studio_arc_sources import complete_sources
+        stage3 = set(layers)
+        layers = complete_sources(stack, seeded, saved_body)
+        snapshot_sources(recorder, prefix, {k: v for k, v in layers.items() if k not in stage3},
+                         'after', variant=seeded.state['variant'])
+        from types import SimpleNamespace
+        seeded = SimpleNamespace(state={**seeded.state, 'layers': layers})
     if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:
         catalog = observed_fixture_source_ids(recorder, layers, step='p08-source-catalog')
         if saved_body.get('view') is None:

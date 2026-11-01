@@ -98,8 +98,9 @@ def test_compatible_fault_requires_adopted_vm_before_dispatch(tmp_path, fault):
         goal='Synthetic request', fixture_id='town-A', fault=fault,
         candidate_digest='sha256:' + 'a' * 64, base_url='http://127.0.0.1:1', admin_key='unused',
         project='unused', arm={}, limits={}, out_dir=tmp_path)
-    assert cases == [] and row['failure']['category'] == 'model'
+    assert cases == [] and row['failure']['category'] == 'harness-error'
     assert 'VM slot is missing' in row['failure']['reason']
+    assert_harness_undetermined(row)
 
 
 def test_p15_link_requires_a_passing_agent_publication_and_fired_fault():
@@ -228,6 +229,10 @@ def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypat
         assert 'changed during P15' in row['failure']['reason']
         return
     assert row['failure'] is None
+    retained_p15 = json.loads((tmp_path / 'retained/P15/case-receipt.json').read_bytes())
+    assert retained_p15['harnessPerformed'] == cases[1]['receipt']['harnessPerformed']
+    assert retained_p15['harnessPerformed'][0]['status'] == 'harness-performed'
+    assert retained_p15['harnessPerformed'][0]['steps'] == ['p15-map-draft', 'p15-map-saved']
     p10 = (tmp_path / 'retained/P10/case-receipt.json').read_bytes()
     assert cases[1]['receipt']['priorCaseReceiptSha256'] == 'sha256:' + hashlib.sha256(p10).hexdigest()
 
@@ -311,3 +316,43 @@ def test_raw_p15_seed_infrastructure_after_p10_actions_is_undetermined(monkeypat
     verdict, _ = stage_verdict(arc, 'local-docker', 'services', [], row, row['actions'], {}, [],
                                {'maxSeconds': 60, 'maxToolCalls': 10, 'maxContinueNudges': 1}, 1)
     assert verdict == 'undetermined'
+
+
+def test_runner_closure_prunes_retired_c_fixture_without_reading_it(monkeypatch, tmp_path):
+    import ai_arc_runner
+    root = tmp_path / 'certification/agent-e2e/corpus'
+    for name in ('town-A/data.json', 'town-C/data.json', 'oracles/town-A.json', 'oracles/town-C.json'):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('synthetic')
+    monkeypatch.setattr(ai_arc_runner, 'ROOT', tmp_path)
+    files = ai_arc_runner._bindable_files(root)
+    assert files == {'certification/agent-e2e/corpus/town-A/data.json',
+                     'certification/agent-e2e/corpus/oracles/town-A.json'}
+
+
+@pytest.mark.parametrize('module', ['agent_e2e_local_scenarios.arc_p15', 'agent_e2e_cli_sessions'])
+def test_missing_services_module_is_harness_error(monkeypatch, tmp_path, module):
+    import builtins
+    import ai_arc_services
+    original = builtins.__import__
+    def unavailable(name, *args, **kwargs):
+        if name == module:
+            raise ImportError('synthetic unavailable adapter')
+        return original(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', unavailable)
+    row, cases = ai_arc_services.run_fixture_services(
+        goal='Synthetic request', fixture_id='town-A', fault='http_503_once',
+        candidate_digest='sha256:' + 'a' * 64, base_url='http://127.0.0.1:1', admin_key='unused',
+        project='unused', arm={}, limits={}, out_dir=tmp_path, vm=object())
+    assert cases == [] and row['failure']['category'] == 'harness-error'
+    assert row['actions'] == []
+    assert_harness_undetermined(row)
+
+
+def assert_harness_undetermined(row):
+    from ai_arc_runner import stage_verdict
+    arc = {'stages': [{'id': 'services', 'required': {'local-docker': []}}], 'exclusions': []}
+    verdict, cause = stage_verdict(arc, 'local-docker', 'services', [], row, row['actions'], {}, [],
+                                   {'maxSeconds': 60, 'maxToolCalls': 10, 'maxContinueNudges': 1}, 1)
+    assert verdict == 'undetermined' and 'harness error' in cause

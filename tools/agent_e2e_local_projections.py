@@ -73,6 +73,8 @@ def referenced_steps(spec, found=None):
     """Every recorded step a spec reads; evidence hashes are bound to exactly these."""
     found = set() if found is None else found
     if isinstance(spec, dict):
+        if 'studioArcContent' in spec:
+            found.update(spec['studioArcContent'])
         for op in _STEP_OPS:
             if op in spec and isinstance(spec[op], str) and spec[op] != '$step':
                 found.add(spec[op])
@@ -423,6 +425,9 @@ def evaluate(spec, ctx, *, item=None, step=None):
         rows = lambda facts: [{'resourceId': p, 'content': {'sha256': facts[p]}} for p in paths]  # noqa: E731
         require(all(p in before and p in after for p in paths), 'attachment was not staged for this case')
         return {'profile': 'honua.protected-content/v1', 'before': rows(before), 'after': rows(after)}
+    if keys == {'studioArcContent'}:
+        from agent_e2e_studio_arc_sources import source_content
+        return source_content(ctx)
     if keys == {'featureServerFeatures'}:
         record = ctx.record(named(spec['featureServerFeatures']))
         require(record.status == 200 and isinstance(record.json, dict), 'feature read failed')
@@ -500,6 +505,17 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(logged, dict) and logged.get('kind') == 'tool_call'
                 and record.request_arguments == {'tool': logged.get('tool'), 'arguments': logged.get('arguments')},
                 'feature query is not a replay of a sealed model action')
+        if 'fullPublished' in spec:
+            from agent_e2e_local_expectations import fixture_catalog
+            queries = [(identity, action) for identity, action in ctx.model_actions.items()
+                       if action.get('kind') == 'tool_call' and action.get('tool') == 'honua_query_features']
+            require(queries and len(queries) <= fixture_catalog()['maxP10Queries']
+                    and all(type(action.get('_session')) is int and type(action.get('_sequence')) is int
+                            for _, action in queries), 'feature query budget or action order is invalid')
+            positions = [(a['_session'], a['_sequence']) for _, a in queries]
+            require(len(set(positions)) == len(positions), 'feature query action order is ambiguous')
+            final = max(queries, key=lambda item: (item[1]['_session'], item[1]['_sequence']))
+            require(record.replay_of == final[0], 'feature query is not the final agent query')
         result = record.json.get('result')
         require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
         value = result.get('structuredContent')
@@ -1030,6 +1046,53 @@ def audited_map_sources(records, action_results, custody, agent_principal, map_i
     return output
 
 
+def imported_role(binding, records):
+    """Replay completed_import over retained seed evidence; never issue a request."""
+    from agent_e2e_pack import PackError
+    from agent_e2e_scenario_operations import completed_import
+    accepted = records[binding.step]
+    require(binding.step.startswith('import-') and binding.pointer in ('/physicalTableName', '/schema')
+            and binding.items is None and accepted.phase == 'seed' and accepted.kind == 'http'
+            and accepted.method == 'POST', 'invalid background import role')
+    slug = binding.step.removeprefix('import-')
+    require(binding.before == 'before-tables-' + slug and binding.before in records,
+            'background import lacks frozen discovery baseline')
+    before = records[binding.before]
+    require(before.phase == 'seed' and before.kind == 'http' and before.method == 'GET'
+            and before.status == 200 and re.fullmatch(
+                r'/api/v1/admin/connections/[0-9a-fA-F-]{36}/tables', before.path),
+            'background import baseline is not table discovery')
+    prefix = 'complete-' + slug
+    polls = [r for key, r in records.items() if key.startswith(prefix + '-poll-')]
+    completed = [r for r in polls if isinstance(r.json, dict) and type(r.json.get('status')) is int
+                 and r.json['status'] == 2]
+    require(len(completed) == 1, 'background import lacks one recorded completion')
+
+    def answer(record):
+        return {'observation': {'httpStatus': record.status, 'body': record.json},
+                'reference': {'step': record.step}}
+
+    class RetainedHttp:
+        def json(self, step, method, path):
+            require(step in records, 'background import evidence is missing: ' + step)
+            record = records[step]
+            require(record.phase == 'seed' and record.kind == 'http' and record.method == method
+                    and record.path == path and record.principal == before.principal,
+                    'background import evidence request differs: ' + step)
+            if step == prefix + '-tables-after':
+                require(same_request(before, record), 'background import discovery scope changed')
+            return answer(record)
+
+    try:
+        result = completed_import(RetainedHttp(), answer(accepted),
+            table=completed[0].json.get('tableName'), feature_count=completed[0].json.get('featuresProcessed'),
+            step=prefix, before_tables=answer(before), connection=before.path.split('/')[5],
+            poll_seconds=0, sleep=lambda _: None)
+    except PackError as exc:
+        raise ProjectionError('background import evidence: ' + str(exc)) from exc
+    return result['table' if binding.pointer == '/physicalTableName' else 'schema']
+
+
 def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None, run_facts=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
@@ -1037,11 +1100,32 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         name = binding.role
         if isinstance(name, str) and name.startswith('scan:'):
             continue  # resolved by the runner from its own raw sources (scan_roles)
-        require(isinstance(name, str) and name.split(':', 1)[0] in ('seeded', 'created', 'recorded', 'child', 'audited')
+        require(isinstance(name, str) and name.split(':', 1)[0] in ('seeded', 'created', 'recorded', 'child', 'audited', 'arc')
                 and name not in roles, 'invalid or duplicate logical role: ' + str(name))
         require(binding.step in records, 'role binds an unrecorded step: ' + name)
         record = records[binding.step]
+        if name.startswith('seeded:') and record.status == 202 and binding.before is not None:
+            roles[name] = imported_role(binding, records)
+            continue
         require(record.json is not None and record.status in (200, 201), 'role source read failed: ' + name)
+        if name.startswith('arc:'):
+            parts = name.split(':')
+            require(len(parts) == 3 and parts[1] in ('service', 'layer')
+                    and parts[2] in ('parcels', 'flood_zones', 'shelters')
+                    and binding.step == 'arc-publish-' + parts[2].replace('_', '-')
+                    and record.phase == 'observe' and record.principal == 'controller'
+                    and record.kind == 'http' and record.method == 'GET' and record.intact(),
+                    'invalid arc publication role')
+            handle = record.json.get('data', {})
+            ids = handle.get('resourceIds', {})
+            require(handle.get('operationId') == 'service.publish' and handle.get('status') == 'Completed'
+                    and record.path == '/api/v1/operations/handles/' + str(handle.get('operationInstanceId')),
+                    'arc role lacks a completed controller publication handle')
+            field = 'serviceName' if parts[1] == 'service' else 'layerId'
+            require(binding.pointer == '/data/resourceIds/' + field and ids.get(field) is not None,
+                    'invalid arc role pointer')
+            roles[name] = ids[field]
+            continue
         if name.startswith('audited:'):
             parts = name.split(':')
             require(len(parts) == 3 and parts[1] in ('service', 'layer')
@@ -1157,6 +1241,13 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                 if not selected:
                     continue
                 if result.get('tool') == spec['tool']:
+                    if spec.get('allowFaultKind') is not None:
+                        rpc_result = result.get('json', {}).get('result', {})
+                        payload = rpc_result.get('structuredContent', {}) if isinstance(rpc_result, dict) else {}
+                        if (result.get('kind') != 'tool_call' or not isinstance(rpc_result, dict)
+                                or rpc_result.get('isError', False) is not False or not isinstance(payload, dict)
+                                or payload.get('status') != 'Completed' or payload.get('operationId') != 'service.publish'):
+                            continue
                     try:
                         value = pointer_get(result['json'], spec['pointer'])
                     except ProjectionError:
@@ -1176,6 +1267,7 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                                       and e.get('tool') == spec['tool'] and e.get('actionDigest') == result.get('_digest')
                                       and e.get('upstreamOutcome') == 'ok'
                                       and type(e.get('upstreamStatus')) is int and 200 <= e['upstreamStatus'] < 300
+                                      and e['upstreamStatus'] == result.get('_responseHttpStatus')
                                       and e.get('upstreamResponseSha256') == result.get('_responseSha256')
                                       and str(e.get('committedResourceId')) == str(value)]
                         if (len(event_rows) == 1 and isinstance(rpc, dict) and rpc.get('isError', False) is False

@@ -128,6 +128,11 @@ def _resolve(value, variant):
 
 
 def load_document(scenario_id, profile=None):
+    if profile == 'studio-arc' and scenario_id == 'P08':
+        document = json.loads((ROOT / 'certification/ai-arc/studio-arc-expectations.json').read_text())
+        if document.get('schemaVersion') != 1 or document.get('scenario') != 'P08':
+            raise ValueError('invalid Studio arc expectation identity')
+        return document
     if not re.fullmatch(r'P\d\d', str(scenario_id)):
         raise ValueError('invalid scenario id')
     if profile not in (None, 'arc') or (profile == 'arc' and scenario_id not in ('P10', 'P15')):

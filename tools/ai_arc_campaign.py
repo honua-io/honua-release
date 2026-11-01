@@ -13,6 +13,7 @@ campaign never reruns a run id and never replaces a receipt.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -25,6 +26,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ai_arc_runner as arc_runner  # noqa: E402
 
+
+
+def suspected_harness_fault(receipt: dict) -> bool:
+    """A receipt the harness itself marks as possibly its own fault: an undetermined stage, a harness-error or
+    harness-fault cause, a harnessFault assertion, or failed slot preparation."""
+    for row in receipt.get('stages') or []:
+        cause = str(row.get('cause') or '').lower()
+        if row.get('outcome') == 'undetermined' or cause.startswith('harness') or 'harness fault' in cause:
+            return True
+        if any(a.get('harnessFault') for a in row.get('assertions') or [] if isinstance(a, dict)):
+            return True
+    prep = (receipt.get('slotFacts') or {}).get('slotPreparation') or {}
+    return isinstance(prep, dict) and prep.get('status') not in (None, 'skipped', 'converged')
 
 def slots(hosts: list[str], per_host: int) -> list[tuple[str, int]]:
     if not hosts or not 1 <= per_host <= 3:
@@ -47,6 +61,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
     free = slots(hosts, per_host) if target == 'local-docker' else [(None, i) for i in range(per_host)]
     lock = threading.Condition()
     results, pending, voids, threads, rejected = [], [], [], [], {}
+    adjudicated = {}
     queue, reserves = list(schedule_rows), list(reserve_rows)
 
     def run_dir(row):
@@ -100,13 +115,29 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             with lock:
                 results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
                                 'receipt': str(path) if receipt else None})
-                if receipt is None or receipt['status'] == 'undetermined':
+                if receipt is None or receipt['status'] == 'undetermined' or suspected_harness_fault(receipt) \
+                        or (out / 'holds' / (row['runId'].replace(':', '-') + '.hold')).is_file():
+                    # Adjudication barrier (Astra S3): any suspected harness defect stops the campaign before the
+                    # next launch, whatever the receipt's status, so a void stays eligible under the prereg.
                     pending.append(row['runId'])
                 free.append(slot)
                 save_state()
                 lock.notify_all()
 
+    def hold_generation(run_id):
+        hold = out / 'holds' / (run_id.replace(':', '-') + '.hold')
+        try:
+            return hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
+        except OSError:
+            return None
+
     def adjudicate(run_id):
+        """(cleared, hold generation it answered). The generation is captured before validation; a hold
+        replaced meanwhile leaves the run pending for a fresh decision (Sol 96b2546f)."""
+        generation = hold_generation(run_id)
+        return _adjudicate(run_id, generation), generation
+
+    def _adjudicate(run_id, generation):
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
         if not path.is_file():
             return False
@@ -114,15 +145,22 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             decision = json.loads(path.read_text())
         except ValueError:
             return False      # still being written; read it on the next pass
-        if decision.get('finding') != 'harness-fault':
-            return True       # the run stays counted as it stands
+        hold = out / 'holds' / (run_id.replace(':', '-') + '.hold')
+        if hold.is_file() and path.stat().st_mtime_ns < hold.stat().st_mtime_ns:
+            return False      # a decision older than the current hold does not answer it
         receipt_path = out / 'runs' / run_id.replace(':', '-') / 'trial-receipt.json'
         original = json.loads(receipt_path.read_text()) if receipt_path.is_file() else None
         try:
-            arc_runner.check_adjudication(arc, arm_spec, decision, original)
+            # Every decision is validated, including one that keeps the run counted (Sol 4ac23739).
+            arc_runner.check_adjudication(arc, arm_spec, decision, original,
+                                          voiding=decision.get('finding') == 'harness-fault')
         except ValueError as exc:
             rejected[run_id] = str(exc)
             return False      # an invalid adjudication never resumes the campaign
+        if hold_generation(run_id) != generation:
+            return False      # the hold changed during validation: nothing is committed (Sol e265bb02)
+        if decision.get('finding') != 'harness-fault':
+            return True       # the run stays counted as it stands
         if len(voids) >= arc_runner.MAX_VOIDS or not reserves:
             raise RuntimeError('void cap or sealed reserve exhausted: the target fails')
         reserve = reserves.pop(0)
@@ -137,13 +175,39 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         with lock:
             while queue or pending or len(results) < len(threads):
                 if pending:
-                    if adjudicate(pending[0]):
-                        pending.pop(0)
+                    cleared, generation = adjudicate(pending[0])
+                    if cleared:
+                        adjudicated[pending.pop(0)] = generation
                         save_state()
                         continue
                     save_state()
                     if max_wait is not None and time.monotonic() - started > max_wait:
                         raise TimeoutError('runs await a valid adjudication: ' + ', '.join(pending))
+                    lock.wait(wait_poll)
+                    continue
+                for hold in sorted((out / 'holds').glob('*.hold')) if (out / 'holds').is_dir() else []:
+                    # A hold placed on any run, finished or in flight, is a suspected defect: nothing new starts
+                    # until it is adjudicated (Sol 09e293be). A hold for a run not yet started blocks it too.
+                    held = next((r['runId'] for r in results if r['runId'].replace(':', '-') + '.hold' == hold.name),
+                                None)
+                    generation = hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
+                    # An acknowledgement answers one hold generation; a fresh hold needs a fresh decision
+                    # (Sol 4ac23739 item 2).
+                    if held and held not in pending and adjudicated.get(held) != generation:
+                        pending.append(held)
+                if pending:
+                    continue
+                if any(h.name.endswith('.hold') for h in ((out / 'holds').iterdir() if (out / 'holds').is_dir() else [])
+                       if not any(r['runId'].replace(':', '-') + '.hold' == h.name for r in results)):
+                    if max_wait is not None and time.monotonic() - started > max_wait:
+                        raise TimeoutError('a run is on hold before it finished')
+                    lock.wait(wait_poll)
+                    continue
+                if (out / 'HOLD').is_file():
+                    # Operator hold (a suspected scorer or harness defect noticed outside a receipt): no new run
+                    # starts until the file is removed; running ones finish.
+                    if max_wait is not None and time.monotonic() - started > max_wait:
+                        raise TimeoutError('the campaign is on operator hold')
                     lock.wait(wait_poll)
                     continue
                 if not queue or not free:

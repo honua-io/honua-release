@@ -6,12 +6,14 @@
     {
       "role": "seeded:table:shelters",
       "step": "import-shelters",
-      "pointer": "/physicalTableName"
+      "pointer": "/physicalTableName",
+      "before": "before-tables-shelters"
     },
     {
       "role": "seeded:schema:shelters",
       "step": "import-shelters",
-      "pointer": "/schema"
+      "pointer": "/schema",
+      "before": "before-tables-shelters"
     },
     {
       "role": "seeded:connection:shelters",

@@ -347,3 +347,17 @@ def test_a_cli_other_than_the_pinned_version_refuses_before_any_dispatch(tmp_pat
                 log_dir=tmp_path / 'log')
     assert calls == [] and failure.value.category == 'infrastructure'
     assert not (tmp_path / 'log' / 'cli-stdout.jsonl').exists(), 'the CLI was never launched'
+
+
+def test_both_arms_keep_their_cli_default_instructions_and_share_one_budget_rule(tmp_path):
+    """ARC v2 S7/S13: Claude's contract is appended (as Codex's developer_instructions are), and the binding
+    budgets are the harness's tool calls and wall clock for both arms; Claude's --max-turns is only a ceiling."""
+    import agent_cli_sessions as CS
+    args, _ = CS._commands('claude-cli', 'claude-opus-5-5', '/fake', tmp_path,
+                           {'honua': {'url': 'http://127.0.0.1:1/honua', 'names': ['honua_x']}}, 10, {}, 'contract', 60,
+                           tmp_path / 'debug.log', '2.1.0')
+    assert '--system-prompt' not in args and args[args.index('--append-system-prompt') + 1] == 'contract'
+    assert int(args[args.index('--max-turns') + 1]) == CS.turn_ceiling(10) > 10
+    claude, codex = CS.arm_budgets('claude-cli', 80, 40, 600), CS.arm_budgets('codex-cli', 80, 40, 600)
+    assert claude['binding'] == codex['binding'] == {'maxToolCalls': 80, 'wallClockSeconds': 600}
+    assert codex['cliTurnCeiling'] is None and claude['cliTurnCeiling'] == CS.turn_ceiling(40)

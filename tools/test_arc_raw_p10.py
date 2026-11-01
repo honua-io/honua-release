@@ -1,6 +1,8 @@
 """Raw-input P10 selects only actual agent publications and the final query."""
 from types import SimpleNamespace
 
+import pytest
+
 from agent_e2e_local_api import Seeded
 from agent_e2e_local_recorder import LoggedAction
 from agent_e2e_local_scenarios.arc_p10 import ArcP10
@@ -77,7 +79,8 @@ def test_error_publication_result_never_selects_a_query():
     assert not any(call[0] == 'replay' for call in rec.calls)
 
 
-def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(tmp_path):
+@pytest.mark.parametrize('import_mode', ['sync', 'background', 'incomplete', 'failed', 'ambiguous', 'foreign-job'])
+def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(tmp_path, import_mode):
     import hashlib
     import json
     import agent_e2e_local_projections as projections
@@ -86,9 +89,9 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     from agent_e2e_local_recorder import Record, action_bytes
     from agent_e2e_local_runner import score_assertions
 
-    def record(step, phase, kind, method, path, value, *, args=None, replay=None, origin='controller'):
+    def record(step, phase, kind, method, path, value, *, args=None, replay=None, origin='controller', status=200):
         raw = json.dumps(value, separators=(',', ':')).encode()
-        return Record(step, phase, kind, 'controller', 'controller-id', method, path, 200, raw,
+        return Record(step, phase, kind, 'controller', 'controller-id', method, path, status, raw,
                       'sha256:' + hashlib.sha256(raw).hexdigest(), replay,
                       action_bytes(args) if args is not None else None, origin=origin)
 
@@ -129,18 +132,54 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
         'arc-p10-published-full': record('arc-p10-published-full', 'observe', 'mcp', 'POST', '/mcp#tools/call',
                                         full_result, args={'tool': 'honua_query_features', 'arguments': full_args}),
     }
-    publication = {'tool': 'honua_publish_service', 'status': 'pass',
+    publication = {'kind': 'tool_call', 'tool': 'honua_publish_service', 'status': 'pass',
                    'arguments': {'table': 'arc_shelters', 'schema': 'honua_data', 'connectionId': 'conn'},
                    'json': {'result': {'structuredContent': {
                        'serviceName': 'agent-service', 'status': 'Completed', 'operationId': 'service.publish'}}}}
+    if import_mode != 'sync':
+        connection = '12345678-1234-1234-1234-123456789abc'
+        path = '/api/v1/admin/connections/' + connection + '/tables'
+        records['import-shelters'] = record('import-shelters', 'seed', 'http', 'POST',
+            '/api/v1/admin/import/upload', {'jobId': 'job-42',
+                'statusUrl': '/api/v1/admin/import/jobs/job-42'}, status=202)
+        records['before-tables-shelters'] = record('before-tables-shelters', 'seed', 'http', 'GET',
+                                                   path, {'tables': []})
+        records['complete-shelters-poll-000'] = record('complete-shelters-poll-000', 'seed', 'http', 'GET',
+            '/api/v1/admin/import/jobs/job-42', {'jobId': 'foreign' if import_mode == 'foreign-job' else 'job-42',
+                'tableName': 'logical_shelters', 'status': {'incomplete': 1, 'failed': 3}.get(import_mode, 2),
+                'featuresProcessed': len(rows), 'failedFeatures': 0, 'completedAt': '2026-11-01T20:00:00Z'})
+        discovered = [{'table': 'arc_shelters', 'schema': 'honua_data'}]
+        if import_mode == 'ambiguous':
+            discovered.append({'table': 'other_table', 'schema': 'honua_data'})
+        # Incomplete imports never reach post-completion discovery.
+        if import_mode not in ('incomplete', 'failed'):
+            records['complete-shelters-tables-after'] = record('complete-shelters-tables-after', 'seed',
+                'http', 'GET', path, {'tables': discovered})
+        if import_mode not in ('background',):
+            with pytest.raises(projections.ProjectionError, match='background import'):
+                projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                          action_results=[publication])
+            return
     roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                       action_results=[publication])
     observations = [Observation(name, None, {'projection': 'extract/v1'}) for name in expected]
-    model_actions = {'occ': {'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': query_args}}
+    model_actions = {'occ': {'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': query_args,
+                             '_session': 1, '_sequence': 1}}
     scored = score_assertions(list(expected), observations, expected, records=records, roles=roles,
                               scenario_id='P10', model_actions=model_actions,
                               frozen=load_projections('P10', 'A', 'arc'))
     assert [row['status'] for row in scored] == ['pass', 'pass'], scored
+    later = {**model_actions, 'later': {**model_actions['occ'], '_sequence': 2}}
+    wrong_query = score_assertions(list(expected), observations, expected, records=records, roles=roles,
+                                   scenario_id='P10', model_actions=later,
+                                   frozen=load_projections('P10', 'A', 'arc'))
+    assert wrong_query[0]['status'] == 'fail' and 'final agent query' in wrong_query[0]['reason']
+    sprayed = {str(i): {**model_actions['occ'], '_sequence': i} for i in range(1, 7)}
+    sprayed['occ'] = sprayed.pop('6')
+    over_budget = score_assertions(list(expected), observations, expected, records=records, roles=roles,
+                                   scenario_id='P10', model_actions=sprayed,
+                                   frozen=load_projections('P10', 'A', 'arc'))
+    assert over_budget[0]['status'] == 'fail' and 'budget' in over_budget[0]['reason']
     full_result['result']['structuredContent']['geojson']['features'][0]['geometry']['coordinates'] = [
         float(x) for x in rows[0]['geometry']['coordinates']]
     for feature in full_result['result']['structuredContent']['geojson']['features']:
@@ -170,15 +209,22 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
                                scenario_id='P10', model_actions=model_actions,
                                frozen=load_projections('P10', 'A', 'arc'))
     assert changed[0]['status'] == 'fail'
-    import pytest
     with pytest.raises(ValueError):
         projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id', action_results=[])
+    with pytest.raises(ValueError):
+        projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                  action_results=[{**publication, 'kind': 'resource_read'}])
+    errored = {**publication, 'json': {'result': {**publication['json']['result'], 'isError': True}}}
+    with pytest.raises(ValueError):
+        projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                  action_results=[errored])
     publication['arguments']['schema'] = 'foreign'
     with pytest.raises(ValueError):
         projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                   action_results=[publication])
     publication['arguments']['schema'] = 'honua_data'
-    publication.update(status='fail', _digest='sha256:' + 'a' * 64, _responseSha256='sha256:' + 'b' * 64)
+    publication.update(status='fail', _digest='sha256:' + 'a' * 64, _responseSha256='sha256:' + 'b' * 64,
+                       _responseHttpStatus=200)
     confirm_path = '/api/v1/admin/services/agent-service/settings'
     records['confirm'] = record('confirm', 'session-confirm', 'http', 'GET', confirm_path, {},
                                 origin='fault-confirmation')
@@ -191,6 +237,7 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     assert roles['created:service:shelters'] == 'agent-service'
     for bad in ({**event, 'actionDigest': 'sha256:' + 'c' * 64},
                 {**event, 'upstreamResponseSha256': 'sha256:' + 'd' * 64},
+                {**event, 'upstreamStatus': 201},
                 {**event, 'committedResourceId': 'foreign'},
                 {**event, 'confirmation': {'path': confirm_path, 'checks': [{'step': 'absent', 'status': 200}]}}):
         with pytest.raises(ValueError):
