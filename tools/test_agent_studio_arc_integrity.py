@@ -281,3 +281,25 @@ def test_recording_proxy_cannot_forward_removed_studio_mutation(tmp_path):
         assert not calls
     finally:
         proxy.server.server_close()
+
+
+def test_sharing_probe_uses_distinct_users_and_restores_credentials(monkeypatch):
+    import os
+    from agent_e2e_studio_arc import probe_sharing
+    version = {'itemId': 'item', 'versionId': 'version', 'contentHash': 'hash'}
+    class Recorder:
+        def __init__(self):
+            self.records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z')}
+            self.principals = {'agent-user': ('previous-env', 'customer')}
+            self.calls = []
+        def json(self, step, method, path, principal):
+            self.calls.append((step, principal, self.principals.get(principal),
+                               os.environ.get('HONUA_ARC_STUDIO_READER_BEARER')))
+    monkeypatch.setenv('HONUA_ARC_STUDIO_READER_BEARER', 'previous')
+    stack = SimpleNamespace(extra={'studioReaderSubjects': {'colleague': 'user-one', 'outsider': 'user-two'}})
+    recorder = Recorder()
+    probe_sharing(recorder, stack, lambda subject: 'token-' + subject)
+    assert recorder.calls[0][2][1] == 'user-one' and recorder.calls[2][2][1] == 'user-two'
+    assert recorder.calls[-1][1] == 'anonymous'
+    assert recorder.principals['agent-user'] == ('previous-env', 'customer')
+    assert os.environ['HONUA_ARC_STUDIO_READER_BEARER'] == 'previous'
