@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -81,6 +82,24 @@ def validate_agent_progress(progress: dict) -> None:
         raise ValueError('agent reflection journey is partial')
 
 
+def extract_progress(results: dict) -> tuple[dict, dict]:
+    attachments = {'customer-journey-progress.json': [], 'agent-reflection-progress.json': []}
+    def visit(value):
+        if isinstance(value, dict):
+            name = value.get('name')
+            if isinstance(name, str) and name in attachments and value.get('body'):
+                attachments[name].append(json.loads(base64.b64decode(value['body'], validate=True)))
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    visit(results)
+    if any(len(items) != 1 for items in attachments.values()):
+        raise ValueError('missing unique inline journey progress attachment')
+    return attachments['customer-journey-progress.json'][0], attachments['agent-reflection-progress.json'][0]
+
+
 def gh(*args: str, json_output: bool = False):
     result = subprocess.run(['gh', *args], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True)
     return json.loads(result.stdout) if json_output else result.stdout
@@ -154,22 +173,9 @@ def main() -> int:
         gh('run', 'download', str(run['id']), '--repo', REPO, '--name', 'studio-customer-journey-evidence', '--dir', str(evidence))
         # Progress is a Playwright attachment, not an unverified workflow output.
         results = one_file(evidence, 'playwright-results.json')
-        progress_attachments = {'customer-journey-progress.json': [], 'agent-reflection-progress.json': []}
-        def visit(value):
-            if isinstance(value, dict):
-                if value.get('name') in progress_attachments and value.get('body'):
-                    import base64
-                    progress_attachments[value['name']].append(json.loads(base64.b64decode(value['body'])))
-                for child in value.values():
-                    visit(child)
-            elif isinstance(value, list):
-                for child in value:
-                    visit(child)
-        visit(results)
-        if any(len(items) != 1 for items in progress_attachments.values()):
-            raise ValueError('missing unique inline journey progress attachment')
-        validate_evidence(pins, one_file(evidence, 'runtime-identity.json'), results, progress_attachments['customer-journey-progress.json'][0])
-        validate_agent_progress(progress_attachments['agent-reflection-progress.json'][0])
+        customer_progress, agent_progress = extract_progress(results)
+        validate_evidence(pins, one_file(evidence, 'runtime-identity.json'), results, customer_progress)
+        validate_agent_progress(agent_progress)
         report.update(status='pass', certifying=True)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as exc:
         report['reason'] = str(exc)

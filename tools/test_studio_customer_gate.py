@@ -167,3 +167,17 @@ def test_agent_reflection_stages_are_required_for_certification():
                                        'completed': list(g.AGENT_STAGES - {omitted})})
     with pytest.raises(ValueError, match='partial'):
         g.validate_agent_progress({'qualificationComplete': False, 'completed': list(g.AGENT_STAGES)})
+
+
+def test_requires_unique_progress_for_both_customer_and_agent_journeys():
+    import base64
+    def attachment(name, value):
+        return {'name': name, 'body': base64.b64encode(json.dumps(value).encode()).decode()}
+    customer = {'qualificationComplete': True, 'completed': list(g.REQUIRED_STAGES)}
+    agent = {'qualificationComplete': True, 'completed': list(g.AGENT_STAGES)}
+    studio_attachment = attachment('customer-journey-progress.json', customer)
+    agent_attachment = attachment('agent-reflection-progress.json', agent)
+    assert g.extract_progress({'attachments': [studio_attachment, agent_attachment]}) == (customer, agent)
+    for attachments in ([studio_attachment], [agent_attachment], [studio_attachment, agent_attachment, agent_attachment]):
+        with pytest.raises(ValueError, match='unique'):
+            g.extract_progress({'attachments': attachments})
