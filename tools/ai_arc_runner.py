@@ -782,20 +782,61 @@ class ServicesStage(StageModule):
 
     def observe(self, ctx, row):
         import ai_arc_services
-        assertions = ai_arc_services.case_assertions(self.cases)
+        self.ended_at = now()
+        return ai_arc_services.case_assertions(self.cases)
+
+    def harness_readback(self, ctx, observations):
+        """Stage four's handoff, read back after the model's stage: its own budget (HANDOFF_READBACK_SECONDS), never
+        the stage's wall clock, so controller latency is never charged to the arm (Sol 0373385b)."""
         fixture_id, _fault = self.fixture(ctx)
         try:
-            handoff = studio_services_handoff(ctx, self.cases, fixture_id, self.started_at, now())
+            handoff = studio_services_handoff(ctx, self.cases, fixture_id, self.started_at,
+                                              getattr(self, 'ended_at', None) or now())
             self.studio_handoff = {'status': 'verified', 'handoff': handoff}
         except (ValueError, KeyError, TypeError, OSError) as exc:
-            self.studio_handoff = {'status': 'failed', 'reason': str(exc)[:200] or type(exc).__name__}
-        return assertions
+            self.readback_failed(str(exc)[:200] or type(exc).__name__)
+
+    def readback_failed(self, reason: str):
+        self.studio_handoff = {'status': 'failed', 'reason': reason}
 
     def harness_context(self, ctx) -> dict:
         return {'studioHandoff': self.studio_handoff or {'status': 'failed', 'reason': 'stage three did not run'}}
 
 
 STUDIO_LAYERS = ('parcels', 'flood_zones', 'shelters')
+TABLE_ID = re.compile(r'[a-z][a-z0-9_]{0,62}')
+
+
+def _record_body(records: Path, step: str):
+    import base64
+    row = json.loads((records / (step + '.json')).read_bytes())
+    return row.get('httpStatus') or (row.get('observation') or {}).get('httpStatus'), \
+        json.loads(base64.b64decode(row['bodyBase64']))
+
+
+def imported_table(records: Path, name: str) -> dict:
+    """One fixture table the harness imported in stage three, exactly as completed_import bound it: the
+    synchronous (200) import response's physical identity, or for a background (202) import the one table
+    added between the retained discovery before upload and the one after observed job completion."""
+    slug = name.replace('_', '-')
+    status, body = _record_body(records, 'import-' + slug)
+    if isinstance(body, dict) and body.get('success') is True and 'physicalTableName' in body:
+        table, schema = body.get('physicalTableName'), body.get('schema')
+    else:
+        def listed(step):
+            rows = _record_body(records, step)[1].get('tables')
+            if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
+                raise ValueError(name + ': table discovery evidence is malformed')
+            return {(r.get('schema'), r.get('table')) for r in rows}
+        before, after = listed('before-tables-' + slug), listed('complete-' + slug + '-tables-after')
+        added = after - before
+        if not before <= after or len(added) != 1:
+            raise ValueError(name + ': the background import does not bind one new table')
+        schema, table = added.pop()
+    if not (isinstance(table, str) and TABLE_ID.fullmatch(table) and isinstance(schema, str)
+            and TABLE_ID.fullmatch(schema)):
+        raise ValueError(name + ': imported table identity could not be read')
+    return {'schema': schema, 'table': table}
 STUDIO_HANDOFF_SCHEMA = 'honua.ai-arc.studio-services/v1'
 KEY_ID = re.compile(r'[A-Za-z0-9-]{1,80}')
 
@@ -899,17 +940,8 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
     if len(actors) != 1:
         raise ValueError('stage-three publications name more than one principal')
     principal = actors.pop()
-    tables = {}
     records = ctx.private_dir / 'services' / 'corpus' / 'P10' / 'export' / 'controller-records'
-    import base64
-    for name in STUDIO_LAYERS:
-        path = records / ('import-' + name.replace('_', '-') + '.json')
-        body = json.loads(base64.b64decode(json.loads(path.read_bytes())['bodyBase64']))
-        table, schema = body.get('physicalTableName'), body.get('schema')
-        if not (isinstance(table, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table)
-                and isinstance(schema, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', schema)):
-            raise ValueError(name + ': imported table identity could not be read')
-        tables[name] = {'schema': schema, 'table': table}
+    tables = {name: imported_table(records, name) for name in STUDIO_LAYERS}
     for name in layers:
         if (roles.get('seeded:table:' + name), roles.get('seeded:schema:' + name)) != \
                 (tables[name]['table'], tables[name]['schema']):
@@ -984,6 +1016,7 @@ class StudioStage(DelegatingStage):
 
 
 HARNESS_CONTEXT_KEYS = ('studioHandoff',)
+HANDOFF_READBACK_SECONDS = 180
 AUDIT_PATH = '/api/v1/admin/observability/audit'
 AUDIT_PAGE_SIZE = 200       # the server's maximum pageSize (default 50)
 AUDIT_MAX_PAGES = 25
@@ -1751,6 +1784,15 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                             errors=list(shutdown.get('errors') or []) + [{'step': 'slot-preparation',
                                                                           'error': 'credential still accepted'}])
             row = dict(row, shutdown=shutdown)
+    readback = getattr(module, 'harness_readback', None)
+    if callable(readback):
+        # Harness readback a later stage depends on (services: the Studio handoff). Like slot preparation it has
+        # its own budget, outside the stage's frozen wall-clock limit; its failure is recorded in the retained
+        # context and scored as harness-undetermined, never as the arm's work.
+        try:
+            within(HANDOFF_READBACK_SECONDS, readback, ctx, observations, ctx=ctx)
+        except Exception as exc:  # noqa: BLE001  (PhaseTimeout included)
+            module.readback_failed(f'readback did not complete ({type(exc).__name__}): {str(exc)[:120]}')
     if stage != 'setup' and ctx.slot.vm is not None and (actions or observations):
         observations = list(observations) + [candidate_serving(ctx)]
     try:
