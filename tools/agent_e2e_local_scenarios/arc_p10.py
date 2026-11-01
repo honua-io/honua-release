@@ -69,7 +69,8 @@ class ArcP10(P10):
                     and isinstance(layers[0], dict) and layers[0].get('id') == layer):
                 state.update(service=service, layerId=layer)
                 rec.mcp_call('arc-p10-published-full', 'honua_query_features', {
-                    'serviceId': service, 'layerId': layer, 'where': '1=1', 'outFields': ['*'],
+                    'serviceId': service, 'layerId': layer, 'where': '1=1',
+                    'outFields': ['source_id', 'name', 'capacity', 'is_open'],
                     'limit': 1000, 'resultOffset': 0, 'returnGeometry': True, 'outSrid': 3857,
                     'geometryPrecision': -1})
                 actions = rec.actions()

@@ -16,6 +16,9 @@ from agent_e2e_studio_observer import guid
 class ArcP15(P15):
     expectation_profile = 'arc'
 
+    def source_path(self, binding):
+        return source_path(binding).replace('outFields=%2A', 'outFields=source_id%2Cname%2Ccapacity%2Cis_open')
+
     def roles(self, stack, seeded, variant, run=None):
         return load_roles('P15', 'arc')
 
@@ -53,7 +56,7 @@ class ArcP15(P15):
         state = {'variant': variant, 'itemId': guid(saved['itemId']), 'versionId': guid(saved['versionId']),
                  'contentHash': saved['contentHash'], 'shelters': binding,
                  'priorCaseReceiptSha256': shared['caseReceiptSha256']}
-        rec.json('p15-source-before', 'GET', source_path(binding))
+        rec.json('p15-source-before', 'GET', self.source_path(binding))
         return Seeded(state)
 
 

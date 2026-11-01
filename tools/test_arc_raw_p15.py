@@ -49,7 +49,13 @@ def test_raw_p15_rejects_missing_or_foreign_prior_service():
 def test_raw_p15_keeps_frozen_assertions_and_changes_only_service_identity_source(variant):
     from agent_e2e_local_expectations import load_expected, load_projections, load_roles
     assert load_expected('P15', variant, 'arc') == load_expected('P15', variant)
-    assert load_projections('P15', variant, 'arc') == load_projections('P15', variant)
+    arc = load_projections('P15', variant, 'arc')
+    base = load_projections('P15', variant)
+    assert arc['source-content.unchanged']['spec'] == base['source-content.unchanged']['spec']
+    assert {k: v for k, v in arc.items() if k != 'source-content.unchanged'} == {
+        k: v for k, v in base.items() if k != 'source-content.unchanged'}
+    assert all('outFields=source_id%2Cname%2Ccapacity%2Cis_open' in rule['path']
+               for rule in arc['source-content.unchanged']['reads'].values())
     roles = {r.role: r for r in load_roles('P15', 'arc')}
     assert roles['seeded:service:shelters'].step == 'arc-p15-service-meta'
     assert roles['seeded:layer:shelters'].step == 'arc-p15-service-meta'
