@@ -64,3 +64,13 @@ def test_a_client_that_fails_before_the_image_appears_fails(tmp_path):
 def test_the_build_times_out(tmp_path):
     done, _ = run(tmp_path, 'sleep 20', timeout='2')
     assert done.returncode != 0 and 'did not produce' in done.stderr
+
+
+def test_the_lock_carries_the_shipped_executor_image_built_from_the_server_image(tmp_path):
+    """ARC v2 B1: the product's Compose executor image (docker/Dockerfile.compose-executor FROM that exact
+    server image) is built once and copied, and the lock names both."""
+    done, out = run(tmp_path, 'touch STATE')
+    assert done.returncode == 0, done.stderr
+    kinds = {a['kind']: a for a in json.loads(out.read_text())['components']['honua-server']['artifacts']}
+    assert set(kinds) == {'image', 'executor-image'}
+    assert kinds['executor-image']['reference'].startswith('honua-arc-dev/honua-compose-executor:')
