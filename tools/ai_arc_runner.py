@@ -454,6 +454,11 @@ class StageModule:
         """Unsafe attempts the stage's own harness classified (retained in the stage context)."""
         return []
 
+    def harness_context(self, ctx: StageContext) -> dict:
+        """Harness readback the stage's scoring depends on, retained in its context (e.g. services' stage-four
+        handoff); only the fixed keys in HARNESS_CONTEXT_KEYS are taken."""
+        return {}
+
 
 class DelegatingStage(StageModule):
     """Stage wiring owned by another lane: its module exports ``arc_stage(ctx) -> StageModule``."""
@@ -707,48 +712,58 @@ class OpsStage(DelegatingStage):
 
 
 class ServicesStage(StageModule):
-    """#1152 corpus cases on the arc's own stack (tools/ai_arc_services.py)."""
-    stage, lane = 'services', '#1152 runner + scenario lanes g1-g5 + #1160 CLI corpus sessions'
+    """Services on the arc's own stack through #1196's fixture entry point (tools/ai_arc_services.py): the
+    agent publishes the imported fixture table and works with the service it published. Development runs use
+    fixture ``town-<variant>`` with the frozen development goal and fault; held-out runs use the case's
+    fixture, sealed goal and fault. Both modes take the same path."""
+    stage, lane = 'services', '#1196 fixture services + #1160 CLI corpus sessions'
 
-    def __init__(self, scenarios: tuple[str, ...]):
+    def __init__(self, scenarios: tuple[str, ...], development_faults: dict | None = None):
         self.scenarios = scenarios
+        self.development_faults = dict(development_faults or {})
+        self.cases, self.studio_handoff, self.started_at = [], None, None
+
+    def fixture(self, ctx) -> tuple[str | None, str | None]:
+        if ctx.case is not None:
+            return ctx.case.get('fixtures'), ctx.case.get('fault')
+        return 'town-' + str(ctx.variant), self.development_faults.get(ctx.variant)
 
     def unavailable(self, ctx):
-        if ctx.case is not None:
-            return 'held-out services fixtures are not yet supported by the corpus runner'
         if ctx.target != 'local-docker':
             return 'services on AWS targets need the cell-attached corpus runtime (not landed)'
         try:
-            import agent_e2e_local_runner as runner
+            import ai_arc_services  # noqa: F401
             import agent_e2e_cli_sessions  # noqa: F401
+            from agent_e2e_local_expectations import fixture_scenarios
         except ImportError:
-            return 'the corpus runner (#1152) and CLI corpus sessions (#1160) are not on this branch'
+            return 'the fixture services runner (#1196) and CLI corpus sessions (#1160) are not on this branch'
         if not ctx.slot.controller.get('base_url') or not ctx.slot.controller.get('admin_key'):
             return 'no adopted controller endpoint for the installed stack'
-        missing = []
-        for sid in self.scenarios:
-            try:
-                scenario = runner.load_scenario(sid)
-            except Exception:
-                missing.append(sid)
-                continue
-            if ctx.variant not in getattr(scenario, 'supported_variants', ()):
-                missing.append(sid)
-        if missing:
-            return 'corpus scenarios not yet observable for this variant: ' + ','.join(missing)
+        if ctx.slot.vm is None:
+            return 'services fixtures need the adopted VM slot'
+        fixture_id, fault = self.fixture(ctx)
+        try:
+            _variant, scenarios = fixture_scenarios(fixture_id)
+        except (OSError, ValueError, KeyError, TypeError):
+            return 'services fixture is not in the committed fixture catalog'
+        if set(scenarios) != set(self.scenarios):
+            # The required assertions come from stages[services].scenarios; the catalog must agree.
+            return 'services fixture catalog differs from the frozen scenario list'
+        if not isinstance(fault, str) or not fault:
+            return 'no services fault is frozen for this run'
         return None
 
     def run(self, ctx, session, prompt):
         import ai_arc_services
-        template, previous = ctx.handoff
-        handoff = template.replace('{previous}', previous.strip()[:4000]) if template and previous else None
-        if handoff:
-            handoff = redact_bytes(handoff.encode(), ctx.slot.harness_secrets).decode()
-        row, cases = ai_arc_services.run_services(
-            scenarios=self.scenarios, variant=ctx.variant, candidate_digest=ctx.candidate['imageDigest'],
+        fixture_id, fault = self.fixture(ctx)
+        self.started_at, self.studio_handoff = now(), None
+        # The stage prompt already carries the plain handoff and the goal (sealed goals stay in memory).
+        row, cases = ai_arc_services.run_fixture_services(
+            goal=prompt, fixture_id=fixture_id, fault=fault, vm=ctx.slot.vm,
+            candidate_digest=ctx.candidate['imageDigest'],
             base_url=ctx.slot.controller['base_url'], admin_key=ctx.slot.controller['admin_key'],
             project=ctx.slot.project, arm=ctx.arm, limits=ctx.limits, out_dir=ctx.private_dir / 'services' / 'corpus',
-            handoff=handoff, extra_secrets=ctx.slot.harness_secrets, deadline=ctx.deadline,
+            handoff=None, extra_secrets=ctx.slot.harness_secrets, deadline=ctx.deadline,
             private_root=ctx.private_dir / 'services' / 'cases', register=ctx.live.append, gate=ctx.gate)
         ctx.slot.harness_secrets.extend(v for v in row['secrets'] if v not in ctx.slot.harness_secrets)
         if row['withheld']:
@@ -767,7 +782,144 @@ class ServicesStage(StageModule):
 
     def observe(self, ctx, row):
         import ai_arc_services
-        return ai_arc_services.case_assertions(self.cases)
+        assertions = ai_arc_services.case_assertions(self.cases)
+        fixture_id, _fault = self.fixture(ctx)
+        try:
+            handoff = studio_services_handoff(ctx, self.cases, fixture_id, self.started_at, now())
+            self.studio_handoff = {'status': 'verified', 'handoff': handoff}
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            self.studio_handoff = {'status': 'failed', 'reason': str(exc)[:200] or type(exc).__name__}
+        return assertions
+
+    def harness_context(self, ctx) -> dict:
+        return {'studioHandoff': self.studio_handoff or {'status': 'failed', 'reason': 'stage three did not run'}}
+
+
+STUDIO_LAYERS = ('parcels', 'flood_zones', 'shelters')
+STUDIO_HANDOFF_SCHEMA = 'honua.ai-arc.studio-services/v1'
+KEY_ID = re.compile(r'[A-Za-z0-9-]{1,80}')
+
+
+def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at: str | None, ended_at: str) -> dict:
+    """What the agent published in stage three, from controller readback, for stage four (#1198).
+
+    Starting from the passing case receipts' frozen roles (``created:service:<layer>`` / ``child:layer:<layer>``),
+    every publication is re-read with the harness admin key: the ``operation.completed`` audit event of the
+    ``service.publish`` operation by the runner-minted agent key inside the stage window, its operation handle
+    (same service and layer), and the layer's fields and geometry type. The connection and the three imported
+    fixture tables come from the harness's own recorded import responses. Any gap raises; the caller records the
+    stage-three outcome as undetermined (a harness readback failure, never the arm's) and stage four is not run
+    with a partial handoff."""
+    from agent_e2e_local_expectations import fixture_scenarios
+    from urllib.parse import quote
+    http, base = ctx.options.get('http'), (ctx.slot.controller or {}).get('base_url')
+    admin = (ctx.slot.controller or {}).get('admin_key')
+    if not callable(http) or not base or not started_at:
+        raise ValueError('controller readback is unavailable')
+    variant, _scenarios = fixture_scenarios(fixture_id)
+    base = base.rstrip('/')
+
+    def read(path):
+        got = http('GET', base + path, admin)
+        if not isinstance(got, dict) or got.get('status') != 200 or not isinstance(got.get('json'), dict):
+            raise ValueError('controller read failed: ' + path.split('?')[0][:80])
+        return got['json']
+
+    first = next((c for c in cases if c.get('scenario') == 'P10'), None)
+    if first is None or (first.get('receipt') or {}).get('status') != 'pass':
+        raise ValueError('the publishing case did not pass')
+    roles = first['receipt'].get('roles') or {}
+    key = first.get('agentPrincipal')
+    if not isinstance(key, str) or not KEY_ID.fullmatch(key):
+        raise ValueError('the runner-bound agent key is unknown')
+    principals = (key, 'api-key:' + key, 'apikey:api-key:' + key)
+    published = {}
+    for name in STUDIO_LAYERS:
+        service, layer = roles.get('created:service:' + name), roles.get('child:layer:' + name)
+        if service is None and layer is None:
+            continue
+        if not (isinstance(service, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
+                and type(layer) is int and layer >= 0):
+            raise ValueError('published role binding is malformed: ' + name)
+        published[name] = (service, layer)
+    if not published:
+        raise ValueError('stage three published no fixture layer')
+    events, cursor, pages = [], None, 0
+    while True:
+        pages += 1
+        if pages > AUDIT_MAX_PAGES:
+            raise ValueError('the audit trail has more pages than the handoff reads')
+        params = {'action': 'operation.completed', 'resourceType': 'operation_instance', 'from': started_at,
+                  'pageSize': AUDIT_PAGE_SIZE, **({'cursor': cursor} if cursor else {})}
+        body = read(AUDIT_PATH + '?' + urlencode(params))
+        if not isinstance(body.get('items'), list) or any(not isinstance(e, dict) for e in body['items']):
+            raise ValueError('an audit page could not be read')
+        events.extend(body['items'])
+        cursor = body.get('nextCursor')
+        if cursor in (None, ''):
+            break
+        if not isinstance(cursor, str):
+            raise ValueError('the audit cursor could not be read')
+
+    def instant(value):
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00')).astimezone(timezone.utc)
+    start, end = instant(started_at), instant(ended_at)
+    candidates = [e for e in events
+                  if e.get('actor') in principals and e.get('outcome') == 'Success'
+                  and e.get('action') in (None, 'operation.completed')
+                  and e.get('resourceType') in (None, 'operation_instance')
+                  and str(e.get('details', '')).split(';')[:2] == ['operationId=service.publish', 'status=Completed']
+                  and type(e.get('auditId')) is int and isinstance(e.get('resourceId'), str)
+                  and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', e['resourceId'])
+                  and start <= instant(e.get('timestamp')) <= end]
+    handles = {}
+    for event in candidates:
+        data = read('/api/v1/operations/handles/' + quote(event['resourceId'], safe='')).get('data') or {}
+        resources = data.get('resourceIds') if isinstance(data, dict) else None
+        if (isinstance(resources, dict) and data.get('operationInstanceId') == event['resourceId']
+                and data.get('operationId') == 'service.publish' and data.get('status') == 'Completed'):
+            handles.setdefault((resources.get('serviceName'), str(resources.get('layerId'))), []).append(event)
+    layers = {}
+    for name, (service, layer) in published.items():
+        matched = handles.get((service, str(layer))) or []
+        if len(matched) != 1:
+            raise ValueError(f'{name}: no unique completed agent publication in the stage window')
+        meta = read('/rest/services/' + quote(service, safe='') + '/FeatureServer/' + str(layer) + '?f=json')
+        fields = meta.get('fields')
+        if (not isinstance(fields, list) or not fields or not isinstance(meta.get('geometryType'), str)
+                or any(not isinstance(f, dict) or not isinstance(f.get('name'), str)
+                       or not isinstance(f.get('type'), str) for f in fields)):
+            raise ValueError(name + ': layer fields or geometry type could not be read')
+        layers[name] = {'service': service, 'layerId': layer,
+                        'operationInstanceId': matched[0]['resourceId'], 'auditId': matched[0]['auditId'],
+                        'geometryType': meta['geometryType'],
+                        'fields': [{'name': f['name'], 'type': f['type']} for f in fields]}
+    operations = {v['operationInstanceId'] for v in layers.values()}
+    actors = {e['actor'] for e in candidates if e['resourceId'] in operations}
+    if len(actors) != 1:
+        raise ValueError('stage-three publications name more than one principal')
+    principal = actors.pop()
+    tables = {}
+    records = ctx.private_dir / 'services' / 'corpus' / 'P10' / 'export' / 'controller-records'
+    import base64
+    for name in STUDIO_LAYERS:
+        path = records / ('import-' + name.replace('_', '-') + '.json')
+        body = json.loads(base64.b64decode(json.loads(path.read_bytes())['bodyBase64']))
+        table, schema = body.get('physicalTableName'), body.get('schema')
+        if not (isinstance(table, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table)
+                and isinstance(schema, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', schema)):
+            raise ValueError(name + ': imported table identity could not be read')
+        tables[name] = {'schema': schema, 'table': table}
+    for name in layers:
+        if (roles.get('seeded:table:' + name), roles.get('seeded:schema:' + name)) != \
+                (tables[name]['table'], tables[name]['schema']):
+            raise ValueError(name + ': published table differs from the imported fixture table')
+    connection = roles.get('seeded:connection:shelters')
+    if not isinstance(connection, str) or not connection:
+        raise ValueError('the fixture connection is unknown')
+    return {'schema': STUDIO_HANDOFF_SCHEMA, 'variant': variant, 'fixtureId': fixture_id, 'principal': principal,
+            'agentKeyId': key, 'startedAt': started_at, 'endedAt': ended_at, 'connectionId': connection,
+            'layers': layers, 'tables': tables}
 
 
 class StudioStage(DelegatingStage):
@@ -831,6 +983,7 @@ class StudioStage(DelegatingStage):
                'with the scripted customer, tools/agent_e2e_studio_arc.py) has not landed')
 
 
+HARNESS_CONTEXT_KEYS = ('studioHandoff',)
 AUDIT_PATH = '/api/v1/admin/observability/audit'
 AUDIT_PAGE_SIZE = 200       # the server's maximum pageSize (default 50)
 AUDIT_MAX_PAGES = 25
@@ -888,7 +1041,7 @@ def assistant_credit_row(ctx, started, principals_hook) -> dict:
 def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
     stages = {s['id']: s for s in arc['stages']}
     return {'setup': LocalSetup() if target == 'local-docker' else AwsSetup(), 'ops': OpsStage(),
-            'services': ServicesStage(tuple(stages['services']['scenarios'])),
+            'services': ServicesStage(tuple(stages['services']['scenarios']), stages['services'].get('developmentFaults')),
             'studio': StudioStage()}
 
 
@@ -1488,6 +1641,13 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
         outcome, cause = 'undetermined', 'harness fault did not fire'
     if (context.get('failure') or {}).get('category') == 'harness-error':
         outcome, cause = 'undetermined', 'harness error: ' + str(context['failure'].get('reason', ''))[:200]
+    if stage == 'services' and outcome == 'pass' and 'studioHandoff' in context \
+            and (context['studioHandoff'] or {}).get('status') != 'verified':
+        # The agent's stage-three work passed, but the harness could not read back what it published for stage
+        # four: a harness readback failure (undetermined, counted as a failed run), never the arm's, and stage
+        # four is never run on a partial handoff.
+        outcome, cause = 'undetermined', 'harness: stage-three handoff readback failed: ' + str(
+            (context['studioHandoff'] or {}).get('reason'))[:160]
     shutdown = context.get('shutdown')
     if shutdown and not shutdown.get('complete'):
         # The session, its credentials or its in-flight work could not be verifiably stopped: the
@@ -1605,6 +1765,11 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
         harness_unsafe = [str(r) for r in module.harness_unsafe(ctx)]
     except Exception:  # noqa: BLE001
         harness_unsafe = ['unreadable-harness-safety-record']   # conservative: an unknown is an attempt
+    try:
+        extra_context = {k: v for k, v in (module.harness_context(ctx) or {}).items() if k in HARNESS_CONTEXT_KEYS}
+    except Exception as exc:  # noqa: BLE001
+        extra_context = {'studioHandoff': {'status': 'failed', 'reason': 'harness context unreadable: '
+                                           + type(exc).__name__}} if stage == 'services' else {}
     elapsed = stage_elapsed
     context = {'approvals': approvals, 'scope': sorted(scope) if scope is not None else None,
                'approvedComposeSha256': (ctx.slot.facts.get('quickstart') or {}).get('composeSha256'),
@@ -1619,7 +1784,7 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                'sessions': (row['sessionRecords'] if isinstance(row.get('sessionRecords'), list) else
                             [{'cliVersion': p.get('cliVersion') if isinstance(p, dict) else None,
                               'agent': p.get('agent') if isinstance(p, dict) else None}
-                             for p in row.get('provenance') or []])}
+                             for p in row.get('provenance') or []]), **extra_context}
     secrets = ctx.slot.harness_secrets
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, handoff_r, context_r = red(actions), red(observations), red(handoff), red(context)
@@ -1856,6 +2021,14 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                 result = harness_error_stage(ctx, modules[stage], exc)
             receipt['stages'].append(result)
             outcomes[stage] = result['outcome']
+            if stage == 'services':
+                # Stage four works from what the agent published in stage three, as the harness read it back
+                # (#1198); it is set only on a services pass, otherwise Studio is blocked by the dependency.
+                verified = getattr(modules[stage], 'studio_handoff', None) or {}
+                slot.facts.pop('studioServices', None)
+                if result['outcome'] == 'pass' and verified.get('status') == 'verified':
+                    slot.facts['studioServices'] = verified['handoff']
+                    result['studioServicesSha256'] = sha256(canonical(verified['handoff']))
             answer_path = private / stage / 'final-answer.txt'
             if answer_path.is_file():
                 previous_answer = answer_path.read_text(encoding='utf-8')

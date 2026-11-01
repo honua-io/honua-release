@@ -273,7 +273,11 @@
         "P15"
       ],
       "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack.",
-      "goalSource": "The services stage sends no arc-authored goal: each scenario in stages[services].scenarios runs with its own development-pack prompt (held-out: unavailable), the first one after the plain handoff. Coverage is exactly those scenarios."
+      "goalSource": "Development and held-out runs take one path, #1196's fixture entry point (ai_arc_services.run_fixture_services): fixture town-<variant> with targets[local-docker].goals.services and developmentFaults[variant] in development; the case's fixture, sealed services goal and fault held-out. The committed fixture catalog assigns the scenarios, which must equal stages[services].scenarios; the agent publishes the imported fixture table itself. On a services pass the harness reads back from the controller what the agent published (service, layer, operation, audit event, fields, geometry type, connection and imported tables) and hands it to stage four; a readback failure is a harness-undetermined services outcome.",
+      "developmentFaults": {
+        "A": "http_503_once",
+        "B": "response_lost_after_commit"
+      }
     },
     {
       "id": "studio",
@@ -357,6 +361,10 @@
         "ops": {
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
           "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Something also seems broken since this morning; can you look into it and get it working again?"
+        },
+        "services": {
+          "A": "Our Kestrel shelter list was imported into Honua but nobody can see it yet. Please publish it, then show me only the Kestrel shelters that are open and can hold more than 50 people; leave out unknown capacities and ones that hold exactly 50. After that, share the Kestrel map with our operators only; it must stay private from the public and other teams.",
+          "B": "The Willow shelters table is loaded into Honua but isn't published. Can you make it available, then tell me which open shelters in Willow have room for more than 50 people? Skip any where we don't know the capacity. Then let our operator team open the Willow map without making it visible to everyone else."
         },
         "studio": {
           "A": "Make a Kestrel map in Studio with parcels underneath the flood zones and shelters on top. Make the flood zones blue and see-through, label shelters with their names, save it, and share it with our operators.",
