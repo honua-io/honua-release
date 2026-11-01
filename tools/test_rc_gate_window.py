@@ -719,3 +719,10 @@ def test_studio_customer_gate_is_required_and_candidate_bound():
         _run(1, conclusion="failure", report=_report(status="fail", certifying=False), run_id=2),
     ]}})
     assert not stale["admissible"]
+
+
+def test_gate_status_derivation_treats_unclean_teardown_as_undetermined():
+    """Sol 09e293be item 3: the gate derives status like run_status (an unclean teardown is never a completion)."""
+    import inspect
+    source = inspect.getsource(w)
+    assert 'if status == "completed" and t.get("teardownClean") is False:' in source

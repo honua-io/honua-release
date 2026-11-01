@@ -83,7 +83,14 @@ def _resolve(value, variant):
     return value
 
 
-def load_document(scenario_id):
+def load_document(scenario_id, profile=None):
+    if profile == 'studio-arc' and scenario_id == 'P08':
+        document = json.loads((ROOT / 'certification/ai-arc/studio-arc-expectations.json').read_text())
+        if document.get('schemaVersion') != 1 or document.get('scenario') != 'P08':
+            raise ValueError('invalid Studio arc expectation identity')
+        return document
+    if profile is not None:
+        raise ValueError('unsupported expectation profile')
     if not re.fullmatch(r'P\d\d', str(scenario_id)):
         raise ValueError('invalid scenario id')
     path = DIRECTORY / f'{scenario_id}.json'
@@ -113,7 +120,7 @@ READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replay
                'addresses'}
 
 
-def load_projections(scenario_id, variant):
+def load_projections(scenario_id, variant, profile=None):
     """Frozen per-assertion projections: {assertion: {"spec": ..., "reads": {step: rule}}}.
 
     The document's top-level "projections" applies to every variant; a variant may override an
@@ -122,7 +129,7 @@ def load_projections(scenario_id, variant):
     """
     if variant not in ('A', 'B'):
         raise ValueError('only development variants A and B are enabled')
-    document = load_document(scenario_id)
+    document = load_document(scenario_id, profile) if profile else load_document(scenario_id)
     rows = dict(document.get('projections') or {})
     rows.update((document.get('variantProjections') or {}).get(variant) or {})
     out = {}
@@ -147,10 +154,10 @@ ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'tot
                'created_by', 'parent', 'parent_link', 'owner_format', 'owner_any_of', 'sources'}
 
 
-def load_roles(scenario_id):
+def load_roles(scenario_id, profile=None):
     """Frozen logical-role bindings ("roles": [{role, step, pointer | items, id, owner, before, total | next_page}])."""
     from agent_e2e_local_api import RoleBinding
-    rows = load_document(scenario_id).get('roles') or []
+    rows = (load_document(scenario_id, profile) if profile else load_document(scenario_id)).get('roles') or []
     out = []
     for row in rows:
         if not isinstance(row, dict) or set(row) - ROLE_FIELDS or not ({'role', 'step'} <= set(row)

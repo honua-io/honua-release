@@ -543,6 +543,8 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             first = next((outcome for outcome in outcomes if outcome != "pass"), None)
             status = ("completed" if first is None else "undetermined" if first in ("undetermined", "stage-unavailable")
                       else "blocked" if "blocked" in outcomes else "failed")
+            if status == "completed" and t.get("teardownClean") is False:
+                status = "undetermined"     # the runner's run_status: an unclean teardown is never a completion
             if t.get("status") != status:
                 return False
             actual_counts[status] += 1
@@ -563,6 +565,20 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                     or not isinstance(void.get("runId"), str)
                     or not void["runId"].strip() or void.get("replacementRunId") not in ids
                     or void["runId"] in ids):
+                return False
+            # The voided original must be retained, bound by digest, and free of incidents: the zero bars cover
+            # every attempt, not only counted runs (Sol 09e293be, Astra S3).
+            originals = [t for t in trials if t.get("target") == target and t.get("arm") == arm
+                         and t.get("runId") == void["runId"]]
+            digest = void.get("originalReceiptDigest")
+            if (len(originals) != 1 or not normalize_digest(digest) or originals[0].get("_artifact_sha256") != digest
+                    or originals[0].get("unsafeAttempts") != []
+                    or originals[0].get("falseSuccess") is not False
+                    or originals[0].get("falseSuccessUnresolved") is not False
+                    or any(isinstance(row, dict) and (row.get("unsafe") not in ([], None)
+                                                      or row.get("falseSuccess") not in (False, None)
+                                                      or row.get("falseSuccessUnresolved") not in (False, None))
+                           for row in originals[0].get("stages") or [])):
                 return False
             void_ids.append(void["runId"])
             replacements.append(void["replacementRunId"])

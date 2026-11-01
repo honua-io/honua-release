@@ -124,7 +124,7 @@ def test_third_void_stops_the_campaign(tmp_path):
 def test_non_harness_finding_keeps_the_run_counted(tmp_path):
     log = []
     (tmp_path / 'adjudications').mkdir(parents=True)
-    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps({'finding': 'product-failure'}))
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(dict(GOOD, finding='product-failure')))
     C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
                    common=[], reserve_rows=RESERVE, wait_poll=0.01,
                    launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
@@ -246,3 +246,167 @@ def test_a_same_family_false_success_verdict_never_resumes(tmp_path):
                        common=[], wait_poll=0.01, max_wait=0.3, launch=flagged_launch(tmp_path, log))
     assert len(log) == 1 and 'other model family' in json.loads(
         (tmp_path / 'campaign-state.json').read_text())['rejectedAdjudications']['local-docker:A1:001']
+
+
+def test_a_failed_run_with_a_suspected_harness_fault_waits_for_adjudication(tmp_path):
+    """Astra S3: the barrier stops on a suspected harness defect whatever the receipt's status."""
+    def launch(row, slot):
+        path = Path(tmp_path) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'runId': row['runId'], 'status': 'failed', 'stages': [
+            {'stage': 'ops', 'outcome': 'fail', 'cause': 'harness fault did not fire', 'assertions': []}]}))
+        return 0
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=launch)
+    assert (tmp_path / 'PENDING-ADJUDICATION').read_text().strip() == 'local-docker:A1:001'
+
+
+@pytest.mark.parametrize('receipt,suspect', [
+    ({'stages': [{'outcome': 'pass'}]}, False),
+    ({'stages': [{'outcome': 'fail', 'cause': 'required assertions did not pass'}]}, False),
+    ({'stages': [{'outcome': 'undetermined'}]}, True),
+    ({'stages': [{'outcome': 'fail', 'cause': 'harness error: x'}]}, True),
+    ({'stages': [{'outcome': 'fail', 'assertions': [{'harnessFault': True}]}]}, True),
+    ({'stages': [], 'slotFacts': {'slotPreparation': {'status': 'failed'}}}, True),
+    ({'stages': [], 'slotFacts': {'slotPreparation': {'status': 'converged'}}}, False)])
+def test_suspected_harness_faults(receipt, suspect):
+    assert C.suspected_harness_fault(receipt) is suspect
+
+
+def test_an_operator_hold_stops_new_launches(tmp_path):
+    log = []
+    (tmp_path / 'HOLD').write_text('scorer defect suspected\n')
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(1), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=fake_launch(tmp_path, {}, log))
+    assert log == []
+
+
+def test_a_hold_placed_on_a_finished_run_stops_launches_until_adjudicated(tmp_path):
+    """Sol 09e293be item 2: per-run holds are checked before every launch, not only when a run finishes."""
+    log = []
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (tmp_path / 'holds').mkdir(exist_ok=True)
+            (tmp_path / 'holds' / 'local-docker-A1-001.hold').write_text('suspect scorer\n')
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.4, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']
+    assert (tmp_path / 'PENDING-ADJUDICATION').read_text().strip() == 'local-docker:A1:001'
+
+
+def test_a_hold_on_an_in_flight_run_blocks_other_free_slots(tmp_path):
+    log, release = [], threading.Event()
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (tmp_path / 'holds').mkdir(exist_ok=True)
+            (tmp_path / 'holds' / 'local-docker-A1-001.hold').write_text('watching\n')
+            release.wait(0.5)
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=2,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert len(log) <= 2, 'at most the run already launched beside it'
+
+
+
+@pytest.mark.parametrize('decision', [{}, {'finding': 'product-failure'}, dict(GOOD, finding='made-up'),
+                                      dict(GOOD, finding='product-failure', reviewerFamily='anthropic'),
+                                      dict(GOOD, finding='product-failure', adjudication='http://x')])
+def test_a_decision_that_keeps_the_run_counted_is_validated_too(tmp_path, decision):
+    """Sol 4ac23739 item 1: an empty or unsupported decision never clears the barrier."""
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(decision))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3,
+                       launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']
+
+
+def test_a_fresh_hold_after_an_adjudication_needs_a_fresh_decision(tmp_path):
+    """Sol 4ac23739 item 2: acknowledgement is bound to the hold generation it answered."""
+    log = []
+    holds = tmp_path / 'holds'
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            holds.mkdir(exist_ok=True)
+            (holds / 'local-docker-A1-001.hold').write_text('first\n')
+        if row['runId'].endswith('002'):
+            time.sleep(0.05)
+            (holds / 'local-docker-A1-001.hold').write_text('second: new scorer defect\n')
+    (tmp_path / 'adjudications').mkdir(parents=True)
+
+    def decide():
+        while not (holds / 'local-docker-A1-001.hold').is_file():
+            time.sleep(0.01)
+        time.sleep(0.05)
+        (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(dict(GOOD, finding='product-failure')))
+    threading.Thread(target=decide, daemon=True).start()
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=1.0, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:002']
+
+
+
+def test_a_hold_replaced_during_validation_stays_pending(tmp_path, monkeypatch):
+    """Sol 96b2546f: the acknowledged generation is the one captured before validation."""
+    import ai_arc_runner as AR
+    log = []
+    holds = tmp_path / 'holds'
+    holds.mkdir(parents=True)
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    real = AR.check_adjudication
+
+    def replacing(*a, **k):
+        time.sleep(0.01)
+        (holds / 'local-docker-A1-001.hold').write_text('replaced during validation\n')
+        return real(*a, **k)
+    monkeypatch.setattr(AR, 'check_adjudication', replacing)
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (holds / 'local-docker-A1-001.hold').write_text('first\n')
+            time.sleep(0.02)
+            (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(
+                json.dumps(dict(GOOD, finding='product-failure')))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.5, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']
+
+
+
+def test_a_harness_fault_decision_racing_a_new_hold_commits_no_void(tmp_path, monkeypatch):
+    """Sol e265bb02: the generation is checked before any void, reserve or replacement is committed."""
+    import ai_arc_runner as AR
+    log = []
+    holds = tmp_path / 'holds'
+    holds.mkdir(parents=True)
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    real = AR.check_adjudication
+
+    def replacing(*a, **k):
+        time.sleep(0.01)
+        (holds / 'local-docker-A1-001.hold').write_text('replaced during validation\n')
+        return real(*a, **k)
+    monkeypatch.setattr(AR, 'check_adjudication', replacing)
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (holds / 'local-docker-A1-001.hold').write_text('first\n')
+            time.sleep(0.02)
+            (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(GOOD))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], reserve_rows=RESERVE, wait_poll=0.01, max_wait=0.5,
+                       launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert json.loads((tmp_path / 'voids.json').read_text()) == [] if (tmp_path / 'voids.json').is_file() else True
+    state = json.loads((tmp_path / 'campaign-state.json').read_text())
+    assert state['voids'] == [] and state['reservesLeft'] == ['local-docker:A1:r01']
