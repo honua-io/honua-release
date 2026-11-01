@@ -2121,6 +2121,17 @@ def test_an_image_needing_redaction_is_withheld_whole_and_the_manifest_reconcile
     assert b'synthetic-harness-secret-01' not in b''.join(p.read_bytes() for p in out.iterdir())
 
 
+def test_a_local_receipt_without_the_pinned_quickstart_is_rejected(tmp_path):
+    """Sol 5b3b348d: removing or nulling the quickstart facts of a run whose setup ran fails verification."""
+    names, raws = campaign(tmp_path, [True])
+    for change in (lambda f: f.pop('quickstart'), lambda f: f.update(quickstart=None),
+                   lambda f: f['quickstart'].update(pageSha256='sha256:' + '0' * 64)):
+        doc = json.loads(raws[0])
+        change(doc['slotFacts'])
+        with pytest.raises(ValueError):
+            agg(tmp_path, names, [json.dumps(doc).encode()])
+
+
 def test_a_failed_harness_reconvergence_is_never_charged_to_the_arm(tmp_path):
     """Fable S1 / Astra B5: the arm's ops passes on its own work; a slot preparation the product refuses leaves
     services undetermined with a harness attribution, and the run is not a model failure."""
@@ -2159,17 +2170,6 @@ def test_a_converged_slot_preparation_in_context_is_never_a_harness_fault():
     out = R.score_stage(ARC, 'local-docker', 'services', [{'assertion': 'x', 'status': 'pass'}], [], None, None,
                         {'slotPreparation': {'status': 'timeout'}}, ARC['limits']['services'])
     assert out['outcome'] == 'undetermined' and 'slot preparation' in out['cause']
-
-
-def test_a_local_receipt_without_the_pinned_quickstart_is_rejected(tmp_path):
-    """Sol 5b3b348d: removing or nulling the quickstart facts of a run whose setup ran fails verification."""
-    names, raws = campaign(tmp_path, [True])
-    for change in (lambda f: f.pop('quickstart'), lambda f: f.update(quickstart=None),
-                   lambda f: f['quickstart'].update(pageSha256='sha256:' + '0' * 64)):
-        doc = json.loads(raws[0])
-        change(doc['slotFacts'])
-        with pytest.raises(ValueError):
-            agg(tmp_path, names, [json.dumps(doc).encode()])
 
 
 def test_restricted_directories_are_never_enumerated(monkeypatch):

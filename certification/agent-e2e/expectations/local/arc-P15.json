@@ -1,0 +1,518 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P15",
+  "derivation": "ARC profile reuses the prior agent-published shelters service and the frozen P15 map and access expectations.",
+  "variants": {
+    "A": {
+      "publication.private": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:operator"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": null,
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": [
+              401,
+              403
+            ]
+          }
+        ],
+        "versionId": {
+          "$role": "seeded:map:version"
+        },
+        "contentHash": {
+          "$role": "seeded:map:hash"
+        },
+        "visibility": "team",
+        "operatorId": {
+          "$role": "seeded:principal:operator"
+        },
+        "operatorPermissions": [
+          "read:*"
+        ],
+        "operatorStatus": "active",
+        "operatorActive": true
+      },
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      },
+      "custody.bootstrap-revoked": {
+        "bootstrapPrincipalId": {
+          "$role": "seeded:principal:bootstrap"
+        },
+        "revokedCredentialIds": [
+          {
+            "$role": "seeded:principal:bootstrap"
+          }
+        ],
+        "postRevocationProbeStatus": 401
+      },
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s1",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "Kestrel Central",
+                    "source_id": "s1"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19400,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s2",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "Kestrel Central",
+                    "source_id": "s2"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -18800,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s3",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s3"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19100,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s4",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s4"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19700,
+                      -4700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s5",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s5"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -20000,
+                      -4700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "B": {
+      "publication.private": {
+        "requests": [
+          {
+            "principalId": {
+              "$role": "seeded:principal:operator"
+            },
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": 200
+          },
+          {
+            "principalId": null,
+            "method": "GET",
+            "resourceId": {
+              "$role": "seeded:map:item"
+            },
+            "status": [
+              401,
+              403
+            ]
+          }
+        ],
+        "versionId": {
+          "$role": "seeded:map:version"
+        },
+        "contentHash": {
+          "$role": "seeded:map:hash"
+        },
+        "visibility": "team",
+        "operatorId": {
+          "$role": "seeded:principal:operator"
+        },
+        "operatorPermissions": [
+          "read:*"
+        ],
+        "operatorStatus": "active",
+        "operatorActive": true
+      },
+      "tenant.denied": {
+        "$excluded": "tenant.denied"
+      },
+      "custody.bootstrap-revoked": {
+        "bootstrapPrincipalId": {
+          "$role": "seeded:principal:bootstrap"
+        },
+        "revokedCredentialIds": [
+          {
+            "$role": "seeded:principal:bootstrap"
+          }
+        ],
+        "postRevocationProbeStatus": 401
+      },
+      "custody.worker-replaced": {
+        "$excluded": "custody.worker-replaced@local-docker"
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s101",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s101"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13300,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s102",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s102"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      14200,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s103",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s103"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13600,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s104",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s104"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13900,
+                      -7700
+                    ]
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s105",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s105"
+                  },
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13000,
+                      -7700
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "roles": [
+    {
+      "role": "seeded:map:item",
+      "step": "p15-map-saved",
+      "pointer": "/data/itemId"
+    },
+    {
+      "role": "seeded:map:version",
+      "step": "p15-map-saved",
+      "pointer": "/data/versionId"
+    },
+    {
+      "role": "seeded:map:hash",
+      "step": "p15-map-saved",
+      "pointer": "/data/contentHash"
+    },
+    {
+      "role": "seeded:principal:operator",
+      "step": "runner-principal-operator",
+      "pointer": "/data/apiKey/id"
+    },
+    {
+      "role": "seeded:principal:bootstrap",
+      "step": "runner-custody-mint-bootstrap",
+      "pointer": "/data/apiKey/id"
+    },
+    {
+      "role": "seeded:service:shelters",
+      "step": "arc-p15-service-meta",
+      "pointer": "/serviceName"
+    },
+    {
+      "role": "seeded:layer:shelters",
+      "step": "arc-p15-service-meta",
+      "pointer": "/layers/0/id"
+    }
+  ],
+  "customerFiles": {
+    "A": [],
+    "B": []
+  },
+  "projections": {
+    "publication.private": {
+      "spec": {
+        "object": {
+          "requests": {
+            "each": [
+              "p15-operator",
+              "p15-anonymous"
+            ],
+            "to": {
+              "object": {
+                "principalId": {
+                  "principal": "$step"
+                },
+                "method": {
+                  "method": "$step"
+                },
+                "resourceId": {
+                  "body": "p15-operator",
+                  "pointer": "/data/itemId"
+                },
+                "status": {
+                  "status": "$step"
+                },
+                "responseSha256": {
+                  "sha256": "$step"
+                },
+                "disclosedResourceIds": {
+                  "disclosed": "$step",
+                  "roles": [
+                    "seeded:map:item"
+                  ]
+                }
+              }
+            }
+          },
+          "versionId": {
+            "body": "p15-operator",
+            "pointer": "/data/versionId"
+          },
+          "contentHash": {
+            "body": "p15-operator",
+            "pointer": "/data/contentHash"
+          },
+          "visibility": {
+            "body": "p15-operator",
+            "pointer": "/data/visibility"
+          },
+          "operatorId": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/id"
+          },
+          "operatorPermissions": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/permissions"
+          },
+          "operatorStatus": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/status"
+          },
+          "operatorActive": {
+            "body": "p15-operator-grants",
+            "pointer": "/data/canAuthenticate"
+          }
+        }
+      },
+      "reads": {
+        "p15-operator": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/published(?:/[A-Za-z0-9_-]{1,100}){1,8}",
+          "principal": "operator",
+          "phase": "observe"
+        },
+        "p15-anonymous": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/published(?:/[A-Za-z0-9_-]{1,100}){1,8}",
+          "principal": "anonymous",
+          "phase": "observe"
+        },
+        "p15-operator-grants": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/api-keys/[^/]+/effective-permissions",
+          "principal": "controller",
+          "phase": "observe"
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "shelters",
+            "before": "p15-source-before",
+            "after": "p15-source-after",
+            "resource": [
+              {
+                "role": "seeded:service:shelters",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:shelters",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "reads": {
+        "p15-source-before": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=source_id%2Cname%2Ccapacity%2Cis_open&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p15-source-after": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=source_id%2Cname%2Ccapacity%2Cis_open&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        }
+      }
+    },
+    "custody.bootstrap-revoked": {
+      "spec": {
+        "object": {
+          "bootstrapPrincipalId": {
+            "custody": "bootstrapPrincipalId"
+          },
+          "revokedCredentialIds": {
+            "custody": "bootstrapRevokedCredentialIds"
+          },
+          "postRevocationProbeStatus": {
+            "status": "p15-bootstrap-probe"
+          }
+        }
+      },
+      "reads": {
+        "p15-bootstrap-probe": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/api-keys/",
+          "principal": "bootstrap",
+          "phase": "observe"
+        }
+      }
+    }
+  }
+}
