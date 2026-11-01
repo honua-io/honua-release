@@ -6,6 +6,13 @@ import pytest
 from agent_e2e_studio_stage import load_development_case, studio_provider_environment
 
 
+def test_development_pack_matches_arc_assertion_source():
+    from ai_arc_runner import PACK_PATH
+    from agent_e2e_studio_stage import RESTORED_PACK, RESTORED_PACK_DIGEST
+    assert RESTORED_PACK == PACK_PATH
+    assert RESTORED_PACK_DIGEST == 'sha256:' + hashlib.sha256(PACK_PATH.read_bytes()).hexdigest()
+
+
 def test_pack_is_digest_bound_and_only_accepts_ab(tmp_path):
     path = tmp_path / 'pack.v2.AB-only.json'
     data = {'scenarios': [{'id': 'P08', 'prompts': {'A': 'map', 'B': 'map B'}, 'assertions': ['render.actual']}]}
