@@ -116,3 +116,41 @@ def test_zero_tests_and_wrong_suite_revision_are_rejected():
     values[1]["suiteSourceRevision"] = "c" * 40
     with pytest.raises(ValueError):
         g.validate_evidence(*values)
+
+
+def test_dispatch_uses_verified_tag_at_exact_console_commit(monkeypatch):
+    refs = {}
+    calls = []
+    sha = 'a' * 40
+    def fake_gh(*args, json_output=False):
+        calls.append(args)
+        if args[:2] == ('api', '--method'):
+            assert args[2:4] == ('POST', f'repos/{g.REPO}/git/refs')
+            ref = next(x[4:] for x in args if x.startswith('ref='))
+            target = next(x[4:] for x in args if x.startswith('sha='))
+            refs[ref] = target
+            return ''
+        if args[0] == 'api':
+            ref = 'refs/' + args[1].split('/git/ref/', 1)[1]
+            return {'object': {'type': 'commit', 'sha': refs[ref]}}
+        if args[:2] == ('workflow', 'run'):
+            ref = args[args.index('--ref') + 1]
+            assert ref in refs and refs[ref] == sha  # GitHub rejects a raw commit SHA.
+            return ''
+        raise AssertionError(args)
+    monkeypatch.setattr(g, 'gh', fake_gh)
+    selected = g.resolve_pins({'components': pins()})
+    g.dispatch_customer(selected, 'release-test')
+    assert any(call[:2] == ('workflow', 'run') for call in calls)
+
+
+def test_dispatch_rejects_tag_pointing_to_another_commit(monkeypatch):
+    def fake_gh(*args, json_output=False):
+        if args[:2] == ('api', '--method'):
+            return ''
+        if args[0] == 'api':
+            return {'object': {'type': 'commit', 'sha': 'f' * 40}}
+        raise AssertionError('must not dispatch a mismatched tag')
+    monkeypatch.setattr(g, 'gh', fake_gh)
+    with pytest.raises(ValueError, match='tag'):
+        g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test')

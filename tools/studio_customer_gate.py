@@ -79,6 +79,21 @@ def gh(*args: str, json_output: bool = False):
     return json.loads(result.stdout) if json_output else result.stdout
 
 
+def dispatch_customer(pins: dict, dispatch_id: str) -> None:
+    # GitHub workflow dispatch accepts a branch or tag, not a raw commit SHA.
+    # A fresh tag per dispatch avoids moving or trusting an existing ref.
+    tag = f'studio-customer-gate/{dispatch_id}'
+    ref = f'refs/tags/{tag}'
+    sha = pins['console']['sha']
+    gh('api', '--method', 'POST', f'repos/{REPO}/git/refs', '-f', f'ref={ref}', '-f', f'sha={sha}')
+    target = gh('api', f'repos/{REPO}/git/ref/tags/{tag}', json_output=True).get('object', {})
+    if target.get('type') != 'commit' or target.get('sha') != sha:
+        raise ValueError('Console dispatch tag does not resolve to the pinned commit')
+    gh('workflow', 'run', WORKFLOW, '--repo', REPO, '--ref', ref,
+       '-f', 'suite=studio-customer', '-f', f'dispatch_id={dispatch_id}',
+       '-f', f'console_image={pins["console"]["image"]}', '-f', f'server_image={pins["server"]["image"]}')
+
+
 def one_file(root: Path, name: str) -> dict:
     files = list(root.rglob(name))
     if len(files) != 1:
@@ -108,9 +123,7 @@ def main() -> int:
               'consoleSha': pins['console']['sha'], 'consoleDigest': pins['console']['digest'],
               'dispatchId': dispatch_id}
     try:
-        gh('workflow', 'run', WORKFLOW, '--repo', REPO, '--ref', pins['console']['sha'],
-           '-f', 'suite=studio-customer', '-f', f'dispatch_id={dispatch_id}',
-           '-f', f'console_image={pins["console"]["image"]}', '-f', f'server_image={pins["server"]["image"]}')
+        dispatch_customer(pins, dispatch_id)
         deadline = time.monotonic() + 2700
         run = None
         while time.monotonic() < deadline:
