@@ -82,7 +82,7 @@ class FakeManager:
 
 
 class Vm:
-    http_port, remote_dir, project = 18180, '/tmp/honua-arc-p', 'arc-p'
+    http_port, remote_dir, project = 18180, '/home/ubuntu/honua-arc/arc-p', 'arc-p'
 
     def __init__(self, stop_ok=True):
         self.scripts, self.stop_ok = [], stop_ok
@@ -468,7 +468,7 @@ def test_the_executor_composition_follows_the_lifecycle_proof_at_the_arc_pin(tmp
     script = c.slot.vm.scripts[-1]
     for name, value in (('HONUA_RELEASE_IMAGE', CAND), ('HONUA_RELEASE_WORKER_IMAGE', CAND),
                         ('HONUA_PRIOR_MAX_SCHEMA', '140'), ('DOCKER_GID', '988'), ('HONUA_MANAGER_PORT', '18183'),
-                        ('COMPOSE_PROJECT_NAME', 'arc-p'), ('HONUA_COMPOSE_PROJECT_DIRECTORY', '/tmp/honua-arc-p')):
+                        ('COMPOSE_PROJECT_NAME', 'arc-p'), ('HONUA_COMPOSE_PROJECT_DIRECTORY', '/home/ubuntu/honua-arc/arc-p')):
         assert f'{name} {value}' in script, name
     assert 'chown -R 1001:988' in script and '-f compose.executor.yaml up -d --wait' in script
     assert facts['kind'] == 'development-composition' and facts['revision'] == c.arc['opsComposition']['revision']

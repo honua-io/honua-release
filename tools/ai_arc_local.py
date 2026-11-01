@@ -66,6 +66,12 @@ def slot_ports(index: int) -> tuple[int, int]:
     return http, http + 1
 
 
+def slot_directory(user: str, project: str) -> str:
+    """The slot's directory on the eval VM: /home/<user>/honua-arc/<project> (/root/... for root)."""
+    home = '/root' if user == 'root' else '/home/' + user
+    return f'{home}/honua-arc/{project}'
+
+
 @dataclass
 class VmSlot:
     host: str
@@ -80,7 +86,9 @@ class VmSlot:
     def __post_init__(self):
         if not HOST.fullmatch(self.host) or not HOST.fullmatch(self.user) or not SLOT.fullmatch(self.project):
             raise ValueError('invalid VM slot identity')
-        self.remote_dir = '/tmp/honua-arc-' + self.project
+        # On the VM's real disk, under the run user's home (not /tmp: Studio rejects it, and the lane rules forbid
+        # it). One directory per slot project; created mode 0700 and removed at teardown.
+        self.remote_dir = slot_directory(self.user, self.project)
         self.http_port, self.grpc_port = slot_ports(self.index)
 
     # -- controller SSH (never handed to the model) ------------------------------------------
@@ -113,6 +121,7 @@ class VmSlot:
         fence = 'HONUA_ENV_' + pysecrets.token_hex(8)
         script = (
             'set -eu\numask 077\n'
+            f'mkdir -p -m 700 -- {shlex.quote(str(Path(self.remote_dir).parent))}\n'
             f'mkdir -m 700 -- {shlex.quote(self.remote_dir)}\ncd -- {shlex.quote(self.remote_dir)}\n'
             f"cat > .env <<'{fence}'\n{env}{fence}\n"
             + (f"cat > compose.yaml <<'{fence}C'\n{compose}{fence}C\n" if compose else '')
