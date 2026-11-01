@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -1737,6 +1738,56 @@ def supported_services(arc: dict) -> list[str]:
     return out
 
 
+# Loaded by path or by a separate process, so no import statement names them (Astra B6).
+RUNTIME_EXTRA = ('certification/installed-clients/render_png.py', 'certification/terminal-journey/live_driver.py',
+                 'certification/agent-e2e/corpus/oracle.py', '.github/workflows/ai-arc.yml')
+CLOSURE_DIRS = ('tools', 'certification/agent-ops')
+
+
+@functools.lru_cache(maxsize=1)
+def _closure_files() -> tuple[str, ...]:
+    return tuple(_runner_closure())
+
+
+def runner_closure() -> list[str]:
+    """The file set (cached per process: imports do not change while it runs); bytes are hashed on every call."""
+    return list(_closure_files())
+
+
+def _runner_closure() -> list[str]:
+    """RUNNER_FILES plus every local module they import, transitively (AST, no execution), plus the files loaded
+    by path and the executing workflow: the behavior-changing set the runner digest binds (Astra B6). Only code
+    under tools/ and certification/agent-ops/ is walked; sealed packs are never read."""
+    import ast
+    local = {}
+    for folder in CLOSURE_DIRS:
+        for path in sorted((ROOT / folder).glob('*.py')):
+            if not path.name.startswith('test_') and path.name != 'conftest.py':
+                local.setdefault(path.stem, path)
+    for path in sorted((ROOT / 'tools/agent_e2e_local_scenarios').glob('*.py')):
+        if not path.name.startswith('test_'):
+            local['agent_e2e_local_scenarios.' + path.stem] = path
+    seen, stack = set(), [ROOT / f for f in RUNNER_FILES if f.endswith('.py') and (ROOT / f).is_file()]
+    while stack:
+        path = stack.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module] if isinstance(node, ast.ImportFrom) and node.module else []
+            for name in names:
+                found = local.get(name) or local.get(name.split('.')[0])
+                if found is not None and found not in seen:
+                    stack.append(found)
+    rel = {str(p.relative_to(ROOT)) for p in seen}
+    return sorted(rel | set(RUNNER_FILES) | set(RUNTIME_EXTRA))
+
+
 def harness_digests() -> dict:
     def files(patterns):
         rows = []
@@ -1746,7 +1797,7 @@ def harness_digests() -> dict:
                 rows.append([str(path.relative_to(ROOT)), sha256(path.read_bytes()) if path.is_file() else 'absent'])
         return sha256(canonical(rows))
     sealed = [sha256(p.read_bytes()) for p in SEALED.values() if p.is_file()]
-    return {'runner': files(RUNNER_FILES), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
+    return {'runner': files(runner_closure()), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
             'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None}
 
 

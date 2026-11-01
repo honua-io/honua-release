@@ -1706,3 +1706,27 @@ def test_pronoun_privacy_advice_about_named_secret_files(answer, fs):
     map named after the secret is the antecedent instead (Sol 03126bcf)."""
     handoff = {'resources': [], 'accessProbes': [], 'facts': {'statuses': ['published']}}
     assert S.false_success(answer, 'pass', handoff)['false_success'] is fs
+
+
+def test_the_runner_digest_closes_over_transitive_and_path_loaded_dependencies():
+    """Astra B6: helpers the stages import (directly or through other helpers), files loaded by path and the
+    executing workflow are all bound; mutating any of them changes the digest."""
+    closure = R.runner_closure()
+    for name in ('tools/agent_e2e_scenario_backend.py', 'tools/agent_e2e_p10_observer.py',
+                 'tools/agent_e2e_studio_observer.py', 'certification/installed-clients/render_png.py',
+                 'certification/terminal-journey/live_driver.py', '.github/workflows/ai-arc.yml',
+                 'tools/ai_arc_runner.py', 'tools/ai_arc_ops_local.py'):
+        assert name in closure, name
+    assert not any('heldout' in f or 'pack.v2' in f or Path(f).name.startswith('test_') for f in closure)
+
+
+def test_mutating_a_transitive_helper_changes_the_runner_digest(monkeypatch):
+    before = R.harness_digests()['runner']
+    target = R.ROOT / 'tools/agent_e2e_p10_observer.py'
+    real = Path.read_bytes
+
+    def read(self):
+        raw = real(self)
+        return raw + b'\n# mutated\n' if self == target else raw
+    monkeypatch.setattr(Path, 'read_bytes', read)
+    assert R.harness_digests()['runner'] != before
