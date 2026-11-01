@@ -1845,7 +1845,77 @@ def case_namespace(prefix, workdir):
     return prefix + '_' + hashlib.sha256(str(workdir).encode()).hexdigest()[:16]
 
 
-def seed_case(scenario_id, stack, variant, *, create_map):
+def stage3_layers(recorder, handoff, variant):
+    """Re-read each stage-three publication handle and audit with controller credentials."""
+    from datetime import datetime, timezone
+    from urllib.parse import quote
+    require(isinstance(handoff, dict) and handoff.get('variant') == variant
+            and handoff.get('fixtureId') == 'town-' + variant
+            and isinstance(handoff.get('principal'), str) and handoff['principal']
+            and isinstance(handoff.get('layers'), dict) and set(handoff['layers']) == set(LAYER_NAMES),
+            'stage-three service handoff is unavailable')
+    key = handoff.get('agentKeyId')
+    require(isinstance(key, str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', key)
+            and handoff['principal'] in (key, 'api-key:' + key, 'apikey:api-key:' + key),
+            'stage-three principal is not the runner-bound agent key')
+    def instant(value):
+        try:
+            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            require(value.tzinfo is not None, 'stage-three timestamp lacks timezone')
+            return value.astimezone(timezone.utc)
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ProjectionError('invalid stage-three timestamp') from exc
+    start, end = instant(handoff.get('startedAt')), instant(handoff.get('endedAt'))
+    require(start <= end, 'stage-three time window is invalid')
+    events, cursor = {}, None
+    for page in range(20):
+        path = '/api/v1/admin/observability/audit?pageSize=200'
+        if cursor is not None:
+            path += '&cursor=' + quote(cursor, safe='')
+        answer = recorder.json(f'stage3-audit-{page}', 'GET', path)['observation']
+        body = answer.get('body')
+        require(answer.get('httpStatus') == 200 and isinstance(body, dict) and isinstance(body.get('items'), list),
+                'stage-three audit is unavailable')
+        for event in body['items']:
+            require(isinstance(event, dict) and type(event.get('auditId')) is int and event['auditId'] not in events,
+                    'stage-three audit is malformed')
+            events[event['auditId']] = event
+        cursor = body.get('nextCursor')
+        if cursor is None:
+            break
+        require(isinstance(cursor, str) and 0 < len(cursor) <= 2048, 'invalid audit cursor')
+    else:
+        raise ProjectionError('stage-three audit is incomplete')
+    layers = {}
+    for name, slug in SOURCE_LAYERS:
+        item = handoff['layers'][name]
+        require(isinstance(item, dict) and isinstance(item.get('service'), str)
+                and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', item['service'])
+                and type(item.get('layerId')) is int and item['layerId'] >= 0
+                and isinstance(item.get('operationInstanceId'), str)
+                and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', item['operationInstanceId'])
+                and type(item.get('auditId')) is int, 'invalid stage-three layer binding')
+        event = events.get(item['auditId'])
+        require(isinstance(event, dict) and event.get('resourceId') == item['operationInstanceId']
+                and event.get('resourceType') == 'operation_instance' and event.get('action') == 'operation.completed'
+                and event.get('actor') == handoff['principal'] and event.get('outcome') == 'Success'
+                and event.get('details', '').split(';')[:2] == ['operationId=service.publish', 'status=Completed']
+                and start <= instant(event.get('timestamp')) <= end, 'stage-three publish audit does not match')
+        answer = recorder.json('publish-' + slug + '-submit', 'GET',
+                               '/api/v1/operations/handles/' + item['operationInstanceId'])['observation']
+        data = answer.get('body', {}).get('data', {})
+        resources = data.get('resourceIds', {}) if isinstance(data, dict) else {}
+        require(answer.get('httpStatus') == 200 and data.get('operationInstanceId') == item['operationInstanceId']
+                and data.get('operationId') == 'service.publish' and data.get('status') == 'Completed'
+                and resources.get('serviceName') == item['service']
+                and str(resources.get('layerId')) == str(item['layerId']), 'stage-three publish handle differs')
+        layers[name] = {'service': item['service'], 'layerId': item['layerId']}
+    require(len({(v['service'], v['layerId']) for v in layers.values()}) == len(LAYER_NAMES),
+            'stage-three layer identities collide')
+    return layers
+
+
+def seed_case(scenario_id, stack, variant, *, create_map, external_handoff=None):
     from agent_e2e_local_api import Seeded
     key = scenario_id.lower() + 'Seed'
     if key in stack.extra:
@@ -1879,7 +1949,11 @@ def seed_case(scenario_id, stack, variant, *, create_map):
     stack.extra['studioFixtureDir'] = str(fixture_dir)
     recorder = stack.extra['recorder']
     prefix = scenario_id.lower()
-    if scenario_id == 'P24':
+    if external_handoff is not None:
+        require(scenario_id == 'P08' and not create_map, 'handoff is only supported for new arc maps')
+        layers = stage3_layers(recorder, external_handoff, variant)
+        stack.extra['arcLineageVerified'] = True
+    elif scenario_id == 'P24':
         layers = dict(stack.extra.get('publishedLayers') or {})
     else:
         from agent_e2e_local_scenarios.w2g3_common import town_setup

@@ -66,7 +66,7 @@ def test_ui_evidence_rejects_mcp_only_wrong_actor_and_wrong_map(tmp_path):
     # Re-seal the changed controller observation to isolate the principal check.
     records['studio-audit-after-0'] = record(records['studio-audit-after-0'].json,
                                               records['studio-audit-after-0'].recorded_at)
-    with pytest.raises(ValueError, match='audit events'):
+    with pytest.raises(ValueError, match='another principal'):
         ui_provenance(records, rows, customer, handle_lookup)
     records, rows, customer, handle_lookup = evidence(tmp_path)
     records['p08-version'] = record({'data': {'itemId': 'different', 'versionId': 'version',
@@ -182,3 +182,102 @@ def test_p08_never_seeds_a_saved_map(monkeypatch):
     monkeypatch.setattr(module, 'seed_case', lambda *args, **kwargs: seen.append((args, kwargs)))
     module.P08().seed(object(), 'A')
     assert seen[0][1]['create_map'] is False
+
+
+def test_cli_surface_excludes_studio_writes_and_future_unknown_tools():
+    from agent_e2e_studio_arc import studio_cli_tool_view
+    names = ['honua_studio_add_layer', 'honua_studio_save_version', 'honua_studio_future_write',
+             'honua_studio_get_draft', 'honua_studio_get_version', 'honua_query']
+    result = studio_cli_tool_view({'tools': [{'name': n} for n in names]})
+    assert [row['name'] for row in result['tools']] == names[3:]
+
+
+def test_other_principal_mcp_edit_between_ui_create_and_save_fails(tmp_path):
+    records, rows, customer, lookup = evidence(tmp_path)
+    audit = records['studio-audit-after-0'].json
+    audit['items'].append({'auditId': 3, 'action': 'operation.completed', 'resourceType': 'operation_instance',
+        'actor': 'apikey:other', 'outcome': 'Success', 'resourceId': 'handle3',
+        'timestamp': audit['items'][0]['timestamp'], 'details': 'operationId=studio.draft.update;status=Completed'})
+    records['studio-audit-after-0'] = record(audit, records['studio-audit-after-0'].recorded_at)
+    def mixed_lookup(key):
+        if key == 'handle3':
+            return {'operationInstanceId': key, 'resourceIds': {'draftId': 'draft', 'itemId': 'item'}}
+        return lookup(key)
+    with pytest.raises(ValueError, match='another principal'):
+        ui_provenance(records, rows, customer, mixed_lookup)
+    with pytest.raises(ValueError, match='unresolved'):
+        ui_provenance(records, rows, customer, lambda key: None if key == 'handle3' else lookup(key))
+    def unrelated(key):
+        if key == 'handle3':
+            return {'operationInstanceId': key, 'resourceIds': {'draftId': 'unrelated', 'itemId': 'unrelated'}}
+        return lookup(key)
+    assert ui_provenance(records, rows, customer, unrelated)
+
+
+def test_sharing_requires_authenticated_colleague_and_denied_outsider():
+    from agent_e2e_studio_arc import sharing_from_records
+    version = {'itemId': 'item', 'versionId': 'version', 'contentHash': 'hash'}
+    def response(body, principal, identity, status=200, path='/map'):
+        row = record(body, '2026-11-01T00:00:00Z')
+        row.principal, row.principal_id, row.status, row.path = principal, identity, status, path
+        return row
+    records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z'),
+        'studio-share-colleague-auth': response({}, 'agent-user', 'colleague'),
+        'studio-share-outsider-auth': response({}, 'agent-user', 'outsider'),
+        'studio-share-colleague': response({'data': version}, 'agent-user', 'colleague'),
+        'studio-share-outsider': response({}, 'agent-user', 'outsider', 403),
+        'studio-share-anonymous': response({}, 'anonymous', None, 401)}
+    assert sharing_from_records(records)
+    records['studio-share-outsider'].status = 200
+    assert not sharing_from_records(records)
+    records['studio-share-outsider'].status = 403
+    records['studio-share-colleague'] = response({'data': {'itemId': 'item', 'versionId': 'other', 'contentHash': 'hash'}}, 'agent-user', 'colleague')
+    assert not sharing_from_records(records)
+    records['studio-share-outsider-auth'].status = 401
+    assert not sharing_from_records(records)
+
+
+def test_stage3_handoff_requires_controller_audit_and_handles():
+    from agent_browser_studio import stage3_layers
+    names = ('parcels', 'flood_zones', 'shelters')
+    handoff = {'variant': 'A', 'fixtureId': 'town-A', 'principal': 'api-key:customer', 'agentKeyId': 'customer',
+        'startedAt': '2026-11-01T00:00:00Z', 'endedAt': '2026-11-01T00:10:00Z',
+        'layers': {name: {'service': 'svc' + str(i), 'layerId': i, 'operationInstanceId': 'op_' + str(i),
+                          'auditId': i + 1} for i, name in enumerate(names)}}
+    events = [{'auditId': i + 1, 'resourceId': 'op_' + str(i), 'resourceType': 'operation_instance',
+        'action': 'operation.completed', 'outcome': 'Success', 'actor': 'api-key:customer',
+        'timestamp': '2026-11-01T00:05:00Z', 'details': 'operationId=service.publish;status=Completed'}
+        for i in range(3)]
+    class Recorder:
+        def __init__(self): self.calls = []
+        def json(self, step, method, path):
+            self.calls.append((step, method, path))
+            if step == 'stage3-audit-0': return {'observation': {'httpStatus': 200, 'body': {'items': events}}}
+            index = int(path.rsplit('_', 1)[-1])
+            return {'observation': {'httpStatus': 200, 'body': {'data': {
+                'operationInstanceId': 'op_' + str(index), 'operationId': 'service.publish', 'status': 'Completed',
+                'resourceIds': {'serviceName': 'svc' + str(index), 'layerId': index}}}}}
+    rec = Recorder()
+    layers = stage3_layers(rec, handoff, 'A')
+    assert layers['parcels'] == {'service': 'svc0', 'layerId': 0}
+    assert all(method == 'GET' for _, method, _ in rec.calls)
+    events[1]['actor'] = 'other'
+    with pytest.raises(ValueError, match='audit'):
+        stage3_layers(Recorder(), handoff, 'A')
+    with pytest.raises(ValueError, match='handoff'):
+        stage3_layers(Recorder(), None, 'A')
+
+
+def test_recording_proxy_cannot_forward_removed_studio_mutation(tmp_path):
+    from agent_cli_sessions import RecordingProxy
+    from agent_e2e_studio_arc import studio_cli_tool_view
+    calls = []
+    catalog = studio_cli_tool_view({'tools': [{'name': 'honua_studio_add_layer'}, {'name': 'honua_query'}]})
+    proxy = RecordingProxy(catalog, lambda *args: calls.append(args), tmp_path, 1, 10, server_name='honua')
+    try:
+        assert [row['name'] for row in proxy.rpc('tools/list', {})['tools']] == ['honua_query']
+        with pytest.raises(ValueError, match='unadvertised'):
+            proxy.rpc('tools/call', {'name': 'honua_studio_add_layer', 'arguments': {}})
+        assert not calls
+    finally:
+        proxy.server.server_close()

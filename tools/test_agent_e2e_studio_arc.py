@@ -121,6 +121,14 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
     assert stack.compose_project == 'arc-12345678'
     assert stack.extra['needsStudioIdentity'] is True
     assert stack.extra['studioSigningKey'] == 'x' * 48
+    import base64
+    readers = stack.extra['studioReaderSubjects']
+    assert len(set(readers.values())) == 2
+    tokens = [value for value in runtime._secrets if isinstance(value, str) and value.startswith('Bearer ')]
+    claims = [json.loads(base64.urlsafe_b64decode((payload := token.split('.')[1]) + '=' * (-len(payload) % 4)))
+              for token in tokens]
+    assert {row['sub'] for row in claims} == set(readers.values())
+    assert all(row['scope'] == 'honua.mcp.read' and row['roles'] == ['reader'] for row in claims)
     assert callable(stack.extra['startConsole']) and callable(stack.extra['ensureConnection'])
     assert calls[0][1] == ['admin:write']
     assert runtime.pack_sha256 == 'sha256:' + 'b' * 64

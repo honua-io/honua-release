@@ -49,6 +49,19 @@ def _events(records, when):
     return events
 
 
+def studio_cli_tool_view(tool_view):
+    """Only known read-only Studio tools are available to CLI browser arms."""
+    if not isinstance(tool_view, dict) or not isinstance(tool_view.get('tools'), list):
+        raise ValueError('invalid server tool catalog')
+    reads = {'honua_studio_get_draft', 'honua_studio_get_version',
+             'honua_studio_preview_draft', 'honua_studio_validate_draft'}
+    tools = tool_view['tools']
+    if any(not isinstance(row, dict) or not isinstance(row.get('name'), str) for row in tools):
+        raise ValueError('invalid server tool entry')
+    return {**tool_view, 'tools': [row for row in tools
+        if not row['name'].startswith('honua_studio_') or row['name'] in reads]}
+
+
 def ui_provenance(records, session_rows, customer, handle_lookup):
     """Join signed-in browser lifecycle responses to immutable version and customer audit."""
     version = _record(records, 'p08-version')['data']
@@ -58,6 +71,25 @@ def ui_provenance(records, session_rows, customer, handle_lookup):
     if not before.keys() <= after.keys() or any(after[k] != v for k, v in before.items()):
         raise ValueError('audit baseline changed')
     actors = {customer, customer.split('@tenant:', 1)[0], 'bearer:' + customer.split('@tenant:', 1)[0]}
+    # Inspect every other-principal Studio operation in the session. Operation
+    # handles bind its audit event to the actual draft/item, not the model's claim.
+    for key, event in after.items():
+        if key in before or event.get('actor') in actors:
+            continue
+        kind, resource = event.get('resourceType'), event.get('resourceId')
+        if isinstance(kind, str) and kind.startswith('studio') and resource in (version.get('itemId'), version.get('sourceDraftId')):
+            raise ValueError('another principal touched the Studio draft or item')
+        details = event.get('details', '')
+        if kind != 'operation_instance' or not isinstance(details, str) or not details.startswith('operationId=studio.'):
+            continue
+        if not isinstance(resource, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', resource):
+            raise ValueError('unaddressable Studio operation audit')
+        handle = handle_lookup(resource)
+        resources = handle.get('resourceIds') if isinstance(handle, dict) else None
+        if not isinstance(resources, dict) or handle.get('operationInstanceId') != resource:
+            raise ValueError('unresolved non-customer Studio operation')
+        if resources.get('draftId') == version.get('sourceDraftId') or resources.get('itemId') == version.get('itemId'):
+            raise ValueError('another principal touched the Studio draft or item')
     actions = []
     ui_interactions = []
     for ordinal, row in enumerate(session_rows):
@@ -123,6 +155,59 @@ def ui_provenance(records, session_rows, customer, handle_lookup):
         if len(linked) != 1:
             raise ValueError('Studio audit does not uniquely bind the saved resource: ' + operation)
     return True
+
+
+def sharing_from_records(records):
+    """Require a distinct authenticated colleague and outsider on the exact saved version."""
+    version = _record(records, 'p08-version')['data']
+    colleague = records['studio-share-colleague']
+    outsider = records['studio-share-outsider']
+    anonymous = records['studio-share-anonymous']
+    auth_colleague = records['studio-share-colleague-auth']
+    auth_outsider = records['studio-share-outsider-auth']
+    if not (colleague.principal == outsider.principal == auth_colleague.principal == auth_outsider.principal == 'agent-user'
+            and anonymous.principal == 'anonymous' and colleague.principal_id and outsider.principal_id
+            and colleague.principal_id != outsider.principal_id
+            and colleague.principal_id == auth_colleague.principal_id
+            and outsider.principal_id == auth_outsider.principal_id
+            and auth_colleague.status == auth_outsider.status == 200 and colleague.status == 200
+            and outsider.status in (401, 403, 404) and anonymous.status in (401, 403, 404)
+            and colleague.path == outsider.path == anonymous.path
+            and all(r.sha256 == 'sha256:' + hashlib.sha256(r.raw).hexdigest()
+                    for r in (colleague, outsider, anonymous, auth_colleague, auth_outsider))):
+        return False
+    data = colleague.json.get('data', {}) if isinstance(colleague.json, dict) else {}
+    return all(isinstance(version.get(k), str) and version[k] and data.get(k) == version[k]
+               for k in ('itemId', 'versionId', 'contentHash'))
+
+
+def probe_sharing(recorder, stack, mint_reader):
+    """Perform scoped reads with two runner-minted users; no credentials reach the agent."""
+    import os
+    from agent_browser_studio import version_path
+    version = _record(recorder.records, 'p08-version')['data']
+    path = version_path(version['itemId'], version['versionId'])
+    old_entry = recorder.principals.get('agent-user')
+    env = 'HONUA_ARC_STUDIO_READER_BEARER'
+    old_token = os.environ.get(env)
+    try:
+        for name in ('colleague', 'outsider'):
+            subject = stack.extra['studioReaderSubjects'][name]
+            token = mint_reader(subject)
+            os.environ[env] = token
+            recorder.principals['agent-user'] = (env, subject)
+            recorder.json('studio-share-' + name + '-auth', 'GET', '/api/v1/studio/content-items?family=map&limit=1', principal='agent-user')
+            recorder.json('studio-share-' + name, 'GET', path, principal='agent-user')
+        recorder.json('studio-share-anonymous', 'GET', path, principal='anonymous')
+    finally:
+        if old_entry is None:
+            recorder.principals.pop('agent-user', None)
+        else:
+            recorder.principals['agent-user'] = old_entry
+        if old_token is None:
+            os.environ.pop(env, None)
+        else:
+            os.environ[env] = old_token
 
 
 def public_publication(records):
@@ -214,9 +299,11 @@ def score_goal(records, goal, variant, *, recognized=True):
         result('goal.publication', published,
                'active public publication for the exact saved version is unavailable')
     if re.search(r'\b(share|shared|sharing|operator|operators|team|access|accessible)\b', text):
-        # The fixture does not provision an operator principal or a controller-
-        # verifiable audience grant. A published pointer alone is not sharing.
-        result('goal.sharing', False, 'unsupported: no independently authenticated operator or audience grant fixture')
+        try:
+            shared = sharing_from_records(records)
+        except (KeyError, ValueError, TypeError):
+            shared = False
+        result('goal.sharing', shared, 'colleague access or outsider denial was not independently verified')
     return out
 
 
@@ -390,6 +477,23 @@ def studio_runtime_class():
             self.customer_subjects = set()
             self.customer_keys = set()
 
+        def mint_reader(self, subject):
+            import base64
+            import hmac
+            import agent_e2e_local_runner as runner
+            fixture = runner._live_driver_module().local_fixture
+            token = fixture._tenant_token(self.signing_key, subject=subject, tenant='public', role='reader')
+            header, payload, _ = token.removeprefix('Bearer ').split('.')
+            claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+            claims['scope'] = 'honua.mcp.read'
+            claims['roles'] = ['reader']
+            payload = base64.urlsafe_b64encode(json.dumps(claims, separators=(',', ':')).encode()).rstrip(b'=').decode()
+            signed = (header + '.' + payload).encode()
+            signature = base64.urlsafe_b64encode(hmac.new(self.signing_key.encode(), signed, hashlib.sha256).digest()).rstrip(b'=').decode()
+            token = 'Bearer ' + signed.decode() + '.' + signature
+            self._secrets.append(token)
+            return token
+
         def mint_console_identity(self, stack, agent_key_id, minted_by, subject):
             if (subject in getattr(self, 'disallowed_subjects', set())
                     or agent_key_id in getattr(self, 'disallowed_keys', set())):
@@ -397,6 +501,10 @@ def studio_runtime_class():
             super().mint_console_identity(stack, agent_key_id, minted_by, subject)
             self.customer_subjects.add(subject)
             self.customer_keys.add(agent_key_id)
+
+        def tool_view(self, stack):
+            view = super().tool_view(stack)
+            return view if self.agent == 'console-assistant' else studio_cli_tool_view(view)
 
         def register_assistant_actors(self, actors):
             if self.agent != 'console-assistant' or not actors or any(not isinstance(a, str) or not a for a in actors):
@@ -429,6 +537,15 @@ def studio_runtime_class():
                                                                    'serverHost': 'honua',
                                                                    'studioGate': self.gate})
             self._prepare(stack, list(agent_permissions))
+            import secrets
+            stack.extra['studioReaderSubjects'] = {'colleague': 'arc-colleague-' + secrets.token_hex(12),
+                                                   'outsider': 'arc-outsider-' + secrets.token_hex(12)}
+            readers = set(stack.extra['studioReaderSubjects'].values())
+            if len(readers) != 2 or readers & self.customer_subjects:
+                raise ValueError('Studio readers are not distinct customers')
+            # Mint at setup; later reads refresh the same subjects' short-lived tokens.
+            for subject in stack.extra['studioReaderSubjects'].values():
+                self.mint_reader(subject)
             self.stacks.append(stack)
             if getattr(self, 'initialize_studio_admission', False):
                 initialize_admission(stack.extra['recorder'])
@@ -625,6 +742,12 @@ def arc_stage(ctx):
                 from agent_e2e_local_scenarios.P08 import P08
                 from agent_e2e_local_expectations import load_expected
                 class ArcStudioScenario(P08):
+                    def seed(self, stack, variant):
+                        from agent_browser_studio import seed_case
+                        handoff = context.slot.facts.get('studioServices')
+                        if not isinstance(handoff, dict):
+                            raise ValueError('stage-three controller service handoff is unavailable')
+                        return seed_case('P08', stack, variant, create_map=False, external_handoff=handoff)
                     def expected(self, variant):
                         expected = dict(super().expected(variant))
                         expected['render.actual'] = load_expected(
@@ -649,17 +772,20 @@ def arc_stage(ctx):
                         receipt['controllerRecords'] = stack.extra['recorder'].index()
                     except Exception:
                         pass  # Missing or incomplete controller evidence fails the assertion.
+                if stack and re.search(r'\b(share|shared|sharing|operator|operators|team|access|accessible)\b', goal, re.I):
+                    try:
+                        probe_sharing(stack.extra['recorder'], stack, runtime.mint_reader)
+                        receipt['controllerRecords'] = stack.extra['recorder'].index()
+                    except (KeyError, ValueError, OSError):
+                        pass  # Unsupported sharing and failed probes remain scored failures.
                 # Interpret only fully frozen goals. An unknown request can
                 # contain requirements a keyword search would silently miss.
                 recognized = hashlib.sha256(goal.encode()).hexdigest() == STUDIO_GOAL_SHA256.get(fixture)
                 checks = score_goal(stack.extra['recorder'].records if stack else {}, goal, fixture,
                                     recognized=recognized)
-                # P08 currently provisions published fixture services itself.
-                # No controller-bound services-stage handoff is exposed here;
-                # those seeded services cannot prove the customer journey.
-                checks.append({'assertion': 'goal.services-lineage', 'status': 'fail',
-                               'reason': 'unsupported: Studio sources are harness-published, not bound to '
-                                         'agent-created services from the preceding stage'})
+                lineage = bool(stack and stack.extra.get('arcLineageVerified') is True)
+                checks.append({'assertion': 'goal.services-lineage', 'status': 'pass' if lineage else 'fail',
+                               **({} if lineage else {'reason': 'stage-three verified service handoff unavailable'})})
                 if driver == 'arm-browser':
                     try:
                         evidence = []
