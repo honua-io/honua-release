@@ -15,7 +15,7 @@ from pathlib import Path
 from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_local_expectations import load_roles
 from agent_e2e_p10_observer import source_path
-from agent_e2e_scenario_backend import TownSetup
+from agent_e2e_local_scenarios.w2g3_common import town_setup
 from agent_e2e_scenario_operations import data
 from agent_e2e_studio_observer import guid, route_path
 
@@ -47,7 +47,7 @@ class P15(Scenario):
             connection = stack.extra['ensureConnection']()
             stack.extra['connectionId'] = connection
         namespace = 'p15_' + stack.compose_project.replace('-', '')[-16:]
-        town = TownSetup(rec, ROOT / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
+        town = town_setup(rec, variant).prepare(
             variant=variant, namespace=namespace, starting_state='published-town', connection_id=connection)
         stack.extra['addPrincipal']('operator', ['read:*'])
         body = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_text())['execution']['mapBody']

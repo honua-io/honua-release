@@ -26,7 +26,7 @@ def test_expectations_reject_held_out_variant():
 
 
 def test_seed_is_idempotent_per_case(monkeypatch, tmp_path):
-    import agent_e2e_scenario_backend
+    import agent_e2e_local_scenarios.w2g3_common as common
     calls = []
 
     class Town:
@@ -38,7 +38,7 @@ def test_seed_is_idempotent_per_case(monkeypatch, tmp_path):
     class Recorder:
         def __init__(self): self.steps = []
         def json(self, step, method, path, body=None, **kw): self.steps.append(step)
-    monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+    monkeypatch.setattr(common, 'town_setup', lambda recorder, variant: Town(recorder, None))
     recorder = Recorder()
     stack = Stack('http://127.0.0.1:1', 'k', None, 'corpus-abc', 'f', str(tmp_path), 'sha256:' + 'a' * 64,
                   {'recorder': recorder, 'ensureConnection': lambda: 'conn-1'})
