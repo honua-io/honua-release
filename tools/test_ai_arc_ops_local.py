@@ -679,10 +679,14 @@ def test_reconvergence_follows_the_scored_assertions_only(tmp_path, monkeypatch)
     propose(sc, (ROLLBACK[0], {'targetId': 'compose-local', 'toRevision': PRIOR}))
     sc.step()
     stage, c, calls = stage_for(sc), ctx(tmp_path), []
-    stage.reconverge = lambda ctx: calls.append(1) or {'status': 'converged'}
+    def reconverge(ctx):
+        calls.append(1)
+        stage.prep_credentials = {'revoked': [], 'probes': [], 'alive': False}
+        return {'status': 'converged'}
+    stage.reconverge = reconverge
     out = {r['assertion']: r['status'] for r in stage.observe(c, {})}
     assert out['diagnosis.recovered'] == 'fail' and calls == [], 'not inside the model stage budget'
-    assert stage.prepare_next(c) == {'status': 'converged'} and calls == [1]
+    assert stage.prepare_next(c)['status'] == 'converged' and calls == [1]
 
 
 def test_slot_preparation_is_skipped_when_scored_ops_failed(tmp_path):
@@ -762,3 +766,82 @@ def test_the_ops_handoff_states_serving_only_from_a_ready_controller_read(tmp_pa
     assert stage.handoff_observations(None, '')['facts']['statuses'] == []
     sc.states.append(dict(state(PRIOR, 140), phase='done'))
     assert stage.handoff_observations(None, '')['facts']['statuses'] == ['serving']
+
+
+def test_reconvergence_fails_fast_when_the_product_returns_the_executed_convergence(tmp_path, monkeypatch):
+    """Rehearsal-5: the product handed back the session's executed convergence (its terminal proposals stay
+    active, honua-server #6852); approving it ran nothing and the harness waited 25 minutes."""
+    sc = scenario(HAPPY)
+    happy_run(sc)
+    stage, c = stage_for(sc), ctx(tmp_path)
+    executed = sc.approvals[0]['proposalId']
+
+    class Keys:
+        def __init__(self, *a):
+            pass
+
+        def mint(self, name):
+            return {'name': name, 'key': name + '-k', 'id': name}
+
+        def revoke(self):
+            return []
+
+        def probe(self):
+            return []
+
+    class Mcp:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            return self
+
+        def execute(self, kind, action):
+            return {'status': 'ok', 'result': {'structuredContent': {'targets': [
+                {'targetId': 'compose-local', 'outcome': 'ProposalCreated', 'proposalId': executed}]}}}
+    import agent_cli_backends
+    monkeypatch.setattr(O, 'Keys', Keys)
+    monkeypatch.setattr(agent_cli_backends, 'HttpMcpBackend', Mcp)
+    started = time.monotonic()
+    out = O.LocalOps.reconverge(stage, c)
+    assert out['status'] == 'failed' and 'already-executed' in out['reason'] and time.monotonic() - started < 5
+    assert not [x for x in sc.manager.calls if x[1].endswith(executed + '/approve') and x[2].startswith('arc-harness')]
+
+
+def test_an_unready_release_is_never_an_observed_upgrade_or_rollback(tmp_path, monkeypatch):
+    """Sol 6c1e94ef item 2: completed handles but no ready serving read pass nothing."""
+    monkeypatch.setenv('HONUA_ARC_PROPOSED_OPS_SCOPE', '1')
+    sc = drill([state(PRIOR, 140), state(CAND, 143, ready=False), state(PRIOR, 140, ready=False)])
+    propose(sc, CONVERGE)
+    sc.step(); sc.step()
+    assert sc.phase == 'await-upgrade' and not sc.events
+    out = rows(stage_for(sc), ctx(tmp_path))
+    assert out['upgrade.candidate-serving'] == 'fail' and out['rollback.prior-serving'] == 'fail'
+
+
+def test_the_ops_handoff_names_the_release_the_controller_read_serving(tmp_path):
+    sc = scenario([state(PRIOR, 140)])
+    sc.step()
+    stage = stage_for(sc)
+    c = ctx(tmp_path)
+    assert stage.handoff_observations(c, '')['facts']['servingRelease'] == c.install['release']
+    sc.states.append(dict(state(CAND, 143), phase='x'))
+    assert stage.handoff_observations(c, '')['facts']['servingRelease'] == '2026.1-rc.2'
+
+
+@pytest.mark.parametrize('revoke_status,alive', [(503, False), (200, True)])
+def test_slot_preparation_never_converges_with_a_live_key(tmp_path, monkeypatch, revoke_status, alive):
+    """Sol 6c1e94ef item 4."""
+    sc = scenario(HAPPY)
+    happy_run(sc)
+    stage, c = stage_for(sc), ctx(tmp_path)
+    stage.reconverge_due = True
+
+    def reconverge(ctx):
+        stage.prep_credentials = {'revoked': [{'principal': 'p', 'status': revoke_status}],
+                                  'probes': [{'principal': 'p', 'status': 200 if alive else 401, 'alive': alive}],
+                                  'alive': alive or revoke_status not in (200, 204)}
+        return {'status': 'converged'}
+    stage.reconverge = reconverge
+    out = stage.prepare_next(c)
+    assert out['status'] == 'credential-alive' and out['credentials']['alive'] is True

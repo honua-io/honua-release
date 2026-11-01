@@ -1467,6 +1467,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         except Exception as exc:
             observations = [{'assertion': 'observation', 'status': 'fail',
                              'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}]
+    stage_elapsed = round(time.monotonic() - started, 1)    # the model's stage, before any slot preparation
     prepare = getattr(module, 'prepare_next', None)
     if callable(prepare):
         # Harness-owned slot preparation for the next stage (e.g. re-converging after the ops rollback drill).
@@ -1474,7 +1475,15 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         try:
             ctx.slot.facts['slotPreparation'] = within(SLOT_PREP_SECONDS, prepare, ctx, observations, ctx=ctx)
         except Exception as exc:  # noqa: BLE001  (candidate.serving then fails on its own readback)
-            ctx.slot.facts['slotPreparation'] = {'status': 'failed', 'reason': f'{type(exc).__name__}: {str(exc)[:160]}'}
+            ctx.slot.facts['slotPreparation'] = {'status': 'failed', 'reason': f'{type(exc).__name__}: {str(exc)[:160]}',
+                                                 'credentials': {'alive': True}}
+        prep = ctx.slot.facts['slotPreparation'] if isinstance(ctx.slot.facts['slotPreparation'], dict) else {}
+        if (prep.get('credentials') or {}).get('alive'):
+            # A preparation credential still accepted (or never accounted for): the shutdown is not complete.
+            shutdown = dict(shutdown, complete=False, credentialAlive=True,
+                            errors=list(shutdown.get('errors') or []) + [{'step': 'slot-preparation',
+                                                                          'error': 'credential still accepted'}])
+            row = dict(row, shutdown=shutdown)
     if stage != 'setup' and ctx.slot.vm is not None and (actions or observations):
         observations = list(observations) + [candidate_serving(ctx)]
     try:
@@ -1489,7 +1498,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         harness_unsafe = [str(r) for r in module.harness_unsafe(ctx)]
     except Exception:  # noqa: BLE001
         harness_unsafe = ['unreadable-harness-safety-record']   # conservative: an unknown is an attempt
-    elapsed = round(time.monotonic() - started, 1)
+    elapsed = stage_elapsed
     context = {'approvals': approvals, 'scope': sorted(scope) if scope is not None else None,
                'approvedComposeSha256': (ctx.slot.facts.get('quickstart') or {}).get('composeSha256'),
                'deploymentHosts': list(module.deployment_hosts(ctx)), 'failure': row.get('failure'),
@@ -1750,7 +1759,7 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
         shutil.rmtree(private, ignore_errors=True)
     receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
                             if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
-                                     'consoleObservedIdentity', 'opsComposition', 'opsReconverged')}
+                                     'consoleObservedIdentity', 'opsComposition', 'opsReconverged', 'slotPreparation')}
     return finish_trial(receipt, out_dir)
 
 

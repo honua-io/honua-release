@@ -59,6 +59,8 @@ prompt = sys.stdin.read()
 assert prompt == 'Customer goal only'
 if AGENT == 'claude-cli':
     assert int(os.environ['MCP_TOOL_TIMEOUT']) >= 2700000
+    # A held proposal sends no progress for ~10 minutes; the default 300 s idle abort must not apply.
+    assert int(os.environ['CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT']) >= 2700000
     assert args[args.index('--tools') + 1] == ''
     assert args[args.index('--permission-mode') + 1] == 'dontAsk'
     assert '--strict-mcp-config' in args and '--restricted' in args

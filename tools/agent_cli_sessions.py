@@ -537,7 +537,11 @@ class CliModelSession:
                 raise ValueError('scratch directory has reachable repository instructions')
             env = cli_environment(home, self.agent, auth_root=self.auth_root)
             tool_timeout = max(2700, int(timeout))
-            if self.agent == 'claude-cli': env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
+            if self.agent == 'claude-cli':
+                env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
+                # Claude Code also aborts a call that sends no progress for 300 s; a held proposal (the executor's
+                # ~10 minute observation window) needs the same bound as the tool timeout (rehearsal A1-r132).
+                env['CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT'] = str(tool_timeout * 1000)
             else: env['RUST_LOG'] = 'codex=debug'
             version = subprocess.run([self.binary, '--version'], env=env, cwd=home,
                                      capture_output=True, check=True, timeout=20).stdout.decode().strip()

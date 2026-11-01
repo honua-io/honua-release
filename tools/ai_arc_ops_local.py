@@ -494,11 +494,12 @@ class Scenario:
             return max([r['afterAction'] for r in self.recorded.values()] or [0])
 
     def upgraded(self, s):
-        return s['imageId'] == self.candidate_id and s['schema'] >= 142 and s['has142'] and s['marker'] == 'retained'
+        return (s['imageId'] == self.candidate_id and s['schema'] >= 142 and s['has142'] and s['marker'] == 'retained'
+                and s['ready'] is True)          # the release must serve, not merely be installed (Sol 6c1e94ef 2)
 
     def rolled_back(self, s):
         # The prior image serves again; whether its database was restored across 142 is judged separately.
-        return s['imageId'] == self.prior_id
+        return s['imageId'] == self.prior_id and s['ready'] is True
 
     # -- approval, bound to the script --------------------------------------------------------
     def in_scope(self, pid, row) -> str | None:
@@ -840,7 +841,17 @@ class LocalOps:
         """Runner hook after observation, outside the model's stage budget: re-converge for stage 3."""
         if not getattr(self, 'reconverge_due', False):
             return {'status': 'skipped', 'reason': 'ops did not pass'}
-        ctx.slot.facts['opsReconverged'] = result = self.reconverge(ctx)
+        self.prep_credentials = None
+        try:
+            result = self.reconverge(ctx)
+        finally:
+            credentials = self.prep_credentials or {'alive': True, 'reason': 'preparation keys were never accounted for'}
+        result = dict(result, credentials={'alive': credentials['alive'],
+                                           'revoked': len(credentials.get('revoked') or []),
+                                           'probes': credentials.get('probes') or []})
+        if credentials['alive']:
+            result['status'] = 'credential-alive'       # never 'converged' with a live preparation key
+        ctx.slot.facts['opsReconverged'] = result
         return result
 
     def unbound(self, ctx) -> list[str]:
@@ -878,6 +889,11 @@ class LocalOps:
                                                                 'targetVersion', 'servingArtifactReference')},
                         'targets': [{k: t.get(k) for k in ('targetId', 'outcome', 'message')}
                                     for t in content.get('targets') or [] if isinstance(t, dict)]}
+            if pids[0] in {a['proposalId'] for a in self.scenario.approvals}:
+                # The product handed back the session's already-executed convergence instead of a new one
+                # (its terminal proposals stay active; honua-server #6849/#6852): nothing would run.
+                return {'status': 'failed', 'reason': 'the product returned the already-executed convergence',
+                        'proposalId': pids[0]}
             self.harness_proposals.add(pids[0])
             status, _ = self.manager.request('POST', f'/api/v1/admin/proposals/{pids[0]}/approve', approver['key'], {})
             deadline = time.monotonic() + 1500
@@ -889,20 +905,28 @@ class LocalOps:
                 time.sleep(10)
             return {'status': 'timeout', 'proposalId': pids[0]}
         finally:
-            keys.revoke()
+            revoked = keys.revoke()
+            probes = keys.probe()
+            self.prep_credentials = {'revoked': revoked, 'probes': probes,
+                                     'alive': any(p['alive'] for p in probes)
+                                     or any(r['status'] not in (200, 204) for r in revoked)}
 
     def handoff_observations(self, ctx, answer):
         """Controller facts the ops answer's status words are checked against: 'serving' only when the last
         controller read of the slot was ready; 'failed' when an approved operation's handle failed."""
         sc = self.scenario
-        statuses = []
+        statuses, serving = [], None
         if sc is not None:
             if sc.states and sc.states[-1].get('ready'):
                 statuses.append('serving')
+                image = sc.states[-1].get('imageId')
+                serving = (RELEASE_VERSION if image == self.candidate_id else
+                           (ctx.install.get('release') if ctx is not None else None) if image == self.prior_id
+                           else 'unknown')
             if any(a['operationStatus'] in ('failed', 'cancelled', 'indeterminate', 'denied', 'rejected')
                    for a in sc.approvals):
                 statuses.append('failed')
-        return {'resources': [], 'accessProbes': [], 'facts': {'statuses': statuses}}
+        return {'resources': [], 'accessProbes': [], 'facts': {'statuses': statuses, 'servingRelease': serving}}
 
     def deployment_hosts(self, ctx):
         return ('localhost', '127.0.0.1', '::1')
