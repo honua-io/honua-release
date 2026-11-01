@@ -35,7 +35,7 @@ def snapshot(recorder, label):
         response = recorder.json(f'studio-audit-{label}-{page}', 'GET', path)['observation']
         body = response.get('body')
         require(response.get('httpStatus') == 200 and isinstance(body, dict)
-                and isinstance(body.get('items'), list) and 'nextCursor' in body,
+                and isinstance(body.get('items'), list),
                 'Studio session audit is unavailable')
         for event in body['items']:
             require(isinstance(event, dict) and type(event.get('auditId')) is int
@@ -44,7 +44,8 @@ def snapshot(recorder, label):
             event_id = event['auditId']
             require(event_id not in rows, 'Studio session audit contains duplicate events')
             rows[event_id] = event
-        cursor = body['nextCursor']
+        # The server's JSON settings omit null properties on the final page.
+        cursor = body.get('nextCursor')
         if cursor is None:
             return rows
         require(isinstance(cursor, str) and 0 < len(cursor) <= 2048 and cursor not in seen_cursors,

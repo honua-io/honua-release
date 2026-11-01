@@ -35,8 +35,9 @@ def test_audit_snapshots_reject_incomplete_or_mutated_evidence():
         verify({1: {'actor': 'admin'}}, {1: {'actor': 'customer'}}, frozenset({'admin'}))
     with pytest.raises(ProjectionError, match='cursor'):
         snapshot(Recorder([{'items': [], 'nextCursor': 'x'}, {'items': [], 'nextCursor': 'x'}]), 'after')
+    assert snapshot(Recorder([{'items': []}]), 'after') == {}
     with pytest.raises(ProjectionError, match='unavailable'):
-        snapshot(Recorder([{'items': []}]), 'after')
+        snapshot(Recorder([{}]), 'after')
 
 
 def test_managed_controller_identity_is_matched_from_server_inventory():

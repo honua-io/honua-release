@@ -16,6 +16,8 @@ from agent_studio_customer import CustomerScript, CustomerScriptError
 
 MODEL = 'us.anthropic.claude-sonnet-4-6'
 DONE = re.compile(r'\b(done|completed|finished|saved)\b', re.IGNORECASE)
+NOT_DONE = re.compile(r"\b(?:not|never|cannot|can't|unable\s+to)\b(?:\s+\w+){0,3}\s+"
+                      r"(?:done|completed|finished|saved)\b", re.IGNORECASE)
 
 
 def rpc(endpoint, name, arguments):
@@ -83,7 +85,7 @@ def run_customer(*, invoke, prompt, script, timeout=2700, clock=time.monotonic, 
             text = state['text'].strip()
             if not text:
                 raise CustomerScriptError('Studio assistant returned an empty turn')
-            event = 'question' if '?' in text else 'done' if DONE.search(text) else 'progress'
+            event = 'question' if '?' in text else 'done' if DONE.search(text) and not NOT_DONE.search(text) else 'progress'
             decision = policy.reply(event)
             last_progress = clock()
             if decision['kind'] == 'done':

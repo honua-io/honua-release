@@ -61,3 +61,18 @@ def test_customer_stalls_once_without_steering_and_then_stops():
         run_customer(invoke=invoke, prompt='Make a map', script=[], timeout=2700, clock=clock, sleep=sleep)
     texts = [args['text'] for name, args in actions if name == 'studio_customer_type']
     assert texts == ['Make a map', 'continue']
+
+
+def test_customer_does_not_treat_an_explicit_noncompletion_as_done():
+    now = [0.0]
+    states = iter([state('', 0), state('I have not saved the map.', 1), state('Saved and done.', 2)])
+    actions = []
+    def invoke(name, arguments):
+        actions.append((name, arguments))
+        return next(states) if name == 'studio_chat_observe' else 'ok'
+    result = run_customer(invoke=invoke, prompt='Make a map',
+        script=[{'after': 'first-reply', 'say': 'Frozen response'}],
+        clock=lambda: now[0], sleep=lambda _: now.__setitem__(0, now[0] + 1))
+    assert result['answer'] == 'Saved and done.'
+    assert [args['text'] for name, args in actions if name == 'studio_customer_type'] == [
+        'Make a map', 'Frozen response']

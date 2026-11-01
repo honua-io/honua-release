@@ -1050,7 +1050,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['studioAssistant'] = {'model': MODEL, 'region': region_evidence['region'],
                                           'provider': provider, 'usage': verified_usage,
                                           'evidenceSteps': ['studio-ai-capabilities',
-                                                            'studio-ai-provider-config', 'studio-audit-after-0']}
+                                                            'studio-ai-provider-config'] + sorted(
+                                              step for step in recorder.records if step.startswith('studio-audit-after-'))}
         custody = runtime.custody(stack)
         clar = tuple(c for s in sessions for c in s.get('clarifications', []))
         injector = stack.extra.get('faultInjector')
@@ -1151,7 +1152,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['usage'] = [u for s in receipt['sessions'] for u in s['usage']]
             try:
                 receipt['cost'] = (None if agent in ('claude-cli', 'codex-cli') else
-                                   model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None)
+                                   model_cost(receipt['usage'], receipt['model'] if agent == 'console-assistant'
+                                              else runtime.model) if receipt['usage'] else None)
             except ValueError as exc:
                 receipt['cost'] = {'usd': None, 'reason': str(exc)}
             if seeded is not None:
