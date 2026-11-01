@@ -67,6 +67,7 @@ SELF_REFUSED = (400, 403, 409)
 OPS = ('upgrade.candidate-serving', 'rollback.prior-serving', 'restore.migration-142', 'diagnosis.recovered',
        'approval.separate', 'data.preserved')
 TICK = 5.0
+WAIT_LIMIT = 900.0       # the executor's post-activation observation window is ~10 minutes
 
 
 def arc_stage(ctx):
@@ -341,13 +342,17 @@ class Scenario:
     follows the product's own operation record to its terminal state (the executor's receipt)."""
 
     def __init__(self, *, vm, manager, proposer, approver, candidate_id, prior_id, read=read_state, sql=run_sql,
-                 tick=TICK, clock=time.monotonic, backups=None, candidate_refs=(), prior_refs=(), synchronous=True):
+                 tick=TICK, clock=time.monotonic, backups=None, candidate_refs=(), prior_refs=(), synchronous=True,
+                 fault_r=True, fault_d=True, observer_key=None, wait_limit=WAIT_LIMIT):
         self.vm, self.manager, self.proposer, self.approver = vm, manager, proposer, approver
         self.candidate_id, self.prior_id = candidate_id, prior_id
         self.candidate_refs = {r for r in (candidate_id, *candidate_refs) if r}
         self.prior_refs = {r for r in (prior_id, *prior_refs) if r}
         self.read, self.sql, self.tick, self.clock = read, sql, tick, clock
         self.synchronous = synchronous
+        # fault_r off: the rollback is the customer's requested drill (a deleted harness table is not observable
+        # through any product tool). fault_d off: diagnosis is unscored under the ops scope.
+        self.fault_r, self.fault_d, self.observer_key, self.wait_limit = fault_r, fault_d, observer_key, wait_limit
         self.backups = backups or (lambda: set())
         self.recorded, self.approvals, self.self_approval, self.refused = {}, [], [], []
         self.phase, self.events, self.states = 'await-upgrade', [], []
@@ -369,6 +374,35 @@ class Scenario:
             with self.stepping:
                 self.advance()
                 self.approve_pending()
+            self.await_outcome(proposal_id)
+
+    def await_outcome(self, proposal_id):
+        """Hold the proposing call until the product's operation handle for this approved proposal is terminal
+        (the executor keeps it open through its post-activation observation window), bounded by wait_limit."""
+        receipt = next((a for a in self.approvals if a['proposalId'] == proposal_id), None)
+        if receipt is None or receipt['status'] not in (200, 201, 202, 204):
+            return
+        deadline = self.clock() + self.wait_limit
+        while receipt['operationStatus'] not in TERMINAL and self.clock() < deadline and not self.stopped.is_set():
+            with self.stepping:
+                self.advance()
+            if receipt['operationStatus'] in TERMINAL:
+                break
+            self.stopped.wait(self.tick)
+        with self.stepping:
+            self.advance()                    # the transition the completed operation caused
+
+    def drain(self, limit):
+        """After the session: follow approved operations still inside their observation window to a terminal
+        state (with the controller's key once the stage keys are revoked), bounded by ``limit`` seconds."""
+        deadline = self.clock() + max(0, limit)
+        while any(a['status'] in (200, 201, 202, 204) and a['operationStatus'] not in TERMINAL for a in self.approvals) \
+                and self.clock() < deadline:
+            with self.stepping:
+                self.advance()
+            time.sleep(self.tick)
+        with self.stepping:
+            self.advance()
 
     def start(self):
         self.thread = threading.Thread(target=self.loop, name='arc-ops-scenario', daemon=True)
@@ -403,6 +437,9 @@ class Scenario:
         self.states.append({'phase': self.phase, **state})
         if self.phase == 'await-upgrade' and self.upgraded(state):
             self.event('upgrade-observed', state=state)
+            if not self.fault_r:
+                self.phase = 'await-rollback'
+                return
             # Fault R: proven by the controller's own read going from 'retained' to empty.
             deleted = self.sql(self.vm, f'DELETE FROM {MARKER}')
             after = self.read(self.vm)
@@ -411,6 +448,9 @@ class Scenario:
             self.phase = 'await-rollback' if fired else 'fault-R-not-fired'
         elif self.phase == 'await-rollback' and self.rolled_back(state):
             self.event('rollback-observed', state=state)
+            if not self.fault_d:
+                self.phase = 'done'
+                return
             # Fault D: proven by the controller observing redis go from running to not running.
             before = state['redisRunning'] is True
             done = self.vm.ssh(slot_compose(self.vm, 'stop', 'redis'), 120)
@@ -451,7 +491,9 @@ class Scenario:
                 return 'the rollback names another target'
             if args.get('toRevision') not in self.prior_refs:
                 return 'the rollback names another revision'
-            if args.get('backupId') not in self.backups():
+            # The product resolves the newest verified backup when backupId is omitted; a named one must be
+            # this slot's. toRevision is required until the product resolves a default baseline.
+            if args.get('backupId') is not None and args.get('backupId') not in self.backups():
                 return 'the rollback names no restore point this slot holds'
         if self.phase == 'await-recovery':
             target = args.get('targetId', 'compose-local')
@@ -490,16 +532,21 @@ class Scenario:
             if receipt['status'] not in (200, 201, 202, 204) or receipt['operationStatus'] in TERMINAL:
                 continue
             if not receipt['operationId']:
-                op = operation_instance(self.manager, receipt['proposalId'], (self.approver['key'], self.proposer['key']))
+                op = operation_instance(self.manager, receipt['proposalId'], self.follow_keys())
                 if not op:
                     continue
                 receipt['operationId'] = op
-            status, handle = self.manager.request('GET', f"/api/v1/operations/handles/{receipt['operationId']}",
-                                                  self.approver['key'])
+            for key in self.follow_keys():
+                status, handle = self.manager.request('GET', f"/api/v1/operations/handles/{receipt['operationId']}", key)
+                if status not in (401, 403):
+                    break
             data = handle.get('data') if isinstance(handle.get('data'), dict) else {}
             state = str(data.get('status', '')).lower()
             if status == 200 and state in TERMINAL:
                 receipt['operationStatus'], receipt['completedAt'] = state, self.clock()
+
+    def follow_keys(self):
+        return tuple(k for k in (self.approver['key'], self.proposer['key'], self.observer_key) if k)
 
     def executed(self, phase, before=None) -> dict | None:
         """The approved proposal of ``phase`` the product executor completed (before ``before``)."""
@@ -647,12 +694,19 @@ class LocalOps:
                                  candidate_id=self.candidate_id, prior_id=self.prior_id,
                                  backups=lambda: self.backup_ids(vm),
                                  candidate_refs=(ctx.candidate['imageDigest'], ctx.candidate.get('reference')),
-                                 prior_refs=(f"{install['image']}@{install['imageDigest']}", install['imageDigest']))
+                                 prior_refs=(f"{install['image']}@{install['imageDigest']}", install['imageDigest']),
+                                 fault_r=False, fault_d='diagnosis.recovered' in self.scored(ctx),
+                                 observer_key=ctx.slot.controller['admin_key'])
         live.scenario = self.scenario
         mcp = HttpMcpBackend(tunnel.base_url + '/mcp', header='X-API-Key', token=proposer['key'],
                              workflow_view='full').start()
         self.backend = live.backend = OpsBackend(mcp, self.scenario.record)
         self.scenario.start()
+
+    @staticmethod
+    def scored(ctx) -> list:
+        from ai_arc_runner import ops_scope
+        return ops_scope(ctx.arc, ctx.target)['scored']
 
     @staticmethod
     def resolve_candidate(ctx) -> str:
@@ -676,9 +730,12 @@ class LocalOps:
 
     def notes(self, ctx):
         return ('The newer release is Honua 2026.1-rc.2. It is already available on this machine, and Honua\'s '
-                'own operations tools can move to it. Please propose any change for my approval; I approve each '
-                'one myself as soon as you propose it. I won\'t reply in between, so once you have proposed a '
-                'change, follow it through to its result before you finish.')
+                'own operations tools can move to it. Our change policy also needs a rollback drill: once the update '
+                'is done and checked, put Honua back to the release we run now, with its data as it was before the '
+                'update, and check that it serves. We will move to the new release again ourselves later. Please '
+                'propose each change for my approval; I approve each one as soon as you propose it, and the proposing '
+                'call returns once that change has finished or failed. I won\'t reply in between, so follow each '
+                'change through to its result before you finish.')
 
     def attachment(self, ctx):
         return None
@@ -693,6 +750,9 @@ class LocalOps:
         order (approval before the observed change; the remediation after fault D)."""
         from ai_arc_runner import assert_row
         sc = self.scenario
+        # Operations still inside the executor's observation window when the session ended.
+        remaining = ctx.remaining() if callable(getattr(ctx, 'remaining', None)) else 0
+        sc.drain(min(WAIT_LIMIT, max(0, remaining - 120)))
         ev = {e['event']: e for e in sc.events}
         fault_r, fault_d = ev.get('fault-R'), ev.get('fault-D')
         evidence = {'events': sc.events, 'approvals': sc.approvals, 'selfApproval': sc.self_approval,
@@ -728,7 +788,8 @@ class LocalOps:
         rows.append(assert_row('approval.separate', separate, evidence))
         rows.append(assert_row('data.preserved', upgraded and up['state']['marker'] == 'retained' and restored,
                                evidence))
-        if all(r['status'] == 'pass' for r in rows):
+        scored = set(self.scored(ctx))
+        if all(r['status'] == 'pass' for r in rows if r['assertion'] in scored):
             ctx.slot.facts['opsReconverged'] = self.reconverge(ctx)
         return rows
 

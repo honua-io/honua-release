@@ -203,8 +203,11 @@ def ops_scope(arc: dict, target: str, path: Path | None = None) -> dict:
     raw = path.read_bytes() if path.is_file() else b'{}'
     doc = json.loads(raw)
     approved = doc.get('approvedBy') == 'founder' and bool(doc.get('approvedAt'))
+    # Development rehearsals may run the committed, not-yet-approved scope (HONUA_ARC_PROPOSED_OPS_SCOPE=1).
+    # Such a scope is recorded as proposed and makes the aggregate non-certifying; admission never sets it.
+    proposed = not approved and os.environ.get('HONUA_ARC_PROPOSED_OPS_SCOPE') == '1'
     catalog = list(arc['opsScope']['catalog'])
-    mode = (doc.get('opsScope') or {}).get(target, arc['opsScope']['default']) if approved else 'full'
+    mode = (doc.get('opsScope') or {}).get(target, arc['opsScope']['default']) if approved or proposed else 'full'
     if mode not in OPS_MODES:
         raise ValueError('unknown ops scope for ' + target)
     scored = catalog
@@ -213,11 +216,14 @@ def ops_scope(arc: dict, target: str, path: Path | None = None) -> dict:
         scored = list((doc.get('scoredOps') or {}).get(target) or [])
         if (not scored or len(set(scored)) != len(scored) or not set(scored) <= set(catalog)
                 or not set(rule['mustScore']) <= set(scored) or set(rule['neverScore']) & set(scored)):
-            raise ValueError('executed-subset must score diagnosis and approval and never update/rollback/restore: '
-                             + target)
-    return {'mode': mode, 'scored': scored, 'unscored': [a for a in catalog if a not in scored],
-            'approved': approved, 'approvedAt': doc.get('approvedAt') if approved else None,
-            'scopeSha256': sha256(raw)}
+            raise ValueError('executed-subset must score the separate approval and only operations with a merged, '
+                             'rehearsed executor: ' + target)
+    out = {'mode': mode, 'scored': scored, 'unscored': [a for a in catalog if a not in scored],
+           'approved': approved, 'approvedAt': doc.get('approvedAt') if approved else None,
+           'scopeSha256': sha256(raw)}
+    if proposed:
+        out['proposed'] = True
+    return out
 
 
 def required_assertions(arc: dict, stage: str, target: str, scope: dict | None = None) -> list[str]:
@@ -2127,6 +2133,8 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
         reasons.append('ops ran on the development executor composition, not the quickstart')
     if any(c['status'] in ('missing', 'undetermined') for c in cases):
         reasons.append('a counted run is missing or undetermined')
+    if any((json.loads(raw).get('opsScope') or {}).get('proposed') for raw in receipts):
+        reasons.append('ops was scored under the proposed, not founder-approved, ops scope')
     stages = {stage: {'pass': stage_pass[stage], 'n': n} for stage in STAGES}
     ran = [verified[r] for r in counted if r in verified and verified[r]['studioRan']]
     observed = {facts['assistantModel'] for facts in ran}

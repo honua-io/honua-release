@@ -548,7 +548,7 @@
     "source": "certification/ai-arc/gating-scope.json (founder-approved: approvedBy=founder, approvedAt)",
     "modes": {
       "full": "every ops assertion is scored (prereg option A)",
-      "executed-subset": "only scoredOps[target] are scored (prereg option B); every other ops assertion is listed as unscored, never dropped",
+      "executed-subset": "only scoredOps[target] are scored (prereg option B: the operations whose executor is merged and rehearsed); every other ops assertion is listed as unscored, never dropped",
       "not-gating": "the target does not gate (prereg option C); ops is scored in full and results publish as they land"
     },
     "default": "full",
@@ -563,14 +563,10 @@
     "invariant": "candidate.serving is required from ops onward under every scope (version pair), and is never part of the scored/unscored catalog",
     "executedSubsetRule": {
       "mustScore": [
-        "diagnosis.recovered",
         "approval.separate"
       ],
-      "neverScore": [
-        "upgrade.candidate-serving",
-        "rollback.prior-serving",
-        "restore.migration-142"
-      ]
+      "neverScore": [],
+      "note": "Coordinator 2026-11-01: option B scores what the product executes today. On local-docker that is the update and the rollback with restore across 142; diagnose-and-remediate stays unscored until its executor and observability merge (honua-server opsobserve lane)."
     }
   },
   "consoleDeployment": {

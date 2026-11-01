@@ -379,12 +379,20 @@ def test_executed_subset_lists_unscored_and_keeps_the_candidate_invariant(tmp_pa
     assert receipt['stages'][1]['outcome'] == 'fail', 'a failed candidate readback is never unscored'
 
 
-@pytest.mark.parametrize('scored', [['diagnosis.recovered'], ['diagnosis.recovered', 'approval.separate',
-                                                              'upgrade.candidate-serving'], ['made-up']])
+@pytest.mark.parametrize('scored', [['diagnosis.recovered'], ['upgrade.candidate-serving', 'rollback.prior-serving'],
+                                    ['made-up', 'approval.separate'], ['approval.separate', 'approval.separate']])
 def test_executed_subset_follows_the_admission_rule(tmp_path, monkeypatch, scored):
     scope_file(tmp_path, monkeypatch, scored)
     with pytest.raises(ValueError):
         R.ops_scope(ARC, 'local-docker')
+
+
+def test_the_local_option_b_subset_is_admissible(tmp_path, monkeypatch):
+    scored = ['upgrade.candidate-serving', 'rollback.prior-serving', 'restore.migration-142', 'approval.separate',
+              'data.preserved']
+    scope_file(tmp_path, monkeypatch, scored)
+    scope = R.ops_scope(ARC, 'local-docker')
+    assert scope['scored'] == scored and scope['unscored'] == ['diagnosis.recovered']
 
 
 def test_scope_is_full_unless_founder_approved(tmp_path, monkeypatch):

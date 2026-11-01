@@ -569,7 +569,8 @@ def test_a_rollback_proposed_right_after_the_update_is_judged_in_the_rollback_st
 
 def test_the_notes_tell_the_model_approval_is_immediate_and_to_follow_through():
     notes = O.LocalOps().notes(None)
-    assert 'as soon as you propose it' in notes and 'follow it through' in notes
+    assert 'as soon as you propose it' in notes and 'follow each change through' in notes
+    assert 'rollback drill' in notes and 'returns once that change has finished' in notes
 
 
 def test_knock_on_failures_are_marked_blocked_and_still_fail(tmp_path):
@@ -580,3 +581,99 @@ def test_knock_on_failures_are_marked_blocked_and_still_fail(tmp_path):
     assert out['upgrade.candidate-serving']['status'] == 'fail' and 'blocked' not in out['upgrade.candidate-serving']
     for name in ('rollback.prior-serving', 'restore.migration-142', 'diagnosis.recovered'):
         assert out[name]['status'] == 'fail' and out[name]['blocked'].startswith('prerequisite '), name
+
+
+DRILL = [state(PRIOR, 140), state(CAND, 143), state(PRIOR, 140)]
+
+
+def drill(states=DRILL, **kw):
+    sc = scenario(states, **kw)
+    sc.fault_r = sc.fault_d = False
+    return sc
+
+
+def test_the_rollback_drill_passes_on_executed_proposals_without_faults(tmp_path, monkeypatch):
+    """Coordinator 2026-11-01: option B scores the update and the rollback with restore; no fault R (not
+    observable through product tools) and no fault D (diagnosis unscored)."""
+    monkeypatch.setenv('HONUA_ARC_PROPOSED_OPS_SCOPE', '1')
+    sc = drill()
+    propose(sc, CONVERGE)
+    sc.step()                                   # approved + executed; still rc.1
+    sc.step()                                   # upgrade observed -> await-rollback (no deletion)
+    propose(sc, (ROLLBACK[0], {'targetId': 'compose-local', 'toRevision': PRIOR}))   # backupId omitted
+    sc.step()
+    assert [e['event'] for e in sc.events] == ['upgrade-observed', 'rollback-observed'] and sc.phase == 'done'
+    assert not sc.refused and not any('DELETE' in str(x) for x in sc.vm.scripts)
+    c = ctx(tmp_path)
+    scope = R.ops_scope(c.arc, 'local-docker')
+    assert scope['mode'] == 'executed-subset' and scope['proposed'] and scope['unscored'] == ['diagnosis.recovered']
+    out = rows(stage_for(sc), c)
+    for name in scope['scored']:
+        assert out[name] == 'pass', name
+
+
+def test_without_the_proposed_flag_the_unapproved_scope_scores_everything(monkeypatch):
+    monkeypatch.delenv('HONUA_ARC_PROPOSED_OPS_SCOPE', raising=False)
+    scope = R.ops_scope(ARC, 'local-docker')
+    assert scope['mode'] == 'full' and 'proposed' not in scope and scope['unscored'] == []
+
+
+def test_a_rollback_must_name_its_revision(tmp_path):
+    sc = drill()
+    propose(sc, CONVERGE)
+    sc.step()
+    sc.step()
+    propose(sc, (ROLLBACK[0], {'targetId': 'compose-local'}))
+    sc.step()
+    assert sc.refused and 'revision' in sc.refused[-1]['reason']
+
+
+def test_the_proposing_call_is_held_until_the_operation_handle_is_terminal():
+    manager = FakeManager(operation='running')
+    sc = drill(manager=manager, synchronous=True)
+    clock = itertools.count()
+    sc.clock, sc.wait_limit = (lambda: next(clock)), 5
+    seen = []
+    original = sc.follow_operations
+
+    def follow():
+        original()
+        seen.append(sc.approvals[0]['operationStatus'] if sc.approvals else None)
+        if len(seen) == 3:
+            manager.operation = 'completed'
+    sc.follow_operations = follow
+    propose(sc, CONVERGE)
+    assert sc.approvals[0]['operationStatus'] == 'completed' and len(seen) >= 3
+
+
+def test_after_revocation_operations_are_followed_with_the_controller_key(tmp_path):
+    manager = FakeManager(operation='running')
+    sc = drill(manager=manager)
+    sc.observer_key = 'admin-key'
+    propose(sc, CONVERGE)
+    sc.step()
+    revoked = {'approver-key', 'proposer-key'}
+    base = manager.request
+
+    def request(method, path, key, payload=None):
+        if key in revoked and 'handles' in path:
+            return 401, {}
+        return base(method, path, key, payload)
+    manager.request = request
+    manager.operation = 'completed'
+    sc.drain(5)
+    assert sc.approvals[0]['operationStatus'] == 'completed'
+
+
+def test_reconvergence_follows_the_scored_assertions_only(tmp_path, monkeypatch):
+    """With diagnosis unscored, a passing drill still re-converges the slot so candidate.serving can hold."""
+    monkeypatch.setenv('HONUA_ARC_PROPOSED_OPS_SCOPE', '1')
+    sc = drill()
+    propose(sc, CONVERGE)
+    sc.step(); sc.step()
+    propose(sc, (ROLLBACK[0], {'targetId': 'compose-local', 'toRevision': PRIOR}))
+    sc.step()
+    stage, c, calls = stage_for(sc), ctx(tmp_path), []
+    stage.reconverge = lambda ctx: calls.append(1) or {'status': 'converged'}
+    out = {r['assertion']: r['status'] for r in stage.observe(c, {})}
+    assert out['diagnosis.recovered'] == 'fail' and calls == [1]
