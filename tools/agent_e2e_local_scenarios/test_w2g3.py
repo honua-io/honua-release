@@ -88,12 +88,14 @@ def test_p13_seed_creates_two_distinct_saved_maps_once(monkeypatch, tmp_path, va
             prefix = step.rsplit('-', 1)[0]
             if step.endswith('-create'):
                 self.maps[prefix] = {'itemId': body['itemId'], 'ownerId': body['ownerId'],
-                                     'draftId': prefix + '-draft', 'versionId': prefix + '-version'}
+                                     'draftId': prefix + '-draft', 'versionId': ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' if prefix == 'p13-target' else 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')}
                 value, status = self.maps[prefix], 201
             elif step.endswith('-validate'):
                 value, status = {'status': 'valid', 'diagnostics': []}, 200
             elif step.endswith('-save'):
                 value, status = {**self.maps[prefix], 'versionNumber': 1, 'contentHash': 'a' * 64}, 201
+            elif step == 'p13-target-after':
+                m = self.maps['p13-target']; value, status = {'items':[{'itemId':m['itemId'], 'currentVersionId':m['versionId']}]}, 200
             elif step.endswith('-owner-read'):
                 value, status = self.maps[step[:-len('-owner-read')]], 200
             elif step.endswith('-before') and prefix in self.maps:
@@ -167,8 +169,9 @@ def test_frozen_restore_projection_rejects_actual_noop(variant):
     v2 = {'versionId': 'new', 'createdBy': owner, 'envelope': {'body': {'layers': [{}, {}, {'style': {'color':'red'}}]}}}
     root = '/api/v1/studio/content-items/' + item + '/versions'
     records = {'p13-target-after': record('p13-target-after', '/api/v1/studio/content-items?workspaceId=case', {'items':[{'itemId':item,'currentVersionId':version}]}),
-               'p13-target-v1': record('p13-target-v1', root + '/' + version, {'contentHash':digest, **v1}),
-               'p13-target-versions': record('p13-target-versions', root, {'versions':[v1,v2]})}
+               'p13-target-v1': record('p13-target-v1', root + '/' + version, {'contentHash':digest, 'itemId':item, **v1}),
+               'p13-target-versions': record('p13-target-versions', root, {'versions':[v1,v2]}),
+               'p13-target-current': record('p13-target-current', root + '/' + version, {'contentHash':digest, 'itemId':item, **v1})}
     expected = load_expected('P13', variant)['version.restored']
     roles = {'seeded:map:target':item, 'seeded:version:v1':version, 'seeded:hash:v1':digest}
     observation = Observation('version.restored', None, {'projection':'extract/v1'})
@@ -177,6 +180,13 @@ def test_frozen_restore_projection_rejects_actual_noop(variant):
                                 roles=roles, run_facts={'agentPrincipal':owner}, scenario_id='P13',
                                 frozen=load_projections('P13', variant))[0]['status']
     assert score(records) == 'pass'
+    v3 = '33333333-3333-4333-8333-333333333333'
+    records['p13-target-after'] = record('p13-target-after', '/api/v1/studio/content-items?workspaceId=case', {'items':[{'itemId':item,'currentVersionId':v3}]})
+    records['p13-target-current'] = record('p13-target-current', root + '/' + v3, {'itemId':item, 'versionId':v3, 'contentHash':digest})
+    assert score(records) == 'pass'
+    records['p13-target-current'] = record('p13-target-current', root + '/' + v3, {'itemId':item, 'versionId':v3, 'contentHash':'b'*64})
+    assert score(records) == 'fail'
+    records['p13-target-current'] = record('p13-target-current', root + '/' + v3, {'itemId':item, 'versionId':v3, 'contentHash':digest})
     records['p13-target-versions'] = record('p13-target-versions', root, {'versions':[v1]})
     assert score(records) == 'fail'
 
@@ -202,7 +212,7 @@ def test_restore_frozen_projection_with_recorded_http_and_wrong_live_history(tmp
             if self.path.startswith('/api/v1/studio/content-items?'):
                 data = {'items':[{'itemId':item,'currentVersionId':v1id}]}
             elif self.path == root: data = history
-            elif self.path == root + '/' + v1id: data = {'contentHash':digest, **v1}
+            elif self.path == root + '/' + v1id: data = {'contentHash':digest, 'itemId':item, **v1}
             else: self.send_error(404); return
             raw = json.dumps({'data':data}).encode()
             self.send_response(200); self.send_header('Content-Type', 'application/json')
@@ -218,6 +228,7 @@ def test_restore_frozen_projection_with_recorded_http_and_wrong_live_history(tmp
             recorder.set_phase('observe')
             recorder.json('p13-target-after','GET','/api/v1/studio/content-items?workspaceId=case')
             recorder.json('p13-target-v1','GET',root+'/'+v1id)
+            recorder.json('p13-target-current','GET',root+'/'+v1id)
             recorder.json('p13-target-versions','GET',root)
             result = score_assertions(['version.restored'], [Observation('version.restored',None,{'projection':'extract/v1'})],
                 {'version.restored':load_expected('P13','A')['version.restored']}, records=recorder.records,

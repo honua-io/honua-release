@@ -423,7 +423,9 @@
         },
         "targetReadStatus": 200,
         "versionReadStatus": 200,
-        "historyReadStatus": 200
+        "historyReadStatus": 200,
+        "currentVersionMatches": true,
+        "currentItemMatches": true
       },
       "shared.preserved": {
         "profile": "honua.protected-content/v1",
@@ -985,7 +987,9 @@
         },
         "targetReadStatus": 200,
         "versionReadStatus": 200,
-        "historyReadStatus": 200
+        "historyReadStatus": 200,
+        "currentVersionMatches": true,
+        "currentItemMatches": true
       },
       "shared.preserved": {
         "profile": "honua.protected-content/v1",
@@ -1140,11 +1144,10 @@
             }
           },
           "restoredVersionId": {
-            "body": "p13-target-after",
-            "pointer": "/data/items/0/currentVersionId"
+            "role": "seeded:version:v1"
           },
           "documentSha256": {
-            "body": "p13-target-v1",
+            "body": "p13-target-current",
             "pointer": "/data/contentHash"
           },
           "initialVersionId": {
@@ -1193,6 +1196,29 @@
           },
           "historyReadStatus": {
             "status": "p13-target-versions"
+          },
+          "currentVersionMatches": {
+            "eq": [
+              {
+                "body": "p13-target-after",
+                "pointer": "/data/items/0/currentVersionId"
+              },
+              {
+                "body": "p13-target-current",
+                "pointer": "/data/versionId"
+              }
+            ]
+          },
+          "currentItemMatches": {
+            "eq": [
+              {
+                "body": "p13-target-current",
+                "pointer": "/data/itemId"
+              },
+              {
+                "role": "seeded:map:target"
+              }
+            ]
           }
         }
       },
@@ -1217,6 +1243,21 @@
           "path": "/api/v1/studio/content-items/[0-9a-fA-F-]+/versions/[0-9a-fA-F-]+",
           "principal": "controller",
           "phase": "observe"
+        },
+        "p13-target-current": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/studio/content-items/[0-9a-fA-F-]+/versions/[0-9a-fA-F-]+",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            {
+              "role": "seeded:map:target",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
         }
       }
     },
