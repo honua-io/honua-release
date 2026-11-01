@@ -906,3 +906,51 @@ def test_slot_preparation_approves_only_a_fresh_slot_bound_proposal(tmp_path, mo
     assert out['status'] == 'failed' and not stage.harness_proposals
     assert not [x for x in sc.manager.calls if x[1].endswith('/approve') and str(x[2]).startswith('arc-harness')]
     assert stage.harness_unsafe(c) == ['approval-unbound'], 'the executed foreign proposal stays unbound'
+
+
+def test_reconvergence_stops_at_the_products_terminal_failure(tmp_path, monkeypatch):
+    """Rehearsal-7: the product failed the re-convergence (restore-incomplete, honua-server #6858) within 40 s
+    and the harness waited out its 25-minute budget. It now reports the product's outcome at once."""
+    sc = scenario(HAPPY)
+    happy_run(sc)
+    stage, c = stage_for(sc), ctx(tmp_path)
+    base = sc.manager.request
+
+    def request(method, path, key, payload=None):
+        if method == 'GET' and path.endswith('/prop-fresh001'):
+            return 200, {'proposalId': 'prop-fresh001', 'status': 'Failed', 'resolutionReason': 'restore-incomplete',
+                         'executionOperationId': 'restore-x'}
+        return base(method, path, key, payload)
+    sc.manager.request = request
+
+    class Keys:
+        def __init__(self, *a):
+            pass
+
+        def mint(self, name):
+            return {'name': name, 'key': name + '-k', 'id': name}
+
+        def revoke(self):
+            return []
+
+        def probe(self):
+            return []
+
+    class Mcp:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            return self
+
+        def execute(self, kind, action):
+            return {'status': 'ok', 'result': {'structuredContent': {'targets': [
+                {'targetId': 'compose-local', 'outcome': 'ProposalCreated', 'proposalId': 'prop-fresh001'}]}}}
+    import agent_cli_backends
+    monkeypatch.setattr(O, 'Keys', Keys)
+    monkeypatch.setattr(agent_cli_backends, 'HttpMcpBackend', Mcp)
+    monkeypatch.setattr(O.time, 'sleep', lambda s: None)
+    started = time.monotonic()
+    out = O.LocalOps.reconverge(stage, c)
+    assert out['status'] == 'failed' and out['product']['resolutionReason'] == 'restore-incomplete'
+    assert time.monotonic() - started < 5

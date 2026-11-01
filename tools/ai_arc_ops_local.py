@@ -69,6 +69,7 @@ OPS = ('upgrade.candidate-serving', 'rollback.prior-serving', 'restore.migration
 TICK = 5.0
 RELEASE_VERSION = '2026.1-rc.2'
 REDIS_STATES = ('running', 'exited', 'created', 'paused', 'restarting', 'dead', 'removing')
+RECONVERGE_SECONDS = 1500
 WAIT_LIMIT = 900.0       # the executor's post-activation observation window is ~10 minutes
 
 
@@ -911,14 +912,26 @@ class LocalOps:
                         'proposalId': pids[0]}
             self.harness_proposals.add(pids[0])
             status, _ = self.manager.request('POST', f'/api/v1/admin/proposals/{pids[0]}/approve', approver['key'], {})
-            deadline = time.monotonic() + 1500
+            if status not in (200, 201, 202, 204):
+                return {'status': 'failed', 'reason': 'the preparation approval was refused', 'proposalId': pids[0],
+                        'approveStatus': status}
+            deadline = time.monotonic() + RECONVERGE_SECONDS
             while time.monotonic() < deadline:
                 state = read_state(ctx.slot.vm)
                 if state and state['imageId'] == self.candidate_id and state['schema'] >= 142 and state['ready']:
                     return {'status': 'converged', 'proposalId': pids[0], 'approveStatus': status,
                             'by': 'harness (slot preparation for stage 3)'}
+                # The product's own outcome: stop at a terminal proposal instead of waiting out the budget
+                # (rehearsal-7: Failed / restore-incomplete within 40 s; honua-server #6858).
+                code, detail = self.manager.request('GET', f'/api/v1/admin/proposals/{pids[0]}',
+                                                    ctx.slot.controller['admin_key'])
+                detail = detail.get('data', detail) if isinstance(detail, dict) else {}
+                if code == 200 and str(detail.get('status', '')).lower() in ('failed', 'rejected', 'cancelled'):
+                    return {'status': 'failed', 'reason': 'the product failed the re-convergence',
+                            'proposalId': pids[0], 'approveStatus': status,
+                            'product': {k: detail.get(k) for k in ('status', 'resolutionReason', 'executionOperationId')}}
                 time.sleep(10)
-            return {'status': 'timeout', 'proposalId': pids[0]}
+            return {'status': 'timeout', 'proposalId': pids[0], 'approveStatus': status}
         finally:
             revoked = keys.revoke()
             probes = keys.probe()
