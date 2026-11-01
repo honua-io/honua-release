@@ -424,8 +424,9 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             if fixture_cases is not None and sid == 'P15':
                 receipt['priorCaseReceiptSha256'] = runtime.shared_service['caseReceiptSha256']
                 roles = receipt.get('roles') or {}
-                if (roles.get('seeded:service:shelters') != runtime.shared_service['service']
-                        or roles.get('seeded:layer:shelters') != runtime.shared_service['layerId']):
+                if (receipt.get('status') != 'infrastructure' and
+                        (roles.get('seeded:service:shelters') != runtime.shared_service['service']
+                         or roles.get('seeded:layer:shelters') != runtime.shared_service['layerId'])):
                     receipt['status'] = 'fail'
                     receipt['failure'] = {'category': 'model', 'reason': 'P15 prior service binding differs'}
             new_dirs = [d for d in runtime.workdirs if d not in before]
@@ -453,7 +454,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             retained = redact_bytes(json.dumps(receipt, sort_keys=True).encode(),
                                     [*runtime._secrets, *runtime.extra_secrets])
             (out_dir / sid / 'case-receipt.json').write_bytes(retained)
-            if fixture_cases is not None and sid == 'P10':
+            if fixture_cases is not None and sid == 'P10' and receipt.get('status') != 'infrastructure':
                 try:
                     runtime.shared_service = shared_publication(receipt, retained, variant, fault)
                 except ValueError as exc:
