@@ -2308,6 +2308,22 @@ def clopper_pearson(successes: int, trials: int) -> list[float]:
             1.0 if successes == trials else solve(successes + 1, .975)]
 
 
+def on_shipped_package(receipt: dict) -> bool:
+    """ARC v2 B1/S4: a local run is on the shipped composition only when its setup (if it ran) installed the
+    product's quickstart package and its ops (if it ran) adopted that package's manager and executor. The same
+    rule is applied by tools/rc_gate_window.py admission."""
+    facts = receipt.get('slotFacts') if isinstance(receipt.get('slotFacts'), dict) else {}
+    rows = {r.get('stage'): r for r in receipt.get('stages') or [] if isinstance(r, dict)}
+    quickstart, composition = facts.get('quickstart'), facts.get('opsComposition')
+    ran = lambda stage: (rows.get(stage) or {}).get('outcome') in ('pass', 'fail')
+    if (quickstart is not None or ran('setup')) and not (isinstance(quickstart, dict) and quickstart.get('packageSha256')):
+        return False
+    if (composition is not None or ran('ops')) and not (isinstance(composition, dict)
+                                                         and composition.get('kind') == 'quickstart-package'):
+        return False
+    return True
+
+
 def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate: dict, digests: dict,
                row: dict, goal_sets: dict, evidence: Path | None) -> dict:
     """Re-derive a run's outcome from its retained evidence; reject anything contradictory or misbound."""
@@ -2357,9 +2373,19 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
     composition = (receipt.get('slotFacts') or {}).get('opsComposition')
-    if composition is not None and (composition.get('revision') != arc['opsComposition']['revision']
-                                    or composition.get('executorComposeSha256') != arc['opsComposition']['sha256']):
-        raise ValueError('the ops composition is not the arc pin')
+    if composition is not None:
+        kind = composition.get('kind') if isinstance(composition, dict) else None
+        if kind == 'quickstart-package':
+            package = (quickstart or {}).get('packageSha256') if isinstance(quickstart, dict) else None
+            if composition.get('revision') != arc['quickstartPackage']['revision'] or not package \
+                    or composition.get('packageSha256') != package:
+                raise ValueError('the ops composition is not the pinned quickstart package')
+        elif kind == 'development-composition':
+            if composition.get('revision') != arc['opsComposition']['revision'] \
+                    or composition.get('executorComposeSha256') != arc['opsComposition']['sha256']:
+                raise ValueError('the ops composition is not the arc pin')
+        else:
+            raise ValueError('the ops composition is of no known kind')
     pinned = arm_by_id(arc, arm_id)['cliVersion']
     if receipt.get('cliVersion') != pinned:
         raise ValueError(f'run receipt does not record the pinned CLI {pinned}')
@@ -2542,9 +2568,11 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
         reasons.append('development goals (A/B), not the sealed held-out set')
     if candidate.get('development'):
         reasons.append('a development image built from trunk, not a release candidate')
-    if any(((json.loads(raw).get('slotFacts') or {}).get('opsComposition') or {}).get('kind') == 'development-composition'
-           for raw in receipts):
-        reasons.append('ops ran on the development executor composition, not the quickstart')
+    if target == 'local-docker' and not all(on_shipped_package(json.loads(raw)) for raw in receipts):
+        # Laptop decision 11-01 (ARC v2 B1/S4): only the product's shipped quickstart package certifies; the
+        # development executor composition, or a setup without the package, never does.
+        reasons.append('a run did not set up and operate the shipped quickstart package (opsComposition kind '
+                       'quickstart-package); the development composition never certifies')
     if any(c['status'] in ('missing', 'undetermined') for c in cases):
         reasons.append('a counted run is missing or undetermined')
     if any((json.loads(raw).get('opsScope') or {}).get('proposed') for raw in receipts):

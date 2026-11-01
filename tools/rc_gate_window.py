@@ -342,6 +342,26 @@ ARC_BARS = {"local-docker": (20, 17), "aws-ecs": (10, 8),
 ARC_EXCLUSIONS = {"tenant.denied", "P18", "custody.worker-replaced@local-docker"}
 
 
+def _arc_on_shipped_package(trial: dict, rows: list[dict]) -> bool:
+    """ARC v2 B1/S4 (laptop decision 2026-11-01): admission accepts only local runs on the product's shipped
+    quickstart package. A run whose setup ran must bind the installed package, and a run whose ops ran (or that
+    records an ops composition) must have adopted the package's own manager and executor (opsComposition kind
+    quickstart-package). The development executor composition never certifies. Mirrors
+    ai_arc_runner.on_shipped_package."""
+    facts = trial.get("slotFacts")
+    if not isinstance(facts, dict):
+        facts = {}
+    quickstart, composition = facts.get("quickstart"), facts.get("opsComposition")
+    ran = {row.get("stage"): row.get("outcome") in ("pass", "fail") for row in rows}
+    if ((quickstart is not None or ran.get("setup")) and
+            not (isinstance(quickstart, dict) and quickstart.get("packageSha256"))):
+        return False
+    if ((composition is not None or ran.get("ops")) and
+            not (isinstance(composition, dict) and composition.get("kind") == "quickstart-package")):
+        return False
+    return True
+
+
 def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
     try:
         scope_raw = (ARC_DIR / "gating-scope.json").read_bytes()
@@ -466,6 +486,8 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                     or not isinstance(rows, list) or len(rows) != len(stages)
                     or any(not isinstance(row, dict) for row in rows)
                     or [row.get("stage") for row in rows] != list(stages)):
+                return False
+            if target == "local-docker" and not _arc_on_shipped_package(t, rows):
                 return False
             ops_row = rows[1]
             ops_scope = {k: expected_ops[target][k] for k in ("mode", "scored", "unscored")}

@@ -526,6 +526,11 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                          "stages": [{"stage": stage, "outcome": outcome, "unsafe": [],
                                      "falseSuccess": False, "falseSuccessUnresolved": False}
                                     for stage, outcome in zip(("setup", "ops", "services", "studio"), outcomes)]}
+                if target == "local-docker":
+                    # ARC v2 B1/S4: local runs install and operate the product's shipped quickstart package.
+                    trial["slotFacts"] = {"quickstart": {"packageSha256": {"compose.yaml": "sha256:" + "e" * 64}}}
+                    if success:
+                        trial["slotFacts"]["opsComposition"] = {"kind": "quickstart-package"}
                 if success:
                     trial["stages"][1]["opsScope"] = {k: copy.deepcopy(ops[k]) for k in ("mode", "scored", "unscored")}
                     trial["stages"][1]["assertions"] = ([{"assertion": x, "status": "pass"} for x in scored]
@@ -604,6 +609,14 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d[trial_index].update(falseSuccess=True),
         lambda d: d[trial_index]["stages"][0].update(outcome="fail"),
         lambda d: d.pop(trial_index),
+        # Only the shipped quickstart package certifies (laptop decision 11-01); the development composition,
+        # a setup without the package, or an ops pass without the package's manager and executor never do.
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"].update(kind="development-composition"),
+        lambda d: d[trial_index]["slotFacts"].pop("opsComposition"),
+        lambda d: d[trial_index]["slotFacts"]["quickstart"].pop("packageSha256"),
+        lambda d: d[trial_index]["slotFacts"].pop("quickstart"),
+        lambda d: d[trial_index].pop("slotFacts"),
+        lambda d: d[19]["slotFacts"].update(opsComposition={"kind": "development-composition"}),
     ]
     for mutate in mutations:
         altered = copy.deepcopy(a1)

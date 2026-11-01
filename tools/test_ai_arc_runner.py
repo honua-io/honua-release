@@ -1256,7 +1256,60 @@ def test_a_development_composition_run_is_never_certifying(tmp_path):
     assert receipt['slotFacts']['opsComposition']['kind'] == 'development-composition'
     aggregate, report = _admit(tmp_path, '001')
     assert aggregate.get('certifying') is False
-    assert 'ops ran on the development executor composition, not the quickstart' in report['notCertifyingBecause']
+    assert any('the development composition never certifies' in r for r in report['notCertifyingBecause'])
+
+
+class Packaged(FakeStage):
+    """Ops on the shipped package: setup installed the package (its digest in the quickstart facts) and ops
+    adopted the package's own manager and executor."""
+    def __init__(self, stage, package=True, composition=None):
+        super().__init__(stage)
+        self.package, self.composition = package, composition
+
+    def prepare(self, ctx):
+        if self.package:
+            ctx.slot.facts.setdefault('quickstart', {})['packageSha256'] = {'compose.yaml': 'sha256:' + 'e' * 64}
+        ctx.slot.facts['opsComposition'] = self.composition or {
+            'kind': 'quickstart-package', 'revision': ARC['quickstartPackage']['revision'],
+            'packageSha256': {'compose.yaml': 'sha256:' + 'e' * 64}}
+
+
+def _package_reasons(report):
+    return [r for r in report.get('notCertifyingBecause', []) if 'shipped quickstart package' in r]
+
+
+def test_a_shipped_package_run_is_admitted_without_a_composition_reason(tmp_path):
+    run(tmp_path, mods=modules(ops=Packaged('ops')))
+    receipt = json.loads((tmp_path / '001' / 'trial-receipt.json').read_text())
+    assert R.on_shipped_package(receipt)
+    aggregate, report = _admit(tmp_path, '001')
+    assert _package_reasons(report) == []
+
+
+@pytest.mark.parametrize('composition', [
+    {'kind': 'quickstart-package', 'revision': 'f' * 40, 'packageSha256': {'compose.yaml': 'sha256:' + 'e' * 64}},
+    {'kind': 'quickstart-package', 'revision': ARC['quickstartPackage']['revision'],
+     'packageSha256': {'compose.yaml': 'sha256:' + '0' * 64}},
+    {'kind': 'harness-overlay', 'revision': ARC['quickstartPackage']['revision']}])
+def test_a_package_composition_not_bound_to_the_installed_package_is_not_admitted(tmp_path, composition):
+    run(tmp_path, mods=modules(ops=Packaged('ops', composition=composition)))
+    with pytest.raises(ValueError, match='ops composition'):
+        _admit(tmp_path, '001')
+
+
+def test_a_local_run_whose_setup_did_not_install_the_package_never_certifies(tmp_path):
+    """Laptop decision 11-01: admission accepts only the shipped quickstart package composition; a run that
+    set up without the package (or ran ops without an ops composition) is not on it."""
+    receipt, _ = run(tmp_path)
+    assert receipt['stages'][0]['outcome'] == 'pass' and not R.on_shipped_package(receipt)
+    aggregate, report = _admit(tmp_path, '001')
+    assert aggregate.get('certifying') is False and _package_reasons(report)
+    broken = json.loads(json.dumps(receipt))
+    broken['slotFacts'].setdefault('quickstart', {})['packageSha256'] = {'x': 'sha256:' + 'e' * 64}
+    broken['slotFacts'].pop('opsComposition', None)
+    assert not R.on_shipped_package(broken)      # ops ran (pass) with no ops composition recorded
+    broken['slotFacts']['opsComposition'] = {'kind': 'quickstart-package'}
+    assert R.on_shipped_package(broken)
 
 
 @pytest.mark.parametrize('change', [{'revision': 'f' * 40}, {'executorComposeSha256': 'sha256:' + '0' * 64}])
