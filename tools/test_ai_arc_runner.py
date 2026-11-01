@@ -1879,7 +1879,6 @@ def test_a_converged_slot_preparation_in_context_is_never_a_harness_fault():
     assert out['outcome'] == 'undetermined' and 'slot preparation' in out['cause']
 
 
-
 def test_a_local_receipt_without_the_pinned_quickstart_is_rejected(tmp_path):
     """Sol 5b3b348d: removing or nulling the quickstart facts of a run whose setup ran fails verification."""
     names, raws = campaign(tmp_path, [True])
@@ -1920,3 +1919,28 @@ def test_an_oversized_referenced_folder_fails_closed(tmp_path, monkeypatch):
         R._bindable_files(folder)
     monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 6)
     assert len(R._bindable_files(folder)) == 6
+
+
+def test_every_committed_arc_input_is_bound_and_sealed_files_are_not(tmp_path, monkeypatch):
+    """Coordinator 11-01: the services fixture map (#1196) and the Studio requirements file (#1198) bind the
+    runner digest by folder, whatever their names or however they are loaded."""
+    R._closure_files.cache_clear()
+    closure = R.runner_closure()
+    assert 'certification/ai-arc/arc.v1.json' in closure and 'certification/ai-arc/gating-scope.json' in closure
+    assert not any(R._restricted(Path(f)) for f in closure)
+    assert not any(f.endswith('.sealed') or 'heldout' in f.lower() for f in closure)
+    folder = tmp_path / 'certification' / 'ai-arc'
+    folder.mkdir(parents=True)
+    (folder / 'studio-fixture-requirements.json').write_text('{"a": 1}')
+    (folder / 'heldout.v1.sealed').write_text('opaque')
+    (folder / 'HELDOUT.md').write_text('x')
+    monkeypatch.setattr(R, 'ROOT', tmp_path)
+    monkeypatch.setattr(R, 'RUNNER_FILES', ())
+    monkeypatch.setattr(R, 'RUNTIME_EXTRA', ())
+    R._closure_files.cache_clear()
+    assert R.runner_closure() == ['certification/ai-arc/studio-fixture-requirements.json']
+    before = R.harness_digests()['runner']
+    (folder / 'studio-fixture-requirements.json').write_text('{"a": 2}')
+    R._closure_files.cache_clear()
+    assert R.harness_digests()['runner'] != before
+    R._closure_files.cache_clear()

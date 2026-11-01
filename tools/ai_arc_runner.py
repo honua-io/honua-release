@@ -1939,7 +1939,16 @@ def _runner_closure() -> list[str]:
                 rel.add(str(target.relative_to(ROOT)))
             elif target.is_dir():
                 rel.update(_bindable_files(target))
+    # Every committed ARC input under certification/ai-arc/ (fixture catalogs such as the services
+    # fixture-to-scenario map and the Studio per-fixture requirements), however a lane loads it; the sealed
+    # held-out manifests stay out (they have their own heldOut digest) and are never enumerated.
+    for folder in ARC_INPUT_DIRS:
+        if (ROOT / folder).is_dir():
+            rel.update(_bindable_files(ROOT / folder))
     return sorted(rel | set(RUNNER_FILES) | set(RUNTIME_EXTRA))
+
+
+ARC_INPUT_DIRS = ('certification/ai-arc',)
 
 
 PATH_LITERAL = re.compile(r'(?:certification|tools|docs)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')
