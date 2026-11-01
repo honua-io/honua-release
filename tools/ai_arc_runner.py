@@ -2136,13 +2136,20 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
 MAX_VOIDS = 2
 
 
-def check_adjudication(arc: dict, arm: dict, void: dict, original: dict | None) -> None:
-    """One adjudication, as the campaign checks it before resuming and the aggregate checks it after."""
+ADJUDICATION_FINDINGS = ('harness-fault', 'product-failure', 'model-failure', 'infrastructure-unreplayed')
+
+
+def check_adjudication(arc: dict, arm: dict, void: dict, original: dict | None, *, voiding: bool = True) -> None:
+    """One adjudication, as the campaign checks it before resuming and the aggregate checks it after. Every
+    decision, including one that keeps the run counted, needs a supported finding, a reviewer of the other
+    model family, an https citation and a time after the run finished (Sol 4ac23739)."""
     family = void.get('reviewerFamily')
     if family not in FAMILIES or family == arm['family']:
         raise ValueError('void must be adjudicated by a reviewer of the other model family')
-    if void.get('finding') != 'harness-fault' or not str(void.get('adjudication', '')).startswith('https://'):
-        raise ValueError('void must cite an https adjudication finding a harness fault')
+    if void.get('finding') not in ADJUDICATION_FINDINGS or not str(void.get('adjudication', '')).startswith('https://'):
+        raise ValueError('an adjudication must cite an https record with a supported finding')
+    if voiding and void.get('finding') != 'harness-fault':
+        raise ValueError('only a harness-fault finding voids a run')
     if original is None:
         raise ValueError('the voided run receipt must be retained')
     if parse_time(void.get('adjudicatedAt')) < parse_time(original['finishedAt']):

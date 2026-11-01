@@ -124,7 +124,7 @@ def test_third_void_stops_the_campaign(tmp_path):
 def test_non_harness_finding_keeps_the_run_counted(tmp_path):
     log = []
     (tmp_path / 'adjudications').mkdir(parents=True)
-    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps({'finding': 'product-failure'}))
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(dict(GOOD, finding='product-failure')))
     C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
                    common=[], reserve_rows=RESERVE, wait_poll=0.01,
                    launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
@@ -259,3 +259,45 @@ def test_a_hold_on_an_in_flight_run_blocks_other_free_slots(tmp_path):
         C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=2,
                        common=[], wait_poll=0.01, max_wait=0.3, launch=fake_launch(tmp_path, {}, log, gate=gate))
     assert len(log) <= 2, 'at most the run already launched beside it'
+
+
+
+@pytest.mark.parametrize('decision', [{}, {'finding': 'product-failure'}, dict(GOOD, finding='made-up'),
+                                      dict(GOOD, finding='product-failure', reviewerFamily='anthropic'),
+                                      dict(GOOD, finding='product-failure', adjudication='http://x')])
+def test_a_decision_that_keeps_the_run_counted_is_validated_too(tmp_path, decision):
+    """Sol 4ac23739 item 1: an empty or unsupported decision never clears the barrier."""
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(decision))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3,
+                       launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']
+
+
+def test_a_fresh_hold_after_an_adjudication_needs_a_fresh_decision(tmp_path):
+    """Sol 4ac23739 item 2: acknowledgement is bound to the hold generation it answered."""
+    log = []
+    holds = tmp_path / 'holds'
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            holds.mkdir(exist_ok=True)
+            (holds / 'local-docker-A1-001.hold').write_text('first\n')
+        if row['runId'].endswith('002'):
+            time.sleep(0.05)
+            (holds / 'local-docker-A1-001.hold').write_text('second: new scorer defect\n')
+    (tmp_path / 'adjudications').mkdir(parents=True)
+
+    def decide():
+        while not (holds / 'local-docker-A1-001.hold').is_file():
+            time.sleep(0.01)
+        time.sleep(0.05)
+        (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(dict(GOOD, finding='product-failure')))
+    threading.Thread(target=decide, daemon=True).start()
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=1.0, launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:002']

@@ -13,6 +13,7 @@ campaign never reruns a run id and never replaces a receipt.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -60,7 +61,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
     free = slots(hosts, per_host) if target == 'local-docker' else [(None, i) for i in range(per_host)]
     lock = threading.Condition()
     results, pending, voids, threads, rejected = [], [], [], [], {}
-    adjudicated = set()
+    adjudicated = {}
     queue, reserves = list(schedule_rows), list(reserve_rows)
 
     def run_dir(row):
@@ -131,15 +132,20 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             decision = json.loads(path.read_text())
         except ValueError:
             return False      # still being written; read it on the next pass
-        if decision.get('finding') != 'harness-fault':
-            return True       # the run stays counted as it stands
+        hold = out / 'holds' / (run_id.replace(':', '-') + '.hold')
+        if hold.is_file() and path.stat().st_mtime_ns < hold.stat().st_mtime_ns:
+            return False      # a decision older than the current hold does not answer it
         receipt_path = out / 'runs' / run_id.replace(':', '-') / 'trial-receipt.json'
         original = json.loads(receipt_path.read_text()) if receipt_path.is_file() else None
         try:
-            arc_runner.check_adjudication(arc, arm_spec, decision, original)
+            # Every decision is validated, including one that keeps the run counted (Sol 4ac23739).
+            arc_runner.check_adjudication(arc, arm_spec, decision, original,
+                                          voiding=decision.get('finding') == 'harness-fault')
         except ValueError as exc:
             rejected[run_id] = str(exc)
             return False      # an invalid adjudication never resumes the campaign
+        if decision.get('finding') != 'harness-fault':
+            return True       # the run stays counted as it stands
         if len(voids) >= arc_runner.MAX_VOIDS or not reserves:
             raise RuntimeError('void cap or sealed reserve exhausted: the target fails')
         reserve = reserves.pop(0)
@@ -155,7 +161,10 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             while queue or pending or len(results) < len(threads):
                 if pending:
                     if adjudicate(pending[0]):
-                        adjudicated.add(pending.pop(0))
+                        done = pending.pop(0)
+                        hold = out / 'holds' / (done.replace(':', '-') + '.hold')
+                        adjudicated[done] = (hashlib.sha256(hold.read_bytes()).hexdigest() + ':'
+                                             + str(hold.stat().st_mtime_ns)) if hold.is_file() else None
                         save_state()
                         continue
                     save_state()
@@ -168,7 +177,10 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                     # until it is adjudicated (Sol 09e293be). A hold for a run not yet started blocks it too.
                     held = next((r['runId'] for r in results if r['runId'].replace(':', '-') + '.hold' == hold.name),
                                 None)
-                    if held and held not in pending and held not in adjudicated:
+                    generation = hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
+                    # An acknowledgement answers one hold generation; a fresh hold needs a fresh decision
+                    # (Sol 4ac23739 item 2).
+                    if held and held not in pending and adjudicated.get(held) != generation:
                         pending.append(held)
                 if pending:
                     continue
