@@ -59,7 +59,7 @@ def runtime_class():
                 self._ensure_reader(stack)
             project = self.vm.project
             listing = self.vm.ssh(shlex.join(['docker', 'ps', '-q', '--filter',
-                'label=com.docker.compose.project=' + project, '--filter', 'label=com.docker.compose.service=db']))
+                'label=com.docker.compose.project=' + project, '--filter', 'label=com.docker.compose.service=postgres']))
             ids = listing.stdout.decode().split() if listing.returncode == 0 else []
             if len(ids) != 1 or not re.fullmatch(r'[0-9a-f]{12,64}', ids[0]):
                 raise RuntimeError('no unique database container for the adopted slot')
@@ -115,7 +115,7 @@ def runtime_class():
                 self.extra_secrets.append(secret)
             rec = stack.extra['recorder']
             answer = rec.json('arc-p10-connection-create', 'POST', '/api/v1/admin/connections/', {
-                'name': stack.compose_project + '-fixture', 'host': 'db', 'port': 5432,
+                'name': stack.compose_project + '-fixture', 'host': 'postgres', 'port': 5432,
                 'databaseName': 'honua', 'username': 'honua', 'password': secret,
                 'sslRequired': False, 'sslMode': 'Disable'})
             body = answer['observation']['body']

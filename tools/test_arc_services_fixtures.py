@@ -145,6 +145,7 @@ def test_adopted_sql_uses_matching_remote_project_and_one_quoted_sql_argument(tm
     assert runtime.psql(stack, sql, read_only=True) == (0, b'[]\n')
     assert verified == [stack]
     assert 'label=com.docker.compose.project=arc-test' in calls[0]
+    assert 'label=com.docker.compose.service=postgres' in calls[0]
     assert calls[1][-2:] == ['-c', sql]
     assert 'default_transaction_read_only=on' in ' '.join(calls[1])
     runtime.vm.project = 'foreign'
@@ -169,7 +170,7 @@ def test_adopted_connection_is_created_under_controller_custody(tmp_path):
             return {'observation': {'httpStatus': 201, 'body': {'data': {'connectionId': 'conn'}}}}
     stack = SimpleNamespace(compose_project='arc-test-p10', extra={'recorder': Rec()})
     assert runtime.ensure_arc_connection(stack) == 'conn'
-    assert calls[0][3]['host'] == 'db' and calls[0][3]['password'] == secret
+    assert calls[0][3]['host'] == 'postgres' and calls[0][3]['password'] == secret
     assert secret in runtime._secrets and secret in runtime.extra_secrets
     vm.project = 'foreign'
     with pytest.raises(ValueError):
@@ -222,3 +223,14 @@ def test_harness_custody_failure_does_not_become_an_agent_false_success(monkeypa
     runner.score_final_answer('The map is shared.', {}, runner.agent_work_assertions('P15', rows))
     assert seen == ['pass']
     assert runner.agent_work_assertions('P10', rows) == rows
+
+
+def test_adopted_database_identity_matches_quickstart_fixture():
+    import yaml
+    from pathlib import Path
+    from ai_arc_local import quickstart_compose
+    page = Path(__file__).parent / 'test_ai_arc_fixtures/quickstart.md'
+    compose = yaml.safe_load(quickstart_compose(page.read_text()))
+    assert 'postgres' in compose['services']
+    env = compose['services']['honua']['environment']
+    assert 'Host=postgres;Database=honua;Username=honua;' in env['ConnectionStrings__DefaultConnection']
