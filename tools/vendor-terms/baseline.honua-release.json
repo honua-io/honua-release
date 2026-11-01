@@ -1,19 +1,7 @@
 {
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
-  "sha": "8dc94aead8ac22ad146684c95a6ad40c54a04996",
-  "total": 23,
-  "files": {
-    "artifacts/terminal-journey-issue-123.md": 1,
-    "certification/sources/geoservices-rest/matrix/image-server.matrix.json": 1,
-    "certification/sources/geoservices-rest/matrix/map-server.matrix.json": 1,
-    "certification/sources/geoservices-rest/matrix/na-server.matrix.json": 2,
-    "docs/2026.1-evidence-map.md": 9,
-    "e2e/drivers/demos/README.md": 1,
-    "e2e/drivers/formats/formats.py": 4,
-    "e2e/expected-ga-manifest.json": 1,
-    "e2e/harness/seed/fixtures/formats/sample.esrijson": 1,
-    "e2e/harness/seed/seed.sh": 1,
-    "tools/test_release_decision_record.py": 1
-  }
+  "sha": "a315352b071a347c2ec78e1db7bf774144ec1d7a",
+  "total": 0,
+  "files": {}
 }
