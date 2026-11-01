@@ -243,8 +243,8 @@ def _run(tmp_path, monkeypatch, scenario_id, variant, *, png, flood=None, publis
                 _seed_publications(self.recorder)
                 return {'layers': {name: dict(binding) for name, binding in LAYERS.items()}}
 
-        import agent_e2e_scenario_backend
-        monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+        from agent_e2e_local_scenarios import w2g3_common
+        monkeypatch.setattr(w2g3_common, 'town_setup', lambda recorder, variant: Town(recorder, None))
     import agent_browser_studio
     monkeypatch.setattr(agent_browser_studio, 'observed_fixture_source_ids', lambda _rec, layers:
                         {name: f'svc-{name}/{binding["layerId"]}' for name, binding in layers.items()})
@@ -438,6 +438,28 @@ def test_console_attachment_requires_approved_host_and_pinned_image(tmp_path, mo
     monkeypatch.setenv('DOCKER_HOST', 'ssh://honua-eval-4')
     with pytest.raises(ValueError, match='pinned digest'):
         CaseConsole(stack, 'ghcr.io/honua-io/honua-console:latest')
+
+
+def test_case_console_never_receives_the_controller_key(tmp_path, monkeypatch):
+    import agent_browser_studio as studio
+    calls = []
+    stack = Stack('http://127.0.0.1:8137', 'controller-secret', None, 'g41', 'f', str(tmp_path), DIGEST, {})
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://honua-eval-4')
+    monkeypatch.setenv('HONUA_ADMIN_API_KEY', 'inherited-controller-secret')
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs['env']))
+        return SimpleNamespace(returncode=1, stdout='')
+
+    monkeypatch.setattr(studio.subprocess, 'run', run)
+    with pytest.raises(RuntimeError, match='could not start'):
+        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64,
+                           edge_secret='x' * 32)
+    command, env = calls[0]
+    assert 'HONUA_ADMIN_API_KEY' not in command
+    assert 'HONUA_ADMIN_API_KEY' not in env
+    assert 'Honua__Console__Auth__EdgeForwarded__ServerSessionIssuer=https://terminal-journey.invalid' in command
+    assert 'controller-secret' not in command
 
 
 def test_case_console_must_match_the_reviewed_image_and_manifest(tmp_path, monkeypatch):
@@ -787,8 +809,8 @@ def test_seed_is_idempotent(monkeypatch, tmp_path):
             calls.append(kwargs['variant'])
             return {'layers': {name: {'service': 'svc', 'layerId': 1} for name in LAYER_NAMES}}
 
-    import agent_e2e_scenario_backend
-    monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+    from agent_e2e_local_scenarios import w2g3_common
+    monkeypatch.setattr(w2g3_common, 'town_setup', lambda recorder, variant: Town(recorder, None))
 
     def factory(recorder, principal, method, path, body, headers):
         if path == LIST_PATH:
@@ -1125,3 +1147,115 @@ def test_missing_saved_label_rule_is_not_style_evidence():
     body['mapSpec']['layers'] = [row for row in body['mapSpec']['layers'] if row['type'] != 'symbol']
     with pytest.raises(PackError, match='label'):
         style_from_body(body)
+
+
+def test_assistant_console_does_not_inherit_an_agent_key(tmp_path, monkeypatch):
+    import agent_browser_studio as studio
+    calls = []
+    stack = Stack('http://127.0.0.1:8137', 'controller-secret', None, 'g41', 'f', str(tmp_path), DIGEST, {})
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://honua-eval-4')
+    monkeypatch.setenv('HONUA_AGENT_API_KEY', 'inherited-wrong-key')
+    def run(command, **kwargs):
+        calls.append((command, kwargs['env']))
+        return SimpleNamespace(returncode=1, stdout='')
+    monkeypatch.setattr(studio.subprocess, 'run', run)
+    with pytest.raises(RuntimeError, match='could not start'):
+        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64)
+    command, env = calls[0]
+    assert 'HONUA_AGENT_API_KEY' not in env
+    assert 'HONUA_NATIVE_MODEL_ENABLED' not in env
+    assert 'HONUA_ADMIN_API_KEY' not in env
+
+
+def test_catalog_bound_unstyled_map_normalizes_identifiers_without_changing_palette():
+    from agent_browser_studio import normalize_catalog_map
+    body = {'view': {'crs': 'EPSG:3857', 'bbox': [-20010, -5010, -18800, -4700]}, 'widgets': [],
+            'layers': [{'id': 'parcel-custom', 'sourceId': 'svc-parcels/0', 'type': 'fill', 'visible': True},
+                       {'id': 'flood-zones', 'sourceId': 'svc-flood/1', 'type': 'fill', 'visible': True},
+                       {'id': 'shelter-custom', 'sourceId': 'svc-shelters/2', 'type': 'circle', 'visible': True}]}
+    ids = {'parcels': 'svc-parcels/0', 'flood_zones': 'svc-flood/1', 'shelters': 'svc-shelters/2'}
+    normalized, colors = normalize_catalog_map(body, ids, LAYERS)
+    assert [row['id'] for row in normalized['layers']] == list(LAYER_NAMES)
+    assert normalized['view']['crs'] == 'EPSG:4326'
+    assert colors['flood_zones'] == [148, 116, 26, 115]
+    body['view'] = {'crs': 'EPSG:4326', 'bbox': normalized['view']['bbox']}
+    geographic, _ = normalize_catalog_map(body, ids, LAYERS)
+    assert geographic['view'] == body['view']
+    body['layers'][1]['styleRef'] = 'authored-style'
+    with pytest.raises(ProjectionError, match='authored style'):
+        normalize_catalog_map(body, ids, LAYERS)
+    del body['layers'][1]['styleRef']
+    body['layers'][1]['sourceId'] = 'svc-foreign/1'
+    with pytest.raises(ProjectionError, match='catalog'):
+        normalize_catalog_map(body, ids, LAYERS)
+
+
+def test_cli_browser_refuses_and_records_studio_ai_post(tmp_path):
+    from types import SimpleNamespace
+    from agent_browser_studio import OriginLock, PlaywrightPage
+    from agent_e2e_local_runner import ActionLog
+    page = PlaywrightPage.__new__(PlaywrightPage)
+    page.origin = OriginLock('http://localhost:1234')
+    page._stage_gate = None
+    page._assistant_log = None
+    page._refusal_log = ActionLog(tmp_path, 1, set(), 10)
+    page.aborted = []
+    class Route:
+        request = SimpleNamespace(url='http://localhost:1234/api/agent-workspace/studio/ai', method='POST')
+        def abort(self, reason): self.reason = reason
+        def continue_(self, **kwargs): raise AssertionError('AI request must never be sent')
+    route = Route()
+    page._gate(route)
+    assert route.reason == 'blockedbyclient'
+    assert page._refusal_log.rows[0]['status'] == 'fail'
+    assert page._refusal_log.rows[0]['refusal'] == 'out-of-scope'
+    assert json.loads((tmp_path / 'action-0001.json').read_text())['tool'] == 'studio_ai.chat'
+
+
+@pytest.mark.parametrize('response,expected,code', [
+    ({'jsonrpc': '2.0', 'id': 1, 'error': {'code': -32001, 'message': 'private detail'}}, 'fail', -32001),
+    ({'jsonrpc': '2.0', 'id': 1, 'result': {'isError': True}}, 'fail', 'mcp-tool-error'),
+    ({'jsonrpc': '2.0', 'id': 1, 'result': {'isError': False}}, 'pass', None),
+])
+@pytest.mark.parametrize('streamed', [False, True])
+def test_assistant_mcp_records_json_rpc_outcome(tmp_path, response, expected, code, streamed):
+    from agent_browser_studio import OriginLock, PlaywrightPage
+    from agent_e2e_local_runner import ActionLog
+    page = PlaywrightPage.__new__(PlaywrightPage)
+    page.origin = OriginLock('http://localhost:1234')
+    page._stage_gate = page._identity = None
+    page._assistant_log = ActionLog(tmp_path, 1, set(), 10)
+    page._assistant_tool_calls = 0
+    page.aborted = []
+    class Response:
+        status = 200
+        headers = {'content-type': 'text/event-stream' if streamed else 'application/json'}
+        def body(self):
+            return ((b'data: ' + json.dumps(response).encode() + b'\n\n') if streamed
+                    else json.dumps(response).encode())
+    class Route:
+        request = SimpleNamespace(url='http://localhost:1234/api/agent-workspace/studio/mcp', method='POST',
+                                  resource_type='fetch', post_data_json={'id': 1, 'method': 'tools/call',
+                                      'params': {'name': 'honua_query', 'arguments': {}}})
+        def fetch(self, **kwargs): return Response()
+        def fulfill(self, **kwargs): pass
+        def abort(self, reason): raise AssertionError(reason)
+    page._gate(Route())
+    row = page._assistant_log.rows[0]
+    assert row['status'] == expected and row.get('errorCode') == code
+    assert 'private detail' not in json.dumps(row)
+
+
+def test_viewless_catalog_map_keeps_layer_facts_for_failed_handoff():
+    from agent_browser_studio import catalog_composition_without_view
+    from agent_e2e_local_runner import score_final_answer
+    ids = {'parcels': 'svc/0', 'flood_zones': 'svc/1', 'shelters': 'svc/2'}
+    body = {'layers': [{'sourceId': source, 'visible': True} for source in ids.values()]}
+    facts = catalog_composition_without_view(body, ids)
+    assert facts == {'orderedLayerIds': list(ids), 'visibility': dict.fromkeys(ids, True), 'view': None}
+    result = score_final_answer('The map is complete.', {'resources': [], 'facts': facts},
+                                [{'assertion': 'map.composition', 'status': 'fail'}])
+    assert result['false_success'] is True
+    body['layers'][0]['styleRef'] = 'authored'
+    with pytest.raises(ProjectionError, match='viewless catalog layer'):
+        catalog_composition_without_view(body, ids)

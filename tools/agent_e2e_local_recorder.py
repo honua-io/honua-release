@@ -557,6 +557,19 @@ class ControllerRecorder:
         return self._store(Record(step, self.phase, 'http', 'controller', None, 'GET', '/derived/' + step,
                                   200, raw, digest))
 
+    def store_studio_provider_config(self, payload):
+        """Retain the runner's secret-free server-container provider inspection."""
+        import inspect
+        caller = Path(inspect.stack()[1].filename).name
+        require(caller == 'agent_studio_provider_evidence.py', 'provider config is runner-owned')
+        require(isinstance(payload, dict) and set(payload) == {'region', 'containerId', 'imageId'},
+                'invalid provider config evidence')
+        self._claim('studio-ai-provider-config')
+        raw = action_bytes(payload)
+        digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        return self._store(Record('studio-ai-provider-config', self.phase, 'host-config', 'controller', None,
+                                  'READ', '/controller/studio-ai-provider', 200, raw, digest))
+
     def _verified_entries(self):
         return [entry for entry, _raw in self._sealed_entries()]
 

@@ -131,19 +131,14 @@ def test_ops_stage_delegates_through_the_gate(tmp_path):
 
 # ---------------------------------------------------------------- Studio (in Console)
 
-def test_studio_names_each_missing_driver(tmp_path, monkeypatch):
+def test_studio_requires_candidate_and_fixture_authority(tmp_path):
     import agent_e2e_studio_arc as studio
     ctx = ctx_for(tmp_path, 'local-docker', 'studio')
     stage = studio.arc_stage(ctx)
-    # A None entry makes the import raise ImportError, whether or not the module exists on this tree
-    # (#1162's browser has merged to trunk; the built-in assistant driver is #1188's).
-    monkeypatch.setitem(sys.modules, 'agent_browser_studio', None)
-    assert '#1162' in stage.unavailable(ctx)
-    monkeypatch.setitem(sys.modules, 'agent_browser_studio', types.SimpleNamespace())
-    monkeypatch.setitem(sys.modules, 'agent_e2e_console_assistant', None)
-    assert 'agent_e2e_console_assistant' in stage.unavailable(ctx)
-    assert stage.sign_in_probe(type('C', (), {'slot': R.Slot('local-docker', 'vm', 'arc-abcdef1234',
-                                                             facts={'consoleBaseUrl': 'x'})})())['ok'] is False
+    assert 'candidate and controller' in stage.unavailable(ctx)
+    ctx.slot.vm = types.SimpleNamespace(secrets={})
+    assert 'database fixture authority' in stage.unavailable(ctx)
+    assert stage.assistant_principals(ctx) == frozenset()
 
 
 def test_studio_stage_is_unavailable_without_console_even_with_drivers(tmp_path, monkeypatch):
@@ -668,17 +663,17 @@ def test_an_overrun_preparation_cannot_start_the_operator_after_finalize():
     assert started == []
 
 
-def test_studio_stays_unavailable_until_the_browser_case_contract_is_composed(tmp_path, monkeypatch):
-    """Astra #1177 (stage 4): importing the drivers is not composing #1162's seed_case contract."""
+def test_studio_accepts_only_bound_heldout_fixture_expectations(tmp_path):
     import agent_e2e_studio_arc as studio
-    import agent_e2e_local_runner as runner
-    monkeypatch.setitem(sys.modules, 'agent_browser_studio', types.SimpleNamespace())
-    monkeypatch.setitem(sys.modules, 'agent_e2e_console_assistant', types.SimpleNamespace())
-    monkeypatch.setattr(runner, 'load_scenario', lambda sid: types.SimpleNamespace(supported_variants=('A', 'B')))
     ctx = ctx_for(tmp_path, 'local-docker', 'studio')
-    assert 'not composed' in studio.arc_stage(ctx).unavailable(ctx)
-    monkeypatch.setitem(sys.modules, 'agent_browser_studio', types.SimpleNamespace(ARC_CONTRACT=studio.COMPOSED_CONTRACT))
-    assert studio.arc_stage(ctx).unavailable(ctx) is None
+    ctx.slot.vm = types.SimpleNamespace(secrets={'POSTGRES_PASSWORD': 'synthetic-only'})
+    ctx.variant = 'H'
+    ctx.case = {'target': 'local-docker', 'fixtures': 'town-A',
+                'goals': {'studio': 'Create the requested synthetic map for the customer.'}}
+    stage = studio.arc_stage(ctx)
+    assert stage.unavailable(ctx) is None
+    ctx.case['fixtures'] = 'unknown-fixture'
+    assert 'frozen expectations' in stage.unavailable(ctx)
 
 
 # ---------------------------------------------------------------- development candidate (trunk image on the hosts)
