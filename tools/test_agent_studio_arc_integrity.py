@@ -367,7 +367,7 @@ def arc_partial_case(tmp_path, monkeypatch):
     stamp = lambda offset: (now + timedelta(seconds=offset)).isoformat()
     state = {'published': set(names), 'wrong_actor': False, 'wrong_handle': False, 'map_sources': {n: dict(v) for n, v in sources.items()}}
     handoff = {'schema': 'honua.ai-arc.studio-services/v1', 'variant': 'A', 'fixtureId': 'town-A',
-               'connectionId': '00000000-0000-0000-0000-000000000001',
+               'connectionId': 'abcdef01-2345-6789-abcd-ef0123456789',
                'principal': 'api-key:stage3', 'agentKeyId': 'stage3',
                'startedAt': stamp(-30), 'endedAt': stamp(-10),
                'tables': {n: {'schema': 'honua_data', 'table': 'import_' + n} for n in names}, 'layers': {}}
@@ -454,7 +454,8 @@ def arc_partial_case(tmp_path, monkeypatch):
             args.update(state.get('request_override', {}))
             value = {'operationInstanceId': 'op_4_' + n, 'operationId': 'service.publish', 'status': 'Completed',
                      'serviceName': sources[n]['service'], 'layerId': sources[n]['layerId']}
-            raw = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': value}}).encode()
+            response = state.get('publish_response', {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': value}})
+            raw = json.dumps(response).encode()
             log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': args},
                          lambda kind, action, raw=raw: {'status': 'ok', '_rawResponse': (200, raw)})
         vault.append_actions(1, log.rows)
@@ -533,9 +534,34 @@ def test_arc_rejects_map_binding_to_unpublished_replacement(arc_partial_case, co
 
 
 @pytest.mark.parametrize('override', [{'connectionId': '00000000-0000-0000-0000-000000000002'},
+                                     {'connectionId': 'not-a-guid'}, {'connectionId': None},
                                      {'schema': 'public'}, {'table': 'different_table'}, {'dryRun': True}])
 def test_arc_rejects_publication_from_wrong_source_even_with_identical_contents(arc_partial_case, override):
     run, state = arc_partial_case
     state['request_override'] = override
     with pytest.raises(ValueError, match='lacks one stage-four publication'):
+        run(0)
+
+
+def test_arc_credits_publication_with_uppercase_connection_guid(arc_partial_case):
+    run, state = arc_partial_case
+    state['request_override'] = {'connectionId': 'ABCDEF01-2345-6789-ABCD-EF0123456789'}
+    stack, _, _ = run(0)
+    assert stack.extra['arcLineageVerified']
+    assert all(row['stage'] == 4 for row in stack.extra['arcServicesLineage'].values())
+
+
+@pytest.mark.parametrize('response,cause', [
+    (None, 'incomplete MCP response stream'), ([], 'incomplete MCP response stream'),
+    ('invalid', 'incomplete MCP response stream'), ({}, 'MCP response is missing or ambiguous'),
+    ({'id': 1, 'result': None}, 'result'), ({'id': 1, 'result': []}, 'result'),
+    ({'id': 1, 'result': {}}, 'structuredContent'),
+    ({'id': 1, 'result': {'structuredContent': None}}, 'structuredContent'),
+    ({'id': 1, 'result': {'structuredContent': []}}, 'structuredContent'),
+])
+def test_arc_malformed_publish_response_fails_with_named_harness_error(arc_partial_case, response, cause):
+    from agent_e2e_local_recorder import ProjectionError
+    run, state = arc_partial_case
+    state['publish_response'] = response
+    with pytest.raises(ProjectionError, match='malformed stage-four publish response: ' + cause):
         run(0)
