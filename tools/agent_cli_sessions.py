@@ -270,7 +270,7 @@ class RecordingProxy:
                 raise
             recording = result.pop('_recording', None)
             if recording is not None: row['runnerMetadata'] = recording
-            if result.get('refusal') == 'unsafe-iam-request': row['refusal'] = 'unsafe-iam-request'
+            if result.get('refusal') in ('unsafe-iam-request', 'not-admitted'): row['refusal'] = result['refusal']
             try:
                 screen_model_input(result)
             except ValueError:

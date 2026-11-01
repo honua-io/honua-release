@@ -29,6 +29,8 @@ class FakeMcp:
     def __init__(self, tools=None):
         self.calls, self.counter = [], itertools.count(1)
         self.tools = tools or ['honua_ops_health', 'honua_ops_findings', 'honua_alert_events',
+                               'honua_platform_release_status', 'honua_deploy_operations',
+                               'honua_supported_operation_kinds',
                                'honua_propose_platform_release_convergence', 'honua_propose_rollback',
                                'honua_approve_proposal', 'honua_admin_api_keys_create', 'honua_query_features']
 
@@ -51,6 +53,7 @@ class FakeManager:
         self.self_status, self.approve_status = self_status, approve_status
         self.listing, self.list_status, self.operation = listing, list_status, operation
         self.detail_text, self.calls = detail_text, []
+        self.resource_missing = False
 
     def request(self, method, path, key, payload=None):
         self.calls.append((method, path, key))
@@ -61,10 +64,19 @@ class FakeManager:
         if path.startswith('/api/v1/admin/proposals/'):
             pid = path.rsplit('/', 1)[-1]
             text = self.detail_text if self.detail_text is not None else f'artifact {CAND}'
-            return 200, {'proposalId': pid, 'kind': 'k', 'summary': text, 'executionOperationId': 'op-' + pid}
+            return 200, {'proposalId': pid, 'kind': 'k', 'summary': text, 'executionOperationId': 'restore-' + pid}
         if path.startswith('/api/v1/operations/handles/'):
+            # Like the product: handles resolve by operation instance id, never by the gateway job id.
+            if not path.rsplit('/', 1)[-1].startswith('opinst-'):
+                return 404, {}
             return (200, {'data': {'status': self.operation}}) if self.operation else (404, {})
         return 200, {}
+
+    def read_resource(self, uri, key):
+        self.calls.append(('MCP', uri, key))
+        if self.resource_missing:
+            return None
+        return {'proposalId': uri.rsplit('/', 1)[-1], 'operationInstanceId': 'opinst-' + uri.rsplit('/', 1)[-1]}
 
 
 class Vm:
@@ -86,7 +98,7 @@ def state(image, schema, marker='retained', ai=False, redis=True, ready=True):
             'redisRunning': redis, 'ready': ready}
 
 
-def scenario(states, *, manager=None, sql_ok=True, vm=None, backups=(BACKUP,)):
+def scenario(states, *, manager=None, sql_ok=True, vm=None, backups=(BACKUP,), synchronous=False):
     feed = list(states)
     last = {'s': None}
 
@@ -98,7 +110,7 @@ def scenario(states, *, manager=None, sql_ok=True, vm=None, backups=(BACKUP,)):
     sc = O.Scenario(vm=vm or Vm(), manager=manager or FakeManager(), proposer={'name': 'p', 'key': 'proposer-key'},
                     approver={'name': 'arc-ops-approver', 'key': 'approver-key'}, candidate_id=CAND, prior_id=PRIOR,
                     read=read, sql=lambda vm, stmt: sql_ok, tick=0, clock=lambda: next(ticks),
-                    backups=lambda: set(backups), prior_refs=(PRIOR,))
+                    backups=lambda: set(backups), prior_refs=(PRIOR,), synchronous=synchronous)
     sc.backend = O.OpsBackend(FakeMcp(), sc.record)
     return sc
 
@@ -156,6 +168,7 @@ def test_the_model_never_receives_approval_or_credential_tools():
     backend = O.OpsBackend(FakeMcp(), lambda *a: None)
     names = {t['name'] for t in backend.tool_view()['tools']}
     assert names == {'honua_ops_health', 'honua_ops_findings', 'honua_alert_events',
+                     'honua_platform_release_status', 'honua_deploy_operations', 'honua_supported_operation_kinds',
                      'honua_propose_platform_release_convergence', 'honua_propose_rollback'}
     for tool in ('honua_approve_proposal', 'honua_admin_api_keys_create', 'honua_query_features'):
         with pytest.raises(ValueError):
@@ -514,3 +527,56 @@ def test_the_server_create_response_shape_mints_and_registers(shape):
     assert row == {'name': made[0], 'id': '0b9c', 'key': 'secret-key'} and not keys.outstanding
     keys.revoke()
     assert revoked == ['0b9c']
+
+
+# ---------------------------------------------------------------- rehearsal r114 harness faults
+
+def test_operations_are_followed_by_the_proposal_resources_operation_instance(tmp_path):
+    """A2-r114: the harness polled the handle by the admin detail's job id, which the product's handles
+    endpoint never resolves, so an executed upgrade scored as failed."""
+    sc = scenario(HAPPY)
+    happy_run(sc)
+    assert all(a['operationId'] == 'opinst-' + a['proposalId'] and a['operationStatus'] == 'completed'
+               for a in sc.approvals)
+    assert set(rows(stage_for(sc), ctx(tmp_path)).values()) == {'pass'}
+
+
+def test_an_unreadable_proposal_resource_never_completes_an_operation(tmp_path):
+    manager = FakeManager()
+    manager.resource_missing = True
+    sc = scenario(HAPPY, manager=manager)
+    happy_run(sc)
+    assert all(a['operationStatus'] is None for a in sc.approvals)
+    assert rows(stage_for(sc), ctx(tmp_path))['upgrade.candidate-serving'] == 'fail'
+
+
+def test_the_customer_approves_before_the_proposing_call_returns(tmp_path):
+    """A2-r114: the one-shot session ended on "awaiting your approval". The approval now lands before the
+    propose call returns, after the script is advanced from a fresh read."""
+    sc = scenario([state(PRIOR, 140)], synchronous=True)
+    propose(sc, CONVERGE)
+    assert len(sc.approvals) == 1 and sc.approvals[0]['phase'] == 'await-upgrade' and not sc.refused
+
+
+def test_a_rollback_proposed_right_after_the_update_is_judged_in_the_rollback_step(tmp_path):
+    """The scenario thread may not have ticked since the update executed: the synchronous path reads first."""
+    feed = [state(PRIOR, 140), state(CAND, 142), state(CAND, 142, marker=''), state(CAND, 142, marker='')]
+    sc = scenario(feed, synchronous=True)
+    propose(sc, CONVERGE)                    # read 1: rc.1; approved
+    propose(sc, ROLLBACK)                    # read 2: upgraded -> fault R (read 3) -> await-rollback; approved
+    assert [a['phase'] for a in sc.approvals] == ['await-upgrade', 'await-rollback'] and not sc.refused
+
+
+def test_the_notes_tell_the_model_approval_is_immediate_and_to_follow_through():
+    notes = O.LocalOps().notes(None)
+    assert 'as soon as you propose it' in notes and 'follow it through' in notes
+
+
+def test_knock_on_failures_are_marked_blocked_and_still_fail(tmp_path):
+    """A1-r114: the update never happened, so rollback, restore and diagnosis were never reachable."""
+    sc = scenario([state(PRIOR, 140)])
+    sc.step()
+    out = {r['assertion']: r for r in stage_for(sc).observe(ctx(tmp_path), {})}
+    assert out['upgrade.candidate-serving']['status'] == 'fail' and 'blocked' not in out['upgrade.candidate-serving']
+    for name in ('rollback.prior-serving', 'restore.migration-142', 'diagnosis.recovered'):
+        assert out[name]['status'] == 'fail' and out[name]['blocked'].startswith('prerequisite '), name

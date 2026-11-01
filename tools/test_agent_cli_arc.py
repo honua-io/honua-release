@@ -427,3 +427,39 @@ def test_aws_stage_requires_temporary_operator_credentials(tmp_path):
     with pytest.raises(ValueError, match='temporary operator credentials'):
         run_stage(agent='claude-cli', model='claude-opus-5-5', stage=1, target_kind='aws-ecs',
                   prompt='Complete the stage', backends={'honua_devops': backend}, log_dir=tmp_path, cli_factory=never)
+
+
+@pytest.mark.parametrize('command',['docker compose config --images','docker compose config --format json',
+    'docker compose config --services','docker compose images','docker compose images --format json',
+    'docker compose ps -a --format json','docker compose ps --services','docker compose logs --tail 50 honua',
+    'docker compose port honua 8080','docker compose top'])
+def test_quickstart_admits_read_only_compose_inspection(command):
+    """Rehearsal A1-r113: read-only compose subcommands a customer's shell allows were refused."""
+    assert parse_quickstart(command)[:2] == ['docker','compose']
+
+
+@pytest.mark.parametrize('command',['docker compose exec -T honua printenv HONUA_IMAGE','docker compose run honua id',
+    'docker compose cp honua:/app/.env .','docker compose rm -f','docker compose stop','docker compose restart',
+    'docker compose kill','docker compose config --output x.yml','docker compose logs --tail 99999',
+    'docker compose ps --format \'{{.Command}}\'','docker compose images --format template'])
+def test_quickstart_still_refuses_container_access_and_changes(command):
+    with pytest.raises(ValueError): parse_quickstart(command)
+
+
+def test_name_only_compose_output_is_visible_and_anything_else_is_withheld(tmp_path):
+    outputs={'config --images':b'ghcr.io/honua-io/honua-server@sha256:'+b'a'*64+b'\npostgis/postgis:16-3.4\n',
+             'images':json.dumps([{'ContainerName':'arc-1-honua-1','Repository':'ghcr.io/honua-io/honua-server',
+                                   'Tag':'2026.1-rc','ID':'c8d7aef98761','Size':'1GB','Command':'SECRET=x'}]).encode(),
+             'config --services':b'honua\nDATABASE_PASSWORD=hidden secret\n'}
+    sent=[]
+    def fake(command,**kwargs):
+        sent.append(kwargs['input'])
+        return subprocess.CompletedProcess(command,0,next(v for k,v in outputs.items() if k.encode() in kwargs['input']),b'')
+    shell=remote_shell(tmp_path,fake)
+    run=lambda c: shell.execute('shell_command',{'tool':'run_quickstart','arguments':{'command':c}})['result']['content'][0]['text']
+    assert run('docker compose config --images').splitlines()[0].startswith('ghcr.io/honua-io/honua-server@sha256:')
+    assert json.loads(run('docker compose images'))==[{'ContainerName':'arc-1-honua-1',
+        'Repository':'ghcr.io/honua-io/honua-server','Tag':'2026.1-rc','ID':'c8d7aef98761'}]
+    assert b'--format=json' in sent[1]
+    withheld=run('docker compose config --services')
+    assert 'hidden' not in withheld and 'output withheld' in withheld

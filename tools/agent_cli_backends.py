@@ -246,6 +246,22 @@ SHELL_TOOL = {'name':'run_quickstart', 'description':'Run an allowed Docker Comp
                              'required':['command'],'additionalProperties':False}}
 
 
+# Read-only compose inspection a customer's shell allows, plus the quickstart's own up/pull. Never exec, run,
+# cp, down, rm, stop or anything that changes containers, volumes or networks outside 'up'.
+COMPOSE_ADMITTED = {
+    'up': {'-d','--detach','--wait','--no-build','--quiet-pull','--wait-timeout'},
+    'pull': {'--quiet','-q'},
+    'ps': {'-a','--all','--format=json','--services','--status'},
+    'logs': {'--no-color','--timestamps','-t','--tail'},
+    'config': {'--quiet','-q','--images','--services','--volumes','--format=json','--no-interpolate'},
+    'images': {'--format=json','-q','--quiet'},
+    'top': set(),
+    'port': set(),
+    'version': set()}
+# Output that names images, services or volumes only: visible to the model when every line is such a name.
+VISIBLE_NAMES = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,255}\Z')
+
+
 def parse_quickstart(command):
     if not isinstance(command, str) or not command or len(command) > 2048 or any(c in command for c in '\n\r\x00'):
         raise ValueError('invalid quickstart command')
@@ -259,20 +275,30 @@ def parse_quickstart(command):
                     or parts[position] in ('-f','--file') and parts[position+1] == '-')):
                 raise ValueError('invalid compose option')
             options += parts[position:position+2]; position += 2
-        if position >= len(parts) or parts[position] not in ('up','pull','ps','logs','config','version'):
+        if position >= len(parts) or parts[position] not in COMPOSE_ADMITTED:
             raise ValueError('compose operation is not admitted')
         operation = parts[position]; rest = parts[position+1:]
-        allowed = {'up':{'-d','--detach','--wait','--no-build','--quiet-pull','--wait-timeout'},
-                   'pull':{'--quiet'},'ps':{'-a','--all','--format=json'},
-                   'logs':{'--no-color','--timestamps'},'config':{'--quiet'},'version':set()}[operation]
-        if '--wait-timeout' in rest:
-            if rest.count('--wait-timeout') != 1: raise ValueError('duplicate compose wait timeout')
-            ix=rest.index('--wait-timeout')
-            if ix+1 >= len(rest) or not rest[ix+1].isdigit() or not 1 <= int(rest[ix+1]) <= 300:
-                raise ValueError('invalid compose wait timeout')
-        if any(token.startswith('-') and token not in allowed or not token.startswith('-') and not _SAFE_ID.fullmatch(token)
-               for token in rest): raise ValueError('compose argument is not admitted')
-        if operation in ('config','version') and rest: raise ValueError('compose operation takes no arguments')
+        # '--format json' and '--format=json' are the same request; normalize to the one form.
+        joined = []
+        for token in rest:
+            if joined and joined[-1] == '--format' and token in ('json','table'): joined[-1] = '--format=' + token
+            else: joined.append(token)
+        rest = joined
+        allowed = COMPOSE_ADMITTED[operation]
+        for flag, low, high in (('--wait-timeout',1,300),('--tail',1,2000)):
+            if flag in rest:
+                if rest.count(flag) != 1: raise ValueError('duplicate compose ' + flag[2:])
+                ix=rest.index(flag)
+                if ix+1 >= len(rest) or not rest[ix+1].isdigit() or not low <= int(rest[ix+1]) <= high:
+                    raise ValueError('invalid compose ' + flag[2:])
+                rest = rest[:ix+1] + ['#' + rest[ix+1]] + rest[ix+2:]
+        if any(token.startswith('-') and token not in allowed
+               or not token.startswith(('-','#')) and not _SAFE_ID.fullmatch(token) for token in rest):
+            raise ValueError('compose argument is not admitted')
+        rest = [token[1:] if token.startswith('#') else token for token in rest]
+        if operation == 'version' and rest: raise ValueError('compose operation takes no arguments')
+        if operation == 'config' and any(not t.startswith('-') for t in rest):
+            raise ValueError('compose operation takes no arguments')
         return ['docker','compose',*options,operation,*rest]
     if parts and parts[0] == 'curl':
         opts, urls, position = [], [], 1
@@ -343,12 +369,15 @@ class RemoteQuickstartShell:
                 raise ValueError('inline compose must match the runner-approved published quickstart')
         elif source is not None:
             raise ValueError('stdin is only allowed for an approved inline compose file')
-        operation = None
+        operation, names_only = None, False
         if command[:2] == ['docker','compose']:
             index = 2
             while index < len(command) and command[index] in ('-f','--file','--profile'): index += 2
             operation = command[index]
-            if operation == 'ps' and '--format=json' not in command: command.append('--format=json')
+            names_only = (operation in ('config','ps') and bool({'--images','--services','--volumes'} & set(command))
+                          or operation == 'images' and bool({'-q','--quiet'} & set(command)) or operation == 'port')
+            if operation in ('ps','images') and not names_only and '--format=json' not in command:
+                command.append('--format=json')
             command[2:2] = ['--project-directory',self.remote_dir,'--project-name',self.slot]
         script = 'cd -- ' + shlex.quote(self.remote_dir) + ' && exec ' + shlex.join(command)
         if inline:
@@ -363,14 +392,22 @@ class RemoteQuickstartShell:
             visible = raw.decode('utf-8')
         elif command[0] == 'curl' and raw.strip() in (b'Ready',b'Healthy',b'OK',b'Unhealthy'):
             visible = raw.decode('utf-8')
-        elif operation == 'ps':
+        elif operation is not None and names_only:
+            lines = [line.strip() for line in raw.decode('utf-8','replace').splitlines() if line.strip()]
+            if len(lines) <= 200 and all(VISIBLE_NAMES.fullmatch(line) for line in lines):
+                visible = '\n'.join(lines)
+            else:
+                visible = f'Command exited {result.returncode}; output withheld; sha256 {digest(result.stdout)}'
+        elif operation in ('ps','images'):
+            fields = {'ps':('Name','Service','State','Health','Image'),
+                      'images':('ContainerName','Repository','Tag','ID')}[operation]
             try:
                 try: rows = json.loads(raw)
                 except ValueError: rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
                 if isinstance(rows,dict): rows = [rows]
                 if not isinstance(rows,list) or len(rows) > 100: raise ValueError('invalid compose status')
-                visible = json.dumps([{key:value for key in ('Name','Service','State','Health')
-                                       if isinstance((value:=row.get(key)),str) and _SAFE_ID.fullmatch(value)}
+                visible = json.dumps([{key:value for key in fields
+                                       if isinstance((value:=row.get(key)),str) and VISIBLE_NAMES.fullmatch(value)}
                                       for row in rows if isinstance(row,dict)])
             except ValueError:
                 visible = f'Command exited {result.returncode}; status output unavailable; sha256 {digest(result.stdout)}'

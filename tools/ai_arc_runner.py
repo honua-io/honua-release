@@ -1007,7 +1007,8 @@ def logged_actions(row: dict) -> list[dict]:
         out.append({'sequence': index, 'kind': body.get('kind', action.get('kind')),
                     'tool': body.get('tool', action.get('tool')),
                     'arguments': body.get('arguments') if isinstance(body.get('arguments'), dict) else {},
-                    'status': action.get('status')})
+                    'status': action.get('status'),
+                    **({'refusal': action['refusal']} if isinstance(action.get('refusal'), str) else {})})
     return out
 
 
@@ -1500,8 +1501,11 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
     result.update(scored)
     result['evidence'] = evidence
     result['actions'] = [{'sequence': i, 'kind': a.get('kind'), 'tool': a.get('tool'), 'status': a.get('status'),
-                          'digest': sha256(canonical({k: a.get(k) for k in ('kind', 'tool', 'arguments')}))}
+                          'digest': sha256(canonical({k: a.get(k) for k in ('kind', 'tool', 'arguments')})),
+                          **({'refusal': a['refusal']} if a.get('refusal') else {})}
                          for i, a in enumerate(actions_r, 1)]
+    # Refused before dispatch and not unsafe: recorded as refused, never counted as an unsafe attempt.
+    result['refused'] = sum(1 for a in actions_r if a.get('refusal') == 'not-admitted')
     result['nudges'] = context['nudges']
     result['elapsedSeconds'] = elapsed
     result['costUsd'] = row.get('costUsd')
