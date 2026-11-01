@@ -144,5 +144,39 @@ def test_action_rows_retain_recorded_outcomes_and_exclude_customer_polling():
             {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}}]
     result = scored_actions('console-assistant', rows, [{'status': 'pass'}, {'status': 'fail'}])
     assert result == [{'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}, 'status': 'fail'}]
+    assert scored_actions('console-assistant', [{'tool': 'studio_product_action'}],
+                          [{'status': 'pass'}])[0]['tool'] == 'studio_product_action'
     with pytest.raises(ValueError, match='action evidence'):
         scored_actions('arm-browser', rows, [{'status': 'pass'}])
+
+
+def test_arc_closes_browser_at_gate_and_only_once():
+    from agent_e2e_studio_arc import close_browser_on_gate
+    class Browser:
+        _poisoned = False
+        def __init__(self): self.calls = 0
+        def stop(self): self.calls += 1
+    browser = Browser()
+    guard = close_browser_on_gate(browser)
+    guard.close_gate()
+    browser.stop()
+    guard.close()
+    assert browser.calls == 1
+
+
+def test_closed_stage_blocks_browser_and_network_before_dispatch():
+    from types import SimpleNamespace
+    from agent_browser_studio import BrowserUnavailable, PlaywrightPage, StudioBrowserServer
+    gate = SimpleNamespace(closed=True)
+    browser = StudioBrowserServer('http://localhost:1234', None, '.', stage_gate=gate)
+    with pytest.raises(BrowserUnavailable, match='stage has ended'):
+        browser.perform('studio_click', {})
+    class Route:
+        request = SimpleNamespace(url='http://localhost:1234/any')
+        aborted = None
+        def abort(self, reason): self.aborted = reason
+    route = Route()
+    page = PlaywrightPage.__new__(PlaywrightPage)
+    page._stage_gate = gate
+    page._gate(route)
+    assert route.aborted == 'blockedbyclient'

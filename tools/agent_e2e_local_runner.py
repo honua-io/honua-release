@@ -1906,6 +1906,9 @@ class LocalRuntime:
                     identity=self._console_identities.get(stack.compose_project),
                     scripted_customer=self.agent == 'console-assistant')
                 studio_servers.append(server)
+                register_browser = getattr(self, 'register_studio_browser', None)
+                if callable(register_browser):
+                    register_browser(server)
                 endpoint = server.endpoint
 
                 def studio_browser():

@@ -378,7 +378,7 @@ def render_contract():
 class PlaywrightPage:
     """Controller page. It screenshots and reads attributes. It has no evaluate tool."""
 
-    def __init__(self, origin, identity=None, assistant_log=None):
+    def __init__(self, origin, identity=None, assistant_log=None, stage_gate=None):
         use_worktree_browsers()
         from playwright.sync_api import sync_playwright
         self.origin = origin
@@ -387,6 +387,7 @@ class PlaywrightPage:
         self._origin_failed = False
         self._identity = identity
         self._assistant_log = assistant_log
+        self._stage_gate = stage_gate
         self._assistant_model_calls = 0
         self._assistant_tool_calls = 0
         self._assistant_bound_hit = False
@@ -429,6 +430,9 @@ class PlaywrightPage:
 
     def _gate(self, route):
         url = route.request.url
+        if getattr(self, '_stage_gate', None) is not None and self._stage_gate.closed:
+            route.abort('blockedbyclient')
+            return
         if not self.origin.route_allows(url):
             self.aborted.append(url)
             route.abort('blockedbyclient')
@@ -593,13 +597,14 @@ class StudioBrowserServer:
     """Loopback MCP server. Tools are the allowlist above; evaluate and devtools are absent."""
 
     def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=(), identity=None,
-                 scripted_customer=False):
+                 scripted_customer=False, stage_gate=None):
         self.studio_url = studio_url
         self.action_log = action_log
         self.fixture_dir = fixture_dir
         self.page_factory = page_factory
         self.identity = identity
         self.scripted_customer = scripted_customer
+        self.stage_gate = stage_gate
         if scripted_customer:
             self.action_log.names.update(('studio_chat_observe', 'studio_customer_type'))
         self.token = secrets.token_hex(24)
@@ -620,7 +625,8 @@ class StudioBrowserServer:
         self._owner = _DaemonOwner()
         try:
             factory = self.page_factory or (lambda lock: PlaywrightPage(
-                lock, identity=self.identity, assistant_log=self.action_log if self.scripted_customer else None))
+                lock, identity=self.identity, assistant_log=self.action_log if self.scripted_customer else None,
+                stage_gate=self.stage_gate))
             self.page = self._owner.submit(factory, self.lock).result(timeout=self.owner_timeout)
             if isinstance(self.page, PlaywrightPage):
                 self._owner.idle = self.page.pump_events
@@ -727,6 +733,8 @@ class StudioBrowserServer:
                 self._owner = None
 
     def perform(self, name, arguments, *, rpc_id=None):
+        if self.stage_gate is not None and self.stage_gate.closed:
+            raise BrowserUnavailable('Studio stage has ended')
         if self._poisoned:
             raise BrowserUnavailable('browser unavailable')
         if self._owner is not None:
@@ -890,7 +898,8 @@ def open_studio_browser(stack, action_log, *, identity=None, scripted_customer=F
     sensitive = (stack.admin_key, stack.approver_key, os.environ.get('HONUA_CORPUS_AGENT_KEY'),
                  os.environ.get('HONUA_CORPUS_BOOTSTRAP_KEY'))
     server = StudioBrowserServer(origin, action_log, fixture, page_factory=stack.extra.get('studioPageFactory'),
-                                 sensitive=sensitive, identity=identity, scripted_customer=scripted_customer)
+                                 sensitive=sensitive, identity=identity, scripted_customer=scripted_customer,
+                                 stage_gate=stack.extra.get('studioGate'))
     server.start()
     return server
 

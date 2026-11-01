@@ -102,6 +102,15 @@ def studio_runtime_class():
             self._secrets.extend((signing_key, database_password))
             self.extra_secrets.extend((signing_key, database_password))
 
+        def register_studio_browser(self, browser):
+            register = getattr(self, 'browser_register', None)
+            if callable(register):
+                guard = close_browser_on_gate(browser)
+                register(guard)
+                if self.gate is not None and self.gate.closed:
+                    guard.close_gate()
+                    raise RuntimeError('Studio stage closed while the browser was starting')
+
         def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
             if candidate_digest != self.arc['candidate'] or needs_approver:
                 raise ValueError('Studio case does not bind the candidate or needs an unsupported approver')
@@ -115,7 +124,8 @@ def studio_runtime_class():
             stack = Stack(base_url=self.arc['base_url'], admin_key=self.arc['admin_key'], approver_key=None,
                           compose_project=self.arc['project'], compose_file='', workdir=str(case_dir),
                           candidate_digest=candidate_digest, extra={'needsStudioIdentity': True,
-                                                                   'studioSigningKey': self.signing_key})
+                                                                   'studioSigningKey': self.signing_key,
+                                                                   'studioGate': self.gate})
             self._prepare(stack, list(agent_permissions))
             stack.extra['startConsole'] = lambda: self.start_console(stack)
             stack.extra['ensureConnection'] = lambda: self.fixture_connection(stack)
@@ -149,6 +159,29 @@ def studio_runtime_class():
     return StudioRuntime
 
 
+def close_browser_on_gate(browser):
+    """Make arc shutdown stop an active browser before it revokes credentials."""
+    import threading
+    lock = threading.Lock()
+    original = browser.stop
+    stopped = False
+
+    def stop():
+        nonlocal stopped
+        with lock:
+            if not stopped:
+                original()
+                stopped = True
+                if browser._poisoned:
+                    raise RuntimeError('Studio browser did not stop cleanly')
+    browser.stop = stop
+
+    class Guard:
+        close_gate = staticmethod(stop)
+        close = staticmethod(stop)
+    return Guard()
+
+
 def driver_assertions(driver, cases):
     """Retain the corpus runner's independent scores and false-success finding."""
     from ai_arc_services import case_assertions
@@ -159,13 +192,15 @@ def driver_assertions(driver, cases):
 
 def scored_actions(driver, actions, receipts):
     """Join private requests to their runner-recorded outcomes before filtering."""
+    from agent_browser_studio import TOOLS
     if len(actions) != len(receipts):
         raise ValueError('Studio action evidence is incomplete')
     joined = []
     for action, receipt in zip(actions, receipts):
         if receipt.get('status') not in ('pass', 'fail', 'unknown'):
             raise ValueError('Studio action evidence has an invalid outcome')
-        if driver == 'console-assistant' and str(action.get('tool', '')).startswith('studio_'):
+        if driver == 'console-assistant' and action.get('tool') in (*TOOLS, 'studio_chat_observe',
+                                                                     'studio_customer_type'):
             continue
         joined.append({**action, 'status': receipt['status']})
     return joined
@@ -221,6 +256,7 @@ def arc_stage(ctx):
                 pack_digest=RESTORED_PACK_DIGEST)
             runtime.studio_customer_script = context.arc['studioAssistant']['customerScript']
             runtime.gate = context.gate
+            runtime.browser_register = context.live.append
             context.live.append(services.Canceller(runtime))
             self.runtimes.append(runtime)
             return runtime
