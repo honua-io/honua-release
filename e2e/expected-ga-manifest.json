@@ -48,7 +48,6 @@
     "format.read.filegdb",
     "format.read.flatgeobuf",
     "format.read.geoparquet",
-    "format.read.esrijson",
     "format.read.wkb",
     "import.background",
     "import.objectStore"

@@ -66,6 +66,7 @@ SURFACE_COMPONENTS = ("honua-server", "honua-sdk-python", "honua-sdk-dotnet", "h
 # `update` must not turn the current manifest pin into a new baseline for the retired package API.
 BLOCKED_SURFACES = {
     "honua-sdk-js": "awaiting a neutral published client package; no public API baseline is claimed",
+    "honua-sdk-dotnet": "awaiting a neutral published client package; no public API baseline is claimed",
 }
 
 SERVER_OPENAPI_FILES = (

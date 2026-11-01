@@ -62,7 +62,7 @@ def test_family_priority_one_and_lower_priority_defaults():
 
 def test_bugs_and_ci_are_pre_cut_whatever_the_priority():
     # Operator ruling 2026-09-11 ("bugs and ci should be pre cut").
-    for labels in [('priority/P2', 'bug'), ('priority/P3', 'bug-hunt/esri-2026-09-03'), ('area/ci',)]:
+    for labels in [('priority/P2', 'bug'), ('priority/P3', 'bug-hunt/geoservices-rest-2026-09-03'), ('area/ci',)]:
         assert decision.classify(issue(*labels), rules())[0] == 'must-fix-before-cut'
     titled = issue('priority/P2'); titled['title'] = 'bug: long WFS feature type names break rerun idempotency'
     assert decision.classify(titled, rules())[0] == 'must-fix-before-cut'

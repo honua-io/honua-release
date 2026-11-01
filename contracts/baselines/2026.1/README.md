@@ -1,19 +1,20 @@
 # Contract baseline — Honua 2026.1
 
-This directory holds release API baselines used by the `contract-rest-sdk` gate. The server,
-Python client, and .NET client baselines are captured from their pinned source revisions. Their
-surfaces remain subject to the regular comparison gate.
+This directory holds release API baselines used by the `contract-rest-sdk` gate. The server and
+Python client baselines are captured from their pinned source revisions. Their surfaces remain
+subject to the regular comparison gate.
 
-## JavaScript client status
+## Client API baseline status
 
-The previous generated JavaScript client API snapshot has been removed from the current release
-source. The API gate reports this component as **blocked** until a neutral client package has been
-published and its public API can be captured from that real release. No baseline has been inferred
-from an unpublished change, and this cleanup does not publish a package or other release artifact.
+The previous generated JavaScript client API snapshot and .NET public API snapshot have been
+removed from the current release source. The API gate reports both components as **blocked** until
+their neutral client packages are published and their public APIs can be captured from those real
+releases. No baseline has been inferred from an unpublished change, and this cleanup does not
+publish a package or other release artifact.
 
-Do not run the baseline update command to recreate this component's snapshot before that release is
-available. The missing component baseline is intentionally fail-closed: `contract_surface.py check`
-returns `blocked` when a pinned component has no captured baseline.
+Do not run the baseline update command to recreate either snapshot before those releases are
+available. The missing component baselines are intentionally fail-closed, and the updater skips
+them: `contract_surface.py check` returns `blocked` for both until a real neutral release exists.
 
 ## Refreshing captured baselines
 

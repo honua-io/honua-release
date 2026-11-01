@@ -1,7 +1,0 @@
-{
-  "artifacts": [
-    "public-api.json"
-  ],
-  "component": "honua-sdk-dotnet",
-  "sha": "aada6d8987db0802a3c9de0d976f471afa943c0a"
-}

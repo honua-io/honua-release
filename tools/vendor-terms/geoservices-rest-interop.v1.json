@@ -418,6 +418,13 @@
       "gsrSectionTitle": "Job Reference"
     },
     {
+      "identifier": "esriMapCacheStorageModeCompactV2",
+      "family": "tile cache storage format",
+      "field": "storageFormatType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/export-tiles-map-service/",
+      "listedVerbatim": true
+    },
+    {
       "identifier": "esriMillimeters",
       "family": "linear unit",
       "field": "units",
@@ -425,6 +432,20 @@
       "listedVerbatim": true,
       "gsrSection": "6.1.6.2",
       "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriNAODOutputNoLines",
+      "family": "origin-destination cost matrix output type",
+      "field": "outputType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/routing/travelCostMatrix-service-direct/",
+      "listedVerbatim": true
+    },
+    {
+      "identifier": "esriNAODOutputStraightLines",
+      "family": "origin-destination cost matrix output type",
+      "field": "outputType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/routing/travelCostMatrix-service-direct/",
+      "listedVerbatim": true
     },
     {
       "identifier": "esriNauticalMiles",

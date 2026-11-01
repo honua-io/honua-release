@@ -66,7 +66,6 @@ orderByFields=feature_count DESC
 ```
 
 and honua-server's GeoServices adapter validates `orderByFields` against the layer's real fields plus a
-small core allow-list, so ordering by an `outStatistics` **alias** is rejected with a 400 — something
-ArcGIS accepts. The driver proves this is server-side, not a seeding or shim artefact, by re-running the
+small core allow-list, so ordering by an `outStatistics` **alias** is rejected with a 400 — behavior accepted by the reference service. The driver proves this is server-side, not a seeding or shim artefact, by re-running the
 same demo on its `bounded-local` execution policy (which omits `orderByFields`): that lane executes live
 against the same seeded layer and produces real aggregate rows. The failure is left standing on purpose.

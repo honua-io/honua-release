@@ -275,7 +275,7 @@ INSERT INTO honua_data.maui_inspections (name, category, status, note, reported_
 -- â”€â”€ spatial-analytics workbench assets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- The SDK sample bundle that demo-analyst-workbench.html loads aggregates count(OBJECTID) and
 -- avg(score) grouped by `risk`, inside one of three Honolulu AOI extents. The rows below ARE that
--- sample's own fixture assets. OBJECTID is created quoted so the Esri field name matches exactly.
+-- sample's own fixture assets. OBJECTID is created quoted to preserve the protocol field name exactly.
 DROP TABLE IF EXISTS honua_data.workbench_assets;
 CREATE TABLE honua_data.workbench_assets (
   "OBJECTID" serial PRIMARY KEY,

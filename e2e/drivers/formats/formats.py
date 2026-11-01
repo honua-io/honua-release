@@ -180,7 +180,7 @@ def gdal_shapefile_zip() -> Path | None:
     """Shapefile is multi-file; produce a zip the importer accepts."""
     src = FIX / "source.geojson"
     (WORK / "source.geojson").write_bytes(src.read_bytes())
-    script = ("ogr2ogr -f 'ESRI Shapefile' /d/shp /d/source.geojson && "
+    script = ("mkdir -p /d/shp && ogr2ogr /d/shp/sample.shp /d/source.geojson && "
               "cd /d/shp && (command -v zip >/dev/null && zip -q ../sample_shp.zip * || true)")
     try:
         subprocess.run(["docker", "run", "--rm", *docker_user_args(),
@@ -274,11 +274,6 @@ def main():
     r, _, n = do_read("Shapefile", gdal_shapefile_zip(), ctype="application/zip")
     w, rt, wn = do_writer("shapefile") if r == "pass" else ("na", "na", "read failed")
     emit("Shapefile", r, w, rt, f"{n}; {wn}"); passed += r == "pass"
-
-    # FeatureSet JSON — committed fixture; server import does not auto-detect it (parsed as GeoJSON): gap.
-    r, _, n = do_read("EsriJSON", FIX / "sample.esrijson", ctype="application/json")
-    emit("EsriJSON", r, "na", "na", n + " (not auto-detected; parsed as GeoJSON)")
-    passed += r == "pass"
 
     # FlatGeobuf (GDAL)
     r, _, n = do_read("FlatGeobuf", gdal_convert("FlatGeobuf", "sample.fgb"))

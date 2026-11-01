@@ -42,7 +42,7 @@ Stage outcomes:
 7. **Blocked** — no durable proposal path or Redis-backed control plane.
 8. **Blocked** — no durable proposal existed for separate-principal approval.
 
-The missing `esri-gp` MCP profile remains an open server blocker at
+The missing geoprocessing MCP profile remains an open server blocker at
 honua-server#3741. The receipt additionally preserves the driver's linked blockers for
 the setup view, canonical operation runtime, roster exports, proposal authorization,
 source-evidence posture, Redis durability, and approval store.
