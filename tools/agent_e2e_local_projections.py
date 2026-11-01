@@ -1187,6 +1187,7 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                                       and e.get('tool') == spec['tool'] and e.get('actionDigest') == result.get('_digest')
                                       and e.get('upstreamOutcome') == 'ok'
                                       and type(e.get('upstreamStatus')) is int and 200 <= e['upstreamStatus'] < 300
+                                      and e['upstreamStatus'] == result.get('_responseHttpStatus')
                                       and e.get('upstreamResponseSha256') == result.get('_responseSha256')
                                       and str(e.get('committedResourceId')) == str(value)]
                         if (len(event_rows) == 1 and isinstance(rpc, dict) and rpc.get('isError', False) is False

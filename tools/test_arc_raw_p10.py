@@ -190,7 +190,8 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
         projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                   action_results=[publication])
     publication['arguments']['schema'] = 'honua_data'
-    publication.update(status='fail', _digest='sha256:' + 'a' * 64, _responseSha256='sha256:' + 'b' * 64)
+    publication.update(status='fail', _digest='sha256:' + 'a' * 64, _responseSha256='sha256:' + 'b' * 64,
+                       _responseHttpStatus=200)
     confirm_path = '/api/v1/admin/services/agent-service/settings'
     records['confirm'] = record('confirm', 'session-confirm', 'http', 'GET', confirm_path, {},
                                 origin='fault-confirmation')
@@ -203,6 +204,7 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     assert roles['created:service:shelters'] == 'agent-service'
     for bad in ({**event, 'actionDigest': 'sha256:' + 'c' * 64},
                 {**event, 'upstreamResponseSha256': 'sha256:' + 'd' * 64},
+                {**event, 'upstreamStatus': 201},
                 {**event, 'committedResourceId': 'foreign'},
                 {**event, 'confirmation': {'path': confirm_path, 'checks': [{'step': 'absent', 'status': 200}]}}):
         with pytest.raises(ValueError):
