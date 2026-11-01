@@ -1786,3 +1786,28 @@ def test_a_failed_harness_reconvergence_is_never_charged_to_the_arm(tmp_path):
     assert services['outcome'] == 'undetermined' and services['harnessFault'] is True
     assert 'harness step, not the arm' in services['cause']
     assert receipt['status'] in ('undetermined', 'blocked')
+
+
+def test_a_failed_slot_preparation_receipt_aggregates_as_an_undetermined_harness_run(tmp_path):
+    """Sol 755e3001 item 2: the preparation failure is retained as stage evidence and re-derived by the
+    aggregate, which counts the run in n as undetermined (a failed run) and never as the arm's failure."""
+    class Prep(FakeStage):
+        def prepare_next(self, ctx, observations):
+            return {'status': 'failed', 'reason': 'the product failed the re-convergence'}
+    names, raws = campaign(tmp_path, [True])
+    receipt, _ = run(tmp_path, name='002', mods=modules(ops=Prep('ops')), variant='B')
+    services = receipt['stages'][2]
+    assert services['outcome'] == 'undetermined' and services['harnessFault'] is True
+    assert set(services['evidence']) == {'actions', 'observations', 'handoff', 'context'} and not services['actions']
+    assert 'harness step, not the arm' in services['cause']
+    aggregate, _ = agg(tmp_path, names + ['002'], raws + [(tmp_path / '002' / 'trial-receipt.json').read_bytes()])
+    assert aggregate['scheduled'] == 2 and aggregate['undetermined'] == 1 and aggregate['completed'] == 1
+
+
+def test_a_converged_slot_preparation_in_context_is_never_a_harness_fault():
+    out = R.score_stage(ARC, 'local-docker', 'services', [{'assertion': 'x', 'status': 'pass'}], [], None, None,
+                        {'slotPreparation': {'status': 'converged'}}, ARC['limits']['services'])
+    assert 'slot preparation' not in str(out['cause'])
+    out = R.score_stage(ARC, 'local-docker', 'services', [{'assertion': 'x', 'status': 'pass'}], [], None, None,
+                        {'slotPreparation': {'status': 'timeout'}}, ARC['limits']['services'])
+    assert out['outcome'] == 'undetermined' and 'slot preparation' in out['cause']

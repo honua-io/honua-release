@@ -1485,6 +1485,11 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
     if any(a.get('harnessFault') and a['status'] == 'undetermined' for a in scored):
         # A scripted fault that never fired: the stage cannot be scored (a failed run), not the model's.
         outcome, cause = 'undetermined', 'harness fault did not fire'
+    prep = context.get('slotPreparation')
+    if isinstance(prep, dict) and prep.get('status') not in ('converged', 'skipped'):
+        # The harness's own slot preparation for this stage did not converge: never the arm's (Fable S1).
+        outcome, cause = 'undetermined', ('slot preparation did not converge the candidate (harness step, not the '
+                                          'arm): ' + str(prep.get('reason') or prep.get('status'))[:160])
     if (context.get('failure') or {}).get('category') == 'harness-error':
         outcome, cause = 'undetermined', 'harness error: ' + str(context['failure'].get('reason', ''))[:200]
     shutdown = context.get('shutdown')
@@ -1529,11 +1534,24 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
     prep = ctx.slot.facts.get('slotPreparation')
     if stage == 'services' and isinstance(prep, dict) and prep.get('status') not in ('converged', 'skipped'):
         # The harness's own re-convergence for this stage (product executed, harness requested) did not put the
-        # candidate back: a harness/product step, never the arm's. The stage is undetermined (Fable S1, Astra B5).
-        return {**result, 'outcome': 'undetermined', 'harnessFault': True,
-                'cause': 'slot preparation did not converge the candidate (harness step, not the arm): '
-                         + str(prep.get('reason') or prep.get('status'))[:160],
-                'slotPreparation': {k: prep.get(k) for k in ('status', 'reason', 'proposalId', 'product')}}
+        # candidate back: a harness/product step, never the arm's. The stage is undetermined (Fable S1, Astra B5),
+        # through the normal evidence path so the aggregate re-derives it (Sol 755e3001 item 2): no session ran.
+        summary = {k: prep.get(k) for k in ('status', 'reason', 'proposalId', 'product')}
+        observations = [{'assertion': 'slot-preparation', 'status': 'undetermined', 'harnessFault': True,
+                         'reason': 'slot preparation did not converge the candidate'}]
+        context = {'approvals': [], 'scope': None, 'approvedComposeSha256': None, 'deploymentHosts': [],
+                   'failure': None, 'binding': {'slotId': ctx.slot.project}, 'nudges': 0, 'elapsedSeconds': 0,
+                   'utterances': [], 'nestedAnswerChecks': False, 'shutdown': None, 'harnessUnsafe': [],
+                   'sessions': [], 'slotPreparation': summary}
+        red = lambda value: json.loads(redact_bytes(canonical(value), ctx.slot.harness_secrets))  # noqa: E731
+        observations, context = red(observations), red(context)
+        scored = score_stage(ctx.arc, ctx.target, stage, observations, [], None, None, context, ctx.limits)
+        result.update(scored)
+        result['evidence'] = {'actions': stage_file(ctx, stage, 'actions.json', []),
+                              'observations': stage_file(ctx, stage, 'observations.json', observations),
+                              'handoff': stage_file(ctx, stage, 'handoff.json', None),
+                              'context': stage_file(ctx, stage, 'context.json', context)}
+        return {**result, 'harnessFault': True, 'slotPreparation': context['slotPreparation']}
     try:
         reason = within(ctx.remaining(), module.unavailable, ctx, ctx=ctx)
         if reason:

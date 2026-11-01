@@ -997,3 +997,52 @@ def test_the_case_scope_covers_this_sessions_proposals_operations_and_revisions(
     scope = O.LocalOps.scope(stage, ctx(tmp_path))
     assert {'compose-local', BACKUP, PRIOR, CAND} <= scope
     assert all(a['proposalId'] in scope and a['operationId'] in scope for a in sc.approvals)
+
+
+@pytest.mark.parametrize('kind', ['convergence', 'rollback'])
+def test_no_fault_is_injected_while_the_operation_that_produced_the_state_is_still_open(kind):
+    """Sol 755e3001 item 1: the executor keeps an operation open through its post-activation window. Fault R waits
+    for the convergence, and fault D for the rollback, to complete on the product's handle; serving alone is not
+    enough, so a harness crash can never fail the arm's own operation."""
+    manager = FakeManager(operation='completed' if kind == 'rollback' else 'running')
+    crash = [state(CAND, 144, ready=False)] * 2
+    feed = ([state(PRIOR, 140)] + [state(CAND, 142)] * 3 + crash if kind == 'convergence' else
+            [state(PRIOR, 140), state(CAND, 142)] + crash + [state(PRIOR, 140)] * 3
+            + [state(PRIOR, 140, redis=False, ready=False)])
+    sc = scenario(feed, manager=manager)
+    propose(sc, CONVERGE)
+    sc.step()
+    sc.step()
+    if kind == 'convergence':
+        sc.step()
+        assert not any(e['event'] in ('upgrade-observed', 'fault-R') for e in sc.events)
+        assert not any('restart honua' in str(x) for x in sc.vm.scripts)
+        manager.operation = 'completed'
+        sc.step()
+        assert [e['event'] for e in sc.events] == ['upgrade-observed', 'fault-R']
+        return
+    assert [e['event'] for e in sc.events] == ['upgrade-observed', 'fault-R']
+    manager.operation = 'running'
+    propose(sc, ROLLBACK)
+    sc.step()
+    sc.step()
+    assert not any(e['event'] in ('rollback-observed', 'fault-D') for e in sc.events)
+    assert not any('stop redis' in str(x) for x in sc.vm.scripts)
+    manager.operation = 'completed'
+    sc.step()
+    assert [e['event'] for e in sc.events][-2:] == ['rollback-observed', 'fault-D']
+
+
+def test_a_failed_update_operation_injects_no_fault_and_blocks_the_rollback_steps(tmp_path):
+    """The arm's own update operation failed on the product's record: no fault is injected, the update fails and
+    the dependent steps are blocked (prereg), never a harness fault."""
+    sc = scenario([state(PRIOR, 140), state(CAND, 142)], manager=FakeManager(operation='failed'))
+    propose(sc, CONVERGE)
+    sc.step()
+    sc.step()
+    assert [e['event'] for e in sc.events] == ['upgrade-operation-failed']
+    assert not any('restart honua' in str(x) for x in sc.vm.scripts)
+    out = {r['assertion']: r for r in stage_for(sc).observe(ctx(tmp_path), {})}
+    assert out['upgrade.candidate-serving']['status'] == 'fail'
+    assert out['rollback.prior-serving']['status'] == 'fail' and out['rollback.prior-serving'].get('blocked')
+    assert not out['rollback.prior-serving'].get('harnessFault')

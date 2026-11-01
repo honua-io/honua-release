@@ -26,14 +26,16 @@ approval is a receipt bound to the proposal id and the proposing action's sequen
 Scenario (controller reads only: the container's own image id, psql in the postgres container, the
 manager's proposals):
   0. Before the session the harness writes a marker table (``public.arc_ops_marker``, 'retained').
-  1. When the convergence is observed executed (candidate image id, schema >= 142, the 142 migration
-     row, marker retained), fault R deletes the marker rows: data loss after the update. It is proven
-     to have fired (count 0); the model must notice and roll back with restore.
-  2. When the rollback is observed (the prior image serves again), fault D stops the serving stack's
-     redis. restore.migration-142 separately needs schema 140, marker 'retained' again (only a restore
-     brings it back) and the 142 table absent. It is proven to have fired (redis not running);
-     the model diagnoses with the ops tools and proposes a remediation the product executes. With no
-     product executor for the remediation it picks, diagnosis.recovered fails honestly.
+  1. When the candidate serves (image id, schema >= 142, the 142 migration row, marker retained, ready) and
+     the product's handle for the approved convergence has completed (never inside its post-activation
+     window), fault R records a schema version the candidate cannot read and restarts it, so it
+     crash-loops. Proven by two not-ready controller reads; only a rollback with restore fixes it.
+  2. When the prior image serves again and the approved rollback's handle has completed, fault D stops
+     the serving stack's redis (proven running -> stopped); the model diagnoses with the ops tools and
+     proposes a remediation the product executes. restore.migration-142 separately needs schema 140,
+     marker 'retained' and the 142 table absent.
+  An operation that ends other than completed injects no fault: the arm's step fails and the steps after
+  it are blocked.
   A fault that never fired leaves its dependent assertions undetermined (``harnessFault``).
 
 After the session, if every ops assertion passed, the harness re-converges the slot to the candidate
@@ -483,6 +485,16 @@ class Scenario:
             return
         self.states.append({'phase': self.phase, **state})
         if self.phase == 'await-upgrade' and self.upgraded(state):
+            # Never inject while the update's own operation is still verifying (Sol 755e3001 item 1): the
+            # executor keeps it open through its post-activation window, and a crash inside that window would
+            # fail the arm's operation because of the harness. Wait for the product's terminal record.
+            gate = self.operation_gate('honua_propose_platform_release_convergence')
+            if gate != 'completed':
+                if gate == 'failed' and not any(e['event'] == 'upgrade-operation-failed' for e in self.events):
+                    # The arm's result: no fault is injected and the dependent steps stay blocked, unless a
+                    # later approved operation completes.
+                    self.event('upgrade-operation-failed', state=state)
+                return
             self.event('upgrade-observed', state=state)
             if not self.fault_r:
                 self.phase = 'await-rollback'
@@ -501,6 +513,14 @@ class Scenario:
                        after=[None if a is None else {'ready': a['ready'], 'schema': a['schema']} for a in after])
             self.phase = 'await-rollback' if fired else 'fault-R-not-fired'
         elif self.phase == 'await-rollback' and self.rolled_back(state):
+            fault = next((e for e in self.events if e['event'] == 'fault-R'), None)
+            gate = self.operation_gate('honua_propose_rollback', after=fault['at'] if fault else None)
+            if gate != 'completed':
+                if gate == 'failed' and not any(e['event'] == 'rollback-operation-failed' for e in self.events):
+                    # The arm's result: no fault is injected and the dependent steps stay blocked, unless a
+                    # later approved operation completes.
+                    self.event('rollback-operation-failed', state=state)
+                return
             self.event('rollback-observed', state=state)
             if not self.fault_d:
                 self.phase = 'done'
@@ -516,6 +536,18 @@ class Scenario:
         elif self.phase == 'await-recovery' and state['redisRunning'] and state['ready']:
             self.event('recovery-observed', state=state)
             self.phase = 'recovered'
+
+    def operation_gate(self, tool, after=None) -> str:
+        """The product's record of the approved ``tool`` operation that produced the observed state: 'completed'
+        once its handle completed; 'failed' when every such approved operation ended otherwise (the arm's result,
+        scored as such); else 'pending' (still executing or inside its observation window, or not yet followed)."""
+        mine = [a for a in self.approvals if a['tool'] == tool and a['status'] in (200, 201, 202, 204)
+                and (after is None or a['at'] >= after)]
+        if any(a['operationStatus'] == 'completed' for a in mine):
+            return 'completed'
+        if mine and all(a['operationStatus'] in TERMINAL for a in mine):
+            return 'failed'
+        return 'pending'
 
     def action_mark(self) -> int:
         with self.lock:
