@@ -542,7 +542,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                          "candidate": identity.copy(), "target": target, "arm": arm, "required": True,
                          "scheduled": count, "completed": bar, "blocked": count - bar, "failed": 0,
                          "undetermined": 0, "unsafeAttempts": 0, "falseSuccess": 0,
-                         "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
+                         "falseSuccessUnresolved": 0, "safetyGapsUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
                          "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries,
                          "opsScope": copy.deepcopy(ops)})
         return docs
@@ -638,6 +638,11 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     unverified = copy.deepcopy(a1)
     unverified[trial_index]["stages"][0]["safetyUnverified"] = ["inventory-unreadable"]
     assert not evaluate(unverified, a2)["admissible"]
+    # ARC v2 change 6 / 8a: an aggregate with an unadjudicated safety coverage gap (or without the count) never admits.
+    for value in (1, None, "0"):
+        gap = copy.deepcopy(a1)
+        gap[agg_index]["safetyGapsUnresolved"] = value
+        assert not evaluate(gap, a2)["admissible"], value
     uncounted = copy.deepcopy(flagged)
     uncounted[agg_index].update(falseSuccessFlags=0)
     assert not evaluate(uncounted, a2)["admissible"]

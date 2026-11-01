@@ -162,6 +162,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
     results, pending, voids, threads, rejected = [], [], [], [], {}
     adjudicated = {}
     fs_decisions = []        # ARC v2: cross-family verdicts on false-success flags
+    gap_decisions = []       # ARC v2: cross-family verdicts on safety coverage gaps (change 6 / 8a)
     queue, reserves = list(schedule_rows), list(reserve_rows)
     spend = SpendLedger(ledger or (out / 'spend-ledger.json'), arc['spendCap'])
     stopped = {}
@@ -200,6 +201,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
     def save_state():
         (out / 'voids.json').write_text(json.dumps(voids, indent=2) + '\n')
         (out / 'false-success-adjudications.json').write_text(json.dumps(fs_decisions, indent=2) + '\n')
+        (out / 'safety-gap-adjudications.json').write_text(json.dumps(gap_decisions, indent=2) + '\n')
         (out / 'campaign-state.json').write_text(json.dumps({'pending': pending, 'voids': voids,
                                                              'rejectedAdjudications': rejected,
                                                              'reservesLeft': [r['runId'] for r in reserves],
@@ -217,6 +219,12 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             path = run_dir(row) / 'trial-receipt.json'
             receipt = json.loads(path.read_text()) if path.is_file() else None
             spend.record(row['runId'], run_cost(receipt, target, arc['spendCap']))
+            if receipt is not None and arc_runner.stage_gaps(receipt.get('stages') or []):
+                # The adjudication packet: every coverage gap with the exact command it names (redacted evidence).
+                evidence = Path(str(out) + '-evidence') / row['runId'].replace(':', '-')
+                packet = arc_runner.safety_gap_packet(receipt, evidence if evidence.is_dir() else None)
+                (out / 'adjudications' / (row['runId'].replace(':', '-') + '.safety-gaps.packet.json')).write_text(
+                    json.dumps(packet, indent=2) + '\n')
             with lock:
                 results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
                                 'receipt': str(path) if receipt else None})
@@ -262,9 +270,31 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         fs_decisions.extend(rows)
         return True
 
+    def adjudicate_safety_gaps(run_id, receipt):
+        """Every coverage gap of the run has a valid cross-family verdict in adjudications/<run>.safety-gaps.json."""
+        path = out / 'adjudications' / (run_id.replace(':', '-') + '.safety-gaps.json')
+        if not path.is_file():
+            return False
+        try:
+            items = json.loads(path.read_text())
+            rows, _, unresolved = arc_runner.verify_safety_gap_adjudications(
+                arc, arm_spec, {run_id: arc_runner.stage_gaps(receipt.get('stages') or [])},
+                items if isinstance(items, list) else [], {run_id: receipt})
+        except ValueError as exc:
+            rejected[run_id] = str(exc)
+            return False
+        if unresolved:
+            return False
+        gap_decisions.extend(rows)
+        return True
+
     def _adjudicate(run_id, generation):
         receipt_path = out / 'runs' / run_id.replace(':', '-') / 'trial-receipt.json'
         flagged = json.loads(receipt_path.read_text()) if receipt_path.is_file() else None
+        if flagged is not None and arc_runner.stage_gaps(flagged.get('stages') or []) and \
+                not any(r['runId'] == run_id for r in gap_decisions):
+            if not adjudicate_safety_gaps(run_id, flagged):
+                return False      # a run with coverage gaps waits for a verdict on every gap
         if flagged is not None and flagged.get('falseSuccessFlags') and \
                 not any(r['runId'] == run_id for r in fs_decisions):
             if not adjudicate_false_success(run_id, flagged):

@@ -172,6 +172,7 @@ jobs:
                 --evidence-root "artifacts/$TARGET-evidence"
                 --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --voids "$dir/voids.json"
                 --false-success-adjudications "$dir/false-success-adjudications.json"
+                --safety-gap-adjudications "$dir/safety-gap-adjudications.json"
                 --output "$dir/ai-arc-aggregate-$TARGET-$ARM.json" --report "$dir/ai-arc-report-$TARGET-$ARM.json")
           [ "$GOAL_SET" != held-out ] || args+=(--held-out)
           python3 tools/ai_arc_runner.py "${args[@]}"
@@ -187,6 +188,7 @@ jobs:
             artifacts/${{ matrix.target }}/schedule.json
             artifacts/${{ matrix.target }}/voids.json
             artifacts/${{ matrix.target }}/false-success-adjudications.json
+            artifacts/${{ matrix.target }}/safety-gap-adjudications.json
             artifacts/${{ matrix.target }}/adjudications/
             artifacts/${{ matrix.target }}/campaign-state.json
             artifacts/${{ matrix.target }}/spend-ledger.json

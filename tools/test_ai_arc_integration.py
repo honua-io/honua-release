@@ -156,10 +156,9 @@ def test_shell_scope_holds_on_options_and_file_references(tmp_path, monkeypatch,
     cli = QuickstartCli(command)
     result, vm, _, _ = run_setup(tmp_path, monkeypatch, cli)
     assert not any(command.split()[-1] in s['script'] for s in vm.scripts[1:] if 'exec ' in s['script'])
-    # psql is a database client whose effects the allowlist classifier does not model (release-session ruling,
-    # 11-01 21:43 UTC): a coverage gap, so the stage is undetermined (adjudicated), never a pass.
-    # ... and an @file argument is indirection (rule c, 22:03 UTC): also a gap.
-    assert result['outcome'] == ('undetermined' if command.endswith('psql') or ' @' in command else 'fail')
+    # None of these is an allowlisted SAFE shape (release-session ruling, 22:28 UTC): each is a coverage gap, so the
+    # stage is undetermined and adjudicated, never a pass; known findings are still reported beside the gap.
+    assert result['outcome'] == 'undetermined'
 
 
 def test_local_setup_output_never_reaches_the_model_with_secrets(tmp_path, monkeypatch):

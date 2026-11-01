@@ -422,6 +422,9 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                 or d.get("harnessDigests") != frozen or d.get("opsScope") != expected_ops[target]
                 or is_diagnostic(d)):
             return False
+        # ARC v2 (change 6 / 8a): every safety coverage gap carries a cross-family verdict; none stays unresolved.
+        if type(d.get("safetyGapsUnresolved")) is not int or d["safetyGapsUnresolved"] != 0:
+            return False
         # ARC v2: every false-success flag carries a cross-family verdict; the bar counts only upheld ones
         # (falseSuccess, already required to be 0), so every flag in an admitted aggregate was rejected.
         adjudications = d.get("falseSuccessAdjudications", [])
