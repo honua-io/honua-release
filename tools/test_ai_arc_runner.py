@@ -477,7 +477,8 @@ def held_out_campaign(tmp_path, monkeypatch, outcomes):
     for i, passes in enumerate(outcomes):
         cid = f'h{i:02d}'
         run(tmp_path, name=cid, variant='H', goal_set=primary, case_id=cid,
-            mods=modules(studio=FakeStage('studio', passes=passes)),
+            # Held-out admission runs are on the shipped quickstart package (ARC v2 B1/S4).
+            mods=modules(studio=FakeStage('studio', passes=passes), ops=Packaged('ops')),
             session=FakeSession([GOOD_ANSWER] * 3 + [GOOD_ANSWER if passes else 'I was unable to save the map.']))
         raws.append((tmp_path / cid / 'trial-receipt.json').read_bytes())
     rows = R.schedule(ARC, 'local-docker', A1, primary, len(outcomes))
