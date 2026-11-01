@@ -18,9 +18,9 @@ def evidence(tmp_path):
     now = datetime.now(timezone.utc)
     at = lambda n: (now + timedelta(seconds=n)).isoformat()
     customer = 'subject:issuer:customer@tenant:public'
-    version = {'itemId': 'item', 'versionId': 'version', 'sourceDraftId': 'draft', 'createdBy': customer}
+    version = {'itemId': 'item', 'versionId': 'version', 'sourceDraftId': 'draft', 'createdBy': customer, 'contentHash': 'content-hash'}
     events = [{'auditId': n, 'action': 'operation.completed', 'resourceType': 'operation_instance',
-               'actor': customer, 'outcome': 'Success', 'timestamp': at(n),
+               'actor': customer, 'outcome': 'Success', 'timestamp': at(n), 'resourceId': 'handle' + str(n),
                'details': 'operationId=studio.draft.' + operation + ';status=Completed'}
               for n, operation in [(1, 'create'), (2, 'save-version')]]
     records = {'p08-version': record({'data': version}, at(3)),
@@ -44,27 +44,35 @@ def evidence(tmp_path):
         rows.append({'status': 'pass', 'logPath': str(action_path), 'resultRawPath': str(response_path),
                      'digest': 'sha256:' + hashlib.sha256(raw).hexdigest(),
                      'resultRawSha256': 'sha256:' + hashlib.sha256(response).hexdigest(), 'resultHttpStatus': 201})
-    return records, rows, customer
+    handles = {
+        'handle1': {'operationInstanceId': 'handle1', 'operationId': 'studio.draft.create', 'status': 'Completed',
+                    'resourceIds': {'draftId': 'draft', 'itemId': 'item'}},
+        'handle2': {'operationInstanceId': 'handle2', 'operationId': 'studio.draft.save-version', 'status': 'Completed',
+                    'resourceIds': {'itemId': 'item', 'versionId': 'version', 'contentHash': 'content-hash'}},
+    }
+    return records, rows, customer, handles.get
 
 
 def test_ui_evidence_rejects_mcp_only_wrong_actor_and_wrong_map(tmp_path):
-    records, rows, customer = evidence(tmp_path)
-    assert ui_provenance(records, rows, customer)
+    records, rows, customer, handle_lookup = evidence(tmp_path)
+    assert ui_provenance(records, rows, customer, handle_lookup)
+    with pytest.raises(ValueError, match='uniquely bind'):
+        ui_provenance(records, rows, customer, lambda _id: None)
     with pytest.raises(ValueError, match='browser create and save'):
-        ui_provenance(records, [], customer)
+        ui_provenance(records, [], customer, handle_lookup)
     with pytest.raises(ValueError, match='UI interactions'):
-        ui_provenance(records, [rows[1], rows[3]], customer)
+        ui_provenance(records, [rows[1], rows[3]], customer, handle_lookup)
     records['studio-audit-after-0'].json['items'][1]['actor'] = 'api-key:other'
     # Re-seal the changed controller observation to isolate the principal check.
     records['studio-audit-after-0'] = record(records['studio-audit-after-0'].json,
                                               records['studio-audit-after-0'].recorded_at)
-    with pytest.raises(ValueError, match='audit event'):
-        ui_provenance(records, rows, customer)
-    records, rows, customer = evidence(tmp_path)
+    with pytest.raises(ValueError, match='audit events'):
+        ui_provenance(records, rows, customer, handle_lookup)
+    records, rows, customer, handle_lookup = evidence(tmp_path)
     records['p08-version'] = record({'data': {'itemId': 'different', 'versionId': 'version',
-        'sourceDraftId': 'draft', 'createdBy': customer}}, records['p08-version'].recorded_at)
+        'sourceDraftId': 'draft', 'createdBy': customer, 'contentHash': 'content-hash'}}, records['p08-version'].recorded_at)
     with pytest.raises(ValueError, match='browser create and save'):
-        ui_provenance(records, rows, customer)
+        ui_provenance(records, rows, customer, handle_lookup)
 
 
 def test_style_label_and_unsupported_goal_negatives():

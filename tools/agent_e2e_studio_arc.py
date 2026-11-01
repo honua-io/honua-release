@@ -47,7 +47,7 @@ def _events(records, when):
     return events
 
 
-def ui_provenance(records, session_rows, customer):
+def ui_provenance(records, session_rows, customer, handle_lookup):
     """Join signed-in browser lifecycle responses to immutable version and customer audit."""
     version = _record(records, 'p08-version')['data']
     if not isinstance(customer, str) or not customer or version.get('createdBy') != customer:
@@ -99,8 +99,27 @@ def ui_provenance(records, session_rows, customer):
             and event.get('resourceType') == 'operation_instance' and event.get('outcome') == 'Success'
             and event.get('details', '').split(';')[:2] == ['operationId=' + operation, 'status=Completed']
             and start <= _instant(event.get('timestamp')) <= end + timedelta(seconds=1)]
-        if not matches:
-            raise ValueError('browser customer lacks a matching Studio audit event: ' + operation)
+        if not matches or len(matches) > 20:
+            raise ValueError('browser customer lacks bounded Studio audit events: ' + operation)
+        expected = ({'draftId': version['sourceDraftId'], 'itemId': version['itemId']}
+                    if operation == 'studio.draft.create' else
+                    {'itemId': version['itemId'], 'versionId': version['versionId'],
+                     'contentHash': version.get('contentHash')})
+        if any(not isinstance(value, str) or not value for value in expected.values()):
+            raise ValueError('saved version lacks handle binding fields')
+        linked = []
+        for event in matches:
+            operation_id = event.get('resourceId')
+            if not isinstance(operation_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', operation_id):
+                continue
+            handle = handle_lookup(operation_id)
+            resources = handle.get('resourceIds') if isinstance(handle, dict) else None
+            if (isinstance(resources, dict) and handle.get('operationInstanceId') == operation_id
+                    and handle.get('operationId') == operation and handle.get('status') == 'Completed'
+                    and all(resources.get(key) == value for key, value in expected.items())):
+                linked.append(operation_id)
+        if len(linked) != 1:
+            raise ValueError('Studio audit does not uniquely bind the saved resource: ' + operation)
     return True
 
 
@@ -589,7 +608,14 @@ def arc_stage(ctx):
                                 stem = 'action-' + format(action['sequence'], '04d')
                                 evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
                                                  'resultRawPath': str(directory / (stem + '.response'))})
-                        ui_provenance(stack.extra['recorder'].records, evidence, stack.extra.get('consoleUserId'))
+                        recorder = stack.extra['recorder']
+                        def handle_lookup(operation_id):
+                            step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
+                            if step not in recorder.records:
+                                recorder.json(step, 'GET', '/api/v1/operations/handles/' + operation_id)
+                            return _record(recorder.records, step).get('data')
+                        ui_provenance(recorder.records, evidence, stack.extra.get('consoleUserId'), handle_lookup)
+                        receipt['controllerRecords'] = recorder.index()
                         checks.append({'assertion': 'goal.studio-ui', 'status': 'pass'})
                     except Exception as exc:
                         checks.append({'assertion': 'goal.studio-ui', 'status': 'fail',
