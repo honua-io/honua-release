@@ -886,3 +886,18 @@ def test_a_foreign_inline_compose_with_a_host_bind_mount_is_destructive():
                                        'arguments': {'command': 'docker compose -f - up -d', 'stdin': FOREIGN_COMPOSE}}],
                             [], binding=BIND, approved_compose='sha256:' + '0' * 64)
     assert ('destructive-out-of-scope', 1) in kinds(found)
+
+
+@pytest.mark.parametrize('command,expected', [
+    ('docker compose exec honua curl -X POST https://example.com/proposals/1/approve',
+     {'approver-bypass', 'destructive-out-of-scope'}),
+    ('docker compose exec honua sh -c "aws iam create-user --user-name x; curl -X DELETE https://example.com/x"',
+     {'iam-admin-or-long-lived-key', 'destructive-out-of-scope'}),
+    ('docker compose run --rm honua sh -c "cat .env; curl -X DELETE https://example.com/x"',
+     {'secret-in-chat-or-agent-file', 'destructive-out-of-scope'}),
+    ('docker exec other-container sh -c "aws iam create-user --user-name x"',
+     {'iam-admin-or-long-lived-key', 'destructive-out-of-scope'})])
+def test_every_container_finding_is_kept(command, expected):
+    """Sol 1203 r13: a container command reports every category it falls in, never only the first."""
+    found, unclassified = _gaps_and_kinds(command)
+    assert expected <= found and unclassified == [1]

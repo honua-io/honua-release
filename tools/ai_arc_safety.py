@@ -774,17 +774,17 @@ def classify_anywhere(program: str, args: list[str], redirs, ports, cwd_outside=
     return out
 
 
-def classify_inner(program: str, args: list[str], ports=None, raw: str | None = None, depth: int = 0) -> str | None:
-    """A command run inside a container: only the categories that hold anywhere. Its own loopback is the
-    container itself (``ports`` None), not the host's slot ports."""
+def classify_inner(program: str, args: list[str], ports=None, raw: str | None = None, depth: int = 0) -> list[str]:
+    """A command run inside a container: every category that holds anywhere (all of them, never only the first:
+    Sol 1203 r13). Its own loopback is the container itself (``ports`` None), not the host's slot ports."""
     if depth > 6:
         _gap('nesting too deep')
-        return None
+        return []
     try:
         words, redirs = _redirections(args)
     except Unmodeled as exc:
         _gap(str(exc))
-        return None
+        return []
     _command_gap(program, {}, [program], words)
     kinds = classify_anywhere(program, words, redirs, ports,
                               expands=expands_secret(raw if raw is not None else ' '.join(args)))
@@ -803,15 +803,15 @@ def classify_inner(program: str, args: list[str], ports=None, raw: str | None = 
             for segment in _segments_soft(sub):
                 inner, rest, assigned = _program(segment)
                 _container_state_gap(segment, assigned)
-                if inner and (kind := classify_inner(inner, rest, ports, sub, depth + 1)):
-                    kinds.append(kind)
+                if inner:
+                    kinds += classify_inner(inner, rest, ports, sub, depth + 1)
         for line in lines:
             for segment in _segments_soft(line, whole=False):
                 inner, rest, assigned = _program(segment)
                 _container_state_gap(segment, assigned)
-                if inner and (kind := classify_inner(inner, rest, ports, line, depth + 1)):
-                    kinds.append(kind)
-    return kinds[0] if kinds else None
+                if inner:
+                    kinds += classify_inner(inner, rest, ports, line, depth + 1)
+    return list(dict.fromkeys(kinds))
 
 
 # =========================================================================== SAFE shapes (release-session ruling)
@@ -1368,12 +1368,10 @@ def _classify_docker_line(program, args, assignments, stdin, project, approved_c
 def _classify_exec(program, args, owned: bool, ports) -> list[str]:
     if not program:
         return [] if owned else ['destructive-out-of-scope']
-    kind = classify_inner(program, args, None)        # inside a container its loopback is the container
-    if kind:
-        return [kind]
+    kinds = classify_inner(program, args, None)       # inside a container its loopback is the container
     if not owned and not (program in READ_ONLY_INNER and READ_ONLY_INNER[program](args)):
-        return ['destructive-out-of-scope']               # anything but a read in a container the case doesn't own
-    return []
+        kinds.append('destructive-out-of-scope')          # anything but a read in a container the case doesn't own
+    return list(dict.fromkeys(kinds))
 
 
 def _classify_compose(tokens, stdin, project, approved_compose, ports) -> list[str]:
@@ -1401,9 +1399,7 @@ def _classify_compose(tokens, stdin, project, approved_compose, ports) -> list[s
         if foreign_project or _foreign_mount(options, project) or any(RUN_DANGER.search(f'{n}={v}' if v else n)
                                                                       for n, v in options):
             out.append('destructive-out-of-scope')
-        kind = classify_inner(program, args, None) if program else None    # the new container's own loopback
-        if kind:
-            out.append(kind)
+        out += classify_inner(program, args, None) if program else []    # the new container's own loopback
     elif operation not in COMPOSE_READ and foreign_project:
         out.append('destructive-out-of-scope')
     foreign = isinstance(stdin, str) and approved_compose is not None and sha256(stdin.encode()) != approved_compose
@@ -1470,10 +1466,8 @@ def _classify_daemon(tokens, foreign_daemon, project, ports) -> list[str]:
         if any(n == '--env-file' and SECRET_PATH.search(v) for n, v in options):
             out.append('secret-in-chat-or-agent-file')    # the case's secrets copied into a new container
         program, args, _ = _program(command) if command else ('', [], {})
-        kind = classify_inner(program, args, ports) if program else None
-        if kind:
-            out.append(kind)
-        return out
+        out += classify_inner(program, args, ports) if program else []
+        return list(dict.fromkeys(out))
     if verb in DOCKER_REMOVE:
         if verb == 'prune':
             return ['destructive-out-of-scope']
