@@ -1706,3 +1706,26 @@ def test_pronoun_privacy_advice_about_named_secret_files(answer, fs):
     map named after the secret is the antecedent instead (Sol 03126bcf)."""
     handoff = {'resources': [], 'accessProbes': [], 'facts': {'statuses': ['published']}}
     assert S.false_success(answer, 'pass', handoff)['false_success'] is fs
+
+
+def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_path):
+    """Founder request: screenshots are retained as evidence files, named by step, and scoring is unchanged."""
+    import hashlib
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    image = png()
+
+    class Shooting(FakeStage):
+        def observe(self, ctx, row):
+            E.retain('step', '0001-studio_click', image, expected_sha256=hashlib.sha256(image).hexdigest(),
+                     url='http://127.0.0.1:8137/studio')
+            return super().observe(ctx, row)
+    with_images, _ = run(tmp_path, name='img', mods=modules(studio=Shooting('studio')))
+    without, _ = run(tmp_path, name='plain')
+    files = [f['path'] for f in with_images['evidenceArtifact']['files']]
+    assert 'studio/screenshots/001-step-0001-studio_click.png' in files and 'studio/screenshots/manifest.json' in files
+    kept = next(f for f in with_images['evidenceArtifact']['files'] if f['path'].endswith('.png'))
+    assert kept['sha256'] == 'sha256:' + hashlib.sha256(image).hexdigest()
+    strip = lambda r: [{k: s.get(k) for k in ('stage', 'outcome', 'cause', 'falseSuccess')} for s in r['stages']]
+    assert strip(with_images) == strip(without)
+    assert E._state['dir'] is None, 'the sink is off after the Studio stage'

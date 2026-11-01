@@ -72,6 +72,7 @@ RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc
                 'tools/g3_compose_quickstart.py', 'tools/ai_arc_devops.py',
                 'certification/agent-ops/arc_ops.py', 'certification/agent-ops/arc-executors.json',
                 'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py', 'tools/ai_arc_ops_local.py',
+                'tools/ai_arc_evidence_images.py',
                 # The Studio built-in assistant arm (#1188): its customer session, transcript, provider evidence
                 # and session audit change stage-4 behavior and scoring.
                 'tools/agent_e2e_studio_customer_session.py', 'tools/agent_studio_customer.py',
@@ -1507,6 +1508,10 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
     stage = module.stage
     result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
     started = time.monotonic()
+    import ai_arc_evidence_images
+    # Studio controller screenshots and server renders are kept as evidence files under the stage's private
+    # evidence (exported with the run, never read by the scorer); the sink is off outside this stage.
+    ai_arc_evidence_images.configure(ctx.private_dir / 'studio' / 'screenshots' if module.stage == 'studio' else None)
     row, worker, exit_reason, unavailable = {}, None, 'normal', None
     try:
         reason = within(ctx.remaining(), module.unavailable, ctx, ctx=ctx)
@@ -1554,6 +1559,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         except Exception as exc:
             observations = [{'assertion': 'observation', 'status': 'fail',
                              'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}]
+    ai_arc_evidence_images.configure(None)
     stage_elapsed = round(time.monotonic() - started, 1)    # the model's stage, before any slot preparation
     prepare = getattr(module, 'prepare_next', None)
     if callable(prepare):

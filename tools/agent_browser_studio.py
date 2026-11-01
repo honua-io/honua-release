@@ -832,6 +832,16 @@ class StudioBrowserServer:
                 except Exception:
                     pass
             digest = hashlib.sha256(png).hexdigest() if png else None
+            if png:
+                # Evidence only (never read by the scorer): the same bytes whose digest the action log binds.
+                import ai_arc_evidence_images
+                self._shot_seq = getattr(self, '_shot_seq', 0) + 1
+                try:
+                    url = self.page.current_url() if self.page is not None else None
+                except Exception:  # noqa: BLE001  (an unknown URL may be a sign-in page: never kept)
+                    url = 'unknown://sign-in'
+                ai_arc_evidence_images.retain('step', f'{self._shot_seq:04d}-{name}', png,
+                                              expected_sha256=digest, url=url)
             result = {'status': status, 'text': text[:8000], 'screenshotSha256': digest}
             # The action is written before execution. Its result, including the screenshot digest,
             # is retained separately and bound by the runner's response digest and action chain.
@@ -1694,6 +1704,8 @@ def record_independent_render(stack, seeded, prefix, version_step, *, render_bod
         http_status=200, loaded_layer_ids=rendering['loadedLayerIds'],
         visible_label_source_ids=rendering['visibleLabelSourceIds'], browser_errors=[])
     recorder.store_derived(prefix + '-render', measurement)
+    import ai_arc_evidence_images
+    ai_arc_evidence_images.retain('render', prefix + '-independent', rendering['png'])
 
 
 def verify_saved_default_fill(recorder, version_step, export_step, *, service, layer_id, expected_rgba, minimum_pixels):
@@ -1715,6 +1727,8 @@ def verify_saved_default_fill(recorder, version_step, export_step, *, service, l
     try:
         raw = base64.b64decode(observation['rawBodyBase64'], validate=True)
         width, height, pixel = _decode_png(raw)
+        import ai_arc_evidence_images
+        ai_arc_evidence_images.retain('render', export_step + '-server-export', raw)
     except (ValueError, TypeError) as exc:
         raise ProjectionError('server export is not a decodable PNG') from exc
     require(width >= 256 and height >= 256, 'server export is too small')
