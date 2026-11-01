@@ -174,3 +174,11 @@ def test_open_map_is_not_a_filter_but_open_shelters_are():
     from agent_e2e_studio_arc import requests_filter
     assert not requests_filter('Let the operator team open it')
     assert requests_filter('Show open shelters with room for more than 50 people')
+
+
+def test_p08_never_seeds_a_saved_map(monkeypatch):
+    import agent_e2e_local_scenarios.P08 as module
+    seen = []
+    monkeypatch.setattr(module, 'seed_case', lambda *args, **kwargs: seen.append((args, kwargs)))
+    module.P08().seed(object(), 'A')
+    assert seen[0][1]['create_map'] is False

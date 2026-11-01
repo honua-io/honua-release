@@ -216,6 +216,8 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
     assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
     assert any(row.get('falseSuccess') for row in scores)
+    assert {r['assertion'] for r in scores if r['assertion'].endswith(':goal.services-lineage') and r['status'] == 'fail'} == {
+        'arm-browser:goal.services-lineage', 'console-assistant:goal.services-lineage'}
 
 
 def test_shared_project_drivers_get_distinct_fixture_names():

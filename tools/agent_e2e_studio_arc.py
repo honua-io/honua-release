@@ -654,6 +654,12 @@ def arc_stage(ctx):
                 recognized = hashlib.sha256(goal.encode()).hexdigest() == STUDIO_GOAL_SHA256.get(fixture)
                 checks = score_goal(stack.extra['recorder'].records if stack else {}, goal, fixture,
                                     recognized=recognized)
+                # P08 currently provisions published fixture services itself.
+                # No controller-bound services-stage handoff is exposed here;
+                # those seeded services cannot prove the customer journey.
+                checks.append({'assertion': 'goal.services-lineage', 'status': 'fail',
+                               'reason': 'unsupported: Studio sources are harness-published, not bound to '
+                                         'agent-created services from the preceding stage'})
                 if driver == 'arm-browser':
                     try:
                         evidence = []
