@@ -17,6 +17,7 @@ keeps, in the stage's private evidence: each full case receipt, the action log a
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -47,6 +48,7 @@ def runtime_class():
             self.lock = threading.Lock()
             self.gate = None
             self.vm = vm
+            self.shared_service = None
 
         def psql(self, stack, sql, *, read_only):
             """Run runner-generated structured SQL on the adopted slot's actual database container."""
@@ -85,7 +87,11 @@ def runtime_class():
             stack = Stack(base_url=self.arc['base_url'], admin_key=self.arc['admin_key'], approver_key=None,
                           compose_project=project, compose_file='', workdir=str(case_dir),
                           candidate_digest=candidate_digest, extra={'needsApprover': needs_approver})
+            if self.shared_service is not None:
+                stack.extra['arcSharedService'] = dict(self.shared_service)
             self._prepare(stack, list(agent_permissions))
+            if self.vm is not None:
+                stack.extra['ensureConnection'] = lambda: self.ensure_arc_connection(stack)
             if needs_approver:
                 stack = self._mint_approver(stack)
             self.stacks.append(stack)
@@ -95,6 +101,28 @@ def runtime_class():
                 if value not in self.extra_secrets:
                     self.extra_secrets.append(value)
             return stack
+
+        def ensure_arc_connection(self, stack):
+            """Create the fixture's connection on the adopted Compose network, with controller custody."""
+            if self.vm is None or self.vm.project != self.arc['project']:
+                raise ValueError('adopted database slot is missing or does not match the ARC project')
+            secret = self.vm.secrets.get('POSTGRES_PASSWORD')
+            if not isinstance(secret, str) or not secret:
+                raise ValueError('adopted database credential is unavailable')
+            if secret not in self._secrets:
+                self._secrets.append(secret)
+            if secret not in self.extra_secrets:
+                self.extra_secrets.append(secret)
+            rec = stack.extra['recorder']
+            answer = rec.json('arc-p10-connection-create', 'POST', '/api/v1/admin/connections/', {
+                'name': stack.compose_project + '-fixture', 'host': 'db', 'port': 5432,
+                'databaseName': 'honua', 'username': 'honua', 'password': secret,
+                'sslRequired': False, 'sslMode': 'Disable'})
+            body = answer['observation']['body']
+            identity = body.get('data', {}).get('connectionId') if isinstance(body, dict) else None
+            if answer['observation']['httpStatus'] != 201 or not isinstance(identity, str) or not identity:
+                raise ValueError('adopted fixture connection was not created')
+            return identity
 
         def _recorder(self, stack, principals):
             """Credential custody at the acquisition boundary. Before a mint is dispatched it is recorded as
@@ -282,6 +310,20 @@ class Canceller:
         return self.runtime.probe()
 
 
+def shared_publication(receipt, retained_bytes, variant):
+    """Bind the next case to the prior passing P10 receipt and its fired fault."""
+    roles = receipt.get('roles') or {}
+    service, layer = roles.get('created:service:shelters'), roles.get('child:layer:shelters')
+    events = receipt.get('faultEvents') or []
+    if (receipt.get('status') != 'pass' or not isinstance(service, str)
+            or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
+            or type(layer) is not int or layer < 0 or len(events) != 1
+            or events[0].get('kind') != 'http_503_once' or events[0].get('id') != 'arc-p10-query-503'):
+        raise ValueError('prior P10 did not prove a passing agent publication and required fault')
+    return {'variant': variant, 'service': service, 'layerId': layer,
+            'caseReceiptSha256': 'sha256:' + hashlib.sha256(retained_bytes).hexdigest()}
+
+
 def run_fixture_services(*, goal, fixture_id, fault, **kwargs):
     """ARC held-out entry point; a missing fixture field is a named stage failure."""
     if not isinstance(goal, str) or not goal.strip() or not isinstance(fixture_id, str) or not isinstance(fault, str):
@@ -307,12 +349,16 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
         try:
             fixture_variant, fixture_cases = runner.select_fixture_cases(goal=goal, fixture_id=fixture_id)
             scenarios, variant = tuple(fixture_cases), fixture_variant
-            plans = [runner.load_scenario(sid).fault_plan(variant) for sid in scenarios]
+            from agent_e2e_local_scenarios.arc_p10 import ArcP10
+            from agent_e2e_local_scenarios.arc_p15 import ArcP15
+            fixture_scenarios = {'P10': ArcP10(), 'P15': ArcP15()}
+            if set(scenarios) != set(fixture_scenarios):
+                raise ValueError('services fixture has an unsupported scenario inventory')
+            plans = [fixture_scenarios[sid].fault_plan(variant) for sid in scenarios]
             if not isinstance(fault, str) or not any(p and p.get('kind') == fault for p in plans):
                 raise ValueError('services fault is incompatible with fixture scenarios')
-            # Existing P10/P15 seeds publish services as controller. Do not credit
-            # those cases until the raw-input publication observer is implemented.
-            raise ValueError('services agent publication from raw inputs is not yet supported')
+            if vm is None:
+                raise ValueError('services adopted VM slot is missing')
         except (ImportError, OSError, ValueError) as exc:
             reason = str(exc)[:200] or type(exc).__name__
             return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
@@ -348,6 +394,10 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     cases, actions, answers, nudges, failure = [], [], [], 0, None
     try:
         for index, sid in enumerate(scenarios):
+            if fixture_cases is not None and sid == 'P15' and runtime.shared_service is None:
+                failure = failure or {'category': 'model', 'reason': 'P15 requires the agent publication from P10'}
+                cases.append({'scenario': sid, 'receipt': {'status': 'fail', 'assertions': [], 'failure': failure}})
+                continue
             remaining_actions = limits['maxToolCalls'] - len(actions)
             remaining_time = int(deadline - time.monotonic())
             if remaining_actions <= 0 or remaining_time <= 0:
@@ -356,7 +406,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                 failure = failure or {'category': 'model', 'reason': 'stage budget exhausted before ' + sid}
                 continue
             runtime.max_actions, runtime.timeout = remaining_actions, remaining_time
-            scenario = load_scenario(sid)
+            scenario = fixture_scenarios[sid] if fixture_cases is not None else load_scenario(sid)
             case = fixture_cases[sid] if fixture_cases is not None else runner.select_case(runner.PACK, sid, variant)
             if handoff and index == 0:
                 # The plain customer handoff from the earlier stages, then the scenario's own request.
@@ -365,6 +415,13 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             receipt = runner.execute_case(case_id=f'{sid}:{variant}:local-docker', scenario=scenario,
                                           variant=variant, case=case, candidate_digest=candidate_digest,
                                           runtime=runtime)
+            if fixture_cases is not None and sid == 'P15':
+                receipt['priorCaseReceiptSha256'] = runtime.shared_service['caseReceiptSha256']
+                roles = receipt.get('roles') or {}
+                if (roles.get('seeded:service:shelters') != runtime.shared_service['service']
+                        or roles.get('seeded:layer:shelters') != runtime.shared_service['layerId']):
+                    receipt['status'] = 'fail'
+                    receipt['failure'] = {'category': 'model', 'reason': 'P15 prior service binding differs'}
             new_dirs = [d for d in runtime.workdirs if d not in before]
             statuses = [a.get('status') for s in receipt.get('sessions', []) for a in s.get('actions', [])]
             for case_dir in new_dirs:
@@ -387,8 +444,14 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             (out_dir / sid).mkdir(parents=True, exist_ok=True)
             from ai_arc_runner import redact_bytes
             # Redacted at write time (minted case keys and the controller credential never stored).
-            (out_dir / sid / 'case-receipt.json').write_bytes(
-                redact_bytes(json.dumps(receipt, sort_keys=True).encode(), [*runtime._secrets, *runtime.extra_secrets]))
+            retained = redact_bytes(json.dumps(receipt, sort_keys=True).encode(),
+                                    [*runtime._secrets, *runtime.extra_secrets])
+            (out_dir / sid / 'case-receipt.json').write_bytes(retained)
+            if fixture_cases is not None and sid == 'P10':
+                try:
+                    runtime.shared_service = shared_publication(receipt, retained, variant)
+                except ValueError as exc:
+                    failure = failure or {'category': 'model', 'reason': str(exc)}
             answer = runtime.answers.get(f'{project}-{sid.lower()}')
             if isinstance(answer, str):
                 answers.append(answer)

@@ -96,9 +96,10 @@ def fixture_variant(fixture_id, scenario_id):
     return variant
 
 
-def load_fixture_expected(fixture_id, scenario_id):
+def load_fixture_expected(fixture_id, scenario_id, profile=None):
     """Load expectations keyed by fixture identity, not by a customer prompt variant."""
-    return load_expected(scenario_id, fixture_variant(fixture_id, scenario_id))
+    variant = fixture_variant(fixture_id, scenario_id)
+    return load_expected(scenario_id, variant, profile) if profile else load_expected(scenario_id, variant)
 
 
 def _oracle():
@@ -126,10 +127,12 @@ def _resolve(value, variant):
     return value
 
 
-def load_document(scenario_id):
+def load_document(scenario_id, profile=None):
     if not re.fullmatch(r'P\d\d', str(scenario_id)):
         raise ValueError('invalid scenario id')
-    path = DIRECTORY / f'{scenario_id}.json'
+    if profile not in (None, 'arc') or (profile == 'arc' and scenario_id not in ('P10', 'P15')):
+        raise ValueError('unknown expectation profile')
+    path = DIRECTORY / f'{"arc-" if profile == "arc" else ""}{scenario_id}.json'
     document = json.loads(path.read_text(encoding='utf-8'))
     if document.get('schemaVersion') != 1 or document.get('scenario') != scenario_id:
         raise ValueError('expectation document identity differs')
@@ -138,10 +141,10 @@ def load_document(scenario_id):
     return document
 
 
-def load_expected(scenario_id, variant):
+def load_expected(scenario_id, variant, profile=None):
     if variant not in ('A', 'B'):
         raise ValueError('only development variants A and B are enabled')
-    document = load_document(scenario_id)
+    document = load_document(scenario_id, profile) if profile else load_document(scenario_id)
     assertions = document['variants'].get(variant)
     if not isinstance(assertions, dict) or not assertions:
         raise ValueError('no frozen expectation for this variant')
@@ -156,7 +159,7 @@ READ_FIELDS = {'kind', 'method', 'path', 'principal', 'phase', 'origin', 'replay
                'addresses'}
 
 
-def load_projections(scenario_id, variant):
+def load_projections(scenario_id, variant, profile=None):
     """Frozen per-assertion projections: {assertion: {"spec": ..., "reads": {step: rule}}}.
 
     The document's top-level "projections" applies to every variant; a variant may override an
@@ -165,7 +168,7 @@ def load_projections(scenario_id, variant):
     """
     if variant not in ('A', 'B'):
         raise ValueError('only development variants A and B are enabled')
-    document = load_document(scenario_id)
+    document = load_document(scenario_id, profile) if profile else load_document(scenario_id)
     rows = dict(document.get('projections') or {})
     rows.update((document.get('variantProjections') or {}).get(variant) or {})
     out = {}
@@ -190,10 +193,10 @@ ROLE_FIELDS = {'role', 'step', 'pointer', 'items', 'id', 'owner', 'before', 'tot
                'created_by', 'parent', 'parent_link', 'owner_format', 'owner_any_of', 'sources'}
 
 
-def load_roles(scenario_id):
+def load_roles(scenario_id, profile=None):
     """Frozen logical-role bindings ("roles": [{role, step, pointer | items, id, owner, before, total | next_page}])."""
     from agent_e2e_local_api import RoleBinding
-    rows = load_document(scenario_id).get('roles') or []
+    rows = (load_document(scenario_id, profile) if profile else load_document(scenario_id)).get('roles') or []
     out = []
     for row in rows:
         if not isinstance(row, dict) or set(row) - ROLE_FIELDS or not ({'role', 'step'} <= set(row)
