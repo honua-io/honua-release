@@ -2696,6 +2696,19 @@ def test_p10_correct_query_survives_later_verification_query(candidate, tmp_path
     assert replay['replayOf'].startswith('occ:1:1:')
 
 
+def test_p10_exploration_before_correct_query_is_not_scored_as_the_task(candidate, tmp_path):
+    receipt, _, _ = run_case(candidate, tmp_path, [tool('1=1'), tool(CORRECT_WHERE), FINAL])
+    assert receipt['status'] == 'pass', receipt
+    replay = next(row for row in receipt['controllerRecords'] if row['step'] == 'p10-replay-query')
+    assert replay['replayOf'].startswith('occ:1:2:')
+
+
+def test_p10_multiple_wrong_queries_do_not_pass(candidate, tmp_path):
+    receipt, _, _ = run_case(candidate, tmp_path, [tool('1=1'), tool('capacity > 0'), FINAL])
+    assert receipt['status'] == 'fail'
+    assert next(row for row in receipt['assertions'] if row['assertion'] == 'filter.exact')['status'] == 'fail'
+
+
 def test_fixture_case_does_not_trust_scenario_expected(candidate, tmp_path):
     class MisleadingP10(FakeP10):
         def expected(self, variant):
