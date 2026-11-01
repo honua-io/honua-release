@@ -155,6 +155,20 @@ def operation_instance(manager, proposal_id: str, keys) -> str | None:
     return None
 
 
+# Not 'submitted': the product can leave an executed proposal listed as Submitted (rehearsal-7, #6858).
+NOT_APPLIED = ('pending', 'pendingapproval', 'awaitingapproval', 'rejected', 'cancelled', 'expired')
+
+
+def uncertain(receipt) -> bool:
+    """The approval's response was lost (transport error or server error): it may or may not have applied."""
+    return receipt['status'] is None or (isinstance(receipt['status'], int) and receipt['status'] >= 500)
+
+
+def live_approval(receipt) -> bool:
+    """An approval the product accepted, or one whose lost response is not yet known not to have applied."""
+    return receipt['status'] in (200, 201, 202, 204) or (uncertain(receipt) and receipt.get('reconciled') != 'not-applied')
+
+
 def slot_compose(vm, *args: str) -> str:
     return vm.compose('-f', 'compose.yaml', '-f', 'compose.executor.yaml', *args)
 
@@ -445,7 +459,7 @@ class Scenario:
         """After the session: follow approved operations still inside their observation window to a terminal
         state (with the controller's key once the stage keys are revoked), bounded by ``limit`` seconds."""
         deadline = self.clock() + max(0, limit)
-        while any(a['status'] in (200, 201, 202, 204) and a['operationStatus'] not in TERMINAL for a in self.approvals) \
+        while any(live_approval(a) and a['operationStatus'] not in TERMINAL for a in self.approvals) \
                 and self.clock() < deadline:
             with self.stepping:
                 self.advance()
@@ -544,7 +558,7 @@ class Scenario:
         executing or inside its observation window, or not yet followed). An earlier completion never authorizes
         a fault while a newer operation of the same kind is open (Sol 0e7732d2): the observed state may be the
         newer one's, still under verification."""
-        mine = [a for a in self.approvals if a['tool'] == tool and a['status'] in (200, 201, 202, 204)
+        mine = [a for a in self.approvals if a['tool'] == tool and live_approval(a)
                 and (after is None or a['at'] >= after)]
         if any(a['operationStatus'] not in TERMINAL for a in mine):
             return 'pending'
@@ -636,15 +650,21 @@ class Scenario:
             self.approvals.append(receipt)
 
     def follow_operations(self):
-        """The product executor's own record of each approved proposal, to its terminal state."""
+        """The product executor's own record of each approved proposal, to its terminal state. An approval whose
+        response was lost (no status, or a server error) may still have taken effect: it is reconciled from the
+        product's proposal record and followed like any other until it is known not to have applied."""
         for receipt in self.approvals:
-            if receipt['status'] not in (200, 201, 202, 204) or receipt['operationStatus'] in TERMINAL:
+            if not live_approval(receipt) or receipt['operationStatus'] in TERMINAL:
                 continue
             if not receipt['operationId']:
                 op = operation_instance(self.manager, receipt['proposalId'], self.follow_keys())
                 if not op:
+                    if uncertain(receipt):
+                        self.reconcile(receipt)
                     continue
                 receipt['operationId'] = op
+                if uncertain(receipt):
+                    receipt['reconciled'] = 'applied'
             for key in self.follow_keys():
                 status, handle = self.manager.request('GET', f"/api/v1/operations/handles/{receipt['operationId']}", key)
                 if status not in (401, 403):
@@ -653,6 +673,17 @@ class Scenario:
             state = str(data.get('status', '')).lower()
             if status == 200 and state in TERMINAL:
                 receipt['operationStatus'], receipt['completedAt'] = state, self.clock()
+
+    def reconcile(self, receipt):
+        """A lost approval response: the proposal still awaiting approval (or refused) means it never applied."""
+        for key in self.follow_keys():
+            status, detail = self.manager.request('GET', f"/api/v1/admin/proposals/{receipt['proposalId']}", key)
+            if status in (401, 403):
+                continue
+            detail = detail.get('data', detail) if isinstance(detail, dict) else {}
+            if status == 200 and str(detail.get('status', '')).lower() in NOT_APPLIED:
+                receipt['reconciled'] = 'not-applied'
+            return
 
     def follow_keys(self):
         return tuple(k for k in (self.approver['key'], self.proposer['key'], self.observer_key) if k)

@@ -1078,3 +1078,46 @@ def test_fault_r_waits_for_a_newer_convergence_approved_after_an_earlier_one_com
     manager.operation = 'completed'
     sc.step()
     assert [e['event'] for e in sc.events] == ['upgrade-observed', 'fault-R']
+
+
+@pytest.mark.parametrize('kind', ['convergence', 'rollback'])
+def test_a_lost_approval_response_keeps_the_fault_deferred_until_reconciled(kind):
+    """Sol 3bc92252: an approval whose response was lost (status None) may still have applied. It is followed
+    through the proposal resource and keeps injection deferred; only the product's record that the proposal is
+    still awaiting approval releases the earlier completion."""
+    tool = CONVERGE[0] if kind == 'convergence' else ROLLBACK[0]
+    manager = FakeManager()
+    sc = scenario([state(PRIOR, 140)], manager=manager)
+    sc.approvals = [{'tool': tool, 'status': 200, 'at': 1, 'operationStatus': 'completed', 'proposalId': 'a',
+                     'operationId': 'opinst-a'},
+                    {'tool': tool, 'status': None, 'at': 5, 'operationStatus': None, 'proposalId': 'b',
+                     'operationId': None}]
+    manager.operation = 'running'
+    sc.follow_operations()
+    assert sc.approvals[1]['operationId'] == 'opinst-b' and sc.approvals[1]['reconciled'] == 'applied'
+    assert sc.operation_gate(tool) == 'pending'
+    manager.operation = 'completed'
+    sc.follow_operations()
+    assert sc.operation_gate(tool) == 'completed'
+    # A lost response whose proposal never applied: no operation instance, the product still awaits approval.
+    sc.approvals[1].update(status=502, operationStatus=None, operationId=None, reconciled=None)
+    manager.resource_missing = True
+    assert (sc.follow_operations() or sc.operation_gate(tool)) == 'pending'      # unknown detail: stays pending
+    base = manager.request
+    manager.request = lambda m, path, key, payload=None, timeout=30: (200, {'status': 'AwaitingApproval'}) \
+        if path == '/api/v1/admin/proposals/b' else base(m, path, key, payload)
+    sc.follow_operations()
+    assert sc.approvals[1]['reconciled'] == 'not-applied' and sc.operation_gate(tool) == 'completed'
+
+
+def test_a_stale_submitted_proposal_is_never_reconciled_as_not_applied():
+    manager = FakeManager()
+    manager.resource_missing = True
+    sc = scenario([state(PRIOR, 140)], manager=manager)
+    sc.approvals = [{'tool': CONVERGE[0], 'status': None, 'at': 5, 'operationStatus': None, 'proposalId': 'b',
+                     'operationId': None}]
+    base = manager.request
+    manager.request = lambda m, path, key, payload=None, timeout=30: (200, {'status': 'Submitted'}) \
+        if path == '/api/v1/admin/proposals/b' else base(m, path, key, payload)
+    sc.follow_operations()
+    assert sc.approvals[0].get('reconciled') != 'not-applied' and sc.operation_gate(CONVERGE[0]) == 'pending'
