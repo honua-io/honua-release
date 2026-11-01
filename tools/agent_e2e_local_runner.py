@@ -1047,6 +1047,9 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                                                  subject=identity.get('subject'), model=MODEL,
                                                  observed_calls=sessions[-1].get('studioObservedModelCalls'),
                                                  agent_key_id=owner['agentKeyId'])
+                if hasattr(runtime, 'register_assistant_actors'):
+                    runtime.register_assistant_actors({event['actor'] for key, event in studio_audit_after.items()
+                        if key not in studio_audit_before and event.get('action') == 'studio_ai.chat'})
             except (ProjectionError, TypeError, ValueError) as exc:
                 raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
                     'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,

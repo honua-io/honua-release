@@ -7,6 +7,49 @@ from pathlib import Path
 
 from agent_e2e_studio_customer_session import MODEL
 
+CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/manifest.v1.json'
+
+
+def fixture_variant(fixture_id, scenario_id, *, manifest_path=CORPUS_MANIFEST):
+    """Resolve a committed corpus fixture ID to its frozen local observer variant."""
+    from agent_e2e_local_expectations import load_expected, load_projections
+    if scenario_id not in ('P08', 'P09', 'P24') or not isinstance(fixture_id, str):
+        raise ValueError('unsupported Studio fixture or scenario')
+    manifest = json.loads(Path(manifest_path).read_bytes())
+    matches = [(row.get('id'), variant) for row in manifest.get('fixtures', []) if row.get('committed') is not False
+               for variant, spec in (row.get('variants') or {}).items()
+               if variant in ('A', 'B') and isinstance(spec, dict) and spec.get('path') == fixture_id]
+    if len(matches) != 1 or matches[0][0] != 'synthetic-town':
+        raise ValueError('fixture has no unique committed Studio expectations')
+    variant = matches[0][1]
+    case = load_development_case(RESTORED_PACK, RESTORED_PACK_DIGEST, scenario_id, variant)
+    if matches[0][0] not in case.get('fixtureIds', []):
+        raise ValueError('fixture is not declared for this Studio scenario')
+    expected, projections = load_expected(scenario_id, variant), load_projections(scenario_id, variant)
+    if not set(case['assertions']) <= set(expected) or not set(case['assertions']) <= set(projections):
+        raise ValueError('fixture lacks frozen Studio expectations or projections')
+    return variant, case
+
+
+def select_arc_case(context, prompt=None):
+    if context.case is None:
+        if context.variant not in ('A', 'B'):
+            raise ValueError('invalid development variant')
+        return context.variant, load_development_case(RESTORED_PACK, RESTORED_PACK_DIGEST, 'P08', context.variant)
+    if context.variant != 'H' or context.candidate.get('development'):
+        raise ValueError('held-out Studio requires a release candidate')
+    if not isinstance(context.case, dict) or context.case.get('target') != context.target:
+        raise ValueError('held-out Studio case target differs')
+    goal = (context.case.get('goals') or {}).get('studio')
+    if not isinstance(goal, str) or not goal.strip():
+        raise ValueError('held-out Studio goal is unavailable')
+    variant, case = fixture_variant(context.case.get('fixtures'), 'P08')
+    if prompt is not None:
+        if not isinstance(prompt, str) or goal not in prompt:
+            raise ValueError('held-out Studio prompt is not bound to the sealed goal')
+        case = {**case, 'prompts': {**case['prompts'], variant: prompt}}
+    return variant, case
+
 
 def load_development_case(path, digest, scenario, variant):
     """Load only an explicitly pinned A/B development pack, never held-out prompts."""
@@ -121,6 +164,22 @@ def studio_runtime_class():
             self.pack_sha256 = pack_digest
             self._secrets.extend((signing_key, database_password))
             self.extra_secrets.extend((signing_key, database_password))
+            self.assistant_actors = set()
+            self.customer_subjects = set()
+            self.customer_keys = set()
+
+        def mint_console_identity(self, stack, agent_key_id, minted_by, subject):
+            if (subject in getattr(self, 'disallowed_subjects', set())
+                    or agent_key_id in getattr(self, 'disallowed_keys', set())):
+                raise ValueError('Studio assistant and CLI customers are not distinct')
+            super().mint_console_identity(stack, agent_key_id, minted_by, subject)
+            self.customer_subjects.add(subject)
+            self.customer_keys.add(agent_key_id)
+
+        def register_assistant_actors(self, actors):
+            if self.agent != 'console-assistant' or not actors or any(not isinstance(a, str) or not a for a in actors):
+                raise ValueError('invalid assistant audit actors')
+            self.assistant_actors.update(actors)
 
         def register_studio_browser(self, browser):
             register = getattr(self, 'browser_register', None)
@@ -252,18 +311,17 @@ def arc_stage(ctx):
             self.cases = {}
             self.signing = None
             self.runtimes = []
+            self.assistant_actors = set()
 
         def unavailable(self, context):
-            if context.case is not None:
-                return 'held-out Studio cases are not supported by this adapter'
             if not context.slot.vm or not context.slot.controller.get('base_url') or not context.slot.controller.get('admin_key'):
                 return 'the local candidate and controller are unavailable'
             if not context.slot.vm.secrets.get('POSTGRES_PASSWORD'):
                 return 'the customer database fixture authority is unavailable'
             try:
-                load_development_case(RESTORED_PACK, RESTORED_PACK_DIGEST, 'P08', context.variant)
+                select_arc_case(context)
             except (OSError, ValueError, KeyError):
-                return 'the pinned A/B-only development pack is unavailable'
+                return 'the Studio fixture or its frozen expectations are unavailable'
             return None
 
         def _runtime(self, context, driver):
@@ -292,7 +350,8 @@ def arc_stage(ctx):
             try:
                 provision_local_server(context.slot.vm, self.signing)
                 runtime = self._runtime(context, 'arm-browser')
-                stack = runtime.setup('P08:' + context.variant + ':local-docker', context.candidate['imageDigest'])
+                fixture, _ = select_arc_case(context)
+                stack = runtime.setup('P08:' + fixture + ':local-docker', context.candidate['imageDigest'])
                 browser = None
                 try:
                     runtime.start_console(stack)
@@ -313,6 +372,8 @@ def arc_stage(ctx):
             from ai_arc_runner import redact_bytes
             actions, answers, provenance, records, failure = [], [], [], [], None
             nudges = 0
+            cli_subjects = set()
+            cli_keys = set()
             for driver in ('arm-browser', 'console-assistant'):
                 if context.remaining() <= 0:
                     failure = {'category': 'model', 'reason': 'Studio stage time limit reached'}
@@ -320,20 +381,30 @@ def arc_stage(ctx):
                 if driver == 'console-assistant':
                     provision_local_server(context.slot.vm, self.signing, enable_assistant=True)
                 runtime = self._runtime(context, driver)
+                if driver == 'console-assistant':
+                    runtime.disallowed_subjects = frozenset(cli_subjects)
+                    runtime.disallowed_keys = frozenset(cli_keys)
                 runtime.initialize_studio_admission = driver == 'console-assistant'
                 runtime.timeout = min(2700, max(1, int(context.remaining())))
                 if driver == 'arm-browser' and getattr(session, 'cli', None) is not None:
                     runtime.cli = session.cli
-                case = load_development_case(RESTORED_PACK, RESTORED_PACK_DIGEST, 'P08', context.variant)
+                fixture, case = select_arc_case(context, prompt)
                 scenario = runner.load_scenario('P08')
                 try:
-                    receipt = runner.execute_case(case_id='P08:' + context.variant + ':local-docker',
-                        scenario=scenario, variant=context.variant, case=case,
+                    receipt = runner.execute_case(case_id='P08:' + fixture + ':local-docker',
+                        scenario=scenario, variant=fixture, case=case,
                         candidate_digest=context.candidate['imageDigest'], runtime=runtime)
                 finally:
                     if driver == 'console-assistant':
                         provision_local_server(context.slot.vm, self.signing)
                 self.cases[driver] = [{'scenario': 'P08', 'receipt': receipt}]
+                if driver == 'console-assistant':
+                    if cli_subjects & runtime.customer_subjects or cli_keys & runtime.customer_keys:
+                        raise ValueError('Studio assistant and CLI customers are not distinct')
+                    self.assistant_actors.update(runtime.assistant_actors)
+                else:
+                    cli_subjects.update(runtime.customer_subjects)
+                    cli_keys.update(runtime.customer_keys)
                 target = context.private_dir / 'studio' / driver
                 target.mkdir(mode=0o700, parents=True, exist_ok=True)
                 (target / 'case-receipt.json').write_bytes(redact_bytes(
@@ -362,5 +433,8 @@ def arc_stage(ctx):
 
         def observe(self, context, row):
             return [item for driver, cases in self.cases.items() for item in driver_assertions(driver, cases)]
+
+        def assistant_principals(self, context):
+            return frozenset(self.assistant_actors)
 
     return StudioStage()

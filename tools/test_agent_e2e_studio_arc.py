@@ -3,14 +3,41 @@ import json
 
 import pytest
 
-from agent_e2e_studio_stage import load_development_case, studio_provider_environment
+from agent_e2e_studio_arc import load_development_case, studio_provider_environment
 
 
 def test_development_pack_matches_arc_assertion_source():
     from ai_arc_runner import PACK_PATH
-    from agent_e2e_studio_stage import RESTORED_PACK, RESTORED_PACK_DIGEST
+    from agent_e2e_studio_arc import RESTORED_PACK, RESTORED_PACK_DIGEST
     assert RESTORED_PACK == PACK_PATH
     assert RESTORED_PACK_DIGEST == 'sha256:' + hashlib.sha256(PACK_PATH.read_bytes()).hexdigest()
+
+
+def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectations(monkeypatch):
+    from cryptography.fernet import Fernet
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import fixture_variant, select_arc_case
+    cipher = Fernet(Fernet.generate_key())
+    original = {'caseId': 'synthetic-case', 'target': 'local-docker', 'fixtures': 'town-B',
+                'goals': {'studio': 'Create the requested map for this synthetic customer.'}}
+    sealed = cipher.encrypt(json.dumps(original).encode())
+    context = SimpleNamespace(case=json.loads(cipher.decrypt(sealed)), variant='H', target='local-docker',
+                              candidate={'development': False})
+    fixture, case = select_arc_case(context, context.case['goals']['studio'])
+    assert fixture == 'B' and case['prompts']['B'] == context.case['goals']['studio']
+    for scenario in ('P08', 'P09', 'P24'):
+        assert fixture_variant('town-B', scenario)[0] == 'B'
+    context.case['fixtures'] = 'unknown-fixture'
+    with pytest.raises(ValueError, match='fixture'):
+        select_arc_case(context)
+    context.case['fixtures'] = 'town-B'
+    context.candidate['development'] = True
+    with pytest.raises(ValueError, match='release candidate'):
+        select_arc_case(context)
+    import agent_e2e_local_expectations as expectations
+    monkeypatch.setattr(expectations, 'load_expected', lambda *_args: {})
+    with pytest.raises(ValueError, match='frozen Studio expectations'):
+        fixture_variant('town-A', 'P08')
 
 
 def test_pack_is_digest_bound_and_only_accepts_ab(tmp_path):
@@ -40,7 +67,7 @@ def test_bedrock_provider_config_is_scoped_and_has_no_credentials():
 
 def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
     from types import SimpleNamespace
-    from agent_e2e_studio_stage import provision_local_server
+    from agent_e2e_studio_arc import provision_local_server
     class Slot:
         remote_dir = '/tmp/arc-owned'
         project = 'arc-12345678'
@@ -66,7 +93,7 @@ def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
 def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_path):
     import ai_arc_services
     import agent_e2e_local_runner as runner
-    from agent_e2e_studio_stage import studio_runtime_class
+    from agent_e2e_studio_arc import studio_runtime_class
     calls = []
     base = ai_arc_services.runtime_class()
     monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: base)
@@ -82,10 +109,15 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
     assert callable(stack.extra['startConsole']) and callable(stack.extra['ensureConnection'])
     assert calls[0][1] == ['admin:write']
     assert runtime.pack_sha256 == 'sha256:' + 'b' * 64
+    runtime.register_assistant_actors({'bearer:verified-customer'})
+    assert runtime.assistant_actors == {'bearer:verified-customer'}
+    runtime.agent = 'codex-cli'
+    with pytest.raises(ValueError, match='invalid assistant audit actors'):
+        runtime.register_assistant_actors({'cli-actor'})
 
 
 def test_driver_assertions_keep_independent_fail_and_false_success():
-    from agent_e2e_studio_stage import driver_assertions
+    from agent_e2e_studio_arc import driver_assertions
     cases = [{'scenario': 'P08', 'receipt': {'status': 'fail', 'assertions': [
         {'assertion': 'render.actual', 'status': 'fail'}],
         'finalAnswerCheck': {'status': 'fail', 'false_success': True}}}]
@@ -98,10 +130,11 @@ def test_driver_assertions_keep_independent_fail_and_false_success():
         driver_assertions('unapproved', cases)
 
 
-def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path):
+@pytest.mark.parametrize('same_customer', ['none', 'subject', 'key'])
+def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer):
     from types import SimpleNamespace
     import agent_e2e_local_runner as runner
-    import agent_e2e_studio_stage as studio
+    import agent_e2e_studio_arc as studio
     data = {'scenarios': [{'id': 'P08', 'prompts': {'A': 'map'}, 'assertions': ['render.actual']}]}
     path = tmp_path / 'pack.v2.AB-only.json'
     path.write_text(json.dumps(data))
@@ -114,6 +147,9 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
             self.workdirs = []
             self.answers = {project: 'saved'}
             self._secrets = []
+            self.assistant_actors = {'assistant-actor'} if agent == 'console-assistant' else set()
+            self.customer_subjects = {'same-customer' if same_customer == 'subject' else agent + '-customer'}
+            self.customer_keys = {'same-key' if same_customer == 'key' else agent + '-key'}
         def cancel(self): return []
         def probe(self): return []
     monkeypatch.setattr(studio, 'studio_runtime_class', lambda: Runtime)
@@ -137,10 +173,16 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
         arc={'studioAssistant': {'customerScript': []}}, gate=None, live=[], remaining=lambda: 100)
     stage = studio.arc_stage(context)
     stage.signing = 'x' * 48
+    if same_customer != 'none':
+        with pytest.raises(ValueError, match='not distinct'):
+            stage.run(context, SimpleNamespace(), 'ignored')
+        assert stage.assistant_principals(context) == frozenset()
+        return
     result = stage.run(context, SimpleNamespace(), 'ignored')
     scores = stage.observe(context, result)
     assert seen == ['codex-cli', 'console-assistant']
     assert provisioned == [True, False]
+    assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
     assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
     assert any(row.get('falseSuccess') for row in scores)
 
@@ -154,7 +196,7 @@ def test_shared_project_drivers_get_distinct_fixture_names():
 
 
 def test_action_rows_retain_recorded_outcomes_and_exclude_customer_polling():
-    from agent_e2e_studio_stage import scored_actions
+    from agent_e2e_studio_arc import scored_actions
     rows = [{'kind': 'tool_call', 'tool': 'studio_chat_observe', 'arguments': {}},
             {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}}]
     result = scored_actions('console-assistant', rows, [{'status': 'pass'}, {'status': 'fail'}])
@@ -166,7 +208,7 @@ def test_action_rows_retain_recorded_outcomes_and_exclude_customer_polling():
 
 
 def test_arc_closes_browser_at_gate_and_only_once():
-    from agent_e2e_studio_stage import close_browser_on_gate
+    from agent_e2e_studio_arc import close_browser_on_gate
     class Browser:
         _poisoned = False
         def __init__(self): self.calls = 0
@@ -198,7 +240,7 @@ def test_closed_stage_blocks_browser_and_network_before_dispatch():
 
 
 def test_admission_initializes_and_resumes_only_completed_operations():
-    from agent_e2e_studio_stage import initialize_admission
+    from agent_e2e_studio_arc import initialize_admission
     class Recorder:
         def __init__(self, status): self.status, self.calls = status, []
         def json(self, step, method, path, body):
