@@ -429,6 +429,20 @@ class PlaywrightPage:
             self.aborted.append(url)
             route.abort('blockedbyclient')
             return
+        # The Console assistant uses a long-lived SSE response. Browser CSP on
+        # the admitted document enforces same-origin connect redirects, while
+        # direct continuation allows response chunks to reach the chat promptly.
+        if (route.request.method == 'POST'
+                and urlsplit(url).path == '/api/agent-workspace/agent/ai'):
+            headers = dict(route.request.headers)
+            if self._identity is not None:
+                token = self._identity['mintToken']()
+                self._identity_tokens.append(token)
+                headers.update({'X-Honua-Edge-Auth': self._identity['edgeSecret'],
+                                'X-Forwarded-User': self._identity['subject'],
+                                'X-Forwarded-Access-Token': token.removeprefix('Bearer ')})
+            route.continue_(headers=headers)
+            return
         # Playwright's default continuation follows redirects internally without
         # invoking this handler for every hop. Fetch exactly one hop, inspect its
         # Location, then let the browser request an admitted redirect separately.
