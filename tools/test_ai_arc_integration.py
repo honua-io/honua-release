@@ -27,6 +27,35 @@ ARC = R.load_arc()
 CAND_IN = {'sourceRevision': 'c' * 40, 'imageDigest': 'sha256:' + 'd' * 64, 'platformLockDigest': 'sha256:' + 'e' * 64,
            'image': 'ghcr.io/honua-io/honua-server'}
 INSTALL = ARC['versionPair']['install']
+
+
+class CorpusServices(R.ServicesStage):
+    """The services stage machinery (gate, deadline, revocation, custody) over the published-town corpus fake:
+    the fixture path and the stage-four handoff are covered in test_ai_arc_studio_handoff.py."""
+
+    def unavailable(self, ctx):
+        return None
+
+    def run(self, ctx, session, prompt):
+        import ai_arc_services
+        row, cases = ai_arc_services.run_services(
+            scenarios=self.scenarios, variant=ctx.variant, candidate_digest=ctx.candidate['imageDigest'],
+            base_url=ctx.slot.controller['base_url'], admin_key=ctx.slot.controller['admin_key'],
+            project=ctx.slot.project, arm=ctx.arm, limits=ctx.limits, out_dir=ctx.private_dir / 'services' / 'corpus',
+            extra_secrets=ctx.slot.harness_secrets, deadline=ctx.deadline,
+            private_root=ctx.private_dir / 'services' / 'cases', register=ctx.live.append, gate=ctx.gate)
+        ctx.slot.harness_secrets.extend(v for v in row['secrets'] if v not in ctx.slot.harness_secrets)
+        self.cases = cases
+        return {'actions': row['actions'], 'finalAnswer': row['answers'][-1] if row['answers'] else None,
+                'utterances': row['answers'], 'nudges': row['nudges'], 'failure': row['failure'],
+                'nestedAnswerChecks': True}
+
+    def observe(self, ctx, row):
+        import ai_arc_services
+        return ai_arc_services.case_assertions(self.cases)
+
+    def harness_context(self, ctx):
+        return {}
 PAGE = (Path(__file__).resolve().parents[1] / 'tools/test_ai_arc_fixtures/quickstart.md')
 
 
@@ -386,7 +415,7 @@ def test_overrun_late_unsafe_attempt_is_counted_and_never_reaches_the_product(tm
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script)
     try:
         calls_before = None
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         assert 'late' in seen, (result['outcome'], result['cause'], result.get('shutdown'))
         assert seen['late'].get('refusal') == 'stage-closed', 'the gate denies it, independent of revocation'
         assert [c for c in state.mcp_calls if 'policyArn' in c[2] and c[0] != 'admin'] == [], \
@@ -421,7 +450,7 @@ def test_overrun_waits_for_accepted_mutations_to_settle_before_finalizing(tmp_pa
         assert started.wait(30), 'the update reached the product'
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, deadline=300.0)
     try:
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         returned = _time.monotonic()
         assert finished['at'] <= returned, 'the stage finalized only after the accepted mutation settled'
         assert any(row.get('tool') == 'honua_update_features' for row in result['shutdown']['settled']), \
@@ -443,7 +472,7 @@ def test_overrun_with_failed_revocation_is_undetermined_and_the_gate_still_holds
     state.deny_revoke = True
     try:
         calls = len(state.mcp_calls)
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         assert result['shutdown']['revocationFailed'] and result['outcome'] == 'undetermined'
         assert seen['late'].get('refusal') == 'stage-closed'
         assert len([c for c in state.mcp_calls if c[0] != 'admin']) == len([c for c in state.mcp_calls[:calls]
@@ -517,7 +546,7 @@ def test_overrun_with_an_unknown_mutation_outcome_never_completes(tmp_path, monk
         past_deadline()
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, deadline=60.0)
     try:
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         assert result['shutdown']['unresolvedOutcomes'], (outcome, result['shutdown'])
         assert result['shutdown']['complete'] is False
         assert result['outcome'] == 'undetermined' and 'never resolved' in result['cause']
@@ -556,7 +585,7 @@ def test_unknown_outcome_before_the_deadline_still_blocks_completion(tmp_path, m
             seen['update'] = type(exc).__name__
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, deadline=300.0)
     try:
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         assert ctx.remaining() > 60, 'the stage ended well before its deadline'
         assert ctx.gate.closed, 'the gate is closed before the stage finalizes'
         assert result['shutdown']['unresolvedOutcomes'] and result['shutdown']['complete'] is False, seen
@@ -641,7 +670,7 @@ def test_denied_revocation_on_normal_and_error_exits_is_undetermined(tmp_path, m
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script, revoke_status=401, deadline=300.0)
     state.deny_revoke = True
     try:
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         shutdown = result['shutdown']
         assert shutdown['order'][:7] == ['gate', 'kill', 'revoke', 'drain', 'join', 'reconcile', 'probe']
         assert shutdown['revocationFailed'] and shutdown['credentialAlive'] and shutdown['complete'] is False
@@ -669,7 +698,7 @@ def test_credentials_minted_during_setup_are_registered_revoked_and_probed(tmp_p
     monkeypatch.setattr(runner.LocalRuntime, '_prepare', paused)
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, lambda execute, corpus: None, deadline=20.0)
     try:
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         shutdown = result['shutdown']
         assert shutdown['credentialProbes'] and all(p['alive'] is False for p in shutdown['credentialProbes'])
         for key in state.keys:
@@ -714,7 +743,7 @@ def test_a_mint_that_fails_before_returning_is_never_lost(tmp_path, monkeypatch,
         monkeypatch.setattr(recorder_mod.ControllerRecorder, '_request', request)
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, lambda execute, corpus: None, deadline=120.0)
     try:
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         shutdown = result['shutdown']
         if failure == 'store-raises':
             # Registered inside the store hook before persistence: revoked, probed, refused.
@@ -765,7 +794,7 @@ def test_recovered_unregistered_mint_is_revoked_and_no_longer_authenticates(tmp_
         return original_get(self)
     handler.do_GET = do_GET
     try:
-        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        result = R.run_stage(ctx, CorpusServices(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
         recovered = [r for r in result['shutdown']['revoked'] if r.get('note') == 'recovered unregistered mint']
         assert recovered and all(r['status'] in (200, 204) for r in recovered)
         for key in state.keys:

@@ -437,6 +437,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                 # The plain customer handoff from the earlier stages, then the scenario's own request.
                 case = dict(case, prompts={**case['prompts'], variant: handoff + '\n\n' + case['prompts'][variant]})
             before = set(runtime.workdirs)
+            stacks_before = len(getattr(runtime, 'stacks', ()))
             receipt = runner.execute_case(case_id=f'{sid}:{variant}:local-docker', scenario=scenario,
                                           variant=variant, case=case, candidate_digest=candidate_digest,
                                           runtime=runtime)
@@ -498,7 +499,11 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                             if sid == 'P15' and a.get('assertion') == 'custody.bootstrap-revoked'), None)
             if custody and custody.get('status') != 'pass' and failure is None:
                 failure = {'category': 'harness-error', 'reason': 'P15 bootstrap custody evidence failed'}
-            cases.append({'scenario': sid, 'receipt': receipt, 'answer': answer if isinstance(answer, str) else None})
+            new_stacks = list(getattr(runtime, 'stacks', ()))[stacks_before:]
+            # The runner-minted agent key this case ran as: the ARC binds stage-three publications to it.
+            principal = new_stacks[-1].extra.get('agentPrincipal') if new_stacks else None
+            cases.append({'scenario': sid, 'receipt': receipt, 'answer': answer if isinstance(answer, str) else None,
+                          'agentPrincipal': principal if isinstance(principal, str) else None})
     finally:
         secrets = list(runtime._secrets)
         if owned:

@@ -273,7 +273,11 @@
         "P15"
       ],
       "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack.",
-      "goalSource": "The services stage sends no arc-authored goal: each scenario in stages[services].scenarios runs with its own development-pack prompt (held-out: unavailable), the first one after the plain handoff. Coverage is exactly those scenarios."
+      "goalSource": "Development and held-out runs take one path, #1196's fixture entry point (ai_arc_services.run_fixture_services): fixture town-<variant> with targets[local-docker].goals.services and developmentFaults[variant] in development; the case's fixture, sealed services goal and fault held-out. The committed fixture catalog assigns the scenarios, which must equal stages[services].scenarios; the agent publishes the imported fixture table itself. On a services pass the harness reads back from the controller what the agent published (service, layer, operation, audit event, fields, geometry type, connection and imported tables) and hands it to stage four; a readback failure is a harness-undetermined services outcome.",
+      "developmentFaults": {
+        "A": "http_503_once",
+        "B": "response_lost_after_commit"
+      }
     },
     {
       "id": "studio",
@@ -357,6 +361,10 @@
         "ops": {
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
           "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Then, if anything is still unhealthy, find out why and get it working again."
+        },
+        "services": {
+          "A": "Our Kestrel shelter list was imported into Honua but nobody can see it yet. Please publish it, then show me only the Kestrel shelters that are open and can hold more than 50 people; leave out unknown capacities and ones that hold exactly 50. After that, share the Kestrel map with our operators only; it must stay private from the public and other teams.",
+          "B": "The Willow shelters table is loaded into Honua but isn't published. Can you make it available, then tell me which open shelters in Willow have room for more than 50 people? Skip any where we don't know the capacity. Then let our operator team open the Willow map without making it visible to everyone else."
         },
         "studio": {
           "A": "Make a Kestrel map in Studio with parcels underneath the flood zones and shelters on top. Make the flood zones blue and see-through, label shelters with their names, save it, and share it with our operators.",
@@ -575,7 +583,14 @@
     "image": "ghcr.io/honua-io/honua-console",
     "imageDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
     "source": "Console 626c13cc (#515: the Studio assistant uses the supported Studio AI chat and MCP routes; includes #513 and #514); honua-server #6857 compose re-pin, honua-iac #370, honua-release #1190",
-    "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed."
+    "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed.",
+    "compose": {
+      "repo": "honua-io/honua-server",
+      "revision": "ea11c8601d6508ec936510217eb9d33c8cb2a37b",
+      "path": "docker-compose.yml",
+      "sha256": "sha256:c3f3ed29a5069f19cf13ec1621c253d6cbc44e887d841de584fedaa42868baed",
+      "rule": "Stage 4 adds Console from exactly this compose file (honua-server #6857, which selects the pinned Console digest); the workflow passes it, so stage 4 runs in CI (Fable B3)."
+    }
   },
   "opsComposition": {
     "executorCompose": "docs/get-started/compose.executor.yaml",
@@ -584,6 +599,13 @@
     "sha256": "sha256:e43ec48faa83b5bfa4ce18b9120586a5d3efa85f084cbaf15a9aa8d2e3683c97",
     "kind": "development-composition",
     "rule": "Until the quickstart compose ships the executor service, local ops runs with this exact documented overlay; such runs are never certifying."
+  },
+  "quickstart": {
+    "repo": "honua-io/honua-server",
+    "revision": "22c06af0dc9a0aec12f4084948f6390c373cb013",
+    "path": "docs/get-started/quickstart.md",
+    "sha256": "sha256:bfbfbdaf9efa6ad7340eea4f3a27930adff45df6e4a6909b543a1eb2555bc17b",
+    "rule": "The setup attachment is exactly this page (ARC v2, Fable/Astra S5): the workflow fetches it at the pinned revision, the runner rejects any other bytes, and verify_run rejects a receipt whose quickstart.pageSha256 differs."
   },
   "spendCap": {
     "capUsd": 2500,
