@@ -1717,12 +1717,16 @@ def test_the_runner_digest_closes_over_transitive_and_path_loaded_dependencies()
                  'certification/terminal-journey/live_driver.py', '.github/workflows/ai-arc.yml',
                  'tools/ai_arc_runner.py', 'tools/ai_arc_ops_local.py'):
         assert name in closure, name
-    assert not any('heldout' in f or 'pack.v2' in f or Path(f).name.startswith('test_') for f in closure)
+    assert 'certification/terminal-journey/targets/local-docker.json' in closure      # path-loaded config
+    assert 'certification/agent-e2e/expectations/local/P10.json' in closure
+    assert not any(m in f.lower() for f in closure for m in ('heldout', 'held-out', 'held_out', '.sealed'))
+    assert 'certification/agent-e2e/pack.v2.json' not in closure
+    assert not any(Path(f).name.startswith('test_') for f in closure)
 
 
 def test_mutating_a_transitive_helper_changes_the_runner_digest(monkeypatch):
     before = R.harness_digests()['runner']
-    target = R.ROOT / 'tools/agent_e2e_p10_observer.py'
+    target = R.ROOT / 'certification/terminal-journey/targets/local-docker.json'   # P15's map body (Sol 4a50cf3a)
     real = Path.read_bytes
 
     def read(self):

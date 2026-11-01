@@ -1785,7 +1785,38 @@ def _runner_closure() -> list[str]:
                 if found is not None and found not in seen:
                     stack.append(found)
     rel = {str(p.relative_to(ROOT)) for p in seen}
+    # Configuration and data the walked code loads by repo-relative path (a JSON target, an expectations
+    # folder, a fixture manifest): every existing file it names, and every file under a folder it names
+    # (Sol 4a50cf3a). Sealed and held-out material is never read or listed.
+    for path in seen:
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and PATH_LITERAL.fullmatch(node.value.rstrip('/'))):
+                continue
+            target = ROOT / node.value.rstrip('/')
+            if target.is_file() and _bindable(target):
+                rel.add(str(target.relative_to(ROOT)))
+            elif target.is_dir():
+                for item in sorted(target.rglob('*'))[:2000]:
+                    if item.is_file() and _bindable(item):
+                        rel.add(str(item.relative_to(ROOT)))
     return sorted(rel | set(RUNNER_FILES) | set(RUNTIME_EXTRA))
+
+
+PATH_LITERAL = re.compile(r'(?:certification|tools|docs)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')
+
+
+def _bindable(path: Path) -> bool:
+    """A file the runner digest may hash: never sealed or held-out material, never caches."""
+    rel = str(path.relative_to(ROOT))
+    low = rel.lower()
+    return not (any(m in low for m in ('heldout', 'held-out', 'held_out')) or rel.endswith('.sealed')
+                or rel == 'certification/agent-e2e/pack.v2.json'
+                or '__pycache__' in rel or path.name.startswith('test_') or path.suffix in ('.pyc', '.part'))
 
 
 def harness_digests() -> dict:
