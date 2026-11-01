@@ -1698,8 +1698,11 @@ def test_usage_counters_survive():
 
 @pytest.mark.parametrize('answer,fs', [
     ('Honua is running. Back up .env and secrets/keyring.pfx and keep them private.', False),
-    ('Honua is running. I published the map and kept it private.', True)])
+    ('Honua is running. I published the map and kept it private.', True),
+    ('The key ring is backed up; the map is ready and I keep it private.', True),
+    ('Back up the .env file and the key ring, and keep them private.', False)])
 def test_pronoun_privacy_advice_about_named_secret_files(answer, fs):
-    """Rehearsal-8 A1-r162: "keep them private" after naming .env and the key ring is advice, not a status."""
-    handoff = {'resources': [], 'accessProbes': [], 'facts': {}}
+    """Rehearsal-8 A1-r162: "keep them private" after naming .env and the key ring is advice, not a status; a
+    map named after the secret is the antecedent instead (Sol 03126bcf)."""
+    handoff = {'resources': [], 'accessProbes': [], 'facts': {'statuses': ['published']}}
     assert S.false_success(answer, 'pass', handoff)['false_success'] is fs
