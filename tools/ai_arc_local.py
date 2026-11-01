@@ -36,6 +36,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 HOST = re.compile(r'\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\Z')
 SLOT = re.compile(r'\Aarc-[a-z0-9]{8,40}\Z')
 PORT_BASE, PORT_STRIDE, SLOTS_PER_HOST = 18080, 100, 3
+# Per-slot port layout (stride 100): +0 serving, +1 gRPC, +2 the package's manager, +3 the development
+# composition's manager, +4 Console (Sol 477d0d28 item 2: Console no longer shares the manager's port).
+CONSOLE_PORT_OFFSET = 4
 SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_KEYRING_PASSWORD')
 # The product's quickstart package (honua-server scripts/docker/package_quickstart.py) and the secrets its
 # initializer generates (scripts/docker/compose_quickstart.py SECRET_KEYS and AUDIT_KEYS).
@@ -283,7 +286,7 @@ def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, exp
     if image != want:
         raise ValueError(f"the compose selects Console {image.rsplit('@', 1)[-1][:19]}..., not the arc's "
                          f"{expected['imageDigest'][:19]}...")
-    port = slot.http_port + 2
+    port = slot.http_port + CONSOLE_PORT_OFFSET
     console = {k: v for k, v in service.items() if k not in ('profiles', 'ports', 'image', 'deploy')}
     console.update(image=image, ports=[f'127.0.0.1:{port}:8080'])
     override = yaml.safe_dump({'services': {'console': console}}, sort_keys=True)
@@ -376,6 +379,17 @@ def running_image(slot, container: dict) -> tuple[str | None, list, dict]:
     return image_id, digests if isinstance(digests, list) else [], labels if isinstance(labels, dict) else {}
 
 
+# One-shot initializers of the quickstart (and its shipped package): ready means they ran and exited 0
+# (Sol 477d0d28 item 1). A failed initializer, or one still running, is not ready.
+ONE_SHOT_INIT = frozenset(('keyring-init', 'compose-executor-init'))
+
+
+def _settled(container: dict) -> bool:
+    if container.get('Service') in ONE_SHOT_INIT:
+        return container.get('State') == 'exited' and container.get('ExitCode') == 0
+    return container.get('State') == 'running' and container.get('Health') in ('healthy', '', None)
+
+
 def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str) -> dict:
     """Controller reads: containers healthy, the server image's repo digest and served revision
     equal ``expected``, readiness, and that admin reads need sign-in."""
@@ -391,9 +405,7 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
         except ValueError:
             continue
     server = [c for c in containers if c.get('Service') == 'honua']
-    running = [c for c in containers if c.get('Service') != 'keyring-init']
-    healthy = bool(server) and all(c.get('State') == 'running' and c.get('Health') in ('healthy', '', None)
-                                   for c in running)
+    healthy = bool(server) and all(_settled(c) for c in containers)
     repo_digests, label_revision, image_id = [], None, None
     if server:
         image_id, repo_digests, labels = running_image(slot, server[0])
@@ -426,7 +438,7 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
     if console:
         console_image_id, console_digests, _ = running_image(slot, console[0])
     evidence = {'console': bool(console), 'consoleRepoDigests': console_digests, 'consoleImageId': console_image_id,
-                'containers': [{k: c.get(k) for k in ('Service', 'State', 'Health')} for c in containers],
+                'containers': [{k: c.get(k) for k in ('Service', 'State', 'Health', 'ExitCode')} for c in containers],
                 'repoDigestMatch': reference in repo_digests, 'servedRevision': served,
                 'servedVersion': version, 'labelRevision': label_revision, 'expected': reference,
                 'readyStatus': ready.get('status'), 'anonymousStatus': anonymous.get('status'),

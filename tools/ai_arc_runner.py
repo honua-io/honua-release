@@ -641,13 +641,29 @@ class LocalSetup(StageModule):
 def package_lock(ctx: StageContext) -> dict:
     """The candidate release lock the quickstart package carries: serving and worker image (one artifact, as the
     ops stage declares it), the product executor image built from the same source, and the release version."""
-    cand = ctx.candidate
+    return package_lock_for(ctx.arc, ctx.candidate)
+
+
+def expected_package(arc: dict, candidate: dict, source: Path) -> dict:
+    """Sol 477d0d28 item 3: the package a run on this candidate must have installed, rebuilt independently of
+    any receipt by the product's packager from the pinned sources and the candidate lock. The aggregate checks
+    every receipt against it, and records it so rc admission checks every trial against the same binding."""
+    import tempfile
+    import ai_arc_local
+    lock = package_lock_for(arc, candidate)
+    with tempfile.TemporaryDirectory(prefix='arc-package-') as tmp:
+        files = ai_arc_local.build_quickstart_package(Path(source), arc['quickstartPackage'], Path(tmp), **lock)
+    return {'revision': arc['quickstartPackage']['revision'], 'declaredRelease': lock['server'],
+            'sha256': {n: 'sha256:' + hashlib.sha256(r).hexdigest() for n, r in sorted(files.items())}}
+
+
+def package_lock_for(arc: dict, cand: dict) -> dict:
     server = cand['imageDigest'] if cand.get('development') else f"{cand['image']}@{cand['imageDigest']}"
     executor = cand.get('executorImage')
     if not isinstance(executor, str) or not re.fullmatch(r'(?:[a-z0-9./:_-]+@)?sha256:[0-9a-f]{64}', executor):
         raise ValueError('the candidate lock names no immutable compose executor image')
     return {'server': server, 'executor': executor, 'worker': server,
-            'version': ctx.arc['versionPair']['candidate']['release']}
+            'version': arc['versionPair']['candidate']['release']}
 
 
 def observe_local_handoff(ctx: StageContext, answer: str | None) -> dict | None:
@@ -2308,10 +2324,11 @@ def clopper_pearson(successes: int, trials: int) -> list[float]:
             1.0 if successes == trials else solve(successes + 1, .975)]
 
 
-def on_shipped_package(receipt: dict) -> bool:
+def on_shipped_package(receipt: dict, package: dict | None = None) -> bool:
     """ARC v2 B1/S4: a local run is on the shipped composition only when its setup (if it ran) installed the
-    product's quickstart package and its ops (if it ran) adopted that package's manager and executor. The same
-    rule is applied by tools/rc_gate_window.py admission."""
+    product's quickstart package and its ops (if it ran) adopted that package's manager and executor. With
+    ``package`` (expected_package), the installed and adopted package must be exactly the one rebuilt for this
+    candidate. The same rule is applied by tools/rc_gate_window.py admission."""
     facts = receipt.get('slotFacts') if isinstance(receipt.get('slotFacts'), dict) else {}
     rows = {r.get('stage'): r for r in receipt.get('stages') or [] if isinstance(r, dict)}
     quickstart, composition = facts.get('quickstart'), facts.get('opsComposition')
@@ -2321,11 +2338,18 @@ def on_shipped_package(receipt: dict) -> bool:
     if (composition is not None or ran('ops')) and not (isinstance(composition, dict)
                                                          and composition.get('kind') == 'quickstart-package'):
         return False
+    if package is not None:
+        if isinstance(quickstart, dict) and quickstart.get('packageSha256') != package['sha256']:
+            return False
+        if isinstance(composition, dict) and (composition.get('packageSha256') != package['sha256']
+                                              or composition.get('revision') != package['revision']
+                                              or composition.get('declaredRelease') != package['declaredRelease']):
+            return False
     return True
 
 
 def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate: dict, digests: dict,
-               row: dict, goal_sets: dict, evidence: Path | None) -> dict:
+               row: dict, goal_sets: dict, evidence: Path | None, package: dict | None = None) -> dict:
     """Re-derive a run's outcome from its retained evidence; reject anything contradictory or misbound."""
     if not isinstance(receipt, dict) or receipt.get('schema') != TRIAL_SCHEMA or receipt.get('attempt') != 1:
         raise ValueError('not a first-attempt arc run receipt')
@@ -2376,9 +2400,9 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
     if composition is not None:
         kind = composition.get('kind') if isinstance(composition, dict) else None
         if kind == 'quickstart-package':
-            package = (quickstart or {}).get('packageSha256') if isinstance(quickstart, dict) else None
-            if composition.get('revision') != arc['quickstartPackage']['revision'] or not package \
-                    or composition.get('packageSha256') != package:
+            installed = (quickstart or {}).get('packageSha256') if isinstance(quickstart, dict) else None
+            if composition.get('revision') != arc['quickstartPackage']['revision'] or not installed \
+                    or composition.get('packageSha256') != installed:
                 raise ValueError('the ops composition is not the pinned quickstart package')
         elif kind == 'development-composition':
             if composition.get('revision') != arc['opsComposition']['revision'] \
@@ -2386,6 +2410,11 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
                 raise ValueError('the ops composition is not the arc pin')
         else:
             raise ValueError('the ops composition is of no known kind')
+    if package is not None and target == 'local-docker' and isinstance(quickstart, dict) \
+            and quickstart.get('packageSha256') is not None and not on_shipped_package(receipt, package):
+        # Sol 477d0d28 item 3: a package claim is checked against the package rebuilt for this candidate,
+        # never against another receipt field.
+        raise ValueError('the installed quickstart package is not the product package for this candidate')
     pinned = arm_by_id(arc, arm_id)['cliVersion']
     if receipt.get('cliVersion') != pinned:
         raise ValueError(f'run receipt does not record the pinned CLI {pinned}')
@@ -2497,7 +2526,7 @@ def verify_voids(arc: dict, arm: dict, voids: list[dict], scheduled: list[str], 
 
 def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict], receipts: list[bytes],
               candidate: dict, evidence_for: Callable[[str], Path | None], voids: list[dict] | None = None,
-              goal_sets: dict | None = None) -> tuple[dict, dict]:
+              goal_sets: dict | None = None, package: dict | None = None) -> tuple[dict, dict]:
     """(honua.ai-arc.aggregate/v1, companion report). Every count is re-derived from each counted run's
     retained evidence; a missing receipt counts as undetermined."""
     arm = arm_by_id(arc, arm_id)
@@ -2535,7 +2564,8 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
     if set(by_id) - set(counted) - voided:
         raise ValueError('unexpected run receipt: ' + sorted(set(by_id) - set(counted) - voided)[0])
     verified = {run: verify_run(arc, by_id[run], target=target, arm_id=arm_id, candidate=candidate, digests=digests,
-                                row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run))
+                                row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run),
+                                package=package)
                 for run in counted if run in by_id}
     statuses = {'completed': 0, 'blocked': 0, 'failed': 0, 'undetermined': 0}
     stage_pass = {stage: 0 for stage in STAGES}
@@ -2568,7 +2598,10 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
         reasons.append('development goals (A/B), not the sealed held-out set')
     if candidate.get('development'):
         reasons.append('a development image built from trunk, not a release candidate')
-    if target == 'local-docker' and not all(on_shipped_package(json.loads(raw)) for raw in receipts):
+    if target == 'local-docker' and package is None:
+        reasons.append('the expected quickstart package was not rebuilt for this candidate '
+                       '(aggregate --quickstart-package-source)')
+    if target == 'local-docker' and not all(on_shipped_package(json.loads(raw), package) for raw in receipts):
         # Laptop decision 11-01 (ARC v2 B1/S4): only the product's shipped quickstart package certifies; the
         # development executor composition, or a setup without the package, never does.
         reasons.append('a run did not set up and operate the shipped quickstart package (opsComposition kind '
@@ -2599,6 +2632,9 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
         'exclusions': list(arc['exclusions']), 'runs': runs, 'harnessDigests': digests,
         'opsScope': ops_scope(arc, target),
     }
+    if target == 'local-docker' and package is not None:
+        # rc admission checks every local trial against this binding (tools/rc_gate_window.py).
+        result['quickstartPackage'] = {k: package[k] for k in ('revision', 'declaredRelease', 'sha256')}
     if reasons:
         result['certifying'] = False
     reached = {str(k): 0 for k in range(len(STAGES) + 1)}
@@ -2749,6 +2785,8 @@ def main(argv=None) -> int:
     agg.add_argument('--lock-path', required=True)
     agg.add_argument('--voids', type=Path)
     agg.add_argument('--held-out', action='store_true', help='bind runs to the sealed primary and reserve manifests')
+    agg.add_argument('--quickstart-package-source', type=Path,
+                     help='local-docker: the pinned package sources; the expected package is rebuilt from them')
     agg.add_argument('--output', type=Path, required=True)
     agg.add_argument('--report', type=Path, required=True)
     sub.add_parser('check', help='validate the arc definition and its model-visible strings')
@@ -2805,8 +2843,10 @@ def main(argv=None) -> int:
                 and json.loads(raw).get('arm') == args.arm]
     voids = json.loads(args.voids.read_text()) if args.voids and args.voids.is_file() else []
     goal_sets = {'primary': load_goal_set('primary'), 'reserve': load_goal_set('reserve')} if args.held_out else {}
+    package = (expected_package(arc, candidate, args.quickstart_package_source)
+               if args.target == 'local-docker' and args.quickstart_package_source else None)
     result, report = aggregate(arc=arc, target=args.target, arm_id=args.arm, schedule_rows=rows, receipts=receipts,
-                               candidate=bound, voids=voids, goal_sets=goal_sets,
+                               candidate=bound, voids=voids, goal_sets=goal_sets, package=package,
                                evidence_for=lambda run: args.evidence_root / run.replace(':', '-'))
     for path, document in ((args.output, result), (args.report, report)):
         if path.exists():

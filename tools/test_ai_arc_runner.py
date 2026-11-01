@@ -553,7 +553,7 @@ def test_aggregate_counts_missing_as_undetermined_and_adds_up(tmp_path):
 def test_held_out_aggregate_binds_cases_and_rejects_development_receipts(tmp_path, monkeypatch):
     primary, reserve, rows, raws = held_out_campaign(tmp_path, monkeypatch, [True, True])
     sets = {'primary': primary, 'reserve': reserve}
-    result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets)
+    result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets, package=PKG)
     assert result['completed'] == 2 and 'certifying' not in result or result.get('certifying') is not False
     names, dev_raws = campaign(tmp_path / 'dev', [True])
     relabelled = tamper(dev_raws[0], lambda d: d.update(runId='local-docker:A1:h00'))
@@ -1260,6 +1260,12 @@ def test_a_development_composition_run_is_never_certifying(tmp_path):
     assert any('the development composition never certifies' in r for r in report['notCertifyingBecause'])
 
 
+PKG_SHA = {n: 'sha256:' + 'e' * 64 for n in ('README.md', 'compose.executor.yaml', 'compose.yaml', 'images.json',
+                                             'quickstart.py')}
+PKG = {'revision': ARC['quickstartPackage']['revision'], 'declaredRelease': 'ghcr.io/honua-io/honua-server@cand',
+       'sha256': PKG_SHA}
+
+
 class Packaged(FakeStage):
     """Ops on the shipped package: setup installed the package (its digest in the quickstart facts) and ops
     adopted the package's own manager and executor."""
@@ -1269,22 +1275,68 @@ class Packaged(FakeStage):
 
     def prepare(self, ctx):
         if self.package:
-            ctx.slot.facts.setdefault('quickstart', {})['packageSha256'] = {'compose.yaml': 'sha256:' + 'e' * 64}
+            ctx.slot.facts.setdefault('quickstart', {})['packageSha256'] = dict(PKG_SHA)
         ctx.slot.facts['opsComposition'] = self.composition or {
-            'kind': 'quickstart-package', 'revision': ARC['quickstartPackage']['revision'],
-            'packageSha256': {'compose.yaml': 'sha256:' + 'e' * 64}}
+            'kind': 'quickstart-package', 'revision': PKG['revision'], 'declaredRelease': PKG['declaredRelease'],
+            'packageSha256': dict(PKG_SHA)}
 
 
 def _package_reasons(report):
     return [r for r in report.get('notCertifyingBecause', []) if 'shipped quickstart package' in r]
 
 
+def _admit_packaged(tmp_path, name, package=PKG):
+    return agg(tmp_path, [name], [(tmp_path / name / 'trial-receipt.json').read_bytes()], package=package)
+
+
 def test_a_shipped_package_run_is_admitted_without_a_composition_reason(tmp_path):
     run(tmp_path, mods=modules(ops=Packaged('ops')))
     receipt = json.loads((tmp_path / '001' / 'trial-receipt.json').read_text())
-    assert R.on_shipped_package(receipt)
+    assert R.on_shipped_package(receipt, PKG)
+    aggregate, report = _admit_packaged(tmp_path, '001')
+    assert _package_reasons(report) == [] and aggregate['quickstartPackage'] == PKG
+    # Without the independently rebuilt package the aggregate cannot certify a local run.
     aggregate, report = _admit(tmp_path, '001')
-    assert _package_reasons(report) == []
+    assert 'quickstartPackage' not in aggregate and any('was not rebuilt' in r for r in report['notCertifyingBecause'])
+
+
+def test_a_relabelled_development_receipt_is_rejected_against_the_rebuilt_package(tmp_path):
+    """Sol 477d0d28 item 3: relabelling a development-composition receipt as the package, with a matching
+    self-asserted packageSha256, is rejected against the package rebuilt for the candidate."""
+    run(tmp_path, mods=modules(ops=Composed('ops', _composition())))
+    def relabel(receipt):
+        receipt['slotFacts'].setdefault('quickstart', {})['packageSha256'] = {'x': 1}
+        receipt['slotFacts']['opsComposition'] = {'kind': 'quickstart-package', 'revision': PKG['revision'],
+                                                  'declaredRelease': PKG['declaredRelease'], 'packageSha256': {'x': 1}}
+    _rewrite_receipt(tmp_path, '001', relabel)
+    with pytest.raises(ValueError, match='not the product package for this candidate'):
+        _admit_packaged(tmp_path, '001')
+
+
+@pytest.mark.parametrize('change', [{'declaredRelease': 'ghcr.io/honua-io/honua-server@other'},
+                                    {'packageSha256': dict(PKG_SHA, **{'images.json': 'sha256:' + '0' * 64})}])
+def test_a_package_run_not_matching_the_rebuilt_package_is_rejected(tmp_path, change):
+    composition = {'kind': 'quickstart-package', 'revision': PKG['revision'], 'declaredRelease': PKG['declaredRelease'],
+                   'packageSha256': dict(PKG_SHA), **change}
+    run(tmp_path, mods=modules(ops=Packaged('ops', package=True, composition=composition)))
+    with pytest.raises(ValueError):
+        _admit_packaged(tmp_path, '001')
+
+
+def test_the_expected_package_is_rebuilt_by_the_product_packager_for_the_candidate(tmp_path, monkeypatch):
+    import ai_arc_local
+    seen = {}
+    def build(source, pin, out, **lock):
+        seen.update(lock, source=source, out=out)
+        return {n: n.encode() for n in ai_arc_local.PACKAGE_FILES}
+    monkeypatch.setattr(ai_arc_local, 'build_quickstart_package', build)
+    cand = {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'a' * 64,
+            'executorImage': 'ghcr.io/honua-io/honua-compose-executor@sha256:' + 'b' * 64}
+    package = R.expected_package(ARC, cand, tmp_path / 'src')
+    assert seen['server'] == seen['worker'] == 'ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64
+    assert seen['executor'] == cand['executorImage'] and not Path(seen['out']).exists()
+    assert package['revision'] == ARC['quickstartPackage']['revision'] and package['declaredRelease'] == seen['server']
+    assert set(package['sha256']) == ai_arc_local.PACKAGE_FILES
 
 
 @pytest.mark.parametrize('composition', [
@@ -1303,7 +1355,7 @@ def test_a_local_run_whose_setup_did_not_install_the_package_never_certifies(tmp
     set up without the package (or ran ops without an ops composition) is not on it."""
     receipt, _ = run(tmp_path)
     assert receipt['stages'][0]['outcome'] == 'pass' and not R.on_shipped_package(receipt)
-    aggregate, report = _admit(tmp_path, '001')
+    aggregate, report = _admit_packaged(tmp_path, '001')
     assert aggregate.get('certifying') is False and _package_reasons(report)
     broken = json.loads(json.dumps(receipt))
     broken['slotFacts'].setdefault('quickstart', {})['packageSha256'] = {'x': 'sha256:' + 'e' * 64}

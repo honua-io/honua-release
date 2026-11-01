@@ -348,9 +348,9 @@ def test_stage_console_runs_the_arc_console_from_the_verified_compose_on_loopbac
     src = _console_compose(CONSOLE_REF)
     slot = ConsoleSlot([CONSOLE_REF])
     staged = L.stage_console(slot, src, REV, CONSOLE, source_at=lambda rev: src.encode())
-    assert staged['image'] == CONSOLE_REF and staged['port'] == 18182 and staged['observedRepoDigests'] == [CONSOLE_REF]
+    assert staged['image'] == CONSOLE_REF and staged['port'] == 18184 and staged['observedRepoDigests'] == [CONSOLE_REF]
     assert staged['revision'] == REV and staged['composeSha256'].startswith('sha256:')
-    assert '127.0.0.1:18182:8080' in slot.scripts[0] and 'profiles' not in slot.scripts[0]
+    assert '127.0.0.1:18184:8080' in slot.scripts[0] and 'profiles' not in slot.scripts[0]
 
 
 @pytest.mark.parametrize('case', ['6828-digest', 'unpinned', 'no-console', 'no-revision', 'not-at-revision',
@@ -851,3 +851,51 @@ def test_the_vm_slot_directory_is_one_studio_admits(tmp_path):
     remote = Path(slot.remote_dir)
     assert remote == Path('/home/ubuntu/honua-arc/arc-abcdef123456')
     assert remote.is_absolute() and '..' not in remote.parts and Path('/tmp') not in remote.parents
+
+
+@pytest.mark.parametrize('init,ready', [
+    ({'State': 'exited', 'ExitCode': 0}, True),        # the package's one-shot initializers completed
+    ({'State': 'exited', 'ExitCode': 1}, False),       # a failed initializer is never ready
+    ({'State': 'running', 'ExitCode': 0}, False),      # still initializing
+    ({'State': 'created'}, False),
+])
+def test_one_shot_initializers_are_ready_only_after_a_clean_exit(tmp_path, init, ready):
+    """Sol 477d0d28 item 1: the shipped package's compose-executor-init (and keyring-init) exit after a
+    successful run; ``ps --all`` lists them, and readiness accepts exactly exit code 0."""
+    import ai_arc_local
+    rows = [{'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'},
+            {'Service': 'compose-manager', 'State': 'running', 'Health': 'healthy'},
+            {'Service': 'keyring-init', 'State': 'exited', 'ExitCode': 0},
+            {'Service': 'compose-executor-init', **init}]
+
+    def run(argv, input=None, **kw):
+        script = (input or b'').decode()
+        out = b''
+        if ' ps --all --format json' in script:
+            out = '\n'.join(json.dumps(r) for r in rows).encode()
+        if 'docker image inspect' in script:
+            out = (json.dumps(['ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64]) + '|'
+                   + json.dumps({'org.opencontainers.image.revision': 'a4bde4b8'}) + '|'
+                   + json.dumps('sha256:' + '9' * 64)).encode()
+        return subprocess.CompletedProcess(argv, 0, out, b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                             project='arc-abcdef123456', index=0, run=run)
+    vm.secrets = {'HONUA_ADMIN_PASSWORD': 'x' * 20}
+    http = lambda m, u, k: ({'status': 200, 'json': {'data': {'version': '2026.1.0-rc.1+a4bde4b8'}}}
+                            if k else {'status': 200 if u.endswith('ready') else 401})
+    facts = ai_arc_local.observe_serving(vm, {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'a' * 64,
+                                              'sourceSha': 'a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e'}, http, 'http://x')
+    assert facts['ready'] is ready
+
+
+def test_console_has_its_own_port_apart_from_the_package_manager():
+    """Sol 477d0d28 item 2: the package manager is serving+2; Console is serving+4 on the same slot."""
+    import ai_arc_local
+    vm = ai_arc_local.VmSlot.__new__(ai_arc_local.VmSlot)
+    vm.http_port = 18180
+    assert vm.manager_port == 18182 and 18180 + ai_arc_local.CONSOLE_PORT_OFFSET == 18184
+    assert len({vm.http_port, vm.http_port + 1, vm.manager_port, vm.http_port + 3,
+                vm.http_port + ai_arc_local.CONSOLE_PORT_OFFSET}) == 5

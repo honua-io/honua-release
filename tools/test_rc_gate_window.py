@@ -492,8 +492,13 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     digest = "sha256:" + hashlib.sha256(prereg_path.read_bytes()).hexdigest()
     catalog = ["candidate.serving", "upgrade.candidate-serving", "rollback.prior-serving",
                "restore.migration-142", "diagnosis.recovered", "approval.separate", "data.preserved"]
+    package_revision = "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd"
     arc_raw = json.dumps({"opsScope": {"catalog": catalog, "executedSubsetRule": {
-        "mustScore": ["approval.separate"], "neverScore": []}}}).encode()
+        "mustScore": ["approval.separate"], "neverScore": []}},
+        "quickstartPackage": {"revision": package_revision}}).encode()
+    package_sha = {n: "sha256:" + hashlib.sha256(n.encode()).hexdigest() for n in sorted(w.ARC_PACKAGE_FILES)}
+    package = {"revision": package_revision, "declaredRelease": "ghcr.io/honua-io/honua-server@" + DIGEST,
+               "sha256": package_sha}
     (tmp_path / "arc.v1.json").write_bytes(arc_raw)
     frozen = {k: "sha256:" + "d" * 64 for k in ("runner", "scorer", "arcSpec", "heldOut")}
     frozen["arcSpec"] = "sha256:" + hashlib.sha256(arc_raw).hexdigest()
@@ -528,9 +533,11 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                                     for stage, outcome in zip(("setup", "ops", "services", "studio"), outcomes)]}
                 if target == "local-docker":
                     # ARC v2 B1/S4: local runs install and operate the product's shipped quickstart package.
-                    trial["slotFacts"] = {"quickstart": {"packageSha256": {"compose.yaml": "sha256:" + "e" * 64}}}
+                    trial["slotFacts"] = {"quickstart": {"packageSha256": dict(package_sha)}}
                     if success:
-                        trial["slotFacts"]["opsComposition"] = {"kind": "quickstart-package"}
+                        trial["slotFacts"]["opsComposition"] = {
+                            "kind": "quickstart-package", "revision": package_revision,
+                            "declaredRelease": package["declaredRelease"], "packageSha256": dict(package_sha)}
                 if success:
                     trial["stages"][1]["opsScope"] = {k: copy.deepcopy(ops[k]) for k in ("mode", "scored", "unscored")}
                     trial["stages"][1]["assertions"] = ([{"assertion": x, "status": "pass"} for x in scored]
@@ -549,7 +556,8 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                          "undetermined": 0, "unsafeAttempts": 0, "falseSuccess": 0,
                          "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
                          "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries,
-                         "opsScope": copy.deepcopy(ops)})
+                         "opsScope": copy.deepcopy(ops),
+                         **({"quickstartPackage": copy.deepcopy(package)} if target == "local-docker" else {})})
         return docs
 
     a1, a2 = make_arm("A1"), make_arm("A2")
@@ -617,6 +625,15 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d[trial_index]["slotFacts"].pop("quickstart"),
         lambda d: d[trial_index].pop("slotFacts"),
         lambda d: d[19]["slotFacts"].update(opsComposition={"kind": "development-composition"}),
+        # Sol 477d0d28 item 3: relabelled receipts are checked against the package rebuilt for the candidate.
+        lambda d: d[trial_index]["slotFacts"]["quickstart"]["packageSha256"].update({"images.json": LOCK}),
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"]["packageSha256"].update({"images.json": LOCK}),
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"].update(revision="f" * 40),
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"].update(declaredRelease="other@" + DIGEST),
+        lambda d: d[agg_index].pop("quickstartPackage"),
+        lambda d: d[agg_index]["quickstartPackage"].update(revision="f" * 40),
+        lambda d: d[agg_index]["quickstartPackage"]["sha256"].pop("README.md"),
+        lambda d: d[agg_index]["quickstartPackage"]["sha256"].update({"images.json": "not-a-digest"}),
     ]
     for mutate in mutations:
         altered = copy.deepcopy(a1)
