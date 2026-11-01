@@ -262,12 +262,20 @@ class Canceller:
 
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
                  handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None, private_root=None,
-                 register=None, gate=None):
+                 register=None, gate=None, goal=None, fixture_id=None, scenario_id=None):
     """Run each services scenario once on the adopted stack under one shared stage budget.
 
     Returns (row, cases). ``row`` carries every action (with its recorded status), the private final
     answers, nudges and the first case failure; ``out_dir`` receives the retained case evidence."""
     import agent_e2e_local_runner as runner
+    fixture_case = None
+    if any(value is not None for value in (goal, fixture_id, scenario_id)):
+        if scenarios != [scenario_id] and scenarios != (scenario_id,):
+            raise ValueError('fixture case requires exactly its authoritative scenario')
+        fixture_variant, fixture_case = runner.select_fixture_case(
+            goal=goal, fixture_id=fixture_id, scenario_id=scenario_id)
+        if variant != fixture_variant:
+            raise ValueError('fixture and requested variant differ')
     try:
         import agent_e2e_cli_sessions  # noqa: F401  (registers claude-cli / codex-cli with #1152)
     except ImportError as exc:
@@ -307,7 +315,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                 continue
             runtime.max_actions, runtime.timeout = remaining_actions, remaining_time
             scenario = load_scenario(sid)
-            case = runner.select_case(runner.PACK, sid, variant)
+            case = fixture_case if fixture_case is not None else runner.select_case(runner.PACK, sid, variant)
             if handoff and index == 0:
                 # The plain customer handoff from the earlier stages, then the scenario's own request.
                 case = dict(case, prompts={**case['prompts'], variant: handoff + '\n\n' + case['prompts'][variant]})

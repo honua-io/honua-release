@@ -57,6 +57,26 @@ def check_exclusion(scenario_id, assertion, value, target=TARGET):
 
 DIRECTORY = ROOT / 'certification/agent-e2e/expectations/local'
 
+# This catalog is an explicit admission allow-list, not an inference from goal text.
+# P07 cannot be admitted until both its scenario and frozen expectations land.
+ARC_FIXTURES = {
+    'town-A': {'variant': 'A', 'scenarios': ('P10', 'P12', 'P13')},
+    'town-B': {'variant': 'B', 'scenarios': ('P10', 'P12', 'P13')},
+}
+
+
+def fixture_variant(fixture_id, scenario_id):
+    """Resolve an admitted fixture/scenario pair; never infer a scenario from customer prose."""
+    row = ARC_FIXTURES.get(fixture_id) if isinstance(fixture_id, str) else None
+    if row is None or scenario_id not in row['scenarios']:
+        raise ValueError('no frozen expectations for this fixture and scenario')
+    return row['variant']
+
+
+def load_fixture_expected(fixture_id, scenario_id):
+    """Load expectations keyed by fixture identity, not by a customer prompt variant."""
+    return load_expected(scenario_id, fixture_variant(fixture_id, scenario_id))
+
 
 def _oracle():
     from agent_e2e_local_runner import oracle

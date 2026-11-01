@@ -2687,3 +2687,26 @@ def test_reader_prepared_before_case_credentials_and_failure_tears_down(monkeypa
     with pytest.raises(RuntimeError, match='reader refused'):
         runtime.setup('P10:A:local-docker', digest)
     assert calls == ['setup', 'reader', 'teardown']
+
+
+def test_p10_correct_query_survives_later_verification_query(candidate, tmp_path):
+    receipt, _, _ = run_case(candidate, tmp_path, [tool(CORRECT_WHERE), tool('1=1'), FINAL])
+    assert receipt['status'] == 'pass', receipt
+    replay = next(row for row in receipt['controllerRecords'] if row['step'] == 'p10-replay-query')
+    assert replay['replayOf'].startswith('occ:1:1:')
+
+
+def test_fixture_case_does_not_trust_scenario_expected(candidate, tmp_path):
+    class MisleadingP10(FakeP10):
+        def expected(self, variant):
+            return {}
+
+    variant, fixture_case = runner.select_fixture_case(
+        goal='Find the matching shelters.', fixture_id='town-A', scenario_id='P10')
+    model = FakeModel([tool(CORRECT_WHERE), FINAL])
+    runtime = FakeRuntime(candidate.base_url, model, tmp_path)
+    receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=MisleadingP10(),
+                                  variant=variant, case=fixture_case, candidate_digest=DIGEST, runtime=runtime)
+    assert receipt['status'] == 'pass', receipt
+    assert receipt['fixtureId'] == 'town-A'
+    assert [row['status'] for row in receipt['assertions']] == ['pass', 'pass']
