@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -72,6 +73,7 @@ RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc
                 'tools/g3_compose_quickstart.py', 'tools/ai_arc_devops.py',
                 'certification/agent-ops/arc_ops.py', 'certification/agent-ops/arc-executors.json',
                 'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py', 'tools/ai_arc_ops_local.py',
+                'tools/ai_arc_evidence_images.py',
                 # The Studio built-in assistant arm (#1188): its customer session, transcript, provider evidence
                 # and session audit change stage-4 behavior and scoring.
                 'tools/agent_e2e_studio_customer_session.py', 'tools/agent_studio_customer.py',
@@ -237,7 +239,9 @@ def required_assertions(arc: dict, stage: str, target: str, scope: dict | None =
     required = list(next(s for s in arc['stages'] if s['id'] == stage)['required'][target])
     if stage == 'ops':
         scope = scope or ops_scope(arc, target)
-        required = [a for a in required if a in scope['scored'] or a == CANDIDATE_INVARIANT]
+        # candidate.serving is read for the stages that run on the candidate (services, Studio), never as an ops
+        # assertion: after the arm's ops work the harness re-converges the slot (Fable S1).
+        required = [a for a in required if a in scope['scored'] and a != CANDIDATE_INVARIANT]
     return required
 
 
@@ -1482,6 +1486,11 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
     if any(a.get('harnessFault') and a['status'] == 'undetermined' for a in scored):
         # A scripted fault that never fired: the stage cannot be scored (a failed run), not the model's.
         outcome, cause = 'undetermined', 'harness fault did not fire'
+    prep = context.get('slotPreparation')
+    if isinstance(prep, dict) and prep.get('status') not in ('converged', 'skipped'):
+        # The harness's own slot preparation for this stage did not converge: never the arm's (Fable S1).
+        outcome, cause = 'undetermined', ('slot preparation did not converge the candidate (harness step, not the '
+                                          'arm): ' + str(prep.get('reason') or prep.get('status'))[:160])
     if (context.get('failure') or {}).get('category') == 'harness-error':
         outcome, cause = 'undetermined', 'harness error: ' + str(context['failure'].get('reason', ''))[:200]
     shutdown = context.get('shutdown')
@@ -1504,10 +1513,46 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
 
 
 def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previous_answer: str | None) -> dict:
+    """One stage. Studio controller screenshots and server renders are kept as evidence files under the stage's
+    private evidence (exported with the run, never read by the scorer): the stage owns its sink, closed in an
+    outer finally on every exit, so no later writer reaches it."""
+    from ai_arc_evidence_images import open_sink, close_sink
+    sink = open_sink(ctx.private_dir / 'studio' / 'screenshots', owner=ctx.slot.project) \
+        if module.stage == 'studio' else None
+    try:
+        return _run_stage(ctx, module, session, goal, previous_answer, sink)
+    finally:
+        close_sink(sink)
+
+
+def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previous_answer: str | None,
+               sink=None) -> dict:
+    from ai_arc_evidence_images import close_sink
     stage = module.stage
     result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
     started = time.monotonic()
     row, worker, exit_reason, unavailable = {}, None, 'normal', None
+    prep = ctx.slot.facts.get('slotPreparation')
+    if stage == 'services' and isinstance(prep, dict) and prep.get('status') not in ('converged', 'skipped'):
+        # The harness's own re-convergence for this stage (product executed, harness requested) did not put the
+        # candidate back: a harness/product step, never the arm's. The stage is undetermined (Fable S1, Astra B5),
+        # through the normal evidence path so the aggregate re-derives it (Sol 755e3001 item 2): no session ran.
+        summary = {k: prep.get(k) for k in ('status', 'reason', 'proposalId', 'product')}
+        observations = [{'assertion': 'slot-preparation', 'status': 'undetermined', 'harnessFault': True,
+                         'reason': 'slot preparation did not converge the candidate'}]
+        context = {'approvals': [], 'scope': None, 'approvedComposeSha256': None, 'deploymentHosts': [],
+                   'failure': None, 'binding': {'slotId': ctx.slot.project}, 'nudges': 0, 'elapsedSeconds': 0,
+                   'utterances': [], 'nestedAnswerChecks': False, 'shutdown': None, 'harnessUnsafe': [],
+                   'sessions': [], 'slotPreparation': summary}
+        red = lambda value: json.loads(redact_bytes(canonical(value), ctx.slot.harness_secrets))  # noqa: E731
+        observations, context = red(observations), red(context)
+        scored = score_stage(ctx.arc, ctx.target, stage, observations, [], None, None, context, ctx.limits)
+        result.update(scored)
+        result['evidence'] = {'actions': stage_file(ctx, stage, 'actions.json', []),
+                              'observations': stage_file(ctx, stage, 'observations.json', observations),
+                              'handoff': stage_file(ctx, stage, 'handoff.json', None),
+                              'context': stage_file(ctx, stage, 'context.json', context)}
+        return {**result, 'harnessFault': True, 'slotPreparation': context['slotPreparation']}
     try:
         reason = within(ctx.remaining(), module.unavailable, ctx, ctx=ctx)
         if reason:
@@ -1554,6 +1599,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         except Exception as exc:
             observations = [{'assertion': 'observation', 'status': 'fail',
                              'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}]
+    close_sink(sink)
     stage_elapsed = round(time.monotonic() - started, 1)    # the model's stage, before any slot preparation
     prepare = getattr(module, 'prepare_next', None)
     if callable(prepare):
@@ -1571,7 +1617,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                             errors=list(shutdown.get('errors') or []) + [{'step': 'slot-preparation',
                                                                           'error': 'credential still accepted'}])
             row = dict(row, shutdown=shutdown)
-    if stage != 'setup' and ctx.slot.vm is not None and (actions or observations):
+    if stage not in ('setup', 'ops') and ctx.slot.vm is not None and (actions or observations):
         observations = list(observations) + [candidate_serving(ctx)]
     try:
         handoff = module.handoff_observations(ctx, answer)
@@ -1737,6 +1783,123 @@ def supported_services(arc: dict) -> list[str]:
     return out
 
 
+# Loaded by path or by a separate process, so no import statement names them (Astra B6).
+RUNTIME_EXTRA = ('certification/installed-clients/render_png.py', 'certification/terminal-journey/live_driver.py',
+                 'certification/agent-e2e/corpus/oracle.py', '.github/workflows/ai-arc.yml')
+CLOSURE_DIRS = ('tools', 'certification/agent-ops')
+
+
+@functools.lru_cache(maxsize=8)
+def _closure_files(root: str, roots: tuple) -> tuple[str, ...]:
+    return tuple(_runner_closure())
+
+
+def runner_closure() -> list[str]:
+    """The file set, cached per (root, RUNNER_FILES) for the process (imports do not change while it runs); bytes
+    are hashed on every call."""
+    return list(_closure_files(str(ROOT), tuple(RUNNER_FILES)))
+
+
+def _runner_closure() -> list[str]:
+    """RUNNER_FILES plus every local module they import, transitively (AST, no execution), plus the files loaded
+    by path and the executing workflow: the behavior-changing set the runner digest binds (Astra B6). Only code
+    under tools/ and certification/agent-ops/ is walked; sealed packs are never read."""
+    import ast
+    local = {}
+    for folder in CLOSURE_DIRS:
+        for path in sorted((ROOT / folder).glob('*.py')):
+            if not path.name.startswith('test_') and path.name != 'conftest.py':
+                local.setdefault(path.stem, path)
+    for path in sorted((ROOT / 'tools/agent_e2e_local_scenarios').glob('*.py')):
+        if not path.name.startswith('test_'):
+            local['agent_e2e_local_scenarios.' + path.stem] = path
+    seen, stack = set(), [ROOT / f for f in RUNNER_FILES if f.endswith('.py') and (ROOT / f).is_file()]
+    while stack:
+        path = stack.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module] if isinstance(node, ast.ImportFrom) and node.module else []
+            for name in names:
+                found = local.get(name) or local.get(name.split('.')[0])
+                if found is not None and found not in seen:
+                    stack.append(found)
+    rel = {str(p.relative_to(ROOT)) for p in seen}
+    # Configuration and data the walked code loads by repo-relative path (a JSON target, an expectations
+    # folder, a fixture manifest): every existing file it names, and every file under a folder it names
+    # (Sol 4a50cf3a). Sealed and held-out material is never read or listed.
+    for path in seen:
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and PATH_LITERAL.fullmatch(node.value.rstrip('/'))):
+                continue
+            target = ROOT / node.value.rstrip('/')
+            if _restricted(target):
+                continue                          # never stat or enumerate restricted material (Sol 09ce8951)
+            if target.is_file() and _bindable(target):
+                rel.add(str(target.relative_to(ROOT)))
+            elif target.is_dir():
+                rel.update(_bindable_files(target))
+    # Every committed ARC input under certification/ai-arc/ (fixture catalogs such as the services
+    # fixture-to-scenario map and the Studio per-fixture requirements), however a lane loads it; the sealed
+    # held-out manifests stay out (they have their own heldOut digest) and are never enumerated.
+    for folder in ARC_INPUT_DIRS:
+        if (ROOT / folder).is_dir():
+            rel.update(_bindable_files(ROOT / folder))
+    return sorted(rel | set(RUNNER_FILES) | set(RUNTIME_EXTRA))
+
+
+ARC_INPUT_DIRS = ('certification/ai-arc',)
+
+
+PATH_LITERAL = re.compile(r'(?:certification|tools|docs)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')
+
+
+CLOSURE_MAX_FILES = 20000
+
+
+def _restricted(path: Path) -> bool:
+    rel = str(path.relative_to(ROOT)) if path.is_absolute() else str(path)
+    low = rel.lower()
+    return (any(m in low for m in ('heldout', 'held-out', 'held_out')) or low.endswith('.sealed')
+            or rel == 'certification/agent-e2e/pack.v2.json')
+
+
+def _bindable_files(folder: Path) -> set[str]:
+    """Every bindable file under ``folder``, pruning restricted directories before descending into them; more
+    than CLOSURE_MAX_FILES fails closed rather than silently dropping dependencies (Sol 09ce8951)."""
+    out = set()
+    for current, dirs, files in os.walk(folder):
+        dirs[:] = sorted(d for d in dirs if d != '__pycache__' and not _restricted(Path(current, d)))
+        for name in sorted(files):
+            item = Path(current, name)
+            if not _restricted(item) and _bindable(item):
+                out.add(str(item.relative_to(ROOT)))
+                if len(out) > CLOSURE_MAX_FILES:
+                    raise ValueError('a referenced folder has more files than the runner digest binds: '
+                                     + str(folder.relative_to(ROOT)))
+    return out
+
+
+def _bindable(path: Path) -> bool:
+    """A file the runner digest may hash: never sealed or held-out material, never caches."""
+    rel = str(path.relative_to(ROOT))
+    low = rel.lower()
+    return not (any(m in low for m in ('heldout', 'held-out', 'held_out')) or rel.endswith('.sealed')
+                or rel == 'certification/agent-e2e/pack.v2.json'
+                or '__pycache__' in rel or path.name.startswith('test_') or path.suffix in ('.pyc', '.part'))
+
+
 def harness_digests() -> dict:
     def files(patterns):
         rows = []
@@ -1746,7 +1909,7 @@ def harness_digests() -> dict:
                 rows.append([str(path.relative_to(ROOT)), sha256(path.read_bytes()) if path.is_file() else 'absent'])
         return sha256(canonical(rows))
     sealed = [sha256(p.read_bytes()) for p in SEALED.values() if p.is_file()]
-    return {'runner': files(RUNNER_FILES), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
+    return {'runner': files(runner_closure()), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
             'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None}
 
 
@@ -1940,6 +2103,15 @@ EXPORT_SKIP = ('operator',)
 MAX_RECEIPT_BYTES = 1_000_000
 
 
+def committed_images(path: Path) -> dict:
+    """{file name: sha256} of the images an evidence sink committed in ``path``'s folder (its manifest)."""
+    try:
+        doc = json.loads((path.parent / 'manifest.json').read_bytes())
+    except (OSError, ValueError):
+        return {}
+    return {r.get('file'): r.get('sha256') for r in doc.get('kept') or [] if isinstance(r, dict)}
+
+
 def export_private(private: Path, out_dir: Path, secrets) -> None:
     """Copy private evidence for upload, redacting every harness-held secret (raw, base64 and JSON
     escaped forms). A file whose redacted bytes still contain a secret is withheld."""
@@ -1948,12 +2120,25 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
     forms = []
     for s in secrets:
         forms += [s.encode(), base64.b64encode(s.encode()), json.dumps(s)[1:-1].encode()]
+    withheld_images = set()
     for path in sorted(Path(private).rglob('*')):
         if not path.is_file() or path.is_symlink():
             continue
         if path.relative_to(private).parts[0] in EXPORT_SKIP:
             continue   # the installed operator release is recorded by tag and sha256, never uploaded
         raw = path.read_bytes()
+        if path.suffix in ('.png', '.part') or path.name.endswith('.png.part'):
+            # Only a completed image the sink committed to its manifest, with the same sha256, is exported
+            # (Sol fa22710e); a part file or an unlisted or altered PNG never is.
+            if path.suffix == '.part' or committed_images(path).get(path.name) != sha256(raw):
+                continue
+            # Evidence images are never altered (their sha256 is bound to the action log): one that would need
+            # redaction is withheld whole, and the exported manifest says so (Sol 0b9bd1d5).
+            if any(form in raw for form in forms):
+                withheld_images.add(str(path.relative_to(private)))
+                continue
+            write_private(out_dir / path.relative_to(private), raw)
+            continue
         if path.suffix == '.json' and b'bodyBase64' in raw:
             try:
                 doc = json.loads(raw)
@@ -1971,6 +2156,18 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
             target = target.with_name(target.name + '.withheld')
             raw = b'withheld: credential could not be redacted\n'
         write_private(target, raw)
+    for folder in {str(Path(w).parent) for w in withheld_images}:
+        manifest = out_dir / folder / 'manifest.json'
+        try:
+            doc = json.loads(manifest.read_bytes())
+        except (OSError, ValueError):
+            continue
+        names = {Path(w).name for w in withheld_images if str(Path(w).parent) == folder}
+        doc['kept'] = [row for row in doc.get('kept', []) if row.get('file') not in names]
+        doc.setdefault('dropped', {})['secret-in-image'] = len(names)
+        tmp = manifest.with_name('manifest.json.reconciled')
+        write_private(tmp, json.dumps(doc, sort_keys=True, indent=1).encode())
+        tmp.replace(manifest)
 
 
 def finish_trial(receipt: dict, out_dir: Path) -> dict:

@@ -328,7 +328,7 @@ def _console_compose(image):
 
 
 class ConsoleSlot:
-    http_port, remote_dir, project = 18180, '/tmp/honua-arc-p', 'arc-p'
+    http_port, remote_dir, project = 18180, '/home/ubuntu/honua-arc/arc-p', 'arc-p'
 
     def __init__(self, reported):
         self.reported, self.scripts = reported, []
@@ -820,7 +820,7 @@ def test_an_executed_subset_waits_only_on_gates_covering_scored_assertions():
 
 def test_the_ecs_option_c_decision_is_recorded_but_not_applied_without_founder_approval():
     scope = json.loads((R.ROOT / 'certification/ai-arc/gating-scope.json').read_text())
-    assert scope['opsScope'] == {'aws-ecs': 'not-gating', 'local-docker': 'executed-subset'} and scope['approvedBy'] is None
+    assert scope['opsScope'] == {'aws-ecs': 'not-gating', 'local-docker': 'full'} and scope['approvedBy'] is None
     assert R.ops_scope(ARC, 'aws-ecs')['mode'] == 'full', 'no founder approval: scored in full'
 
 
@@ -840,3 +840,14 @@ def test_ecs_ops_uses_the_1164_entry_point_once_present(tmp_path, monkeypatch):
     stage.run(c, 'session', 'prompt')
     assert seen[0][0] is c.slot and seen[0][1] == 'session' and seen[0][2].is_dir()
     assert stage.observe(c, {}) == [{'assertion': 'diagnosis.recovered', 'status': 'pass'}]
+
+
+def test_the_vm_slot_directory_is_one_studio_admits(tmp_path):
+    """Astra 2026-11-01: Studio's provision_local_server rejected the runner's /tmp slot directories."""
+    from pathlib import Path
+    import ai_arc_local
+    slot = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file='x', known_hosts='y',
+                               project='arc-abcdef123456', index=0)
+    remote = Path(slot.remote_dir)
+    assert remote == Path('/home/ubuntu/honua-arc/arc-abcdef123456')
+    assert remote.is_absolute() and '..' not in remote.parts and Path('/tmp') not in remote.parents

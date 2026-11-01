@@ -41,3 +41,18 @@ def registry_docker(tmp_path, monkeypatch, registry_images):
     binary.chmod(0o755)
     monkeypatch.setenv("PATH", str(binary.parent) + os.pathsep + os.environ["PATH"])
     return registry_images
+
+
+@pytest.fixture(autouse=True)
+def _never_hash_the_real_sealed_held_out_set(monkeypatch, tmp_path_factory):
+    """Tests never read the committed sealed held-out files (not even to hash them): the runner's SEALED paths
+    point at nonexistent files unless a test seals its own (they monkeypatch SEALED themselves)."""
+    module = sys.modules.get('ai_arc_runner')
+    if module is None:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import ai_arc_runner as module  # noqa: F401
+        except Exception:  # noqa: BLE001
+            return
+    missing = tmp_path_factory.getbasetemp() / 'no-sealed-set'
+    monkeypatch.setattr(module, 'SEALED', {'primary': missing / 'primary.sealed', 'reserve': missing / 'reserve.sealed'})
