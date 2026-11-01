@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -59,6 +60,7 @@ def test_query_selection_uses_only_the_seeded_layer_and_the_first_query():
                action(4, 'honua_get_layer', {'serviceId': 'svc', 'layerId': 3})]
     assert P10.selected_query(actions, seeded).sequence == 1
     assert P10.selected_query(actions[1:2], seeded) is None
+    assert P10.selected_query([replace(actions[0], status='fail')], seeded) is None
 
 
 def test_observations_are_projection_specs_not_values(tmp_path):
