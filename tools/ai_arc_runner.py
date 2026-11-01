@@ -792,9 +792,13 @@ class ServicesStage(StageModule):
         try:
             handoff = studio_services_handoff(ctx, self.cases, fixture_id, self.started_at,
                                               getattr(self, 'ended_at', None) or now())
-            self.studio_handoff = {'status': 'verified', 'handoff': handoff}
+            return {'status': 'verified', 'handoff': handoff}
         except (ValueError, KeyError, TypeError, OSError) as exc:
-            self.readback_failed(str(exc)[:200] or type(exc).__name__)
+            return {'status': 'failed', 'reason': str(exc)[:200] or type(exc).__name__}
+
+    def readback_done(self, result):
+        """Committed by the runner only when the readback returned within its budget (never by the worker)."""
+        self.studio_handoff = result if isinstance(result, dict) else {'status': 'failed', 'reason': 'no readback'}
 
     def readback_failed(self, reason: str):
         self.studio_handoff = {'status': 'failed', 'reason': reason}
@@ -1789,10 +1793,14 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
         # Harness readback a later stage depends on (services: the Studio handoff). Like slot preparation it has
         # its own budget, outside the stage's frozen wall-clock limit; its failure is recorded in the retained
         # context and scored as harness-undetermined, never as the arm's work.
+        # The readback returns its result; only this thread commits it, and only when it returned in budget, so a
+        # late worker that finishes after a timeout can never turn the failure into a pass (Sol 1861983b).
         try:
-            within(HANDOFF_READBACK_SECONDS, readback, ctx, observations, ctx=ctx)
+            outcome = within(HANDOFF_READBACK_SECONDS, readback, ctx, observations, ctx=ctx)
         except Exception as exc:  # noqa: BLE001  (PhaseTimeout included)
             module.readback_failed(f'readback did not complete ({type(exc).__name__}): {str(exc)[:120]}')
+        else:
+            module.readback_done(outcome)
     if stage != 'setup' and ctx.slot.vm is not None and (actions or observations):
         observations = list(observations) + [candidate_serving(ctx)]
     try:

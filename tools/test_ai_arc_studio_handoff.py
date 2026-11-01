@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -236,6 +237,9 @@ class SlowReadback(PublishingServices):
         time.sleep(0.3)
         raise TimeoutError('controller slow')
 
+    def readback_done(self, result):
+        self.studio_handoff = result
+
     def readback_failed(self, reason):
         self.studio_handoff = {'status': 'failed', 'reason': reason}
 
@@ -266,3 +270,21 @@ def test_a_readback_that_overruns_its_own_budget_is_recorded_as_failed(tmp_path,
     receipt, _ = run(tmp_path, mods=modules(services=services))
     assert receipt['stages'][2]['outcome'] == 'undetermined'
     assert 'readback did not complete' in services.studio_handoff['reason']
+
+
+def test_a_readback_that_succeeds_after_its_timeout_never_turns_the_failure_into_a_pass(tmp_path, monkeypatch):
+    """Sol 1861983b item 1: the late worker returns a verified handoff, but only the runner commits results."""
+    monkeypatch.setattr(R, 'HANDOFF_READBACK_SECONDS', 0.05)
+    late = threading.Event()
+
+    class LateSuccess(SlowReadback):
+        def harness_readback(self, ctx, observations):
+            time.sleep(0.4)
+            late.set()
+            return {'status': 'verified', 'handoff': {'schema': R.STUDIO_HANDOFF_SCHEMA, 'layers': {}}}
+    services, studio = LateSuccess(), SeesHandoff()
+    receipt, _ = run(tmp_path, mods=modules(services=services, studio=studio))
+    late.wait(2)
+    assert receipt['stages'][2]['outcome'] == 'undetermined' and studio.seen == 'unset'
+    assert services.studio_handoff['status'] == 'failed'
+
