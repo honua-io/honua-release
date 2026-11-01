@@ -135,11 +135,12 @@ def test_driver_assertions_keep_independent_fail_and_false_success():
 
 
 @pytest.mark.parametrize('same_customer', ['none', 'subject', 'key'])
-def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer):
+@pytest.mark.parametrize('sealed', [False, True])
+def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer, sealed):
     from types import SimpleNamespace
     import agent_e2e_local_runner as runner
     import agent_e2e_studio_arc as studio
-    data = {'scenarios': [{'id': 'P08', 'prompts': {'A': 'map'}, 'fixtureIds': ['synthetic-town'],
+    data = {'scenarios': [{'id': 'P08', 'prompts': {'A': 'map', 'B': 'map B'}, 'fixtureIds': ['synthetic-town'],
                            'assertions': ['render.actual']}]}
     path = tmp_path / 'pack.v2.AB-only.json'
     path.write_text(json.dumps(data))
@@ -164,6 +165,9 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     monkeypatch.setattr(runner, 'load_scenario', lambda name: object())
     def execute_case(**kwargs):
         agent = kwargs['runtime'].agent
+        if sealed:
+            assert kwargs['variant'] == 'B'
+            assert kwargs['case']['prompts']['B'] == 'synthetic held-out request'
         seen.append(agent)
         ok = agent != 'console-assistant'
         return {'status': 'pass' if ok else 'fail', 'assertions': [{'assertion': 'render.actual',
@@ -178,12 +182,17 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
         arc={'studioAssistant': {'customerScript': []}}, gate=None, live=[], remaining=lambda: 100)
     stage = studio.arc_stage(context)
     stage.signing = 'x' * 48
+    if sealed:
+        context.variant = 'H'
+        context.case = {'target': 'local-docker', 'fixtures': 'town-B',
+                        'goals': {'studio': 'synthetic held-out request'}}
+    request = 'synthetic held-out request' if sealed else 'ignored'
     if same_customer != 'none':
         with pytest.raises(ValueError, match='not distinct'):
-            stage.run(context, SimpleNamespace(), 'ignored')
+            stage.run(context, SimpleNamespace(), request)
         assert stage.assistant_principals(context) == frozenset()
         return
-    result = stage.run(context, SimpleNamespace(), 'ignored')
+    result = stage.run(context, SimpleNamespace(), request)
     scores = stage.observe(context, result)
     assert seen == ['codex-cli', 'console-assistant']
     assert provisioned == [True, False]
