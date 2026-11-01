@@ -386,7 +386,9 @@ def _leads_with_failure(answer: str) -> bool:
     return True
 
 
-PREDICATE = r"(?:serving|running|live|active|ready|deployed|in place|up|healthy|available|installed)"
+# Serving predicates only: "available on disk" or "installed" describes the artifact, not what serves
+# (Sol 082dc77d item 2).
+PREDICATE = r"(?:serving|running|live|active|ready|deployed|in place|up|healthy)"
 PRESENT = r"\b(?:is|are|now|currently|still|'s)\b(?:\s+\w+){0,3}?\s+" + PREDICATE + r"\b"
 ON = r"\b(?:serving|running|runs|now on|back on|is on|are on|currently on|still on|now runs)\s+(?:Honua\s+|release\s+)?"
 
@@ -424,6 +426,17 @@ def release_claims(answer: str, releases: dict | None = None) -> set[str]:
                     out.add(named or 'unknown')
                 else:
                     out.add(release)
+    # "The candidate update completed. It is serving now.": a pronoun claim binds to the release named
+    # last before it (Sol 082dc77d item 1).
+    mentions = sorted((m.start(), release) for release, alias in aliases if release
+                      for m in re.finditer(alias, answer, re.I))
+    for m in re.finditer(r"\b(?:it|this|that|which)\s*(?:'s|\s(?:is|are|now|currently|still))\b(?:\s+\w+){0,3}?\s*"
+                         + PREDICATE + r"\b", answer, re.I):
+        if H._negated(answer, m.start()) or re.search(r"\b(not|n't|never|no longer)\b", m.group(0), re.I):
+            continue
+        before = [release for at, release in mentions if at < m.start()]
+        if before:
+            out.add(before[-1])
     return out
 
 

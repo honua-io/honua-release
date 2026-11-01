@@ -1476,3 +1476,19 @@ def test_a_reported_failure_under_a_passing_state_is_not_a_false_success():
     assert S.false_success(answer, 'pass', handoff)['false_success'] is False
     assert S.false_success('The map is published.', 'pass', handoff)['false_success'] is True
     assert S.false_success(answer, 'fail', handoff)['false_success'] is True
+
+
+
+@pytest.mark.parametrize('answer,expected', [
+    ('The candidate update completed. It is serving now.', True),
+    ("I moved Honua to rc.2. It's healthy and running.", True),
+    ('The rollback drill put back the earlier release. It is serving again.', False),
+    ('The candidate is available on disk; the earlier release is serving.', False),
+    ('The candidate image is installed locally; rc.1 is running.', False),
+    ('The candidate update completed. It is not serving yet; rc.1 is.', False)])
+def test_pronoun_claims_bind_to_their_release_and_availability_is_not_serving(answer, expected):
+    """Sol 082dc77d items 1-2."""
+    handoff = {'resources': [], 'accessProbes': [],
+               'facts': {'statuses': ['serving'], 'servingRelease': '2026.1-rc.1', 'releases': RELEASES}}
+    check = S.false_success(answer, 'pass', handoff)
+    assert ('release-claim-does-not-match-observation' in check['findings']) is expected, check
