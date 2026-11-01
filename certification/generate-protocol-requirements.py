@@ -973,7 +973,7 @@ def main() -> None:
         "js": ("Honua SDK JavaScript", "0.1.9-beta.0"),
         "js-cesium": ("CesiumJS", "1.132.0"),
         "cli": ("Honua CLI", f"source@{revisions['server']['commit'][:12]}"),
-        "arcgis-stub": ("ArcGIS REST contract client", "11.3"),
+        "geoservices-rest-stub": ("GeoServices REST contract client", "protocol-v1"),
         "bi-excel": ("Microsoft Excel", "Microsoft 365"),
         "bi-powerbi": ("Microsoft Power BI", "2026.08"),
         "ci-bi": ("Microsoft.OData.Client", "8.3"),
@@ -1132,12 +1132,11 @@ def main() -> None:
                 contract=contract, auth_policy=client["auth_policy_revision"], facets=facets,
             )
 
-    esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
-    esri_clients = protocol_clients()
-    # The public catalog keeps only the governed lane and policy identifiers; its canonical
-    # client name remains the nominative product label.
-    for service in esri_index["services"]:
-        matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])
+    geoservices_index = load(SOURCES / "geoservices-rest" / "matrix" / "index.json")
+    geoservices_clients = protocol_clients()
+    # The public catalog records neutral protocol capability and client identifiers.
+    for service in geoservices_index["services"]:
+        matrix = load(SOURCES / "geoservices-rest" / "matrix" / service["manifest"])
         for case in matrix["cases"]:
             if case.get("status") not in SUPPORTED:
                 continue
@@ -1146,12 +1145,12 @@ def main() -> None:
             facets = ["positive", "auth", "media-schema"]
             if "query" in case["name"].lower():
                 facets += ["pagination", "limit", "crs-axis"]
-            for client, version, lane, target, licensed, entitlement_policy, bucket in esri_clients:
+            for client, version, lane, target, licensed, entitlement_policy, bucket in geoservices_clients:
                 add(
-                    capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
+                    capability=f"geoservices-rest.{service['service']}", surface=service["service"], operation=case["id"],
                     client=client,
                     lane=f"{lane}-{service['service']}", version=version,
-                    contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
+                    contract=f"geoservices-rest-matrix@{revisions['geoservices-rest-matrix']['commit']}",
                     auth_policy="anonymous-and-protected-v1", target=target,
                     licensed=licensed, entitlement_policy=entitlement_policy,
                     facets=facets,
@@ -1159,8 +1158,8 @@ def main() -> None:
                 )
     driver_order = ("pyqgis", "qgis-ui")
 
-    ogc = load(SOURCES / "esri-compat" / "matrix" / "ogc.matrix.json")
-    ogc_contract = f"esri-ogc-matrix@{revisions['esri-compat']['commit']}"
+    ogc = load(SOURCES / "geoservices-rest" / "matrix" / "ogc.matrix.json")
+    ogc_contract = f"ogc-matrix@{revisions['geoservices-rest-matrix']['commit']}"
     for case in ogc["cases"]:
         if case.get("status") not in SUPPORTED:
             continue
@@ -1253,7 +1252,7 @@ def main() -> None:
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
-            "Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
+            "GeoServices REST operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
             "clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, "
             "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol "
             "and every Honua-specific application capability, executable operation contracts for all three Honua "

@@ -29,10 +29,6 @@
       "repository": "honua-io/honua-sdk-js",
       "commit": "965c013637722cb70d1a781c3d2d4f6537e6bf44"
     },
-    "esri-compat": {
-      "repository": "honua-io/honua-esri-compat",
-      "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
-    },
     "cloud-native-guide": {
       "repository": "cloudnativegeo/cloud-optimized-geospatial-formats-guide",
       "commit": "0fabdf7c04ff135dd8160f39bf7a0fbb2f402f46"
@@ -44,6 +40,10 @@
     "geospatial-mcp": {
       "repository": "honua-io/geospatial-mcp",
       "commit": "c669cad590fff3469875ddbcdcd2f94706b05e42"
+    },
+    "geoservices-rest-matrix": {
+      "repository": "honua-io/honua-release",
+      "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
     }
   }
 }

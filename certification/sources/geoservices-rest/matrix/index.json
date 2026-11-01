@@ -60,7 +60,7 @@
     },
     {
       "service": "vector-tile-server",
-      "display_name": "VectorTileServer (Esri adapter)",
+      "display_name": "VectorTileServer (GeoServices REST adapter)",
       "prefix": "VTS",
       "parity": "partial",
       "manifest": "vector-tile-server.matrix.json",

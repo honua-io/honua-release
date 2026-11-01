@@ -39,7 +39,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "cli",
@@ -88,7 +88,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -110,7 +110,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -128,7 +128,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -146,7 +146,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -164,7 +164,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -182,7 +182,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -204,7 +204,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -226,7 +226,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -244,7 +244,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -266,7 +266,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -284,7 +284,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -302,7 +302,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -320,7 +320,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -338,7 +338,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -373,7 +373,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -391,7 +391,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -409,7 +409,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -427,7 +427,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -445,7 +445,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -463,7 +463,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -485,7 +485,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -507,7 +507,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -529,7 +529,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -551,7 +551,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -573,7 +573,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -595,7 +595,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -617,7 +617,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -639,7 +639,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -661,7 +661,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -679,7 +679,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "dashboards-apps"
       ],
       "interop": [],
@@ -699,7 +699,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -717,7 +717,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -739,7 +739,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -761,7 +761,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -783,7 +783,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -805,7 +805,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -829,7 +829,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -847,7 +847,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "editing"
       ],
       "interop": [],
@@ -867,7 +867,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -885,7 +885,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "survey123"
       ],
       "interop": [],
@@ -905,7 +905,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -944,7 +944,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -966,7 +966,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -984,7 +984,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "geocoding"
       ],
       "interop": [],
@@ -1004,7 +1004,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1026,7 +1026,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1044,7 +1044,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1062,7 +1062,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1084,13 +1084,13 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
     {
       "key": "identity.portal-sharing",
-      "displayName": "ArcGIS Portal Sharing Read Surface",
+      "displayName": "Portal Sharing Read Surface",
       "category": "Identity",
       "edition": "Community",
       "status": null,
@@ -1108,7 +1108,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "web-map"
       ],
       "interop": [],
@@ -1116,7 +1116,7 @@
     },
     {
       "key": "identity.portal-token",
-      "displayName": "ArcGIS Portal Token Issuance",
+      "displayName": "Portal Token Issuance",
       "category": "Identity",
       "edition": "Community",
       "status": null,
@@ -1128,7 +1128,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1146,7 +1146,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1164,7 +1164,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1182,7 +1182,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1200,7 +1200,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1218,7 +1218,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1278,7 +1278,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1296,7 +1296,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1318,7 +1318,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1340,7 +1340,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1358,7 +1358,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1382,7 +1382,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "geoprocessing"
       ],
       "interop": [],
@@ -1402,7 +1402,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1483,7 +1483,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1505,7 +1505,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1523,7 +1523,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1545,7 +1545,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1563,7 +1563,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1587,7 +1587,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1605,7 +1605,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1623,7 +1623,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1641,7 +1641,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1659,7 +1659,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1677,7 +1677,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1701,7 +1701,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "feature-service"
       ],
       "interop": [
@@ -1715,16 +1715,7 @@
           }
         },
         {
-          "clientLane": "desktop-arcgis",
-          "protocol": "featureserver",
-          "freshness": {
-            "state": "unknown",
-            "ageDays": null,
-            "runDate": null
-          }
-        },
-        {
-          "clientLane": "arcgis-stub",
+          "clientLane": "geoservices-rest-stub",
           "protocol": "featureserver",
           "freshness": {
             "state": "stale",
@@ -1776,7 +1767,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1800,7 +1791,7 @@
           "parity": "complete"
         }
       ],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1824,7 +1815,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "image-service"
       ],
       "interop": [],
@@ -1851,7 +1842,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "map-service"
       ],
       "interop": [
@@ -1865,16 +1856,7 @@
           }
         },
         {
-          "clientLane": "desktop-arcgis",
-          "protocol": "mapserver",
-          "freshness": {
-            "state": "unknown",
-            "ageDays": null,
-            "runDate": null
-          }
-        },
-        {
-          "clientLane": "arcgis-stub",
+          "clientLane": "geoservices-rest-stub",
           "protocol": "mapserver",
           "freshness": {
             "state": "stale",
@@ -1917,7 +1899,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1941,7 +1923,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "vector-tiles"
       ],
       "interop": [],
@@ -1982,7 +1964,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoServicesRestAssess": [
         "scene-service"
       ],
       "interop": [],
@@ -2002,7 +1984,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "cli",
@@ -2057,7 +2039,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2075,7 +2057,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2101,7 +2083,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2160,7 +2142,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2197,7 +2179,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2223,7 +2205,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "js-cesium",
@@ -2251,7 +2233,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2269,7 +2251,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2287,7 +2269,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2323,7 +2305,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": [
         "wcs"
@@ -2365,7 +2347,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2422,7 +2404,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2481,7 +2463,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2558,7 +2540,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2580,7 +2562,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2602,7 +2584,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2621,7 +2603,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2639,7 +2621,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2661,7 +2643,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2679,7 +2661,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2701,7 +2683,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2719,7 +2701,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2737,7 +2719,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2755,7 +2737,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2777,7 +2759,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoServicesRestAssess": [],
       "interop": [],
       "geobench": []
     }

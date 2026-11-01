@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-production/v1",
-  "revision": "2026-10-13.1+h3-http-gap-v1+wps-http-gap-v1",
+  "revision": "2026-10-31.1+retired-protocol-producer",
   "tracking_issues": [
     "https://github.com/honua-io/honua-release/issues/386",
     "https://github.com/honua-io/honua-release/issues/360"
@@ -157,29 +157,19 @@
       "client_lanes": [
         "sdk-dotnet-certification"
       ]
-    },
+    }
+  ],
+  "unproduced": [
     {
-      "producer": "honua-esri-compat",
-      "repository": "honua-io/honua-esri-compat",
-      "workflow": "esri-sdk-certification.yml",
-      "source_revision_key": "esri-compat",
-      "inputs": {
-        "tier": "release",
-        "honua_image": "{server_image}",
-        "honua_server_ref": "{server_sha}",
-        "candidate_cut_at": "{cut_at}"
-      },
       "client_lanes": [
         "raw-geoservices-*",
         "python-gis-*",
         "dotnet-gis-*"
       ],
-      "deployment_targets": [
-        "windows-licensed"
-      ]
-    }
-  ],
-  "unproduced": [
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/1186",
+      "missing_producer": "No current candidate-bound GeoServices REST certification producer is available. These rows remain unproduced and fail closed until a reviewed producer and artifact contract exist."
+    },
     {
       "client_lanes": [
         "cite-wps-2-0"
@@ -233,7 +223,7 @@
         "py-pystac",
         "js",
         "cli",
-        "arcgis-stub",
+        "geoservices-rest-stub",
         "bi-excel",
         "bi-powerbi",
         "ci-bi"

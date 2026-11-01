@@ -191,7 +191,7 @@
       "status": "covered",
       "sinceVersion": "0.1.0-beta.0",
       "entrypoints": [
-        "PortalCompat.getItem (src/esri-compat/portal.ts)",
+        "PortalCompat.getItem",
         "PortalCompat.search"
       ],
       "evidence": [
@@ -204,7 +204,7 @@
       "status": "covered",
       "sinceVersion": "0.1.0-beta.0",
       "entrypoints": [
-        "PortalCompat.generateToken (src/esri-compat/portal.ts)"
+        "PortalCompat.generateToken"
       ],
       "evidence": [
         "test/portal-compat.test.ts"

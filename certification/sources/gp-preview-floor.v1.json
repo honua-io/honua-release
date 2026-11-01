@@ -5,7 +5,7 @@
   "authority": "https://github.com/honua-io/honua-release/issues/949",
   "basis": "Founder decision D8, 2026-10-26: the GP catalog is Preview for 2026.1 (2026-10-25 re-tier, honua-release#376), but its safety floor stays required. Floor rows are those whose failure is a security or correctness bug: permission denials, tenant/owner isolation, typed refusals, no silent fallback, input validation and resource bounds. Every other GP row is Preview: non-blocking and labeled maturity=preview.",
   "capability_keys": [
-    "esri.gp-server",
+    "geoservices-rest.gp-server",
     "geoprocessing",
     "printing.pdf-output",
     "process.geoprocessing",
@@ -20,17 +20,17 @@
   "facet_note": "Row granularity is the only one the gate has. The GeoServices interop and CITE producers stamp every governed facet with the row's single result, so a floor row's positive facet stays required with its refusal facet. Splitting a row by facet needs producer changes and is out of scope for this ruling.",
   "floor": [
     {
-      "capability_key": "esri.gp-server",
+      "capability_key": "geoservices-rest.gp-server",
       "surface": "gp-server",
       "operations": [
         "GP-OP-JOBS-LIST"
       ],
       "floor_class": "owner-isolation",
       "reason": "Job/Read authorization and per-job ownership are enforced before any job is listed; a failure can surface another caller's jobs.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
-      "capability_key": "esri.gp-server",
+      "capability_key": "geoservices-rest.gp-server",
       "surface": "gp-server",
       "operations": [
         "GP-OP-JOB-STATUS-2",
@@ -39,27 +39,27 @@
       ],
       "floor_class": "isolation-typed-refusal",
       "reason": "Route binding validation refuses a job id outside the service and task it was submitted to; a failure can read, cancel or return another task's job.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
-      "capability_key": "esri.gp-server",
+      "capability_key": "geoservices-rest.gp-server",
       "surface": "gp-server",
       "operations": [
         "GP-OP-SUBMIT-JOB-2"
       ],
       "floor_class": "input-validation",
       "reason": "Submission resolves the published task against the built-in catalog and validates inputs before a job is persisted, and env:* controls are refused; a failure admits unvalidated work.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
-      "capability_key": "esri.gp-server",
+      "capability_key": "geoservices-rest.gp-server",
       "surface": "gp-server",
       "operations": [
         "GP-OP-EXECUTE-TASK-2"
       ],
       "floor_class": "resource-bound-typed-refusal",
       "reason": "Synchronous execute runs only sync-eligible single-geometry tasks inline and refuses async-only tasks with a typed 400; a failure runs unbounded work on the request path or falls back silently.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "process.ogc-api-processes",
@@ -78,7 +78,7 @@
   ],
   "preview": [
     {
-      "capability_key": "esri.gp-server",
+      "capability_key": "geoservices-rest.gp-server",
       "surface": "gp-server",
       "operations": [
         "GP-OP-GP-SERVICE-INFO",
@@ -89,7 +89,7 @@
       "reason": "Service, task and template metadata reads. A failure is an interoperability gap, not a refusal or isolation defect."
     },
     {
-      "capability_key": "esri.gp-server",
+      "capability_key": "geoservices-rest.gp-server",
       "surface": "gp-server",
       "operations": [
         "GP-OP-EXECUTE-TASK",

@@ -3,7 +3,7 @@
   "display_name": "SceneServer (I3S, Enterprise-gated)",
   "prefix": "SCN",
   "source_doc": "src/Honua.Protocols.Scene.I3s",
-  "generated_from": "honua-esri-compat (curated, live-cross-checked)",
+  "generated_from": "honua-release curated GeoServices REST matrix",
   "parity": "gated",
   "counts": {
     "implemented": 0,
@@ -22,7 +22,7 @@
       "kind": "operation",
       "group": "scene-server",
       "name": "I3S SceneServer service descriptor",
-      "esri_path": "/scenes/{sceneId}/SceneServer",
+      "geoservices_rest_path": "/scenes/{sceneId}/SceneServer",
       "methods": "GET",
       "status": "not_implemented",
       "endpoint": "GET /scenes/{sceneId}/SceneServer",
@@ -33,11 +33,11 @@
       "kind": "operation",
       "group": "scene-server",
       "name": "I3S SceneServer layer (3D Object)",
-      "esri_path": "/scenes/{sceneId}/SceneServer/layers/{layerId}",
+      "geoservices_rest_path": "/scenes/{sceneId}/SceneServer/layers/{layerId}",
       "methods": "GET",
       "status": "not_implemented",
       "endpoint": "GET /scenes/{sceneId}/SceneServer/layers/{layerId}",
-      "notes": "Enterprise-gated (403 on Community). Advertises the scene's 3D Object layer for ArcGIS / I3S clients when licensed."
+      "notes": "Enterprise-gated (403 on Community). Advertises the scene's 3D Object layer for GeoServices REST / I3S clients when licensed."
     }
   ]
 }
