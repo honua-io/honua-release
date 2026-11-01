@@ -799,3 +799,48 @@ def test_an_install_console_whose_tag_moved_is_judged_by_the_running_image(tmp_p
 def test_a_container_without_an_id_has_no_identity():
     import ai_arc_local
     assert ai_arc_local.running_image(object(), {'Image': 'ghcr.io/honua-io/honua-console:rc'}) == (None, [], {})
+
+
+# ---------------------------------------------------------------- ops gates by covered assertion (option B)
+
+def test_every_executor_gate_names_its_kind_and_covered_assertions():
+    import arc_ops
+    spec = json.loads(arc_ops.GATES.read_text())
+    catalog = set(ARC['opsScope']['catalog'])
+    for target in ('local-docker', 'aws-ecs'):
+        for gate in spec[target]['executors']:
+            assert gate['kind'] and gate['covers'] and set(gate['covers']) <= catalog, gate['id']
+
+
+def test_an_executed_subset_waits_only_on_gates_covering_scored_assertions():
+    import arc_ops
+    full = arc_ops.open_gates('aws-ecs')
+    assert {g.split(' ')[0] for g in full} == {'convergence-image', 'controller-cert-cell'}, 'full scope: every gate'
+    assert arc_ops.open_gates('aws-ecs', ['diagnosis.recovered', 'approval.separate']) == []
+    assert [g.split(' ')[0] for g in arc_ops.open_gates('aws-ecs', ['upgrade.candidate-serving'])] == ['convergence-image']
+
+
+def test_option_b_is_proposed_but_not_applied_without_founder_approval():
+    scope = json.loads((R.ROOT / 'certification/ai-arc/gating-scope.json').read_text())
+    assert scope['opsScope']['aws-ecs'] == 'executed-subset' and scope['approvedBy'] is None
+    assert scope['scoredOps']['aws-ecs'] == ['diagnosis.recovered', 'approval.separate']
+    assert scope['measuredOperations']['aws-ecs'][0]['kind'] == 'restart/config remediation'
+    assert R.ops_scope(ARC, 'aws-ecs')['mode'] == 'full', 'no founder approval: scored in full'
+
+
+def test_ecs_ops_uses_the_1164_entry_point_once_present(tmp_path, monkeypatch):
+    import arc_ops
+    monkeypatch.setattr(arc_ops, 'open_gates', lambda target, scored=None: [])
+    monkeypatch.setitem(sys.modules, 'ecs_stage', types.SimpleNamespace())
+    c = ctx_for(tmp_path, 'aws-ecs', 'ops')
+    assert 'run_ecs_ops_stage(slot, session, ledger)' in arc_ops.arc_stage(c).unavailable(c)
+    seen = []
+
+    def entry(slot, session, ledger):
+        seen.append((slot, session, ledger))
+        return {'assertions': [{'assertion': 'diagnosis.recovered', 'status': 'pass'}]}
+    monkeypatch.setitem(sys.modules, 'ecs_stage', types.SimpleNamespace(run_ecs_ops_stage=entry))
+    stage = arc_ops.arc_stage(c)
+    stage.run(c, 'session', 'prompt')
+    assert seen[0][0] is c.slot and seen[0][1] == 'session' and seen[0][2].is_dir()
+    assert stage.observe(c, {}) == [{'assertion': 'diagnosis.recovered', 'status': 'pass'}]
