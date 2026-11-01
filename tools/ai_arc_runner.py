@@ -2784,7 +2784,10 @@ def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str 
     lock = json.loads(raw)
     component = lock['components']['honua-server']
     revision = (component.get('source') or {}).get('revision')
-    images = [a for a in component.get('artifacts', []) if a.get('kind') == 'image']
+    # The product's Compose executor image ships beside the server image in the same component (ARC v2 B1): in a
+    # release lock it is a schema-valid image artifact whose version names it (is_executor_artifact); it is never
+    # the candidate's serving image.
+    images = [a for a in component.get('artifacts', []) if a.get('kind') == 'image' and not is_executor_artifact(a)]
     digests = [a.get('digest') for a in images]
     digest = candidate_digest or (digests[0] if len(digests) == 1 else None)
     if digest not in digests or not SHA.fullmatch(revision or ''):
@@ -2803,15 +2806,34 @@ def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str 
             'image': 'ghcr.io/honua-io/honua-server', **executor_image(component, development=False)}
 
 
+EXECUTOR_VERSION = re.compile(r'.*(?:^|[-+.])compose-executor$')
+
+
+def is_executor_artifact(artifact: dict) -> bool:
+    """A release platform lock (schemas/platform-lock.v1.schema.json) names the Compose executor as an ``image``
+    artifact of the honua-server component, published by honua-server under a ``compose-executor`` tag, so its
+    ``version`` ends in ``compose-executor`` (e.g. ``2026.1.0-rc.2-compose-executor``)."""
+    return artifact.get('kind') == 'image' and bool(EXECUTOR_VERSION.fullmatch(str(artifact.get('version') or '')))
+
+
 def executor_image(component: dict, development: bool) -> dict:
-    """The lock's product Compose executor image (the quickstart package's third image), when it names one."""
-    rows = [a for a in component.get('artifacts', []) if a.get('kind') == 'executor-image']
+    """The lock's product Compose executor image (the quickstart package's third image), when it names exactly one.
+    Development locks (ai_arc_dev_candidate.sh) carry a local ``executor-image`` row; release locks carry a
+    schema-valid ``image`` artifact (``coordinate`` + ``digest``) recognised by is_executor_artifact (Sol/Codex
+    review on #1208: the release lock contract has no ``executor-image`` kind and no ``reference``)."""
+    artifacts = component.get('artifacts', [])
+    if development:
+        rows = [a for a in artifacts if a.get('kind') == 'executor-image']
+        if len(rows) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', str(rows[0].get('digest', ''))):
+            return {}
+        return {'executorImage': rows[0]['digest']}           # a local image id on the eval hosts
+    rows = [a for a in artifacts if is_executor_artifact(a)]
     if len(rows) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', str(rows[0].get('digest', ''))):
         return {}
-    if development:
-        return {'executorImage': rows[0]['digest']}           # a local image id on the eval hosts
-    reference = str(rows[0].get('reference') or '').split('@')[0].split(':')[0]
-    return {'executorImage': f"{reference}@{rows[0]['digest']}"} if reference else {}
+    coordinate = str(rows[0].get('coordinate') or '')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9./-]*', coordinate):
+        return {}
+    return {'executorImage': f"{coordinate}@{rows[0]['digest']}"}
 
 
 def build_slot(target: str, args, run_index: int = 0) -> Slot:

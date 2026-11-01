@@ -148,10 +148,20 @@ def test_the_package_lock_comes_from_the_candidate_lock():
         {'kind': 'executor-image', 'digest': EXECUTOR, 'reference': 'honua-arc-dev/honua-compose-executor:0123456789ab',
          'local': True}]}}}
     assert R.executor_image(dev['components']['honua-server'], development=True) == {'executorImage': EXECUTOR}
-    release = {'artifacts': [{'kind': 'executor-image', 'digest': EXECUTOR,
-                              'reference': 'ghcr.io/honua-io/honua-compose-executor:2026.1-rc.2'}]}
-    assert R.executor_image(release, development=False) == {
-        'executorImage': 'ghcr.io/honua-io/honua-compose-executor@' + EXECUTOR}
+    # A release lock (schemas/platform-lock.v1.schema.json) names the executor as a schema-valid image artifact of
+    # the honua-server component, published under a compose-executor tag; the unsupported kind is ignored.
+    plat = {'amd64': SERVER}
+    release = {'artifacts': [
+        {'kind': 'image', 'coordinate': 'ghcr.io/honua-io/honua-server', 'version': '2026.1.0-rc.2',
+         'sourceRevision': 'a' * 40, 'digest': SERVER, 'platformDigests': plat, 'architectures': ['amd64']},
+        {'kind': 'image', 'coordinate': 'ghcr.io/honua-io/honua-server', 'version': '2026.1.0-rc.2-compose-executor',
+         'sourceRevision': 'a' * 40, 'digest': EXECUTOR, 'platformDigests': {'amd64': EXECUTOR},
+         'architectures': ['amd64']}]}
+    assert R.executor_image(release, development=False) == {'executorImage': 'ghcr.io/honua-io/honua-server@' + EXECUTOR}
+    assert R.executor_image({'artifacts': [{'kind': 'executor-image', 'digest': EXECUTOR,
+                                            'reference': 'ghcr.io/x/y:1'}]}, development=False) == {}
+    assert R.executor_image({'artifacts': release['artifacts'] + [dict(release['artifacts'][1], digest=SERVER)]},
+                            development=False) == {}         # two executors: none is chosen
     assert R.executor_image({'artifacts': []}, development=True) == {}
     ctx = types.SimpleNamespace(arc=arc, candidate={'imageDigest': SERVER, 'development': True, 'executorImage': EXECUTOR})
     assert R.package_lock(ctx) == {'server': SERVER, 'executor': EXECUTOR, 'worker': SERVER, 'version': '2026.1-rc.2'}
@@ -212,3 +222,45 @@ def test_ops_refuses_a_package_without_its_running_manager(tmp_path):
     ctx = types.SimpleNamespace(slot=types.SimpleNamespace(vm=slot, facts={}, controller={}), arc=R.load_arc())
     with pytest.raises(RuntimeError, match='no running compose-manager'):
         O.LocalOps.adopt_package(object(), ctx)
+
+
+def test_a_release_lock_with_the_executor_image_binds_the_server_image_as_the_candidate(tmp_path):
+    """Codex review on #1208 (P1): the executor image beside the server image in a release lock is never taken
+    as the candidate's serving image, and the candidate carries the executor for the package."""
+    import hashlib
+    lock = {'schema': 'honua.platform-lock/v1', 'components': {'honua-server': {
+        'source': {'revision': 'a' * 40},
+        'artifacts': [
+            {'kind': 'image', 'coordinate': 'ghcr.io/honua-io/honua-server', 'version': '2026.1.0-rc.2-compose-executor',
+             'sourceRevision': 'a' * 40, 'digest': EXECUTOR, 'platformDigests': {'amd64': EXECUTOR},
+             'architectures': ['amd64']},
+            {'kind': 'image', 'coordinate': 'ghcr.io/honua-io/honua-server', 'version': '2026.1.0-rc.2',
+             'sourceRevision': 'a' * 40, 'digest': SERVER, 'platformDigests': {'amd64': SERVER},
+             'architectures': ['amd64']}]}}}
+    path = tmp_path / 'platform-lock.json'
+    path.write_text(json.dumps(lock))
+    digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
+    cand = R.candidate_from_lock(str(path), digest)
+    assert cand['imageDigest'] == SERVER and cand['executorImage'] == 'ghcr.io/honua-io/honua-server@' + EXECUTOR
+
+
+def test_the_local_campaign_wrapper_forwards_the_package_sources_to_campaign_and_aggregate(tmp_path):
+    """Codex review on #1208 (P2): tools/ai_arc_local.sh accepts --quickstart-package-source (and the Console
+    compose) and forwards the package sources to both the campaign and the aggregate."""
+    import subprocess
+    log = tmp_path / 'calls.txt'
+    fake = tmp_path / 'py'
+    fake.write_text('#!/usr/bin/env bash\necho "$@" >> ' + str(log) + '\n')
+    fake.chmod(0o755)
+    lock = tmp_path / 'lock.json'
+    lock.write_text('{}')
+    wrapper = Path(__file__).resolve().parent / 'ai_arc_local.sh'
+    done = subprocess.run(['bash', str(wrapper), '--arm', 'A1', '--target', 'local-docker', '--lock-path', str(lock),
+                           '--quickstart', 'q.md', '--quickstart-package-source', '/in/quickstart-package',
+                           '--console-compose', '/in/docker-compose.yml', '--hosts', 'h1', '--out', str(tmp_path / 'c')],
+                          env={'PYTHON': str(fake), 'PATH': '/usr/bin:/bin'}, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    campaign, aggregate = log.read_text().splitlines()
+    assert 'ai_arc_campaign.py' in campaign and '--quickstart-package-source /in/quickstart-package' in campaign
+    assert '--console-compose /in/docker-compose.yml' in campaign
+    assert 'aggregate' in aggregate and '--quickstart-package-source /in/quickstart-package' in aggregate
