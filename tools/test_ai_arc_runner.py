@@ -50,6 +50,10 @@ class FakeStage(R.StageModule):
     def run(self, ctx, session, prompt):
         if self.raise_in == 'run':
             raise RuntimeError('adapter exploded')
+        if self.stage == 'setup' and ctx.target == 'local-docker':
+            # As LocalSetup.prepare does: the receipt binds the pinned guide.
+            ctx.slot.facts.setdefault('quickstart', {'pageSha256': ctx.arc['quickstart']['sha256'],
+                                                     'revision': ctx.arc['quickstart']['revision']})
         return {**session.next(prompt, ctx, self.stage), **self.extra_row}
 
     def observe(self, ctx, row):
@@ -1728,3 +1732,79 @@ def test_the_workflow_has_no_free_quickstart_input_and_passes_the_console_compos
     workflow = (R.ROOT / '.github/workflows/ai-arc.yml').read_text()
     assert 'quickstart_revision' not in workflow and 'pinned-inputs' in workflow
     assert '--console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"' in workflow
+
+def test_studio_screenshots_reach_the_evidence_export_and_never_the_score(tmp_path):
+    """Founder request: screenshots are retained as evidence files, named by step, and scoring is unchanged."""
+    import hashlib
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    image = png()
+    E._reset_for_tests()
+
+    class Shooting(FakeStage):
+        def observe(self, ctx, row):
+            E.current().retain('step', '0001-studio_click', image, expected_sha256=hashlib.sha256(image).hexdigest(),
+                               url='http://127.0.0.1:8137/studio', check_url=True)
+            return super().observe(ctx, row)
+    with_images, _ = run(tmp_path, name='img', mods=modules(studio=Shooting('studio')))
+    E._reset_for_tests()
+    without, _ = run(tmp_path, name='plain')
+    files = [f['path'] for f in with_images['evidenceArtifact']['files']]
+    assert 'studio/screenshots/001-step-0001-studio_click.png' in files and 'studio/screenshots/manifest.json' in files
+    kept = next(f for f in with_images['evidenceArtifact']['files'] if f['path'].endswith('.png'))
+    assert kept['sha256'] == 'sha256:' + hashlib.sha256(image).hexdigest()
+    strip = lambda r: [{k: s.get(k) for k in ('stage', 'outcome', 'cause', 'falseSuccess')} for s in r['stages']]
+    assert strip(with_images) == strip(without)
+    assert E.current() is None, 'the sink is off after the Studio stage'
+
+
+def test_an_unavailable_studio_stage_still_closes_its_sink(tmp_path):
+    """Sol 02c55045 item 2: every exit closes the stage's sink."""
+    import ai_arc_evidence_images as E
+    E._reset_for_tests()
+    run(tmp_path, mods=modules(studio=FakeStage('studio', unavailable='no Console on this slot')))
+    assert E.current() is None
+    E._reset_for_tests()
+
+
+def test_a_studio_stage_whose_sink_cannot_start_still_passes(tmp_path, monkeypatch):
+    """Sol d9aa66b5 item 2: evidence initialization never changes the stage outcome."""
+    import ai_arc_evidence_images as E
+    E._reset_for_tests()
+    monkeypatch.setattr(E.Sink, '_manifest', lambda self: (_ for _ in ()).throw(OSError('disk full')))
+    receipt, _ = run(tmp_path)
+    assert receipt['stages'][3]['outcome'] == 'pass'
+    E._reset_for_tests()
+
+
+
+def test_an_image_needing_redaction_is_withheld_whole_and_the_manifest_reconciled(tmp_path):
+    """Sol 0b9bd1d5: export never alters a PNG (its hash is bound to the action log)."""
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    E._reset_for_tests()
+    sink = E.open_sink(tmp_path / 'private' / 'studio' / 'screenshots', owner='run')
+    clean, dirty = png(salt=1), png(salt=2) + b'synthetic-harness-secret-01'
+    sink.retain('render', 'clean', clean)
+    sink.retain('render', 'dirty', dirty)
+    E.close_sink(sink)
+    E._reset_for_tests()
+    R.export_private(tmp_path / 'private', tmp_path / 'out', ['synthetic-harness-secret-01'])
+    out = tmp_path / 'out' / 'studio' / 'screenshots'
+    pngs = sorted(p.name for p in out.glob('*.png'))
+    assert pngs == ['001-render-clean.png'] and (out / pngs[0]).read_bytes() == clean
+    doc = json.loads((out / 'manifest.json').read_text())
+    assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['secret-in-image'] == 1
+    assert b'synthetic-harness-secret-01' not in b''.join(p.read_bytes() for p in out.iterdir())
+
+
+
+def test_a_local_receipt_without_the_pinned_quickstart_is_rejected(tmp_path):
+    """Sol 5b3b348d: removing or nulling the quickstart facts of a run whose setup ran fails verification."""
+    names, raws = campaign(tmp_path, [True])
+    for change in (lambda f: f.pop('quickstart'), lambda f: f.update(quickstart=None),
+                   lambda f: f['quickstart'].update(pageSha256='sha256:' + '0' * 64)):
+        doc = json.loads(raws[0])
+        change(doc['slotFacts'])
+        with pytest.raises(ValueError):
+            agg(tmp_path, names, [json.dumps(doc).encode()])

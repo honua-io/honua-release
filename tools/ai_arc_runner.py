@@ -72,6 +72,7 @@ RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc
                 'tools/g3_compose_quickstart.py', 'tools/ai_arc_devops.py',
                 'certification/agent-ops/arc_ops.py', 'certification/agent-ops/arc-executors.json',
                 'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py', 'tools/ai_arc_ops_local.py',
+                'tools/ai_arc_evidence_images.py',
                 # The Studio built-in assistant arm (#1188): its customer session, transcript, provider evidence
                 # and session audit change stage-4 behavior and scoring.
                 'tools/agent_e2e_studio_customer_session.py', 'tools/agent_studio_customer.py',
@@ -1514,6 +1515,21 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
 
 
 def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previous_answer: str | None) -> dict:
+    """One stage. Studio controller screenshots and server renders are kept as evidence files under the stage's
+    private evidence (exported with the run, never read by the scorer): the stage owns its sink, closed in an
+    outer finally on every exit, so no later writer reaches it."""
+    from ai_arc_evidence_images import open_sink, close_sink
+    sink = open_sink(ctx.private_dir / 'studio' / 'screenshots', owner=ctx.slot.project) \
+        if module.stage == 'studio' else None
+    try:
+        return _run_stage(ctx, module, session, goal, previous_answer, sink)
+    finally:
+        close_sink(sink)
+
+
+def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previous_answer: str | None,
+               sink=None) -> dict:
+    from ai_arc_evidence_images import close_sink
     stage = module.stage
     result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
     started = time.monotonic()
@@ -1564,6 +1580,7 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         except Exception as exc:
             observations = [{'assertion': 'observation', 'status': 'fail',
                              'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}]
+    close_sink(sink)
     stage_elapsed = round(time.monotonic() - started, 1)    # the model's stage, before any slot preparation
     prepare = getattr(module, 'prepare_next', None)
     if callable(prepare):
@@ -1969,6 +1986,15 @@ EXPORT_SKIP = ('operator',)
 MAX_RECEIPT_BYTES = 1_000_000
 
 
+def committed_images(path: Path) -> dict:
+    """{file name: sha256} of the images an evidence sink committed in ``path``'s folder (its manifest)."""
+    try:
+        doc = json.loads((path.parent / 'manifest.json').read_bytes())
+    except (OSError, ValueError):
+        return {}
+    return {r.get('file'): r.get('sha256') for r in doc.get('kept') or [] if isinstance(r, dict)}
+
+
 def export_private(private: Path, out_dir: Path, secrets) -> None:
     """Copy private evidence for upload, redacting every harness-held secret (raw, base64 and JSON
     escaped forms). A file whose redacted bytes still contain a secret is withheld."""
@@ -1977,12 +2003,25 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
     forms = []
     for s in secrets:
         forms += [s.encode(), base64.b64encode(s.encode()), json.dumps(s)[1:-1].encode()]
+    withheld_images = set()
     for path in sorted(Path(private).rglob('*')):
         if not path.is_file() or path.is_symlink():
             continue
         if path.relative_to(private).parts[0] in EXPORT_SKIP:
             continue   # the installed operator release is recorded by tag and sha256, never uploaded
         raw = path.read_bytes()
+        if path.suffix in ('.png', '.part') or path.name.endswith('.png.part'):
+            # Only a completed image the sink committed to its manifest, with the same sha256, is exported
+            # (Sol fa22710e); a part file or an unlisted or altered PNG never is.
+            if path.suffix == '.part' or committed_images(path).get(path.name) != sha256(raw):
+                continue
+            # Evidence images are never altered (their sha256 is bound to the action log): one that would need
+            # redaction is withheld whole, and the exported manifest says so (Sol 0b9bd1d5).
+            if any(form in raw for form in forms):
+                withheld_images.add(str(path.relative_to(private)))
+                continue
+            write_private(out_dir / path.relative_to(private), raw)
+            continue
         if path.suffix == '.json' and b'bodyBase64' in raw:
             try:
                 doc = json.loads(raw)
@@ -2000,6 +2039,18 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
             target = target.with_name(target.name + '.withheld')
             raw = b'withheld: credential could not be redacted\n'
         write_private(target, raw)
+    for folder in {str(Path(w).parent) for w in withheld_images}:
+        manifest = out_dir / folder / 'manifest.json'
+        try:
+            doc = json.loads(manifest.read_bytes())
+        except (OSError, ValueError):
+            continue
+        names = {Path(w).name for w in withheld_images if str(Path(w).parent) == folder}
+        doc['kept'] = [row for row in doc.get('kept', []) if row.get('file') not in names]
+        doc.setdefault('dropped', {})['secret-in-image'] = len(names)
+        tmp = manifest.with_name('manifest.json.reconciled')
+        write_private(tmp, json.dumps(doc, sort_keys=True, indent=1).encode())
+        tmp.replace(manifest)
 
 
 def finish_trial(receipt: dict, out_dir: Path) -> dict:
@@ -2075,10 +2126,13 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
                 or goal.get('fixtures') != case['fixtures'] or goal.get('fault') != case['fault']:
             raise ValueError('held-out run is not bound to its sealed manifest case')
     quickstart = (receipt.get('slotFacts') or {}).get('quickstart')
-    if target == 'local-docker' and quickstart is not None and (
-            quickstart.get('pageSha256') != arc['quickstart']['sha256']
-            or quickstart.get('revision') != arc['quickstart']['revision']):
-        raise ValueError('run receipt used another quickstart than the arc pin')
+    setup = next((r for r in receipt.get('stages') or [] if isinstance(r, dict) and r.get('stage') == 'setup'), {})
+    # Whenever local setup ran (passed or not), the receipt must bind the pinned guide; only a setup that never
+    # reached preparation (stage-unavailable, blocked) may lack it (Sol 5b3b348d).
+    if target == 'local-docker' and (quickstart is not None or setup.get('outcome') in ('pass', 'fail')):
+        if not isinstance(quickstart, dict) or quickstart.get('pageSha256') != arc['quickstart']['sha256'] \
+                or quickstart.get('revision') != arc['quickstart']['revision']:
+            raise ValueError('run receipt does not bind the pinned quickstart')
     install = arc['versionPair']['install']
     if receipt.get('phases', {}).get('install') != {'release': install['release'], 'sourceSha': install['sourceRevision'],
                                                     'imageDigest': install['imageDigest']}:
