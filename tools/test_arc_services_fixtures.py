@@ -210,3 +210,15 @@ def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypat
     assert seen == [('P10', 'arc', 'Synthetic runtime goal'), ('P15', 'arc', 'Synthetic runtime goal')]
     p10 = (tmp_path / 'retained/P10/case-receipt.json').read_bytes()
     assert cases[1]['receipt']['priorCaseReceiptSha256'] == 'sha256:' + hashlib.sha256(p10).hexdigest()
+
+
+def test_harness_custody_failure_does_not_become_an_agent_false_success(monkeypatch):
+    import agent_e2e_handoff
+    seen = []
+    monkeypatch.setattr(agent_e2e_handoff, 'score_final_answer',
+                        lambda answer, observations, state_status: seen.append(state_status) or {'status': 'pass'})
+    rows = [{'assertion': 'publication.private', 'status': 'pass'},
+            {'assertion': 'custody.bootstrap-revoked', 'status': 'fail'}]
+    runner.score_final_answer('The map is shared.', {}, runner.agent_work_assertions('P15', rows))
+    assert seen == ['pass']
+    assert runner.agent_work_assertions('P10', rows) == rows
