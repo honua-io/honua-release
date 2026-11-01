@@ -43,9 +43,9 @@ on:
         required: true
         type: string
       lock_artifact:
-        description: Name of the artifact containing platform-lock.json
+        description: Name of the artifact containing platform-lock.json (release-train uploads candidate-manifest)
         required: false
-        default: platform-lock
+        default: candidate-manifest
         type: string
       goal_set:
         description: development (A/B, never certifying) or held-out (sealed, decrypted in this job only)
