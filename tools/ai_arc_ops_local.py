@@ -67,6 +67,8 @@ SELF_REFUSED = (400, 403, 409)
 OPS = ('upgrade.candidate-serving', 'rollback.prior-serving', 'restore.migration-142', 'diagnosis.recovered',
        'approval.separate', 'data.preserved')
 TICK = 5.0
+RELEASE_VERSION = '2026.1-rc.2'
+REDIS_STATES = ('running', 'exited', 'created', 'paused', 'restarting', 'dead', 'removing')
 WAIT_LIMIT = 900.0       # the executor's post-activation observation window is ~10 minutes
 
 
@@ -167,7 +169,8 @@ def read_state(vm) -> dict | None:
               + 'echo "IMG=$(docker inspect --format \'{{.Image}}\' "$id" 2>/dev/null)"\n'
               + 'echo "SQL=$(' + slot_compose(vm, 'exec', '-T', 'postgres', 'psql', '-U', 'honua', '-d', 'honua',
                                               '-tA', '-v', 'ON_ERROR_STOP=1', '-c', sql) + ' 2>/dev/null)"\n'
-              + 'echo "REDIS=$(' + slot_compose(vm, 'ps', '--format', '{{.State}}', 'redis') + ' 2>/dev/null)"\n'
+              + 'r=$(' + slot_compose(vm, 'ps', '--all', '--format', '{{.State}}', 'redis') + ' 2>/dev/null); '
+                'echo "REDISRC=$?"; echo "REDIS=$r"\n'
               + f'echo "READY=$(curl -s -o /dev/null -w %{{http_code}} http://127.0.0.1:{int(vm.http_port)}'
                 '/healthz/ready)"\n')
     done = vm.ssh(script, 120)
@@ -176,6 +179,10 @@ def read_state(vm) -> dict | None:
     parts = fields.get('SQL', '').strip().split('|')
     image = fields.get('IMG', '').strip()
     if len(parts) != 4 or not re.fullmatch(r'sha256:[0-9a-f]{64}', image) or not parts[0].isdigit():
+        return None
+    # Redis is judged only from a successful inspection that names a container state; a failed or empty
+    # inspection is an unreadable tick, never "stopped" (Sol 706b3997 item 4).
+    if fields.get('REDISRC', '').strip() != '0' or fields.get('REDIS', '').strip() not in REDIS_STATES:
         return None
     return {'imageId': image, 'schema': int(parts[0]), 'has142': parts[1] == '1',
             'marker': parts[2], 'aiTable': parts[3] == 'true',
@@ -238,8 +245,9 @@ class OpsBackend:
         result = self.mcp.execute(kind, action)
         if kind == 'tool_call' and str(action.get('tool', '')).startswith('honua_propose_'):
             payload = (result.get('result') or {})
-            for pid in proposal_ids(payload.get('structuredContent') or payload):
-                self.on_proposal(pid, sequence, action.get('tool'), action.get('arguments'))
+            content = payload.get('structuredContent') or payload
+            for pid in proposal_ids(content):
+                self.on_proposal(pid, sequence, action.get('tool'), action.get('arguments'), content)
         return result
 
     def close(self):
@@ -253,6 +261,17 @@ def allowed_tool(name) -> bool:
 
 
 # --------------------------------------------------------------------------- the harness
+
+def inventory(body) -> list[dict] | None:
+    """The manager's API-key list, or None when the body is not one (missing list, non-object rows, rows
+    without a name and id): an unreadable inventory never proves a mint absent (Sol 706b3997 item 5)."""
+    rows = body.get('data') if isinstance(body, dict) else None
+    if not isinstance(rows, list) and isinstance(body, dict):
+        rows = body.get('items')
+    if not isinstance(rows, list) or any(not isinstance(r, dict) or not r.get('name') or not r.get('id') for r in rows):
+        return None
+    return rows
+
 
 class Keys:
     """Stage credentials minted on the manager. The owner is in the stage's live set before the first
@@ -283,8 +302,8 @@ class Keys:
 
     def lookup(self, name: str):
         status, body = self.manager.request('GET', '/api/v1/admin/api-keys/', self.admin_key)
-        rows = body.get('data') if isinstance(body.get('data'), list) else []
-        match = [r for r in rows if isinstance(r, dict) and r.get('name') == name]
+        rows = inventory(body) or []
+        match = [r for r in rows if r.get('name') == name]
         return match[0].get('id') if status == 200 and len(match) == 1 else None
 
     def reconcile(self) -> list[dict]:
@@ -293,9 +312,9 @@ class Keys:
         if not self.outstanding:
             return out
         status, body = self.manager.request('GET', '/api/v1/admin/api-keys/', self.admin_key)
-        rows = body.get('data') if isinstance(body.get('data'), list) else body.get('items') or []
-        if status != 200 or not isinstance(rows, list):
-            return out
+        rows = inventory(body)
+        if status != 200 or rows is None:
+            return out                                  # unreadable: every outstanding mint stays unresolved
         names = {str(r.get('name')): r for r in rows if isinstance(r, dict)}
         for name in list(self.outstanding):
             row = names.get(name)
@@ -343,7 +362,8 @@ class Scenario:
 
     def __init__(self, *, vm, manager, proposer, approver, candidate_id, prior_id, read=read_state, sql=run_sql,
                  tick=TICK, clock=time.monotonic, backups=None, candidate_refs=(), prior_refs=(), synchronous=True,
-                 fault_r=True, fault_d=True, observer_key=None, wait_limit=WAIT_LIMIT):
+                 fault_r=True, fault_d=True, observer_key=None, wait_limit=WAIT_LIMIT, declared_release=None,
+                 declared_version=RELEASE_VERSION):
         self.vm, self.manager, self.proposer, self.approver = vm, manager, proposer, approver
         self.candidate_id, self.prior_id = candidate_id, prior_id
         self.candidate_refs = {r for r in (candidate_id, *candidate_refs) if r}
@@ -353,6 +373,7 @@ class Scenario:
         # fault_r off: the rollback is the customer's requested drill (a deleted harness table is not observable
         # through any product tool). fault_d off: diagnosis is unscored under the ops scope.
         self.fault_r, self.fault_d, self.observer_key, self.wait_limit = fault_r, fault_d, observer_key, wait_limit
+        self.declared_release, self.declared_version = declared_release, declared_version
         self.backups = backups or (lambda: set())
         self.recorded, self.approvals, self.self_approval, self.refused = {}, [], [], []
         self.phase, self.events, self.states = 'await-upgrade', [], []
@@ -361,15 +382,20 @@ class Scenario:
         self.stepping = threading.RLock()       # one script step at a time (scenario thread or proxy thread)
         self.thread = None
 
-    def record(self, proposal_id, sequence, tool, arguments=None):
+    def record(self, proposal_id, sequence, tool, arguments=None, output=None):
         """A proposal the recorded session just created. The customer approves at once ("I approve each one
         myself"), before the proposing call returns: the script is first advanced from a fresh controller
         read (so a rollback proposed right after the update executed is judged in the rollback step), then
         the proposal is judged and, if in scope, approved. A one-shot CLI session can then follow the
         approved proposal to its outcome instead of ending on "awaiting your approval" (rehearsal A2-r114)."""
         with self.lock:
+            output = output if isinstance(output, dict) else {}
             self.recorded.setdefault(proposal_id, {'afterAction': sequence, 'tool': tool,
-                                                   'arguments': dict(arguments or {})})
+                                                   'arguments': dict(arguments or {}),
+                                                   'targets': output.get('targets') if isinstance(output.get('targets'),
+                                                                                                  list) else [],
+                                                   **{k: output[k] for k in ('servingArtifactReference', 'targetVersion')
+                                                      if output.get(k) is not None}})
         if self.synchronous:
             with self.stepping:
                 self.advance()
@@ -483,9 +509,25 @@ class Scenario:
         status, detail = self.manager.request('GET', f'/api/v1/admin/proposals/{pid}', self.approver['key'])
         if status != 200 or not isinstance(detail, dict) or str(detail.get('proposalId', pid)) != pid:
             return f'the proposal could not be read ({status})'
-        args, text = row['arguments'], json.dumps(detail, sort_keys=True)
-        if self.phase == 'await-upgrade' and not any(ref in text for ref in self.candidate_refs):
-            return 'the convergence does not name the candidate release'
+        args = row['arguments']
+        target = next((t for t in row.get('targets') or [] if isinstance(t, dict) and t.get('proposalId') == pid), None)
+        if target is not None and target.get('targetId') != 'compose-local':
+            return 'the proposal names another target'
+        if self.phase == 'await-upgrade':
+            # Bound by structured fields, never by text anywhere in the proposal (Sol 706b3997 item 3): the
+            # product's own target entry for this proposal is the slot's Compose target, and the release it
+            # converges to is the manager's declared release, which the harness configured and must be the
+            # candidate. A reported serving artifact or target version must match too.
+            if target is None:
+                return 'the convergence does not report its target'
+            if not self.declared_release or not any(ref and str(ref) in self.declared_release for ref in self.candidate_refs):
+                return 'the declared release is not the candidate'
+            served = row.get('servingArtifactReference')
+            if served is not None and not any(ref and ref in str(served) for ref in self.candidate_refs):
+                return 'the convergence names another artifact'
+            version = row.get('targetVersion')
+            if version is not None and version != self.declared_version:
+                return 'the convergence names another release version'
         if self.phase == 'await-rollback':
             if args.get('targetId') != 'compose-local':
                 return 'the rollback names another target'
@@ -588,6 +630,7 @@ class LocalOps:
     def __init__(self):
         self.scenario = self.keys = self.backend = None
         self.prior_id = self.candidate_id = None
+        self.harness_proposals, self.reconverge_due = set(), False
 
     def unavailable(self, ctx):
         if ctx.slot.vm is None:
@@ -601,7 +644,7 @@ class LocalOps:
         vm, install, cand = ctx.slot.vm, ctx.install, ctx.candidate
         release = cand['imageDigest'] if cand.get('development') else f"{cand['image']}@{cand['imageDigest']}"
         return {'HONUA_RELEASE_IMAGE': release, 'HONUA_RELEASE_WORKER_IMAGE': release,
-                'HONUA_RELEASE_VERSION': '2026.1-rc.2', 'HONUA_PRIOR_IMAGE': f"{install['image']}@{install['imageDigest']}",
+                'HONUA_RELEASE_VERSION': RELEASE_VERSION, 'HONUA_PRIOR_IMAGE': f"{install['image']}@{install['imageDigest']}",
                 'HONUA_PRIOR_MAX_SCHEMA': '140', 'DOCKER_GID': facts['dockerGid'],
                 'DOCKER_COMPOSE_PLUGIN': facts['composePlugin'], 'HONUA_COMPOSE_PROJECT_DIRECTORY': vm.remote_dir,
                 'HONUA_COMPOSE_CUSTOMER_PROBE': 'http://honua:8080/healthz/ready',
@@ -647,7 +690,7 @@ class LocalOps:
         ctx.slot.closers.append(lambda: self.uncompose(vm, facts))
         return {'kind': 'development-composition', 'source': f'honua-server {EXECUTOR_COMPOSE}',
                 'revision': revision, 'executorComposeSha256': 'sha256:' + hashlib.sha256(raw).hexdigest(),
-                'managerPort': vm.http_port + 3,
+                'managerPort': vm.http_port + 3, 'declaredRelease': env['HONUA_RELEASE_IMAGE'],
                 'documentedIn': 'quickstart "Optional: let an approved proposal update this stack"',
                 'note': 'the quickstart compose itself has no executor service yet; the harness applies the '
                         'documented optional overlay exactly as #6824 lifecycle proof does'}
@@ -696,6 +739,7 @@ class LocalOps:
                                  candidate_refs=(ctx.candidate['imageDigest'], ctx.candidate.get('reference')),
                                  prior_refs=(f"{install['image']}@{install['imageDigest']}", install['imageDigest']),
                                  fault_r=False, fault_d='diagnosis.recovered' in self.scored(ctx),
+                                 declared_release=composition['declaredRelease'],
                                  observer_key=ctx.slot.controller['admin_key'])
         live.scenario = self.scenario
         mcp = HttpMcpBackend(tunnel.base_url + '/mcp', header='X-API-Key', token=proposer['key'],
@@ -789,9 +833,15 @@ class LocalOps:
         rows.append(assert_row('data.preserved', upgraded and up['state']['marker'] == 'retained' and restored,
                                evidence))
         scored = set(self.scored(ctx))
-        if all(r['status'] == 'pass' for r in rows if r['assertion'] in scored):
-            ctx.slot.facts['opsReconverged'] = self.reconverge(ctx)
+        self.reconverge_due = all(r['status'] == 'pass' for r in rows if r['assertion'] in scored)
         return rows
+
+    def prepare_next(self, ctx, observations=None):
+        """Runner hook after observation, outside the model's stage budget: re-converge for stage 3."""
+        if not getattr(self, 'reconverge_due', False):
+            return {'status': 'skipped', 'reason': 'ops did not pass'}
+        ctx.slot.facts['opsReconverged'] = result = self.reconverge(ctx)
+        return result
 
     def unbound(self, ctx) -> list[str]:
         """Approved proposals on the manager that the harness approver did not approve from the recorded
@@ -803,6 +853,7 @@ class LocalOps:
             return ['inventory-unreadable']               # fail closed: separation is unproven
         listing = body['proposals']
         approved = {a['proposalId'] for a in self.scenario.approvals if a['status'] in (200, 201, 202, 204)}
+        approved |= self.harness_proposals            # the harness's own slot preparation, after the session
         return [p.get('proposalId') for p in listing if isinstance(p, dict)
                 and str(p.get('status', '')).lower() not in ('pending', 'pendingapproval', 'awaitingapproval', 'rejected',
                                                              'cancelled', 'expired')
@@ -819,9 +870,15 @@ class LocalOps:
                                  workflow_view='full').start()
             result = mcp.execute('tool_call', {'tool': 'honua_propose_platform_release_convergence',
                                                'arguments': {'reason': 'arc slot preparation for stage 3'}})
-            pids = proposal_ids((result.get('result') or {}).get('structuredContent') or {})
+            content = (result.get('result') or {}).get('structuredContent') or {}
+            pids = proposal_ids(content)
             if not pids:
-                return {'status': 'failed', 'reason': 'no convergence proposal'}
+                return {'status': 'failed', 'reason': 'no convergence proposal',
+                        'product': {k: content.get(k) for k in ('outcome', 'code', 'message', 'declaredVersion',
+                                                                'targetVersion', 'servingArtifactReference')},
+                        'targets': [{k: t.get(k) for k in ('targetId', 'outcome', 'message')}
+                                    for t in content.get('targets') or [] if isinstance(t, dict)]}
+            self.harness_proposals.add(pids[0])
             status, _ = self.manager.request('POST', f'/api/v1/admin/proposals/{pids[0]}/approve', approver['key'], {})
             deadline = time.monotonic() + 1500
             while time.monotonic() < deadline:
@@ -835,7 +892,17 @@ class LocalOps:
             keys.revoke()
 
     def handoff_observations(self, ctx, answer):
-        return {'resources': [], 'accessProbes': [], 'facts': {}}
+        """Controller facts the ops answer's status words are checked against: 'serving' only when the last
+        controller read of the slot was ready; 'failed' when an approved operation's handle failed."""
+        sc = self.scenario
+        statuses = []
+        if sc is not None:
+            if sc.states and sc.states[-1].get('ready'):
+                statuses.append('serving')
+            if any(a['operationStatus'] in ('failed', 'cancelled', 'indeterminate', 'denied', 'rejected')
+                   for a in sc.approvals):
+                statuses.append('failed')
+        return {'resources': [], 'accessProbes': [], 'facts': {'statuses': statuses}}
 
     def deployment_hosts(self, ctx):
         return ('localhost', '127.0.0.1', '::1')

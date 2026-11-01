@@ -28,6 +28,7 @@ REMEDIATE = ('honua_propose_deploy_operation', {'targetId': 'compose-local', 'op
 class FakeMcp:
     def __init__(self, tools=None):
         self.calls, self.counter = [], itertools.count(1)
+        self.target = 'compose-local'
         self.tools = tools or ['honua_ops_health', 'honua_ops_findings', 'honua_alert_events',
                                'honua_platform_release_status', 'honua_deploy_operations',
                                'honua_supported_operation_kinds',
@@ -41,7 +42,8 @@ class FakeMcp:
         self.calls.append((kind, action))
         if action.get('tool', '').startswith('honua_propose_'):
             return {'status': 'ok', 'result': {'structuredContent': {
-                'targets': [{'proposalId': f'prop-{next(self.counter):08d}'}]}}}
+                'targets': [{'targetId': self.target, 'outcome': 'ProposalCreated',
+                             'proposalId': f'prop-{next(self.counter):08d}'}]}}}
         return {'status': 'ok', 'result': {'structuredContent': {}}}
 
 
@@ -98,7 +100,7 @@ def state(image, schema, marker='retained', ai=False, redis=True, ready=True):
             'redisRunning': redis, 'ready': ready}
 
 
-def scenario(states, *, manager=None, sql_ok=True, vm=None, backups=(BACKUP,), synchronous=False):
+def scenario(states, *, manager=None, sql_ok=True, vm=None, backups=(BACKUP,), synchronous=False, declared=CAND):
     feed = list(states)
     last = {'s': None}
 
@@ -110,7 +112,8 @@ def scenario(states, *, manager=None, sql_ok=True, vm=None, backups=(BACKUP,), s
     sc = O.Scenario(vm=vm or Vm(), manager=manager or FakeManager(), proposer={'name': 'p', 'key': 'proposer-key'},
                     approver={'name': 'arc-ops-approver', 'key': 'approver-key'}, candidate_id=CAND, prior_id=PRIOR,
                     read=read, sql=lambda vm, stmt: sql_ok, tick=0, clock=lambda: next(ticks),
-                    backups=lambda: set(backups), prior_refs=(PRIOR,), synchronous=synchronous)
+                    backups=lambda: set(backups), prior_refs=(PRIOR,), synchronous=synchronous,
+                    declared_release=declared)
     sc.backend = O.OpsBackend(FakeMcp(), sc.record)
     return sc
 
@@ -143,6 +146,7 @@ def stage_for(sc):
     stage = O.LocalOps()
     stage.scenario, stage.prior_id, stage.candidate_id = sc, PRIOR, CAND
     stage.manager, stage.keys = sc.manager, types.SimpleNamespace(revoke=lambda: [], probe=lambda: [])
+    stage.harness_proposals = set()
     stage.backup_ids = lambda vm: {BACKUP}
     return stage
 
@@ -193,7 +197,7 @@ def test_the_recording_proxy_admits_proposal_reads_only_on_an_ops_surface(tmp_pa
             req = urllib.request.Request(proxy.url, data=body, headers={'Content-Type': 'application/json',
                                                                         'Accept': 'application/json, text/event-stream'})
             try:
-                urllib.request.urlopen(req, timeout=10).read()
+                urllib.request.urlopen(req, timeout=60).read()
             except Exception:  # noqa: BLE001
                 pass
             assert (proxy.failure is None) is admitted, proxy.failure
@@ -218,8 +222,9 @@ def test_the_full_option_a_script_passes_on_product_executed_proposals(tmp_path)
 @pytest.mark.parametrize('case', ['wrong-phase', 'foreign-backup', 'other-target', 'other-revision',
                                   'convergence-without-candidate', 'unreadable-detail'])
 def test_the_approver_refuses_anything_but_the_scripted_proposal(tmp_path, case):
-    manager = FakeManager(detail_text='' if case == 'convergence-without-candidate' else None)
-    sc = scenario(HAPPY, manager=manager)
+    manager = FakeManager()
+    sc = scenario(HAPPY, manager=manager, declared='sha256:' + '9' * 64 if case == 'convergence-without-candidate'
+                  else CAND)
     if case == 'unreadable-detail':
         sc.manager.request = lambda m, p, k, payload=None: (503, {}) if '/proposals/prop' in p and m == 'GET' \
             else FakeManager.request(manager, m, p, k, payload)
@@ -676,4 +681,84 @@ def test_reconvergence_follows_the_scored_assertions_only(tmp_path, monkeypatch)
     stage, c, calls = stage_for(sc), ctx(tmp_path), []
     stage.reconverge = lambda ctx: calls.append(1) or {'status': 'converged'}
     out = {r['assertion']: r['status'] for r in stage.observe(c, {})}
-    assert out['diagnosis.recovered'] == 'fail' and calls == [1]
+    assert out['diagnosis.recovered'] == 'fail' and calls == [], 'not inside the model stage budget'
+    assert stage.prepare_next(c) == {'status': 'converged'} and calls == [1]
+
+
+def test_slot_preparation_is_skipped_when_scored_ops_failed(tmp_path):
+    sc = scenario([state(PRIOR, 140)])
+    sc.step()
+    stage, c = stage_for(sc), ctx(tmp_path)
+    stage.reconverge = lambda ctx: pytest.fail('never re-converge a failed ops stage')
+    stage.observe(c, {})
+    assert stage.prepare_next(c)['status'] == 'skipped'
+
+
+def test_the_harness_slot_preparation_proposal_is_not_an_unbound_approval(tmp_path):
+    """Rehearsal-4 r121/r122: the harness's own re-convergence approval was counted as approval-unbound."""
+    listing = [{'proposalId': 'prop-harness01', 'status': 'Executed'}]
+    sc = scenario(HAPPY, manager=FakeManager(listing=listing))
+    happy_run(sc)
+    stage, c = stage_for(sc), ctx(tmp_path)
+    assert stage.harness_unsafe(c) == ['approval-unbound']
+    stage.harness_proposals = {'prop-harness01'}
+    assert stage.harness_unsafe(c) == []
+
+
+@pytest.mark.parametrize('case', ['foreign-target', 'foreign-artifact', 'other-version', 'no-target-entry',
+                                  'candidate-only-in-summary'])
+def test_the_convergence_is_bound_by_structured_fields(tmp_path, case):
+    """Sol 706b3997 item 3: a proposal naming a foreign target or artifact, with the candidate only in its
+    summary text, was approved. The binding is the product's own target entry plus the declared release."""
+    sc = scenario(HAPPY, declared='sha256:' + '9' * 64 if case == 'candidate-only-in-summary' else CAND)
+    output = {'targets': [{'targetId': 'aws-prod' if case == 'foreign-target' else 'compose-local',
+                           'outcome': 'ProposalCreated', 'proposalId': 'prop-x0000001'}]}
+    if case == 'no-target-entry':
+        output = {'proposalId': 'prop-x0000001'}
+    if case == 'foreign-artifact':
+        output['servingArtifactReference'] = 'ghcr.io/other/image@sha256:' + '8' * 64
+    if case == 'other-version':
+        output['targetVersion'] = '2026.1-rc.9'
+    sc.record('prop-x0000001', 1, 'honua_propose_platform_release_convergence', {}, output)
+    sc.step()
+    assert not sc.approvals and sc.refused, case
+    assert not [c for c in sc.manager.calls if c[1].endswith('prop-x0000001/approve')]
+
+
+def test_a_failed_redis_inspection_is_unreadable_not_stopped():
+    """Sol 706b3997 item 4."""
+    def vm_with(out, rc=0):
+        vm = Vm()
+        vm.ssh = lambda script, timeout=60: subprocess.CompletedProcess([], rc, out.encode(), b'')
+        return vm
+    good = 'IMG=sha256:' + '1' * 64 + '\nSQL=140|0|retained|false\nREADY=200\n'
+    assert O.read_state(vm_with(good + 'REDISRC=0\nREDIS=running\n'))['redisRunning'] is True
+    assert O.read_state(vm_with(good + 'REDISRC=0\nREDIS=exited\n'))['redisRunning'] is False
+    assert O.read_state(vm_with(good + 'REDISRC=1\nREDIS=\n')) is None
+    assert O.read_state(vm_with(good + 'REDISRC=0\nREDIS=\n')) is None
+
+
+@pytest.mark.parametrize('body', [{}, {'data': {}}, {'data': [{'id': 'k1'}]}, {'data': ['x']}, []])
+def test_a_malformed_key_inventory_keeps_a_lost_mint_unresolved(body):
+    """Sol 706b3997 item 5: after a lost mint response, a malformed 200 inventory must not clear it."""
+    class M:
+        def request(self, method, path, key, payload=None):
+            if method == 'POST' and path == '/api/v1/admin/api-keys/':
+                return None, {}                       # the response was lost
+            return 200, body
+    keys = O.Keys(M(), 'admin-key')
+    with pytest.raises(RuntimeError):
+        keys.mint('arc-ops-proposer')
+    assert len(keys.outstanding) == 1
+    assert keys.revoke() == [] and len(keys.outstanding) == 1
+    assert [p['alive'] for p in keys.probe()] == [True], 'an unaccounted mint keeps the shutdown incomplete'
+
+
+
+def test_the_ops_handoff_states_serving_only_from_a_ready_controller_read(tmp_path):
+    sc = scenario([state(PRIOR, 140, ready=False)])
+    sc.step()
+    stage = stage_for(sc)
+    assert stage.handoff_observations(None, '')['facts']['statuses'] == []
+    sc.states.append(dict(state(PRIOR, 140), phase='done'))
+    assert stage.handoff_observations(None, '')['facts']['statuses'] == ['serving']

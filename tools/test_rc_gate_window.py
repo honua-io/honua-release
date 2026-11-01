@@ -483,14 +483,16 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     digest = "sha256:" + hashlib.sha256(prereg_path.read_bytes()).hexdigest()
     catalog = ["candidate.serving", "upgrade.candidate-serving", "rollback.prior-serving",
                "restore.migration-142", "diagnosis.recovered", "approval.separate", "data.preserved"]
-    arc_raw = json.dumps({"opsScope": {"catalog": catalog}}).encode()
+    arc_raw = json.dumps({"opsScope": {"catalog": catalog, "executedSubsetRule": {
+        "mustScore": ["approval.separate"], "neverScore": []}}}).encode()
     (tmp_path / "arc.v1.json").write_bytes(arc_raw)
     frozen = {k: "sha256:" + "d" * 64 for k in ("runner", "scorer", "arcSpec", "heldOut")}
     frozen["arcSpec"] = "sha256:" + hashlib.sha256(arc_raw).hexdigest()
     (tmp_path / "harness-digests.json").write_text(json.dumps(frozen))
     scope = {"gating": ["local-docker", "aws-ecs"], "approvedBy": "founder", "approvedAt": "2026-11-01T23:00:00Z",
              "opsScope": {"local-docker": "executed-subset", "aws-ecs": "full", "aws-eks": "not-gating"},
-             "scoredOps": {"local-docker": ["candidate.serving", "diagnosis.recovered", "approval.separate"]}}
+             "scoredOps": {"local-docker": ["candidate.serving", "upgrade.candidate-serving", "rollback.prior-serving",
+                                            "restore.migration-142", "approval.separate", "data.preserved"]}}
     scope_raw = json.dumps(scope).encode()
     (tmp_path / "gating-scope.json").write_bytes(scope_raw)
     identity = {"sourceSha": SHA, "imageDigest": DIGEST, "platformLockDigest": LOCK}
@@ -554,6 +556,8 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d.append(copy.deepcopy(d[agg_index])),
         lambda d: d.append(dict(d[agg_index], arm="a1")),
         lambda d: d[agg_index].update(required=False),
+        # A development rehearsal's proposed (not founder-approved) scope is never admitted.
+        lambda d: d[agg_index]["opsScope"].update(approved=False, proposed=True),
         lambda d: d[agg_index]["candidate"].update(sourceSha="e" * 40),
         lambda d: d[agg_index]["candidate"].update(imageDigest=LOCK),
         lambda d: d[agg_index]["candidate"].update(platformLockDigest=DIGEST),
@@ -639,14 +643,15 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         newer["display_title"] = f"AI arc C1 (local-docker, held-out) {LOCK}"
         assert _eval({w.ARC_GATE: {"runs": [old_a1, old_a2, newer]}}, unbound={})["admissible"]
     assert w._slim({"display_title": f"AI arc A1 (local-docker, held-out) {LOCK}"})["display_title"].endswith(LOCK)
-    # The subset cannot score update/rollback/restore, omit diagnosis/approval, or omit its list.
+    # The subset must score the separate approval, only catalog assertions, and carry its list (option B as the
+    # arc spec's executedSubsetRule states it, the same rule the runner enforces).
     for altered_scope in (
         {**scope, "opsScope": {**scope["opsScope"], "local-docker": "not-gating"}},
         {**scope, "opsScope": {"aws-ecs": "full"}},
         {**scope, "scoredOps": {}},
-        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered"]}},
-        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered", "approval.separate", "rollback.prior-serving"]}},
-        {**scope, "scoredOps": {"local-docker": ["diagnosis.recovered", "approval.separate", "bogus"]}},
+        {**scope, "scoredOps": {"local-docker": ["upgrade.candidate-serving", "rollback.prior-serving"]}},
+        {**scope, "scoredOps": {"local-docker": ["approval.separate", "approval.separate"]}},
+        {**scope, "scoredOps": {"local-docker": ["approval.separate", "bogus"]}},
     ):
         (tmp_path / "gating-scope.json").write_text(json.dumps(altered_scope))
         assert not evaluate(a1, a2)["admissible"]
