@@ -197,6 +197,57 @@ def test_a_partially_written_adjudication_is_read_on_a_later_pass(tmp_path):
     assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:r01']
 
 
+def flagged_launch(out, log):
+    """Run 001 carries a false-success flag (ARC v2); others complete clean."""
+    def launch(row, slot):
+        log.append((row, slot, time.monotonic()))
+        path = Path(out) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        flags = [{'stage': 'setup', 'flagId': 'setup:running'}] if row['runId'].endswith('001') else []
+        path.write_text(json.dumps({'runId': row['runId'], 'status': 'failed' if flags else 'completed',
+                                    'falseSuccessFlags': flags,
+                                    'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:30:00Z'}))
+        return 0
+    return launch
+
+
+FS_VERDICT = [{'runId': 'local-docker:A1:001', 'flagId': 'setup:running', 'verdict': 'rejected',
+               'reviewerFamily': 'openai', 'adjudication': 'https://github.com/honua-io/honua-release/issues/9',
+               'adjudicatedAt': '2026-11-02T10:00:00Z'}]
+
+
+def test_a_false_success_flag_pauses_the_campaign_until_the_other_family_adjudicates(tmp_path):
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=flagged_launch(tmp_path, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001'], 'nothing else started'
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.false-success.json').write_text(
+        json.dumps([dict(FS_VERDICT[0], reviewerFamily='anthropic')]))
+    out2 = tmp_path / 'again'
+    (out2 / 'adjudications').mkdir(parents=True)
+    (out2 / 'adjudications' / 'local-docker-A1-001.false-success.json').write_text(json.dumps(FS_VERDICT))
+    log2 = []
+    C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=out2, hosts=['h1'], per_host=1,
+                   common=[], wait_poll=0.01, launch=flagged_launch(out2, log2))
+    assert [r['runId'] for r, _, _ in log2] == ['local-docker:A1:001', 'local-docker:A1:002']
+    assert json.loads((out2 / 'false-success-adjudications.json').read_text())[0]['verdict'] == 'rejected'
+    assert json.loads((out2 / 'voids.json').read_text()) == []
+
+
+def test_a_same_family_false_success_verdict_never_resumes(tmp_path):
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    (tmp_path / 'adjudications' / 'local-docker-A1-001.false-success.json').write_text(
+        json.dumps([dict(FS_VERDICT[0], reviewerFamily='anthropic')]))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=flagged_launch(tmp_path, log))
+    assert len(log) == 1 and 'other model family' in json.loads(
+        (tmp_path / 'campaign-state.json').read_text())['rejectedAdjudications']['local-docker:A1:001']
+
+
 def test_a_failed_run_with_a_suspected_harness_fault_waits_for_adjudication(tmp_path):
     """Astra S3: the barrier stops on a suspected harness defect whatever the receipt's status."""
     def launch(row, slot):
@@ -517,3 +568,50 @@ def test_a_spend_stop_drain_never_adjudicates(tmp_path, monkeypatch):
                              wait_poll=0.01, arc=arc, max_wait=60)
     assert len(results) == 2 and (out / 'SPEND-CAP-REACHED').is_file()
     assert 'local-docker:A1:001' in json.loads((out / 'campaign-state.json').read_text())['pending']
+
+
+def gap_launch(out, log):
+    """Run 001 ends undetermined with a safety coverage gap (ARC v2 change 6 / 8a); others complete clean."""
+    def launch(row, slot):
+        log.append((row, slot, time.monotonic()))
+        path = Path(out) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        gap = row['runId'].endswith('001')
+        path.write_text(json.dumps({'runId': row['runId'], 'status': 'undetermined' if gap else 'completed',
+                                    'stages': [{'stage': 'setup', 'outcome': 'undetermined' if gap else 'pass',
+                                                'safetyUnverified': ['unclassified-command@1'] if gap else []}],
+                                    'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:30:00Z'}))
+        return 0
+    return launch
+
+
+def test_a_safety_gap_writes_a_packet_and_waits_for_a_cross_family_verdict(tmp_path):
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=gap_launch(tmp_path, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001'], 'nothing else started'
+    packet = json.loads((tmp_path / 'adjudications' / 'local-docker-A1-001.safety-gaps.packet.json').read_text())
+    assert [p['gapId'] for p in packet] == ['setup:unclassified-command@1']
+    # A barrier decision alone does not clear a gap run: every gap needs its own verdict.
+    out2 = tmp_path / 'again'
+    (out2 / 'adjudications').mkdir(parents=True)
+    decision = {'finding': 'product-failure', 'reviewerFamily': 'openai',
+                'adjudication': 'https://github.com/honua-io/honua-release/issues/7', 'adjudicatedAt': '2026-11-02T10:00:00Z'}
+    (out2 / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(decision))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=out2, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=gap_launch(out2, []))
+    out3 = tmp_path / 'third'
+    (out3 / 'adjudications').mkdir(parents=True)
+    (out3 / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(decision))
+    (out3 / 'adjudications' / 'local-docker-A1-001.safety-gaps.json').write_text(json.dumps([
+        {'runId': 'local-docker:A1:001', 'gapId': 'setup:unclassified-command@1', 'verdict': 'not-unsafe',
+         'reviewerFamily': 'openai', 'adjudication': 'https://github.com/honua-io/honua-release/issues/8',
+         'adjudicatedAt': '2026-11-02T10:00:00Z'}]))
+    log3 = []
+    C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=out3, hosts=['h1'], per_host=1,
+                   common=[], wait_poll=0.01, launch=gap_launch(out3, log3))
+    assert len(log3) == 2
+    assert json.loads((out3 / 'safety-gap-adjudications.json').read_text())[0]['verdict'] == 'not-unsafe'

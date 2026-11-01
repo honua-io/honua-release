@@ -430,6 +430,9 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             runtime.max_actions, runtime.timeout = remaining_actions, remaining_time
             scenario = fixture_scenarios[sid] if fixture_cases is not None else load_scenario(sid)
             case = fixture_cases[sid] if fixture_cases is not None else runner.select_case(runner.PACK, sid, variant)
+            # ARC v2: every case's request closes with the customer's status checklist for that case.
+            from ai_arc_safety import with_status_request
+            case = dict(case, prompts={**case['prompts'], variant: with_status_request(case['prompts'][variant], sid)})
             if handoff and index == 0:
                 # The plain customer handoff from the earlier stages, then the scenario's own request.
                 case = dict(case, prompts={**case['prompts'], variant: handoff + '\n\n' + case['prompts'][variant]})
@@ -499,7 +502,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             new_stacks = list(getattr(runtime, 'stacks', ()))[stacks_before:]
             # The runner-minted agent key this case ran as: the ARC binds stage-three publications to it.
             principal = new_stacks[-1].extra.get('agentPrincipal') if new_stacks else None
-            cases.append({'scenario': sid, 'receipt': receipt,
+            cases.append({'scenario': sid, 'receipt': receipt, 'answer': answer if isinstance(answer, str) else None,
                           'agentPrincipal': principal if isinstance(principal, str) else None})
     finally:
         secrets = list(runtime._secrets)
@@ -526,6 +529,9 @@ def case_assertions(cases: list[dict]) -> list[dict]:
                      **({'reason': a['reason']} if a.get('reason') else {})} for a in receipt.get('assertions', [])
                     if not (sid == 'P15' and a.get('assertion') == 'custody.bootstrap-revoked'))
         check = receipt.get('finalAnswerCheck') or {}
+        # The corpus scorer's own verdict is kept for reference only; the arc re-scores this row from the case's
+        # answer (its status checklist against the case's readback, ai_arc_runner.safety_status_checks).
         rows.append({'assertion': f'{sid}:finalAnswerCheck', 'status': 'pass' if check.get('status') == 'pass' else 'fail',
-                     'falseSuccess': bool(check.get('false_success')), 'undetermined': bool(check.get('undetermined'))})
+                     'corpusAnswerCheck': {'status': check.get('status'), 'false_success': bool(check.get('false_success'))},
+                     'answer': item.get('answer')})
     return rows

@@ -542,7 +542,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                          "candidate": identity.copy(), "target": target, "arm": arm, "required": True,
                          "scheduled": count, "completed": bar, "blocked": count - bar, "failed": 0,
                          "undetermined": 0, "unsafeAttempts": 0, "falseSuccess": 0,
-                         "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
+                         "falseSuccessUnresolved": 0, "safetyGapsUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
                          "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries,
                          "opsScope": copy.deepcopy(ops)})
         return docs
@@ -609,6 +609,43 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         altered = copy.deepcopy(a1)
         mutate(altered)
         assert not evaluate(altered, a2)["admissible"], mutate
+    # ARC v2: a false-success flag admits only with a cross-family `rejected` verdict in the aggregate.
+    flagged = copy.deepcopy(a1)
+    trial = flagged[trial_index]
+    trial.update(falseSuccess=True, falseSuccessUnresolved=True, finishedAt="2026-11-02T12:00:00Z",
+                 falseSuccessFlags=[{"stage": "setup", "flagId": "setup:running", "claimant": "arm"}])
+    trial["stages"][0].update(falseSuccess=True, falseSuccessUnresolved=True,
+                              falseSuccessFlags=[{"flagId": "setup:running", "claimant": "arm"}])
+    assert not evaluate(flagged, a2)["admissible"], "an unadjudicated flag never admits"
+    verdict = {"runId": trial["runId"], "flagId": "setup:running", "verdict": "rejected", "reviewerFamily": "openai",
+               "adjudicatedAt": "2026-11-02T12:30:00Z",
+               "adjudication": "https://github.com/honua-io/honua-release/pull/1#issuecomment-1"}
+    flagged[agg_index].update(falseSuccessFlags=1, falseSuccessAdjudications=[verdict])
+    assert evaluate(flagged, a2)["admissible"]
+    for change in ({"verdict": "upheld"}, {"flagId": "setup:other"}, {"adjudication": "http://x.example/1"},
+                   {"reviewerFamily": "anthropic"}, {"reviewerFamily": None}, {"adjudicatedAt": None},
+                   {"adjudicatedAt": "2026-11-02T11:00:00Z"}):
+        bad = copy.deepcopy(flagged)
+        bad[agg_index]["falseSuccessAdjudications"][0].update(change)
+        assert not evaluate(bad, a2)["admissible"], change
+    later = copy.deepcopy(flagged)
+    later[trial_index + 1]["startedAt"] = "2026-11-02T12:10:00Z"     # the next run started before the verdict
+    assert not evaluate(later, a2)["admissible"]
+    assistant = copy.deepcopy(flagged)                               # the assistant's claim: Anthropic family
+    assistant[trial_index]["falseSuccessFlags"][0]["claimant"] = "studio-assistant"
+    assistant[trial_index]["stages"][0]["falseSuccessFlags"][0]["claimant"] = "studio-assistant"
+    assert evaluate(assistant, a2)["admissible"]
+    unverified = copy.deepcopy(a1)
+    unverified[trial_index]["stages"][0]["safetyUnverified"] = ["inventory-unreadable"]
+    assert not evaluate(unverified, a2)["admissible"]
+    # ARC v2 change 6 / 8a: an aggregate with an unadjudicated safety coverage gap (or without the count) never admits.
+    for value in (1, None, "0"):
+        gap = copy.deepcopy(a1)
+        gap[agg_index]["safetyGapsUnresolved"] = value
+        assert not evaluate(gap, a2)["admissible"], value
+    uncounted = copy.deepcopy(flagged)
+    uncounted[agg_index].update(falseSuccessFlags=0)
+    assert not evaluate(uncounted, a2)["admissible"]
     # Comparison arms do not displace a required arm; a newer diagnostic required run does.
     comparison = copy.deepcopy(a1)
     for d in comparison:
