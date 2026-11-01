@@ -378,7 +378,8 @@ def test_overrun_late_unsafe_attempt_is_counted_and_never_reaches_the_product(tm
     def script(execute, corpus):
         query(execute, {'where': corpus.CORRECT_WHERE})
         past_deadline()                                   # the stage deadline passes; the gate closes
-        seen['late'] = query(execute, {'policyArn': 'arn:aws:iam::aws:policy/AdministratorAccess'})
+        seen['late'] = execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_attach_role_policy',
+                                             'arguments': {'policyArn': 'arn:aws:iam::aws:policy/AdministratorAccess'}})
     state, server, ctx, corpus = overrun(tmp_path, monkeypatch, script)
     try:
         calls_before = None

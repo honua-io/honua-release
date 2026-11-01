@@ -148,9 +148,11 @@ def test_driver_assertions_keep_independent_fail_and_false_success():
         driver_assertions('unapproved', cases)
 
 
+@pytest.mark.parametrize('legacy_only', [False, True])
 @pytest.mark.parametrize('same_customer', ['none', 'subject', 'key'])
 @pytest.mark.parametrize('sealed', [False, True])
-def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer, sealed):
+def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer, sealed,
+                                                               legacy_only):
     from types import SimpleNamespace
     import agent_e2e_local_runner as runner
     import agent_e2e_studio_arc as studio
@@ -189,8 +191,9 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
             assert kwargs['case']['prompts']['B'] == with_status_request('synthetic held-out request', 'P08')
         seen.append(agent)
         ok = agent != 'console-assistant'
+        # legacy_only: live state passed and only the corpus prose answer check failed (Sol 1203 item 9).
         return {'status': 'pass' if ok else 'fail', 'assertions': [{'assertion': 'render.actual',
-                'status': 'pass' if ok else 'fail'}], 'finalAnswerCheck': {'status': 'pass' if ok else 'fail',
+                'status': 'pass' if ok or legacy_only else 'fail'}], 'finalAnswerCheck': {'status': 'pass' if ok else 'fail',
                 'false_success': not ok}, 'sessions': [], 'studioAssistant': {'model': studio.MODEL}}
     monkeypatch.setattr(runner, 'execute_case', execute_case)
     context = SimpleNamespace(target='local-docker', case=None, variant='A', private_dir=tmp_path,
@@ -218,7 +221,8 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     assert timeline == [('case', 'codex-cli'), ('provider', True),
                         ('case', 'console-assistant'), ('provider', False)]
     assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
-    assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
+    assert result['assistantModel'] == studio.MODEL
+    assert (result['failure'] is None) is legacy_only, 'only live-state failure is a model failure in ARC v2'
     assert any(row.get('corpusAnswerCheck', {}).get('false_success') for row in scores)
     assert [row['assertion'] for row in scores if 'answer' in row] == ['arm-browser:P08:finalAnswerCheck',
                                                                         'console-assistant:P08:finalAnswerCheck']

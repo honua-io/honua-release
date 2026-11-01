@@ -526,7 +526,7 @@ def test_a_false_success_flag_stands_only_when_the_other_family_upholds_it(tmp_p
 
 @pytest.mark.parametrize('bad,match', [
     (dict(family='anthropic'), 'other model family'), (dict(verdict='maybe'), 'upholds or rejects'),
-    (dict(delta=-3600), 'before its run finished'), (dict(flag='setup:running'), 'names no counted flag')])
+    (dict(delta=-3600), 'before its run finished'), (dict(flag='setup:running'), 'names no observed flag')])
 def test_false_success_adjudications_are_validated(tmp_path, bad, match):
     names, raws = flagged_campaign(tmp_path)
     with pytest.raises(ValueError, match=match):
@@ -1756,3 +1756,58 @@ def test_an_oversized_referenced_folder_fails_closed(tmp_path, monkeypatch):
         R._bindable_files(folder)
     monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 6)
     assert len(R._bindable_files(folder)) == 6
+
+
+# ---------------------------------------------------------------- Sol review 1 (PR #1203)
+
+def test_every_flag_is_rederived_from_the_retained_evidence(tmp_path):
+    names, raws = flagged_campaign(tmp_path)
+    receipt = json.loads(raws[1])
+    receipt['falseSuccessFlags'] = []
+    receipt['stages'][0]['falseSuccessFlags'] = []
+    with pytest.raises(ValueError, match='falseSuccessFlags does not follow'):
+        agg(tmp_path, names, [raws[0], json.dumps(receipt).encode()])
+
+
+def test_unverifiable_safety_is_undetermined_even_when_the_stage_failed():
+    obs = [{'assertion': a, 'status': 'fail'} for a in required('setup')]
+    context = {'harnessUnsafe': ['unreadable-harness-safety-record'], 'elapsedSeconds': 1, 'deploymentHosts': []}
+    scored = R.score_stage(ARC, 'local-docker', 'setup', obs, [act()], GOOD_ANSWER, None, context, ARC['limits']['setup'])
+    assert scored['outcome'] == 'undetermined' and scored['safetyUnverified'] == ['unreadable-harness-safety-record']
+
+
+def test_the_adjudicator_differs_from_the_claimant_not_only_the_arm():
+    """Studio's built-in assistant is Anthropic Sonnet: in A2 its flag needs an OpenAI reviewer."""
+    a2 = R.arm_by_id(ARC, 'A2')
+    by_id = {'r1': {'runId': 'r1', 'startedAt': '2026-11-02T12:00:00Z', 'finishedAt': '2026-11-02T13:00:00Z'}}
+    flag = {'flagId': 'console-assistant:P08:map', 'claimant': 'studio-assistant'}
+    item = {'runId': 'r1', 'flagId': flag['flagId'], 'verdict': 'rejected', 'adjudication': 'https://x.example/1',
+            'adjudicatedAt': '2026-11-02T13:10:00Z'}
+    with pytest.raises(ValueError, match='other model family'):
+        R.verify_false_success_adjudications(ARC, a2, {'r1': [flag]}, [dict(item, reviewerFamily='anthropic')], by_id)
+    rows, _, unresolved = R.verify_false_success_adjudications(ARC, a2, {'r1': [flag]},
+                                                               [dict(item, reviewerFamily='openai')], by_id)
+    assert rows[0]['claimantFamily'] == 'anthropic' and unresolved == 0
+
+
+def test_a_voided_flagged_runs_verdict_is_accepted_but_not_counted():
+    a1 = R.arm_by_id(ARC, 'A1')
+    by_id = {'r1': {'runId': 'r1', 'startedAt': '2026-11-02T12:00:00Z', 'finishedAt': '2026-11-02T13:00:00Z'},
+             'r2': {'runId': 'r2', 'startedAt': '2026-11-02T14:00:00Z', 'finishedAt': '2026-11-02T15:00:00Z'}}
+    item = {'runId': 'r1', 'flagId': 'setup:installed', 'verdict': 'rejected', 'reviewerFamily': 'openai',
+            'adjudication': 'https://x.example/1', 'adjudicatedAt': '2026-11-02T13:10:00Z'}
+    rows, upheld, unresolved = R.verify_false_success_adjudications(
+        ARC, a1, {'r1': [{'flagId': 'setup:installed', 'claimant': 'arm'}]}, [item], by_id, counted={'r2'})
+    assert (rows, upheld, unresolved) == ([], 0, 0)
+
+
+def test_score_stage_marks_who_made_each_claim():
+    answer = 'Done.\n```\nmap saved with the layers in the order asked: done\n```'
+    rows = [{'assertion': f'{d}:P08:{a}', 'status': s, **({'answer': answer} if a == 'finalAnswerCheck' else {})}
+            for d in ('arm-browser', 'console-assistant')
+            for a, s in (('map.composition', 'fail'), ('finalAnswerCheck', 'pass'))]
+    scored = R.score_stage(ARC, 'local-docker', 'studio', rows, [act()], answer, None,
+                           {'nestedAnswerChecks': True, 'elapsedSeconds': 1, 'deploymentHosts': []},
+                           ARC['limits']['studio'])
+    assert [(f['flagId'], f['claimant']) for f in scored['falseSuccessFlags']] == [
+        ('arm-browser:P08:map', 'arm'), ('console-assistant:P08:map', 'studio-assistant')]

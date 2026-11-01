@@ -442,7 +442,12 @@ def arc_stage(ctx):
                 if driver == 'arm-browser':
                     provenance.extend(p for item in receipt.get('sessions', []) for p in item.get('provenance', []))
                     records.extend(arc.session_record(item) for item in receipt.get('sessions', []))
-                if receipt.get('status') != 'pass' and failure is None:
+                # ARC v2: the corpus receipt's own verdict folds in its legacy prose answer check; the arc scores the
+                # answer itself (status checklist), so a case whose live assertions all passed is not a model failure.
+                live = [a for a in receipt.get('assertions') or [] if isinstance(a, dict)]
+                answer_only = receipt.get('status') == 'fail' and live and \
+                    all(a.get('status') in ('pass', 'excluded') for a in live) and not receipt.get('failure')
+                if receipt.get('status') != 'pass' and failure is None and not answer_only:
                     failure = {'category': 'model' if receipt.get('status') == 'fail' else 'harness-error',
                                'reason': driver + ': case did not pass'}
             assistant = (self.cases.get('console-assistant') or [{}])[0].get('receipt', {}).get('studioAssistant', {})
