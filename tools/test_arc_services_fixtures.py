@@ -186,7 +186,8 @@ def test_adopted_connection_is_created_under_controller_custody(tmp_path):
 
 
 @pytest.mark.parametrize('fault', ['http_503_once', 'response_lost_after_commit'])
-def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypatch, tmp_path, fault):
+@pytest.mark.parametrize('tamper', [False, True])
+def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypatch, tmp_path, fault, tamper):
     import hashlib
     import ai_arc_services
     seen = []
@@ -206,6 +207,8 @@ def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypat
                                                 'child:layer:shelters': 2},
                     'faultEvents': [event],
                     'sessions': [], 'assertions': [], 'nudges': 0}
+        if tamper:
+            (tmp_path / 'retained/P10/case-receipt.json').write_bytes(b'altered')
         return {'status': 'pass', 'sessions': [], 'assertions': [], 'nudges': 0,
                 'roles': {'seeded:service:shelters': 'service', 'seeded:layer:shelters': 2}}
     monkeypatch.setattr(runner, 'execute_case', execute_case)
@@ -218,8 +221,13 @@ def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypat
         base_url='http://127.0.0.1:1', admin_key='unused', project='arc-test',
         arm={'agent': 'codex-cli', 'model': 'fake'}, limits={'maxTurns': 10, 'maxToolCalls': 10, 'maxSeconds': 60},
         out_dir=tmp_path / 'retained', private_root=tmp_path / 'private', cli=object(), vm=object())
-    assert row['failure'] is None and [c['scenario'] for c in cases] == ['P10', 'P15']
+    assert [c['scenario'] for c in cases] == ['P10', 'P15']
     assert seen == [('P10', 'arc', 'Synthetic runtime goal'), ('P15', 'arc', 'Synthetic runtime goal')]
+    if tamper:
+        assert row['failure']['category'] == 'harness-error'
+        assert 'changed during P15' in row['failure']['reason']
+        return
+    assert row['failure'] is None
     p10 = (tmp_path / 'retained/P10/case-receipt.json').read_bytes()
     assert cases[1]['receipt']['priorCaseReceiptSha256'] == 'sha256:' + hashlib.sha256(p10).hexdigest()
 
