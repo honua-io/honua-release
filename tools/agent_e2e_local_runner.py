@@ -901,7 +901,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
     prompt = case['prompts'][variant]
     agent = getattr(runtime, 'agent', 'bedrock-proxy')
     receipt = {'caseId': case_id, 'apiVersion': API_VERSION, 'arm': arm_for(agent), 'agentType': agent,
-               'packSha256': PACK_SHA256,
+               'packSha256': getattr(runtime, 'pack_sha256', PACK_SHA256),
                'candidateDigest': candidate_digest, 'attempt': 1, 'status': 'infrastructure',
                'model': runtime.model, 'temperature': None,
                'temperaturePolicy': 'omitted: provider default, as the shipped Studio AI client sends',
@@ -1629,9 +1629,11 @@ class LocalRuntime:
         """Mint a short-lived local customer bearer and bind the runner's key mint to that user."""
         from urllib.parse import quote
         driver = _live_driver_module()
-        state = driver._read_state(stack.extra['workspaceId'])
-        path = Path(state['workdir']) / 'private-principals.json'
-        signing = json.loads(path.read_text(encoding='utf-8')).get('signingKey')
+        signing = stack.extra.get('studioSigningKey')
+        if signing is None:
+            state = driver._read_state(stack.extra['workspaceId'])
+            path = Path(state['workdir']) / 'private-principals.json'
+            signing = json.loads(path.read_text(encoding='utf-8')).get('signingKey')
         if not isinstance(signing, str) or len(signing) < 32:
             raise ValueError('case has no local customer signing authority')
         fixture = driver.local_fixture

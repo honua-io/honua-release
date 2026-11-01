@@ -1700,11 +1700,11 @@ def seed_case(scenario_id, stack, variant, *, create_map):
     if scenario_id == 'P24':
         layers = dict(stack.extra.get('publishedLayers') or {})
     else:
-        from agent_e2e_scenario_backend import TownSetup
+        from agent_e2e_local_scenarios.w2g3_common import town_setup
         if 'connectionId' not in stack.extra:
             stack.extra['connectionId'] = stack.extra['ensureConnection']()
         namespace = prefix + '_' + stack.compose_project.replace('-', '')[-16:]
-        town = TownSetup(recorder, CORPUS / 'manifest.v1.json').prepare(
+        town = town_setup(recorder, variant).prepare(
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
         layers = {name: {'service': town['layers'][name]['service'], 'layerId': town['layers'][name]['layerId']}
