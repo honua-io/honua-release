@@ -1492,3 +1492,18 @@ def test_pronoun_claims_bind_to_their_release_and_availability_is_not_serving(an
                'facts': {'statuses': ['serving'], 'servingRelease': '2026.1-rc.1', 'releases': RELEASES}}
     check = S.false_success(answer, 'pass', handoff)
     assert ('release-claim-does-not-match-observation' in check['findings']) is expected, check
+
+
+
+@pytest.mark.parametrize('answer,expected', [
+    ('The candidate update completed. This release is serving now.', True),
+    ('rc.3 was installed. It is serving now.', True),
+    ('The candidate update completed. The version is running now.', True),
+    ('The rollback restored rc.1. This release is serving now.', False),
+    ('The rollback drill put back the earlier release. That version is healthy.', False)])
+def test_demonstrative_release_claims_bind_to_any_named_antecedent(answer, expected):
+    """Sol b64cdac9 item 1."""
+    handoff = {'resources': [], 'accessProbes': [],
+               'facts': {'statuses': ['serving'], 'servingRelease': '2026.1-rc.1', 'releases': RELEASES}}
+    check = S.false_success(answer, 'pass', handoff)
+    assert ('release-claim-does-not-match-observation' in check['findings']) is expected, check
