@@ -18,6 +18,20 @@ MODEL = 'us.anthropic.claude-sonnet-4-6'
 DONE = re.compile(r'\b(done|completed|finished|saved)\b', re.IGNORECASE)
 NOT_DONE = re.compile(r"\b(?:not|never|cannot|can't|unable\s+to)\b(?:\s+\w+){0,3}\s+"
                       r"(?:done|completed|finished|saved)\b", re.IGNORECASE)
+STILL_WORKING = re.compile(
+    r"\b(?:now|next|then)\s+(?:let\s+me\s+(?!know\b)|i(?:'ll|\s+will|'m|\s+am)\b|"
+    r"propos\w*\b|sav\w*\b|creat\w*\b|fix\w*\b|updat\w*\b)|"
+    r"\b(?:let\s+me\s+(?!know\b)|i\s+need\s+to\s+)", re.IGNORECASE)
+
+
+def assistant_event(text):
+    if '?' in text:
+        return 'question'
+    matches = list(DONE.finditer(text))
+    if (matches and not NOT_DONE.search(text)
+            and not STILL_WORKING.search(text[matches[-1].end():])):
+        return 'done'
+    return 'progress'
 
 
 def rpc(endpoint, name, arguments):
@@ -115,7 +129,7 @@ def run_customer(*, invoke, prompt, script, timeout=2700, clock=time.monotonic, 
             text = state['text'].strip()
             if not text:
                 raise CustomerScriptError('Studio assistant returned an empty turn')
-            event = 'question' if '?' in text else 'done' if DONE.search(text) and not NOT_DONE.search(text) else 'progress'
+            event = assistant_event(text)
             decision = policy.reply(event)
             last_progress = clock()
             if decision['kind'] == 'done':

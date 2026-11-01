@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from agent_e2e_studio_customer_session import run_customer
+from agent_e2e_studio_customer_session import assistant_event, run_customer
 from agent_studio_customer import CustomerScriptError
 
 
@@ -11,6 +11,13 @@ def state(text, number, **overrides):
                        'streaming': False, 'ready': True, 'panelOpen': True, 'connected': True, 'mounted': True,
                        'boundHit': False, 'status': 'complete', 'text': text,
                        **overrides})
+
+
+def test_saved_intermediate_version_is_not_a_completion():
+    assert assistant_event('Clean version saved. Now proposing publication with team visibility:') == 'progress'
+    assert assistant_event('The draft was saved. Next I will update the style.') == 'progress'
+    assert assistant_event('The map is saved and done.') == 'done'
+    assert assistant_event('The map is saved. Let me know if you want changes.') == 'done'
 
 
 def test_customer_sends_only_the_request_and_frozen_clarifications():

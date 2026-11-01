@@ -211,7 +211,8 @@
   "savedMapBodySha256": "sha256:d8ff198dadf10311db6735f21cc2f843d1b8c0f006df5624ddc9dddcf5264657",
   "secondSession": {
     "customerKeyRevoked": true,
-    "failure": "saved map did not contain a view",
+    "driverCorrection": "The completion classifier now treats subsequent statements of ongoing work as progress; the interrupted session was not re-scored as a completed assistant run.",
+    "failure": "saved map lacked a view; the driver stopped early after interpreting an intermediate save as completion",
     "status": "fail",
     "usage": {
       "calls": 18,
