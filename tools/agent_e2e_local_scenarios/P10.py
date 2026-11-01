@@ -2,7 +2,7 @@
 
 seed     publish the frozen town (published-town) through the runner recorder and read
          the shelters layer once (seed-phase baseline)
-observe  replay the model's own last honua_query_features call on the seeded shelters
+observe  replay the model's own first honua_query_features call on the seeded shelters
          layer from the digest-verified action log, with controller credentials, and
          read the shelters layer again (observe-phase)
 score    the runner projects the replay response to its source_id set (filter.exact) and
@@ -57,15 +57,14 @@ class P10(Scenario):
 
     @staticmethod
     def selected_query(actions, seeded):
-        """The model's last query of the seeded shelters layer, from the verified action log."""
-        chosen = None
+        """The first query of the seeded layer, from the verified action log."""
         for action in actions:
             arguments = action.arguments if isinstance(action.arguments, dict) else {}
             if (action.kind == 'tool_call' and action.tool == QUERY_TOOL
                     and str(arguments.get('serviceId')) == str(seeded.state['service'])
                     and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
-                chosen = action
-        return chosen
+                return action
+        return None
 
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_p10_observer import source_path

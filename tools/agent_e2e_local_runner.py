@@ -590,6 +590,26 @@ def select_case(pack_path: Path, scenario_id: str, variant: str) -> dict:
     return case
 
 
+def select_fixture_case(*, goal, fixture_id, scenario_id):
+    """Build a case for an authoritative scenario assignment and an in-memory customer goal.
+
+    The caller must obtain scenario_id from a trusted case-to-scenario catalog, never by
+    guessing from customer prose. No decrypted manifest is opened or written here.
+    """
+    from agent_e2e_local_expectations import fixture_variant, load_fixture_expected
+    if not isinstance(goal, str) or not goal.strip():
+        raise ValueError('services goal is missing')
+    variant = fixture_variant(fixture_id, scenario_id)
+    scenario = load_scenario(scenario_id)
+    if variant not in scenario.supported_variants:
+        raise ValueError('scenario does not support this fixture')
+    source = select_case(PACK, scenario_id, variant)
+    expected = load_fixture_expected(fixture_id, scenario_id)
+    if set(expected) != set(source['assertions']):
+        raise ValueError('fixture expectations differ from assertion inventory')
+    return variant, {**source, 'prompts': {variant: goal}, 'fixtureId': fixture_id}
+
+
 # --------------------------------------------------------------------------- model session
 
 class SessionInterrupted(Exception):
@@ -974,7 +994,14 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['finalAnswerCheck'] = {'status': 'unsupported'}
             return receipt
         from agent_e2e_local_expectations import check_exclusion
-        expected = scenario.expected(variant)
+        if case.get('fixtureId') is not None:
+            from agent_e2e_local_expectations import fixture_variant, load_fixture_expected
+            if fixture_variant(case['fixtureId'], scenario.id) != variant:
+                raise ValueError('fixture and case variant differ')
+            expected = load_fixture_expected(case['fixtureId'], scenario.id)
+            receipt['fixtureId'] = case['fixtureId']
+        else:
+            expected = scenario.expected(variant)
         rulings = {a: check_exclusion(scenario.id, a, expected.get(a)) for a in case['assertions']}
         if case['assertions'] and all(rulings.values()):
             # Out of the measured arc by a registered ruling: listed, never run, never a pass.
