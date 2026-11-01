@@ -1168,6 +1168,13 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                 if not selected:
                     continue
                 if result.get('tool') == spec['tool']:
+                    if spec.get('allowFaultKind') is not None:
+                        rpc_result = result.get('json', {}).get('result', {})
+                        payload = rpc_result.get('structuredContent', {}) if isinstance(rpc_result, dict) else {}
+                        if (result.get('kind') != 'tool_call' or not isinstance(rpc_result, dict)
+                                or rpc_result.get('isError', False) is not False or not isinstance(payload, dict)
+                                or payload.get('status') != 'Completed' or payload.get('operationId') != 'service.publish'):
+                            continue
                     try:
                         value = pointer_get(result['json'], spec['pointer'])
                     except ProjectionError:

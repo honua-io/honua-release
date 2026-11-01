@@ -129,7 +129,7 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
         'arc-p10-published-full': record('arc-p10-published-full', 'observe', 'mcp', 'POST', '/mcp#tools/call',
                                         full_result, args={'tool': 'honua_query_features', 'arguments': full_args}),
     }
-    publication = {'tool': 'honua_publish_service', 'status': 'pass',
+    publication = {'kind': 'tool_call', 'tool': 'honua_publish_service', 'status': 'pass',
                    'arguments': {'table': 'arc_shelters', 'schema': 'honua_data', 'connectionId': 'conn'},
                    'json': {'result': {'structuredContent': {
                        'serviceName': 'agent-service', 'status': 'Completed', 'operationId': 'service.publish'}}}}
@@ -185,6 +185,13 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     import pytest
     with pytest.raises(ValueError):
         projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id', action_results=[])
+    with pytest.raises(ValueError):
+        projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                  action_results=[{**publication, 'kind': 'resource_read'}])
+    errored = {**publication, 'json': {'result': {**publication['json']['result'], 'isError': True}}}
+    with pytest.raises(ValueError):
+        projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                  action_results=[errored])
     publication['arguments']['schema'] = 'foreign'
     with pytest.raises(ValueError):
         projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
