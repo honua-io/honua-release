@@ -135,12 +135,9 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         """(cleared, hold generation it answered). The generation is captured before validation; a hold
         replaced meanwhile leaves the run pending for a fresh decision (Sol 96b2546f)."""
         generation = hold_generation(run_id)
-        cleared = _adjudicate(run_id)
-        if cleared and hold_generation(run_id) != generation:
-            return False, None
-        return cleared, generation
+        return _adjudicate(run_id, generation), generation
 
-    def _adjudicate(run_id):
+    def _adjudicate(run_id, generation):
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
         if not path.is_file():
             return False
@@ -160,6 +157,8 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         except ValueError as exc:
             rejected[run_id] = str(exc)
             return False      # an invalid adjudication never resumes the campaign
+        if hold_generation(run_id) != generation:
+            return False      # the hold changed during validation: nothing is committed (Sol e265bb02)
         if decision.get('finding') != 'harness-fault':
             return True       # the run stays counted as it stands
         if len(voids) >= arc_runner.MAX_VOIDS or not reserves:

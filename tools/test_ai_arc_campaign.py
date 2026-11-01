@@ -329,3 +329,33 @@ def test_a_hold_replaced_during_validation_stays_pending(tmp_path, monkeypatch):
         C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
                        common=[], wait_poll=0.01, max_wait=0.5, launch=fake_launch(tmp_path, {}, log, gate=gate))
     assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']
+
+
+
+def test_a_harness_fault_decision_racing_a_new_hold_commits_no_void(tmp_path, monkeypatch):
+    """Sol e265bb02: the generation is checked before any void, reserve or replacement is committed."""
+    import ai_arc_runner as AR
+    log = []
+    holds = tmp_path / 'holds'
+    holds.mkdir(parents=True)
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    real = AR.check_adjudication
+
+    def replacing(*a, **k):
+        time.sleep(0.01)
+        (holds / 'local-docker-A1-001.hold').write_text('replaced during validation\n')
+        return real(*a, **k)
+    monkeypatch.setattr(AR, 'check_adjudication', replacing)
+
+    def gate(row):
+        if row['runId'].endswith('001'):
+            (holds / 'local-docker-A1-001.hold').write_text('first\n')
+            time.sleep(0.02)
+            (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(GOOD))
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], reserve_rows=RESERVE, wait_poll=0.01, max_wait=0.5,
+                       launch=fake_launch(tmp_path, {}, log, gate=gate))
+    assert json.loads((tmp_path / 'voids.json').read_text()) == [] if (tmp_path / 'voids.json').is_file() else True
+    state = json.loads((tmp_path / 'campaign-state.json').read_text())
+    assert state['voids'] == [] and state['reservesLeft'] == ['local-docker:A1:r01']
