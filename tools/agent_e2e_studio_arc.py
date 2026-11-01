@@ -11,6 +11,8 @@ from agent_e2e_studio_customer_session import MODEL
 
 CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/manifest.v1.json'
 CORPUS_MANIFEST_SHA256 = '166fad2a58cdfb5560882181a1c0afe04b81442401a1b465d28d6dc9710f846e'
+STUDIO_GOAL_SHA256 = {'A': 'f79e6d0becd0f7fbcbffe29742530d714e818368b8fc9ac78965cc8ef3d2f945',
+                      'B': 'c05933ddd8890090323712acb27f4fce4c859922cfc1f2f89970a2c5c54d6e88'}
 
 
 def _instant(value):
@@ -603,8 +605,7 @@ def arc_stage(ctx):
                 goal = case['prompts'][fixture]
                 # Interpret only fully frozen goals. An unknown request can
                 # contain requirements a keyword search would silently miss.
-                known_goals = context.arc['targets'][context.target]['goals']['studio'].values()
-                recognized = goal in known_goals
+                recognized = hashlib.sha256(goal.encode()).hexdigest() == STUDIO_GOAL_SHA256.get(fixture)
                 checks = score_goal(stack.extra['recorder'].records if stack else {}, goal, fixture,
                                     recognized=recognized)
                 if driver == 'arm-browser':

@@ -137,3 +137,12 @@ def test_supported_filter_requires_both_saved_rules_and_rendered_labels():
 def test_unrecognized_goal_fails_closed_even_when_map_is_correct():
     rows = score_goal({}, 'Add a buildings layer as well', 'A', recognized=False)
     assert any(row['assertion'] == 'goal.unsupported-instructions' and row['status'] == 'fail' for row in rows)
+
+
+def test_recognized_development_goals_are_pinned_to_fixture_variant():
+    from agent_e2e_studio_arc import STUDIO_GOAL_SHA256
+    from ai_arc_runner import ARC_PATH
+    arc = json.loads(ARC_PATH.read_text())
+    goals = arc['targets']['local-docker']['goals']['studio']
+    assert {variant: hashlib.sha256(goal.encode()).hexdigest() for variant, goal in goals.items()} == STUDIO_GOAL_SHA256
+    assert STUDIO_GOAL_SHA256['A'] != STUDIO_GOAL_SHA256['B']
