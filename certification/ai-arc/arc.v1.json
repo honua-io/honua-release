@@ -583,5 +583,13 @@
     "imageDigest": "sha256:38a1c2b38c09697f90716a3abbab5471e2ea5b79ed494c2a77fb7a80faa52da1",
     "source": "Console release with Studio #156 widget transport, Studio #158 and Console #493 (honua-server #6829 re-pin)",
     "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed."
+  },
+  "opsComposition": {
+    "executorCompose": "docs/get-started/compose.executor.yaml",
+    "repo": "honua-io/honua-server",
+    "revision": "22c06af0dc9a0aec12f4084948f6390c373cb013",
+    "sha256": "sha256:e43ec48faa83b5bfa4ce18b9120586a5d3efa85f084cbaf15a9aa8d2e3683c97",
+    "kind": "development-composition",
+    "rule": "Until the quickstart compose ships the executor service, local ops runs with this exact documented overlay; such runs are never certifying."
   }
 }

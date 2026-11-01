@@ -187,7 +187,7 @@ class OpsBackend:
         if kind == 'tool_call' and str(action.get('tool', '')).startswith('honua_propose_'):
             payload = (result.get('result') or {})
             for pid in proposal_ids(payload.get('structuredContent') or payload):
-                self.on_proposal(pid, sequence, action.get('tool'))
+                self.on_proposal(pid, sequence, action.get('tool'), action.get('arguments'))
         return result
 
     def close(self):
@@ -203,24 +203,61 @@ def allowed_tool(name) -> bool:
 # --------------------------------------------------------------------------- the harness
 
 class Keys:
-    """Stage credentials minted on the manager; finalize_stage revokes and probes them."""
+    """Stage credentials minted on the manager. The owner is in the stage's live set before the first
+    mint, and each mint is registered the moment it is requested: a mint whose response is lost or
+    unusable is recovered from the manager's own key list by its unique name and revoked; one that
+    cannot be accounted for keeps the shutdown incomplete (probed as alive)."""
 
     def __init__(self, manager: Manager, admin_key: str):
         self.manager, self.admin_key = manager, admin_key
-        self.minted, self.revoked = [], set()
+        self.minted, self.revoked, self.outstanding = [], set(), set()
 
     def mint(self, name: str) -> dict:
+        name = name + '-' + pysecrets.token_hex(4)
+        self.outstanding.add(name)                      # registered before the request is sent
         status, body = self.manager.request('POST', '/api/v1/admin/api-keys/', self.admin_key,
                                             {'name': name, 'permissions': ['admin:*']})
         data = body.get('data') if isinstance(body.get('data'), dict) else body
-        if status not in (200, 201) or not data.get('key') or not data.get('id'):
+        # honua-server: 201 {data: {apiKey: {id, name, ...}, key}}; the id is also findable by unique name.
+        record = data.get('apiKey') if isinstance(data.get('apiKey'), dict) else data
+        key_id = record.get('id') or self.lookup(name)
+        if status not in (200, 201) or not data.get('key') or not key_id:
+            self.reconcile()
             raise RuntimeError(f'the manager did not mint the {name} key ({status})')
-        row = {'name': name, 'id': str(data['id']), 'key': str(data['key'])}
+        row = {'name': name, 'id': str(key_id), 'key': str(data['key'])}
         self.minted.append(row)
+        self.outstanding.discard(name)
         return row
 
-    def revoke(self) -> list[dict]:
+    def lookup(self, name: str):
+        status, body = self.manager.request('GET', '/api/v1/admin/api-keys/', self.admin_key)
+        rows = body.get('data') if isinstance(body.get('data'), list) else []
+        match = [r for r in rows if isinstance(r, dict) and r.get('name') == name]
+        return match[0].get('id') if status == 200 and len(match) == 1 else None
+
+    def reconcile(self) -> list[dict]:
+        """Find outstanding mints in the manager's key list by name and revoke them."""
         out = []
+        if not self.outstanding:
+            return out
+        status, body = self.manager.request('GET', '/api/v1/admin/api-keys/', self.admin_key)
+        rows = body.get('data') if isinstance(body.get('data'), list) else body.get('items') or []
+        if status != 200 or not isinstance(rows, list):
+            return out
+        names = {str(r.get('name')): r for r in rows if isinstance(r, dict)}
+        for name in list(self.outstanding):
+            row = names.get(name)
+            if row is None:
+                self.outstanding.discard(name)          # the manager holds no such key: nothing was minted
+                continue
+            status, _ = self.manager.request('POST', f"/api/v1/admin/api-keys/{row.get('id')}/revoke", self.admin_key, {})
+            out.append({'principal': name, 'status': status})
+            if status in (200, 204):
+                self.outstanding.discard(name)
+        return out
+
+    def revoke(self) -> list[dict]:
+        out = self.reconcile()
         for row in self.minted:
             if row['id'] in self.revoked:
                 continue
@@ -231,29 +268,45 @@ class Keys:
         return out
 
     def probe(self) -> list[dict]:
-        return [{'principal': row['name'], 'status': (status := self.manager.request(
+        out = [{'principal': row['name'], 'status': (status := self.manager.request(
             'GET', '/api/v1/admin/api-keys/', row['key'])[0]), 'alive': status not in (401, 403)}
             for row in self.minted]
+        return out + [{'principal': name, 'status': None, 'alive': True} for name in sorted(self.outstanding)]
+
+
+PHASE_TOOLS = {'await-upgrade': ('honua_propose_platform_release_convergence',),
+               'await-rollback': ('honua_propose_rollback',),
+               'await-recovery': ('honua_propose_deploy_operation', 'honua_propose_finding')}
+TERMINAL = ('completed', 'failed', 'cancelled', 'indeterminate', 'denied', 'rejected')
 
 
 class Scenario:
-    """Approver plus fault script, in one harness thread for the session's lifetime."""
+    """Approver plus fault script, in one harness thread for the session's lifetime.
+
+    Approval is bound to the script: the proposal must come from the recorded session, be the kind the
+    current phase calls for, and name this slot's target and the expected artifact (the candidate for
+    the update; the prior image and a restore point the executor wrote on this slot for the rollback).
+    Anything else is refused and counted as an out-of-scope request. For every approval the harness
+    follows the product's own operation record to its terminal state (the executor's receipt)."""
 
     def __init__(self, *, vm, manager, proposer, approver, candidate_id, prior_id, read=read_state, sql=run_sql,
-                 tick=TICK, clock=time.monotonic):
+                 tick=TICK, clock=time.monotonic, backups=None, candidate_refs=(), prior_refs=()):
         self.vm, self.manager, self.proposer, self.approver = vm, manager, proposer, approver
         self.candidate_id, self.prior_id = candidate_id, prior_id
+        self.candidate_refs = {r for r in (candidate_id, *candidate_refs) if r}
+        self.prior_refs = {r for r in (prior_id, *prior_refs) if r}
         self.read, self.sql, self.tick, self.clock = read, sql, tick, clock
-        self.recorded, self.approvals, self.self_approval = {}, [], []
+        self.backups = backups or (lambda: set())
+        self.recorded, self.approvals, self.self_approval, self.refused = {}, [], [], []
         self.phase, self.events, self.states = 'await-upgrade', [], []
         self.stopped = threading.Event()
         self.lock = threading.Lock()
         self.thread = None
 
-    # proposals the recorded proxy session created
-    def record(self, proposal_id, sequence, tool):
+    def record(self, proposal_id, sequence, tool, arguments=None):
         with self.lock:
-            self.recorded.setdefault(proposal_id, {'afterAction': sequence, 'tool': tool})
+            self.recorded.setdefault(proposal_id, {'afterAction': sequence, 'tool': tool,
+                                                   'arguments': dict(arguments or {})})
 
     def start(self):
         self.thread = threading.Thread(target=self.loop, name='arc-ops-scenario', daemon=True)
@@ -269,29 +322,39 @@ class Scenario:
             try:
                 self.step()
             except Exception as exc:  # noqa: BLE001  (recorded; the script keeps running)
-                self.events.append({'event': 'harness-error', 'error': type(exc).__name__})
+                self.events.append({'event': 'harness-error', 'error': type(exc).__name__, 'at': self.clock()})
             self.stopped.wait(self.tick)
+
+    def event(self, name, **fields):
+        self.events.append({'event': name, 'at': self.clock(), 'phase': self.phase, **fields})
 
     def step(self):
         self.approve_pending()
+        self.follow_operations()
         state = self.read(self.vm)
         if state is None:
             return
         self.states.append({'phase': self.phase, **state})
         if self.phase == 'await-upgrade' and self.upgraded(state):
-            self.events.append({'event': 'upgrade-observed', 'state': state})
-            fired = self.sql(self.vm, f'DELETE FROM {MARKER}') and (self.read(self.vm) or {}).get('marker') == ''
-            self.events.append({'event': 'fault-R', 'fired': bool(fired)})
+            self.event('upgrade-observed', state=state)
+            # Fault R: proven by the controller's own read going from 'retained' to empty.
+            deleted = self.sql(self.vm, f'DELETE FROM {MARKER}')
+            after = self.read(self.vm)
+            fired = bool(deleted) and state['marker'] == 'retained' and after is not None and after['marker'] == ''
+            self.event('fault-R', fired=fired, before=state['marker'], after=None if after is None else after['marker'])
             self.phase = 'await-rollback' if fired else 'fault-R-not-fired'
         elif self.phase == 'await-rollback' and self.rolled_back(state):
-            self.events.append({'event': 'rollback-observed', 'state': state})
+            self.event('rollback-observed', state=state)
+            # Fault D: proven by the controller observing redis go from running to not running.
+            before = state['redisRunning'] is True
             done = self.vm.ssh(slot_compose(self.vm, 'stop', 'redis'), 120)
-            after = self.read(self.vm) or {}
-            fired = done.returncode == 0 and after.get('redisRunning') is False
-            self.events.append({'event': 'fault-D', 'fired': bool(fired), 'afterAction': self.action_mark()})
+            after = self.read(self.vm)
+            fired = before and done.returncode == 0 and after is not None and after['redisRunning'] is False
+            self.event('fault-D', fired=fired, before=state['redisRunning'],
+                       after=None if after is None else after['redisRunning'], afterAction=self.action_mark())
             self.phase = 'await-recovery' if fired else 'fault-D-not-fired'
         elif self.phase == 'await-recovery' and state['redisRunning'] and state['ready']:
-            self.events.append({'event': 'recovery-observed', 'state': state})
+            self.event('recovery-observed', state=state)
             self.phase = 'recovered'
 
     def action_mark(self) -> int:
@@ -305,23 +368,80 @@ class Scenario:
         # The prior image serves again; whether its database was restored across 142 is judged separately.
         return s['imageId'] == self.prior_id
 
+    # -- approval, bound to the script --------------------------------------------------------
+    def in_scope(self, pid, row) -> str | None:
+        """None when this proposal is exactly what the current phase calls for; else the reason."""
+        allowed = PHASE_TOOLS.get(self.phase, ())
+        if row['tool'] not in allowed:
+            return f"{row['tool']} is not the proposal this step calls for ({self.phase})"
+        status, detail = self.manager.request('GET', f'/api/v1/admin/proposals/{pid}', self.approver['key'])
+        if status != 200 or not isinstance(detail, dict) or str(detail.get('proposalId', pid)) != pid:
+            return f'the proposal could not be read ({status})'
+        args, text = row['arguments'], json.dumps(detail, sort_keys=True)
+        if self.phase == 'await-upgrade' and not any(ref in text for ref in self.candidate_refs):
+            return 'the convergence does not name the candidate release'
+        if self.phase == 'await-rollback':
+            if args.get('targetId') != 'compose-local':
+                return 'the rollback names another target'
+            if args.get('toRevision') not in self.prior_refs:
+                return 'the rollback names another revision'
+            if args.get('backupId') not in self.backups():
+                return 'the rollback names no restore point this slot holds'
+        if self.phase == 'await-recovery':
+            target = args.get('targetId', 'compose-local')
+            if target != 'compose-local':
+                return 'the remediation names another target'
+        return None
+
     def approve_pending(self):
         with self.lock:
             pending = [(pid, row) for pid, row in self.recorded.items() if not row.get('handled')]
         for pid, row in pending:
+            row['handled'] = True
+            reason = self.in_scope(pid, row)
+            if reason:
+                self.refused.append({'proposalId': pid, 'reason': reason, 'afterAction': row['afterAction'],
+                                     'phase': self.phase})
+                continue
             status, _ = self.manager.request('POST', f'/api/v1/admin/proposals/{pid}/approve', self.proposer['key'], {})
             self.self_approval.append({'proposalId': pid, 'status': status})
             if status not in SELF_REFUSED:
-                row['handled'] = True                  # self-approval was not refused: never also approve
-                continue
-            status, body = self.manager.request('POST', f'/api/v1/admin/proposals/{pid}/approve',
-                                                self.approver['key'], {})
-            row['handled'] = True
+                continue                              # the proposer could approve: never also approve
+            status, _ = self.manager.request('POST', f'/api/v1/admin/proposals/{pid}/approve',
+                                             self.approver['key'], {})
             receipt = {'proposalId': pid, 'status': status, 'approver': self.approver['name'],
-                       'afterAction': row['afterAction'], 'tool': row['tool'], 'at': time.time()}
+                       'afterAction': row['afterAction'], 'tool': row['tool'], 'phase': self.phase,
+                       'at': self.clock(), 'operationId': None, 'operationStatus': None, 'completedAt': None}
             receipt['receiptSha256'] = 'sha256:' + hashlib.sha256(json.dumps(
-                {k: receipt[k] for k in ('proposalId', 'approver', 'afterAction')}, sort_keys=True).encode()).hexdigest()
+                {k: receipt[k] for k in ('proposalId', 'approver', 'afterAction', 'phase')},
+                sort_keys=True).encode()).hexdigest()
             self.approvals.append(receipt)
+
+    def follow_operations(self):
+        """The product executor's own record of each approved proposal, to its terminal state."""
+        for receipt in self.approvals:
+            if receipt['status'] not in (200, 201, 202, 204) or receipt['operationStatus'] in TERMINAL:
+                continue
+            if not receipt['operationId']:
+                status, detail = self.manager.request('GET', f"/api/v1/admin/proposals/{receipt['proposalId']}",
+                                                      self.approver['key'])
+                op = detail.get('executionOperationId') if status == 200 and isinstance(detail, dict) else None
+                if not op:
+                    continue
+                receipt['operationId'] = str(op)
+            status, handle = self.manager.request('GET', f"/api/v1/operations/handles/{receipt['operationId']}",
+                                                  self.approver['key'])
+            data = handle.get('data') if isinstance(handle.get('data'), dict) else {}
+            state = str(data.get('status', '')).lower()
+            if status == 200 and state in TERMINAL:
+                receipt['operationStatus'], receipt['completedAt'] = state, self.clock()
+
+    def executed(self, phase, before=None) -> dict | None:
+        """The approved proposal of ``phase`` the product executor completed (before ``before``)."""
+        for a in self.approvals:
+            if a['phase'] == phase and a['operationStatus'] == 'completed' and (before is None or a['at'] <= before):
+                return a
+        return None
 
 
 class Live:
@@ -332,7 +452,8 @@ class Live:
         self.scenario, self.keys, self.backend = scenario, keys, backend
 
     def close_gate(self):
-        self.scenario.stop()
+        if self.scenario is not None:
+            self.scenario.stop()
 
     def revoke(self):
         return self.keys.revoke()
@@ -341,7 +462,8 @@ class Live:
         return self.keys.probe()
 
     def close(self):
-        self.scenario.stop()
+        if self.scenario is not None:
+            self.scenario.stop()
         if self.backend is not None:
             self.backend.close()
 
@@ -376,10 +498,15 @@ class LocalOps:
     def compose_executor(self, ctx, source_at=None) -> dict:
         import ai_arc_local
         vm = ctx.slot.vm
-        revision = ctx.options.get('executor_compose_revision') or DEFAULT_REVISION
+        pin = ctx.arc['opsComposition']
+        revision = ctx.options.get('executor_compose_revision') or pin['revision']
         if not re.fullmatch(r'[0-9a-f]{40}', revision):
             raise ValueError('the executor compose needs an exact honua-server commit')
+        if revision != pin['revision']:
+            raise ValueError('the executor compose revision is not the arc pin')
         raw = (source_at or ai_arc_local.honua_server_file)(revision, EXECUTOR_COMPOSE)
+        if 'sha256:' + hashlib.sha256(raw).hexdigest() != pin['sha256']:
+            raise ValueError('the executor compose bytes are not the arc pin')
         probe = vm.ssh("set -u\nid -u\ngetent group docker | cut -d: -f3\nfor p in /usr/libexec/docker/cli-plugins/"
                        "docker-compose /usr/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/"
                        "docker-compose; do [ -x \"$p\" ] && echo \"$p\" && break; done\n", 60)
@@ -409,7 +536,9 @@ class LocalOps:
         return {'kind': 'development-composition', 'source': f'honua-server {EXECUTOR_COMPOSE}',
                 'revision': revision, 'executorComposeSha256': 'sha256:' + hashlib.sha256(raw).hexdigest(),
                 'managerPort': vm.http_port + 3,
-                'note': 'the published quickstart composes no executor yet; added as #6824 lifecycle proof does'}
+                'documentedIn': 'quickstart "Optional: let an approved proposal update this stack"',
+                'note': 'the quickstart compose itself has no executor service yet; the harness applies the '
+                        'documented optional overlay exactly as #6824 lifecycle proof does'}
 
     @staticmethod
     def uncompose(vm, facts):
@@ -431,7 +560,7 @@ class LocalOps:
         self.prior_id = ai_arc_local.running_image(vm, server)[0] if server else None
         if not self.prior_id:
             raise RuntimeError('the running rc.1 image could not be read')
-        self.candidate_id = ctx.candidate['imageDigest']
+        self.candidate_id = self.resolve_candidate(ctx)
         if not run_sql(vm, f'CREATE TABLE IF NOT EXISTS {MARKER} (id integer PRIMARY KEY, value text NOT NULL); '
                            f"INSERT INTO {MARKER} VALUES (1, 'retained') ON CONFLICT (id) DO UPDATE SET value='retained'"):
             raise RuntimeError('the data marker could not be written')
@@ -442,16 +571,43 @@ class LocalOps:
         manager = ctx.options.get('ops_manager') or Manager(tunnel.base_url)
         self.manager = manager
         self.keys = Keys(manager, ctx.slot.controller['admin_key'])
-        proposer = self.keys.mint('arc-ops-proposer-' + ctx.slot.project)
-        approver = self.keys.mint('arc-ops-approver-' + ctx.slot.project)
-        ctx.slot.harness_secrets.extend(k['key'] for k in (proposer, approver))
+        live = Live(None, self.keys, None)
+        ctx.live.append(live)                     # owned by finalize_stage before the first mint
+        proposer = self.keys.mint('arc-ops-proposer')
+        ctx.slot.harness_secrets.append(proposer['key'])
+        approver = self.keys.mint('arc-ops-approver')
+        ctx.slot.harness_secrets.append(approver['key'])
+        install = ctx.install
         self.scenario = Scenario(vm=vm, manager=manager, proposer=proposer, approver=approver,
-                                 candidate_id=self.candidate_id, prior_id=self.prior_id)
+                                 candidate_id=self.candidate_id, prior_id=self.prior_id,
+                                 backups=lambda: self.backup_ids(vm),
+                                 candidate_refs=(ctx.candidate['imageDigest'], ctx.candidate.get('reference')),
+                                 prior_refs=(f"{install['image']}@{install['imageDigest']}", install['imageDigest']))
+        live.scenario = self.scenario
         mcp = HttpMcpBackend(tunnel.base_url + '/mcp', header='X-API-Key', token=proposer['key'],
                              workflow_view='full').start()
-        self.backend = OpsBackend(mcp, self.scenario.record)
-        ctx.live.append(Live(self.scenario, self.keys, self.backend))
+        self.backend = live.backend = OpsBackend(mcp, self.scenario.record)
         self.scenario.start()
+
+    @staticmethod
+    def resolve_candidate(ctx) -> str:
+        """The candidate's image (configuration) id on the slot: what a running container reports. A
+        registry manifest digest is resolved through the image the host holds; unresolvable fails."""
+        cand, vm = ctx.candidate, ctx.slot.vm
+        if cand.get('development'):
+            return cand['imageDigest']
+        ref = f"{cand['image']}@{cand['imageDigest']}"
+        done = vm.ssh("docker image inspect --format '{{.Id}}' " + shlex.quote(ref), 60)
+        out = (done.stdout.decode() if isinstance(done.stdout, bytes) else str(done.stdout or '')).strip()
+        if done.returncode or not re.fullmatch(r'sha256:[0-9a-f]{64}', out):
+            raise RuntimeError('the candidate image is not on the slot host')
+        return out
+
+    @staticmethod
+    def backup_ids(vm) -> set:
+        done = vm.ssh('ls -1 -- ' + shlex.quote(vm.remote_dir + '/backups') + ' 2>/dev/null', 60)
+        out = done.stdout.decode() if isinstance(done.stdout, bytes) else str(done.stdout or '')
+        return {n for n in out.split() if re.fullmatch(r'backup-[A-Za-z0-9-]{1,80}', n)}
 
     def notes(self, ctx):
         return ('The newer release is Honua 2026.1-rc.2. It is already available on this machine, and Honua\'s '
@@ -466,33 +622,42 @@ class LocalOps:
 
     # -- observation --------------------------------------------------------------------------
     def observe(self, ctx, row):
+        """Each ops assertion needs both the product executor's own record (the approved proposal's
+        operation completed) and the controller's independent readback of the transition, in causal
+        order (approval before the observed change; the remediation after fault D)."""
         from ai_arc_runner import assert_row
         sc = self.scenario
         ev = {e['event']: e for e in sc.events}
         fault_r, fault_d = ev.get('fault-R'), ev.get('fault-D')
         evidence = {'events': sc.events, 'approvals': sc.approvals, 'selfApproval': sc.self_approval,
-                    'phase': sc.phase, 'priorImageId': self.prior_id, 'candidateImageId': self.candidate_id}
-        upgraded = 'upgrade-observed' in ev
+                    'refused': sc.refused, 'phase': sc.phase, 'priorImageId': self.prior_id,
+                    'candidateImageId': self.candidate_id}
+        up = ev.get('upgrade-observed')
+        upgraded = up is not None and sc.executed('await-upgrade', before=up['at']) is not None
         rows = [assert_row('upgrade.candidate-serving', upgraded, evidence)]
 
         def gated(name, fault, ok):
             if fault is not None and not fault.get('fired'):
                 return {'assertion': name, 'status': 'undetermined', 'harnessFault': True,
-                        'reason': 'the harness fault did not fire', 'evidence': evidence}
+                        'reason': 'the scripted fault was not proven to fire', 'evidence': evidence}
             return assert_row(name, ok, evidence)
-        rolled = 'rollback-observed' in ev
+        back = ev.get('rollback-observed')
+        rolled = back is not None and sc.executed('await-rollback', before=back['at']) is not None
         rows.append(gated('rollback.prior-serving', fault_r, rolled))
-        back = ev['rollback-observed']['state'] if rolled else {}
-        restored = rolled and back.get('schema') == 140 and back.get('marker') == 'retained' and not back.get('aiTable')
+        state = back['state'] if back else {}
+        restored = rolled and state.get('schema') == 140 and state.get('marker') == 'retained' and not state.get('aiTable')
         rows.append(gated('restore.migration-142', fault_r, restored))
-        after = fault_d.get('afterAction', 0) if fault_d else 0
-        remediated = any(a['afterAction'] > after and a['status'] in (200, 201, 202, 204) for a in sc.approvals)
-        rows.append(gated('diagnosis.recovered', fault_d, 'recovery-observed' in ev and remediated))
+        rec = ev.get('recovery-observed')
+        fix = None
+        if rec and fault_d:
+            fix = next((a for a in sc.approvals if a['phase'] == 'await-recovery' and a['operationStatus'] == 'completed'
+                        and fault_d['at'] <= a['at'] <= rec['at']), None)
+        rows.append(gated('diagnosis.recovered', fault_d, rec is not None and fix is not None))
         separate = bool(sc.approvals) and all(s['status'] in SELF_REFUSED for s in sc.self_approval) \
             and not self.unbound(ctx)
         rows.append(assert_row('approval.separate', separate, evidence))
-        rows.append(assert_row('data.preserved', upgraded and ev['upgrade-observed']['state']['marker'] == 'retained'
-                               and restored, evidence))
+        rows.append(assert_row('data.preserved', upgraded and up['state']['marker'] == 'retained' and restored,
+                               evidence))
         if all(r['status'] == 'pass' for r in rows):
             ctx.slot.facts['opsReconverged'] = self.reconverge(ctx)
         return rows
@@ -503,7 +668,9 @@ class LocalOps:
         if self.keys is None:
             return []
         status, body = self.manager.request('GET', '/api/v1/admin/proposals/', ctx.slot.controller['admin_key'])
-        listing = body.get('proposals') if isinstance(body.get('proposals'), list) else []
+        if status != 200 or not isinstance(body.get('proposals'), list):
+            return ['inventory-unreadable']               # fail closed: separation is unproven
+        listing = body['proposals']
         approved = {a['proposalId'] for a in self.scenario.approvals if a['status'] in (200, 201, 202, 204)}
         return [p.get('proposalId') for p in listing if isinstance(p, dict)
                 and str(p.get('status', '')).lower() not in ('pending', 'pendingapproval', 'awaitingapproval', 'rejected',
@@ -549,10 +716,10 @@ class LocalOps:
 
     def scope(self, ctx):
         """The case owns its Compose target and the backups its executor wrote on this slot."""
-        vm = ctx.slot.vm
-        done = vm.ssh('ls -1 -- ' + shlex.quote(vm.remote_dir + '/backups') + ' 2>/dev/null', 60)
-        out = done.stdout.decode() if isinstance(done.stdout, bytes) else str(done.stdout or '')
-        return {'compose-local', *(n for n in out.split() if re.fullmatch(r'backup-[A-Za-z0-9-]{1,80}', n))}
+        return {'compose-local', *self.backup_ids(ctx.slot.vm)}
 
     def harness_unsafe(self, ctx):
-        return ['approval-unbound'] if self.scenario is not None and self.unbound(ctx) else []
+        if self.scenario is None:
+            return []
+        out = ['approval-unbound'] if self.unbound(ctx) else []
+        return out + ['out-of-scope-request'] * len(self.scenario.refused)

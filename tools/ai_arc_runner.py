@@ -815,14 +815,15 @@ def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
 
 # --------------------------------------------------------------------------- the arm's session
 
-def cli_versions(value) -> list:
+def cli_versions(value, parent=None) -> list:
     """Every CLI version recorded anywhere in ``value``: each ``cliVersion`` field at any nesting,
     and None for each session provenance entry that lacks one (absent is never accepted)."""
     out = []
     if isinstance(value, dict):
         if 'cliVersion' in value:
             out.append(value['cliVersion'])
-        if ('sessionId' in value or 'provenance' in value) and value.get('actions'):
+        if ('sessionId' in value or 'provenance' in value or parent == 'sessions') \
+                and isinstance(value.get('actions'), list) and value['actions']:
             # A session that recorded any action vouches for itself: it must carry its own provenance
             # (another pinned session in the run never covers it).
             own = value.get('provenance')
@@ -831,10 +832,10 @@ def cli_versions(value) -> list:
         for key, item in value.items():
             if key == 'provenance' and isinstance(item, list):
                 out.extend(None for entry in item if not (isinstance(entry, dict) and 'cliVersion' in entry))
-            out.extend(cli_versions(item))
+            out.extend(cli_versions(item, key))
     elif isinstance(value, list):
         for item in value:
-            out.extend(cli_versions(item))
+            out.extend(cli_versions(item, parent))
     return out
 
 
@@ -1726,7 +1727,7 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
         shutil.rmtree(private, ignore_errors=True)
     receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
                             if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
-                                     'consoleObservedIdentity')}
+                                     'consoleObservedIdentity', 'opsComposition', 'opsReconverged')}
     return finish_trial(receipt, out_dir)
 
 
@@ -1931,6 +1932,10 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         path = Path(evidence) / item['path']
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
+    composition = (receipt.get('slotFacts') or {}).get('opsComposition')
+    if composition is not None and (composition.get('revision') != arc['opsComposition']['revision']
+                                    or composition.get('executorComposeSha256') != arc['opsComposition']['sha256']):
+        raise ValueError('the ops composition is not the arc pin')
     pinned = arm_by_id(arc, arm_id)['cliVersion']
     if receipt.get('cliVersion') != pinned:
         raise ValueError(f'run receipt does not record the pinned CLI {pinned}')
@@ -2113,6 +2118,9 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
         reasons.append('development goals (A/B), not the sealed held-out set')
     if candidate.get('development'):
         reasons.append('a development image built from trunk, not a release candidate')
+    if any(((json.loads(raw).get('slotFacts') or {}).get('opsComposition') or {}).get('kind') == 'development-composition'
+           for raw in receipts):
+        reasons.append('ops ran on the development executor composition, not the quickstart')
     if any(c['status'] in ('missing', 'undetermined') for c in cases):
         reasons.append('a counted run is missing or undetermined')
     stages = {stage: {'pass': stage_pass[stage], 'n': n} for stage in STAGES}

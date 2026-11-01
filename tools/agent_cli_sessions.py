@@ -236,7 +236,11 @@ class RecordingProxy:
             valid = name in self.names and isinstance(arguments, dict)
         elif method == 'resources/read':
             action = {'kind': 'resource_read', 'uri': params.get('uri')}
-            valid = self.server_name in (None, 'honua') and action['uri'] == 'honua://catalog/processes'
+            uri = action['uri'] if isinstance(action['uri'], str) else ''
+            # Proposal resources are readable only on a surface that offers proposal tools (arc ops).
+            proposals = any(n.startswith('honua_propose_') for n in self.names) and bool(
+                re.fullmatch(r'honua://proposals/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}', uri))
+            valid = self.server_name in (None, 'honua') and (uri == 'honua://catalog/processes' or proposals)
         else:
             # Optional MCP discovery extensions are not model actions. Reject
             # them at the protocol boundary without killing an otherwise valid session.

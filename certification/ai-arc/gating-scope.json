@@ -3,26 +3,11 @@
   "approvedBy": null,
   "approvedAt": null,
   "opsScope": {
-    "aws-ecs": "executed-subset",
+    "aws-ecs": "not-gating",
     "local-docker": "full"
   },
-  "scoredOps": {
-    "aws-ecs": [
-      "diagnosis.recovered",
-      "approval.separate"
-    ]
-  },
+  "scoredOps": {},
   "measuredOperations": {
-    "aws-ecs": [
-      {
-        "kind": "restart/config remediation",
-        "executor": "https://github.com/honua-io/honua-server/pull/6826",
-        "assertions": [
-          "diagnosis.recovered",
-          "approval.separate"
-        ]
-      }
-    ],
     "local-docker": [
       {
         "kind": "compose release convergence",
@@ -38,5 +23,5 @@
       }
     ]
   },
-  "note": "Proposed prereg option B for aws-ecs (option A for local-docker). Applies only once the founder sets approvedBy=founder and approvedAt; until then every target is scored in full."
+  "note": "Coordinator decision for rc.2: aws-ecs is prereg option C (not gating; its ops stays unavailable); local-docker is option A. Applies only once the founder sets approvedBy=founder and approvedAt; until then every target is scored in full."
 }

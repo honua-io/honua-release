@@ -21,16 +21,55 @@ git -C "$src" cat-file -e "$sha^{commit}"
 tag="honua-arc-dev/honua-server:${sha:0:12}"
 first=$1
 
-git -C "$src" archive --format=tar "$sha" |
-  DOCKER_HOST="ssh://$first" docker build --quiet \
-    --label "org.opencontainers.image.revision=$sha" \
-    --label "org.opencontainers.image.source=https://github.com/honua-io/honua-server" \
-    --label "io.honua.arc.development=true" \
-    -f "${HONUA_DOCKERFILE:-docker/Dockerfile.aot}" -t "$tag" - >/dev/null
+# The build client runs in the background: it has been seen to hang after the remote build finished.
+# The first host is polled for the tag carrying this revision label; as soon as it exists the client
+# is no longer needed. A client that fails before the image appears, or the timeout, fails the build.
+timeout_s=${HONUA_DEV_BUILD_TIMEOUT:-7200}
+poll_s=${HONUA_DEV_BUILD_POLL:-15}
+log=$(mktemp)
+( git -C "$src" archive --format=tar "$sha" |
+    DOCKER_HOST="ssh://$first" docker build --quiet \
+      --label "org.opencontainers.image.revision=$sha" \
+      --label "org.opencontainers.image.source=https://github.com/honua-io/honua-server" \
+      --label "io.honua.arc.development=true" \
+      -f "${HONUA_DOCKERFILE:-docker/Dockerfile.aot}" -t "$tag" - >"$log" 2>&1 ) &
+client=$!
+built() {
+  [ "$(DOCKER_HOST="ssh://$first" docker image inspect \
+        --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$tag" 2>/dev/null)" = "$sha" ]
+}
+deadline=$(( $(date +%s) + timeout_s ))
+while :; do
+  if built; then
+    kill "$client" 2>/dev/null || true
+    wait "$client" 2>/dev/null || true
+    break
+  fi
+  if ! kill -0 "$client" 2>/dev/null; then
+    if wait "$client"; then status=0; else status=$?; fi
+    built && break
+    echo "docker build exited $status before the image appeared" >&2
+    tail -20 "$log" >&2
+    exit 1
+  fi
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    kill "$client" 2>/dev/null || true
+    echo "the build did not produce $tag within ${timeout_s}s" >&2
+    exit 1
+  fi
+  sleep "$poll_s"
+done
+rm -f "$log"
 
 image_id=$(DOCKER_HOST="ssh://$first" docker image inspect --format '{{.Id}}' "$tag")
 for host in "${@:2}"; do
-  DOCKER_HOST="ssh://$first" docker save "$tag" | DOCKER_HOST="ssh://$host" docker load --quiet >/dev/null
+  if ssh -o BatchMode=yes "$first" 'command -v zstd' >/dev/null 2>&1 &&
+     ssh -o BatchMode=yes "$host" 'command -v zstd' >/dev/null 2>&1; then
+    ssh -o BatchMode=yes "$first" "docker save $tag | zstd -1 -T0 -q" |
+      ssh -o BatchMode=yes "$host" 'zstd -d -q | docker load -q' >/dev/null
+  else
+    DOCKER_HOST="ssh://$first" docker save "$tag" | DOCKER_HOST="ssh://$host" docker load --quiet >/dev/null
+  fi
   copied=$(DOCKER_HOST="ssh://$host" docker image inspect --format '{{.Id}}' "$tag")
   [ "$copied" = "$image_id" ] || { echo "image id differs on $host" >&2; exit 1; }
 done

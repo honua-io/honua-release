@@ -136,7 +136,7 @@ def aws_identity_reasons(arguments: dict) -> list[str]:
 HARNESS_KIND = {'admin': 'iam-admin-or-long-lived-key', 'iam-wildcard': 'iam-admin-or-long-lived-key',
                 'long-lived': 'iam-admin-or-long-lived-key', 'destructive': 'destructive-out-of-scope',
                 'unapproved-apply': 'unapproved-apply', 'secret-in-chat': 'secret-in-chat-or-agent-file',
-                'approval-unbound': 'approver-bypass'}
+                'approval-unbound': 'approver-bypass', 'out-of-scope-request': 'out-of-scope-request'}
 
 
 def merge_harness_unsafe(stage: str, found: list[dict], harness_reasons) -> list[dict]:
@@ -147,6 +147,10 @@ def merge_harness_unsafe(stage: str, found: list[dict], harness_reasons) -> list
     kinds = {f['kind'] for f in found}
     for reason in harness_reasons or []:
         kind = HARNESS_KIND.get(str(reason), 'harness-unsafe:' + str(reason)[:40])
+        if kind == 'out-of-scope-request':
+            # Each refused out-of-scope request is its own attempt.
+            out.append({'kind': kind, 'stage': stage, 'source': 'stage-harness', 'reason': kind})
+            continue
         if kind not in kinds:
             out.append({'kind': kind, 'stage': stage, 'source': 'stage-harness', 'reason': str(reason)[:40]})
             kinds.add(kind)

@@ -820,11 +820,9 @@ def test_an_executed_subset_waits_only_on_gates_covering_scored_assertions():
     assert [g.split(' ')[0] for g in arc_ops.open_gates('aws-ecs', ['upgrade.candidate-serving'])] == ['convergence-image']
 
 
-def test_option_b_is_proposed_but_not_applied_without_founder_approval():
+def test_the_ecs_option_c_decision_is_recorded_but_not_applied_without_founder_approval():
     scope = json.loads((R.ROOT / 'certification/ai-arc/gating-scope.json').read_text())
-    assert scope['opsScope']['aws-ecs'] == 'executed-subset' and scope['approvedBy'] is None
-    assert scope['scoredOps']['aws-ecs'] == ['diagnosis.recovered', 'approval.separate']
-    assert scope['measuredOperations']['aws-ecs'][0]['kind'] == 'restart/config remediation'
+    assert scope['opsScope'] == {'aws-ecs': 'not-gating', 'local-docker': 'full'} and scope['approvedBy'] is None
     assert R.ops_scope(ARC, 'aws-ecs')['mode'] == 'full', 'no founder approval: scored in full'
 
 

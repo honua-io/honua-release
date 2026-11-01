@@ -1203,3 +1203,52 @@ def test_pinned_corpus_sessions_and_a_refused_one_are_admitted(tmp_path):
     run(tmp_path, mods=modules(**stages))
     aggregate, _ = _admit(tmp_path, '001')
     assert aggregate['completed'] == 1
+
+
+# ---------------------------------------------------------------- Sol review 5725726297 items 6 and 7
+
+def test_a_nested_session_with_neither_id_nor_provenance_is_not_admitted(tmp_path):
+    """Sol P1 CLI evidence: an action-bearing record inside a 'sessions' list with no sessionId and no
+    provenance key at all."""
+    class Services(FakeStage):
+        def run(self, ctx, session, prompt):
+            row = super().run(ctx, session, prompt)
+            R.write_private(ctx.private_dir / 'services' / 'corpus' / 'P15' / 'receipt.json', R.canonical(
+                {'scenario': 'P15', 'sessions': [{'actions': [{'tool': 'honua_query_features'}]}]}))
+            return row
+    stages = {s: FakeStage(s) for s in R.STAGES}
+    stages['services'] = Services('services')
+    run(tmp_path, mods=modules(**stages))
+    with pytest.raises(ValueError, match='retained evidence records a CLI'):
+        _admit(tmp_path, '001')
+
+
+class Composed(FakeStage):
+    def __init__(self, stage, composition):
+        super().__init__(stage)
+        self.composition = composition
+
+    def prepare(self, ctx):
+        ctx.slot.facts['opsComposition'] = self.composition
+
+
+def _composition(**change):
+    pin = ARC['opsComposition']
+    return {'kind': 'development-composition', 'revision': pin['revision'], 'executorComposeSha256': pin['sha256'],
+            **change}
+
+
+def test_a_development_composition_run_is_never_certifying(tmp_path):
+    run(tmp_path, mods=modules(ops=Composed('ops', _composition())))
+    receipt = json.loads((tmp_path / '001' / 'trial-receipt.json').read_text())
+    assert receipt['slotFacts']['opsComposition']['kind'] == 'development-composition'
+    aggregate, report = _admit(tmp_path, '001')
+    assert aggregate.get('certifying') is False
+    assert 'ops ran on the development executor composition, not the quickstart' in report['notCertifyingBecause']
+
+
+@pytest.mark.parametrize('change', [{'revision': 'f' * 40}, {'executorComposeSha256': 'sha256:' + '0' * 64}])
+def test_a_composition_other_than_the_arc_pin_is_not_admitted(tmp_path, change):
+    run(tmp_path, mods=modules(ops=Composed('ops', _composition(**change))))
+    with pytest.raises(ValueError, match='ops composition'):
+        _admit(tmp_path, '001')
