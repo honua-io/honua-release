@@ -90,7 +90,7 @@ def verify(before, after, controller_principals, *, forbid_assistant=False):
                 'Studio assistant was invoked during CLI session')
 
 
-def assistant_usage(before, after, *, user_id, subject, model, observed_calls, agent_key_id=None):
+def assistant_usage(before, after, *, user_id, subject, model, observed_calls, agent_key_id=None, allow_failed=False):
     """Bind model and usage to customer-attributed server AI audit records."""
     require(isinstance(user_id, str) and user_id.startswith('subject:')
             and isinstance(subject, str) and subject, 'customer identity is unavailable')
@@ -112,7 +112,8 @@ def assistant_usage(before, after, *, user_id, subject, model, observed_calls, a
         require(actor in (subject, user_id, canonical_subject) or actor.endswith(':' + canonical_subject)
                 or actor.casefold() in key_actors,
                 'Studio AI audit is not attributed to the customer')
-        require(event.get('outcome') == 'Success' and isinstance(event.get('details'), str),
+        require((event.get('outcome') == 'Success' or allow_failed and isinstance(event.get('outcome'), str)
+                 and bool(event['outcome'])) and isinstance(event.get('details'), str),
                 'Studio AI audit reports a failed or incomplete call')
         try:
             detail = json.loads(event['details'])

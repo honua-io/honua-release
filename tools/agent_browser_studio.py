@@ -521,8 +521,33 @@ class PlaywrightPage:
                         response = fetch()
                         raw = response.body()
                         require(len(raw) <= MAX_BODY, 'assistant tool response exceeds bound')
-                        return {'status': 'ok' if 200 <= response.status < 300 else 'fail',
-                                '_rawResponse': (response.status, raw)}
+                        try:
+                            content_type = response.headers.get('content-type', '').lower()
+                            if 'text/event-stream' in content_type:
+                                frames = raw.replace(b'\r\n', b'\n').split(b'\n\n')
+                                messages = [json.loads(data) for frame in frames[:-1]
+                                    if (data := b'\n'.join(line[5:].lstrip() for line in frame.split(b'\n')
+                                                           if line.startswith(b'data:')))]
+                                messages = [item for item in messages if isinstance(item, dict)
+                                            and item.get('id') == payload.get('id') and 'id' in item]
+                                if len(messages) != 1:
+                                    raise ValueError('missing or duplicate MCP response')
+                                message = messages[0]
+                            else:
+                                message = json.loads(raw)
+                            error = message.get('error') if isinstance(message, dict) else None
+                            result = message.get('result') if isinstance(message, dict) else None
+                            failed = (not isinstance(message, dict) or 'error' in message or not isinstance(result, dict)
+                                      or result.get('isError') is True)
+                            code = error.get('code') if isinstance(error, dict) else None
+                            code = code if type(code) is int else 'mcp-tool-error'
+                        except (ValueError, TypeError):
+                            failed, code = True, 'invalid-mcp-response'
+                        out = {'status': 'ok' if 200 <= response.status < 300 and not failed else 'fail',
+                               '_rawResponse': (response.status, raw)}
+                        if out['status'] == 'fail':
+                            out['errorCode'] = code if 200 <= response.status < 300 else response.status
+                        return out
 
                     self._assistant_log.dispatch('tool_call', selected, recorded)
                     return

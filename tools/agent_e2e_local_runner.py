@@ -745,6 +745,8 @@ class ActionLog:
             row.update(resultRawSha256='sha256:' + hashlib.sha256(raw).hexdigest(), resultRawPath=str(result_path),
                        resultHttpStatus=status)
         row['status'] = 'pass' if execution.get('status') in ('ok', 'pass') else 'fail'
+        if type(execution.get('errorCode')) is int or execution.get('errorCode') in ('mcp-tool-error', 'invalid-mcp-response'):
+            row['errorCode'] = execution['errorCode']
         if execution.get('refusal') == 'out-of-scope':
             row['refusal'] = 'out-of-scope'
         row['resultDigest'] = 'sha256:' + hashlib.sha256(action_bytes(execution)).hexdigest()
@@ -898,6 +900,48 @@ def _session_receipt(row, session_id):
                                   if isinstance(row.get('finalAnswer'), str) else None)}
 
 
+def retain_interrupted_studio_usage(receipt, recorder, runtime, stack, before, controller_principals, provider, region):
+    """Keep controller-audited counters on a failed assistant session, without making it pass."""
+    from agent_studio_session_audit import assistant_usage, snapshot, verify
+    from agent_e2e_studio_customer_session import MODEL
+    from agent_browser_studio import remote_docker_host
+    from agent_studio_provider_evidence import inspect_region
+    try:
+        recorder.set_phase('observe')
+        after = snapshot(recorder, 'after')
+        verify(before, after, controller_principals)
+        if inspect_region(remote_docker_host(), stack.compose_project, provider) != region:
+            raise ValueError('provider changed')
+        identity = runtime._console_identities.get(stack.compose_project) or {}
+        owner = runtime.custody(stack)
+        if (owner.get('agentKeyId') != stack.extra.get('agentPrincipal')
+                or owner.get('agentKeyOwnerUserId') != identity.get('userId')):
+            raise ValueError('customer custody differs')
+        events = {key: event for key, event in after.items() if key not in before
+                  and event.get('resourceType') == 'studio_ai_provider' and event.get('action') == 'studio_ai.chat'}
+        usage, actors, rejected = [], set(), 0
+        for key, event in events.items():
+            try:
+                usage.extend(assistant_usage(before, {**before, key: event}, user_id=identity.get('userId'),
+                    subject=identity.get('subject'), model=MODEL, observed_calls=1,
+                    agent_key_id=owner['agentKeyId'], allow_failed=True))
+                actors.add(event['actor'])
+            except (ProjectionError, TypeError, ValueError):
+                rejected += 1
+        if actors and hasattr(runtime, 'register_assistant_actors'):
+            runtime.register_assistant_actors(actors)
+        receipt['model'] = MODEL
+        receipt['sessions'][-1]['modelId'] = MODEL
+        receipt['sessions'][-1]['usage'] = usage
+        receipt['tokens'] += sum(item['prompt_tokens'] + item['completion_tokens'] for item in usage)
+        receipt['studioAssistant'] = {'model': MODEL, 'region': region['region'], 'provider': provider,
+            'usage': usage, 'usageStatus': 'partial', 'unavailableCalls': rejected,
+            'evidenceSteps': ['studio-ai-capabilities', 'studio-ai-provider-config'] + sorted(
+                step for step in recorder.records if step.startswith('studio-audit-after-'))}
+    except Exception:  # Audit failures must not replace the interrupted model verdict.
+        receipt['studioAssistant'] = {'usageStatus': 'unavailable'}
+
+
 def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime):
     """Execute one case once; the runtime owns the fresh stack, credentials and recorder."""
     prompt = case['prompts'][variant]
@@ -998,6 +1042,11 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                 receipt['sessions'].append(_session_receipt({**exc.progress, 'finalAnswer': None}, session_id))
                 receipt['nudges'] += exc.progress['nudges']
                 receipt['tokens'] += exc.progress['tokens']
+                if agent == 'console-assistant' and studio_audit_before is not None:
+                    receipt['tokens'] -= exc.progress['tokens']  # Only controller-audited counters count.
+                    receipt['sessions'][-1]['usage'] = []
+                    retain_interrupted_studio_usage(receipt, recorder, runtime, stack, studio_audit_before,
+                                                    studio_controller_actors, provider, region_evidence)
                 raise
             sessions.append(row)
             session_ids.append(session_id)

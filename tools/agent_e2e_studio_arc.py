@@ -292,6 +292,7 @@ def scored_actions(driver, actions, receipts):
                                                                      'studio_customer_type'):
             continue
         joined.append({**action, 'status': receipt['status'],
+                       **({'errorCode': receipt['errorCode']} if 'errorCode' in receipt else {}),
                        **({'refusal': 'out-of-scope'} if receipt.get('refusal') == 'out-of-scope' else {})})
     return joined
 

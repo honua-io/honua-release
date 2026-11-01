@@ -328,6 +328,61 @@ def test_studio_controller_audit_event_fails_the_case(candidate, tmp_path, monke
     assert runtime.torn_down
 
 
+@pytest.mark.parametrize('reason', ['call bound exceeded', 'time limit', 'stalled after the continuation',
+                                    'no frozen answer'])
+def test_interrupted_studio_session_retains_audited_usage(candidate, tmp_path, monkeypatch, reason):
+    import agent_studio_session_audit as audit
+    import agent_studio_provider_evidence as provider
+    import agent_browser_studio as browser
+
+    class StudioCase(FakeP10):
+        def seed(self, stack, variant):
+            seeded = super().seed(stack, variant)
+            stack.extra['needsStudioBrowser'] = True
+            return seeded
+
+    key = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    user = 'subject:issuer:customer@tenant:public'
+    event = {'actor': 'bearer:subject:issuer:customer', 'resourceType': 'studio_ai_provider',
+             'action': 'studio_ai.chat', 'outcome': 'Success',
+             'details': json.dumps({'kind': 'bedrock', 'model': 'us.anthropic.claude-sonnet-4-6',
+                                    'promptTokens': 120, 'completionTokens': 8})}
+    failed_event = {**event, 'outcome': 'Failure', 'details': json.dumps({
+        'kind': 'bedrock', 'model': 'us.anthropic.claude-sonnet-4-6', 'promptTokens': 30, 'completionTokens': 2})}
+    snapshots = iter(({}, {1: event, 2: failed_event}))
+    monkeypatch.setattr(audit, 'snapshot', lambda recorder, label: next(snapshots))
+    monkeypatch.setattr(audit, 'controller_actors', lambda recorder, value: frozenset({'admin'}))
+    monkeypatch.setattr(audit, 'verify_capabilities', lambda *args: 'bedrock')
+    monkeypatch.setattr(provider, 'retain_region', lambda *args: {'region': 'us-east-1'})
+    monkeypatch.setattr(provider, 'inspect_region', lambda *args: {'region': 'us-east-1'})
+    monkeypatch.setattr(browser, 'remote_docker_host', lambda: 'honua-eval-4')
+    runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
+    runtime.agent = 'console-assistant'
+    runtime.attest = lambda *args: None
+    runtime.custody = lambda stack: {'agentKeyId': key, 'agentKeyOwnerUserId': user}
+    setup = runtime.setup
+    def setup_studio(*args, **kwargs):
+        stack = setup(*args, **kwargs)
+        stack.extra['agentPrincipal'] = key
+        runtime._console_identities[stack.compose_project] = {'userId': user, 'subject': 'customer'}
+        return stack
+    runtime.setup = setup_studio
+    progress = {'actions': [], 'modelVisibleDigests': [], 'usage': [{'prompt_tokens': 999, 'completion_tokens': 0}],
+                'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 999, 'messageIds': []}
+    def interrupt(*args, **kwargs):
+        raise runner.SessionInterrupted('model', progress, reason)
+    runtime.session = interrupt
+    receipt = runner.execute_case(case_id='P10:A:local-docker', scenario=StudioCase(), variant='A',
+        case={'prompts': {'A': 'A synthetic request.'}, 'assertions': ['filter.exact']},
+        candidate_digest=DIGEST, runtime=runtime)
+    assert receipt['status'] == 'fail' and receipt['failure']['reason'] == reason
+    assert receipt['tokens'] == 160
+    assert receipt['usage'] == [{'prompt_tokens': 120, 'completion_tokens': 8},
+                                {'prompt_tokens': 30, 'completion_tokens': 2}]
+    assert receipt['studioAssistant']['usageStatus'] == 'partial'
+    assert receipt['studioAssistant']['region'] == 'us-east-1'
+
+
 def case(variant='A'):
     return runner.select_case(runner.PACK, 'P10', variant)
 

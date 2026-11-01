@@ -1212,6 +1212,40 @@ def test_cli_browser_refuses_and_records_studio_ai_post(tmp_path):
     assert json.loads((tmp_path / 'action-0001.json').read_text())['tool'] == 'studio_ai.chat'
 
 
+@pytest.mark.parametrize('response,expected,code', [
+    ({'jsonrpc': '2.0', 'id': 1, 'error': {'code': -32001, 'message': 'private detail'}}, 'fail', -32001),
+    ({'jsonrpc': '2.0', 'id': 1, 'result': {'isError': True}}, 'fail', 'mcp-tool-error'),
+    ({'jsonrpc': '2.0', 'id': 1, 'result': {'isError': False}}, 'pass', None),
+])
+@pytest.mark.parametrize('streamed', [False, True])
+def test_assistant_mcp_records_json_rpc_outcome(tmp_path, response, expected, code, streamed):
+    from agent_browser_studio import OriginLock, PlaywrightPage
+    from agent_e2e_local_runner import ActionLog
+    page = PlaywrightPage.__new__(PlaywrightPage)
+    page.origin = OriginLock('http://localhost:1234')
+    page._stage_gate = page._identity = None
+    page._assistant_log = ActionLog(tmp_path, 1, set(), 10)
+    page._assistant_tool_calls = 0
+    page.aborted = []
+    class Response:
+        status = 200
+        headers = {'content-type': 'text/event-stream' if streamed else 'application/json'}
+        def body(self):
+            return ((b'data: ' + json.dumps(response).encode() + b'\n\n') if streamed
+                    else json.dumps(response).encode())
+    class Route:
+        request = SimpleNamespace(url='http://localhost:1234/api/agent-workspace/studio/mcp', method='POST',
+                                  resource_type='fetch', post_data_json={'id': 1, 'method': 'tools/call',
+                                      'params': {'name': 'honua_query', 'arguments': {}}})
+        def fetch(self, **kwargs): return Response()
+        def fulfill(self, **kwargs): pass
+        def abort(self, reason): raise AssertionError(reason)
+    page._gate(Route())
+    row = page._assistant_log.rows[0]
+    assert row['status'] == expected and row.get('errorCode') == code
+    assert 'private detail' not in json.dumps(row)
+
+
 def test_viewless_catalog_map_keeps_layer_facts_for_failed_handoff():
     from agent_browser_studio import catalog_composition_without_view
     from agent_e2e_local_runner import score_final_answer
