@@ -61,6 +61,15 @@ def test_exact_candidate_match_is_admissible():
     assert result["candidate"]["platform_lock"] == LOCK
 
 
+def test_reportless_newer_studio_failure_supersedes_only_its_named_lock():
+    failed = _run(0.1, "failure", run_id=2)
+    failed["display_title"] = "Studio customer gate " + LOCK
+    records = {w.STUDIO_CUSTOMER_GATE: {"runs": [_run(1, report=_report(), run_id=1), failed]}}
+    assert not _eval(records, unbound={})["admissible"]
+    failed["display_title"] = "Studio customer gate sha256:" + "d" * 64
+    assert _eval(records, unbound={})["admissible"]
+
+
 def test_a_different_candidate_does_not_admit():
     others = (
         _report(sha="d" * 40),
@@ -306,7 +315,7 @@ def test_a_red_advisory_gate_does_not_block_when_the_required_gate_qualifies():
 
 def test_gate_partition_covers_every_train_and_ai_gate_once():
     covered = set(w.CANDIDATE_BOUND_GATES) | set(w.UNBOUND_GATE_LIMITATIONS)
-    assert covered == set(w.TRAIN_GATES + w.AI_GATES + (w.ARC_GATE,))
+    assert covered == set(w.TRAIN_GATES + w.AI_GATES + (w.ARC_GATE, w.STUDIO_CUSTOMER_GATE))
     assert not (set(w.CANDIDATE_BOUND_GATES) & set(w.UNBOUND_GATE_LIMITATIONS))
     assert all(text.strip() for text in w.UNBOUND_GATE_LIMITATIONS.values())
 
@@ -326,7 +335,7 @@ def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
 
 def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
     """The founder requires the arc while retaining advisory status for the older AI gates."""
-    assert len(w.RC_GATES) == 19
+    assert len(w.RC_GATES) == 20
     assert w.ARC_GATE in w.RC_GATES
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
     assert not set(w.AI_GATES) & set(w.RC_GATES)
@@ -659,3 +668,17 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     (tmp_path / "gating-scope.json").write_text(json.dumps(scope))
     prereg_path.unlink()
     assert not evaluate(a1, a2)["admissible"]
+
+
+def test_studio_customer_gate_is_required_and_candidate_bound():
+    assert w.STUDIO_CUSTOMER_GATE in w.RC_GATES
+    assert w.STUDIO_CUSTOMER_GATE in w.CANDIDATE_BOUND_GATES
+    missing = _eval({w.STUDIO_CUSTOMER_GATE: {"runs": []}})
+    assert not missing["admissible"]
+    good = _eval({w.STUDIO_CUSTOMER_GATE: {"runs": [_run(1, report=_report())]}})
+    assert good["admissible"]
+    stale = _eval({w.STUDIO_CUSTOMER_GATE: {"runs": [
+        _run(2, report=_report(), run_id=1),
+        _run(1, conclusion="failure", report=_report(status="fail", certifying=False), run_id=2),
+    ]}})
+    assert not stale["admissible"]
