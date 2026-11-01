@@ -25,6 +25,8 @@ def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectation
                               candidate={'development': False})
     fixture, case = select_arc_case(context, context.case['goals']['studio'] + '\nPrevious model handoff')
     assert fixture == 'B' and case['prompts']['B'] == context.case['goals']['studio']
+    with pytest.raises(ValueError, match='not bound'):
+        select_arc_case(context, 'unrelated request')
     for scenario in ('P08', 'P09', 'P24'):
         assert fixture_variant('town-B', scenario)[0] == 'B'
     context.case['fixtures'] = 'unknown-fixture'
