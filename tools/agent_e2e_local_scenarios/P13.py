@@ -116,7 +116,15 @@ class P13(Scenario):
     def observe(self, stack, seeded, variant, run=None):
         recorder = stack.extra['recorder']
         target = seeded.state['target']
-        recorder.json('p13-target-after', 'GET', target['listPath'])
+        current = data(recorder.json('p13-target-after', 'GET', target['listPath']))
+        rows = current.get('items', [])
+        if len(rows) != 1 or rows[0].get('itemId') != target['itemId']:
+            raise ValueError('target map inventory is ambiguous')
+        current_version = rows[0].get('currentVersionId')
+        import re
+        if not isinstance(current_version, str) or not re.fullmatch(r'[0-9a-fA-F-]{36}', current_version):
+            raise ValueError('invalid current map version')
+        recorder.json('p13-target-current', 'GET', '/api/v1/studio/content-items/' + target['itemId'] + '/versions/' + current_version)
         item = target['itemId']
         recorder.json('p13-target-versions', 'GET', '/api/v1/studio/content-items/' + item + '/versions')
         recorder.json('p13-target-v1', 'GET', '/api/v1/studio/content-items/' + item + '/versions/' + target['versionId'])
