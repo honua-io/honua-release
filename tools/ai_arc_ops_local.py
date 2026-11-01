@@ -725,6 +725,15 @@ class Live:
 
 # --------------------------------------------------------------------------- the stage
 
+# What the customer's rc.2 release notes say about versions (honua-release release-notes/2026.1.md, known issue
+# honua-server#6865), quoted as the customer has it: every 2026.1 pre-release build reports server version 2026.1.1,
+# so a careful agent comparing version strings would read the update as a downgrade (pre-cut shakeout 11-01). It
+# tells the customer how to tell builds apart; it does not perform or shortcut any scored step.
+RELEASE_NOTE_VERSION = ('From the rc.2 release notes: 2026.1 pre-release builds all report server version 2026.1.1. '
+                        'Identify the running build by deploymentRevision or by image digest. rc.2 is newer than '
+                        'rc.1 even though both report the same version.')
+
+
 class LocalOps:
     stage, lane = 'ops', 'tools/ai_arc_ops_local.py (honua-server #6824 Compose executor, #6823 restore)'
 
@@ -878,7 +887,8 @@ class LocalOps:
                 'operations tools can update to it, roll back (restoring the database from the backup taken before '
                 'an update) and restart services. Please propose each change for my approval; I approve each one '
                 'as soon as you propose it, and the proposing call returns once that change has finished or failed. '
-                'I won\'t reply in between, so follow each change through to its result before you finish.')
+                'I won\'t reply in between, so follow each change through to its result before you finish. '
+                + RELEASE_NOTE_VERSION)
 
     def attachment(self, ctx):
         return None
