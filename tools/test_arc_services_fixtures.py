@@ -105,3 +105,12 @@ def test_agent_publication_guard_blocks_even_a_compatible_fault(monkeypatch, tmp
         project='unused', arm={}, limits={}, out_dir=tmp_path)
     assert cases == [] and row['failure']['category'] == 'model'
     assert 'publication from raw inputs' in row['failure']['reason']
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_town_setup_verifies_only_selected_fixture(monkeypatch, variant):
+    import agent_e2e_local_scenarios.w2g3_common as common
+    seen = []
+    monkeypatch.setattr(common, 'verify_corpus', lambda root, manifest: seen.extend(r['path'] for r in manifest['files']))
+    common.town_setup(object(), variant)
+    assert len(seen) == 3 and all(path.startswith('town-' + variant + '/') for path in seen)
