@@ -18,6 +18,8 @@ REQUIRED_STAGES = frozenset({
     'publisher-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
     'two-layers-filter-widget', 'session-expiry-recovery', 'authored-style-labels', 'save-reload-reopen',
     'independent-server-render', 'separate-approval', 'public-audience', 'accessibility',
+    'agent-live-revision', 'agent-degradation-finding', 'agent-approval-recovery',
+    'agent-published-services', 'agent-audit-ownership',
 })
 REPO = 'honua-io/honua-console'
 WORKFLOW = 'console-live-journey.yml'

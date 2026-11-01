@@ -154,3 +154,14 @@ def test_dispatch_rejects_tag_pointing_to_another_commit(monkeypatch):
     monkeypatch.setattr(g, 'gh', fake_gh)
     with pytest.raises(ValueError, match='tag'):
         g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test')
+
+
+def test_agent_reflection_stages_are_required_for_certification():
+    required = {'agent-live-revision', 'agent-degradation-finding', 'agent-approval-recovery',
+                'agent-published-services', 'agent-audit-ownership'}
+    assert required <= g.REQUIRED_STAGES
+    values = evidence()
+    for omitted in required:
+        with pytest.raises(ValueError, match='partial'):
+            g.validate_evidence(*values[:3], {'qualificationComplete': True,
+                                             'completed': list(g.REQUIRED_STAGES - {omitted})})
