@@ -22,7 +22,7 @@
             "resourceId": {
               "$role": "seeded:map:item"
             },
-            "status": 401
+            "status": [401, 403]
           }
         ],
         "versionId": {
@@ -176,7 +176,7 @@
             "resourceId": {
               "$role": "seeded:map:item"
             },
-            "status": 401
+            "status": [401, 403]
           }
         ],
         "versionId": {

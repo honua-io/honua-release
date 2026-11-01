@@ -65,7 +65,8 @@ def require(condition, reason):
 
 
 _STEP_OPS = ('body', 'status', 'sha256', 'principal', 'method', 'replayOf', 'disclosed',
-             'featureServerPoints', 'featureQueryIds', 'target', 'featureServerFeatures', 'absent')
+             'featureServerPoints', 'featureQueryIds', 'target', 'featureServerFeatures', 'absent',
+             'fullPublished', 'sourceRows')
 
 
 def referenced_steps(spec, found=None):
@@ -494,7 +495,8 @@ def evaluate(spec, ctx, *, item=None, step=None):
             if str(ctx.roles[role]) in found:
                 out.append(ctx.roles[role])
         return sorted(out, key=str)
-    if keys == {'featureQueryIds', 'service', 'layer'}:
+    if keys in ({'featureQueryIds', 'service', 'layer'},
+                {'featureQueryIds', 'service', 'layer', 'fullPublished', 'sourceRows'}):
         record = ctx.record(named(spec['featureQueryIds']))
         require(record.kind == 'mcp' and record.status == 200 and isinstance(record.json, dict),
                 'feature query response missing or failed')
@@ -503,6 +505,17 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(logged, dict) and logged.get('kind') == 'tool_call'
                 and record.request_arguments == {'tool': logged.get('tool'), 'arguments': logged.get('arguments')},
                 'feature query is not a replay of a sealed model action')
+        if 'fullPublished' in spec:
+            from agent_e2e_local_expectations import fixture_catalog
+            queries = [(identity, action) for identity, action in ctx.model_actions.items()
+                       if action.get('kind') == 'tool_call' and action.get('tool') == 'honua_query_features']
+            require(queries and len(queries) <= fixture_catalog()['maxP10Queries']
+                    and all(type(action.get('_session')) is int and type(action.get('_sequence')) is int
+                            for _, action in queries), 'feature query budget or action order is invalid')
+            positions = [(a['_session'], a['_sequence']) for _, a in queries]
+            require(len(set(positions)) == len(positions), 'feature query action order is ambiguous')
+            final = max(queries, key=lambda item: (item[1]['_session'], item[1]['_sequence']))
+            require(record.replay_of == final[0], 'feature query is not the final agent query')
         result = record.json.get('result')
         require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
         value = result.get('structuredContent')
@@ -522,6 +535,56 @@ def evaluate(spec, ctx, *, item=None, step=None):
                for feature in features]
         require(all(isinstance(i, str) and i for i in ids) and len(set(ids)) == len(ids),
                 'feature query lacks distinct source ids')
+        if 'fullPublished' in spec:
+            full, source = ctx.record(named(spec['fullPublished'])), ctx.record(named(spec['sourceRows']))
+            request = (full.request_arguments or {}).get('arguments') or {}
+            require(full.kind == 'mcp' and full.status == 200 and full.principal == 'controller'
+                    and (full.request_arguments or {}).get('tool') == 'honua_query_features'
+                    and request == {'serviceId': str(service), 'layerId': int(layer), 'where': '1=1',
+                        'outFields': ['source_id', 'name', 'capacity', 'is_open'], 'limit': 1000,
+                        'resultOffset': 0, 'returnGeometry': True,
+                        'outSrid': 3857, 'geometryPrecision': -1}, 'full published query request differs')
+            result = (full.json or {}).get('result') or {}
+            value = result.get('structuredContent') or {}
+            collection = value.get('geojson') or {}
+            published = collection.get('features')
+            require(result.get('isError', False) is False and str(value.get('serviceId')) == str(service)
+                    and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
+                    and value.get('resultOffset') == 0 and isinstance(published, list)
+                    and type(value.get('returnedCount')) is int and value['returnedCount'] == len(published)
+                    and collection.get('type') == 'FeatureCollection' and source.kind == 'sql'
+                    and source.status == 200 and isinstance(source.json, list),
+                    'full published query or source rows are incomplete')
+            observed = [{'geometry': f.get('geometry'), 'properties': f.get('properties')}
+                        for f in published if isinstance(f, dict)]
+            from decimal import Decimal
+
+            def equivalent(left, right):
+                if type(left) in (int, float) and type(right) in (int, float):
+                    a, b = Decimal(str(left)), Decimal(str(right))
+                    return a.is_finite() and b.is_finite() and a == b
+                if type(left) is not type(right):
+                    return False
+                if isinstance(left, dict):
+                    return left.keys() == right.keys() and all(equivalent(left[k], right[k]) for k in left)
+                if isinstance(left, list):
+                    return len(left) == len(right) and all(equivalent(a, b) for a, b in zip(left, right))
+                return left == right
+
+            def by_source_id(rows):
+                out = {}
+                for row in rows:
+                    require(isinstance(row, dict) and set(row) == {'geometry', 'properties'}
+                            and isinstance(row['properties'], dict), 'invalid fixture or published row')
+                    identity = row['properties'].get('source_id')
+                    require(isinstance(identity, str) and identity and identity not in out,
+                            'fixture or published rows lack unique source ids')
+                    out[identity] = row
+                return out
+            actual, wanted = by_source_id(observed), by_source_id(source.json)
+            require(len(observed) == len(published) and actual.keys() == wanted.keys()
+                    and all(equivalent(actual[key], wanted[key]) for key in wanted),
+                    'published service contents differ from the raw fixture table')
         return sorted(ids)
     raise ProjectionError('unknown projection operation: ' + ','.join(sorted(keys)))
 
@@ -983,7 +1046,54 @@ def audited_map_sources(records, action_results, custody, agent_principal, map_i
     return output
 
 
-def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None):
+def imported_role(binding, records):
+    """Replay completed_import over retained seed evidence; never issue a request."""
+    from agent_e2e_pack import PackError
+    from agent_e2e_scenario_operations import completed_import
+    accepted = records[binding.step]
+    require(binding.step.startswith('import-') and binding.pointer in ('/physicalTableName', '/schema')
+            and binding.items is None and accepted.phase == 'seed' and accepted.kind == 'http'
+            and accepted.method == 'POST', 'invalid background import role')
+    slug = binding.step.removeprefix('import-')
+    require(binding.before == 'before-tables-' + slug and binding.before in records,
+            'background import lacks frozen discovery baseline')
+    before = records[binding.before]
+    require(before.phase == 'seed' and before.kind == 'http' and before.method == 'GET'
+            and before.status == 200 and re.fullmatch(
+                r'/api/v1/admin/connections/[0-9a-fA-F-]{36}/tables', before.path),
+            'background import baseline is not table discovery')
+    prefix = 'complete-' + slug
+    polls = [r for key, r in records.items() if key.startswith(prefix + '-poll-')]
+    completed = [r for r in polls if isinstance(r.json, dict) and type(r.json.get('status')) is int
+                 and r.json['status'] == 2]
+    require(len(completed) == 1, 'background import lacks one recorded completion')
+
+    def answer(record):
+        return {'observation': {'httpStatus': record.status, 'body': record.json},
+                'reference': {'step': record.step}}
+
+    class RetainedHttp:
+        def json(self, step, method, path):
+            require(step in records, 'background import evidence is missing: ' + step)
+            record = records[step]
+            require(record.phase == 'seed' and record.kind == 'http' and record.method == method
+                    and record.path == path and record.principal == before.principal,
+                    'background import evidence request differs: ' + step)
+            if step == prefix + '-tables-after':
+                require(same_request(before, record), 'background import discovery scope changed')
+            return answer(record)
+
+    try:
+        result = completed_import(RetainedHttp(), answer(accepted),
+            table=completed[0].json.get('tableName'), feature_count=completed[0].json.get('featuresProcessed'),
+            step=prefix, before_tables=answer(before), connection=before.path.split('/')[5],
+            poll_seconds=0, sleep=lambda _: None)
+    except PackError as exc:
+        raise ProjectionError('background import evidence: ' + str(exc)) from exc
+    return result['table' if binding.pointer == '/physicalTableName' else 'schema']
+
+
+def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None, run_facts=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
     for binding in bindings:
@@ -994,6 +1104,9 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                 and name not in roles, 'invalid or duplicate logical role: ' + str(name))
         require(binding.step in records, 'role binds an unrecorded step: ' + name)
         record = records[binding.step]
+        if name.startswith('seeded:') and record.status == 202 and binding.before is not None:
+            roles[name] = imported_role(binding, records)
+            continue
         require(record.json is not None and record.status in (200, 201), 'role source read failed: ' + name)
         if name.startswith('arc:'):
             parts = name.split(':')
@@ -1096,28 +1209,81 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         authored = None
         if binding.created_by is not None:
             spec = binding.created_by
-            require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {'tool', 'pointer', 'where'},
+            require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {
+                    'tool', 'pointer', 'where', 'whereAll', 'allowFaultKind'}
+                    and not ('where' in spec and 'whereAll' in spec),
                     'invalid created_by: ' + name)
+            require(spec.get('allowFaultKind') in (None, 'response_lost_after_commit'),
+                    'unreviewed created_by fault kind')
+            if spec.get('allowFaultKind') is not None:
+                require(spec['tool'] == 'honua_publish_service'
+                        and spec['pointer'] == '/result/structuredContent/serviceName',
+                        'lost-response authorship is only supported for service publication')
             where = spec.get('where')
-            require(where is None or (isinstance(where, dict) and set(where) == {'argument', 'role'}
-                                      and where['role'] in roles),
+            conditions = spec.get('whereAll', [] if where is None else [where])
+            require(isinstance(conditions, list) and ('whereAll' not in spec or conditions)
+                    and all(isinstance(w, dict) and set(w) == {'argument', 'role'}
+                                                         and w['role'] in roles for w in conditions),
                     'created_by.where needs {"argument": "/pointer", "role": <resolved role>}: ' + name)
             authored = set()
             for result in action_results:
-                if where is not None:
-                    # Source-specific selection: only the agent call whose own argument equals that role's id.
+                selected = True
+                for where in conditions:
+                    # Every declared source argument must equal its independently resolved role.
                     try:
                         chosen = pointer_get(result.get('arguments') or {}, where['argument'])
                     except ProjectionError:
-                        continue
+                        selected = False
+                        break
                     if str(chosen) != str(roles[where['role']]):
-                        continue
-                if result.get('tool') == spec['tool'] and result.get('status') == 'pass':
+                        selected = False
+                        break
+                if not selected:
+                    continue
+                if result.get('tool') == spec['tool']:
+                    if spec.get('allowFaultKind') is not None:
+                        rpc_result = result.get('json', {}).get('result', {})
+                        payload = rpc_result.get('structuredContent', {}) if isinstance(rpc_result, dict) else {}
+                        if (result.get('kind') != 'tool_call' or not isinstance(rpc_result, dict)
+                                or rpc_result.get('isError', False) is not False or not isinstance(payload, dict)
+                                or payload.get('status') != 'Completed' or payload.get('operationId') != 'service.publish'):
+                            continue
                     try:
                         value = pointer_get(result['json'], spec['pointer'])
                     except ProjectionError:
                         continue
-                    if isinstance(value, (str, int)) and not isinstance(value, bool):
+                    accepted = result.get('status') == 'pass'
+                    if (not accepted and result.get('status') == 'fail'
+                            and spec.get('allowFaultKind') == 'response_lost_after_commit'
+                            and isinstance(result.get('_digest'), str)
+                            and re.fullmatch(r'sha256:[0-9a-f]{64}', result['_digest'])
+                            and isinstance(result.get('_responseSha256'), str)
+                            and re.fullmatch(r'sha256:[0-9a-f]{64}', result['_responseSha256'])):
+                        from urllib.parse import quote
+                        rpc = result.get('json', {}).get('result', {})
+                        payload = rpc.get('structuredContent', {}) if isinstance(rpc, dict) else {}
+                        event_rows = [e for e in (run_facts or {}).get('faultEvents', [])
+                                      if e.get('kind') == spec['allowFaultKind'] and e.get('forwarded') is True
+                                      and e.get('tool') == spec['tool'] and e.get('actionDigest') == result.get('_digest')
+                                      and e.get('upstreamOutcome') == 'ok'
+                                      and type(e.get('upstreamStatus')) is int and 200 <= e['upstreamStatus'] < 300
+                                      and e['upstreamStatus'] == result.get('_responseHttpStatus')
+                                      and e.get('upstreamResponseSha256') == result.get('_responseSha256')
+                                      and str(e.get('committedResourceId')) == str(value)]
+                        if (len(event_rows) == 1 and isinstance(rpc, dict) and rpc.get('isError', False) is False
+                                and isinstance(payload, dict) and payload.get('status') == 'Completed'
+                                and payload.get('operationId') == 'service.publish'):
+                            confirmation = event_rows[0].get('confirmation') or {}
+                            expected_path = '/api/v1/admin/services/' + quote(str(value), safe='') + '/settings'
+                            checks = confirmation.get('checks') or []
+                            last = checks[-1] if isinstance(checks, list) and checks else {}
+                            proof = records.get(last.get('step')) if isinstance(last, dict) else None
+                            accepted = bool(confirmation.get('path') == expected_path and last.get('status') == 200
+                                            and proof is not None and proof.intact() and proof.phase == 'session-confirm'
+                                            and proof.origin == 'fault-confirmation' and proof.kind == 'http'
+                                            and proof.principal == 'controller' and proof.method == 'GET'
+                                            and proof.path == expected_path and proof.status == 200)
+                    if accepted and isinstance(value, (str, int)) and not isinstance(value, bool):
                         authored.add(str(value))
         matches = []
         for row in rows:

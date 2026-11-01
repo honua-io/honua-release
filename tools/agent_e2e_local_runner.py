@@ -567,6 +567,12 @@ def score_final_answer(answer, observations, assertions):
     return check(answer, observations, state_status=status)
 
 
+def agent_work_assertions(scenario_id, assertions):
+    """Do not attribute runner-owned bootstrap custody to the customer's work."""
+    return [row for row in assertions
+            if not (scenario_id == 'P15' and row['assertion'] == 'custody.bootstrap-revoked')]
+
+
 def select_case(pack_path: Path, scenario_id: str, variant: str) -> dict:
     """Read only the pinned development pack; held-out variants are refused."""
     if variant not in DEVELOPMENT_VARIANTS:
@@ -590,6 +596,25 @@ def select_case(pack_path: Path, scenario_id: str, variant: str) -> dict:
     if not isinstance(case.get('assertions'), list) or not case['assertions']:
         raise ValueError('missing assertions')
     return case
+
+
+def select_fixture_cases(*, goal, fixture_id):
+    """Build all catalog-assigned cases from an in-memory goal; the caller selects no scenario."""
+    from agent_e2e_local_expectations import fixture_scenarios, load_fixture_expected
+    if not isinstance(goal, str) or not goal.strip():
+        raise ValueError('services goal is missing')
+    variant, scenarios = fixture_scenarios(fixture_id)
+    cases = {}
+    for scenario_id in scenarios:
+        scenario = load_scenario(scenario_id)
+        if variant not in scenario.supported_variants:
+            raise ValueError('scenario does not support this fixture')
+        source = select_case(PACK, scenario_id, variant)
+        expected = load_fixture_expected(fixture_id, scenario_id)
+        if set(expected) != set(source['assertions']):
+            raise ValueError('fixture expectations differ from assertion inventory')
+        cases[scenario_id] = {**source, 'prompts': {variant: goal}, 'fixtureId': fixture_id}
+    return variant, cases
 
 
 # --------------------------------------------------------------------------- model session
@@ -976,7 +1001,16 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['finalAnswerCheck'] = {'status': 'unsupported'}
             return receipt
         from agent_e2e_local_expectations import check_exclusion
-        expected = scenario.expected(variant)
+        if case.get('fixtureId') is not None:
+            from agent_e2e_local_expectations import fixture_variant, load_fixture_expected
+            if fixture_variant(case['fixtureId'], scenario.id) != variant:
+                raise ValueError('fixture and case variant differ')
+            profile = getattr(scenario, 'expectation_profile', None)
+            expected = (load_fixture_expected(case['fixtureId'], scenario.id, profile) if profile
+                        else load_fixture_expected(case['fixtureId'], scenario.id))
+            receipt['fixtureId'] = case['fixtureId']
+        else:
+            expected = scenario.expected(variant)
         rulings = {a: check_exclusion(scenario.id, a, expected.get(a)) for a in case['assertions']}
         if case['assertions'] and all(rulings.values()):
             # Out of the measured arc by a registered ruling: listed, never run, never a pass.
@@ -1135,6 +1169,11 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                      'faultFired': bool(fault_events),
                      'customerFiles': [f['sha256'] for f in stack.extra.get('customerFiles', ())]}
         try:
+            if scenario.id == 'P10':
+                from agent_e2e_local_expectations import fixture_catalog
+                query_count = sum(a.kind == 'tool_call' and a.tool == 'honua_query_features'
+                                  for a in recorder.actions())
+                receipt['queryBudget'] = {'count': query_count, 'limit': fixture_catalog()['maxP10Queries']}
             observations = observe_scenario(scenario, stack, seeded, variant, run)
             bindings = frozen_roles(scenario, stack, seeded, variant, run)
             if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
@@ -1145,7 +1184,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             sealed = vault.records()
             model_actions = vault.model_actions()
             roles = projections.resolve_roles(bindings, sealed, agent_principal=run.agent_principal,
-                                              action_results=vault.action_results(), custody=custody)
+                                              action_results=vault.action_results(), custody=custody, run_facts=run_facts)
             roles.update(session_roles(session_ids, sessions))
             committed = [e for e in fault_events if e.get('kind') == 'response_lost_after_commit'
                          and e.get('committedResourceId') not in (None, '')]
@@ -1185,11 +1224,17 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                                                                              **extras))
             except (ValueError, KeyError, TypeError) as exc:
                 receipt['handoffError'] = str(exc)[:200]
-        receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1], handoff, receipt['assertions'])
+        agent_assertions = agent_work_assertions(scenario.id, receipt['assertions'])
+        receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1], handoff, agent_assertions)
         receipt['custody'] = custody
-        scored = [r for r in receipt['assertions'] if r['status'] != 'excluded']
+        scored = [r for r in agent_assertions if r['status'] != 'excluded']
         receipt['status'] = ('pass' if scored and all(r['status'] == 'pass' for r in scored)
                              and receipt['finalAnswerCheck'].get('status') == 'pass' else 'fail')
+        custody_row = next((row for row in receipt['assertions']
+                            if scenario.id == 'P15' and row['assertion'] == 'custody.bootstrap-revoked'), None)
+        if receipt['status'] == 'pass' and custody_row and custody_row['status'] != 'pass':
+            receipt['status'] = 'infrastructure'
+            receipt['infrastructure'].append({'phase': 'custody', 'reason': 'bootstrap custody evidence failed'})
     except SessionInterrupted as exc:
         acted = bool(all_actions())
         if exc.category == 'model' or acted:
