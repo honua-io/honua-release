@@ -230,7 +230,6 @@
           "P10:finalAnswerCheck",
           "P15:publication.private",
           "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
           "P15:custody.worker-replaced",
           "P15:source-content.unchanged",
           "P15:finalAnswerCheck"
@@ -242,7 +241,6 @@
           "P10:finalAnswerCheck",
           "P15:publication.private",
           "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
           "P15:custody.worker-replaced",
           "P15:source-content.unchanged",
           "P15:finalAnswerCheck"
@@ -254,7 +252,6 @@
           "P10:finalAnswerCheck",
           "P15:publication.private",
           "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
           "P15:custody.worker-replaced",
           "P15:source-content.unchanged",
           "P15:finalAnswerCheck"
@@ -266,7 +263,6 @@
           "P10:finalAnswerCheck",
           "P15:publication.private",
           "P15:tenant.denied",
-          "P15:custody.bootstrap-revoked",
           "P15:custody.worker-replaced",
           "P15:source-content.unchanged",
           "P15:finalAnswerCheck"

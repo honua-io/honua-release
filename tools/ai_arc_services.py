@@ -260,24 +260,42 @@ class Canceller:
         return self.runtime.probe()
 
 
+def run_fixture_services(*, goal, fixture_id, fault, **kwargs):
+    """ARC held-out entry point; a missing fixture field is a named stage failure."""
+    if not isinstance(goal, str) or not goal.strip() or not isinstance(fixture_id, str) or not isinstance(fault, str):
+        return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
+                'failure': {'category': 'model', 'reason': 'services goal, fixture ID or fault is missing'},
+                'withheld': 0, 'catalogRedactions': 0}, []
+    # These are ignored by fixture mode; the committed catalog supplies both.
+    kwargs.pop('scenarios', None)
+    kwargs.pop('variant', None)
+    return run_services(scenarios=(), variant=None, goal=goal, fixture_id=fixture_id, fault=fault, **kwargs)
+
+
 def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, project, arm, limits, out_dir,
                  handoff=None, extra_secrets=(), deadline=None, cli=None, load_scenario=None, private_root=None,
-                 register=None, gate=None, goal=None, fixture_id=None, scenario_id=None):
+                 register=None, gate=None, goal=None, fixture_id=None, fault=None):
     """Run each services scenario once on the adopted stack under one shared stage budget.
 
     Returns (row, cases). ``row`` carries every action (with its recorded status), the private final
     answers, nudges and the first case failure; ``out_dir`` receives the retained case evidence."""
     import agent_e2e_local_runner as runner
-    fixture_case = None
-    if any(value is not None for value in (goal, fixture_id, scenario_id)):
-        if scenarios != [scenario_id] and scenarios != (scenario_id,):
-            raise ValueError('fixture case requires exactly its authoritative scenario')
-        if scenario_id not in ('P10', 'P13'):
-            raise ValueError('scenario is not supported by the adopted ARC runtime')
-        fixture_variant, fixture_case = runner.select_fixture_case(
-            goal=goal, fixture_id=fixture_id, scenario_id=scenario_id)
-        if variant != fixture_variant:
-            raise ValueError('fixture and requested variant differ')
+    fixture_cases = None
+    if any(value is not None for value in (goal, fixture_id, fault)):
+        try:
+            fixture_variant, fixture_cases = runner.select_fixture_cases(goal=goal, fixture_id=fixture_id)
+            scenarios, variant = tuple(fixture_cases), fixture_variant
+            plans = [runner.load_scenario(sid).fault_plan(variant) for sid in scenarios]
+            if not isinstance(fault, str) or not any(p and p.get('kind') == fault for p in plans):
+                raise ValueError('services fault is incompatible with fixture scenarios')
+            # Existing P10/P15 seeds publish services as controller. Do not credit
+            # those cases until the raw-input publication observer is implemented.
+            raise ValueError('services agent publication from raw inputs is not yet supported')
+        except (ImportError, OSError, ValueError) as exc:
+            reason = str(exc)[:200] or type(exc).__name__
+            return {'actions': [], 'answers': [], 'secrets': [], 'nudges': 0,
+                    'failure': {'category': 'model', 'reason': reason}, 'withheld': 0,
+                    'catalogRedactions': 0}, []
     try:
         import agent_e2e_cli_sessions  # noqa: F401  (registers claude-cli / codex-cli with #1152)
     except ImportError as exc:
@@ -317,7 +335,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                 continue
             runtime.max_actions, runtime.timeout = remaining_actions, remaining_time
             scenario = load_scenario(sid)
-            case = fixture_case if fixture_case is not None else runner.select_case(runner.PACK, sid, variant)
+            case = fixture_cases[sid] if fixture_cases is not None else runner.select_case(runner.PACK, sid, variant)
             if handoff and index == 0:
                 # The plain customer handoff from the earlier stages, then the scenario's own request.
                 case = dict(case, prompts={**case['prompts'], variant: handoff + '\n\n' + case['prompts'][variant]})
@@ -356,6 +374,13 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             if receipt.get('failure') and failure is None:
                 failure = {'category': receipt['failure'].get('category', 'model'),
                            'reason': f"{sid}: {receipt['failure'].get('reason')}"}
+            if receipt.get('status') == 'infrastructure' and not receipt.get('sessions') and failure is None:
+                failure = {'category': 'infrastructure', 'beforeCaseActions': True,
+                           'reason': f'{sid}: setup or seed could not complete'}
+            custody = next((a for a in receipt.get('assertions', [])
+                            if sid == 'P15' and a.get('assertion') == 'custody.bootstrap-revoked'), None)
+            if custody and custody.get('status') != 'pass' and failure is None:
+                failure = {'category': 'harness-error', 'reason': 'P15 bootstrap custody evidence failed'}
             cases.append({'scenario': sid, 'receipt': receipt})
     finally:
         secrets = list(runtime._secrets)
@@ -379,7 +404,8 @@ def case_assertions(cases: list[dict]) -> list[dict]:
                          'reason': str(receipt.get('infrastructure'))[:200]})
             continue
         rows.extend({'assertion': f"{sid}:{a['assertion']}", 'status': a['status'],
-                     **({'reason': a['reason']} if a.get('reason') else {})} for a in receipt.get('assertions', []))
+                     **({'reason': a['reason']} if a.get('reason') else {})} for a in receipt.get('assertions', [])
+                    if not (sid == 'P15' and a.get('assertion') == 'custody.bootstrap-revoked'))
         check = receipt.get('finalAnswerCheck') or {}
         rows.append({'assertion': f'{sid}:finalAnswerCheck', 'status': 'pass' if check.get('status') == 'pass' else 'fail',
                      'falseSuccess': bool(check.get('false_success')), 'undetermined': bool(check.get('undetermined'))})

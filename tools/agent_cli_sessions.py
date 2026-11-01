@@ -47,7 +47,8 @@ _CREDENTIAL_FIELD = re.compile(
     r'session_?token|access_?token|refresh_?token|password|passwd|pwd|api_?key|private_?key)$', re.I)
 _CREDENTIAL_TEXT = re.compile(
     r'\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bpostgres(?:ql)?://[^\s:/]+:[^\s@]+@|'
-    r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*[^\s,}]+', re.I)
+    r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*'
+    r'(?!\[redacted\](?=$|[\s,}"\']))[^\s,}]+', re.I)
 
 
 def arc_scratch_root() -> Path:

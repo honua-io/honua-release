@@ -590,24 +590,23 @@ def select_case(pack_path: Path, scenario_id: str, variant: str) -> dict:
     return case
 
 
-def select_fixture_case(*, goal, fixture_id, scenario_id):
-    """Build a case for an authoritative scenario assignment and an in-memory customer goal.
-
-    The caller must obtain scenario_id from a trusted case-to-scenario catalog, never by
-    guessing from customer prose. No decrypted manifest is opened or written here.
-    """
-    from agent_e2e_local_expectations import fixture_variant, load_fixture_expected
+def select_fixture_cases(*, goal, fixture_id):
+    """Build all catalog-assigned cases from an in-memory goal; the caller selects no scenario."""
+    from agent_e2e_local_expectations import fixture_scenarios, load_fixture_expected
     if not isinstance(goal, str) or not goal.strip():
         raise ValueError('services goal is missing')
-    variant = fixture_variant(fixture_id, scenario_id)
-    scenario = load_scenario(scenario_id)
-    if variant not in scenario.supported_variants:
-        raise ValueError('scenario does not support this fixture')
-    source = select_case(PACK, scenario_id, variant)
-    expected = load_fixture_expected(fixture_id, scenario_id)
-    if set(expected) != set(source['assertions']):
-        raise ValueError('fixture expectations differ from assertion inventory')
-    return variant, {**source, 'prompts': {variant: goal}, 'fixtureId': fixture_id}
+    variant, scenarios = fixture_scenarios(fixture_id)
+    cases = {}
+    for scenario_id in scenarios:
+        scenario = load_scenario(scenario_id)
+        if variant not in scenario.supported_variants:
+            raise ValueError('scenario does not support this fixture')
+        source = select_case(PACK, scenario_id, variant)
+        expected = load_fixture_expected(fixture_id, scenario_id)
+        if set(expected) != set(source['assertions']):
+            raise ValueError('fixture expectations differ from assertion inventory')
+        cases[scenario_id] = {**source, 'prompts': {variant: goal}, 'fixtureId': fixture_id}
+    return variant, cases
 
 
 # --------------------------------------------------------------------------- model session
@@ -1160,6 +1159,11 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                      'faultFired': bool(fault_events),
                      'customerFiles': [f['sha256'] for f in stack.extra.get('customerFiles', ())]}
         try:
+            if scenario.id == 'P10':
+                from agent_e2e_local_expectations import fixture_catalog
+                query_count = sum(a.kind == 'tool_call' and a.tool == 'honua_query_features'
+                                  for a in recorder.actions())
+                receipt['queryBudget'] = {'count': query_count, 'limit': fixture_catalog()['maxP10Queries']}
             observations = observe_scenario(scenario, stack, seeded, variant, run)
             bindings = frozen_roles(scenario, stack, seeded, variant, run)
             if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
