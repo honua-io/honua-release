@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -1782,6 +1783,114 @@ def supported_services(arc: dict) -> list[str]:
     return out
 
 
+# Loaded by path or by a separate process, so no import statement names them (Astra B6).
+RUNTIME_EXTRA = ('certification/installed-clients/render_png.py', 'certification/terminal-journey/live_driver.py',
+                 'certification/agent-e2e/corpus/oracle.py', '.github/workflows/ai-arc.yml')
+CLOSURE_DIRS = ('tools', 'certification/agent-ops')
+
+
+@functools.lru_cache(maxsize=8)
+def _closure_files(root: str, roots: tuple) -> tuple[str, ...]:
+    return tuple(_runner_closure())
+
+
+def runner_closure() -> list[str]:
+    """The file set, cached per (root, RUNNER_FILES) for the process (imports do not change while it runs); bytes
+    are hashed on every call."""
+    return list(_closure_files(str(ROOT), tuple(RUNNER_FILES)))
+
+
+def _runner_closure() -> list[str]:
+    """RUNNER_FILES plus every local module they import, transitively (AST, no execution), plus the files loaded
+    by path and the executing workflow: the behavior-changing set the runner digest binds (Astra B6). Only code
+    under tools/ and certification/agent-ops/ is walked; sealed packs are never read."""
+    import ast
+    local = {}
+    for folder in CLOSURE_DIRS:
+        for path in sorted((ROOT / folder).glob('*.py')):
+            if not path.name.startswith('test_') and path.name != 'conftest.py':
+                local.setdefault(path.stem, path)
+    for path in sorted((ROOT / 'tools/agent_e2e_local_scenarios').glob('*.py')):
+        if not path.name.startswith('test_'):
+            local['agent_e2e_local_scenarios.' + path.stem] = path
+    seen, stack = set(), [ROOT / f for f in RUNNER_FILES if f.endswith('.py') and (ROOT / f).is_file()]
+    while stack:
+        path = stack.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module] if isinstance(node, ast.ImportFrom) and node.module else []
+            for name in names:
+                found = local.get(name) or local.get(name.split('.')[0])
+                if found is not None and found not in seen:
+                    stack.append(found)
+    rel = {str(p.relative_to(ROOT)) for p in seen}
+    # Configuration and data the walked code loads by repo-relative path (a JSON target, an expectations
+    # folder, a fixture manifest): every existing file it names, and every file under a folder it names
+    # (Sol 4a50cf3a). Sealed and held-out material is never read or listed.
+    for path in seen:
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and PATH_LITERAL.fullmatch(node.value.rstrip('/'))):
+                continue
+            target = ROOT / node.value.rstrip('/')
+            if _restricted(target):
+                continue                          # never stat or enumerate restricted material (Sol 09ce8951)
+            if target.is_file() and _bindable(target):
+                rel.add(str(target.relative_to(ROOT)))
+            elif target.is_dir():
+                rel.update(_bindable_files(target))
+    return sorted(rel | set(RUNNER_FILES) | set(RUNTIME_EXTRA))
+
+
+PATH_LITERAL = re.compile(r'(?:certification|tools|docs)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')
+
+
+CLOSURE_MAX_FILES = 20000
+
+
+def _restricted(path: Path) -> bool:
+    rel = str(path.relative_to(ROOT)) if path.is_absolute() else str(path)
+    low = rel.lower()
+    return (any(m in low for m in ('heldout', 'held-out', 'held_out')) or low.endswith('.sealed')
+            or rel == 'certification/agent-e2e/pack.v2.json')
+
+
+def _bindable_files(folder: Path) -> set[str]:
+    """Every bindable file under ``folder``, pruning restricted directories before descending into them; more
+    than CLOSURE_MAX_FILES fails closed rather than silently dropping dependencies (Sol 09ce8951)."""
+    out = set()
+    for current, dirs, files in os.walk(folder):
+        dirs[:] = sorted(d for d in dirs if d != '__pycache__' and not _restricted(Path(current, d)))
+        for name in sorted(files):
+            item = Path(current, name)
+            if not _restricted(item) and _bindable(item):
+                out.add(str(item.relative_to(ROOT)))
+                if len(out) > CLOSURE_MAX_FILES:
+                    raise ValueError('a referenced folder has more files than the runner digest binds: '
+                                     + str(folder.relative_to(ROOT)))
+    return out
+
+
+def _bindable(path: Path) -> bool:
+    """A file the runner digest may hash: never sealed or held-out material, never caches."""
+    rel = str(path.relative_to(ROOT))
+    low = rel.lower()
+    return not (any(m in low for m in ('heldout', 'held-out', 'held_out')) or rel.endswith('.sealed')
+                or rel == 'certification/agent-e2e/pack.v2.json'
+                or '__pycache__' in rel or path.name.startswith('test_') or path.suffix in ('.pyc', '.part'))
+
+
 def harness_digests() -> dict:
     def files(patterns):
         rows = []
@@ -1791,7 +1900,7 @@ def harness_digests() -> dict:
                 rows.append([str(path.relative_to(ROOT)), sha256(path.read_bytes()) if path.is_file() else 'absent'])
         return sha256(canonical(rows))
     sealed = [sha256(p.read_bytes()) for p in SEALED.values() if p.is_file()]
-    return {'runner': files(RUNNER_FILES), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
+    return {'runner': files(runner_closure()), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
             'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None}
 
 
