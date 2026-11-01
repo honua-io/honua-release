@@ -167,3 +167,26 @@ def test_a_retention_failure_leaves_the_action_outcome_and_digest_intact(sink, t
     server.lock, server.page = OriginLock('http://127.0.0.1:8137'), page
     status, _text, digest = server.perform('studio_navigate', {'url': '/studio/maps'})
     assert status == 'ok' and digest == hashlib.sha256(BLUE_PNG).hexdigest() and log.rows[0]['status'] == 'pass'
+
+
+
+def test_a_partial_write_leaves_nothing_and_is_never_exported(sink, tmp_path, monkeypatch):
+    """Sol fa22710e: a write that fails after a prefix never leaves a PNG behind or reaches the export."""
+    import os as _os
+    import ai_arc_runner as R
+    real = _os.fsync
+    monkeypatch.setattr(E.os, 'fsync', lambda fd: (_ for _ in ()).throw(OSError('disk full')))
+    for i in range(E.MAX_IMAGES + 1):
+        assert sink.retain('render', f'{i}', png(salt=i)) is None
+    assert not list(sink.directory.glob('*.png')) and not list(sink.directory.glob('*.part'))
+    assert sink.dropped['io-error'] == E.MAX_IMAGES + 1
+    monkeypatch.setattr(E.os, 'fsync', real)
+    good = png(salt=200)
+    sink.retain('render', 'good', good)
+    (sink.directory / 'stray.png').write_bytes(png(salt=201))           # never committed by the sink
+    (sink.directory / '099-stray.png.part').write_bytes(b'\x89PNG partial')
+    out = tmp_path / 'out'
+    R.export_private(sink.directory.parent, out, [])
+    exported = sorted(p.name for p in (out / sink.directory.name).iterdir())
+    assert exported == ['001-render-good.png', 'manifest.json']
+    assert (out / sink.directory.name / '001-render-good.png').read_bytes() == good

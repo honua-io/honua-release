@@ -1957,6 +1957,15 @@ EXPORT_SKIP = ('operator',)
 MAX_RECEIPT_BYTES = 1_000_000
 
 
+def committed_images(path: Path) -> dict:
+    """{file name: sha256} of the images an evidence sink committed in ``path``'s folder (its manifest)."""
+    try:
+        doc = json.loads((path.parent / 'manifest.json').read_bytes())
+    except (OSError, ValueError):
+        return {}
+    return {r.get('file'): r.get('sha256') for r in doc.get('kept') or [] if isinstance(r, dict)}
+
+
 def export_private(private: Path, out_dir: Path, secrets) -> None:
     """Copy private evidence for upload, redacting every harness-held secret (raw, base64 and JSON
     escaped forms). A file whose redacted bytes still contain a secret is withheld."""
@@ -1972,7 +1981,11 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
         if path.relative_to(private).parts[0] in EXPORT_SKIP:
             continue   # the installed operator release is recorded by tag and sha256, never uploaded
         raw = path.read_bytes()
-        if path.suffix == '.png':
+        if path.suffix in ('.png', '.part') or path.name.endswith('.png.part'):
+            # Only a completed image the sink committed to its manifest, with the same sha256, is exported
+            # (Sol fa22710e); a part file or an unlisted or altered PNG never is.
+            if path.suffix == '.part' or committed_images(path).get(path.name) != sha256(raw):
+                continue
             # Evidence images are never altered (their sha256 is bound to the action log): one that would need
             # redaction is withheld whole, and the exported manifest says so (Sol 0b9bd1d5).
             if any(form in raw for form in forms):

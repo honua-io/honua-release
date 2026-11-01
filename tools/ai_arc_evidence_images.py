@@ -84,9 +84,22 @@ class Sink:
                 index = len(self.kept) + 1
                 safe = re.sub(r'[^A-Za-z0-9_.-]+', '-', f'{kind}-{label}')[:80].strip('-') or kind
                 name = f'{index:03d}-{safe}.png'
-                fd = os.open(self.directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, 'wb') as handle:
-                    handle.write(bytes(png))
+                # Written to a private part file and published by rename only when complete; a failed write
+                # leaves nothing behind (Sol fa22710e).
+                part = self.directory / (name + '.part')
+                try:
+                    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(fd, 'wb') as handle:
+                        handle.write(bytes(png))
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(part, self.directory / name)
+                except BaseException:
+                    try:
+                        part.unlink()
+                    except OSError:
+                        pass
+                    raise
                 self.kept.append({'file': name, 'kind': kind, 'label': str(label)[:120], 'bytes': len(png),
                                   'sha256': 'sha256:' + digest,
                                   **({'actionLogSha256': 'sha256:' + expected_sha256} if expected_sha256 else {})})
