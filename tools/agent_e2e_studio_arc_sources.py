@@ -4,15 +4,25 @@ from __future__ import annotations
 import copy
 import re
 from datetime import timedelta
+from uuid import UUID
 
 from agent_e2e_local_recorder import ProjectionError
+from agent_e2e_mcp import McpError
 from agent_e2e_local_projections import Context, evaluate, require, require_address
 
 NAMES = ('parcels', 'flood_zones', 'shelters')
 
 
+def same_connection_guid(recorded, handoff):
+    if not isinstance(recorded, str) or not isinstance(handoff, str):
+        return False
+    try:
+        return UUID(recorded) == UUID(handoff)
+    except ValueError:
+        return False
+
+
 def validate_sources(handoff):
-    from uuid import UUID
     connection = handoff.get('connectionId')
     try:
         require(isinstance(connection, str) and str(UUID(connection)) == connection.lower(),
@@ -116,15 +126,29 @@ def complete_sources(stack, seeded, body):
             continue
         try:
             response = rec.action_result('arc-publish-request-' + str(index), action)
-            result = response.json.get('result', {})
-            value = result.get('structuredContent', {})
-            operation = value.get('operationInstanceId')
-            if (response.status == 200 and result.get('isError', False) is False
-                    and value.get('status') == 'Completed' and value.get('operationId') == 'service.publish'
-                    and isinstance(operation, str)):
-                publications.setdefault(operation, []).append((action, value))
         except ProjectionError:
             continue
+        if response.status != 200:
+            continue
+        try:
+            response_body = response.json
+        except (ProjectionError, McpError) as exc:
+            raise ProjectionError('malformed stage-four publish response: ' + str(exc)) from exc
+        require(isinstance(response_body, dict), 'malformed stage-four publish response: body is not an object')
+        if 'result' not in response_body and isinstance(response_body.get('error'), dict):
+            continue  # a well-formed JSON-RPC error is the agent's failed attempt: no credit, not a harness fault
+        result = response_body.get('result')
+        require(isinstance(result, dict), 'malformed stage-four publish response: result is not an object')
+        if result.get('isError') is True:
+            continue
+        value = result.get('structuredContent')
+        require(isinstance(value, dict),
+                'malformed stage-four publish response: structuredContent is not an object')
+        operation = value.get('operationInstanceId')
+        if (result.get('isError', False) is False
+                and value.get('status') == 'Completed' and value.get('operationId') == 'service.publish'
+                and isinstance(operation, str)):
+            publications.setdefault(operation, []).append((action, value))
     candidates, examined = [], 0
     for audit_id, event in after.items():
         if audit_id in before or event.get('actor') not in actors:
@@ -160,7 +184,7 @@ def complete_sources(stack, seeded, body):
                 requests = [(action, result) for action, result in publications.get(event['resourceId'], [])
                     if isinstance(action.arguments, dict) and action.arguments.get('dryRun', False) is False
                     and all(action.arguments.get(k) == handoff['tables'][name][k] for k in ('schema', 'table'))
-                    and action.arguments.get('connectionId') == handoff['connectionId']
+                    and same_connection_guid(action.arguments.get('connectionId'), handoff['connectionId'])
                     and result.get('serviceName') == binding['service']
                     and str(result.get('layerId')) == str(binding['layerId'])]
                 if len(requests) != 1:
