@@ -1815,8 +1815,7 @@ def _rescore_stage(arc: dict, target: str, row: dict, folder: Path) -> dict:
     evidence = row.get('evidence')
     if not isinstance(evidence, dict) or not {'actions', 'observations', 'handoff', 'context'} <= set(evidence):
         raise ValueError(f"{row['stage']}: stage evidence is not retained")
-    if (folder / row['stage'] / 'final-answer.txt').exists() and 'finalAnswer' not in evidence:
-        raise ValueError(f"{row['stage']}: a retained final answer is not listed in the stage evidence")
+    unlisted_evidence(row['stage'], evidence, folder)
     files = {}
     for name, digest in evidence.items():
         path = folder / row['stage'] / {'finalAnswer': 'final-answer.txt'}.get(name, name + '.json')
@@ -1828,11 +1827,25 @@ def _rescore_stage(arc: dict, target: str, row: dict, folder: Path) -> dict:
                        answer, json.loads(files['handoff']), json.loads(files['context']), arc['limits'][row['stage']])
 
 
+def unlisted_evidence(stage: str, evidence: dict, folder: Path) -> None:
+    """Every stage evidence file retained on disk must be listed in the stage's manifest: a manifest that omits the
+    retained final answer would otherwise score it as no claim (Sol 1203 r5, r7)."""
+    for name in STAGE_EVIDENCE_FILES:
+        key = 'finalAnswer' if name == 'final-answer.txt' else name[:-len('.json')]
+        if (Path(folder) / stage / name).exists() and key not in evidence:
+            raise ValueError(f"{stage}: retained {name} is not listed in the stage evidence")
+
+
+def retained_on_disk(row: dict, folder) -> bool:
+    return any((Path(folder) / str(row.get('stage')) / n).exists() for n in STAGE_EVIDENCE_FILES)
+
+
 def verify_stage_evidence(arc: dict, target: str, row: dict, folder: Path) -> None:
     """Re-derive one stage from its retained evidence; any disagreement rejects the run."""
     evidence = row.get('evidence')
     if not isinstance(evidence, dict) or not {'actions', 'observations', 'handoff', 'context'} <= set(evidence):
         raise ValueError(f"{row['stage']}: stage evidence is not retained")
+    unlisted_evidence(row['stage'], evidence, folder)
     files = {}
     for name, digest in evidence.items():
         path = folder / row['stage'] / {'finalAnswer': 'final-answer.txt'}.get(name, name + '.json')
@@ -2392,18 +2405,20 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
             blocker = stage_row.get('blockedBy')
             if blocker not in STAGES[:index] or earlier[STAGES.index(blocker)] == 'pass':
                 raise ValueError('blocked stage without a non-passing prerequisite')
-            if stage_row.get('actions') or stage_row.get('evidence'):
+            if stage_row.get('actions') or stage_row.get('evidence') or retained_on_disk(stage_row, evidence):
                 raise ValueError('a blocked stage carries session evidence')
             continue
         if any(o != 'pass' for o in earlier):
             raise ValueError('a stage ran after an earlier stage did not pass')
         if outcome == 'stage-unavailable':
-            if stage_row.get('actions') or stage_row.get('evidence'):
+            if stage_row.get('actions') or stage_row.get('evidence') or retained_on_disk(stage_row, evidence):
                 raise ValueError('an unavailable stage carries session evidence')
             continue
         if outcome == 'fail' and not stage_row.get('evidence') and not stage_row.get('actions') and (
                 stage_row.get('cause') == 'run wall-clock limit exhausted'
                 or str(stage_row.get('cause', '')).startswith('stage wall-clock limit reached')):
+            if retained_on_disk(stage_row, evidence):
+                raise ValueError(f"{stage_row.get('stage')}: retained stage evidence is not listed in the receipt")
             continue
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
         verify_cli_sessions(stage_row, Path(evidence), pinned)

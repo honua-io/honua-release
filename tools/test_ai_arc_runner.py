@@ -1980,3 +1980,40 @@ def test_an_emptied_evidence_manifest_cannot_skip_a_voided_runs_retained_checkli
     receipt['stages'][0].pop('evidence')
     assert [f['flagId'] for f in R.rederive_flags(ARC, 'local-docker', receipt, tmp_path / '002.evidence')] == \
         ['setup:evidence-unverifiable']
+
+
+def test_a_counted_runs_manifest_cannot_drop_its_retained_final_answer(tmp_path):
+    """Sol 1203 r7: dropping finalAnswer from a counted run's stage manifest (and clearing the flag fields to
+    match a no-answer score) cannot hide the retained contradicted checklist from the aggregate."""
+    names, raws = flagged_campaign(tmp_path)
+    receipt = json.loads(raws[1])
+    row = receipt['stages'][0]
+    row['evidence'].pop('finalAnswer')
+    row.update(falseSuccess=False, falseSuccessUnresolved=False, falseSuccessFlags=[])
+    receipt.update(falseSuccess=False, falseSuccessUnresolved=False, falseSuccessFlags=[])
+    with pytest.raises(ValueError, match='final-answer.txt is not listed'):
+        agg(tmp_path, names, [raws[0], json.dumps(receipt).encode()])
+    # Relabelling the stage as a wall-clock failure with no session evidence is rejected while files are retained.
+    receipt = json.loads(raws[1])
+    row = receipt['stages'][0]
+    row.update(cause='run wall-clock limit exhausted', actions=[], falseSuccess=False, falseSuccessUnresolved=False,
+               falseSuccessFlags=[])
+    row.pop('evidence')
+    receipt.update(falseSuccess=False, falseSuccessUnresolved=False, falseSuccessFlags=[])
+    with pytest.raises(ValueError, match='not listed in the receipt'):
+        agg(tmp_path, names, [raws[0], json.dumps(receipt).encode()])
+
+
+def test_the_verifier_requires_every_retained_stage_file_to_be_listed(tmp_path):
+    """Sol 1203 r7, without a full campaign (runs under the custody guard)."""
+    stage = tmp_path / 'setup'
+    stage.mkdir()
+    for name in R.STAGE_EVIDENCE_FILES:
+        (stage / name).write_text('{}')
+    listed = {'actions': 'x', 'observations': 'x', 'handoff': 'x', 'context': 'x'}
+    with pytest.raises(ValueError, match='final-answer.txt is not listed'):
+        R.verify_stage_evidence(ARC, 'local-docker', {'stage': 'setup', 'evidence': dict(listed)}, tmp_path)
+    with pytest.raises(ValueError, match='final-answer.txt is not listed'):
+        R._rescore_stage(ARC, 'local-docker', {'stage': 'setup', 'evidence': dict(listed)}, tmp_path)
+    R.unlisted_evidence('setup', dict(listed, finalAnswer='x'), tmp_path)
+    assert R.retained_on_disk({'stage': 'setup'}, tmp_path) and not R.retained_on_disk({'stage': 'ops'}, tmp_path)
