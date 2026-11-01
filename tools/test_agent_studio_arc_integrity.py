@@ -206,7 +206,8 @@ def test_other_principal_mcp_edit_between_ui_create_and_save_fails(tmp_path):
     assert ui_provenance(records, rows, customer, unrelated)
 
 
-def test_sharing_requires_team_publication_colleague_and_anonymous_denial():
+@pytest.mark.parametrize('visibility', ['team', 'organization'])
+def test_sharing_requires_team_publication_colleague_and_anonymous_denial(visibility):
     from agent_e2e_studio_arc import sharing_from_records
     version = {'itemId': 'item', 'versionId': 'version', 'contentHash': 'hash'}
     path = '/api/v1/studio/published/team/map'
@@ -215,9 +216,9 @@ def test_sharing_requires_team_publication_colleague_and_anonymous_denial():
         row.principal, row.principal_id, row.status, row.path = principal, identity, status, route
         row.method, row.phase, row.origin = 'GET', 'observe', 'controller'
         return row
-    artifact = {**version, 'publicationId': 'request', 'visibility': 'team'}
+    artifact = {**version, 'publicationId': 'request', 'visibility': visibility}
     publication = {'itemId': 'item', 'versionId': 'version', 'requestId': 'request',
-                   'status': 'Accepted', 'intent': {'route': '/team/map', 'visibility': 'team'}}
+                   'status': 'Accepted', 'intent': {'route': '/team/map', 'visibility': visibility}}
     records = {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z'),
         'p08-maps': record({'data': {'items': [{'itemId': 'item', 'publishedVersionId': 'version'}]}}, '2026-11-01T00:00:00Z'),
         'studio-share-publication': response({'data': publication}, 'controller', 'admin', route='/api/v1/studio/content-items/item/versions/version/publish-requests/request'),
