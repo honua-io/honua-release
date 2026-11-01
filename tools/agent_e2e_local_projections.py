@@ -500,6 +500,17 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(logged, dict) and logged.get('kind') == 'tool_call'
                 and record.request_arguments == {'tool': logged.get('tool'), 'arguments': logged.get('arguments')},
                 'feature query is not a replay of a sealed model action')
+        if 'fullPublished' in spec:
+            from agent_e2e_local_expectations import fixture_catalog
+            queries = [(identity, action) for identity, action in ctx.model_actions.items()
+                       if action.get('kind') == 'tool_call' and action.get('tool') == 'honua_query_features']
+            require(queries and len(queries) <= fixture_catalog()['maxP10Queries']
+                    and all(type(action.get('_session')) is int and type(action.get('_sequence')) is int
+                            for _, action in queries), 'feature query budget or action order is invalid')
+            positions = [(a['_session'], a['_sequence']) for _, a in queries]
+            require(len(set(positions)) == len(positions), 'feature query action order is ambiguous')
+            final = max(queries, key=lambda item: (item[1]['_session'], item[1]['_sequence']))
+            require(record.replay_of == final[0], 'feature query is not the final agent query')
         result = record.json.get('result')
         require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
         value = result.get('structuredContent')
