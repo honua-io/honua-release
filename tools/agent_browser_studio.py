@@ -500,6 +500,26 @@ class PlaywrightPage:
                 route.fulfill(response=response, headers=headers)
                 return response
 
+            # Capture native Studio lifecycle traffic independently of model claims.
+            # This route is reached only by the origin-locked signed-in browser.
+            path = urlsplit(url).path
+            lifecycle = (path == '/api/studio/v1/studio/package-drafts' or
+                         re.fullmatch(r'/api/studio/v1/studio/package-drafts/[A-Za-z0-9-]+/content-versions', path))
+            if lifecycle and getattr(self, '_refusal_log', None) is not None and route.request.method == 'POST':
+                from datetime import datetime, timezone
+                tool = 'studio_ui_create' if path.endswith('/package-drafts') else 'studio_ui_save'
+                selected = {'kind': 'tool_call', 'tool': tool, 'arguments': {
+                    'path': path, 'startedAt': datetime.now(timezone.utc).isoformat()}}
+                self._refusal_log.names.add(tool)
+                def lifecycle_request(_kind, _action):
+                    response = fetch()
+                    raw = response.body()
+                    require(len(raw) <= MAX_BODY, 'Studio lifecycle response exceeds bound')
+                    return {'status': 'ok' if 200 <= response.status < 300 else 'fail',
+                            '_rawResponse': (response.status, raw)}
+                self._refusal_log.dispatch('tool_call', selected, lifecycle_request)
+                return
+
             if self._assistant_log is not None and route.request.method == 'POST' and \
                     urlsplit(url).path == '/api/agent-workspace/studio/mcp':
                 payload = route.request.post_data_json

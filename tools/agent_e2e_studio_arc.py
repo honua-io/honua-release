@@ -3,12 +3,157 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agent_e2e_studio_customer_session import MODEL
 
 CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/manifest.v1.json'
 CORPUS_MANIFEST_SHA256 = '166fad2a58cdfb5560882181a1c0afe04b81442401a1b465d28d6dc9710f846e'
+
+
+def _instant(value):
+    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if dt.tzinfo is None:
+        raise ValueError('timestamp lacks timezone')
+    return dt.astimezone(timezone.utc)
+
+
+def _record(records, name):
+    row = records[name]
+    if (row.principal != 'controller' or row.status != 200 or
+            row.sha256 != 'sha256:' + hashlib.sha256(row.raw).hexdigest()):
+        raise ValueError('controller evidence is unavailable or altered')
+    return row.json
+
+
+def _events(records, when):
+    names = sorted((k for k in records if re.fullmatch('studio-audit-' + when + r'-[0-9]+', k)),
+                   key=lambda k: int(k.rsplit('-', 1)[1]))
+    if not names or names != ['studio-audit-' + when + '-' + str(i) for i in range(len(names))]:
+        raise ValueError('audit inventory is incomplete')
+    events = {}
+    for name in names:
+        body = _record(records, name)
+        if not isinstance(body, dict) or not isinstance(body.get('items'), list):
+            raise ValueError('audit inventory is malformed')
+        for row in body['items']:
+            if not isinstance(row, dict) or type(row.get('auditId')) is not int or row['auditId'] in events:
+                raise ValueError('audit event is malformed or duplicated')
+            events[row['auditId']] = row
+    if body.get('nextCursor') is not None:
+        raise ValueError('audit inventory is incomplete')
+    return events
+
+
+def ui_provenance(records, session_rows, customer):
+    """Join signed-in browser lifecycle responses to immutable version and customer audit."""
+    version = _record(records, 'p08-version')['data']
+    if not isinstance(customer, str) or not customer or version.get('createdBy') != customer:
+        raise ValueError('saved version is not attributed to the browser customer')
+    before, after = _events(records, 'before'), _events(records, 'after')
+    if not before.keys() <= after.keys() or any(after[k] != v for k, v in before.items()):
+        raise ValueError('audit baseline changed')
+    actors = {customer, customer.split('@tenant:', 1)[0], 'bearer:' + customer.split('@tenant:', 1)[0]}
+    actions = []
+    ui_interactions = []
+    for ordinal, row in enumerate(session_rows):
+        if row.get('status') != 'pass' or not row.get('logPath'):
+            continue
+        raw = Path(row['logPath']).read_bytes()
+        if row.get('digest') != 'sha256:' + hashlib.sha256(raw).hexdigest():
+            raise ValueError('browser action digest differs')
+        action = json.loads(raw)
+        if action.get('tool') in ('studio_click', 'studio_type', 'studio_press'):
+            ui_interactions.append(ordinal)
+        if action.get('tool') not in ('studio_ui_create', 'studio_ui_save'):
+            continue
+        response = Path(row['resultRawPath']).read_bytes()
+        if (row.get('resultRawSha256') != 'sha256:' + hashlib.sha256(response).hexdigest()
+                or not 200 <= row.get('resultHttpStatus', 0) < 300):
+            raise ValueError('browser response digest differs')
+        body = json.loads(response)
+        data = body.get('data', body)
+        args = action['arguments']
+        actions.append((action['tool'], args, data, ordinal))
+    created = [(a, d, n) for t, a, d, n in actions if t == 'studio_ui_create'
+               and d.get('draftId') == version.get('sourceDraftId')]
+    saved = [(a, d, n) for t, a, d, n in actions if t == 'studio_ui_save'
+             and d.get('itemId') == version.get('itemId') and d.get('versionId') == version.get('versionId')
+             and d.get('sourceDraftId') == version.get('sourceDraftId')
+             and a.get('path') == '/api/studio/v1/studio/package-drafts/' + str(version.get('sourceDraftId')) + '/content-versions']
+    if len(created) != 1 or len(saved) != 1 or _instant(created[0][0]['startedAt']) > _instant(saved[0][0]['startedAt']):
+        raise ValueError('saved version lacks matching browser create and save')
+    if not (any(n < created[0][2] for n in ui_interactions) and
+            any(created[0][2] < n < saved[0][2] for n in ui_interactions)):
+        raise ValueError('browser create and save lack observed UI interactions')
+    end = _instant(records[sorted(k for k in records if k.startswith('studio-audit-after-'))[-1]].recorded_at)
+    # Audit is recorded to whole-second precision. Bound to the two browser
+    # requests and the controller snapshot, never to a model-provided time.
+    from datetime import timedelta
+    for operation, (args, _, _ordinal) in [('studio.draft.create', created[0]), ('studio.draft.save-version', saved[0])]:
+        start = _instant(args['startedAt']) - timedelta(seconds=1)
+        matches = [event for key, event in after.items() if key not in before
+            and event.get('actor') in actors and event.get('action') == 'operation.completed'
+            and event.get('resourceType') == 'operation_instance' and event.get('outcome') == 'Success'
+            and event.get('details', '').split(';')[:2] == ['operationId=' + operation, 'status=Completed']
+            and start <= _instant(event.get('timestamp')) <= end + timedelta(seconds=1)]
+        if not matches:
+            raise ValueError('browser customer lacks a matching Studio audit event: ' + operation)
+    return True
+
+
+def score_goal(records, goal, variant):
+    """Score frozen authored properties; explicitly reject unsupported goal features."""
+    from agent_browser_studio import package_body, style_from_body, map_spec, label_ids
+    from agent_e2e_local_expectations import load_expected
+    out = []
+    text = goal.casefold()
+    filter_requested = bool(re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed)\b', text))
+    def result(name, predicate, reason):
+        out.append({'assertion': name, 'status': 'pass' if predicate else 'fail',
+                    **({} if predicate else {'reason': reason})})
+    try:
+        version = _record(records, 'p08-version')
+        body = package_body(version)
+        style = style_from_body(body)
+        frozen = load_expected('P09', variant)['map.style']
+        result('goal.authored-style', all(style.get(k) == frozen[k] for k in ('floodColor', 'floodOpacity')),
+               'saved flood rule differs from frozen authored colour or opacity')
+        result('goal.labels', style.get('labelField') == frozen['labelField'] and
+               _record(records, 'p08-render').get('visibleLabelSourceIds') == label_ids('P24' if filter_requested else 'P09', variant),
+               'saved label field or independently visible labels differ')
+    except Exception:
+        result('goal.authored-style', False, 'authored map style is unavailable or unsupported')
+        result('goal.labels', False, 'saved label field or independent label render is unavailable')
+        body = {}
+    if filter_requested:
+        supported = ('open' in text and 'capacity' in text and re.search(r'(?:over|above|more than|>)\s*50\b', text))
+        layers = body.get('mapSpec', {}).get('layers', []) if isinstance(body.get('mapSpec'), dict) else []
+        wanted = map_spec(True, filtered=True)['layers'][-1]['filter']
+        shelter = [row for row in layers if isinstance(row, dict) and
+                   (row.get('id') == 'shelters' or (isinstance(row.get('metadata'), dict) and
+                    row['metadata'].get('honua:compositionLayerId') == 'shelters'))]
+        try:
+            visible = _record(records, 'p08-render').get('visibleLabelSourceIds') == label_ids('P24', variant)
+        except Exception:
+            visible = False
+        result('goal.filters', bool(supported and shelter and all(row.get('filter') == wanted for row in shelter) and visible),
+               'unsupported filter or saved and rendered filter do not match the frozen fixture')
+    unsupported = [name for name, pattern in (
+        ('colour', r'\b(red|green|orange|purple|yellow|black|white)\b'),
+        ('export', r'\b(export|download|print|pdf|image file)\b'),
+        ('additional analysis', r'\b(buffer|heatmap|cluster|aggregate|calculate|geocode)\b'))
+        if re.search(pattern, text)]
+    for name in unsupported:
+        result('goal.unsupported-' + name.replace(' ', '-'), False,
+               'unsupported requested requirement: ' + name)
+    if re.search(r'\b(share|shared|sharing|publish|published|publishing|operator|operators|team|access|accessible)\b', text):
+        # The fixture does not provision an operator principal or a controller-
+        # verifiable audience grant. A published pointer alone is not sharing.
+        result('goal.sharing', False, 'unsupported: no independently authenticated operator or audience grant fixture')
+    return out
 
 
 def fixture_variant(fixture_id, scenario_id, *, manifest_path=CORPUS_MANIFEST):
@@ -39,7 +184,13 @@ def select_arc_case(context, prompt=None):
     if context.case is None:
         if context.variant not in ('A', 'B'):
             raise ValueError('invalid development variant')
-        return fixture_variant('town-' + context.variant, 'P08')
+        variant, case = fixture_variant('town-' + context.variant, 'P08')
+        if prompt is not None:
+            goal = context.arc['targets'][context.target]['goals']['studio'][context.variant]
+            if not isinstance(prompt, str) or goal not in prompt:
+                raise ValueError('development Studio prompt is not bound to the goal')
+            case = {**case, 'prompts': {**case['prompts'], variant: goal}}
+        return variant, case
     if context.variant != 'H' or context.candidate.get('development'):
         raise ValueError('held-out Studio requires a release candidate')
     if not isinstance(context.case, dict) or context.case.get('target') != context.target:
@@ -288,6 +439,8 @@ def scored_actions(driver, actions, receipts):
     for action, receipt in zip(actions, receipts):
         if receipt.get('status') not in ('pass', 'fail', 'unknown'):
             raise ValueError('Studio action evidence has an invalid outcome')
+        if action.get('tool') in ('studio_ui_create', 'studio_ui_save'):
+            continue  # runner observations, not additional model tool calls
         if driver == 'console-assistant' and action.get('tool') in (*TOOLS, 'studio_chat_observe',
                                                                      'studio_customer_type'):
             continue
@@ -320,6 +473,7 @@ def arc_stage(ctx):
             self.signing = None
             self.runtimes = []
             self.assistant_actors = set()
+            self.integrity = {}
 
         def unavailable(self, context):
             if not context.slot.vm or not context.slot.controller.get('base_url') or not context.slot.controller.get('admin_key'):
@@ -368,6 +522,14 @@ def arc_stage(ctx):
                                                   scripted_customer=True)
                     prepare_conversation(invoke=lambda name, args: rpc(browser.endpoint, name, args),
                                          deadline=time.monotonic() + 30)
+                    # The slot health Console and the isolated per-customer
+                    # CaseConsole are two containers, both pinned to the arc image.
+                    facts = getattr(context.slot, 'facts', None)
+                    if isinstance(facts, dict):
+                        console = facts.setdefault('console', {})
+                        if isinstance(console, dict):
+                            console['studioSession'] = ('separate pinned CaseConsole per customer; '
+                                'runner-minted customer signs in; no Console admin key')
                     return {'ok': True, 'source': 'runner-minted customer in pinned CaseConsole workspace'}
                 finally:
                     if browser is not None:
@@ -395,7 +557,17 @@ def arc_stage(ctx):
                 if driver == 'arm-browser' and getattr(session, 'cli', None) is not None:
                     runtime.cli = session.cli
                 fixture, case = select_arc_case(context, prompt)
-                scenario = runner.load_scenario('P08')
+                # Use the P09 authored-render oracle with P08's newly created map.
+                from agent_e2e_local_scenarios.P08 import P08
+                from agent_e2e_local_expectations import load_expected
+                class ArcStudioScenario(P08):
+                    def expected(self, variant):
+                        expected = dict(super().expected(variant))
+                        expected['render.actual'] = load_expected(
+                            'P24' if re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed)\b',
+                                               case['prompts'][variant], re.I) else 'P09', variant)['render.actual']
+                        return expected
+                scenario = ArcStudioScenario()
                 try:
                     if driver == 'console-assistant':
                         provision_local_server(context.slot.vm, self.signing, enable_assistant=True)
@@ -405,6 +577,31 @@ def arc_stage(ctx):
                 finally:
                     if driver == 'console-assistant':
                         provision_local_server(context.slot.vm, self.signing)
+                stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
+                goal = case['prompts'][fixture]
+                checks = score_goal(stack.extra['recorder'].records if stack else {}, goal, fixture)
+                if driver == 'arm-browser':
+                    try:
+                        evidence = []
+                        for entry in receipt.get('sessions', []):
+                            for action in entry.get('actions', []):
+                                directory = Path(stack.workdir) / ('session-' + str(action['session']))
+                                stem = 'action-' + format(action['sequence'], '04d')
+                                evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
+                                                 'resultRawPath': str(directory / (stem + '.response'))})
+                        ui_provenance(stack.extra['recorder'].records, evidence, stack.extra.get('consoleUserId'))
+                        checks.append({'assertion': 'goal.studio-ui', 'status': 'pass'})
+                    except Exception as exc:
+                        checks.append({'assertion': 'goal.studio-ui', 'status': 'fail',
+                                       'reason': 'Studio browser creation/save evidence unavailable: ' + str(exc)[:150]})
+                answer = runtime.answers.get(context.slot.project)
+                if any(check['status'] == 'fail' for check in checks) and isinstance(answer, str):
+                    from ai_arc_safety import false_success
+                    assessment = false_success(answer, 'fail', None)
+                    if assessment.get('false_success'):
+                        checks.append({'assertion': 'goal.false-success', 'status': 'fail', 'falseSuccess': True,
+                                       'reason': 'success claim contradicts the independent goal checks'})
+                self.integrity[driver] = checks
                 self.cases[driver] = [{'scenario': 'P08', 'receipt': receipt}]
                 visible.extend(digest for item in receipt.get('sessions', [])
                                for digest in item.get('modelVisibleDigests', []))
@@ -445,7 +642,9 @@ def arc_stage(ctx):
                     'modelVisibleDigests': visible}
 
         def observe(self, context, row):
-            return [item for driver, cases in self.cases.items() for item in driver_assertions(driver, cases)]
+            return ([item for driver, cases in self.cases.items() for item in driver_assertions(driver, cases)]
+                    + [{**item, 'assertion': driver + ':' + item['assertion']}
+                       for driver, checks in self.integrity.items() for item in checks])
 
         def assistant_principals(self, context):
             return frozenset(self.assistant_actors)

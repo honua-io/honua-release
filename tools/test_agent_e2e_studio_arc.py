@@ -194,7 +194,7 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
             vm=SimpleNamespace(secrets={'POSTGRES_PASSWORD': 'secret'}), harness_secrets=[]),
         candidate={'imageDigest': 'sha256:' + 'a' * 64}, arm={'agent': 'codex-cli', 'model': 'model'},
         limits={'maxTurns': 60, 'maxToolCalls': 60, 'maxSeconds': 2700},
-        arc={'studioAssistant': {'customerScript': []}}, gate=None, live=[], remaining=lambda: 100)
+        arc={'studioAssistant': {'customerScript': []}, 'targets': {'local-docker': {'goals': {'studio': {'A': 'ignored'}}}}}, gate=None, live=[], remaining=lambda: 100)
     stage = studio.arc_stage(context)
     stage.signing = 'x' * 48
     if sealed:
