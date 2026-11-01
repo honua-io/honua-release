@@ -146,7 +146,17 @@ jobs:
           [ "$TARGET" = local-docker ] || [ -z "${HONUA_ARC_SLOT_PROVISIONER:-}" ] || args+=(--slot-provisioner "$HONUA_ARC_SLOT_PROVISIONER")
           [ -z "$TRIALS" ] || args+=(--trials "$TRIALS")
           [ "$GOAL_SET" != held-out ] || args+=(--held-out)
-          python3 tools/ai_arc_campaign.py "${args[@]}"
+          # Astra S4: ONE spend ledger per gate campaign (goal set x candidate lock), shared by every target and
+          # arm dispatched for it. It lives on the controller runner, outside the workspace, so separate arm
+          # dispatches and matrix jobs add to the same frozen cap. Exit 3 is SPEND-CAP-REACHED (reported below).
+          ledger="$HOME/.honua-ai-arc/spend/${GOAL_SET}-${LOCK_DIGEST#sha256:}.json"
+          mkdir -p "$(dirname "$ledger")"
+          args+=(--spend-ledger "$ledger")
+          status=0
+          python3 tools/ai_arc_campaign.py "${args[@]}" || status=$?
+          cp "$ledger" "artifacts/$TARGET/spend-ledger.json" 2>/dev/null || true
+          [ ! -f "artifacts/$TARGET/SPEND-CAP-REACHED" ] || echo "::error::spend cap reached; see artifacts/$TARGET/SPEND-CAP-REACHED"
+          exit "$status"
       - name: One aggregate for this target x arm (derived from the run receipts)
         if: always()
         env:
@@ -176,6 +186,8 @@ jobs:
             artifacts/${{ matrix.target }}/schedule.json
             artifacts/${{ matrix.target }}/voids.json
             artifacts/${{ matrix.target }}/campaign-state.json
+            artifacts/${{ matrix.target }}/spend-ledger.json
+            artifacts/${{ matrix.target }}/SPEND-CAP-REACHED
             artifacts/${{ matrix.target }}/runs/*/trial-receipt.json
             artifacts/${{ matrix.target }}/ai-arc-aggregate-*.json
             artifacts/${{ matrix.target }}/ai-arc-report-*.json
