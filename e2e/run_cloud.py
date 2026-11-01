@@ -573,7 +573,7 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                             raise ValueError("final serving/refusal profile did not qualify")
                 except Exception as exc:
                     report.update(status="fail", why="serving/refusal native observation rejected: " + type(exc).__name__)
-            if not report["journeyAttempts"]:
+            if not report["journeyAttempts"] and should_record_empty_journey(state):
                 report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
         except Exception as e:
             report.update(status="fail", why=report.get("why", "") +
@@ -804,6 +804,48 @@ def _cell(target_name: str, redis: str) -> str:
 def _write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+_OPERATE_SCENARIOS = frozenset({"O01", "O02", "O05", "O08"})
+
+
+def operate_receipt_bound(state: dict, receipt: dict | None) -> bool:
+    """True when this run's cell wrote the operate receipt. A foreign file is not a journey."""
+    if not isinstance(state, dict) or not isinstance(receipt, dict):
+        return False
+    run_id = str(state.get("runId") or "")
+    if not run_id or str(receipt.get("runId") or "") != run_id:
+        return False
+    if str(receipt.get("runAttempt") or "") != str(state.get("runAttempt") or ""):
+        return False
+    if receipt.get("cell") != state.get("cell"):
+        return False
+    return receipt.get("scenario") in _OPERATE_SCENARIOS
+
+
+def apply_operate_receipt(state: dict, receipt: dict) -> None:
+    """Accept a pass only from a product execution with a live readback. Anything else fails."""
+    observations = receipt.get("observations") if isinstance(receipt.get("observations"), dict) else {}
+    executions = receipt.get("productExecutions")
+    state["operateBatch"] = {
+        "scenario": receipt.get("scenario"),
+        "status": receipt.get("status"),
+        "productExecutions": list(executions) if isinstance(executions, list) else [],
+        "serverReadback": observations.get("serverReadback") is True,
+    }
+    report = state.setdefault("report", {})
+    report["operateBatch"] = state["operateBatch"]
+    accepted = (receipt.get("status") == "pass" and bool(state["operateBatch"]["productExecutions"])
+                and state["operateBatch"]["serverReadback"] is True)
+    if accepted:
+        return
+    report["status"] = "fail"
+    why = receipt.get("why") if isinstance(receipt.get("why"), str) and receipt.get("why") else "operate batch did not pass"
+    report["why"] = "; ".join(part for part in (report.get("why"), why) if part)
+
+
+def should_record_empty_journey(state: dict) -> bool:
+    return not state.get("operateBatch")
 
 
 def _read_json(path: Path) -> dict | None:
@@ -2031,10 +2073,14 @@ def _phase_teardown(args) -> int:
         cleanup_unconfirmed = True
     if not isinstance(state.get("provisionAttempted"), bool):
         cleanup_unconfirmed = True
+    operate = _read_json(directory / "operate-batch.json")
+    bound = operate_receipt_bound(state, operate)
+    if bound and operate is not None:
+        apply_operate_receipt(state, operate)
     if journey and journey.get("cell") != cell:
         problems.append("journey handoff is for another cell")
         journey = {}
-    elif state.get("endpoint") and not journey:
+    elif state.get("endpoint") and not journey and not bound:
         problems.append("journey job left no handoff")
     if journey:
         try:

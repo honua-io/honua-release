@@ -43,6 +43,9 @@ on:
       lock_digest: { required: false, type: string, default: "" }
       trial_id: { required: false, type: string, default: "" }
       lock_run_id: { required: false, type: string, default: "" }
+      # Set to one operate scenario (O01, O02, O05, O08) to run that product path in this job
+      # and skip the journey. Empty keeps the ordinary journey and admit jobs.
+      operate_batch: { required: false, type: string, default: "" }
     secrets:
       UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
       RELEASE_GH_TOKEN:
@@ -279,6 +282,13 @@ jobs:
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
         run: python tools/terminal_model_ecs_image.py --target "${{ inputs.target }}" --output "$CELL_DIR/terminal-canary-image-proof.json"
+      - name: Drive the product operate path
+        if: ${{ success() && inputs.operate_batch != '' }}
+        run: |
+          set -euo pipefail
+          python certification/agent-ops/ecs_stage.py --cell \
+            --scenario "${{ inputs.operate_batch }}" \
+            --cell-dir "$CELL_DIR"
 
       # Runs after a failed or cancelled provision too: anything apply created must reach teardown.
       - name: Seal the Terraform state for teardown
@@ -322,6 +332,7 @@ jobs:
             ${{ env.CELL_DIR }}/receipt-*.json
             ${{ env.CELL_DIR }}/target-*.json
             ${{ env.CELL_DIR }}/serving-refusal-*.json
+            ${{ env.CELL_DIR }}/operate-batch.json
           if-no-files-found: warn
           retention-days: 14   # cloud-cell-retirement.yml recovers a failed teardown from these
 
@@ -362,7 +373,7 @@ jobs:
   # ── journey: NO id-token, NO AWS credentials. The pinned clients and seam drivers run here. ─────────
   journey:
     needs: [provision, candidate-lock]
-    if: ${{ needs.provision.outputs.endpoint != '' }}
+    if: ${{ needs.provision.outputs.endpoint != '' && inputs.operate_batch == '' }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
     permissions:
@@ -655,7 +666,7 @@ jobs:
   # ── admit: seal the application key to the journey runner, open the cell's ingress to its /32 ──────
   admit:
     needs: provision
-    if: ${{ needs.provision.outputs.endpoint != '' }}
+    if: ${{ needs.provision.outputs.endpoint != '' && inputs.operate_batch == '' }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
     permissions:
@@ -1016,4 +1027,5 @@ jobs:
             e2e/cloud-evidence/**/deployment-actuation.json
             e2e/cloud-evidence/**/executed-manifest.yaml
             e2e/cloud-evidence/**/deployment-cell-receipt.json
+            e2e/cloud-evidence/**/operate-batch.json
           if-no-files-found: warn
