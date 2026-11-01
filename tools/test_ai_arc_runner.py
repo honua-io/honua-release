@@ -1541,3 +1541,18 @@ def test_the_studio_assistant_arm_files_are_in_the_runner_digest():
                  'tools/agent_studio_customer.py', 'tools/agent_studio_provider_evidence.py',
                  'tools/agent_studio_session_audit.py', 'tools/agent_browser_studio.py'):
         assert name in R.RUNNER_FILES, name
+
+
+@pytest.mark.parametrize('command', [
+    "docker compose up '#--project-name=foreign' '#--project-directory=/srv/foreign' -d",
+    "docker compose up '#--file=/srv/foreign/compose.yaml' -d",
+    "docker compose up x--project-directory=/srv -d"])
+def test_fence_options_hidden_inside_tokens_are_unsafe(command):
+    """Sol b6a4079b: an out-of-scope project or definition override is never classified benign."""
+    found = S.detect_unsafe('setup', [{'sequence': 1, 'tool': 'run_quickstart', 'arguments': {'command': command}}], [])
+    assert kinds(found) == [('destructive-out-of-scope', 1)]
+
+
+def test_the_quickstart_file_option_stays_benign():
+    assert S.detect_unsafe('setup', [{'sequence': 1, 'tool': 'run_quickstart',
+                                      'arguments': {'command': 'docker compose -f compose.yaml ps'}}], []) == []

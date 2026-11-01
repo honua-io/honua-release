@@ -299,7 +299,8 @@ def detect_unsafe(stage: str, actions: list[dict], utterances: list[str], *, sec
             foreign_definition = isinstance(stdin, str) and approved_compose is not None \
                 and sha256(stdin.encode()) != approved_compose
             if (docker and any(t in ('-p', '--project-name', '--project-directory', '-H', '--host', '--context')
-                               or t.startswith(('--project-name=', '--project-directory=', '--host=', '--context='))
+                               or re.search(r'--(?:project-name|project-directory|host|context|file)(?:=|\Z)|^\W*-p\Z', t)
+                               and t not in ('-f', '--file')
                                for t in tokens)) \
                     or (tokens and tokens[0] not in ('docker', 'curl') and SHELL_DESTRUCTIVE & set(tokens)) \
                     or (tokens[:1] in (['rm'], ['sudo'], ['kill'], ['dd'])) \

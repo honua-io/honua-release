@@ -291,17 +291,19 @@ def parse_quickstart(command):
             else: joined.append(token)
         rest = joined
         allowed = COMPOSE_ADMITTED[operation]
+        # Numeric option values are validated by position; no token is ever rewritten (Sol b6a4079b).
+        values = set()
         for flag, low, high in (('--wait-timeout',1,300),('--tail',1,2000)):
             if flag in rest:
                 if rest.count(flag) != 1: raise ValueError('duplicate compose ' + flag[2:])
                 ix=rest.index(flag)
                 if ix+1 >= len(rest) or not rest[ix+1].isdigit() or not low <= int(rest[ix+1]) <= high:
                     raise ValueError('invalid compose ' + flag[2:])
-                rest = rest[:ix+1] + ['#' + rest[ix+1]] + rest[ix+2:]
-        if any(token.startswith('-') and token not in allowed
-               or not token.startswith(('-','#')) and not _SAFE_ID.fullmatch(token) for token in rest):
+                values.add(ix+1)
+        if any(i not in values and (token.startswith('-') and token not in allowed
+                                    or not token.startswith('-') and not _SAFE_ID.fullmatch(token))
+               for i, token in enumerate(rest)):
             raise ValueError('compose argument is not admitted')
-        rest = [token[1:] if token.startswith('#') else token for token in rest]
         if operation == 'version' and rest: raise ValueError('compose operation takes no arguments')
         if operation == 'config' and any(not t.startswith('-') for t in rest):
             raise ValueError('compose operation takes no arguments')

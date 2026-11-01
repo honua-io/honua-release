@@ -474,3 +474,17 @@ def test_quickstart_admits_compose_usage(command, expected):
 @pytest.mark.parametrize('command', ['docker compose run honua --help', 'docker compose frobnicate --help'])
 def test_quickstart_refuses_help_that_is_not_usage(command):
     with pytest.raises(ValueError): parse_quickstart(command)
+
+
+@pytest.mark.parametrize('command', [
+    "docker compose up '#--project-name=foreign' '#--project-directory=/srv/foreign' -d",
+    "docker compose up '#--file=/srv/foreign/compose.yaml' -d", "docker compose logs '#--tail' 5",
+    "docker compose up -d --wait-timeout '#5'", "docker compose logs --tail 5 '#5'"])
+def test_caller_supplied_marker_tokens_are_refused(command):
+    """Sol b6a4079b: '#'-prefixed tokens bypassed validation and were stripped before dispatch."""
+    with pytest.raises(ValueError): parse_quickstart(command)
+
+
+def test_numeric_option_values_pass_unchanged():
+    assert parse_quickstart('docker compose up -d --wait --wait-timeout 180')[-2:] == ['--wait-timeout', '180']
+    assert parse_quickstart('docker compose logs --tail 50 honua')[-3:] == ['--tail', '50', 'honua']
