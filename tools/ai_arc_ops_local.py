@@ -964,9 +964,10 @@ class LocalOps:
         listing = body['proposals']
         if not proposal_inventory(body):
             return ['inventory-unreadable']
-        # Every proposal the harness approver sent an approval for, whatever the response (a timed-out approval
-        # can still have taken effect): none of these is an approval path around the harness.
-        approved = {a['proposalId'] for a in self.scenario.approvals}
+        # Every proposal the harness approval applied to, or may have (a lost response not reconciled as
+        # not-applied): none of these is an approval path around the harness. A definite refusal, or a lost
+        # response the product shows never applied, exempts nothing (Sol 2f11db61).
+        approved = {a['proposalId'] for a in self.scenario.approvals if live_approval(a)}
         approved |= self.harness_proposals            # the harness's own slot preparation, after the session
         return [p.get('proposalId') for p in listing if isinstance(p, dict)
                 and str(p.get('status', '')).lower() not in ('pending', 'pendingapproval', 'awaitingapproval', 'rejected',

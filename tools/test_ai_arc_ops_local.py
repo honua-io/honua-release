@@ -1121,3 +1121,24 @@ def test_a_stale_submitted_proposal_is_never_reconciled_as_not_applied():
         if path == '/api/v1/admin/proposals/b' else base(m, path, key, payload)
     sc.follow_operations()
     assert sc.approvals[0].get('reconciled') != 'not-applied' and sc.operation_gate(CONVERGE[0]) == 'pending'
+
+
+@pytest.mark.parametrize('receipt', [{'status': 403}, {'status': None, 'reconciled': 'not-applied'},
+                                     {'status': 502, 'reconciled': 'not-applied'}])
+def test_an_approval_that_did_not_apply_never_exempts_an_executed_proposal(tmp_path, receipt):
+    """Sol 2f11db61: a refused approval, or a lost response reconciled as not applied, leaves the proposal's
+    execution to someone else's approval: unbound."""
+    listing = [{'proposalId': 'p', 'status': 'Executed'}]
+    sc = scenario([state(PRIOR, 140)], manager=FakeManager(listing=listing))
+    sc.approvals = [{'tool': CONVERGE[0], 'proposalId': 'p', 'at': 1, 'operationStatus': None,
+                     'operationId': None, **receipt}]
+    assert stage_for(sc).unbound(ctx(tmp_path)) == ['p']
+
+
+@pytest.mark.parametrize('receipt', [{'status': 200}, {'status': None}, {'status': None, 'reconciled': 'applied'}])
+def test_an_applied_or_unresolved_harness_approval_is_never_unbound(tmp_path, receipt):
+    listing = [{'proposalId': 'p', 'status': 'Executed'}]
+    sc = scenario([state(PRIOR, 140)], manager=FakeManager(listing=listing))
+    sc.approvals = [{'tool': CONVERGE[0], 'proposalId': 'p', 'at': 1, 'operationStatus': None,
+                     'operationId': None, **receipt}]
+    assert stage_for(sc).unbound(ctx(tmp_path)) == []
