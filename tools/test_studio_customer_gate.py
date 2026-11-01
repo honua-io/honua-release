@@ -159,9 +159,11 @@ def test_dispatch_rejects_tag_pointing_to_another_commit(monkeypatch):
 def test_agent_reflection_stages_are_required_for_certification():
     required = {'agent-live-revision', 'agent-degradation-finding', 'agent-approval-recovery',
                 'agent-published-services', 'agent-audit-ownership'}
-    assert required <= g.REQUIRED_STAGES
-    values = evidence()
+    assert required <= g.AGENT_STAGES
+    g.validate_agent_progress({'qualificationComplete': True, 'completed': list(g.AGENT_STAGES)})
     for omitted in required:
         with pytest.raises(ValueError, match='partial'):
-            g.validate_evidence(*values[:3], {'qualificationComplete': True,
-                                             'completed': list(g.REQUIRED_STAGES - {omitted})})
+            g.validate_agent_progress({'qualificationComplete': True,
+                                       'completed': list(g.AGENT_STAGES - {omitted})})
+    with pytest.raises(ValueError, match='partial'):
+        g.validate_agent_progress({'qualificationComplete': False, 'completed': list(g.AGENT_STAGES)})

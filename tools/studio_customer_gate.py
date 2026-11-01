@@ -18,9 +18,9 @@ REQUIRED_STAGES = frozenset({
     'publisher-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
     'two-layers-filter-widget', 'session-expiry-recovery', 'authored-style-labels', 'save-reload-reopen',
     'independent-server-render', 'separate-approval', 'public-audience', 'accessibility',
-    'agent-live-revision', 'agent-degradation-finding', 'agent-approval-recovery',
-    'agent-published-services', 'agent-audit-ownership',
 })
+AGENT_STAGES = frozenset({'agent-live-revision', 'agent-degradation-finding', 'agent-approval-recovery',
+                          'agent-published-services', 'agent-audit-ownership'})
 REPO = 'honua-io/honua-console'
 WORKFLOW = 'console-live-journey.yml'
 
@@ -74,6 +74,11 @@ def validate_evidence(pins: dict, runtime: dict, results: dict, progress: dict) 
         raise ValueError('customer tests failed, retried or skipped')
     if progress.get('qualificationComplete') is not True or not REQUIRED_STAGES.issubset(progress.get('completed', [])):
         raise ValueError('customer journey is partial')
+
+
+def validate_agent_progress(progress: dict) -> None:
+    if progress.get('qualificationComplete') is not True or not AGENT_STAGES.issubset(progress.get('completed', [])):
+        raise ValueError('agent reflection journey is partial')
 
 
 def gh(*args: str, json_output: bool = False):
@@ -149,21 +154,22 @@ def main() -> int:
         gh('run', 'download', str(run['id']), '--repo', REPO, '--name', 'studio-customer-journey-evidence', '--dir', str(evidence))
         # Progress is a Playwright attachment, not an unverified workflow output.
         results = one_file(evidence, 'playwright-results.json')
-        progress_attachments = []
+        progress_attachments = {'customer-journey-progress.json': [], 'agent-reflection-progress.json': []}
         def visit(value):
             if isinstance(value, dict):
-                if value.get('name') == 'customer-journey-progress.json' and value.get('body'):
+                if value.get('name') in progress_attachments and value.get('body'):
                     import base64
-                    progress_attachments.append(json.loads(base64.b64decode(value['body'])))
+                    progress_attachments[value['name']].append(json.loads(base64.b64decode(value['body'])))
                 for child in value.values():
                     visit(child)
             elif isinstance(value, list):
                 for child in value:
                     visit(child)
         visit(results)
-        if len(progress_attachments) != 1:
-            raise ValueError('missing unique inline customer journey progress attachment')
-        validate_evidence(pins, one_file(evidence, 'runtime-identity.json'), results, progress_attachments[0])
+        if any(len(items) != 1 for items in progress_attachments.values()):
+            raise ValueError('missing unique inline journey progress attachment')
+        validate_evidence(pins, one_file(evidence, 'runtime-identity.json'), results, progress_attachments['customer-journey-progress.json'][0])
+        validate_agent_progress(progress_attachments['agent-reflection-progress.json'][0])
         report.update(status='pass', certifying=True)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as exc:
         report['reason'] = str(exc)
