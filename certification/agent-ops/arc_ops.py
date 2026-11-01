@@ -14,7 +14,8 @@ import json
 from pathlib import Path
 
 GATES = Path(__file__).resolve().parent / 'arc-executors.json'
-DRIVERS = {'local-docker': 'product_ops', 'aws-ecs': 'ecs_stage'}
+# local-docker: the arc's own Compose-executor driver (tools/ai_arc_ops_local.py); aws-ecs: #1164.
+DRIVERS = {'local-docker': 'ai_arc_ops_local', 'aws-ecs': 'ecs_stage'}
 
 
 def open_gates(target: str) -> list[str]:
@@ -43,7 +44,7 @@ def arc_stage(ctx):
     try:
         module = __import__(driver)
     except ImportError:
-        return Unavailable(f'the ops product-path driver ({driver}, #1164) is not on this branch')
+        return Unavailable(f'the ops product-path driver ({driver}) is not on this branch')
     factory = getattr(module, 'arc_stage', None)
     if factory is None:
         return Unavailable(f'the ops product-path driver ({driver}) exports no arc_stage')

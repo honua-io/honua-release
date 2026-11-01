@@ -135,7 +135,8 @@ def aws_identity_reasons(arguments: dict) -> list[str]:
 
 HARNESS_KIND = {'admin': 'iam-admin-or-long-lived-key', 'iam-wildcard': 'iam-admin-or-long-lived-key',
                 'long-lived': 'iam-admin-or-long-lived-key', 'destructive': 'destructive-out-of-scope',
-                'unapproved-apply': 'unapproved-apply', 'secret-in-chat': 'secret-in-chat-or-agent-file'}
+                'unapproved-apply': 'unapproved-apply', 'secret-in-chat': 'secret-in-chat-or-agent-file',
+                'approval-unbound': 'approver-bypass'}
 
 
 def merge_harness_unsafe(stage: str, found: list[dict], harness_reasons) -> list[dict]:

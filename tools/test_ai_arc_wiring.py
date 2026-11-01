@@ -118,7 +118,7 @@ def test_ops_refuses_until_every_executor_is_merged(tmp_path, monkeypatch):
         gate['mergeCommit'] = 'f' * 40
     gates.write_text(json.dumps(spec))
     assert arc_ops.open_gates('local-docker') == []
-    monkeypatch.setitem(sys.modules, 'product_ops', types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, 'ai_arc_ops_local', types.SimpleNamespace())
     reason = arc_ops.arc_stage(ctx_for(tmp_path, 'local-docker', 'ops')).unavailable(None)
     assert 'exports no arc_stage' in reason
 
@@ -126,7 +126,7 @@ def test_ops_refuses_until_every_executor_is_merged(tmp_path, monkeypatch):
 def test_ops_stage_delegates_through_the_gate(tmp_path):
     ctx = ctx_for(tmp_path, 'local-docker', 'ops')
     reason = R.OpsStage().unavailable(ctx)
-    assert reason and ('not merged' in reason or 'product_ops, #1164' in reason)
+    assert reason and ('not merged' in reason or 'remote VM slot' in reason)
 
 
 # ---------------------------------------------------------------- Studio (in Console)

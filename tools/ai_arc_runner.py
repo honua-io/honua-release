@@ -69,7 +69,7 @@ RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc
                 'tools/agent_e2e_local_mcp_proxy.py', 'tools/agent_e2e_local_faults.py',
                 'tools/g3_compose_quickstart.py', 'tools/ai_arc_devops.py',
                 'certification/agent-ops/arc_ops.py', 'certification/agent-ops/arc-executors.json',
-                'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py')
+                'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py', 'tools/ai_arc_ops_local.py')
 SCORER_GLOBS = ('tools/agent_e2e_handoff.py', 'certification/agent-e2e/corpus/oracle.py',
                 'tools/agent_e2e_local_projections.py', 'tools/agent_e2e_local_expectations.py',
                 'certification/agent-e2e/pack.v2.AB-only.json',
@@ -1379,6 +1379,9 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
                                    context.get('elapsedSeconds', 0))
     if any(a['status'] == 'undetermined' for a in scored) and not actions:
         outcome, cause = 'undetermined', 'corpus case infrastructure (unreplayed)'
+    if any(a.get('harnessFault') and a['status'] == 'undetermined' for a in scored):
+        # A scripted fault that never fired: the stage cannot be scored (a failed run), not the model's.
+        outcome, cause = 'undetermined', 'harness fault did not fire'
     if (context.get('failure') or {}).get('category') == 'harness-error':
         outcome, cause = 'undetermined', 'harness error: ' + str(context['failure'].get('reason', ''))[:200]
     shutdown = context.get('shutdown')
@@ -2254,6 +2257,7 @@ def main(argv=None) -> int:
     trial.add_argument('--slot-receipt')
     trial.add_argument('--slot-credentials')
     trial.add_argument('--deploy-identity-contract', help='honua-iac deploy_identity_contract export (absolute path)')
+    trial.add_argument('--executor-compose-revision', help='honua-server commit of docs/get-started/compose.executor.yaml')
     trial.add_argument('--console-compose', help='honua-server docker-compose.yml (its console service) at a pinned revision')
     trial.add_argument('--console-compose-revision')
     trial.add_argument('--bootstrap-outputs', help='aws-ecs: the bootstrap/aws-exec-identity outputs (approval MAC contract)')
@@ -2301,6 +2305,7 @@ def main(argv=None) -> int:
                    'deploy_identity_contract': args.deploy_identity_contract,
                    'bootstrap_outputs': args.bootstrap_outputs, 'operator_binary': args.operator_binary,
                    'console_compose': args.console_compose, 'console_compose_revision': args.console_compose_revision,
+                   'executor_compose_revision': args.executor_compose_revision,
                    'http': local_http}
         receipt = run_trial(arc=arc, target=args.target, arm=arm, variant=args.variant, run_id=args.run_id,
                             out_dir=args.output, slot=slot, candidate=candidate, session=ArcSession(arm),
