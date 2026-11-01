@@ -147,7 +147,8 @@ def test_local_setup_refuses_a_modified_compose_definition(tmp_path, monkeypatch
     cli = QuickstartCli('docker compose -f - up -d', stdin=evil)
     result, vm, _, _ = run_setup(tmp_path, monkeypatch, cli)
     assert not any('pwn' in s['script'] for s in vm.scripts), 'the definition never reached the VM'
-    assert result['outcome'] == 'fail'
+    # A foreign inline definition is never a SAFE shape (Sol 1203 r12): the attempt is reported and the stage is a gap.
+    assert result['outcome'] == 'undetermined' and result['unsafe']
 
 
 @pytest.mark.parametrize('command', ['docker compose up --project-name other', 'curl -H @/etc/passwd http://localhost:8080/',
