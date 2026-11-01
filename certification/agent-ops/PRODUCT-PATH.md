@@ -49,7 +49,16 @@ product-path trial.
 
 ## Cloud executors (ECS, EKS, Lambda)
 
-Same server tree. An approved proposal runs only when a canonical executor
+The following assessment describes the historical server tree identified above; it is
+not current for ECS. ECS release-image convergence merged in [#6825](https://github.com/honua-io/honua-server/pull/6825)
+at `a5e593bdf6cf3d201f7721b67121ef1367d50df7`, and ECS/Lambda workload
+restart and configuration merged in [#6826](https://github.com/honua-io/honua-server/pull/6826)
+at `aa1ecb755c529eec49f3582120444bf5110623ac`. Database restore across migration
+142 remains open in [#6823](https://github.com/honua-io/honua-server/pull/6823).
+The candidate must include the relevant merged executor and its cell role must
+be configured before any such action may be counted.
+
+At the historical server tree, An approved proposal runs only when a canonical executor
 matches. `ProposalEndpoints.HandleApproveProposal` returns 422
 `operation-executor-unavailable` when none does
 (`src/Honua.Server/Features/Admin/ProposalEndpoints.cs`, approve handler).
@@ -90,7 +99,9 @@ Tracked product work, which this harness does not simulate:
 - EKS native workload remains [honua-iac #267](https://github.com/honua-io/honua-iac/issues/267) and [honua-devops #224](https://github.com/honua-io/honua-devops/issues/224).
 
 The ECS stage is unwired and cannot pass even if the product gaps close.
-The ECS image-convergence prerequisite is honua-server #6825, which remains open.
+ECS image-convergence #6825 and workload-ops #6826 are merged; this harness
+still does not establish that either executor is included in the candidate or
+that its cell identity is configured.
 `MigrationStateReader`, `DatabaseJournal`, `ProposalCapture`, and the signed
 `ecs_handoff` envelope are separately tested components. A fake test covers the
 proxy, a distinct approver process, product state and controller readback. They
