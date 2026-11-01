@@ -488,3 +488,32 @@ def test_a_spend_stop_drains_even_with_a_pending_adjudication(tmp_path):
     state = json.loads((out / 'campaign-state.json').read_text())
     assert state['spendCapStop'] and 'local-docker:A1:001' in state['pending']
     assert (out / 'PENDING-ADJUDICATION').is_file()
+
+
+def test_a_spend_stop_drain_never_adjudicates(tmp_path, monkeypatch):
+    """Sol 811796f3: an adjudication that would raise (void cap or reserve exhausted) is not attempted while a
+    stopped campaign drains; the stop is still reported once the running runs finish."""
+    import ai_arc_runner as R
+    arc = json.loads(json.dumps(R.load_arc()))
+    arc['spendCap'] = spend(cap=50.5, estimate=25)
+    out = tmp_path / 'c'
+    (out / 'adjudications').mkdir(parents=True)
+    (out / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(GOOD))
+    monkeypatch.setattr(R, 'check_adjudication', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('exhausted')))
+
+    def after_the_stop(row):
+        deadline = time.monotonic() + 20
+        while not (out / 'SPEND-CAP-REACHED').is_file() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if row['runId'].endswith('002'):
+            # 002 stays active while 001 (undetermined, with a decision on file) is pending (Sol 811796f3).
+            first = out / 'runs' / 'local-docker-A1-001' / 'trial-receipt.json'
+            while not first.is_file() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            time.sleep(0.5)
+    results = C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(4), out=out, hosts=['h1'],
+                             per_host=3, common=[], launch=fake_launch(out, {'local-docker:A1:001': 'undetermined'}, [],
+                                                                         gate=after_the_stop),
+                             wait_poll=0.01, arc=arc, max_wait=60)
+    assert len(results) == 2 and (out / 'SPEND-CAP-REACHED').is_file()
+    assert 'local-docker:A1:001' in json.loads((out / 'campaign-state.json').read_text())['pending']

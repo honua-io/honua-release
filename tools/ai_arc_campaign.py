@@ -296,6 +296,13 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                     scan_holds()
                     save_state()
                     break
+                if stopped:
+                    # Sol 811796f3: while draining, nothing is adjudicated (an adjudication can raise on an
+                    # exhausted void cap or reserve, which would skip the joins and lose exit 3); running runs
+                    # only finish, and holds are recorded.
+                    scan_holds()
+                    lock.wait(wait_poll)
+                    continue
                 if pending:
                     cleared, generation = adjudicate(pending[0])
                     if cleared:
@@ -324,9 +331,6 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                     lock.wait(wait_poll)
                     continue
                 if not queue or not free:
-                    lock.wait(wait_poll)
-                    continue
-                if stopped:
                     lock.wait(wait_poll)
                     continue
                 report = spend.reserve(queue[0]["runId"])
