@@ -1875,7 +1875,10 @@ def _restricted(path: Path) -> bool:
     rel = str(path.relative_to(ROOT)) if path.is_absolute() else str(path)
     low = rel.lower()
     return (any(m in low for m in ('heldout', 'held-out', 'held_out')) or low.endswith('.sealed')
-            or rel == 'certification/agent-e2e/pack.v2.json')
+            or rel == 'certification/agent-e2e/pack.v2.json'
+            or low == 'certification/agent-e2e/corpus/town-c'
+            or low.startswith('certification/agent-e2e/corpus/town-c/')
+            or low == 'certification/agent-e2e/corpus/oracles/town-c.json')
 
 
 def _bindable_files(folder: Path) -> set[str]:

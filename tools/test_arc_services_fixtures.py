@@ -311,3 +311,16 @@ def test_raw_p15_seed_infrastructure_after_p10_actions_is_undetermined(monkeypat
     verdict, _ = stage_verdict(arc, 'local-docker', 'services', [], row, row['actions'], {}, [],
                                {'maxSeconds': 60, 'maxToolCalls': 10, 'maxContinueNudges': 1}, 1)
     assert verdict == 'undetermined'
+
+
+def test_runner_closure_prunes_retired_c_fixture_without_reading_it(monkeypatch, tmp_path):
+    import ai_arc_runner
+    root = tmp_path / 'certification/agent-e2e/corpus'
+    for name in ('town-A/data.json', 'town-C/data.json', 'oracles/town-A.json', 'oracles/town-C.json'):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('synthetic')
+    monkeypatch.setattr(ai_arc_runner, 'ROOT', tmp_path)
+    files = ai_arc_runner._bindable_files(root)
+    assert files == {'certification/agent-e2e/corpus/town-A/data.json',
+                     'certification/agent-e2e/corpus/oracles/town-A.json'}
