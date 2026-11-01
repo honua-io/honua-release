@@ -314,6 +314,7 @@ def test_studio_controller_audit_event_fails_the_case(candidate, tmp_path, monke
 
     snapshots = iter(({1: 'admin'}, {1: 'admin', 2: 'admin'}))
     monkeypatch.setattr(agent_studio_session_audit, 'snapshot', lambda recorder, label: next(snapshots))
+    monkeypatch.setattr(agent_studio_session_audit, 'controller_actors', lambda recorder, key: frozenset({'admin'}))
     runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)
     runtime.session = lambda *args, **kwargs: {
         'actions': [], 'modelVisibleDigests': [], 'usage': [], 'provenance': [], 'nudges': 0,

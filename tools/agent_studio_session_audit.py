@@ -1,5 +1,6 @@
 """Controller-owned audit snapshots around a Studio customer session."""
 from urllib.parse import quote
+from uuid import UUID
 
 from agent_e2e_local_recorder import ProjectionError, require
 
@@ -34,11 +35,32 @@ def snapshot(recorder, label):
     raise ProjectionError('Studio session audit exceeds the page limit')
 
 
-def verify(before, after):
+def controller_actors(recorder, key):
+    """Bind managed controller keys to server key IDs without retaining the key."""
+    require(isinstance(key, str) and key, 'controller credential is unavailable')
+    response = recorder.json('studio-audit-controller-keys', 'GET', '/api/v1/admin/api-keys/')['observation']
+    body = response.get('body')
+    require(response.get('httpStatus') == 200 and isinstance(body, dict)
+            and isinstance(body.get('data'), list), 'controller key inventory is unavailable')
+    actors = {'admin', 'installer-bootstrap-admin'}
+    for row in body['data']:
+        require(isinstance(row, dict) and isinstance(row.get('keyPrefix'), str)
+                and row['keyPrefix'] and isinstance(row.get('id'), str), 'controller key inventory is malformed')
+        if key.startswith(row['keyPrefix']):
+            try:
+                key_id = str(UUID(row['id']))
+            except ValueError as exc:
+                raise ProjectionError('controller key identity is malformed') from exc
+            actors.update((key_id, 'api-key:' + key_id, 'apikey:api-key:' + key_id))
+    return frozenset(actor.casefold() for actor in actors)
+
+
+def verify(before, after, controller_principals):
     """Reject controller-attributed actions appearing during the customer session."""
     require(before.keys() <= after.keys(), 'Studio session audit lost baseline events')
     require(all(after[key] == actor for key, actor in before.items()),
             'Studio session audit baseline changed')
-    controller_actors = {'admin', 'installer-bootstrap-admin'}
-    require(not any(actor in controller_actors for key, actor in after.items() if key not in before),
+    require(isinstance(controller_principals, frozenset) and controller_principals,
+            'controller principal evidence is unavailable')
+    require(not any(actor.casefold() in controller_principals for key, actor in after.items() if key not in before),
             'controller principal appeared in Studio session audit')

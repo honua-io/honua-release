@@ -968,9 +968,10 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             runtime.attest(stack, 'customerFiles:before', {f['corpusPath']: f['sha256'] for f in stack.extra['customerFiles']}, [])
         studio_audit_before = None
         if stack.extra.get('needsStudioBrowser'):
-            from agent_studio_session_audit import snapshot
+            from agent_studio_session_audit import controller_actors, snapshot
             if session_count != 1:
                 raise ValueError('Studio audit guard requires one customer session')
+            studio_controller_actors = controller_actors(recorder, stack.admin_key)
             studio_audit_before = snapshot(recorder, 'before')
         recorder.set_phase('session')
         sessions, session_ids = [], []
@@ -1011,7 +1012,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         if studio_audit_before is not None:
             from agent_studio_session_audit import snapshot, verify
             try:
-                verify(studio_audit_before, snapshot(recorder, 'after'))
+                verify(studio_audit_before, snapshot(recorder, 'after'), studio_controller_actors)
             except (ProjectionError, OSError, ValueError) as exc:
                 raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
                     'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
