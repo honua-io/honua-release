@@ -1965,12 +1965,21 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
     forms = []
     for s in secrets:
         forms += [s.encode(), base64.b64encode(s.encode()), json.dumps(s)[1:-1].encode()]
+    withheld_images = set()
     for path in sorted(Path(private).rglob('*')):
         if not path.is_file() or path.is_symlink():
             continue
         if path.relative_to(private).parts[0] in EXPORT_SKIP:
             continue   # the installed operator release is recorded by tag and sha256, never uploaded
         raw = path.read_bytes()
+        if path.suffix == '.png':
+            # Evidence images are never altered (their sha256 is bound to the action log): one that would need
+            # redaction is withheld whole, and the exported manifest says so (Sol 0b9bd1d5).
+            if any(form in raw for form in forms):
+                withheld_images.add(str(path.relative_to(private)))
+                continue
+            write_private(out_dir / path.relative_to(private), raw)
+            continue
         if path.suffix == '.json' and b'bodyBase64' in raw:
             try:
                 doc = json.loads(raw)
@@ -1988,6 +1997,18 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
             target = target.with_name(target.name + '.withheld')
             raw = b'withheld: credential could not be redacted\n'
         write_private(target, raw)
+    for folder in {str(Path(w).parent) for w in withheld_images}:
+        manifest = out_dir / folder / 'manifest.json'
+        try:
+            doc = json.loads(manifest.read_bytes())
+        except (OSError, ValueError):
+            continue
+        names = {Path(w).name for w in withheld_images if str(Path(w).parent) == folder}
+        doc['kept'] = [row for row in doc.get('kept', []) if row.get('file') not in names]
+        doc.setdefault('dropped', {})['secret-in-image'] = len(names)
+        tmp = manifest.with_name('manifest.json.reconciled')
+        write_private(tmp, json.dumps(doc, sort_keys=True, indent=1).encode())
+        tmp.replace(manifest)
 
 
 def finish_trial(receipt: dict, out_dir: Path) -> dict:

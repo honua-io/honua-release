@@ -1750,3 +1750,24 @@ def test_a_studio_stage_whose_sink_cannot_start_still_passes(tmp_path, monkeypat
     receipt, _ = run(tmp_path)
     assert receipt['stages'][3]['outcome'] == 'pass'
     E._reset_for_tests()
+
+
+
+def test_an_image_needing_redaction_is_withheld_whole_and_the_manifest_reconciled(tmp_path):
+    """Sol 0b9bd1d5: export never alters a PNG (its hash is bound to the action log)."""
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    E._reset_for_tests()
+    sink = E.open_sink(tmp_path / 'private' / 'studio' / 'screenshots', owner='run')
+    clean, dirty = png(salt=1), png(salt=2) + b'synthetic-harness-secret-01'
+    sink.retain('render', 'clean', clean)
+    sink.retain('render', 'dirty', dirty)
+    E.close_sink(sink)
+    E._reset_for_tests()
+    R.export_private(tmp_path / 'private', tmp_path / 'out', ['synthetic-harness-secret-01'])
+    out = tmp_path / 'out' / 'studio' / 'screenshots'
+    pngs = sorted(p.name for p in out.glob('*.png'))
+    assert pngs == ['001-render-clean.png'] and (out / pngs[0]).read_bytes() == clean
+    doc = json.loads((out / 'manifest.json').read_text())
+    assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['secret-in-image'] == 1
+    assert b'synthetic-harness-secret-01' not in b''.join(p.read_bytes() for p in out.iterdir())
