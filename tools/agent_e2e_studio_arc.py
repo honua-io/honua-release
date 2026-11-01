@@ -153,13 +153,18 @@ def public_publication(records):
     return len(matches) == 1 and isinstance(matches[0], str) and bool(matches[0])
 
 
+def requests_filter(goal):
+    return bool(re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed)\b'
+                          r'|\bopen\s+shelters?\b', goal, re.I))
+
+
 def score_goal(records, goal, variant, *, recognized=True):
     """Score frozen authored properties; explicitly reject unsupported goal features."""
     from agent_browser_studio import package_body, style_from_body, map_spec, label_ids
     from agent_e2e_local_expectations import load_expected
     out = []
     text = goal.casefold()
-    filter_requested = bool(re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed|open)\b', text))
+    filter_requested = requests_filter(goal)
     def result(name, predicate, reason):
         out.append({'assertion': name, 'status': 'pass' if predicate else 'fail',
                     **({} if predicate else {'reason': reason})})
@@ -623,8 +628,7 @@ def arc_stage(ctx):
                     def expected(self, variant):
                         expected = dict(super().expected(variant))
                         expected['render.actual'] = load_expected(
-                            'P24' if re.search(r'\b(filter|filtered|only|where|exclude|excluding|hide|hiding|omit|without|closed|open)\b',
-                                               case['prompts'][variant], re.I) else 'P09', variant)['render.actual']
+                            'P24' if requests_filter(case['prompts'][variant]) else 'P09', variant)['render.actual']
                         return expected
                 scenario = ArcStudioScenario()
                 try:

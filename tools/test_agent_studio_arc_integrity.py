@@ -168,3 +168,9 @@ def test_publication_requires_active_exact_public_version():
     route['policy']['share']['allowAnonymous'] = True
     page['nextCursor'] = 'another-page'
     assert not public_publication(records())
+
+
+def test_open_map_is_not_a_filter_but_open_shelters_are():
+    from agent_e2e_studio_arc import requests_filter
+    assert not requests_filter('Let the operator team open it')
+    assert requests_filter('Show open shelters with room for more than 50 people')
