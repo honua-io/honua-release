@@ -27,6 +27,9 @@ class P15(Scenario):
     id = 'P15'
     supported_variants = ('A', 'B')
 
+    def source_path(self, binding):
+        return source_path(binding)
+
     def agent_permissions(self, variant):
         # Sharing is the task here; approval separation is evaluated by P14/P17.
         return ['admin:*']
@@ -73,7 +76,7 @@ class P15(Scenario):
             '/api/v1/studio/package-drafts/' + draft_id + '/content-versions', {}), (201,))
         seed = {'variant': variant, 'itemId': guid(saved['itemId']), 'versionId': guid(saved['versionId']),
                 'contentHash': saved['contentHash'], 'shelters': town['layers']['shelters']}
-        rec.json('p15-source-before', 'GET', source_path(seed['shelters']))
+        rec.json('p15-source-before', 'GET', self.source_path(seed['shelters']))
         stack.extra['p15Seed'] = copy.deepcopy(seed)
         return Seeded(seed)
 
@@ -84,7 +87,7 @@ class P15(Scenario):
         rec, state = stack.extra['recorder'], seeded.state
         if state['variant'] != variant:
             raise ValueError('variant differs from original seed')
-        rec.json('p15-source-after', 'GET', source_path(state['shelters']))
+        rec.json('p15-source-after', 'GET', self.source_path(state['shelters']))
         rec.json('p15-bootstrap-probe', 'GET', '/api/v1/admin/api-keys/', principal='bootstrap')
         operator_id = rec.principals['operator'][1]
         grants = data(rec.json('p15-operator-grants', 'GET',
