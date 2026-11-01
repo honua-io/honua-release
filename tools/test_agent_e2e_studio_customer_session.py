@@ -45,3 +45,19 @@ def test_customer_rejects_unobserved_bounds_and_unanswered_questions():
         return state('', 0) if calls == 1 else state('Working', 1, boundHit=True)
     with pytest.raises(CustomerScriptError, match='bound exceeded'):
         run_customer(invoke=bounded, prompt='Make a map', script=[], sleep=lambda _: None)
+
+
+def test_customer_stalls_once_without_steering_and_then_stops():
+    now = [0.0]
+    actions = []
+    def clock():
+        return now[0]
+    def sleep(_seconds):
+        now[0] += 61
+    def invoke(name, arguments):
+        actions.append((name, arguments))
+        return state('', 0) if name == 'studio_chat_observe' else 'ok'
+    with pytest.raises(CustomerScriptError, match='stalled after the continuation'):
+        run_customer(invoke=invoke, prompt='Make a map', script=[], timeout=2700, clock=clock, sleep=sleep)
+    texts = [args['text'] for name, args in actions if name == 'studio_customer_type']
+    assert texts == ['Make a map', 'continue']

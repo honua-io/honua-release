@@ -312,7 +312,7 @@ def test_studio_controller_audit_event_fails_the_case(candidate, tmp_path, monke
             stack.extra['needsStudioBrowser'] = True
             return seeded
 
-    snapshots = iter(({1: 'admin'}, {1: 'admin', 2: 'admin'}))
+    snapshots = iter(({1: {'actor': 'admin'}}, {1: {'actor': 'admin'}, 2: {'actor': 'admin'}}))
     monkeypatch.setattr(agent_studio_session_audit, 'snapshot', lambda recorder, label: next(snapshots))
     monkeypatch.setattr(agent_studio_session_audit, 'controller_actors', lambda recorder, key: frozenset({'admin'}))
     runtime = FakeRuntime(candidate.base_url, FakeModel([]), tmp_path)

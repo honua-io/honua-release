@@ -1,8 +1,26 @@
 """Controller-owned audit snapshots around a Studio customer session."""
+import json
 from urllib.parse import quote
 from uuid import UUID
 
 from agent_e2e_local_recorder import ProjectionError, require
+
+
+def verify_capabilities(recorder, model):
+    """Read the server's effective default Studio AI provider through the controller."""
+    response = recorder.json('studio-ai-capabilities', 'GET', '/api/v1/studio/ai/capabilities')['observation']
+    body = response.get('body')
+    data = body.get('data') if isinstance(body, dict) else None
+    require(response.get('httpStatus') == 200 and isinstance(data, dict) and data.get('enabled') is True
+            and isinstance(data.get('defaultProvider'), str) and isinstance(data.get('providers'), list),
+            'Studio AI capabilities are unavailable')
+    providers = [row for row in data['providers'] if isinstance(row, dict)
+                 and row.get('provider') == data['defaultProvider']]
+    require(len(providers) == 1 and providers[0].get('kind') == 'bedrock'
+            and providers[0].get('model') == model and providers[0].get('isDefault') is True
+            and providers[0].get('configured') is True and providers[0].get('toolSupport') is True,
+            'Studio default AI provider is not the required configured Bedrock model')
+    return providers[0]['provider']
 
 
 def snapshot(recorder, label):
@@ -25,7 +43,7 @@ def snapshot(recorder, label):
                     'Studio session audit event is malformed')
             event_id = event['auditId']
             require(event_id not in rows, 'Studio session audit contains duplicate events')
-            rows[event_id] = event['actor']
+            rows[event_id] = event
         cursor = body['nextCursor']
         if cursor is None:
             return rows
@@ -58,9 +76,38 @@ def controller_actors(recorder, key):
 def verify(before, after, controller_principals):
     """Reject controller-attributed actions appearing during the customer session."""
     require(before.keys() <= after.keys(), 'Studio session audit lost baseline events')
-    require(all(after[key] == actor for key, actor in before.items()),
+    require(all(after[key] == event for key, event in before.items()),
             'Studio session audit baseline changed')
     require(isinstance(controller_principals, frozenset) and controller_principals,
             'controller principal evidence is unavailable')
-    require(not any(actor.casefold() in controller_principals for key, actor in after.items() if key not in before),
+    require(not any(event['actor'].casefold() in controller_principals
+                    for key, event in after.items() if key not in before),
             'controller principal appeared in Studio session audit')
+
+
+def assistant_usage(before, after, *, user_id, subject, model, observed_calls):
+    """Bind model and usage to customer-attributed server AI audit records."""
+    require(isinstance(user_id, str) and user_id.startswith('subject:')
+            and isinstance(subject, str) and subject, 'customer identity is unavailable')
+    canonical_subject = user_id.split('@tenant:', 1)[0]
+    events = [event for key, event in after.items() if key not in before
+              and event.get('resourceType') == 'studio_ai_provider' and event.get('action') == 'studio_ai.chat']
+    require(type(observed_calls) is int and 0 < observed_calls <= 60 and len(events) == observed_calls,
+            'Studio AI audit does not account for every model call')
+    usage = []
+    for event in events:
+        actor = event.get('actor', '')
+        require(actor in (subject, user_id, canonical_subject) or actor.endswith(':' + canonical_subject),
+                'Studio AI audit is not attributed to the customer')
+        require(event.get('outcome') == 'Success' and isinstance(event.get('details'), str),
+                'Studio AI audit reports a failed or incomplete call')
+        try:
+            detail = json.loads(event['details'])
+        except ValueError as exc:
+            raise ProjectionError('Studio AI audit details are malformed') from exc
+        require(isinstance(detail, dict) and detail.get('kind') == 'bedrock' and detail.get('model') == model
+                and type(detail.get('promptTokens')) is int and detail['promptTokens'] > 0
+                and type(detail.get('completionTokens')) is int and detail['completionTokens'] >= 0,
+                'Studio AI audit lacks the required model or usage')
+        usage.append({'prompt_tokens': detail['promptTokens'], 'completion_tokens': detail['completionTokens']})
+    return usage

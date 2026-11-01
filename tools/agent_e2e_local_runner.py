@@ -971,6 +971,15 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             from agent_studio_session_audit import controller_actors, snapshot
             if session_count != 1:
                 raise ValueError('Studio audit guard requires one customer session')
+            if agent == 'console-assistant':
+                from agent_studio_session_audit import verify_capabilities
+                from agent_e2e_studio_customer_session import MODEL
+                from agent_browser_studio import remote_docker_host
+                from agent_studio_provider_evidence import retain_region
+                provider = verify_capabilities(recorder, MODEL)
+                region_evidence = retain_region(recorder, remote_docker_host(), stack.compose_project, provider)
+                runtime.attest(stack, 'studioAssistantRegion', region_evidence['region'],
+                               ['studio-ai-capabilities', 'studio-ai-provider-config'])
             studio_controller_actors = controller_actors(recorder, stack.admin_key)
             studio_audit_before = snapshot(recorder, 'before')
         recorder.set_phase('session')
@@ -1012,17 +1021,36 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         if studio_audit_before is not None:
             from agent_studio_session_audit import snapshot, verify
             try:
-                verify(studio_audit_before, snapshot(recorder, 'after'), studio_controller_actors)
+                studio_audit_after = snapshot(recorder, 'after')
+                verify(studio_audit_before, studio_audit_after, studio_controller_actors)
             except (ProjectionError, OSError, ValueError) as exc:
                 raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
                     'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
                     'messageIds': []}, f'Studio session audit failed: {exc}') from exc
         if agent == 'console-assistant':
-            # The Studio driver is not admissible until controller-verified
-            # provider, region and usage evidence has been bound to this case.
-            raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
-                'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
-                'messageIds': []}, 'Studio assistant provenance is not yet verified')
+            from agent_studio_session_audit import assistant_usage
+            from agent_e2e_studio_customer_session import MODEL
+            from agent_browser_studio import remote_docker_host
+            from agent_studio_provider_evidence import inspect_region
+            identity = runtime._console_identities.get(stack.compose_project) or {}
+            try:
+                if inspect_region(remote_docker_host(), stack.compose_project, provider) != region_evidence:
+                    raise ProjectionError('Studio provider container changed during the session')
+                verified_usage = assistant_usage(studio_audit_before, studio_audit_after, user_id=identity.get('userId'),
+                                                 subject=identity.get('subject'), model=MODEL,
+                                                 observed_calls=sessions[-1].get('studioObservedModelCalls'))
+            except (ProjectionError, TypeError, ValueError) as exc:
+                raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
+                    'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
+                    'messageIds': []}, f'Studio AI evidence failed: {exc}') from exc
+            receipt['model'] = MODEL
+            receipt['sessions'][-1]['modelId'] = MODEL
+            receipt['sessions'][-1]['usage'] = verified_usage
+            receipt['tokens'] += sum(item['prompt_tokens'] + item['completion_tokens'] for item in verified_usage)
+            receipt['studioAssistant'] = {'model': MODEL, 'region': region_evidence['region'],
+                                          'provider': provider, 'usage': verified_usage,
+                                          'evidenceSteps': ['studio-ai-capabilities',
+                                                            'studio-ai-provider-config', 'studio-audit-after-0']}
         custody = runtime.custody(stack)
         clar = tuple(c for s in sessions for c in s.get('clarifications', []))
         injector = stack.extra.get('faultInjector')
@@ -1912,6 +1940,7 @@ class LocalRuntime:
                   'messageIds': list(result.message_ids), 'finalAnswer': result.final_answer,
                   'agentType': result.agent_type, 'modelId': result.model_id, 'temperature': result.temperature,
                   'temperaturePolicy': result.temperature_policy, 'costUsd': result.cost_usd,
+                  'studioObservedModelCalls': result.extra.get('observedModelCalls'),
                   'systemContractSha256': result.extra.get('systemContractSha256'),
                   'toolViewSha256': result.extra.get('toolViewSha256')}
         if result.failure is not None or not isinstance(result.final_answer, str):
