@@ -567,6 +567,12 @@ def score_final_answer(answer, observations, assertions):
     return check(answer, observations, state_status=status)
 
 
+def agent_work_assertions(scenario_id, assertions):
+    """Do not attribute runner-owned bootstrap custody to the customer's work."""
+    return [row for row in assertions
+            if not (scenario_id == 'P15' and row['assertion'] == 'custody.bootstrap-revoked')]
+
+
 def select_case(pack_path: Path, scenario_id: str, variant: str) -> dict:
     """Read only the pinned development pack; held-out variants are refused."""
     if variant not in DEVELOPMENT_VARIANTS:
@@ -1218,11 +1224,17 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                                                                              **extras))
             except (ValueError, KeyError, TypeError) as exc:
                 receipt['handoffError'] = str(exc)[:200]
-        receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1], handoff, receipt['assertions'])
+        agent_assertions = agent_work_assertions(scenario.id, receipt['assertions'])
+        receipt['finalAnswerCheck'] = score_final_answer(run.final_answers[-1], handoff, agent_assertions)
         receipt['custody'] = custody
-        scored = [r for r in receipt['assertions'] if r['status'] != 'excluded']
+        scored = [r for r in agent_assertions if r['status'] != 'excluded']
         receipt['status'] = ('pass' if scored and all(r['status'] == 'pass' for r in scored)
                              and receipt['finalAnswerCheck'].get('status') == 'pass' else 'fail')
+        custody_row = next((row for row in receipt['assertions']
+                            if scenario.id == 'P15' and row['assertion'] == 'custody.bootstrap-revoked'), None)
+        if receipt['status'] == 'pass' and custody_row and custody_row['status'] != 'pass':
+            receipt['status'] = 'infrastructure'
+            receipt['infrastructure'].append({'phase': 'custody', 'reason': 'bootstrap custody evidence failed'})
     except SessionInterrupted as exc:
         acted = bool(all_actions())
         if exc.category == 'model' or acted:
