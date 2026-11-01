@@ -359,3 +359,55 @@ def test_a_harness_fault_decision_racing_a_new_hold_commits_no_void(tmp_path, mo
     assert json.loads((tmp_path / 'voids.json').read_text()) == [] if (tmp_path / 'voids.json').is_file() else True
     state = json.loads((tmp_path / 'campaign-state.json').read_text())
     assert state['voids'] == [] and state['reservesLeft'] == ['local-docker:A1:r01']
+
+
+def spend(cap, estimate=25):
+    import ai_arc_runner as R
+    doc = json.loads(json.dumps(R.load_arc()['spendCap']))
+    doc.update(capUsd=cap, perRunEstimateUsd=estimate)
+    return doc
+
+
+def test_run_cost_prices_bedrock_tokens_and_compute_and_leaves_the_subscription_unknown():
+    receipt = {'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T11:00:00Z',
+               'stages': [{'stage': 'studio', 'assistantUsage': [{'inputTokens': 1_000_000, 'outputTokens': 100_000,
+                                                                  'cacheReadInputTokens': 2_000_000}]},
+                          {'stage': 'setup', 'assistantUsage': None}]}
+    cost = C.run_cost(receipt, 'local-docker', spend(2500))
+    rates = spend(2500)['rates']
+    assert cost['bedrockUsd'] == round(3.0 + 1.5 + 0.6, 4) and cost['cliSubscriptionUsd'] == 'unknown'
+    assert cost['computeUsd'] == round(2 * rates['vmHourUsd'], 4)
+    assert C.run_cost(receipt, 'aws-ecs', spend(2500))['computeUsd'] == round(2 * rates['awsCellHourUsd'], 4)
+    assert C.run_cost(None, 'local-docker', spend(2500, 40))['totalUsd'] == 40
+
+
+def test_the_campaign_stops_scheduling_before_the_spend_cap_and_reports_it(tmp_path):
+    import ai_arc_runner as R
+    arc = json.loads(json.dumps(R.load_arc()))
+    arc['spendCap'] = spend(cap=25.5, estimate=25)   # each 30-min run costs 0.34; the third launch projects 25.68
+    log = []
+    results = C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(5), out=tmp_path / 'c', hosts=['h1'],
+                             per_host=1, common=[], launch=fake_launch(tmp_path / 'c', {}, log), wait_poll=0.01,
+                             arc=arc)
+    assert [r['runId'] for r in results] == ['local-docker:A1:001', 'local-docker:A1:002']
+    stop = json.loads((tmp_path / 'c' / 'SPEND-CAP-REACHED').read_text())
+    assert stop['capUsd'] == 25.5 and stop['projectedUsd'] > 25.5 and stop['unstarted'][0] == 'local-docker:A1:003'
+    ledger = json.loads((tmp_path / 'c' / 'spend-ledger.json').read_text())
+    assert [r['runId'] for r in ledger if r['kind'] == 'run'] == ['local-docker:A1:001', 'local-docker:A1:002']
+    assert all(r['cliSubscriptionUsd'] == 'unknown' for r in ledger if r['kind'] == 'run')
+    state = json.loads((tmp_path / 'c' / 'campaign-state.json').read_text())
+    assert state['spendCapStop']['runId'] == 'local-docker:A1:003'
+
+
+def test_campaigns_sharing_a_ledger_share_one_cap(tmp_path):
+    import ai_arc_runner as R
+    arc = json.loads(json.dumps(R.load_arc()))
+    arc['spendCap'] = spend(cap=25.5, estimate=25)
+    shared = tmp_path / 'gate-ledger.json'
+    first = C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(1), out=tmp_path / 'a', hosts=['h1'],
+                           per_host=1, common=[], launch=fake_launch(tmp_path / 'a', {}, []), wait_poll=0.01,
+                           arc=arc, ledger=shared)
+    second = C.run_campaign(target='local-docker', arm='A2', schedule_rows=rows(3, 'local-docker:A2:'),
+                            out=tmp_path / 'b', hosts=['h1'], per_host=1, common=[],
+                            launch=fake_launch(tmp_path / 'b', {}, []), wait_poll=0.01, arc=arc, ledger=shared)
+    assert len(first) == 1 and len(second) == 1 and (tmp_path / 'b' / 'SPEND-CAP-REACHED').is_file()
