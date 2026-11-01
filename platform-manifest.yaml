@@ -678,6 +678,8 @@ components:
     # R22 (tools/platform_version.py stamp_platform_version): the bound Console image takes the lock
     # label's platform version as artifactVersion; finalize_release re-stamps it at promotion.
     artifactVersion: "2026.1.0-rc.2"
+    # 2026-11-01 ADVANCE (final rc.2 pin): Console #494 (merge c63b37fd) with #521, #525, #526, #528, #532,
+    # #534, #536, #537 and the Studio 90bb519 bundle.
     # 2026-11-01 ADVANCE: Console #515 restores the Studio assistant transport.
     # 2026-11-01 ADVANCE: Console #513 and #514, including Studio draft-style and session fixes.
     # 2026-10-31 ADVANCE: Console #473, #488 and #493, built and smoke-tested by Container run 41246051095.
@@ -705,17 +707,17 @@ components:
     #   skipped 631594c: no published SHA-bound image
     # The earlier index and platform digests were re-read from GHCR with the resolver's own
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    sha: "626c13cc97a1af87fcd8767c059f9fc2209e3f0a"   # trunk commit (2026-11-01)
-    # Public multi-architecture image built from this SHA by Console Container run 41297791077.
-    image: "ghcr.io/honua-io/honua-console:nightly-626c13cc97a1"
-    digest: "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24"
-    artifactSourceRevision: "626c13cc97a1af87fcd8767c059f9fc2209e3f0a"
+    sha: "c63b37fd1788d68333c051760447052c602b7bdd"   # trunk commit (2026-11-01)
+    # Public multi-architecture image built from this SHA by Console Container run 41363063110.
+    image: "ghcr.io/honua-io/honua-console:nightly-c63b37fd1788"
+    digest: "sha256:ab453db9b2a468a05e58ebc445569fd2df84908df91967ae8d31417d6e971358"
+    artifactSourceRevision: "c63b37fd1788d68333c051760447052c602b7bdd"
     architectures: [amd64, arm64]
     # Read from the public pinned index on 2026-11-01.
     platformDigests:
-      amd64: sha256:91c1d56ab48c38d95247d7581f2ef3f7c03fee540d133e24672d5b147cbae0af
-      arm64: sha256:1bfaaa80efff2b8c7ccd9f1e3bec1d59463a68603c8fa1adea8ad688f288dc04
-    # Version maps: release/component-versions.json at the pinned 626c13cc; the release session re-reads it at the final Console pin.
+      amd64: sha256:da16b6fcab25561392ff905ca9d2409d67c1f1c6e5a982eace7c80bb531b742c
+      arm64: sha256:2c375e85ebafaa2e04842c2fb6eeae7b1b77d1fb9f63ea4faf5ad59166b61792
+    # Version maps: release/component-versions.json at the pinned c63b37fd (unchanged from 626c13cc).
     contractVersions:
       admin: "v1"
     schemaVersions:

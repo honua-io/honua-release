@@ -581,7 +581,7 @@
   },
   "console": {
     "image": "ghcr.io/honua-io/honua-console",
-    "imageDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+    "imageDigest": "sha256:ab453db9b2a468a05e58ebc445569fd2df84908df91967ae8d31417d6e971358",
     "source": "Console 626c13cc (#515: the Studio assistant uses the supported Studio AI chat and MCP routes; includes #513 and #514); honua-server #6857 compose re-pin, honua-iac #370, honua-release #1190",
     "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed.",
     "compose": {
