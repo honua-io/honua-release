@@ -1046,3 +1046,35 @@ def test_a_failed_update_operation_injects_no_fault_and_blocks_the_rollback_step
     assert out['upgrade.candidate-serving']['status'] == 'fail'
     assert out['rollback.prior-serving']['status'] == 'fail' and out['rollback.prior-serving'].get('blocked')
     assert not out['rollback.prior-serving'].get('harnessFault')
+
+
+@pytest.mark.parametrize('tool', ['honua_propose_platform_release_convergence', 'honua_propose_rollback'])
+def test_an_earlier_completion_never_authorizes_a_fault_while_a_newer_operation_is_open(tool):
+    """Sol 0e7732d2: mixed completed and open receipts of one kind defer injection until every one is terminal."""
+    sc = scenario([state(PRIOR, 140)])
+    sc.approvals = [{'tool': tool, 'status': 200, 'at': 1, 'operationStatus': 'completed', 'proposalId': 'a'},
+                    {'tool': tool, 'status': 200, 'at': 5, 'operationStatus': None, 'proposalId': 'b'}]
+    assert sc.operation_gate(tool) == 'pending'
+    sc.approvals[1]['operationStatus'] = 'running'
+    assert sc.operation_gate(tool) == 'pending'
+    sc.approvals[1]['operationStatus'] = 'failed'
+    assert sc.operation_gate(tool) == 'completed'
+    sc.approvals[0]['operationStatus'] = 'failed'
+    assert sc.operation_gate(tool) == 'failed'
+
+
+def test_fault_r_waits_for_a_newer_convergence_approved_after_an_earlier_one_completed():
+    manager = FakeManager()
+    sc = scenario([state(PRIOR, 140), state(PRIOR, 140), state(CAND, 142), state(CAND, 142),
+                   state(CAND, 144, ready=False), state(CAND, 144, ready=False)], manager=manager)
+    propose(sc, CONVERGE)
+    sc.step()                                   # first convergence approved and completed; still rc.1
+    manager.operation = 'running'
+    propose(sc, CONVERGE)
+    sc.step()                                   # a newer convergence approved, still verifying
+    sc.step()                                   # the candidate serves: no fault while the newer one is open
+    assert not any(e['event'] == 'fault-R' for e in sc.events)
+    assert not any('restart honua' in str(x) for x in sc.vm.scripts)
+    manager.operation = 'completed'
+    sc.step()
+    assert [e['event'] for e in sc.events] == ['upgrade-observed', 'fault-R']

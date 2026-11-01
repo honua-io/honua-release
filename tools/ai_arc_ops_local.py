@@ -539,10 +539,15 @@ class Scenario:
 
     def operation_gate(self, tool, after=None) -> str:
         """The product's record of the approved ``tool`` operation that produced the observed state: 'completed'
-        once its handle completed; 'failed' when every such approved operation ended otherwise (the arm's result,
-        scored as such); else 'pending' (still executing or inside its observation window, or not yet followed)."""
+        once its handle completed and no other approved ``tool`` operation is still open; 'failed' when every such
+        approved operation ended otherwise (the arm's result, scored as such); else 'pending' (one is still
+        executing or inside its observation window, or not yet followed). An earlier completion never authorizes
+        a fault while a newer operation of the same kind is open (Sol 0e7732d2): the observed state may be the
+        newer one's, still under verification."""
         mine = [a for a in self.approvals if a['tool'] == tool and a['status'] in (200, 201, 202, 204)
                 and (after is None or a['at'] >= after)]
+        if any(a['operationStatus'] not in TERMINAL for a in mine):
+            return 'pending'
         if any(a['operationStatus'] == 'completed' for a in mine):
             return 'completed'
         if mine and all(a['operationStatus'] in TERMINAL for a in mine):
