@@ -72,6 +72,8 @@ def referenced_steps(spec, found=None):
     """Every recorded step a spec reads; evidence hashes are bound to exactly these."""
     found = set() if found is None else found
     if isinstance(spec, dict):
+        if 'studioArcContent' in spec:
+            found.update(spec['studioArcContent'])
         for op in _STEP_OPS:
             if op in spec and isinstance(spec[op], str) and spec[op] != '$step':
                 found.add(spec[op])
@@ -422,6 +424,9 @@ def evaluate(spec, ctx, *, item=None, step=None):
         rows = lambda facts: [{'resourceId': p, 'content': {'sha256': facts[p]}} for p in paths]  # noqa: E731
         require(all(p in before and p in after for p in paths), 'attachment was not staged for this case')
         return {'profile': 'honua.protected-content/v1', 'before': rows(before), 'after': rows(after)}
+    if keys == {'studioArcContent'}:
+        from agent_e2e_studio_arc_sources import source_content
+        return source_content(ctx)
     if keys == {'featureServerFeatures'}:
         record = ctx.record(named(spec['featureServerFeatures']))
         require(record.status == 200 and isinstance(record.json, dict), 'feature read failed')
@@ -985,11 +990,29 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         name = binding.role
         if isinstance(name, str) and name.startswith('scan:'):
             continue  # resolved by the runner from its own raw sources (scan_roles)
-        require(isinstance(name, str) and name.split(':', 1)[0] in ('seeded', 'created', 'recorded', 'child', 'audited')
+        require(isinstance(name, str) and name.split(':', 1)[0] in ('seeded', 'created', 'recorded', 'child', 'audited', 'arc')
                 and name not in roles, 'invalid or duplicate logical role: ' + str(name))
         require(binding.step in records, 'role binds an unrecorded step: ' + name)
         record = records[binding.step]
         require(record.json is not None and record.status in (200, 201), 'role source read failed: ' + name)
+        if name.startswith('arc:'):
+            parts = name.split(':')
+            require(len(parts) == 3 and parts[1] in ('service', 'layer')
+                    and parts[2] in ('parcels', 'flood_zones', 'shelters')
+                    and binding.step == 'arc-publish-' + parts[2].replace('_', '-')
+                    and record.phase == 'observe' and record.principal == 'controller'
+                    and record.kind == 'http' and record.method == 'GET' and record.intact(),
+                    'invalid arc publication role')
+            handle = record.json.get('data', {})
+            ids = handle.get('resourceIds', {})
+            require(handle.get('operationId') == 'service.publish' and handle.get('status') == 'Completed'
+                    and record.path == '/api/v1/operations/handles/' + str(handle.get('operationInstanceId')),
+                    'arc role lacks a completed controller publication handle')
+            field = 'serviceName' if parts[1] == 'service' else 'layerId'
+            require(binding.pointer == '/data/resourceIds/' + field and ids.get(field) is not None,
+                    'invalid arc role pointer')
+            roles[name] = ids[field]
+            continue
         if name.startswith('audited:'):
             parts = name.split(':')
             require(len(parts) == 3 and parts[1] in ('service', 'layer')
