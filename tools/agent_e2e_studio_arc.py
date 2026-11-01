@@ -533,6 +533,32 @@ def studio_runtime_class():
             self.customer_subjects = set()
             self.customer_keys = set()
 
+        def _db_container(self, stack):
+            import subprocess
+            if not re.fullmatch(r'[a-z][a-z0-9_-]{0,62}', self.database_host):
+                raise ValueError('invalid Studio database service')
+            ids = subprocess.run(['docker', 'ps', '-q', '--filter',
+                f'label=com.docker.compose.project={stack.compose_project}', '--filter',
+                'label=com.docker.compose.service=' + self.database_host],
+                capture_output=True, text=True, check=True, timeout=60).stdout.split()
+            if len(ids) != 1:
+                raise RuntimeError('no unique database container for the adopted Studio stack')
+            return ids[0]
+
+        def psql(self, stack, sql, *, read_only):
+            # The shipped composition may use postgres and a customer-selected
+            # database/login; the standalone corpus defaults are not its identity.
+            import subprocess
+            if read_only:
+                self._ensure_reader(stack)
+            user = self.READER_ROLE if read_only else self.database_user
+            options = (['-e', 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000 '
+                        '-c search_path=pg_catalog,public,pg_temp'] if read_only else [])
+            done = subprocess.run(['docker', 'exec', *options, self._db_container(stack),
+                'psql', '-U', user, '-d', self.database_name, '-X', '-q', '-A', '-t',
+                '-v', 'ON_ERROR_STOP=1', '-c', sql], capture_output=True, timeout=300)
+            return done.returncode, done.stdout
+
         def mint_reader(self, subject, role='reader'):
             if role not in ('operator', 'reader'):
                 raise ValueError('unapproved Studio reader role')
@@ -794,12 +820,32 @@ def arc_stage(ctx):
                 if driver == 'arm-browser' and getattr(session, 'cli', None) is not None:
                     runtime.cli = session.cli
                 fixture, case = select_arc_case(context, prompt)
+                services_handoff = getattr(context.slot, 'facts', {}).get('studioServices')
+                if isinstance(services_handoff, dict):
+                    customer_handoff = {k: services_handoff.get(k) for k in ('connectionId', 'tables', 'layers')}
+                    case = {**case, 'prompts': {**case['prompts'], fixture: case['prompts'][fixture] +
+                        '\nServices handoff: ' + json.dumps(customer_handoff, sort_keys=True) +
+                        '\nUse the existing agent-published layers. Publish any additional map layers yourself '
+                        'from these imported tables and connection; create and save the map through Studio.'}}
                 fixture_id = context.case['fixtures'] if context.case is not None else 'town-' + fixture
                 requirements = fixture_requirements(fixture_id, 'P08')
                 # Use the P09 authored-render oracle with P08's newly created map.
                 from agent_e2e_local_scenarios.P08 import P08
                 from agent_e2e_local_expectations import load_expected
                 class ArcStudioScenario(P08):
+                    expectation_profile = 'studio-arc'
+
+                    def roles(self, stack, seeded, variant, run=None):
+                        from agent_e2e_local_expectations import load_roles
+                        return load_roles('P08', self.expectation_profile)
+
+                    def observe(self, stack, seeded, variant, run=None):
+                        from agent_browser_studio import observe_map
+                        from agent_e2e_local_api import Observation
+                        observe_map(stack, seeded, 'p08', created=True)
+                        return [Observation(name, None, {'projection': 'extract/v1'})
+                                for name in self.expected(variant)]
+
                     def seed(self, stack, variant):
                         from agent_browser_studio import seed_case
                         handoff = context.slot.facts.get('studioServices')
@@ -824,6 +870,7 @@ def arc_stage(ctx):
                 stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
                 if stack and stack.extra.get('arcLineageVerified') is True:
                     receipt['studioServicesHandoff'] = stack.extra['arcServicesHandoff']
+                    receipt['studioServicesLineage'] = stack.extra['arcServicesLineage']
                 goal = case['prompts'][fixture]
                 if stack and 'publication' in requirements:
                     try:
@@ -841,7 +888,7 @@ def arc_stage(ctx):
                 checks = score_goal(stack.extra['recorder'].records if stack else {}, requirements, fixture)
                 lineage = bool(stack and stack.extra.get('arcLineageVerified') is True)
                 checks.append({'assertion': 'goal.services-lineage', 'status': 'pass' if lineage else 'fail',
-                               **({} if lineage else {'reason': 'stage-three verified service handoff unavailable'})})
+                               **({} if lineage else {'reason': 'map sources lack verified stage-three or stage-four publication lineage'})})
                 if driver == 'arm-browser':
                     try:
                         evidence = []

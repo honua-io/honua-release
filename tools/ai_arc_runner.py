@@ -61,7 +61,7 @@ SHA = re.compile(r'\A[0-9a-f]{40}\Z')
 FAMILIES = ('anthropic', 'openai')
 
 # Everything whose bytes change behavior. Absent files contribute 'absent' (so landing a lane changes it).
-RUNNER_FILES = ('certification/ai-arc/studio-fixture-requirements.json', 'tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
+RUNNER_FILES = ('certification/ai-arc/studio-arc-expectations.json', 'certification/ai-arc/studio-fixture-requirements.json', 'tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
                 'tools/agent_e2e_aws_install.py', 'tools/agent_e2e_aws_controller.py',
                 'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
                 'tools/agent_browser_studio.py',

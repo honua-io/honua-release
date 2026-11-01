@@ -117,7 +117,8 @@ def frozen_roles(scenario, stack, seeded, variant, run):
     """Role bindings come from the frozen expectation file; a scenario's roles() must repeat them exactly."""
     from agent_e2e_local_expectations import load_roles
     try:
-        frozen = load_roles(scenario.id)
+        profile = getattr(scenario, 'expectation_profile', None)
+        frozen = load_roles(scenario.id, profile) if profile else load_roles(scenario.id)
     except OSError:
         frozen = []
     runtime_roles = scenario.roles(stack, seeded, variant, run) if hasattr(scenario, 'roles') else []
@@ -270,7 +271,8 @@ def frozen_projections(scenario, variant):
     """The scenario's frozen per-assertion projections (expectations/local/<ID>.json "projections")."""
     from agent_e2e_local_expectations import load_projections
     try:
-        return load_projections(scenario.id, variant)
+        profile = getattr(scenario, 'expectation_profile', None)
+        return load_projections(scenario.id, variant, profile) if profile else load_projections(scenario.id, variant)
     except (OSError, ValueError):
         return {}
 

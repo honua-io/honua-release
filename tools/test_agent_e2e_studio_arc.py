@@ -298,3 +298,39 @@ def test_admission_initializes_and_resumes_only_completed_operations():
     with pytest.raises(ValueError, match='admission'):
         initialize_admission(recorder)
     assert len(recorder.calls) == 1
+
+
+def test_studio_source_reads_use_adopted_database_identity(monkeypatch):
+    from types import SimpleNamespace
+    import subprocess
+    from agent_e2e_studio_arc import studio_runtime_class
+    runtime_type = studio_runtime_class()
+    runtime = runtime_type.__new__(runtime_type)
+    runtime.database_host = 'postgres'
+    runtime.database_name = 'customer_database'
+    runtime.database_user = 'customer_owner'
+    runtime._ensure_reader = lambda stack: None
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout='db-container\n' if command[1] == 'ps' else b'[]')
+    monkeypatch.setattr(subprocess, 'run', run)
+    stack = SimpleNamespace(compose_project='arc-customer')
+    assert runtime.psql(stack, 'SELECT 1', read_only=True) == (0, b'[]')
+    assert 'label=com.docker.compose.service=postgres' in calls[0]
+    assert 'label=com.docker.compose.project=arc-customer' in calls[0]
+    assert calls[1][calls[1].index('-U')+1] == 'corpus_reader'
+    assert calls[1][calls[1].index('-d')+1] == 'customer_database'
+    assert 'default_transaction_read_only=on' in ' '.join(calls[1])
+    runtime.psql(stack, 'SELECT 1', read_only=False)
+    assert calls[-1][calls[-1].index('-U')+1] == 'customer_owner'
+
+
+def test_studio_arc_contract_is_in_runner_digest_and_does_not_replace_p08():
+    import ai_arc_runner as arc
+    from agent_e2e_local_expectations import load_roles, load_projections
+    assert 'certification/ai-arc/studio-arc-expectations.json' in arc.RUNNER_FILES
+    assert any(r.role.startswith('seeded:') for r in load_roles('P08'))
+    assert not any(r.role.startswith('seeded:') for r in load_roles('P08', 'studio-arc'))
+    for variant in ('A', 'B'):
+        assert 'studioArcContent' in load_projections('P08', variant, 'studio-arc')['source-content.unchanged']['spec']

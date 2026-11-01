@@ -240,7 +240,10 @@ def test_sharing_requires_team_publication_colleague_and_anonymous_denial(visibi
 def test_stage3_handoff_requires_controller_audit_and_handles():
     from agent_browser_studio import stage3_layers
     names = ('parcels', 'flood_zones', 'shelters')
-    handoff = {'variant': 'A', 'fixtureId': 'town-A', 'principal': 'api-key:customer', 'agentKeyId': 'customer',
+    handoff = {'schema': 'honua.ai-arc.studio-services/v1',
+        'connectionId': '00000000-0000-0000-0000-000000000001',
+        'tables': {n: {'schema': 'honua_data', 'table': n} for n in names},
+        'variant': 'A', 'fixtureId': 'town-A', 'principal': 'api-key:customer', 'agentKeyId': 'customer',
         'startedAt': '2026-11-01T00:00:00Z', 'endedAt': '2026-11-01T00:10:00Z',
         'layers': {name: {'service': 'svc' + str(i), 'layerId': i, 'operationInstanceId': 'op_' + str(i),
                           'auditId': i + 1} for i, name in enumerate(names)}}
@@ -347,3 +350,192 @@ def test_team_sharing_probe_discovers_controller_observed_publication(monkeypatc
     assert rec.principals['agent-user'] == ('original', 'owner')
     rec.records['studio-share-anonymous'].status = 200
     assert not sharing_from_records(rec.records)
+
+
+@pytest.fixture
+def arc_partial_case(tmp_path, monkeypatch):
+    """Real recorder, seed, observation, role resolution and frozen projection path."""
+    from agent_e2e_local_recorder import ControllerRecorder, EvidenceVault
+    from agent_e2e_local_api import Stack
+    from agent_browser_studio import seed_case, observe_map, fixture_path, fixture_map_body
+    from test_agent_browser_studio import _query_document
+    import agent_browser_studio as studio
+    from urllib.parse import urlsplit, parse_qs
+    names = ('parcels', 'flood_zones', 'shelters')
+    sources = {n: {'service': 'svc_' + n, 'layerId': i} for i, n in enumerate(names)}
+    now = datetime.now(timezone.utc)
+    stamp = lambda offset: (now + timedelta(seconds=offset)).isoformat()
+    state = {'published': set(names), 'wrong_actor': False, 'wrong_handle': False, 'map_sources': {n: dict(v) for n, v in sources.items()}}
+    handoff = {'schema': 'honua.ai-arc.studio-services/v1', 'variant': 'A', 'fixtureId': 'town-A',
+               'connectionId': '00000000-0000-0000-0000-000000000001',
+               'principal': 'api-key:stage3', 'agentKeyId': 'stage3',
+               'startedAt': stamp(-30), 'endedAt': stamp(-10),
+               'tables': {n: {'schema': 'honua_data', 'table': 'import_' + n} for n in names}, 'layers': {}}
+    def event(n, stage):
+        i = names.index(n)
+        return {'auditId': stage*10+i, 'resourceId': f'op_{stage}_{n}', 'resourceType': 'operation_instance',
+                'action': 'operation.completed', 'outcome': 'Success',
+                'actor': 'api-key:stage3' if stage == 3 else ('foreign' if state['wrong_actor'] else 'api-key:stage4'),
+                'timestamp': stamp(-20) if stage == 3 else datetime.now(timezone.utc).isoformat(),
+                'details': 'operationId=service.publish;status=Completed'}
+    def factory(rec, principal, method, path, body, headers):
+        assert method == 'GET', 'harness must never publish a service or create a map'
+        if '/connections/' in path:
+            value = {'tables': list(handoff['tables'].values())}
+        elif '/observability/audit' in path:
+            value = {'items': [event(n, 3) for n in handoff['layers']]}
+        elif '/handles/' in path:
+            op = path.rsplit('/', 1)[1]
+            stage, name = op.split('_', 2)[1:]
+            binding = sources[name]
+            value = {'data': {'operationInstanceId': op, 'operationId': 'service.publish', 'status': 'Completed',
+                              'resourceIds': {'serviceName': ('wrong' if state['wrong_handle'] else binding['service']),
+                                              'layerId': str(binding['layerId'])}}}
+        elif '/FeatureServer/' in path:
+            name = path.split('/')[3].removeprefix('svc_')
+            query = parse_qs(urlsplit(path).query)
+            if query['f'] == ['geojson']:
+                value = json.loads(fixture_path('A', name).read_bytes())
+            else:
+                value = _query_document('A', name)
+                requested = query['outFields'][0].split(',')
+                # A candidate of a different source cannot answer this source's fields.
+                if any(k not in value['features'][0]['attributes'] for k in requested):
+                    return 400, b'{}'
+        elif '/versions/' in path:
+            source_ids = {n: 'catalog_' + n + '/' + str(v['layerId']) for n, v in sources.items()}
+            value = {'data': {'envelope': {'body': fixture_map_body('A', state['map_sources'], source_ids, styled=True)}}}
+        else:
+            rows = [] if rec.phase == 'seed' else [{'itemId': 'map', 'currentVersionId': 'version', 'ownerId': 'stage4'}]
+            value = {'data': {'items': rows, 'total': len(rows)}}
+        return 200, json.dumps(value).encode()
+    def sql(request):
+        name = request['table'].removeprefix('import_')
+        features = json.loads(fixture_path('A', name).read_bytes())['features']
+        rows = [{'geometry': f['geometry'], 'properties': f['properties']} for f in features]
+        return 200, json.dumps(rows).encode(), 'SELECT fixture_rows'
+    class CatalogClient:
+        def __init__(self): self.observations = []
+        def initialize(self): pass
+        def close(self): pass
+        def call_tool(self, tool, arguments):
+            import base64
+            assert tool == 'honua_list_layers'
+            rows = [{'serviceName': b['service'], 'layerId': b['layerId'], 'serviceId': 'catalog_' + n}
+                    for n, b in sources.items()]
+            result = {'structuredContent': {'offset': 0, 'hasMore': False, 'layers': rows, 'layerCount': 3}}
+            raw = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': result}).encode()
+            self.observations.append({'rpcMethod': 'tools/call', 'httpStatus': 200,
+                'bodyBase64': base64.b64encode(raw).decode(), 'bodyDigest': 'sha256:'+hashlib.sha256(raw).hexdigest()})
+            return result
+    monkeypatch.setenv('ARC_TEST_CONTROLLER', 'test')
+    vault = EvidenceVault('partial')
+    rec = ControllerRecorder(base_url='http://127.0.0.1:8137', workdir=str(tmp_path),
+        candidate_digest='sha256:'+'a'*64, attempt_id='partial', principals={'controller': ('ARC_TEST_CONTROLLER', 'controller')},
+        http_factory=factory, sql_executor=sql, mcp_factory=lambda *args: CatalogClient(), vault=vault)
+    stack = Stack('http://127.0.0.1:8137', 'k', None, 'studio', '', str(tmp_path), 'sha256:'+'a'*64,
+                  {'recorder': rec, 'consoleUrl': 'http://127.0.0.1:25174', 'consoleUserId': 'customer',
+                   'validatedConsoleCustomer': 'customer', 'agentPrincipal': 'stage4'})
+    monkeypatch.setattr(studio, 'record_independent_render', lambda *a, **kw: None)
+    def run(count):
+        handoff['layers'] = {n: {**sources[n], 'operationInstanceId': 'op_3_' + n, 'auditId': 30+names.index(n)}
+                             for n in names[:count]}
+        seeded = seed_case('P08', stack, 'A', create_map=False, external_handoff=handoff)
+        assert set(seeded.state['layers']) == set(names[:count])
+        assert not stack.extra['arcLineageVerified']
+        rec.json('studio-audit-before-0', 'GET', '/api/v1/admin/observability/audit?pageSize=200')
+        from agent_e2e_local_runner import ActionLog
+        log = ActionLog(tmp_path / 'session-1', 1, {'honua_publish_service'}, 30)
+        rec.set_phase('session')
+        for n in names[count:]:
+            if n not in state['published']:
+                continue
+            args = {**handoff['tables'][n], 'connectionId': handoff['connectionId']}
+            args.update(state.get('request_override', {}))
+            value = {'operationInstanceId': 'op_4_' + n, 'operationId': 'service.publish', 'status': 'Completed',
+                     'serviceName': sources[n]['service'], 'layerId': sources[n]['layerId']}
+            raw = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': value}}).encode()
+            log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': args},
+                         lambda kind, action, raw=raw: {'status': 'ok', '_rawResponse': (200, raw)})
+        vault.append_actions(1, log.rows)
+        rec.set_phase('observe')
+        old = [event(n, 3) for n in names[:count]]
+        new = [event(n, 4) for n in names[count:] if n in state['published']]
+        # Audit snapshot retains real raw bytes in the recorder/vault.
+        original_factory = rec._http_factory
+        def with_audit(recorder, principal, method, path, body, headers):
+            if path == '/test-audit':
+                return 200, json.dumps({'items': old + new}).encode()
+            return original_factory(recorder, principal, method, path, body, headers)
+        rec._http_factory = with_audit
+        rec.json('studio-audit-after-0', 'GET', '/test-audit')
+        observe_map(stack, seeded, 'p08', created=True)
+        return stack, seeded, rec
+    return run, state
+
+
+@pytest.mark.parametrize('count', [0, 1, 3])
+def test_arc_partial_handoff_runs_through_frozen_source_scoring(arc_partial_case, count):
+    from agent_e2e_local_expectations import load_roles, load_projections, load_expected
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_runner import score_assertions
+    from agent_e2e_local_api import Observation
+    run, _ = arc_partial_case
+    stack, seeded, rec = run(count)
+    assert stack.extra['arcLineageVerified']
+    lineage = stack.extra['arcServicesLineage']
+    assert sum(v['stage'] == 3 for v in lineage.values()) == count
+    assert all(v['actor'] == ('api-key:stage3' if v['stage'] == 3 else 'api-key:stage4') for v in lineage.values())
+    assert {k for k in rec.records if k.startswith('p08-src-') and '-before-' in k} == {
+        f'p08-src-{n.replace("_", "-")}-before-{format}' for n in seeded.state['layers'] for format in ('raw', 'geo')}
+    roles = resolve_roles(load_roles('P08', 'studio-arc'), rec.records, agent_principal='stage4',
+                          custody={'agentKeyId': 'stage4', 'agentUserId': 'customer', 'agentKeyOwnerUserId': 'customer'})
+    name = 'source-content.unchanged'
+    scores = score_assertions([name], [Observation(name, None, {'projection': 'extract/v1'})],
+        {name: load_expected('P08', 'A')[name]}, records=rec.records, roles=roles,
+        frozen=load_projections('P08', 'A', 'studio-arc'))
+    assert scores[0]['status'] == 'pass', scores
+
+
+def test_arc_rejects_a_layer_neither_agent_published(arc_partial_case):
+    run, state = arc_partial_case
+    state['published'].remove('shelters')
+    with pytest.raises(ValueError, match='lacks one stage-four publication'):
+        run(1)
+
+
+@pytest.mark.parametrize('fault', ['wrong_actor', 'wrong_handle'])
+def test_arc_rejects_foreign_actor_and_mismatched_publish_handle(arc_partial_case, fault):
+    run, state = arc_partial_case
+    state[fault] = True
+    with pytest.raises(ValueError):
+        run(0)
+
+
+@pytest.mark.parametrize('field,value', [('schema', 'wrong'), ('connectionId', ''), ('tables', {}),
+                                       ('tables', {'parcels': {'schema': 'public', 'table': 'x'}})])
+def test_handoff_schema_and_sources_fail_closed(field, value):
+    from agent_browser_studio import stage3_layers
+    handoff = {'schema': 'honua.ai-arc.studio-services/v1', 'variant': 'A', 'fixtureId': 'town-A',
+               'principal': 'api-key:customer', 'agentKeyId': 'customer', 'layers': {},
+               'connectionId': '00000000-0000-0000-0000-000000000001',
+               'tables': {n: {'schema': 'honua_data', 'table': n} for n in ('parcels', 'flood_zones', 'shelters')}}
+    with pytest.raises(ValueError):
+        stage3_layers(None, {**handoff, field: value}, 'A')
+
+
+@pytest.mark.parametrize('count', [0, 3])
+def test_arc_rejects_map_binding_to_unpublished_replacement(arc_partial_case, count):
+    run, state = arc_partial_case
+    state['map_sources']['shelters']['service'] = 'unpublished_replacement'
+    with pytest.raises(ValueError, match='source is absent'):
+        run(count)
+
+
+@pytest.mark.parametrize('override', [{'connectionId': '00000000-0000-0000-0000-000000000002'},
+                                     {'schema': 'public'}, {'table': 'different_table'}, {'dryRun': True}])
+def test_arc_rejects_publication_from_wrong_source_even_with_identical_contents(arc_partial_case, override):
+    run, state = arc_partial_case
+    state['request_override'] = override
+    with pytest.raises(ValueError, match='lacks one stage-four publication'):
+        run(0)

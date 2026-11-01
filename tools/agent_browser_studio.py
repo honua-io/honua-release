@@ -1789,6 +1789,8 @@ def snapshot_sources(recorder, prefix, layers, when, *, variant='A'):
     from agent_e2e_p10_observer import source_path
     from urllib.parse import quote
     for name, slug in SOURCE_LAYERS:
+        if name not in layers:
+            continue
         raw = f'{prefix}-src-{slug}-{when}-raw'
         fixture = json.loads(fixture_path(variant, name).read_text(encoding='utf-8'))
         fields = sorted({field for feature in fixture['features'] for field in feature['properties']})
@@ -1851,9 +1853,12 @@ def stage3_layers(recorder, handoff, variant):
     from urllib.parse import quote
     require(isinstance(handoff, dict) and handoff.get('variant') == variant
             and handoff.get('fixtureId') == 'town-' + variant
+            and handoff.get('schema') == 'honua.ai-arc.studio-services/v1'
             and isinstance(handoff.get('principal'), str) and handoff['principal']
             and isinstance(handoff.get('layers'), dict) and set(handoff['layers']) <= set(LAYER_NAMES),
             'stage-three service handoff is unavailable')
+    from agent_e2e_studio_arc_sources import validate_sources
+    validate_sources(handoff)
     key = handoff.get('agentKeyId')
     require(isinstance(key, str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', key)
             and handoff['principal'] in (key, 'api-key:' + key, 'apikey:api-key:' + key),
@@ -1954,8 +1959,8 @@ def seed_case(scenario_id, stack, variant, *, create_map, external_handoff=None)
     if external_handoff is not None:
         require(scenario_id == 'P08' and not create_map, 'handoff is only supported for new arc maps')
         layers = stage3_layers(recorder, external_handoff, variant)
-        require(set(layers) == set(LAYER_NAMES),
-                'stage-four publication lineage and source baselines are not yet available')
+        from agent_e2e_studio_arc_sources import seed_sources
+        seed_sources(stack, external_handoff)
         stack.extra['arcServicesHandoff'] = copy.deepcopy(external_handoff)
     elif scenario_id == 'P24':
         layers = dict(stack.extra.get('publishedLayers') or {})
@@ -1974,7 +1979,7 @@ def seed_case(scenario_id, stack, variant, *, create_map, external_handoff=None)
     if layers:
         snapshot_sources(recorder, prefix, layers, 'before', variant=variant)
     if external_handoff is not None:
-        stack.extra['arcLineageVerified'] = True
+        stack.extra['arcLineageVerified'] = False
     if create_map:
         seed_unstyled_map(recorder, variant, layers, stack.extra.get('agentPrincipal'))
     rows = items_of(recorder.json(prefix + '-maps-before', 'GET', LIST_PATH)['observation']['body'])
@@ -2008,6 +2013,14 @@ def observe_map(stack, seeded, prefix, *, created):
     recorder.json(prefix + '-version', 'GET', version_path(row.get('itemId'), row.get('currentVersionId')))
     render_body = default_colors = None
     saved_body = package_body(recorder.records[prefix + '-version'].json)
+    if stack.extra.get('arcServicesHandoff') is not None:
+        from agent_e2e_studio_arc_sources import complete_sources
+        stage3 = set(layers)
+        layers = complete_sources(stack, seeded, saved_body)
+        snapshot_sources(recorder, prefix, {k: v for k, v in layers.items() if k not in stage3},
+                         'after', variant=seeded.state['variant'])
+        from types import SimpleNamespace
+        seeded = SimpleNamespace(state={**seeded.state, 'layers': layers})
     if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:
         catalog = observed_fixture_source_ids(recorder, layers, step='p08-source-catalog')
         if saved_body.get('view') is None:
