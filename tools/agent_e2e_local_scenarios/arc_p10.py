@@ -52,9 +52,11 @@ class ArcP10(P10):
                     or args.get('connectionId') != state['connection']):
                 continue
             response = rec.action_result('arc-p10-publication-' + str(index), action)
-            value = response.json.get('result', {}).get('structuredContent', {})
+            result = response.json.get('result', {})
+            value = result.get('structuredContent', {})
             service, layer = value.get('serviceName'), value.get('layerId')
-            if (value.get('status') == 'Completed' and value.get('operationId') == 'service.publish'
+            if (result.get('isError', False) is False and value.get('status') == 'Completed'
+                    and value.get('operationId') == 'service.publish'
                     and isinstance(service, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
                     and str(layer).isdigit() and sum(row.get('serviceName') == service for row in rows) == 1):
                 publications.append((service, int(layer)))
