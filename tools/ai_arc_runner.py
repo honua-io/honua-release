@@ -1774,25 +1774,49 @@ def verify_cli_sessions(row: dict, folder: Path, pinned: str) -> None:
 def rederive_flags(arc: dict, target: str, receipt: dict, folder: Path | None) -> list[dict]:
     """A run's false-success flags re-scored from its retained stage evidence, never read from the receipt (a
     voided run whose receipt does not verify still has its claims judged). Stage evidence that cannot be
-    re-scored is itself an unresolved flag."""
+    re-scored is itself an unresolved flag. The receipt never decides which stages are re-scored: every stage
+    whose evidence files are on disk is, whatever its row says (an emptied manifest cannot skip a retained
+    checklist), and so is every stage whose row lists evidence."""
     out = []
-    for row in receipt.get('stages') or []:
-        if not isinstance(row, dict) or not row.get('evidence'):
+    rows = {r.get('stage'): r for r in receipt.get('stages') or [] if isinstance(r, dict)}
+    for stage in STAGES:
+        row = rows.get(stage) or {'stage': stage}
+        on_disk = folder is not None and any((Path(folder) / stage / name).exists() for name in STAGE_EVIDENCE_FILES)
+        if not on_disk and not row.get('evidence'):
             continue
         try:
-            again = _rescore_stage(arc, target, row, Path(folder))
+            again = _rescore_stage(arc, target, row, Path(folder)) if row.get('evidence') else \
+                _rescore_from_disk(arc, target, stage, Path(folder))
         except (ValueError, OSError, KeyError, TypeError) as exc:
-            out.append({'stage': row.get('stage'), 'flagId': f"{row.get('stage')}:evidence-unverifiable",
+            out.append({'stage': stage, 'flagId': f"{stage}:evidence-unverifiable",
                         'claimant': 'arm', 'item': 'the stage evidence could not be re-scored: ' + str(exc)[:120]})
             continue
-        out += [{'stage': row['stage'], **flag} for flag in again['falseSuccessFlags']]
+        out += [{'stage': stage, **flag} for flag in again['falseSuccessFlags']]
     return out
+
+
+STAGE_EVIDENCE_FILES = ('actions.json', 'observations.json', 'handoff.json', 'context.json', 'final-answer.txt')
+
+
+def _rescore_from_disk(arc: dict, target: str, stage: str, folder: Path) -> dict:
+    """A stage whose receipt row lists no evidence but whose evidence files are retained: re-scored from the files."""
+    base = folder / stage
+    missing = [n for n in STAGE_EVIDENCE_FILES[:4] if not (base / n).is_file()]
+    if missing:
+        raise ValueError(f'{stage}: retained evidence is incomplete ({", ".join(missing)})')
+    load = lambda n: json.loads((base / n).read_bytes())  # noqa: E731
+    answer_path = base / 'final-answer.txt'
+    answer = answer_path.read_bytes().decode('utf-8') if answer_path.is_file() else None
+    return score_stage(arc, target, stage, load('observations.json'), load('actions.json'), answer,
+                       load('handoff.json'), load('context.json'), arc['limits'][stage])
 
 
 def _rescore_stage(arc: dict, target: str, row: dict, folder: Path) -> dict:
     evidence = row.get('evidence')
     if not isinstance(evidence, dict) or not {'actions', 'observations', 'handoff', 'context'} <= set(evidence):
         raise ValueError(f"{row['stage']}: stage evidence is not retained")
+    if (folder / row['stage'] / 'final-answer.txt').exists() and 'finalAnswer' not in evidence:
+        raise ValueError(f"{row['stage']}: a retained final answer is not listed in the stage evidence")
     files = {}
     for name, digest in evidence.items():
         path = folder / row['stage'] / {'finalAnswer': 'final-answer.txt'}.get(name, name + '.json')
@@ -2491,12 +2515,13 @@ def verify_false_success_adjudications(arc: dict, arm: dict, flags: dict, adjudi
                      'nextRunStartedAt': min((o['startedAt'] for o in by_id.values()
                                               if parse_time(o['startedAt']) > parse_time(by_id[run]['finishedAt'])),
                                              key=parse_time, default=None)})
-    # Totals cover every observed flag, a voided run's too: a void replaces the run's completion count, never its
-    # claims, so an unadjudicated flag on a voided run stays unresolved and an upheld one still counts.
+    # Every observed flag, a voided run's too, must carry a valid verdict: a void never hides a claim.
     total = sum(len(v) for v in flags.values())
-    upheld = sum(1 for r in rows if r['verdict'] == 'upheld')
-    unresolved = total - len(rows)
     counted = set(flags) if counted is None else set(counted)
+    # Scoring section: a verdict on a run that was later voided is checked but not counted. An unadjudicated flag
+    # on a voided run still stays unresolved (the campaign never resumes past it).
+    upheld = sum(1 for r in rows if r['verdict'] == 'upheld' and r['runId'] in counted)
+    unresolved = total - len(rows)
     return [r for r in rows if r['runId'] in counted], upheld, unresolved
 
 

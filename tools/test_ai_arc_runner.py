@@ -1839,10 +1839,15 @@ def test_a_voided_flagged_runs_verdict_is_accepted_but_not_counted():
     flags = {'r1': [{'flagId': 'setup:installed', 'claimant': 'arm'}]}
     rows, upheld, unresolved = R.verify_false_success_adjudications(ARC, a1, flags, [item], by_id, counted={'r2'})
     assert (rows, upheld, unresolved) == ([], 0, 0)
-    # Sol 1203 r3: a voided run's unadjudicated flag stays unresolved; an upheld one still counts.
+    # Sol 1203 r3: a voided run's unadjudicated flag stays unresolved. Sol 1203 r5 (scoring section): a verdict on
+    # a voided run is checked but not counted, so an upheld one adds nothing to falseSuccess.
     assert R.verify_false_success_adjudications(ARC, a1, flags, [], by_id, counted={'r2'})[2] == 1
     assert R.verify_false_success_adjudications(ARC, a1, flags, [dict(item, verdict='upheld')], by_id,
-                                                counted={'r2'})[1] == 1
+                                                counted={'r2'})[1:] == (0, 0)
+    assert R.verify_false_success_adjudications(ARC, a1, flags, [dict(item, verdict='upheld')], by_id)[1] == 1
+    with pytest.raises(ValueError, match='other model family'):
+        R.verify_false_success_adjudications(ARC, a1, flags, [dict(item, reviewerFamily='anthropic')], by_id,
+                                             counted={'r2'})
 
 
 def test_score_stage_marks_who_made_each_claim():
@@ -1929,3 +1934,28 @@ def test_both_aggregate_callers_pass_the_campaigns_false_success_verdicts():
     assert 'artifacts/${{ matrix.target }}/false-success-adjudications.json' in retained
     local = (R.ROOT / 'tools/ai_arc_local.sh').read_text()
     assert '--false-success-adjudications "$out/false-success-adjudications.json"' in local
+
+
+def test_an_emptied_evidence_manifest_cannot_skip_a_voided_runs_retained_checklist(tmp_path):
+    """Sol 1203 r5 item 1: the receipt never decides which stages are re-scored."""
+    names, raws = flagged_campaign(tmp_path)
+    receipt = json.loads(raws[1])
+    receipt['falseSuccessFlags'] = []
+    for row in receipt['stages']:
+        row['falseSuccessFlags'] = []
+        row.pop('evidence', None)
+    assert [f['flagId'] for f in R.rederive_flags(ARC, 'local-docker', receipt, tmp_path / '002.evidence')] == \
+        ['setup:installed']
+    receipt['stages'] = []
+    assert [f['flagId'] for f in R.rederive_flags(ARC, 'local-docker', receipt, tmp_path / '002.evidence')] == \
+        ['setup:installed']
+    # A manifest that drops only the final answer while the answer is retained is unverifiable, not "no claim".
+    receipt = json.loads(raws[1])
+    receipt['stages'][0]['evidence'].pop('finalAnswer')
+    assert [f['flagId'] for f in R.rederive_flags(ARC, 'local-docker', receipt, tmp_path / '002.evidence')] == \
+        ['setup:evidence-unverifiable']
+    # Partial retained files are unverifiable.
+    (tmp_path / '002.evidence' / 'setup' / 'observations.json').unlink()
+    receipt['stages'][0].pop('evidence')
+    assert [f['flagId'] for f in R.rederive_flags(ARC, 'local-docker', receipt, tmp_path / '002.evidence')] == \
+        ['setup:evidence-unverifiable']
