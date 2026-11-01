@@ -136,11 +136,23 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                       action_results=[publication])
     observations = [Observation(name, None, {'projection': 'extract/v1'}) for name in expected]
-    model_actions = {'occ': {'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': query_args}}
+    model_actions = {'occ': {'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': query_args,
+                             '_session': 1, '_sequence': 1}}
     scored = score_assertions(list(expected), observations, expected, records=records, roles=roles,
                               scenario_id='P10', model_actions=model_actions,
                               frozen=load_projections('P10', 'A', 'arc'))
     assert [row['status'] for row in scored] == ['pass', 'pass'], scored
+    later = {**model_actions, 'later': {**model_actions['occ'], '_sequence': 2}}
+    wrong_query = score_assertions(list(expected), observations, expected, records=records, roles=roles,
+                                   scenario_id='P10', model_actions=later,
+                                   frozen=load_projections('P10', 'A', 'arc'))
+    assert wrong_query[0]['status'] == 'fail' and 'final agent query' in wrong_query[0]['reason']
+    sprayed = {str(i): {**model_actions['occ'], '_sequence': i} for i in range(1, 7)}
+    sprayed['occ'] = sprayed.pop('6')
+    over_budget = score_assertions(list(expected), observations, expected, records=records, roles=roles,
+                                   scenario_id='P10', model_actions=sprayed,
+                                   frozen=load_projections('P10', 'A', 'arc'))
+    assert over_budget[0]['status'] == 'fail' and 'budget' in over_budget[0]['reason']
     full_result['result']['structuredContent']['geojson']['features'][0]['geometry']['coordinates'] = [
         float(x) for x in rows[0]['geometry']['coordinates']]
     for feature in full_result['result']['structuredContent']['geojson']['features']:
