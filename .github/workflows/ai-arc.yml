@@ -47,10 +47,6 @@ on:
         required: false
         default: platform-lock
         type: string
-      quickstart_revision:
-        description: honua-server commit whose published quickstart the local setup stage follows
-        required: true
-        type: string
       goal_set:
         description: development (A/B, never certifying) or held-out (sealed, decrypted in this job only)
         required: true
@@ -91,11 +87,9 @@ jobs:
         env:
           TARGETS: ${{ inputs.targets }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
-          REVISION: ${{ inputs.quickstart_revision }}
         run: |
           set -euo pipefail
           [[ "$LOCK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "lock_digest must be sha256:<64 hex>"; exit 1; }
-          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "quickstart_revision must be a 40-hex commit"; exit 1; }
           python tools/ai_arc_runner.py check
           echo "matrix=$(python -c 'import json,os; t=[x for x in os.environ["TARGETS"].split(",") if x]; assert t and len(set(t))==len(t); print(json.dumps(t))')" >> "$GITHUB_OUTPUT"
 
@@ -118,14 +112,11 @@ jobs:
           path: candidate-lock
           run-id: ${{ inputs.lock_run_id }}
           github-token: ${{ github.token }}
-      - name: Fetch the published quickstart at the pinned revision
-        env:
-          REVISION: ${{ inputs.quickstart_revision }}
+      - name: Fetch the quickstart and the Console compose at the arc spec's pins (never a free input)
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/arc-inputs"
-          curl -fsS "https://raw.githubusercontent.com/honua-io/honua-server/${REVISION}/docs/get-started/quickstart.md" \
-            -o "$RUNNER_TEMP/arc-inputs/quickstart.md"
+          python3 tools/ai_arc_runner.py pinned-inputs --out "$RUNNER_TEMP/arc-inputs"
       - name: Run the campaign (first attempts; pauses for adjudication after an undetermined run)
         env:
           TARGET: ${{ matrix.target }}
@@ -133,14 +124,14 @@ jobs:
           HOSTS: ${{ inputs.hosts }}
           TRIALS: ${{ inputs.trials }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
-          REVISION: ${{ inputs.quickstart_revision }}
           GOAL_SET: ${{ inputs.goal_set }}
           # Decrypted in memory by each run (never written to disk); custody is the committed ciphertext.
           AI_ARC_HELDOUT_KEY: ${{ inputs.goal_set == 'held-out' && secrets.AI_ARC_HELDOUT_KEY || '' }}
         run: |
           set -euo pipefail
           args=(--target "$TARGET" --arm "$ARM" --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST"
-                --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md" --quickstart-revision "$REVISION"
+                --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md"
+                --console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"
                 --out "artifacts/$TARGET")
           [ "$TARGET" != local-docker ] || args+=(--hosts "$HOSTS" --per-host 3)
           [ "$TARGET" = local-docker ] || [ -z "${HONUA_ARC_SLOT_PROVISIONER:-}" ] || args+=(--slot-provisioner "$HONUA_ARC_SLOT_PROVISIONER")

@@ -50,6 +50,10 @@ class FakeStage(R.StageModule):
     def run(self, ctx, session, prompt):
         if self.raise_in == 'run':
             raise RuntimeError('adapter exploded')
+        if self.stage == 'setup' and ctx.target == 'local-docker':
+            # As LocalSetup.prepare does: the receipt binds the pinned guide.
+            ctx.slot.facts.setdefault('quickstart', {'pageSha256': ctx.arc['quickstart']['sha256'],
+                                                     'revision': ctx.arc['quickstart']['revision']})
         return {**session.next(prompt, ctx, self.stage), **self.extra_row}
 
     def observe(self, ctx, row):
@@ -1710,6 +1714,27 @@ def test_pronoun_privacy_advice_about_named_secret_files(answer, fs):
     assert S.false_success(answer, 'pass', handoff)['false_success'] is fs
 
 
+def test_pinned_inputs_are_fetched_at_the_pins_and_digest_checked(tmp_path):
+    """ARC v2 (Fable S5, B3): the quickstart and Console compose come from the arc spec's pins only."""
+    pages = {}
+    for pin in (ARC['quickstart'], ARC['console']['compose']):
+        url = f"https://raw.githubusercontent.com/{pin['repo']}/{pin['revision']}/{pin['path']}"
+        pages[url] = b'bytes-for-' + pin['path'].encode()
+    arc = json.loads(json.dumps(ARC))
+    arc['quickstart']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('quickstart.md'))])
+    arc['console']['compose']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('docker-compose.yml'))])
+    got = R.pinned_inputs(arc, tmp_path / 'in', fetch=pages.__getitem__)
+    assert set(got) == {'quickstart.md', 'docker-compose.yml'} and (tmp_path / 'in' / 'quickstart.md').is_file()
+    arc['quickstart']['sha256'] = 'sha256:' + '0' * 64
+    with pytest.raises(ValueError):
+        R.pinned_inputs(arc, tmp_path / 'in2', fetch=pages.__getitem__)
+
+
+def test_the_workflow_has_no_free_quickstart_input_and_passes_the_console_compose():
+    workflow = (R.ROOT / '.github/workflows/ai-arc.yml').read_text()
+    assert 'quickstart_revision' not in workflow and 'pinned-inputs' in workflow
+    assert '--console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"' in workflow
+
 
 def test_a_held_out_run_leaves_no_goal_text_on_disk(tmp_path, monkeypatch):
     """Coordinator (#1196): held-out goals are sealed; a run writes their digest, never their text, even when
@@ -1975,6 +2000,17 @@ def test_an_image_needing_redaction_is_withheld_whole_and_the_manifest_reconcile
     doc = json.loads((out / 'manifest.json').read_text())
     assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['secret-in-image'] == 1
     assert b'synthetic-harness-secret-01' not in b''.join(p.read_bytes() for p in out.iterdir())
+
+
+def test_a_local_receipt_without_the_pinned_quickstart_is_rejected(tmp_path):
+    """Sol 5b3b348d: removing or nulling the quickstart facts of a run whose setup ran fails verification."""
+    names, raws = campaign(tmp_path, [True])
+    for change in (lambda f: f.pop('quickstart'), lambda f: f.update(quickstart=None),
+                   lambda f: f['quickstart'].update(pageSha256='sha256:' + '0' * 64)):
+        doc = json.loads(raws[0])
+        change(doc['slotFacts'])
+        with pytest.raises(ValueError):
+            agg(tmp_path, names, [json.dumps(doc).encode()])
 
 
 def test_a_failed_harness_reconvergence_is_never_charged_to_the_arm(tmp_path):
