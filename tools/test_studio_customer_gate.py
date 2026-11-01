@@ -140,7 +140,7 @@ def test_dispatch_uses_verified_tag_at_exact_console_commit(monkeypatch):
         raise AssertionError(args)
     monkeypatch.setattr(g, 'gh', fake_gh)
     selected = g.resolve_pins({'components': pins()})
-    g.dispatch_customer(selected, 'release-test')
+    g.dispatch_customer(selected, 'release-test', 'ghcr.io/honua-io/honua-server@sha256:' + 'c' * 64)
     assert any(call[:2] == ('workflow', 'run') for call in calls)
 
 
@@ -153,7 +153,7 @@ def test_dispatch_rejects_tag_pointing_to_another_commit(monkeypatch):
         raise AssertionError('must not dispatch a mismatched tag')
     monkeypatch.setattr(g, 'gh', fake_gh)
     with pytest.raises(ValueError, match='tag'):
-        g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test')
+        g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test', 'ghcr.io/honua-io/honua-server@sha256:' + 'c' * 64)
 
 
 def test_agent_reflection_stages_are_required_for_certification():
@@ -181,3 +181,33 @@ def test_requires_unique_progress_for_both_customer_and_agent_journeys():
     for attachments in ([studio_attachment], [agent_attachment], [studio_attachment, agent_attachment, agent_attachment]):
         with pytest.raises(ValueError, match='unique'):
             g.extract_progress({'attachments': attachments})
+
+
+def test_executor_is_a_distinct_same_revision_candidate_lock_artifact():
+    selected = g.resolve_pins({'components': pins()})
+    digest = 'sha256:' + 'c' * 64
+    image = 'ghcr.io/honua-io/honua-server@' + digest
+    artifact = {'kind': 'image', 'coordinate': 'ghcr.io/honua-io/honua-server',
+                'digest': digest, 'sourceRevision': selected['server']['sha']}
+    lock = {'components': {'honua-server': {'artifacts': [artifact]}}}
+    assert g.bind_executor(lock, selected, image) == image
+    for altered in ('', 'ghcr.io/honua-io/honua-server:nightly', selected['server']['image'],
+                    'ghcr.io/honua-io/honua-server@sha256:' + 'f' * 64):
+        with pytest.raises(ValueError):
+            g.bind_executor(lock, selected, altered)
+    wrong = deepcopy(lock)
+    wrong['components']['honua-server']['artifacts'][0]['sourceRevision'] = 'f' * 40
+    with pytest.raises(ValueError):
+        g.bind_executor(wrong, selected, image)
+
+
+def test_agent_runtime_matches_candidate_images_and_executor():
+    selected, runtime, _, _ = evidence()
+    executor = 'ghcr.io/honua-io/honua-server@sha256:' + 'c' * 64
+    runtime['executor'] = {'requested': executor, 'sourceRevision': selected['server']['sha']}
+    g.validate_agent_runtime(selected, executor, runtime)
+    for component, key in [('console', 'requested'), ('server', 'sourceRevision'), ('executor', 'requested'), ('executor', 'sourceRevision')]:
+        altered = deepcopy(runtime)
+        altered[component][key] = 'wrong'
+        with pytest.raises(ValueError):
+            g.validate_agent_runtime(selected, executor, altered)
