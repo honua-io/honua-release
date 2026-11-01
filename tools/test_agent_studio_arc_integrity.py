@@ -146,3 +146,25 @@ def test_recognized_development_goals_are_pinned_to_fixture_variant():
     goals = arc['targets']['local-docker']['goals']['studio']
     assert {variant: hashlib.sha256(goal.encode()).hexdigest() for variant, goal in goals.items()} == STUDIO_GOAL_SHA256
     assert STUDIO_GOAL_SHA256['A'] != STUDIO_GOAL_SHA256['B']
+
+
+def test_publication_requires_active_exact_public_version():
+    from agent_e2e_studio_arc import public_publication
+    version = {'itemId': 'map', 'versionId': 'version', 'contentHash': 'hash'}
+    route = {'publicationId': 'publication', 'activeVersionId': 'pub-version', 'lifecycle': 'Active',
+             'policy': {'visibility': 'Public', 'share': {'allowAnonymous': True}}}
+    pub_version = {'versionId': 'pub-version', 'sourceContentId': 'map',
+                   'contentVersionId': 'version', 'contentHash': 'hash'}
+    page = {'items': [{'route': route, 'versions': [pub_version]}], 'total': 1}
+    def records():
+        return {'p08-version': record({'data': version}, '2026-11-01T00:00:00Z'),
+                'studio-publications-0': record(page, '2026-11-01T00:00:00Z')}
+    assert public_publication(records())
+    pub_version['contentVersionId'] = 'other'
+    assert not public_publication(records())
+    pub_version['contentVersionId'] = 'version'
+    route['policy']['share']['allowAnonymous'] = False
+    assert not public_publication(records())
+    route['policy']['share']['allowAnonymous'] = True
+    page['nextCursor'] = 'another-page'
+    assert not public_publication(records())

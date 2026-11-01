@@ -125,6 +125,34 @@ def ui_provenance(records, session_rows, customer, handle_lookup):
     return True
 
 
+def public_publication(records):
+    """Read the active public route bound to the exact controller-read saved version."""
+    version = _record(records, 'p08-version')['data']
+    page = _record(records, 'studio-publications-0')
+    if (not isinstance(page, dict) or not isinstance(page.get('items'), list)
+            or page.get('nextCursor') is not None or page.get('total') != len(page['items'])):
+        return False
+    matches = []
+    for item in page['items']:
+        if not isinstance(item, dict) or not isinstance(item.get('route'), dict) or not isinstance(item.get('versions'), list):
+            return False
+        route = item['route']
+        policy = route.get('policy')
+        if not isinstance(policy, dict) or not isinstance(policy.get('share'), dict):
+            continue
+        current = [row for row in item['versions'] if isinstance(row, dict)
+                   and row.get('versionId') == route.get('activeVersionId')]
+        if (len(current) == 1 and route.get('lifecycle', '').casefold() == 'active'
+                and policy.get('visibility', '').casefold() == 'public'
+                and policy['share'].get('allowAnonymous') is True
+                and current[0].get('sourceContentId') == version.get('itemId')
+                and current[0].get('contentVersionId') == version.get('versionId')
+                and current[0].get('contentHash') == version.get('contentHash')
+                and all(isinstance(version.get(k), str) and version[k] for k in ('itemId', 'versionId', 'contentHash'))):
+            matches.append(route.get('publicationId'))
+    return len(matches) == 1 and isinstance(matches[0], str) and bool(matches[0])
+
+
 def score_goal(records, goal, variant, *, recognized=True):
     """Score frozen authored properties; explicitly reject unsupported goal features."""
     from agent_browser_studio import package_body, style_from_body, map_spec, label_ids
@@ -173,7 +201,14 @@ def score_goal(records, goal, variant, *, recognized=True):
     for name in unsupported:
         result('goal.unsupported-' + name.replace(' ', '-'), False,
                'unsupported requested requirement: ' + name)
-    if re.search(r'\b(share|shared|sharing|publish|published|publishing|operator|operators|team|access|accessible)\b', text):
+    if re.search(r'\b(public|publish|published|publishing)\b', text):
+        try:
+            published = public_publication(records)
+        except Exception:
+            published = False
+        result('goal.publication', published,
+               'active public publication for the exact saved version is unavailable')
+    if re.search(r'\b(share|shared|sharing|operator|operators|team|access|accessible)\b', text):
         # The fixture does not provision an operator principal or a controller-
         # verifiable audience grant. A published pointer alone is not sharing.
         result('goal.sharing', False, 'unsupported: no independently authenticated operator or audience grant fixture')
@@ -603,6 +638,13 @@ def arc_stage(ctx):
                         provision_local_server(context.slot.vm, self.signing)
                 stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
                 goal = case['prompts'][fixture]
+                if stack and re.search(r'\b(public|publish|published|publishing)\b', goal, re.I):
+                    try:
+                        stack.extra['recorder'].json('studio-publications-0', 'GET',
+                                                     '/api/v1/console/publications/?limit=200')
+                        receipt['controllerRecords'] = stack.extra['recorder'].index()
+                    except Exception:
+                        pass  # Missing or incomplete controller evidence fails the assertion.
                 # Interpret only fully frozen goals. An unknown request can
                 # contain requirements a keyword search would silently miss.
                 recognized = hashlib.sha256(goal.encode()).hexdigest() == STUDIO_GOAL_SHA256.get(fixture)
