@@ -1015,9 +1015,9 @@ def fixture_map_body(variant, layers, source_ids, *, styled):
     return body
 
 
-def observed_fixture_source_ids(recorder, layers):
+def observed_fixture_source_ids(recorder, layers, step='p09-source-catalog'):
     """Resolve Studio catalog identities from an authenticated controller MCP read."""
-    result = recorder.mcp_call('p09-source-catalog', 'honua_list_layers', {'offset': 0, 'limit': 500})
+    result = recorder.mcp_call(step, 'honua_list_layers', {'offset': 0, 'limit': 500})
     data = result.get('structuredContent') if isinstance(result, dict) else None
     require(isinstance(data, dict) and data.get('offset') == 0 and data.get('hasMore') is False
             and isinstance(data.get('layers'), list) and data.get('layerCount') == len(data['layers']),
@@ -1166,6 +1166,58 @@ def default_map_spec(body):
     return {'version': 8, 'sources': {name: {'type': 'geojson'} for name in LAYER_NAMES}, 'layers': rules}
 
 
+def normalize_catalog_map(body, source_ids, fixtures):
+    """Bind an unstyled Studio map's source IDs to the controller's fixture catalog."""
+    import math
+    require(isinstance(body, dict) and 'mapSpec' not in body and 'sourceBindings' not in body
+            and isinstance(body.get('layers'), list) and len(body['layers']) == len(LAYER_NAMES)
+            and set(source_ids) == set(fixtures) == set(LAYER_NAMES)
+            and len(set(source_ids.values())) == len(LAYER_NAMES), 'invalid catalog-bound map')
+    reverse = {value: name for name, value in source_ids.items()}
+    normalized = copy.deepcopy(body)
+    original_ids = {}
+    for row in normalized['layers']:
+        require(isinstance(row, dict) and row.get('sourceId') in reverse, 'saved source is absent from fixture catalog')
+        name = reverse[row['sourceId']]
+        require(name not in original_ids and isinstance(row.get('id'), str) and row['id'],
+                'saved source is duplicated in fixture catalog')
+        original_ids[name] = row['id']
+        row['id'] = name
+    require(set(original_ids) == set(LAYER_NAMES), 'saved sources differ from fixture catalog')
+    view = normalized.get('view')
+    require(isinstance(view, dict) and view.get('crs', 'EPSG:4326') in ('EPSG:3857', 'EPSG:4326', 'CRS84')
+            and isinstance(view.get('bbox'), list) and len(view['bbox']) == 4
+            and all(type(v) in (int, float) and math.isfinite(v) and abs(v) <= 20037508.35 for v in view['bbox']),
+            'unsupported catalog map view')
+    x1, y1, x2, y2 = view['bbox']
+    require(x1 < x2 and y1 < y2, 'invalid catalog map view')
+    def geographic(x, y):
+        return [math.degrees(x / 6378137), math.degrees(2 * math.atan(math.exp(y / 6378137)) - math.pi / 2)]
+    if view.get('crs', 'EPSG:4326') == 'EPSG:3857':
+        view.update(crs='EPSG:4326', bbox=geographic(x1, y1) + geographic(x2, y2))
+    else:
+        require(-180 <= x1 < x2 <= 180 and -85 <= y1 < y2 <= 85, 'invalid catalog geographic view')
+    normalized['sourceBindings'] = [
+        {'sourceId': source_ids[name], 'protocol': 'geoservices_feature_service',
+         'locator': {'url': f"/rest/services/{fixtures[name]['service']}/FeatureServer/{fixtures[name]['layerId']}",
+                     'layerId': fixtures[name]['layerId']}} for name in LAYER_NAMES]
+    spec = default_map_spec(normalized)
+    palette = ('#0b6b4d', '#b4531b', '#3a5fa8', '#8a2f6b', '#1f7a8c', '#94741a', '#5c3b8f', '#a03a3a')
+    colors = {}
+    for row in spec['layers']:
+        name = row['id']
+        hashed = 0x811c9dc5
+        for char in original_ids[name]:
+            hashed = ((hashed ^ ord(char)) * 0x01000193) & 0xffffffff
+        color = palette[hashed % len(palette)]
+        row['paint'][row['type'] + '-color'] = color
+        if row['type'] == 'fill':
+            row['paint']['fill-outline-color'] = color
+        colors[name] = [int(color[i:i + 2], 16) for i in (1, 3, 5)] + [115 if row['type'] == 'fill' else 255]
+    normalized['mapSpec'] = spec
+    return normalized, colors
+
+
 def saved_authored_exports(body, fixtures, *, variant='A', allow_default=False):
     """Translate supported literal saved layer paint to fixture-bound server exports.
 
@@ -1251,7 +1303,7 @@ def saved_authored_exports(body, fixtures, *, variant='A', allow_default=False):
 
 
 def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, expected_rgba, regions, minimum_pixels,
-                                 variant='A', allow_default=False):
+                                 variant='A', allow_default=False, render_body=None):
     """Verify each saved, fixture-bound literal rule against controller-fetched pixels.
 
     This checks the individual server exports only. It does not assert that text
@@ -1264,7 +1316,7 @@ def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, ex
             and isinstance(limits, dict) and set(limits) == set(fixtures)
             and all(type(value) is int and value > 0 for value in limits.values()),
             'invalid frozen authored expectations')
-    exports = saved_authored_exports(package_body(recorder.records[version_step].json), fixtures,
+    exports = saved_authored_exports(render_body or package_body(recorder.records[version_step].json), fixtures,
                                      variant=variant, allow_default=allow_default)
     matches = {}
     for row in exports:
@@ -1556,7 +1608,7 @@ map.once('idle',async()=>{
         thread.join(timeout=5)
 
 
-def record_independent_render(stack, seeded, prefix, version_step):
+def record_independent_render(stack, seeded, prefix, version_step, *, render_body=None, default_colors=None):
     """Score controller exports and a separate runner-owned composite from saved state."""
     recorder, variant = stack.extra['recorder'], seeded.state['variant']
     fixtures = seeded.state.get('layers') or {}
@@ -1564,13 +1616,13 @@ def record_independent_render(stack, seeded, prefix, version_step):
     contract = json.loads(COMPOSITE_CONTRACT_PATH.read_text(encoding='utf-8'))
     require(variant in ('A', 'B') and isinstance(contract, dict), 'invalid frozen composite contract')
     default = prefix == 'p08' and 'mapSpec' not in package_body(recorder.records[version_step].json)
-    colors = contract['defaultRgba'] if default else contract['authoredRgba']
+    colors = (default_colors or contract['defaultRgba']) if default else contract['authoredRgba']
     verify_saved_authored_layers(recorder, version_step, prefix + '-export', fixtures=fixtures,
         expected_rgba=colors, regions={name: [0, 0, 512, 512] for name in LAYER_NAMES},
-        minimum_pixels=contract['minimumLayerPixels'], variant=variant, allow_default=default)
+        minimum_pixels=contract['minimumLayerPixels'], variant=variant, allow_default=default, render_body=render_body)
     sources = {name: fixture_geojson_source(recorder.records[f'{prefix}-src-{slug}-after-geo'], variant, name)
                for name, slug in SOURCE_LAYERS}
-    body = package_body(recorder.records[version_step].json)
+    body = render_body or package_body(recorder.records[version_step].json)
     try:
         from playwright.sync_api import Error as PlaywrightError
     except ImportError as exc:
@@ -1580,7 +1632,8 @@ def record_independent_render(stack, seeded, prefix, version_step):
             sample_mercator=contract['sampleMercator'][variant], allow_default=default)
     except PlaywrightError as exc:
         raise ProjectionError('independent browser render failed') from exc
-    color = contract['defaultFloodRgba'] if default else contract['floodRgba']
+    color = ([round(255 * (1 - 0.45) + channel * 0.45) for channel in colors['flood_zones'][:3]] + [255]
+             if default_colors else contract['defaultFloodRgba'] if default else contract['floodRgba'])
     measurement = measure_png(rendering['png'], {'background': contract['background'],
         'backgroundTolerance': contract['backgroundTolerance'], 'regions': [
             {'id': 'flood', 'rect': rendering['sampleRect'], 'rgba': color, 'tolerance': contract['floodTolerance']}]},
@@ -1623,9 +1676,9 @@ def saved_digest(body):
     return canonical_digest(body)[7:]
 
 
-def record_map_measurements(recorder, version_step, prefix):
+def record_map_measurements(recorder, version_step, prefix, *, composition_body=None):
     body = package_body(recorder.records[version_step].json)
-    recorder.store_derived(prefix + '-composition', composition_from_body(body))
+    recorder.store_derived(prefix + '-composition', composition_from_body(composition_body or body))
     if prefix != 'p08' and 'mapSpec' in body:
         recorder.store_derived(prefix + '-style', style_from_body(body))
     recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(body)})
@@ -1772,7 +1825,12 @@ def observe_map(stack, seeded, prefix, *, created):
         require(len(matches) == 1, 'seeded map is not in the live list')
         row = matches[0]
     recorder.json(prefix + '-version', 'GET', version_path(row.get('itemId'), row.get('currentVersionId')))
-    record_map_measurements(recorder, prefix + '-version', prefix)
+    render_body = default_colors = None
+    saved_body = package_body(recorder.records[prefix + '-version'].json)
+    if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:
+        catalog = observed_fixture_source_ids(recorder, layers, step='p08-source-catalog')
+        render_body, default_colors = normalize_catalog_map(saved_body, catalog, layers)
+    record_map_measurements(recorder, prefix + '-version', prefix, composition_body=render_body)
     if prefix == 'p24' and not layers:
         from agent_e2e_local_projections import audited_map_sources
         from types import SimpleNamespace
@@ -1796,7 +1854,8 @@ def observe_map(stack, seeded, prefix, *, created):
             stack.extra[prefix + 'SourceFailure'] = str(exc)[:200]
     if set(layers) == set(LAYER_NAMES):
         try:
-            record_independent_render(stack, seeded, prefix, prefix + '-version')
+            record_independent_render(stack, seeded, prefix, prefix + '-version', render_body=render_body,
+                                      default_colors=default_colors)
         except (ProjectionError, OSError, ValueError) as exc:
             # Keep other assertions observable. The missing render step fails closed.
             stack.extra[prefix + 'RenderFailure'] = str(exc)[:200]

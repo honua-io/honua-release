@@ -1,0 +1,224 @@
+{
+  "assertions": [
+    {
+      "assertion": "map.composition",
+      "evidence": [
+        {
+          "sha256": "sha256:e647b28c0de958e3211af21febf917fee6909b8bafd4bc0a9857299e6e80bb8b",
+          "step": "p08-composition"
+        },
+        {
+          "sha256": "sha256:7578066ec91293e34e6216c79acfa98c6166236d1c1e4b44dc6333594cb531d9",
+          "step": "p08-version"
+        }
+      ],
+      "observedSha256": "sha256:34a2dde0f684664535c44f08515d3c1eb2a33e4b202504a2e78222e12e2999f6",
+      "status": "pass"
+    },
+    {
+      "assertion": "render.actual",
+      "evidence": [
+        {
+          "sha256": "sha256:824fdaa1bac217d69363322c2662a764ca6b9b59587b510156a6beb11a98a6d9",
+          "step": "p08-export-flood-zones"
+        },
+        {
+          "sha256": "sha256:c968e37fe4d7e71508adfa608363c30ec31490ac8ce39569a1b534348a9775cd",
+          "step": "p08-export-parcels"
+        },
+        {
+          "sha256": "sha256:855f238369005d3413f8d2b1985997bdb22d2c812f1f1207878d8e9ea00192b2",
+          "step": "p08-export-shelters"
+        },
+        {
+          "sha256": "sha256:8322e3ddb9c14661e052c87cedf328d6a0f19ee49452a7c71523058302049c57",
+          "step": "p08-render"
+        },
+        {
+          "sha256": "sha256:f268df49f0a8d5e6762a5b416664992a238d833062434dbc8900987821062cc8",
+          "step": "p08-src-flood-zones-after-geo"
+        },
+        {
+          "sha256": "sha256:a8fa8c4e922913efdbe6f99539d0647c1e9bfcd05a0e55187c75556135af6a70",
+          "step": "p08-src-flood-zones-after-raw"
+        },
+        {
+          "sha256": "sha256:cbbdf9416ef4b414c6d162c3e91de219c7aa972a8fb23854cc9e62ced76d41eb",
+          "step": "p08-src-parcels-after-geo"
+        },
+        {
+          "sha256": "sha256:86b73a299e45e7b77fc55a8f78497adcf45c0e18968e2d73b5c2e9313a475526",
+          "step": "p08-src-parcels-after-raw"
+        },
+        {
+          "sha256": "sha256:3aba6d3ecac8705afc61c25ba4c27deb60eff873fcab5db84856083f7a7d451a",
+          "step": "p08-src-shelters-after-geo"
+        },
+        {
+          "sha256": "sha256:5df0971390216827a67cdcc70f7765f671a6ef66bfc03ec225a425d50f912283",
+          "step": "p08-src-shelters-after-raw"
+        },
+        {
+          "sha256": "sha256:7578066ec91293e34e6216c79acfa98c6166236d1c1e4b44dc6333594cb531d9",
+          "step": "p08-version"
+        }
+      ],
+      "observedSha256": "sha256:247010ce0ca1b9d1f8f88ce0ba5286adcb60e5412a6df8a54608272c18856366",
+      "status": "pass"
+    },
+    {
+      "assertion": "source-content.unchanged",
+      "evidence": [
+        {
+          "sha256": "sha256:a8fa8c4e922913efdbe6f99539d0647c1e9bfcd05a0e55187c75556135af6a70",
+          "step": "p08-src-flood-zones-after-raw"
+        },
+        {
+          "sha256": "sha256:a8fa8c4e922913efdbe6f99539d0647c1e9bfcd05a0e55187c75556135af6a70",
+          "step": "p08-src-flood-zones-before-raw"
+        },
+        {
+          "sha256": "sha256:86b73a299e45e7b77fc55a8f78497adcf45c0e18968e2d73b5c2e9313a475526",
+          "step": "p08-src-parcels-after-raw"
+        },
+        {
+          "sha256": "sha256:86b73a299e45e7b77fc55a8f78497adcf45c0e18968e2d73b5c2e9313a475526",
+          "step": "p08-src-parcels-before-raw"
+        },
+        {
+          "sha256": "sha256:3aba6d3ecac8705afc61c25ba4c27deb60eff873fcab5db84856083f7a7d451a",
+          "step": "p08-src-shelters-after-geo"
+        },
+        {
+          "sha256": "sha256:5df0971390216827a67cdcc70f7765f671a6ef66bfc03ec225a425d50f912283",
+          "step": "p08-src-shelters-after-raw"
+        },
+        {
+          "sha256": "sha256:3aba6d3ecac8705afc61c25ba4c27deb60eff873fcab5db84856083f7a7d451a",
+          "step": "p08-src-shelters-before-geo"
+        },
+        {
+          "sha256": "sha256:5df0971390216827a67cdcc70f7765f671a6ef66bfc03ec225a425d50f912283",
+          "step": "p08-src-shelters-before-raw"
+        }
+      ],
+      "observedSha256": "sha256:bf03491299975c3f605cad4f3d44a298caf67e286c6c51800969854cccca06cb",
+      "status": "pass"
+    }
+  ],
+  "consoleDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+  "finalAnswerCheck": {
+    "false_success": false,
+    "findings": [],
+    "judgeUsed": false,
+    "status": "pass",
+    "undetermined": false,
+    "unresolved-limitation-not-disclosed": false
+  },
+  "firstSession": {
+    "auditControllerPrincipalObserved": false,
+    "customerKeyRevoked": true,
+    "originalFailure": "observer rejected Web Mercator view and could not render catalog-only source bindings",
+    "originalStatus": "fail",
+    "usage": {
+      "calls": 7,
+      "inputTokens": 175537,
+      "outputTokens": 1610
+    }
+  },
+  "kind": "independent-rescore-of-original-live-session",
+  "model": {
+    "evidenceSteps": [
+      "studio-ai-capabilities",
+      "studio-ai-provider-config",
+      "studio-audit-after-0"
+    ],
+    "model": "us.anthropic.claude-sonnet-4-6",
+    "provider": "bedrock",
+    "region": "us-east-1",
+    "usage": [
+      {
+        "completion_tokens": 419,
+        "prompt_tokens": 30875
+      },
+      {
+        "completion_tokens": 155,
+        "prompt_tokens": 26587
+      },
+      {
+        "completion_tokens": 178,
+        "prompt_tokens": 25655
+      },
+      {
+        "completion_tokens": 181,
+        "prompt_tokens": 24749
+      },
+      {
+        "completion_tokens": 193,
+        "prompt_tokens": 23879
+      },
+      {
+        "completion_tokens": 332,
+        "prompt_tokens": 22921
+      },
+      {
+        "completion_tokens": 152,
+        "prompt_tokens": 20871
+      }
+    ]
+  },
+  "originalReceiptSha256": "sha256:a205853feadd5a6d783d586d26ab5a828cf5a84adf8c5b9069e551595111c28d",
+  "originalSessionStatus": "fail",
+  "ownership": {
+    "basis": "runner custody and controller inventory",
+    "evidence": [
+      {
+        "sha256": "sha256:468e1ba0a44f1bce6fba05b5164905c40189618af9a000193b550d164d5bd642",
+        "status": 201,
+        "step": "runner-custody-mint-agent-controller"
+      },
+      {
+        "sha256": "sha256:b36e4459f9cf40775eca21a8e470986f35cedd48ec8dee03b594b482273e9012",
+        "status": 200,
+        "step": "runner-console-user-mint"
+      },
+      {
+        "sha256": "sha256:235f92c6a98862897f5a267dd8cbd55eb9225872cc2e7a32db54f7e8d1d95756",
+        "status": 200,
+        "step": "p08-maps-before"
+      },
+      {
+        "sha256": "sha256:8be033db2d52408d1e8e3ae7b3c85492281c91860e55656d4727dad3a7f2a82e",
+        "status": 200,
+        "step": "p08-maps"
+      }
+    ],
+    "result": "pass"
+  },
+  "quickstartHealthCheck": "The Console image served /version.json over HTTP; an eval-only HTTP health check replaced the quickstart file check because /app/wwwroot/version.json was absent.",
+  "renderMeasurement": {
+    "floodMatchingPixels": 400,
+    "height": 512,
+    "loadedLayers": [
+      "flood_zones",
+      "parcels",
+      "shelters"
+    ],
+    "nonBackgroundPixels": 15358,
+    "visibleLabelSourceIds": [],
+    "width": 512
+  },
+  "savedMapBodySha256": "sha256:d8ff198dadf10311db6735f21cc2f843d1b8c0f006df5624ddc9dddcf5264657",
+  "secondSession": {
+    "customerKeyRevoked": true,
+    "failure": "saved map did not contain a view",
+    "status": "fail",
+    "usage": {
+      "calls": 18,
+      "inputTokens": 511016,
+      "outputTokens": 3705
+    }
+  },
+  "serverDevelopmentImage": "sha256:4704299841fc406a1711f74bb924d3d8f64e6503d7a0039089deab0925d73592",
+  "serverSourceRevision": "15707609be1fe4e29252390792dda3c35129bd28"
+}

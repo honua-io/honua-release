@@ -210,6 +210,9 @@ def score_final_answer(text, observations, *, state_status, judge=None):
         unsupported("name-does-not-match-observation")
     for match in STATUS.finditer(text):
         word = match.group(1).lower()
+        if word == 'published' and re.search(r"\bcheck(?:ing)?\s+what(?:'s|\s+is)\s+$",
+                                             text[max(0, match.start() - 40):match.start()], re.IGNORECASE):
+            continue
         if _negated(text, match.start()):
             # "not published" is not a claim that the map is published.
             if (observed and word in SUCCESS_STATUS and isinstance(statuses, list)

@@ -1163,3 +1163,22 @@ def test_assistant_console_does_not_inherit_an_agent_key(tmp_path, monkeypatch):
     assert 'HONUA_AGENT_API_KEY' not in env
     assert 'HONUA_NATIVE_MODEL_ENABLED' not in env
     assert 'HONUA_ADMIN_API_KEY' not in env
+
+
+def test_catalog_bound_unstyled_map_normalizes_identifiers_without_changing_palette():
+    from agent_browser_studio import normalize_catalog_map
+    body = {'view': {'crs': 'EPSG:3857', 'bbox': [-20010, -5010, -18800, -4700]}, 'widgets': [],
+            'layers': [{'id': 'parcel-custom', 'sourceId': 'svc-parcels/0', 'type': 'fill', 'visible': True},
+                       {'id': 'flood-zones', 'sourceId': 'svc-flood/1', 'type': 'fill', 'visible': True},
+                       {'id': 'shelter-custom', 'sourceId': 'svc-shelters/2', 'type': 'circle', 'visible': True}]}
+    ids = {'parcels': 'svc-parcels/0', 'flood_zones': 'svc-flood/1', 'shelters': 'svc-shelters/2'}
+    normalized, colors = normalize_catalog_map(body, ids, LAYERS)
+    assert [row['id'] for row in normalized['layers']] == list(LAYER_NAMES)
+    assert normalized['view']['crs'] == 'EPSG:4326'
+    assert colors['flood_zones'] == [148, 116, 26, 115]
+    body['view'] = {'crs': 'EPSG:4326', 'bbox': normalized['view']['bbox']}
+    geographic, _ = normalize_catalog_map(body, ids, LAYERS)
+    assert geographic['view'] == body['view']
+    body['layers'][1]['sourceId'] = 'svc-foreign/1'
+    with pytest.raises(ProjectionError, match='catalog'):
+        normalize_catalog_map(body, ids, LAYERS)
