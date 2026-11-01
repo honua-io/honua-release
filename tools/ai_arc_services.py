@@ -398,11 +398,24 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     load_scenario = load_scenario or runner.load_scenario
     out_dir = Path(out_dir)
     cases, actions, answers, nudges, failure = [], [], [], 0, None
+
+    def prior_receipt_intact():
+        try:
+            raw = (out_dir / 'P10' / 'case-receipt.json').read_bytes()
+        except OSError:
+            return False
+        return ('sha256:' + hashlib.sha256(raw).hexdigest() == runtime.shared_service['caseReceiptSha256'])
+
     try:
         for index, sid in enumerate(scenarios):
             if fixture_cases is not None and sid == 'P15' and runtime.shared_service is None:
                 failure = failure or {'category': 'model', 'reason': 'P15 requires the agent publication from P10'}
                 cases.append({'scenario': sid, 'receipt': {'status': 'fail', 'assertions': [], 'failure': failure}})
+                continue
+            if fixture_cases is not None and sid == 'P15' and not prior_receipt_intact():
+                failure = failure or {'category': 'harness-error', 'reason': 'P10 retained receipt changed before P15'}
+                cases.append({'scenario': sid, 'receipt': {'status': 'infrastructure', 'assertions': [],
+                                                           'failure': failure}})
                 continue
             remaining_actions = limits['maxToolCalls'] - len(actions)
             remaining_time = int(deadline - time.monotonic())
@@ -423,6 +436,8 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
                                           runtime=runtime)
             if fixture_cases is not None and sid == 'P15':
                 receipt['priorCaseReceiptSha256'] = runtime.shared_service['caseReceiptSha256']
+                if not prior_receipt_intact():
+                    failure = failure or {'category': 'harness-error', 'reason': 'P10 retained receipt changed during P15'}
                 roles = receipt.get('roles') or {}
                 if (receipt.get('status') != 'infrastructure' and
                         (roles.get('seeded:service:shelters') != runtime.shared_service['service']
