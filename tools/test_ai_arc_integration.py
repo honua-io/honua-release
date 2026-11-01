@@ -202,7 +202,7 @@ def test_services_compose_the_real_corpus_runtime_with_scoring_protections(tmp_p
         def __init__(self, where):
             self.where = where
 
-        def run(self, *, prompt, tool_view, execute, log_dir, session, max_actions, max_turns, timeout):
+        def run(self, *, prompt, tool_view, servers, execute, log_dir, session, max_actions, max_turns, timeout):
             arguments = {'serviceId': 'p10-shelters', 'layerId': 0, 'where': self.where}
             execute('tool_call', {'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': arguments})
             return {'finalAnswer': 'Two shelters match: Centre and the North refuge.', 'tokens': 1, 'usage': [],

@@ -7,6 +7,7 @@ from pathlib import Path
 import hashlib
 import json
 import sys
+import urllib.request
 
 from agent_cli_sessions import CliFailure, CliModelSession
 from agent_e2e_local_api import SessionResult
@@ -32,8 +33,31 @@ class CorpusCliSession:
                                     'sha256':item['sha256'], 'content':raw.decode('utf-8')})
             prompt = json.dumps({'customerRequest':context.prompt, 'customerAttachments':attachments},
                                 ensure_ascii=False, separators=(',', ':'))
+        servers = None
+        if context.studio_browser is not None:
+            from agent_browser_studio import tool_catalog
+            endpoint = context.studio_browser()
+
+            def studio_execute(kind, action):
+                if kind != 'tool_call':
+                    raise ValueError('Studio supports tool calls only')
+                request = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                           'params': {'name': action['tool'], 'arguments': action['arguments']}}
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                with opener.open(urllib.request.Request(
+                        endpoint.url, data=json.dumps(request).encode(),
+                        headers={endpoint.header: endpoint.token, 'Content-Type': 'application/json'}),
+                        timeout=45) as response:
+                    payload = json.load(response)
+                if 'error' in payload or not isinstance(payload.get('result'), dict):
+                    raise ValueError('Studio browser MCP request failed')
+                result = payload['result']
+                return {'status': 'fail' if result.get('isError') else 'ok', 'result': result}
+
+            servers = {'honua': {'tool_view': context.tool_view, 'execute': context.execute},
+                       'studio': {'tool_view': {'tools': tool_catalog()}, 'execute': studio_execute}}
         try:
-            row = self.cli.run(prompt=prompt, tool_view=context.tool_view,
+            row = self.cli.run(prompt=prompt, tool_view=context.tool_view, servers=servers,
                 execute=context.execute, log_dir=Path(context.workdir)/'cli-wire', session=context.session,
                 max_actions=context.limits.max_actions, max_turns=context.limits.max_model_calls,
                 timeout=getattr(self.runtime, 'timeout', 600))

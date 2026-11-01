@@ -190,6 +190,7 @@ class RoleBinding:
     sources: tuple | None = None    # scan:<name>: the exact raw sources whose sha256 digests the role lists
     owner_format: str | None = None # created: how the server renders the agent principal in ``owner``:
                                     # "{id}" (default) or "api-key:{id}" (reviewed formats only)
+    owner_any_of: list[str] | None = None  # reviewed user/key templates, bound only through runner custody
 
 
 @dataclass(frozen=True)
@@ -226,6 +227,7 @@ class SessionContext:
     clarifications: tuple = ()       # scripted customer replies, sent in pack order
     token_budget_used: int = 0
     attachments: tuple = ()          # customer files the scenario declared: {name, mediaType, sha256, path}
+    studio_browser: Callable[[], McpEndpoint] | None = None  # origin-locked studio MCP, when the case needs it
 
 
 @dataclass(frozen=True)

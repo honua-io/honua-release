@@ -1033,7 +1033,7 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             sealed = vault.records()
             model_actions = vault.model_actions()
             roles = projections.resolve_roles(bindings, sealed, agent_principal=run.agent_principal,
-                                              action_results=vault.action_results())
+                                              action_results=vault.action_results(), custody=custody)
             roles.update(session_roles(session_ids, sessions))
             committed = [e for e in fault_events if e.get('kind') == 'response_lost_after_commit'
                          and e.get('committedResourceId') not in (None, '')]
@@ -1268,6 +1268,7 @@ class LocalRuntime:
         self._handoff_secrets = {}
         self._handoffs = {}
         self._readers = set()
+        self._console_identities = {}
 
     def redact(self, text):
         for value in list(self._secrets) + self.redact_only():
@@ -1276,7 +1277,8 @@ class LocalRuntime:
 
     def setup(self, case_id, candidate_digest, needs_approver=False, agent_permissions=('admin:write',)):
         import yaml
-        if self.agent in ('claude-cli', 'codex-cli'):
+        from agent_browser_studio import remote_docker_host
+        if self.agent in ('claude-cli', 'codex-cli') and remote_docker_host() is None:
             raise ValueError('CLI arms require a remote VM tunnel or an admitted AWS cell; host Docker is disabled')
         if not re.fullmatch(r'P\d\d:[AB]:local-docker', case_id):
             raise ValueError('invalid case identity')
@@ -1308,7 +1310,8 @@ class LocalRuntime:
         stack = Stack(base_url=response['baseUrl'], admin_key=admin, approver_key=None,
                       compose_project=target['compose']['project'], compose_file=target['compose']['file'],
                       workdir=str(case_dir), candidate_digest=candidate_digest,
-                      extra={'workspaceId': workspace, 'needsApprover': needs_approver})
+                      extra={'workspaceId': workspace, 'needsApprover': needs_approver,
+                             'needsStudioIdentity': case_id.split(':', 1)[0] in ('P08', 'P09', 'P24')})
         try:
             self._ensure_reader(stack)
             self._prepare(stack, list(agent_permissions))
@@ -1520,12 +1523,14 @@ class LocalRuntime:
         self._secrets.append(bootstrap_key)
         os.environ[self.BOOTSTRAP_ENV] = bootstrap_key
         recorder.principals['bootstrap'] = (self.BOOTSTRAP_ENV, bootstrap_id)
+        customer_subject = 'customer-' + uuid.uuid4().hex if stack.extra.get('needsStudioIdentity') else None
+        agent_name = f'{stack.compose_project}-agent' + (f'-{customer_subject}' if customer_subject else '')
         agent_id, agent_key, status = mint('runner-custody-mint-agent', 'bootstrap',
-                                           f'{stack.compose_project}-agent', permissions)
+                                           agent_name, permissions)
         minted_by = 'bootstrap'
         if not agent_id:
             agent_id, agent_key, status = mint('runner-custody-mint-agent-controller', 'controller',
-                                               f'{stack.compose_project}-agent', permissions)
+                                               agent_name, permissions)
             minted_by = 'controller'
         if not agent_id:
             raise RuntimeError('could not mint the case agent credential')
@@ -1557,11 +1562,86 @@ class LocalRuntime:
         for name, value in initial.items():
             self.attest(stack, name, value, steps)
         stack.extra['agentPrincipal'] = agent_id
+        if stack.extra.get('needsStudioIdentity'):
+            self.mint_console_identity(stack, agent_id, minted_by, customer_subject)
         stack.extra['ensureConnection'] = lambda: create_local_connection(stack)
         stack.extra['addPrincipal'] = lambda name, grants: self.add_principal(stack, name, grants)
         stack.extra['restartServer'] = lambda prefix: self.restart_server(stack, prefix)
         stack.extra['registerCanary'] = lambda name: self.register_canary(stack, name)
         stack.extra['databaseHandoff'] = lambda name, schema: self.database_handoff(stack, name, schema)
+        if stack.compose_file:
+            stack.extra['startConsole'] = lambda: self.start_console(stack)
+
+    def mint_console_identity(self, stack, agent_key_id, minted_by, subject):
+        """Mint a short-lived local customer bearer and bind the runner's key mint to that user."""
+        from urllib.parse import quote
+        driver = _live_driver_module()
+        state = driver._read_state(stack.extra['workspaceId'])
+        path = Path(state['workdir']) / 'private-principals.json'
+        signing = json.loads(path.read_text(encoding='utf-8')).get('signingKey')
+        if not isinstance(signing, str) or len(signing) < 32:
+            raise ValueError('case has no local customer signing authority')
+        fixture = driver.local_fixture
+        def mint_token():
+            # Console's OIDC role mapper consumes the plural `roles` claim. The
+            # journey token's singular role alone does not authorize Console.
+            import base64
+            import hmac
+            issued = fixture._tenant_token(signing, subject=subject, tenant='public', role='admin')
+            header, payload, _ = issued.removeprefix('Bearer ').split('.')
+            claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+            claims['roles'] = ['admin']
+            payload = base64.urlsafe_b64encode(json.dumps(claims, separators=(',', ':')).encode()).rstrip(b'=').decode()
+            unsigned = (header + '.' + payload).encode()
+            signature = base64.urlsafe_b64encode(hmac.new(signing.encode(), unsigned, hashlib.sha256).digest()).rstrip(b'=').decode()
+            token = 'Bearer ' + unsigned.decode() + '.' + signature
+            self._secrets.append(token)
+            return token
+        token = mint_token()
+        os.environ['HONUA_CORPUS_USER_BEARER'] = token
+        recorder = stack.extra['recorder']
+        recorder.principals['agent-user'] = ('HONUA_CORPUS_USER_BEARER', subject)
+        response = recorder.json('runner-console-user-mint', 'GET', '/api/v1/console/session', principal='agent-user')
+        data = response['observation'].get('body') or {}
+        if response['observation']['httpStatus'] != 200 or (data.get('data') or {}).get('user', {}).get('id') != subject:
+            raise ValueError('candidate did not authenticate the minted customer user')
+        canonical_user = 'subject:' + quote(fixture.ISSUER, safe='') + ':' + quote(subject, safe='') + '@tenant:public'
+        mint_step = 'runner-custody-mint-agent' if minted_by == 'bootstrap' else 'runner-custody-mint-agent-controller'
+        evidence = ['runner-console-user-mint', mint_step]
+        for name, value in (('agentUserId', canonical_user), ('agentKeyId', agent_key_id),
+                            ('agentKeyOwnerUserId', canonical_user)):
+            self.attest(stack, name, value, evidence)
+        identity = {'subject': subject, 'userId': canonical_user, 'mintToken': mint_token,
+                    'edgeSecret': secrets.token_hex(32)}
+        self._secrets.extend([signing, identity['edgeSecret']])
+        self._console_identities[stack.compose_project] = identity
+        stack.extra['consoleUserId'] = canonical_user
+
+    def start_console(self, stack):
+        """Start the case's pinned Console on its remote Compose network."""
+        if '_caseConsole' in stack.extra:
+            return stack.extra['_caseConsole'].url
+        import yaml
+        from agent_browser_studio import CaseConsole, studio_console_image
+        manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
+        component = manifest['components']['honua-console']
+        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0]
+        pin = studio_console_image()
+        if repository + '@' + component['digest'] != pin['image'] or component.get('sha') != pin['sourceRevision']:
+            raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
+        identity = self._console_identities.get(stack.compose_project)
+        if identity is None:
+            raise ValueError('case has no minted Console customer identity')
+        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
+        try:
+            self.attest(stack, 'studioConsoleImage', pin, [])
+        except Exception:
+            console.close()
+            raise
+        stack.extra['_caseConsole'] = console
+        stack.extra['consoleUrl'] = console.url
+        stack.extra['validatedConsoleCustomer'] = identity['userId']
+        return console.url
 
     def register_canary(self, stack, name):
         """A runner-minted private canary value for a scenario to plant (e.g. in a secret field) during seed.
@@ -1747,26 +1827,40 @@ class LocalRuntime:
         if injector is not None:
             raw = injector.wrap(raw)
         proxies = []
+        studio_servers = []
 
         def mcp_proxy():
             from agent_e2e_local_mcp_proxy import RecordingMcpProxy
             proxy = RecordingMcpProxy(stack.base_url + '/mcp', self.AGENT_ENV, action_log, names, injector=injector)
             proxies.append(proxy)
             return proxy.start()
-        context = SessionContext(
-            prompt=prompt, session=number, candidate_release=self.release_id,
-            limits=SessionLimits(self.max_model_calls, self.max_actions, self.max_tokens), tool_view=tool_view,
-            execute=lambda kind, action: action_log.dispatch(kind, action, raw), mcp_proxy=mcp_proxy,
-            workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
-            attachments=tuple(stack.extra.get('customerFiles', ())))
         agent = self.agent_session(stack)
         vault = self.vault(stack)
 
         def empty_progress():
             return {'actions': list(action_log.rows), 'modelVisibleDigests': [], 'usage': [], 'provenance': [],
                     'nudges': 0, 'clarifications': [], 'tokens': 0, 'messageIds': [], 'agentType': agent.agent_type}
+        studio_browser = None
         try:
+            if stack.extra.get('needsStudioBrowser'):
+                from agent_browser_studio import open_studio_browser
+                server = open_studio_browser(stack, action_log,
+                    identity=self._console_identities.get(stack.compose_project))
+                studio_servers.append(server)
+                endpoint = server.endpoint
+
+                def studio_browser():
+                    return endpoint
+            context = SessionContext(
+                prompt=prompt, session=number, candidate_release=self.release_id,
+                limits=SessionLimits(self.max_model_calls, self.max_actions, self.max_tokens), tool_view=tool_view,
+                execute=lambda kind, action: action_log.dispatch(kind, action, raw), mcp_proxy=mcp_proxy,
+                workdir=str(action_log.dir), clarifications=tuple(clarifications), token_budget_used=tokens_used,
+                attachments=tuple(stack.extra.get('customerFiles', ())), studio_browser=studio_browser)
             result = agent.run(context)
+            if any(server._poisoned for server in studio_servers):
+                raise SessionInterrupted('post-action-undetermined', empty_progress(),
+                                         'Studio browser timed out during a recorded action')
         except SessionInterrupted as exc:
             exc.progress['actions'] = list(action_log.rows)
             vault.append_actions(number, action_log.rows)
@@ -1781,6 +1875,8 @@ class LocalRuntime:
         finally:
             for proxy in proxies:
                 proxy.stop()
+            for server in studio_servers:
+                server.stop()
         vault.append_actions(number, action_log.rows)
         stack.extra['agentType'] = result.agent_type
         output = {'actions': list(action_log.rows), 'modelVisibleDigests': list(result.model_visible_digests),
@@ -1812,12 +1908,22 @@ class LocalRuntime:
         return factory(self, stack)
 
     def teardown(self, stack):
+        console_error = None
         try:
+            console = stack.extra.pop('_caseConsole', None)
+            if console is not None:
+                try:
+                    console.close()
+                except Exception as exc:
+                    console_error = exc
             result = self.driver.invoke('teardown', {'workspaceId': stack.extra['workspaceId']})
             if result.get('status') not in ('pass', 'complete'):
                 raise RuntimeError('driver failed to remove isolated stack')
+            if console_error is not None:
+                raise RuntimeError('case Console cleanup failed') from console_error
         finally:
-            for name in (self.AGENT_ENV, self.BOOTSTRAP_ENV):
+            self._console_identities.pop(stack.compose_project, None)
+            for name in (self.AGENT_ENV, self.BOOTSTRAP_ENV, 'HONUA_CORPUS_USER_BEARER'):
                 os.environ.pop(name, None)
 
 

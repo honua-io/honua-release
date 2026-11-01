@@ -393,7 +393,11 @@ class ControllerRecorder:
         if env is not None:
             token = os.environ.get(env)
             require(isinstance(token, str) and token, 'recorder credential is not available')
-            headers['X-API-Key'] = token
+            if principal == 'agent-user':
+                require(token.startswith('Bearer '), 'agent user needs a bearer credential')
+                headers['Authorization'] = token
+            else:
+                headers['X-API-Key'] = token
         content_type = None
         if self._http_factory is not None:
             status, raw = self._http_factory(self, principal, method, path, body, headers)
@@ -536,6 +540,23 @@ class ControllerRecorder:
         return self._mcp(step, principal, lambda c: c.read_resource(uri), arguments={'uri': uri}, label='resources/read')
 
     # -- replay of the harness action log ----------------------------------
+    def store_derived(self, step, payload):
+        """Retain one controller measurement computed from recorded bytes.
+
+        Scenarios cannot author evidence through this. The studio observation module is the
+        only caller, and it may store only outside the model session.
+        """
+        import inspect
+        caller = Path(inspect.stack()[1].filename).name
+        require(caller == 'agent_browser_studio.py', 'derived records are studio observations only')
+        require(isinstance(payload, dict) and payload, 'derived record must be an object')
+        raw = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
+                         allow_nan=False).encode('utf-8')
+        self._claim(step)
+        digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        return self._store(Record(step, self.phase, 'http', 'controller', None, 'GET', '/derived/' + step,
+                                  200, raw, digest))
+
     def _verified_entries(self):
         return [entry for entry, _raw in self._sealed_entries()]
 

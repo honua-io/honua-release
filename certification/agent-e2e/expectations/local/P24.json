@@ -1,19 +1,24 @@
 {
   "schemaVersion": 1,
   "scenario": "P24",
-  "derivation": "Null means unavailable: see scenario module for the evidence required. Fixture references resolve against the pinned town corpus.",
+  "derivation": "Style, render and source expectations derive from the A/B fixtures. Feature tolerance is supplied by the frozen expectation, never the observed snapshot. Candidate identity, deployment, approval, publication and reopen remain fail-closed without runner evidence. Worker replacement is the preregistered local-Docker exclusion. A fresh deployment needs seed-phase publication records and source baselines before protected-content scoring can bind.",
   "variants": {
     "A": {
-      "candidate.identity": null,
-      "deployment.ready": null,
+      "candidate.identity": {
+        "componentBindingDigest": "",
+        "serverSourceRevision": "",
+        "serverOciDigest": "",
+        "clientArtifactDigests": []
+      },
+      "deployment.ready": {
+        "deploymentId": "",
+        "healthStatus": 0,
+        "authenticatedReadStatus": 0
+      },
       "features.exact": {
         "$fixture": {
           "assertion": "features.exact",
-          "layer": [
-            "parcels",
-            "flood_zones",
-            "shelters"
-          ]
+          "layer": "shelters"
         }
       },
       "filter.exact": {
@@ -26,28 +31,478 @@
           "assertion": "buffer.metric"
         }
       },
-      "map.style": null,
-      "state.reopened": null,
-      "approval.separate": null,
-      "publication.public": null,
-      "render.actual": null,
-      "custody.bootstrap-revoked": null,
+      "map.style": {
+        "mapId": {
+          "$role": "created:map"
+        },
+        "styleDocumentSha256": "4a4ca166df5c600e74ae8bdde2bdcbd4cdb95550d2c0cd037fb6f76d1cd6763d",
+        "labelField": "name",
+        "floodColor": "#0088ff",
+        "floodOpacity": 0.35
+      },
+      "state.reopened": {
+        "resourceId": {
+          "$role": "created:map"
+        },
+        "versionId": {
+          "$role": "created:version"
+        },
+        "documentSha256": "7966ffb1a4dd0fbc0c8b73046c9e312a55e823457932556132bbafef522824e2",
+        "freshSessionId": ""
+      },
+      "approval.separate": {
+        "proposalId": "",
+        "requesterPrincipalId": "",
+        "approverPrincipalId": "",
+        "approvedVersionId": "",
+        "auditId": ""
+      },
+      "publication.public": {
+        "publishedUrl": "",
+        "anonymousHttpStatus": 0,
+        "resourceId": {
+          "$role": "created:map"
+        },
+        "publishedVersionId": {
+          "$role": "created:version"
+        }
+      },
+      "render.actual": {
+        "layerIds": [
+          "flood_zones",
+          "parcels",
+          "shelters"
+        ],
+        "minimumNonBackgroundPixels": 1000,
+        "regions": [
+          {
+            "id": "flood",
+            "minimumMatchingPixels": 100
+          }
+        ],
+        "labelSourceIds": [
+          "s3",
+          "s4"
+        ]
+      },
+      "custody.bootstrap-revoked": {
+        "bootstrapPrincipalId": "",
+        "revokedCredentialIds": [],
+        "postRevocationProbeStatus": 0
+      },
       "custody.worker-replaced": {
         "$excluded": "custody.worker-replaced@local-docker"
       },
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "parcels",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "p1",
+                  "properties": {
+                    "name": "Kestrel parcel 1",
+                    "owner": "Town",
+                    "source_id": "p1",
+                    "value": 100000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          -19400,
+                          -5000
+                        ],
+                        [
+                          -19400,
+                          -4900
+                        ],
+                        [
+                          -19300,
+                          -4900
+                        ],
+                        [
+                          -19300,
+                          -5000
+                        ],
+                        [
+                          -19400,
+                          -5000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p2",
+                  "properties": {
+                    "name": "Kestrel parcel 2",
+                    "owner": "Town",
+                    "source_id": "p2",
+                    "value": 101000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          -19800,
+                          -5000
+                        ],
+                        [
+                          -19800,
+                          -4900
+                        ],
+                        [
+                          -19700,
+                          -4900
+                        ],
+                        [
+                          -19700,
+                          -5000
+                        ],
+                        [
+                          -19800,
+                          -5000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p3",
+                  "properties": {
+                    "name": "Kestrel parcel 3",
+                    "owner": null,
+                    "source_id": "p3",
+                    "value": 102000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          -19200,
+                          -5000
+                        ],
+                        [
+                          -19200,
+                          -4900
+                        ],
+                        [
+                          -19100,
+                          -4900
+                        ],
+                        [
+                          -19100,
+                          -5000
+                        ],
+                        [
+                          -19200,
+                          -5000
+                        ]
+                      ],
+                      [
+                        [
+                          -19180,
+                          -4980
+                        ],
+                        [
+                          -19140,
+                          -4980
+                        ],
+                        [
+                          -19140,
+                          -4940
+                        ],
+                        [
+                          -19180,
+                          -4940
+                        ],
+                        [
+                          -19180,
+                          -4980
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p4",
+                  "properties": {
+                    "name": "Kestrel parcel 4",
+                    "owner": "Town",
+                    "source_id": "p4",
+                    "value": 103000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          -20000,
+                          -5000
+                        ],
+                        [
+                          -20000,
+                          -4900
+                        ],
+                        [
+                          -19900,
+                          -4900
+                        ],
+                        [
+                          -19900,
+                          -5000
+                        ],
+                        [
+                          -20000,
+                          -5000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p5",
+                  "properties": {
+                    "name": "Kestrel parcel 5",
+                    "owner": "Town",
+                    "source_id": "p5",
+                    "value": 104000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          -19000,
+                          -5000
+                        ],
+                        [
+                          -19000,
+                          -4900
+                        ],
+                        [
+                          -18900,
+                          -4900
+                        ],
+                        [
+                          -18900,
+                          -5000
+                        ],
+                        [
+                          -19000,
+                          -5000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p6",
+                  "properties": {
+                    "name": "Kestrel parcel 6",
+                    "owner": "Town",
+                    "source_id": "p6",
+                    "value": 105000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          -19600,
+                          -5000
+                        ],
+                        [
+                          -19600,
+                          -4900
+                        ],
+                        [
+                          -19500,
+                          -4900
+                        ],
+                        [
+                          -19500,
+                          -5000
+                        ],
+                        [
+                          -19600,
+                          -5000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "resourceId": "flood_zones",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "f1",
+                  "properties": {
+                    "name": "Kestrel flood zone",
+                    "source_id": "f1"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          -20010,
+                          -5010
+                        ],
+                        [
+                          -20010,
+                          -4890
+                        ],
+                        [
+                          -19650,
+                          -4890
+                        ],
+                        [
+                          -19650,
+                          -5010
+                        ],
+                        [
+                          -20010,
+                          -5010
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s1",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "Kestrel Central",
+                    "source_id": "s1"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      -19400,
+                      -4700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s2",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "Kestrel Central",
+                    "source_id": "s2"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      -18800,
+                      -4700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s3",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "Hālau, \"North\" refuge",
+                    "source_id": "s3"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      -19100,
+                      -4700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s4",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d’accueil",
+                    "source_id": "s4"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      -19700,
+                      -4700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s5",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "Mālama refuge",
+                    "source_id": "s5"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      -20000,
+                      -4700
+                    ],
+                    "type": "Point"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
     },
     "B": {
-      "candidate.identity": null,
-      "deployment.ready": null,
+      "candidate.identity": {
+        "componentBindingDigest": "",
+        "serverSourceRevision": "",
+        "serverOciDigest": "",
+        "clientArtifactDigests": []
+      },
+      "deployment.ready": {
+        "deploymentId": "",
+        "healthStatus": 0,
+        "authenticatedReadStatus": 0
+      },
       "features.exact": {
         "$fixture": {
           "assertion": "features.exact",
-          "layer": [
-            "parcels",
-            "flood_zones",
-            "shelters"
-          ]
+          "layer": "shelters"
         }
       },
       "filter.exact": {
@@ -60,16 +515,1496 @@
           "assertion": "buffer.metric"
         }
       },
-      "map.style": null,
-      "state.reopened": null,
-      "approval.separate": null,
-      "publication.public": null,
-      "render.actual": null,
-      "custody.bootstrap-revoked": null,
+      "map.style": {
+        "mapId": {
+          "$role": "created:map"
+        },
+        "styleDocumentSha256": "4a4ca166df5c600e74ae8bdde2bdcbd4cdb95550d2c0cd037fb6f76d1cd6763d",
+        "labelField": "name",
+        "floodColor": "#0088ff",
+        "floodOpacity": 0.35
+      },
+      "state.reopened": {
+        "resourceId": {
+          "$role": "created:map"
+        },
+        "versionId": {
+          "$role": "created:version"
+        },
+        "documentSha256": "35e90f55be5212adb01b1ed07901ce4bea75aec424ba887aadc26695defe91a6",
+        "freshSessionId": ""
+      },
+      "approval.separate": {
+        "proposalId": "",
+        "requesterPrincipalId": "",
+        "approverPrincipalId": "",
+        "approvedVersionId": "",
+        "auditId": ""
+      },
+      "publication.public": {
+        "publishedUrl": "",
+        "anonymousHttpStatus": 0,
+        "resourceId": {
+          "$role": "created:map"
+        },
+        "publishedVersionId": {
+          "$role": "created:version"
+        }
+      },
+      "render.actual": {
+        "layerIds": [
+          "flood_zones",
+          "parcels",
+          "shelters"
+        ],
+        "minimumNonBackgroundPixels": 1000,
+        "regions": [
+          {
+            "id": "flood",
+            "minimumMatchingPixels": 100
+          }
+        ],
+        "labelSourceIds": [
+          "s102",
+          "s104"
+        ]
+      },
+      "custody.bootstrap-revoked": {
+        "bootstrapPrincipalId": "",
+        "revokedCredentialIds": [],
+        "postRevocationProbeStatus": 0
+      },
       "custody.worker-replaced": {
         "$excluded": "custody.worker-replaced@local-docker"
       },
-      "source-content.unchanged": null
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "parcels",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "p101",
+                  "properties": {
+                    "name": "Willow parcel 1",
+                    "owner": "Town",
+                    "source_id": "p101",
+                    "value": 100000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          13000,
+                          -8000
+                        ],
+                        [
+                          13000,
+                          -7900
+                        ],
+                        [
+                          13100,
+                          -7900
+                        ],
+                        [
+                          13100,
+                          -8000
+                        ],
+                        [
+                          13000,
+                          -8000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p102",
+                  "properties": {
+                    "name": "Willow parcel 2",
+                    "owner": "Town",
+                    "source_id": "p102",
+                    "value": 101000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          13400,
+                          -8000
+                        ],
+                        [
+                          13400,
+                          -7900
+                        ],
+                        [
+                          13500,
+                          -7900
+                        ],
+                        [
+                          13500,
+                          -8000
+                        ],
+                        [
+                          13400,
+                          -8000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p103",
+                  "properties": {
+                    "name": "Willow parcel 3",
+                    "owner": null,
+                    "source_id": "p103",
+                    "value": 102000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          13800,
+                          -8000
+                        ],
+                        [
+                          13800,
+                          -7900
+                        ],
+                        [
+                          13900,
+                          -7900
+                        ],
+                        [
+                          13900,
+                          -8000
+                        ],
+                        [
+                          13800,
+                          -8000
+                        ]
+                      ],
+                      [
+                        [
+                          13820,
+                          -7980
+                        ],
+                        [
+                          13860,
+                          -7980
+                        ],
+                        [
+                          13860,
+                          -7940
+                        ],
+                        [
+                          13820,
+                          -7940
+                        ],
+                        [
+                          13820,
+                          -7980
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p104",
+                  "properties": {
+                    "name": "Willow parcel 4",
+                    "owner": "Town",
+                    "source_id": "p104",
+                    "value": 103000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          13600,
+                          -8000
+                        ],
+                        [
+                          13600,
+                          -7900
+                        ],
+                        [
+                          13700,
+                          -7900
+                        ],
+                        [
+                          13700,
+                          -8000
+                        ],
+                        [
+                          13600,
+                          -8000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p105",
+                  "properties": {
+                    "name": "Willow parcel 5",
+                    "owner": "Town",
+                    "source_id": "p105",
+                    "value": 104000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          13200,
+                          -8000
+                        ],
+                        [
+                          13200,
+                          -7900
+                        ],
+                        [
+                          13300,
+                          -7900
+                        ],
+                        [
+                          13300,
+                          -8000
+                        ],
+                        [
+                          13200,
+                          -8000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "p106",
+                  "properties": {
+                    "name": "Willow parcel 6",
+                    "owner": "Town",
+                    "source_id": "p106",
+                    "value": 105000
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          14000,
+                          -8000
+                        ],
+                        [
+                          14000,
+                          -7900
+                        ],
+                        [
+                          14100,
+                          -7900
+                        ],
+                        [
+                          14100,
+                          -8000
+                        ],
+                        [
+                          14000,
+                          -8000
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "resourceId": "flood_zones",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "f101",
+                  "properties": {
+                    "name": "Willow flood zone",
+                    "source_id": "f101"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      [
+                        [
+                          12990,
+                          -8010
+                        ],
+                        [
+                          12990,
+                          -7890
+                        ],
+                        [
+                          13350,
+                          -7890
+                        ],
+                        [
+                          13350,
+                          -8010
+                        ],
+                        [
+                          12990,
+                          -8010
+                        ]
+                      ]
+                    ],
+                    "type": "Polygon"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "resourceId": "shelters",
+            "content": {
+              "srid": 3857,
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": "s101",
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s101"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      13300,
+                      -7700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s102",
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s102"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      14200,
+                      -7700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s103",
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "Hālau, \"North\" refuge",
+                    "source_id": "s103"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      13600,
+                      -7700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s104",
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d’accueil",
+                    "source_id": "s104"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      13900,
+                      -7700
+                    ],
+                    "type": "Point"
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": "s105",
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "Mālama refuge",
+                    "source_id": "s105"
+                  },
+                  "geometry": {
+                    "coordinates": [
+                      13000,
+                      -7700
+                    ],
+                    "type": "Point"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
+  },
+  "roles": [
+    {
+      "role": "created:map",
+      "step": "p24-maps",
+      "items": "/data/items",
+      "id": "/itemId",
+      "owner": "/ownerId",
+      "before": "p24-maps-before",
+      "owner_any_of": [
+        "{agentUser}",
+        "{agentKey}",
+        "api-key:{agentKey}"
+      ]
+    },
+    {
+      "role": "created:version",
+      "step": "p24-maps",
+      "items": "/data/items",
+      "id": "/currentVersionId",
+      "owner": "/ownerId",
+      "before": "p24-maps-before",
+      "owner_any_of": [
+        "{agentUser}",
+        "{agentKey}",
+        "api-key:{agentKey}"
+      ]
+    },
+    {
+      "role": "audited:service:parcels",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:layer:parcels",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:service:flood_zones",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:layer:flood_zones",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:service:shelters",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    },
+    {
+      "role": "audited:layer:shelters",
+      "step": "p24-version",
+      "parent": "created:map",
+      "before": "p24-maps-before"
+    }
+  ],
+  "projections": {
+    "candidate.identity": {
+      "spec": {
+        "object": {
+          "componentBindingDigest": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/componentBindingDigest"
+          },
+          "serverSourceRevision": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/serverSourceRevision"
+          },
+          "serverOciDigest": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/serverOciDigest"
+          },
+          "clientArtifactDigests": {
+            "body": "p24-unobserved-candidate",
+            "pointer": "/clientArtifactDigests"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-candidate": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-candidate"
+        }
+      }
+    },
+    "deployment.ready": {
+      "spec": {
+        "object": {
+          "deploymentId": {
+            "body": "p24-unobserved-deployment",
+            "pointer": "/deploymentId"
+          },
+          "healthStatus": {
+            "body": "p24-unobserved-deployment",
+            "pointer": "/healthStatus"
+          },
+          "authenticatedReadStatus": {
+            "body": "p24-unobserved-deployment",
+            "pointer": "/authenticatedReadStatus"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-deployment": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-deployment"
+        }
+      }
+    },
+    "features.exact": {
+      "spec": {
+        "featureServerFeatures": "p24-src-shelters-after-raw",
+        "booleanFields": [
+          "is_open"
+        ],
+        "booleanGeo": {
+          "p24-src-shelters-after-raw": "p24-src-shelters-after-geo"
+        }
+      },
+      "reads": {
+        "p24-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        }
+      }
+    },
+    "filter.exact": {
+      "spec": {
+        "object": {
+          "resourceIds": {
+            "body": "p24-unobserved-filter",
+            "pointer": "/resourceIds"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-filter": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-filter"
+        }
+      }
+    },
+    "buffer.metric": {
+      "spec": {
+        "object": {
+          "sourceId": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/sourceId"
+          },
+          "center3857": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/center3857"
+          },
+          "radiusMetres": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/radiusMetres"
+          },
+          "expectedArea": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/expectedArea"
+          },
+          "radialToleranceMetres": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/radialToleranceMetres"
+          },
+          "areaRelativeTolerance": {
+            "body": "p24-unobserved-buffer",
+            "pointer": "/areaRelativeTolerance"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-buffer": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-buffer"
+        }
+      }
+    },
+    "map.style": {
+      "spec": {
+        "object": {
+          "mapId": {
+            "target": "p24-version",
+            "role": "created:map",
+            "at": {
+              "pathSegment": 4
+            }
+          },
+          "styleDocumentSha256": {
+            "body": "p24-style",
+            "pointer": "/styleDocumentSha256"
+          },
+          "labelField": {
+            "body": "p24-style",
+            "pointer": "/labelField"
+          },
+          "floodColor": {
+            "body": "p24-style",
+            "pointer": "/floodColor"
+          },
+          "floodOpacity": {
+            "body": "p24-style",
+            "pointer": "/floodOpacity"
+          }
+        }
+      },
+      "reads": {
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+          "addresses": [
+            {
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-style": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p24\\-style"
+        }
+      }
+    },
+    "state.reopened": {
+      "spec": {
+        "object": {
+          "resourceId": {
+            "target": "p24-version",
+            "role": "created:map",
+            "at": {
+              "pathSegment": 4
+            }
+          },
+          "versionId": {
+            "target": "p24-version",
+            "role": "created:version",
+            "at": {
+              "pathSegment": 6
+            }
+          },
+          "documentSha256": {
+            "body": "p24-saved",
+            "pointer": "/documentSha256"
+          },
+          "freshSessionId": {
+            "body": "p24-unobserved-session",
+            "pointer": "/freshSessionId"
+          }
+        }
+      },
+      "reads": {
+        "p24-saved": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p24\\-saved"
+        },
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+          "addresses": [
+            {
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-unobserved-session": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-session"
+        }
+      }
+    },
+    "approval.separate": {
+      "spec": {
+        "object": {
+          "proposalId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/proposalId"
+          },
+          "requesterPrincipalId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/requesterPrincipalId"
+          },
+          "approverPrincipalId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/approverPrincipalId"
+          },
+          "approvedVersionId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/approvedVersionId"
+          },
+          "auditId": {
+            "body": "p24-unobserved-approval",
+            "pointer": "/auditId"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-approval": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-approval"
+        }
+      }
+    },
+    "publication.public": {
+      "spec": {
+        "object": {
+          "publishedUrl": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/publishedUrl"
+          },
+          "anonymousHttpStatus": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/anonymousHttpStatus"
+          },
+          "resourceId": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/resourceId"
+          },
+          "publishedVersionId": {
+            "body": "p24-unobserved-publication",
+            "pointer": "/publishedVersionId"
+          }
+        }
+      },
+      "reads": {
+        "p24-unobserved-publication": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/unobserved/p24-unobserved-publication"
+        }
+      }
+    },
+    "render.actual": {
+      "spec": {
+        "object": {
+          "httpStatus": {
+            "body": "p24-render",
+            "pointer": "/httpStatus"
+          },
+          "decodedWidth": {
+            "body": "p24-render",
+            "pointer": "/decodedWidth"
+          },
+          "decodedHeight": {
+            "body": "p24-render",
+            "pointer": "/decodedHeight"
+          },
+          "loadedLayerIds": {
+            "body": "p24-render",
+            "pointer": "/loadedLayerIds"
+          },
+          "nonBackgroundPixels": {
+            "body": "p24-render",
+            "pointer": "/nonBackgroundPixels"
+          },
+          "browserErrors": {
+            "body": "p24-render",
+            "pointer": "/browserErrors"
+          },
+          "regions": {
+            "body": "p24-render",
+            "pointer": "/regions"
+          },
+          "visibleLabelSourceIds": {
+            "body": "p24-render",
+            "pointer": "/visibleLabelSourceIds"
+          },
+          "sourceEvidence": {
+            "list": [
+              {
+                "sha256": "p24-version"
+              },
+              {
+                "sha256": "p24-catalog"
+              },
+              {
+                "sha256": "p24-audit"
+              },
+              {
+                "sha256": "p24-src-parcels-after-raw"
+              },
+              {
+                "sha256": "p24-src-parcels-after-geo"
+              },
+              {
+                "sha256": "p24-export-parcels"
+              },
+              {
+                "sha256": "p24-src-flood-zones-after-raw"
+              },
+              {
+                "sha256": "p24-src-flood-zones-after-geo"
+              },
+              {
+                "sha256": "p24-export-flood-zones"
+              },
+              {
+                "sha256": "p24-src-shelters-after-raw"
+              },
+              {
+                "sha256": "p24-src-shelters-after-geo"
+              },
+              {
+                "sha256": "p24-export-shelters"
+              }
+            ]
+          }
+        }
+      },
+      "reads": {
+        "p24-render": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p24\\-render"
+        },
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+          "addresses": [
+            {
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-parcels-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-parcels-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-export-parcels": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
+          "addresses": [
+            {
+              "role": "audited:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:parcels",
+              "at": {
+                "query": "layers"
+              }
+            }
+          ]
+        },
+        "p24-src-flood-zones-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-flood-zones-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-export-flood-zones": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
+          "addresses": [
+            {
+              "role": "audited:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:flood_zones",
+              "at": {
+                "query": "layers"
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-export-shelters": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "query": "layers"
+              }
+            }
+          ]
+        },
+        "p24-catalog": {
+          "kind": "mcp",
+          "method": "POST",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/mcp#tools/call"
+        },
+        "p24-audit": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/admin/observability/audit\\?action=operation\\.completed&resourceType=operation_instance&pageSize=200"
+        }
+      }
+    },
+    "custody.bootstrap-revoked": {
+      "spec": {
+        "object": {
+          "bootstrapPrincipalId": {
+            "custody": "bootstrapPrincipalId"
+          },
+          "revokedCredentialIds": {
+            "custody": "revokedCredentialIds"
+          },
+          "postRevocationProbeStatus": {
+            "custody": "postRevocationProbeStatus"
+          }
+        }
+      },
+      "reads": {
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}"
+        }
+      }
+    },
+    "custody.worker-replaced": {
+      "spec": {
+        "object": {
+          "bootstrapWorkerId": {
+            "custody": "bootstrapWorkerId"
+          },
+          "taskWorkerId": {
+            "custody": "taskWorkerId"
+          },
+          "bootstrapWorkerTerminalState": {
+            "custody": "bootstrapWorkerTerminalState"
+          },
+          "taskPrincipalId": {
+            "custody": "taskPrincipalId"
+          },
+          "taskProvisioningCredentialIds": {
+            "custody": "taskProvisioningCredentialIds"
+          }
+        }
+      },
+      "reads": {
+        "p24-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}"
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "parcels",
+            "before": "p24-src-parcels-before-raw",
+            "after": "p24-src-parcels-after-raw",
+            "resource": [
+              {
+                "role": "audited:service:parcels",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "audited:layer:parcels",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          },
+          {
+            "label": "flood_zones",
+            "before": "p24-src-flood-zones-before-raw",
+            "after": "p24-src-flood-zones-after-raw",
+            "resource": [
+              {
+                "role": "audited:service:flood_zones",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "audited:layer:flood_zones",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step"
+            }
+          },
+          {
+            "label": "shelters",
+            "before": "p24-src-shelters-before-raw",
+            "after": "p24-src-shelters-after-raw",
+            "resource": [
+              {
+                "role": "audited:service:shelters",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "audited:layer:shelters",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ],
+            "content": {
+              "featureServerFeatures": "$step",
+              "booleanFields": [
+                "is_open"
+              ],
+              "booleanGeo": {
+                "p24-src-shelters-before-raw": "p24-src-shelters-before-geo",
+                "p24-src-shelters-after-raw": "p24-src-shelters-after-geo"
+              }
+            }
+          }
+        ]
+      },
+      "reads": {
+        "p24-src-flood-zones-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-flood-zones-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-parcels-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-parcels-before-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-before-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p24-src-shelters-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "audited:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "audited:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "customerFiles": {
+    "A": [
+      "town-A/parcels.3857.geojson",
+      "town-A/flood_zones.3857.geojson",
+      "town-A/shelters.3857.geojson"
+    ],
+    "B": [
+      "town-B/parcels.3857.geojson",
+      "town-B/flood_zones.3857.geojson",
+      "town-B/shelters.3857.geojson"
+    ]
   }
 }

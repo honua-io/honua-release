@@ -1,0 +1,27 @@
+{
+  "background": [255, 255, 255, 255],
+  "backgroundTolerance": 8,
+  "floodRgba": [166, 213, 255, 255],
+  "floodTolerance": 8,
+  "defaultFloodRgba": [202, 161, 188, 255],
+  "minimumFloodPixels": 100,
+  "sampleMercator": {
+    "A": [-19875, -4975, -19825, -4925],
+    "B": [13125, -7975, 13175, -7925]
+  },
+  "authoredRgba": {
+    "parcels": [217, 211, 197, 255],
+    "flood_zones": [0, 136, 255, 89],
+    "shelters": [34, 34, 34, 255]
+  },
+  "defaultRgba": {
+    "parcels": [180, 83, 27, 115],
+    "flood_zones": [138, 47, 107, 115],
+    "shelters": [138, 47, 107, 255]
+  },
+  "minimumLayerPixels": {
+    "parcels": 100,
+    "flood_zones": 100,
+    "shelters": 3
+  }
+}
