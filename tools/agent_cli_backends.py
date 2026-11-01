@@ -240,7 +240,7 @@ class HttpMcpBackend:
     def close(self): pass
 
 
-SHELL_TOOL = {'name':'run_quickstart', 'description':'Run an allowed Docker Compose or localhost curl command on the isolated quickstart host.',
+SHELL_TOOL = {'name':'run_quickstart', 'description':'Run an allowed command on the isolated quickstart host: python3 quickstart.py, Docker Compose, or localhost curl.',
               'inputSchema':{'type':'object','properties':{'command':{'type':'string','maxLength':2048},
                   'stdin':{'type':'string','maxLength':65536}},
                              'required':['command'],'additionalProperties':False}}
@@ -308,6 +308,13 @@ def parse_quickstart(command):
         if operation == 'config' and any(not t.startswith('-') for t in rest):
             raise ValueError('compose operation takes no arguments')
         return ['docker','compose',*options,operation,*rest]
+    if parts[:2] == ['python3','quickstart.py']:
+        # The product's packaged initializer (honua-server package_quickstart.py), exactly as its README says to
+        # run it from the install directory: it writes .env secrets and the key ring locally, then starts the
+        # stack. No other script, interpreter flag or directory is admitted.
+        if parts[2:] in ([], ['--init-only'], ['--help'], ['-h']):
+            return parts
+        raise ValueError('quickstart.py argument is not admitted')
     if parts and parts[0] == 'curl':
         opts, urls, position = [], [], 1
         while position < len(parts):
@@ -322,7 +329,7 @@ def parse_quickstart(command):
         if (url.scheme not in ('http','https') or url.hostname not in ('localhost','127.0.0.1','::1')
                 or url.username or url.password or url.fragment): raise ValueError('curl is restricted to localhost')
         return ['curl','--max-time','30','--proto','=http,https',*opts,urls[0]]
-    raise ValueError('only docker compose and localhost curl are admitted')
+    raise ValueError('only docker compose, python3 quickstart.py and localhost curl are admitted')
 
 
 class RemoteQuickstartShell:
@@ -401,7 +408,8 @@ class RemoteQuickstartShell:
             visible = raw.decode('utf-8')
         elif command[0] == 'curl' and raw.strip() in (b'Ready',b'Healthy',b'OK',b'Unhealthy'):
             visible = raw.decode('utf-8')
-        elif command[-1] == '--help' and command[:2] == ['docker','compose'] and len(raw) <= 65536:
+        elif command[-1] in ('--help','-h') and command[:2] in (['docker','compose'],['python3','quickstart.py']) \
+                and len(raw) <= 65536:
             visible = raw.decode('utf-8','replace')
         elif operation is not None and names_only:
             lines = [line.strip() for line in raw.decode('utf-8','replace').splitlines() if line.strip()]

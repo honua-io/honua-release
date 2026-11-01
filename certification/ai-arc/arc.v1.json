@@ -19,7 +19,8 @@
       "imageDigest": "sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37"
     },
     "candidate": {
-      "binding": "phases.candidate {sourceRevision, imageDigest, platformLockDigest} from the candidate platform lock, as gate-upgrade binds it"
+      "binding": "phases.candidate {sourceRevision, imageDigest, platformLockDigest} from the candidate platform lock, as gate-upgrade binds it",
+      "release": "2026.1-rc.2"
     }
   },
   "arms": [
@@ -376,7 +377,8 @@
         "minArcPasses": 17
       },
       "customerNotes": {
-        "setup": "Release: Honua {release}. Server image: {image}. I already created the compose file, the secrets file and the key ring from the guide in the install folder, and the secrets file already names that exact server image and sets Honua to port {port} on this machine (the port after it for the other one), so please don't make new ones or override them."
+        "setup": "Release: Honua {release}. Server image: {image}. I already created the compose file, the secrets file and the key ring from the guide in the install folder, and the secrets file already names that exact server image and sets Honua to port {port} on this machine (the port after it for the other one), so please don't make new ones or override them.",
+        "setupPackage": "Release: Honua {release}. Server image: {image}. I downloaded the Honua quickstart package into the install folder and put my own choices in its settings file: serve that exact image first and keep it as the prior image for a rollback, and use port {port} on this machine (the next two ports for the other parts). Nothing else is set up yet; please do the rest from the package and the guide, and don't change those choices."
       }
     },
     "aws-ecs": {
@@ -600,11 +602,25 @@
     "kind": "development-composition",
     "rule": "Until the quickstart compose ships the executor service, local ops runs with this exact documented overlay; such runs are never certifying."
   },
+  "quickstartPackage": {
+    "repo": "honua-io/honua-server",
+    "revision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
+    "priorMaxSchema": 140,
+    "certifyingRule": "ARC v2 B1/S4: only local runs whose setup installed this package and whose ops adopted its own manager and executor (slotFacts.opsComposition.kind quickstart-package) certify. The aggregate and tools/rc_gate_window.py admission both enforce it; the development composition (opsComposition) never certifies.",
+    "note": "The product's customer package (scripts/docker/package_quickstart.py, #6846) built at this revision from the candidate release lock; the harness stages it and the customer's .env choices only. priorMaxSchema is the install release's (rc.1) exact migration, never guessed.",
+    "files": {
+      "docs/get-started/quickstart.md": "sha256:00f41159fa1523f258eba90df2946015e0d81f6d0756e4df2dac785766372426",
+      "docs/get-started/compose.executor.yaml": "sha256:7e6a6dde32d133780247705784941ad77d3b77ca5cde227c8b8b715bee824764",
+      "scripts/docker/compose_quickstart.py": "sha256:1c164a77cecae32bd6626865fe7c1653fe76011dd87f1db6a76ed5e7e4adf0c8",
+      "scripts/docker/package_quickstart.py": "sha256:918f148e0ed3ea6ced1fc546e7c3a52492fce3f29370c40a0a91fcde33342273"
+    },
+    "candidateMaxSchema": 143
+  },
   "quickstart": {
     "repo": "honua-io/honua-server",
-    "revision": "22c06af0dc9a0aec12f4084948f6390c373cb013",
+    "revision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
     "path": "docs/get-started/quickstart.md",
-    "sha256": "sha256:bfbfbdaf9efa6ad7340eea4f3a27930adff45df6e4a6909b543a1eb2555bc17b",
+    "sha256": "sha256:00f41159fa1523f258eba90df2946015e0d81f6d0756e4df2dac785766372426",
     "rule": "The setup attachment is exactly this page (ARC v2, Fable/Astra S5): the workflow fetches it at the pinned revision, the runner rejects any other bytes, and verify_run rejects a receipt whose quickstart.pageSha256 differs."
   },
   "spendCap": {

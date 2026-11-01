@@ -131,6 +131,7 @@ jobs:
           set -euo pipefail
           args=(--target "$TARGET" --arm "$ARM" --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST"
                 --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md"
+                --quickstart-package-source "$RUNNER_TEMP/arc-inputs/quickstart-package"
                 --console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"
                 --out "artifacts/$TARGET")
           [ "$TARGET" != local-docker ] || args+=(--hosts "$HOSTS" --per-host 3)
@@ -164,6 +165,9 @@ jobs:
                 --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --voids "$dir/voids.json"
                 --output "$dir/ai-arc-aggregate-$TARGET-$ARM.json" --report "$dir/ai-arc-report-$TARGET-$ARM.json")
           [ "$GOAL_SET" != held-out ] || args+=(--held-out)
+          # B1/S4: the expected quickstart package is rebuilt from the pinned sources and the candidate lock;
+          # every local run is checked against it, and admission checks every trial against the recorded binding.
+          [ "$TARGET" != local-docker ] || args+=(--quickstart-package-source "$RUNNER_TEMP/arc-inputs/quickstart-package")
           python3 tools/ai_arc_runner.py "${args[@]}"
       - name: Forget run inputs
         if: always()

@@ -61,33 +61,50 @@ while :; do
 done
 rm -f "$log"
 
+copy_image() {   # copy_image <tag> <image id> host...: byte-for-byte, same image id on every host
+  local t=$1 id=$2; shift 2
+  for host in "$@"; do
+    if ssh -o BatchMode=yes "$first" 'command -v zstd' >/dev/null 2>&1 &&
+       ssh -o BatchMode=yes "$host" 'command -v zstd' >/dev/null 2>&1; then
+      ssh -o BatchMode=yes "$first" "docker save $t | zstd -1 -T0 -q" |
+        ssh -o BatchMode=yes "$host" 'zstd -d -q | docker load -q' >/dev/null
+    else
+      DOCKER_HOST="ssh://$first" docker save "$t" | DOCKER_HOST="ssh://$host" docker load --quiet >/dev/null
+    fi
+    copied=$(DOCKER_HOST="ssh://$host" docker image inspect --format '{{.Id}}' "$t")
+    [ "$copied" = "$id" ] || { echo "image id differs on $host" >&2; exit 1; }
+  done
+}
 image_id=$(DOCKER_HOST="ssh://$first" docker image inspect --format '{{.Id}}' "$tag")
-for host in "${@:2}"; do
-  if ssh -o BatchMode=yes "$first" 'command -v zstd' >/dev/null 2>&1 &&
-     ssh -o BatchMode=yes "$host" 'command -v zstd' >/dev/null 2>&1; then
-    ssh -o BatchMode=yes "$first" "docker save $tag | zstd -1 -T0 -q" |
-      ssh -o BatchMode=yes "$host" 'zstd -d -q | docker load -q' >/dev/null
-  else
-    DOCKER_HOST="ssh://$first" docker save "$tag" | DOCKER_HOST="ssh://$host" docker load --quiet >/dev/null
-  fi
-  copied=$(DOCKER_HOST="ssh://$host" docker image inspect --format '{{.Id}}' "$tag")
-  [ "$copied" = "$image_id" ] || { echo "image id differs on $host" >&2; exit 1; }
-done
+copy_image "$tag" "$image_id" "${@:2}"
+
+# The product's shipped Compose executor image, built FROM that exact serving image with the product's own
+# Dockerfile at the same commit (ARC v2 B1): the customer package pins it beside the server image.
+etag="honua-arc-dev/honua-compose-executor:${sha:0:12}"
+git -C "$src" show "$sha:docker/Dockerfile.compose-executor" |
+  DOCKER_HOST="ssh://$first" timeout "${HONUA_DEV_EXECUTOR_TIMEOUT:-1800}" docker build --quiet \
+    --build-arg "HONUA_SERVER_IMAGE=$tag" \
+    --label "org.opencontainers.image.revision=$sha" --label "io.honua.arc.development=true" \
+    -t "$etag" - >/dev/null || { echo "the executor image did not build" >&2; exit 1; }
+executor_id=$(DOCKER_HOST="ssh://$first" docker image inspect --format '{{.Id}}' "$etag")
+copy_image "$etag" "$executor_id" "${@:2}"
 for host in "$@"; do
   label=$(DOCKER_HOST="ssh://$host" docker image inspect \
           --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$tag")
   [ "$label" = "$sha" ] || { echo "revision label differs on $host" >&2; exit 1; }
 done
 
-python3 - "$out" "$sha" "$image_id" "$tag" "$@" <<'PY'
+python3 - "$out" "$sha" "$image_id" "$tag" "$executor_id" "$etag" "$@" <<'PY'
 import json, sys
-out, sha, image_id, tag, *hosts = sys.argv[1:]
+out, sha, image_id, tag, executor_id, etag, *hosts = sys.argv[1:]
 json.dump({'schema': 'honua.ai-arc.dev-candidate/v1', 'development': True,
            'note': 'development image built from honua-server trunk on the eval hosts; not a release candidate',
            'hosts': hosts,
            'components': {'honua-server': {'source': {'repo': 'honua-io/honua-server', 'revision': sha},
                                            'artifacts': [{'kind': 'image', 'digest': image_id, 'reference': tag,
-                                                          'local': True}]}}},
+                                                          'local': True},
+                                                         {'kind': 'executor-image', 'digest': executor_id,
+                                                          'reference': etag, 'local': True}]}}},
           open(out, 'w'), indent=2, sort_keys=True)
 PY
 echo "$out: $tag $image_id"
