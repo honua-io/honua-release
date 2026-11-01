@@ -61,6 +61,15 @@ def test_exact_candidate_match_is_admissible():
     assert result["candidate"]["platform_lock"] == LOCK
 
 
+def test_reportless_newer_studio_failure_supersedes_only_its_named_lock():
+    failed = _run(0.1, "failure", run_id=2)
+    failed["display_title"] = "Studio customer gate " + LOCK
+    records = {w.STUDIO_CUSTOMER_GATE: {"runs": [_run(1, report=_report(), run_id=1), failed]}}
+    assert not _eval(records, unbound={})["admissible"]
+    failed["display_title"] = "Studio customer gate sha256:" + "d" * 64
+    assert _eval(records, unbound={})["admissible"]
+
+
 def test_a_different_candidate_does_not_admit():
     others = (
         _report(sha="d" * 40),

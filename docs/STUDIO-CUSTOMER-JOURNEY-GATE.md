@@ -9,6 +9,10 @@ candidate's actual `platform-lock.json` SHA-256 in `platform_lock_digest`. An im
 The gate reads both `honua-console` and `honua-server` source SHAs and GHCR digests from that
 manifest. It dispatches `console-live-journey.yml` at the exact Console SHA with
 `suite=studio-customer`, `console_image`, `server_image` and a unique correlation ID.
+Provide `lock_run_id` and `lock_artifact` for the workflow artifact containing the frozen
+`platform-lock.json`, as well as its `platform_lock_digest`. The gate validates its schema
+and attestation, checks the exact lock bytes and manifest digest, and matches both Console
+and server image coordinates, digests and source revisions before dispatching.
 `RELEASE_GH_TOKEN` needs Actions write on Console to dispatch and Actions read to retrieve
 that run's evidence. No source ref or image override can replace the manifest pins.
 

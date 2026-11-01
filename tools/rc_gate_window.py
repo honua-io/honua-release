@@ -547,6 +547,10 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
         if diagnostic:
             return "superseding"
         return "qualifying" if run.get("conclusion") == "success" and _arc_valid(docs, candidate, arm) else "superseding"
+    if gate == STUDIO_CUSTOMER_GATE and not any(matches_candidate(doc, candidate) for doc in docs):
+        # The lock in the run title can invalidate older evidence, never certify it.
+        if run.get("display_title") == "Studio customer gate " + candidate.platform_lock:
+            return "superseding"
     if not docs or not any(matches_candidate(doc, candidate) for doc in docs):
         return "unrelated"
     # Identity and status may be split across the run's report and its receipt. A diagnostic

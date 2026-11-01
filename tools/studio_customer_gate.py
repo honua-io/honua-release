@@ -40,6 +40,24 @@ def resolve_pins(manifest: dict) -> dict:
     return result
 
 
+def validate_lock(raw: bytes, expected_digest: str, manifest: bytes, pins: dict) -> None:
+    if 'sha256:' + hashlib.sha256(raw).hexdigest() != expected_digest:
+        raise ValueError('platform lock bytes do not match the supplied digest')
+    lock = json.loads(raw)
+    if lock.get('sourceInputs', {}).get('platformManifest', {}).get('sha256') != 'sha256:' + hashlib.sha256(manifest).hexdigest():
+        raise ValueError('platform lock does not bind this manifest')
+    for name, pin in pins.items():
+        artifacts = lock.get('components', {}).get(f'honua-{name}', {}).get('artifacts', [])
+        images = [item for item in artifacts if isinstance(item, dict) and item.get('kind') == 'image']
+        if len(images) != 1:
+            raise ValueError(f'platform lock must contain exactly one {name} image')
+        image = images[0]
+        repository = pin['image'].split('@')[0].rsplit(':', 1)[0]
+        if (image.get('coordinate', '').removeprefix('oci://') != repository or
+                image.get('digest') != pin['digest'] or image.get('sourceRevision') != pin['sha']):
+            raise ValueError(f'platform lock {name} image differs from manifest')
+
+
 def validate_evidence(pins: dict, runtime: dict, results: dict, progress: dict) -> None:
     for component, selected in pins.items():
         observed = runtime.get(component, {})
@@ -72,12 +90,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', default='platform-manifest.yaml')
     parser.add_argument('--platform-lock', required=True)
+    parser.add_argument('--lock-file', default='platform-lock.json')
     parser.add_argument('--out', default='out/studio-customer')
     args = parser.parse_args()
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', args.platform_lock):
         parser.error('--platform-lock must identify the candidate platform-lock.json')
     manifest_bytes = Path(args.manifest).read_bytes()
     pins = resolve_pins(yaml.safe_load(manifest_bytes))
+    validate_lock(Path(args.lock_file).read_bytes(), args.platform_lock, manifest_bytes, pins)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     dispatch_id = 'release-' + uuid.uuid4().hex

@@ -1,7 +1,31 @@
 """The customer gate cannot admit another image, skipped cases or a partial journey."""
 from copy import deepcopy
+import hashlib
+import json
 import pytest
 import studio_customer_gate as g
+
+
+def test_lock_must_bind_exact_bytes_manifest_and_both_component_pins():
+    manifest = b"candidate manifest bytes"
+    selected = g.resolve_pins({"components": pins()})
+    lock = {"sourceInputs": {"platformManifest": {"sha256": "sha256:" + hashlib.sha256(manifest).hexdigest()}},
+            "components": {f"honua-{name}": {"artifacts": [{"kind": "image", "coordinate": f"ghcr.io/honua-io/honua-{name}",
+                "digest": value["digest"], "sourceRevision": value["sha"]}]} for name, value in selected.items()}}
+    raw = json.dumps(lock).encode()
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    g.validate_lock(raw, digest, manifest, selected)
+    with pytest.raises(ValueError):
+        g.validate_lock(raw, "sha256:" + "f" * 64, manifest, selected)
+    with pytest.raises(ValueError):
+        g.validate_lock(raw, digest, b"other manifest", selected)
+    for name in ("console", "server"):
+        for key in ("digest", "sourceRevision", "coordinate"):
+            altered = deepcopy(lock)
+            altered["components"][f"honua-{name}"]["artifacts"][0][key] = "wrong"
+            altered_raw = json.dumps(altered).encode()
+            with pytest.raises(ValueError):
+                g.validate_lock(altered_raw, "sha256:" + hashlib.sha256(altered_raw).hexdigest(), manifest, selected)
 
 
 def pins():
