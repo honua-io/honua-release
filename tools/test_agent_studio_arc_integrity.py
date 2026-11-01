@@ -261,6 +261,9 @@ def test_stage3_handoff_requires_controller_audit_and_handles():
     layers = stage3_layers(rec, handoff, 'A')
     assert layers['parcels'] == {'service': 'svc0', 'layerId': 0}
     assert all(method == 'GET' for _, method, _ in rec.calls)
+    subset = {**handoff, 'layers': {'shelters': handoff['layers']['shelters']}}
+    assert stage3_layers(Recorder(), subset, 'A') == {'shelters': {'service': 'svc2', 'layerId': 2}}
+    assert stage3_layers(Recorder(), {**handoff, 'layers': {}}, 'A') == {}
     events[1]['actor'] = 'other'
     with pytest.raises(ValueError, match='audit'):
         stage3_layers(Recorder(), handoff, 'A')

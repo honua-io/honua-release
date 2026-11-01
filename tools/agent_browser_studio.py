@@ -1852,7 +1852,7 @@ def stage3_layers(recorder, handoff, variant):
     require(isinstance(handoff, dict) and handoff.get('variant') == variant
             and handoff.get('fixtureId') == 'town-' + variant
             and isinstance(handoff.get('principal'), str) and handoff['principal']
-            and isinstance(handoff.get('layers'), dict) and set(handoff['layers']) == set(LAYER_NAMES),
+            and isinstance(handoff.get('layers'), dict) and set(handoff['layers']) <= set(LAYER_NAMES),
             'stage-three service handoff is unavailable')
     key = handoff.get('agentKeyId')
     require(isinstance(key, str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', key)
@@ -1888,6 +1888,8 @@ def stage3_layers(recorder, handoff, variant):
         raise ProjectionError('stage-three audit is incomplete')
     layers = {}
     for name, slug in SOURCE_LAYERS:
+        if name not in handoff['layers']:
+            continue
         item = handoff['layers'][name]
         require(isinstance(item, dict) and isinstance(item.get('service'), str)
                 and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', item['service'])
@@ -1910,7 +1912,7 @@ def stage3_layers(recorder, handoff, variant):
                 and resources.get('serviceName') == item['service']
                 and str(resources.get('layerId')) == str(item['layerId']), 'stage-three publish handle differs')
         layers[name] = {'service': item['service'], 'layerId': item['layerId']}
-    require(len({(v['service'], v['layerId']) for v in layers.values()}) == len(LAYER_NAMES),
+    require(len({(v['service'], v['layerId']) for v in layers.values()}) == len(layers),
             'stage-three layer identities collide')
     return layers
 
@@ -1952,6 +1954,8 @@ def seed_case(scenario_id, stack, variant, *, create_map, external_handoff=None)
     if external_handoff is not None:
         require(scenario_id == 'P08' and not create_map, 'handoff is only supported for new arc maps')
         layers = stage3_layers(recorder, external_handoff, variant)
+        require(set(layers) == set(LAYER_NAMES),
+                'stage-four publication lineage and source baselines are not yet available')
         stack.extra['arcServicesHandoff'] = copy.deepcopy(external_handoff)
     elif scenario_id == 'P24':
         layers = dict(stack.extra.get('publishedLayers') or {})
