@@ -154,7 +154,7 @@ def remote_shell(tmp_path, executor):
     identity=tmp_path/'identity'; identity.write_text('dummy')
     hosts=tmp_path/'known_hosts'; hosts.write_text('dummy')
     return RemoteQuickstartShell(host='vm123.example',user='runner',identity_file=identity,known_hosts=hosts,
-        remote_dir='/tmp/honua-arc-12345678',slot='arc-12345678',executor=executor)
+        remote_dir='/home/runner/honua-arc/arc-12345678',slot='arc-12345678',executor=executor)
 
 
 def test_remote_shell_never_invokes_local_docker_or_exposes_secret_output(tmp_path):
@@ -488,3 +488,17 @@ def test_caller_supplied_marker_tokens_are_refused(command):
 def test_numeric_option_values_pass_unchanged():
     assert parse_quickstart('docker compose up -d --wait --wait-timeout 180')[-2:] == ['--wait-timeout', '180']
     assert parse_quickstart('docker compose logs --tail 50 honua')[-3:] == ['--tail', '50', 'honua']
+
+
+@pytest.mark.parametrize('remote_dir,ok', [('/home/ubuntu/honua-arc/arc-12345678', True), ('/root/honua-arc/arc-12345678', True),
+                                           ('/tmp/honua-arc-12345678', False), ('/home/ubuntu/honua-arc/../etc', False),
+                                           ('/home/ubuntu/other/arc-12345678', False)])
+def test_the_remote_shell_admits_only_the_slot_directory_on_real_disk(tmp_path, remote_dir, ok):
+    """ARC v2 (Astra): the slot lives on the VM's real disk, which Studio's local stage also admits."""
+    identity=tmp_path/'identity'; identity.write_text('dummy')
+    hosts=tmp_path/'known_hosts'; hosts.write_text('dummy')
+    make=lambda: RemoteQuickstartShell(host='vm123.example',user='ubuntu',identity_file=identity,known_hosts=hosts,
+        remote_dir=remote_dir,slot='arc-12345678',executor=lambda *a, **k: None)
+    if ok: make()
+    else:
+        with pytest.raises(ValueError): make()
