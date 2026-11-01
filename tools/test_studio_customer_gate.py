@@ -8,12 +8,52 @@ import yaml
 import studio_customer_gate as g
 
 
+def _workflow():
+    return yaml.safe_load(Path('.github/workflows/gate-studio-customer-journey.yml').read_text())
+
+
+def _rederive_step(steps):
+    return next(index for index, step in enumerate(steps) if 'platform_lock_bundle.py' in step.get('run', ''))
+
+
 def test_workflow_installs_lock_validator_dependencies_before_validation():
-    workflow = yaml.safe_load(Path('.github/workflows/gate-studio-customer-journey.yml').read_text())
-    steps = workflow['jobs']['customer']['steps']
-    validate = next(index for index, step in enumerate(steps) if 'validate_platform_lock.py' in step.get('run', ''))
+    steps = _workflow()['jobs']['customer']['steps']
+    validate = _rederive_step(steps)
     installs = '\n'.join(step.get('run', '') for step in steps[:validate])
-    assert 'pyyaml' in installs.lower() and 'jsonschema' in installs.lower()
+    assert all(dep in installs.lower() for dep in ('pyyaml', 'jsonschema', 'cryptography'))
+
+
+def test_qualification_lock_is_rederived_from_attested_inputs_with_no_fallback():
+    """A freeze_only lock is unsigned: the gate verifies the attested manifest and matrix, re-derives
+    the lock from those bytes, and requires byte equality plus the dispatched digest."""
+    steps = _workflow()['jobs']['customer']['steps']
+    run = steps[_rederive_step(steps)]['run']
+    assert run.lstrip().startswith('set -euo pipefail')
+    for name in ('platform-manifest.yaml', 'compatibility-matrix.yaml'):
+        assert name in run
+    assert 'gh attestation verify "candidate-lock/$input" --repo' in run
+    assert '--signer-workflow "${{ github.repository }}/.github/workflows/release-train.yml"' in run
+    assert ('--manifest candidate-lock/platform-manifest.yaml --matrix candidate-lock/compatibility-matrix.yaml'
+            in run and '--qualification' in run)
+    assert 'cmp candidate-lock/platform-lock.json "$RUNNER_TEMP/rederived-lock/platform-lock.json"' in run
+    assert '[ "$actual" = "$LOCK_DIGEST" ]' in run
+    # The lock's own unsigned bytes are never trusted through another path.
+    every_run = '\n'.join(step.get('run', '') for step in steps)
+    assert 'gh attestation verify candidate-lock/platform-lock.json' not in every_run
+    assert '|| true' not in run
+    gate = next(step['run'] for step in steps if 'studio_customer_gate.py' in step.get('run', ''))
+    assert '--manifest candidate-lock/platform-manifest.yaml' in gate
+    assert steps.index(next(s for s in steps if 'studio_customer_gate.py' in s.get('run', ''))) > _rederive_step(steps)
+
+
+def test_lock_artifact_defaults_name_the_release_train_artifact():
+    on = _workflow()[True]
+    assert on['workflow_dispatch']['inputs']['lock_artifact']['default'] == 'candidate-manifest'
+    assert on['workflow_call']['inputs']['lock_artifact']['default'] == 'candidate-manifest'
+    arc = yaml.safe_load(Path('.github/workflows/ai-arc.yml').read_text())[True]
+    assert arc['workflow_dispatch']['inputs']['lock_artifact']['default'] == 'candidate-manifest'
+    train = Path('.github/workflows/release-train.yml').read_text()
+    assert 'name: candidate-manifest' in train and '            platform-lock.json\n' in train
 
 
 def test_lock_must_bind_exact_bytes_manifest_and_both_component_pins():

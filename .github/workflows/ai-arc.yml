@@ -43,9 +43,9 @@ on:
         required: true
         type: string
       lock_artifact:
-        description: Name of the artifact containing platform-lock.json
+        description: Name of the artifact containing platform-lock.json (release-train uploads candidate-manifest)
         required: false
-        default: platform-lock
+        default: candidate-manifest
         type: string
       quickstart_revision:
         description: honua-server commit whose published quickstart the local setup stage follows
