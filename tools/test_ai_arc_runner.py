@@ -1604,8 +1604,7 @@ def test_the_cli_arm_never_gets_credit_for_the_builtin_assistant(response, decla
     {'items': [{'actor': '', 'action': 'studio_ai.chat'}]},
     {'items': [{'actor': 'customer-assistant', 'action': 'other'}]},
     {'items': [{'actor': 'customer-assistant', 'action': 'studio_ai.chat'}], 'hasMore': True},
-    {'items': [{'actor': 'customer-assistant', 'action': 'studio_ai.chat'}], 'nextCursor': 'c2'},
-    {'items': [{'actor': 'customer-assistant', 'action': 'studio_ai.chat'}] * 1000}])
+    {'items': [{'actor': 'customer-assistant', 'action': 'studio_ai.chat'}], 'nextCursor': 7}])
 def test_the_assistant_credit_guard_fails_closed_on_unreadable_or_incomplete_audit(body):
     """Sol 988aeb1b item 1."""
     import datetime as _dt
@@ -1627,6 +1626,80 @@ def test_the_studio_row_keeps_the_assistants_usage_refusals_and_actual_prompts(t
     studio = receipt['stages'][3]
     assert studio['assistantRegion'] == 'us-east-1'
     assert studio['assistantUsage']['inputTokens'] == 1200 and studio['assistantUsage']['outputTokens'] == 300
-    assert len(studio['assistantUsage']['note']) == 80 and studio['assistantUsage']['flag'] is None
-    assert studio['refusals'] == {'not-admitted': 1, 'out-of-scope': 1} and studio['refused'] == 1
+    assert set(studio['assistantUsage']) == {'inputTokens', 'outputTokens'}, 'no free text or unknown keys'
+    assert studio['refusals'] == {'not-admitted': 1, 'out-of-scope': 1} and studio['refused'] == 2
     assert studio['modelVisible']['promptDigests'] == [script]
+
+
+
+def _paged(pages):
+    """A fake audit list: pages[i] is the i-th response body; the next page is requested by cursor."""
+    seen = []
+
+    def http(method, url, key):
+        seen.append(url)
+        index = int(url.split('cursor=p', 1)[1].split('&', 1)[0]) if 'cursor=p' in url else 0
+        return {'status': 200, 'json': pages[index]} if index < len(pages) else {'status': 404, 'json': {}}
+    ctx = types.SimpleNamespace(options={'http': http},
+                                slot=types.SimpleNamespace(controller={'base_url': 'http://x', 'admin_key': 'adm'}))
+    return ctx, seen
+
+
+EVENT = {'actor': 'customer-assistant', 'action': 'studio_ai.chat'}
+
+
+@pytest.mark.parametrize('count', [0, 1, 50, 51, 199, 200, 201, 450])
+def test_the_assistant_credit_guard_pages_to_completion(count):
+    """Opus on #1188: the server pages at 50 by default (pageSize max 200); 51+ events must not false-fail."""
+    import datetime as _dt
+    pages = [{'items': [EVENT] * min(200, count - i), **({'nextCursor': f'p{i // 200 + 1}'} if count - i > 200 else {})}
+             for i in range(0, max(count, 1), 200)]
+    ctx, seen = _paged(pages)
+    row = R.assistant_credit_row(ctx, _dt.datetime(2026, 11, 1, tzinfo=_dt.timezone.utc),
+                                 lambda c: {'customer-assistant'})
+    assert row['status'] == 'pass' and row['evidence']['events'] == count, row
+    assert all('pageSize=200' in u and 'action=studio_ai.chat' in u for u in seen)
+
+
+def test_a_cli_actor_on_a_later_page_fails_the_cli_arm():
+    import datetime as _dt
+    pages = [{'items': [EVENT] * 200, 'nextCursor': 'p1'}, {'items': [EVENT, {'actor': 'cli-arm', 'action': 'studio_ai.chat'}]}]
+    row = R.assistant_credit_row(_paged(pages)[0], _dt.datetime(2026, 11, 1, tzinfo=_dt.timezone.utc),
+                                 lambda c: {'customer-assistant'})
+    assert row['assertion'] == 'arm-browser:no-builtin-assistant-credit' and row['status'] == 'fail'
+
+
+@pytest.mark.parametrize('pages', [[{'items': [EVENT], 'nextCursor': 'p1'}],                     # page 2 unreadable
+                                   [{'items': [EVENT], 'nextCursor': 'p0'}],                     # endless cursor: cap
+                                   [{'items': [EVENT, None]}], [{'items': [EVENT], 'hasMore': True}]])
+def test_unreadable_audit_evidence_fails_the_assistant_arm_not_the_cli_arm(pages):
+    """Opus on #1188: the assistant's own evidence failure is attributed to the assistant arm."""
+    import datetime as _dt
+    row = R.assistant_credit_row(_paged(pages)[0], _dt.datetime(2026, 11, 1, tzinfo=_dt.timezone.utc),
+                                 lambda c: {'customer-assistant'})
+    assert row['assertion'] == 'console-assistant:audit-evidence' and row['status'] == 'fail', row
+
+
+
+@pytest.mark.parametrize('usage', [
+    {'note': 'synthetic-secret-12345678'}, {'synthetic-secret-12345678': 5}, {'inputTokens': 'synthetic-secret-12345678'},
+    {'nested': {'inputTokens': 3, 'text': 'synthetic-secret-12345678'}}, [{'text': 'synthetic-secret-12345678'}],
+    'synthetic-secret-12345678', {'inputTokens': True}, {'inputTokens': -1}])
+def test_usage_keeps_only_known_numeric_counters(usage):
+    """Sol 9d403b28: no key, value or nested text survives into the receipt."""
+    out = R.usage_record(usage)
+    assert 'synthetic-secret' not in json.dumps(out)
+    assert out in ({}, [{}], None), out
+
+
+def test_usage_counters_survive():
+    assert R.usage_record([{'inputTokens': 10, 'outputTokens': 2, 'x': 'y'}]) == [{'inputTokens': 10, 'outputTokens': 2}]
+
+
+@pytest.mark.parametrize('answer,fs', [
+    ('Honua is running. Back up .env and secrets/keyring.pfx and keep them private.', False),
+    ('Honua is running. I published the map and kept it private.', True)])
+def test_pronoun_privacy_advice_about_named_secret_files(answer, fs):
+    """Rehearsal-8 A1-r162: "keep them private" after naming .env and the key ring is advice, not a status."""
+    handoff = {'resources': [], 'accessProbes': [], 'facts': {}}
+    assert S.false_success(answer, 'pass', handoff)['false_success'] is fs

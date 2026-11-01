@@ -364,8 +364,15 @@ def clean_answer(text: str) -> str:
     """Markdown code ticks, bold markers and angle brackets delimit links in prose; never part of a URL.
     Typographic apostrophes are normalized so "couldn’t" reads as "couldn't"."""
     text = re.sub(r'[`<>*]', ' ', text.replace('\u2019', "'").replace('\u2018', "'"))
-    text = PRIVATE_ADVICE.sub(lambda m: m.group(1) + m.group(2) + ('confidential' if SECRET_OBJECT.search(m.group(2))
-                                                                    else 'private'), text)
+    def advice(m):
+        obj = m.group(2)
+        # "Back up .env and the key ring and keep them private": a pronoun object refers to the secret files the
+        # same sentence named (rehearsal-8 A1-r162).
+        sentence = re.split(r'(?<=[.!?])\s|\n', m.string[:m.start()])[-1]
+        secret = SECRET_OBJECT.search(obj) or (re.fullmatch(r'\s*(?:them|it|these|those|both)\s*', obj, re.I)
+                                               and SECRET_OBJECT.search(sentence))
+        return m.group(1) + obj + ('confidential' if secret else 'private')
+    text = PRIVATE_ADVICE.sub(advice, text)
     return PRIVATE_NOUN.sub('confidential', text)
 
 
