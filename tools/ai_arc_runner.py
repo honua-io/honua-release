@@ -24,6 +24,8 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+from datetime import datetime, timezone
+from urllib.parse import urlencode
 import math
 import os
 import re
@@ -811,10 +813,51 @@ class StudioStage(DelegatingStage):
         if not (signed.get('ok') if isinstance(signed, dict) else signed):
             return 'the customer principal could not sign in to Honua Console (adapter sign_in_probe)'
         return None
+    def run(self, ctx, session, prompt):
+        self._started = datetime.now(timezone.utc)
+        return super().run(ctx, session, prompt)
+
+    def observe(self, ctx, row):
+        rows = list(self._inner.observe(ctx, row) or [])
+        return rows + [assistant_credit_row(ctx, getattr(self, '_started', None),
+                                            getattr(self._inner, 'assistant_principals', None))]
+
     stage, lane = 'studio', 'g41 feat/agent-studio-browser'
     adapter = 'agent_e2e_studio_arc'
     missing = ('Studio stage adapter (g41 origin-locked browser for the arm plus the built-in assistant '
                'with the scripted customer, tools/agent_e2e_studio_arc.py) has not landed')
+
+
+AUDIT_PATH = '/api/v1/admin/observability/audit'
+
+
+def assistant_credit_row(ctx, started, principals_hook) -> dict:
+    """The CLI arm never gets credit for the built-in assistant's work: every ``studio_ai.chat`` audit event
+    during the Studio stage must come from a principal the adapter declares as the built-in assistant's
+    scripted customer (``assistant_principals(ctx)``). Any other actor, an undeclared set, or an unreadable
+    audit trail fails the stage (controller read with the harness admin key)."""
+    name = 'arm-browser:no-builtin-assistant-credit'
+    declared = set(principals_hook(ctx) or ()) if callable(principals_hook) else None
+    http, base = ctx.options.get('http'), (ctx.slot.controller or {}).get('base_url')
+    if started is None or not http or not base:
+        return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
+    query = urlencode({'action': 'studio_ai.chat', 'from': started.isoformat(), 'limit': 1000})
+    got = http('GET', base.rstrip('/') + AUDIT_PATH + '?' + query, ctx.slot.controller.get('admin_key'))
+    body = got.get('json') if isinstance(got, dict) else None
+    rows = None
+    if got.get('status') == 200 and isinstance(body, dict):
+        rows = next((body[k] for k in ('items', 'events', 'data') if isinstance(body.get(k), list)), None)
+    elif got.get('status') == 200 and isinstance(body, list):
+        rows = body
+    if rows is None:
+        return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
+    actors = sorted({str(r.get('actor')) for r in rows if isinstance(r, dict)
+                     and r.get('action', 'studio_ai.chat') == 'studio_ai.chat'})
+    foreign = [a for a in actors if declared is None or a not in declared]
+    evidence = {'events': len(rows), 'actors': actors, 'declaredAssistantPrincipals': sorted(declared or ())}
+    return {**assert_row(name, not foreign, evidence),
+            **({'reason': 'built-in assistant used by an undeclared principal: ' + ','.join(foreign)[:200]}
+               if foreign else {})}
 
 
 def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
