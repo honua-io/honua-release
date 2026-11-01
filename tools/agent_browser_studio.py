@@ -1450,8 +1450,15 @@ def record_independent_render(stack, seeded, prefix, version_step):
     sources = {name: fixture_geojson_source(recorder.records[f'{prefix}-src-{slug}-after-geo'], variant, name)
                for name, slug in SOURCE_LAYERS}
     body = package_body(recorder.records[version_step].json)
-    rendering = independent_maplibre_render(body, sources, stack.extra.get('consoleUrl') or stack.extra.get('studioUrl'),
-        sample_mercator=contract['sampleMercator'][variant], allow_default=default)
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+    except ImportError as exc:
+        raise ProjectionError('independent render requires Playwright') from exc
+    try:
+        rendering = independent_maplibre_render(body, sources, stack.extra.get('consoleUrl') or stack.extra.get('studioUrl'),
+            sample_mercator=contract['sampleMercator'][variant], allow_default=default)
+    except PlaywrightError as exc:
+        raise ProjectionError('independent browser render failed') from exc
     color = contract['defaultFloodRgba'] if default else contract['floodRgba']
     measurement = measure_png(rendering['png'], {'background': contract['background'],
         'backgroundTolerance': contract['backgroundTolerance'], 'regions': [
@@ -1660,10 +1667,9 @@ def observe_map(stack, seeded, prefix, *, created):
         except ProjectionError as exc:
             stack.extra[prefix + 'SourceFailure'] = str(exc)[:200]
     if set(layers) == set(LAYER_NAMES):
-        from playwright.sync_api import Error as PlaywrightError
         try:
             record_independent_render(stack, seeded, prefix, prefix + '-version')
-        except (ProjectionError, OSError, ValueError, PlaywrightError) as exc:
+        except (ProjectionError, OSError, ValueError) as exc:
             # Keep other assertions observable. The missing render step fails closed.
             stack.extra[prefix + 'RenderFailure'] = str(exc)[:200]
 
