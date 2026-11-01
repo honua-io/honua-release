@@ -340,6 +340,20 @@ def cli_environment(home, agent, *, auth_root=None):
     return env
 
 
+def arm_budgets(agent: str, max_actions: int, max_turns: int, timeout: int) -> dict:
+    """The per-arm budget record in every receipt: what binds (identical for both arms) and what does not."""
+    return {'binding': {'maxToolCalls': max_actions, 'wallClockSeconds': timeout},
+            'cliTurnCeiling': turn_ceiling(max_turns) if agent == 'claude-cli' else None,
+            'turnCounting': 'harness counts tool calls and wall clock for both arms; CLI turn counters are not budgets',
+            'systemPrompt': 'append' if agent == 'claude-cli' else 'developer_instructions (appended to bundled)'}
+
+
+def turn_ceiling(max_turns: int) -> int:
+    """Claude's --max-turns: a safety ceiling, not a budget. Codex has no equivalent flag and a Codex 'turn' is the
+    whole exec, so the arms' binding budgets are the harness's own: tool calls (proxy-enforced) and wall clock."""
+    return 4 * max_turns + 20
+
+
 def _commands(agent, model, binary, home, servers, max_turns, env, contract, tool_timeout, debug_path, version):
     if agent == 'claude-cli':
         config = {'mcpServers': {name: {'type': 'http', 'url': item['url']} for name, item in servers.items()}}
@@ -351,7 +365,10 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
                 '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
                 '--strict-mcp-config', '--mcp-config', str(path), '--setting-sources', '',
                 '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
-                '--max-turns', str(max_turns), '--system-prompt', contract]
+                # Arm parity (ARC v2 S7/S13): like Codex's developer_instructions, the contract is appended to the
+                # CLI's own default instructions, never a replacement; --max-turns is a ceiling the shared budgets
+                # (tool calls, wall clock) reach first, so neither CLI's own turn counter binds an arm.
+                '--max-turns', str(turn_ceiling(max_turns)), '--append-system-prompt', contract]
         return args, {'mcp': digest(path.read_bytes()), 'system': digest(contract.encode())}
     # The model catalog controls builtin apply_patch independently of shell_tool.
     # Keep bundled model instructions/defaults; remove only builtin tool capabilities.
@@ -578,6 +595,7 @@ class CliModelSession:
                             'metering': 'subscription', 'promptSha256': digest(prompt.encode()),
                             'servedToolListSha256': out['toolViewSha256'], 'cliFlagsSha256': digest(encoded(args)),
                             'configSha256': inputs, 'maxTurns': max_turns, 'timeoutSeconds': timeout,
+                            'budgets': arm_budgets(self.agent, max_actions, max_turns, timeout),
                             'mcpToolTimeoutSeconds': tool_timeout,
                             'inputHashScope': 'runner-controlled bytes; provider and CLI prepends are not claimed'}
                 metadata['servedToolListsSha256'] = {name: digest(encoded(view)) for name, view in tool_views.items()}
@@ -651,7 +669,7 @@ class CliModelSession:
                     event.get('type') in ('item.started', 'item.completed') and
                     isinstance(event.get('item'), dict) and event['item'].get('type') == 'error')
                     for event in (json.loads(line) for line in raw.splitlines()))
-                if (forbidden or turns > max_turns or self.agent == 'codex-cli' and
+                if (forbidden or self.agent == 'codex-cli' and
                         codex_forbidden_diagnostics(stderr_raw, {name: p.names for name, p in proxies.items()}, version)):
                     raise CliFailure('forbidden action or turn bound exceeded', out)
                 if reported_failure:
