@@ -134,6 +134,8 @@ def complete_sources(stack, seeded, body):
         except ProjectionError as exc:
             raise ProjectionError('malformed stage-four publish response: ' + str(exc)) from exc
         require(isinstance(response_body, dict), 'malformed stage-four publish response: body is not an object')
+        if 'result' not in response_body and isinstance(response_body.get('error'), dict):
+            continue  # a well-formed JSON-RPC error is the agent's failed attempt: no credit, not a harness fault
         result = response_body.get('result')
         require(isinstance(result, dict), 'malformed stage-four publish response: result is not an object')
         if result.get('isError') is True:

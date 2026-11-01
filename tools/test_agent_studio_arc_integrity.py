@@ -590,3 +590,13 @@ def test_arc_malformed_publish_response_fails_with_named_harness_error(arc_parti
     state['publish_response'] = response
     with pytest.raises(ProjectionError, match='malformed stage-four publish response: ' + cause):
         run(0)
+
+
+def test_arc_jsonrpc_error_publish_attempt_is_skipped_not_a_harness_error(arc_partial_case):
+    # The agent's own failed publish (a well-formed JSON-RPC error) earns no credit, so the case
+    # fails on the missing publication, not as a malformed-response harness fault.
+    run, state = arc_partial_case
+    state['publish_response'] = {'jsonrpc': '2.0', 'id': 1, 'error': {'code': -32602, 'message': 'invalid params'}}
+    with pytest.raises(ValueError, match='lacks one stage-four publication') as caught:
+        run(0)
+    assert 'malformed stage-four publish response' not in str(caught.value)
