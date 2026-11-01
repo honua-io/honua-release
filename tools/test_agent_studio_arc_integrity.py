@@ -457,7 +457,7 @@ def arc_partial_case(tmp_path, monkeypatch):
             response = state.get('publish_response', {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': value}})
             attempts = [*state.get('prior_publish_responses', []), (state.get('publish_status', 200), response)]
             for status, response in attempts:
-                raw = json.dumps(response).encode()
+                raw = state['publish_raw'] if 'publish_raw' in state else json.dumps(response).encode()
                 log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': args},
                              lambda kind, action, raw=raw, status=status: {'status': 'ok', '_rawResponse': (status, raw)})
         vault.append_actions(1, log.rows)
@@ -600,3 +600,13 @@ def test_arc_jsonrpc_error_publish_attempt_is_skipped_not_a_harness_error(arc_pa
     with pytest.raises(ValueError, match='lacks one stage-four publication') as caught:
         run(0)
     assert 'malformed stage-four publish response' not in str(caught.value)
+
+
+@pytest.mark.parametrize('raw', [b'{', b'\xff\xfe', b'{"jsonrpc":"2.0","id":1,"id":2,"result":{}}',
+                                 b'{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"n":NaN}}}'])
+def test_arc_unparseable_publish_bytes_fail_with_named_harness_error(arc_partial_case, raw):
+    from agent_e2e_local_recorder import ProjectionError
+    run, state = arc_partial_case
+    state['publish_raw'] = raw
+    with pytest.raises(ProjectionError, match='malformed stage-four publish response'):
+        run(0)

@@ -7,6 +7,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from agent_e2e_local_recorder import ProjectionError
+from agent_e2e_mcp import McpError
 from agent_e2e_local_projections import Context, evaluate, require, require_address
 
 NAMES = ('parcels', 'flood_zones', 'shelters')
@@ -131,7 +132,7 @@ def complete_sources(stack, seeded, body):
             continue
         try:
             response_body = response.json
-        except ProjectionError as exc:
+        except (ProjectionError, McpError) as exc:
             raise ProjectionError('malformed stage-four publish response: ' + str(exc)) from exc
         require(isinstance(response_body, dict), 'malformed stage-four publish response: body is not an object')
         if 'result' not in response_body and isinstance(response_body.get('error'), dict):
