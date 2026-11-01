@@ -455,9 +455,11 @@ def arc_partial_case(tmp_path, monkeypatch):
             value = {'operationInstanceId': 'op_4_' + n, 'operationId': 'service.publish', 'status': 'Completed',
                      'serviceName': sources[n]['service'], 'layerId': sources[n]['layerId']}
             response = state.get('publish_response', {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': value}})
-            raw = json.dumps(response).encode()
-            log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': args},
-                         lambda kind, action, raw=raw: {'status': 'ok', '_rawResponse': (200, raw)})
+            attempts = [*state.get('prior_publish_responses', []), (state.get('publish_status', 200), response)]
+            for status, response in attempts:
+                raw = json.dumps(response).encode()
+                log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': args},
+                             lambda kind, action, raw=raw, status=status: {'status': 'ok', '_rawResponse': (status, raw)})
         vault.append_actions(1, log.rows)
         rec.set_phase('observe')
         old = [event(n, 3) for n in names[:count]]
@@ -549,6 +551,29 @@ def test_arc_credits_publication_with_uppercase_connection_guid(arc_partial_case
     stack, _, _ = run(0)
     assert stack.extra['arcLineageVerified']
     assert all(row['stage'] == 4 for row in stack.extra['arcServicesLineage'].values())
+
+
+@pytest.mark.parametrize('retry', [False, True])
+def test_arc_tool_error_publish_attempt_is_not_credited(arc_partial_case, retry):
+    run, state = arc_partial_case
+    error = {'jsonrpc': '2.0', 'id': 1,
+             'result': {'isError': True, 'content': [{'type': 'text', 'text': 'publish failed'}]}}
+    if retry:
+        state['prior_publish_responses'] = [(200, error)]
+        stack, _, _ = run(0)
+        assert stack.extra['arcLineageVerified']
+        assert all(row['stage'] == 4 for row in stack.extra['arcServicesLineage'].values())
+    else:
+        state['publish_response'] = error
+        with pytest.raises(ValueError, match='lacks one stage-four publication'):
+            run(0)
+
+
+def test_arc_non_200_publish_attempt_is_skipped_before_parsing(arc_partial_case):
+    run, state = arc_partial_case
+    state['prior_publish_responses'] = [(503, None)]
+    stack, _, _ = run(0)
+    assert stack.extra['arcLineageVerified']
 
 
 @pytest.mark.parametrize('response,cause', [

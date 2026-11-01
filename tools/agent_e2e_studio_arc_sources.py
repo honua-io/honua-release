@@ -127,6 +127,8 @@ def complete_sources(stack, seeded, body):
             response = rec.action_result('arc-publish-request-' + str(index), action)
         except ProjectionError:
             continue
+        if response.status != 200:
+            continue
         try:
             response_body = response.json
         except ProjectionError as exc:
@@ -134,11 +136,13 @@ def complete_sources(stack, seeded, body):
         require(isinstance(response_body, dict), 'malformed stage-four publish response: body is not an object')
         result = response_body.get('result')
         require(isinstance(result, dict), 'malformed stage-four publish response: result is not an object')
+        if result.get('isError') is True:
+            continue
         value = result.get('structuredContent')
         require(isinstance(value, dict),
                 'malformed stage-four publish response: structuredContent is not an object')
         operation = value.get('operationInstanceId')
-        if (response.status == 200 and result.get('isError', False) is False
+        if (result.get('isError', False) is False
                 and value.get('status') == 'Completed' and value.get('operationId') == 'service.publish'
                 and isinstance(operation, str)):
             publications.setdefault(operation, []).append((action, value))
