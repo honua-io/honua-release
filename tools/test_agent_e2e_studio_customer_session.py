@@ -76,3 +76,19 @@ def test_customer_does_not_treat_an_explicit_noncompletion_as_done():
     assert result['answer'] == 'Saved and done.'
     assert [args['text'] for name, args in actions if name == 'studio_customer_type'] == [
         'Make a map', 'Frozen response']
+
+
+def test_customer_waits_for_the_async_studio_chat_to_mount():
+    now = [0.0]
+    observations = 0
+    def invoke(name, arguments):
+        nonlocal observations
+        if name != 'studio_chat_observe':
+            return 'ok'
+        observations += 1
+        if observations == 1:
+            raise CustomerScriptError('recorded Studio browser action failed')
+        return state('', 0) if observations == 2 else state('Saved and done.', 1)
+    result = run_customer(invoke=invoke, prompt='Make a map', script=[],
+                          clock=lambda: now[0], sleep=lambda _: now.__setitem__(0, now[0] + 1))
+    assert result['answer'] == 'Saved and done.' and observations == 3

@@ -56,8 +56,20 @@ def run_customer(*, invoke, prompt, script, timeout=2700, clock=time.monotonic, 
         digests.append('sha256:' + hashlib.sha256(text.encode()).hexdigest())
 
     invoke('studio_navigate', {'url': '/studio'})
+    # Console mounts the Studio workspace asynchronously after navigation.
+    # Keep polling recorded and bounded; do not send the customer's request
+    # until the chat actually exists.
+    ready_by = min(end, clock() + 30)
+    while True:
+        try:
+            initial_text = invoke('studio_chat_observe', {})
+            break
+        except CustomerScriptError:
+            if clock() >= ready_by:
+                raise CustomerScriptError('Studio chat did not become ready') from None
+            sleep(0.5)
     try:
-        initial = json.loads(invoke('studio_chat_observe', {}))
+        initial = json.loads(initial_text)
     except (ValueError, TypeError) as exc:
         raise CustomerScriptError('initial Studio chat state is malformed') from exc
     if (not isinstance(initial, dict) or type(initial.get('assistantMessages')) is not int
