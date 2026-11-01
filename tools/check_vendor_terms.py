@@ -602,9 +602,45 @@ def _word_around(line: str, start: int, end: int) -> str:
 
 
 Span = tuple[int, int, str, str, "str | None"]
+_SPAN_WINDOW = 2048
+_SPAN_OVERLAP = 256
+_MAX_DECODED_LINE = 16_000_000
 
 
 def _spans(line: str) -> list[Span]:
+    """Inspect long physical lines in bounded overlapping windows without skipping content."""
+    if len(line) <= _SPAN_WINDOW:
+        return _spans_window(line)
+
+    spans: list[Span] = []
+    seen: set[tuple[int, int, str, str, str | None]] = set()
+    core_width = _SPAN_WINDOW - 2 * _SPAN_OVERLAP
+    core_start = 0
+    while core_start < len(line):
+        core_end = min(core_start + core_width, len(line))
+        window_start = max(0, core_start - _SPAN_OVERLAP)
+        window_end = min(len(line), core_end + _SPAN_OVERLAP)
+        window = line[window_start:window_end]
+        for start, end, token, term, detail in _spans_window(window):
+            # Assign each hit to the window core containing its name. Long identifiers are
+            # clipped to the inspected window but still carry the mark used by this anchor.
+            anchor = start
+            if not _is_product(token):
+                mark = MARK.search(token)
+                if mark:
+                    anchor += mark.start()
+            absolute_anchor = window_start + anchor
+            if not core_start <= absolute_anchor < core_end:
+                continue
+            item = (window_start + start, window_start + end, token, term, detail)
+            if item not in seen:
+                seen.add(item)
+                spans.append(item)
+        core_start = core_end
+    return sorted(spans, key=lambda span: (span[0], span[1]))
+
+
+def _spans_window(line: str) -> list[Span]:
     """(start, end, token, term, confidential) for every mark on a line; product names absorb their tokens.
 
     ``confidential`` is the R30 category when the span is, or overlaps, confidential detail; detail that carries
@@ -621,7 +657,10 @@ def _spans(line: str) -> list[Span]:
             if matches:
                 if len(value) > 4096:
                     raise ValueError("Candidate token exceeds the inspection limit")
-                work += len(value) ** 2 * matches
+                # The classifier applies a fixed set of bounded literal/identifier regexes to
+                # each candidate. Estimate work linearly instead of rejecting ordinary long HTML
+                # tokens before their bounded windows can be inspected.
+                work += len(value) * matches
                 if work > 2_000_000:
                     raise ValueError("Candidate requires too much inspection work")
     spans: list[list] = []
@@ -724,17 +763,17 @@ def _decode_detection_view(value: str) -> str:
         except (KeyError, ValueError, OverflowError):
             return match.group()
 
-    if len(value) > 1_000_000:
+    if len(value) > _MAX_DECODED_LINE:
         raise ValueError("Encoded input exceeds the inspection limit")
     for _ in range(8):
         decoded = html.unescape(value) if "&" in value else value
         decoded = unquote(decoded, errors="replace") if "%" in decoded else decoded
         decoded = _SOURCE_ESCAPE.sub(decode_escape, decoded) if "\\" in decoded else decoded
         if not decoded.isascii():
-            if len(decoded) > 1_000_000:
+            if len(decoded) > _MAX_DECODED_LINE:
                 raise ValueError("Unicode input exceeds the inspection limit")
             decoded = unicodedata.normalize("NFKC", decoded)
-            if len(decoded) > 1_000_000:
+            if len(decoded) > _MAX_DECODED_LINE:
                 raise ValueError("Normalized input exceeds the inspection limit")
             decoded = "".join(char for char in decoded if unicodedata.category(char) != "Cf"
                               and ord(char) != 0x034F and not 0xFE00 <= ord(char) <= 0xFE0F
