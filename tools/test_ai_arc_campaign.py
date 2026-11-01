@@ -195,3 +195,38 @@ def test_a_partially_written_adjudication_is_read_on_a_later_pass(tmp_path):
                    common=[], reserve_rows=RESERVE, wait_poll=0.01, max_wait=5,
                    launch=fake_launch(tmp_path, {'local-docker:A1:001': 'undetermined'}, log))
     assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:r01']
+
+
+def test_a_failed_run_with_a_suspected_harness_fault_waits_for_adjudication(tmp_path):
+    """Astra S3: the barrier stops on a suspected harness defect whatever the receipt's status."""
+    def launch(row, slot):
+        path = Path(tmp_path) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'runId': row['runId'], 'status': 'failed', 'stages': [
+            {'stage': 'ops', 'outcome': 'fail', 'cause': 'harness fault did not fire', 'assertions': []}]}))
+        return 0
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=launch)
+    assert (tmp_path / 'PENDING-ADJUDICATION').read_text().strip() == 'local-docker:A1:001'
+
+
+@pytest.mark.parametrize('receipt,suspect', [
+    ({'stages': [{'outcome': 'pass'}]}, False),
+    ({'stages': [{'outcome': 'fail', 'cause': 'required assertions did not pass'}]}, False),
+    ({'stages': [{'outcome': 'undetermined'}]}, True),
+    ({'stages': [{'outcome': 'fail', 'cause': 'harness error: x'}]}, True),
+    ({'stages': [{'outcome': 'fail', 'assertions': [{'harnessFault': True}]}]}, True),
+    ({'stages': [], 'slotFacts': {'slotPreparation': {'status': 'failed'}}}, True),
+    ({'stages': [], 'slotFacts': {'slotPreparation': {'status': 'converged'}}}, False)])
+def test_suspected_harness_faults(receipt, suspect):
+    assert C.suspected_harness_fault(receipt) is suspect
+
+
+def test_an_operator_hold_stops_new_launches(tmp_path):
+    log = []
+    (tmp_path / 'HOLD').write_text('scorer defect suspected\n')
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(1), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=fake_launch(tmp_path, {}, log))
+    assert log == []

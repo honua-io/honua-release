@@ -26,6 +26,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ai_arc_runner as arc_runner  # noqa: E402
 
 
+
+def suspected_harness_fault(receipt: dict) -> bool:
+    """A receipt the harness itself marks as possibly its own fault: an undetermined stage, a harness-error or
+    harness-fault cause, a harnessFault assertion, or failed slot preparation."""
+    for row in receipt.get('stages') or []:
+        cause = str(row.get('cause') or '').lower()
+        if row.get('outcome') == 'undetermined' or cause.startswith('harness') or 'harness fault' in cause:
+            return True
+        if any(a.get('harnessFault') for a in row.get('assertions') or [] if isinstance(a, dict)):
+            return True
+    prep = (receipt.get('slotFacts') or {}).get('slotPreparation') or {}
+    return isinstance(prep, dict) and prep.get('status') not in (None, 'skipped', 'converged')
+
 def slots(hosts: list[str], per_host: int) -> list[tuple[str, int]]:
     if not hosts or not 1 <= per_host <= 3:
         raise ValueError('at least one host and 1..3 slots per host')
@@ -100,7 +113,10 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             with lock:
                 results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
                                 'receipt': str(path) if receipt else None})
-                if receipt is None or receipt['status'] == 'undetermined':
+                if receipt is None or receipt['status'] == 'undetermined' or suspected_harness_fault(receipt) \
+                        or (out / 'holds' / (row['runId'].replace(':', '-') + '.hold')).is_file():
+                    # Adjudication barrier (Astra S3): any suspected harness defect stops the campaign before the
+                    # next launch, whatever the receipt's status, so a void stays eligible under the prereg.
                     pending.append(row['runId'])
                 free.append(slot)
                 save_state()
@@ -144,6 +160,13 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                     save_state()
                     if max_wait is not None and time.monotonic() - started > max_wait:
                         raise TimeoutError('runs await a valid adjudication: ' + ', '.join(pending))
+                    lock.wait(wait_poll)
+                    continue
+                if (out / 'HOLD').is_file():
+                    # Operator hold (a suspected scorer or harness defect noticed outside a receipt): no new run
+                    # starts until the file is removed; running ones finish.
+                    if max_wait is not None and time.monotonic() - started > max_wait:
+                        raise TimeoutError('the campaign is on operator hold')
                     lock.wait(wait_poll)
                     continue
                 if not queue or not free:
