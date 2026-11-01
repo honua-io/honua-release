@@ -2044,6 +2044,26 @@ def test_an_image_containing_a_held_out_goal_is_withheld_whole(tmp_path):
     assert goal.encode() not in b''.join(p.read_bytes() for p in out.iterdir())
 
 
+@pytest.mark.parametrize('agent', ['claude-cli', 'codex-cli'])
+def test_each_arms_budget_record_reaches_the_trial_receipt(tmp_path, agent):
+    """Sol b7b3a297: the per-arm budget record survives into every stage's receipt provenance."""
+    import agent_cli_sessions as CS
+    budgets = CS.arm_budgets(agent, 80, 40, 600)
+
+    class Budgeted(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            row['provenance'] = [dict(p, budgets=budgets) for p in row['provenance']]
+            return row
+    receipt, _ = run(tmp_path, session=Budgeted())
+    for stage in receipt['stages']:
+        assert [p['budgets'] for p in stage['modelVisible']['provenance']] == [budgets], stage['stage']
+    raw = json.loads((tmp_path / '001' / 'trial-receipt.json').read_text())
+    assert raw['stages'][0]['modelVisible']['provenance'][0]['budgets']['binding'] == \
+        {'maxToolCalls': 80, 'wallClockSeconds': 600}
+
+
+
 def test_every_committed_arc_input_is_bound_and_sealed_files_are_not(tmp_path, monkeypatch):
     """Coordinator 11-01: the services fixture map (#1196) and the Studio requirements file (#1198) bind the
     runner digest by folder, whatever their names or however they are loaded."""
