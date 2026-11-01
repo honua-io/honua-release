@@ -147,7 +147,7 @@ def stage_for(sc):
     stage.scenario, stage.prior_id, stage.candidate_id = sc, PRIOR, CAND
     stage.manager, stage.keys = sc.manager, types.SimpleNamespace(revoke=lambda: [], probe=lambda: [])
     stage.harness_proposals = set()
-    stage.backup_ids = lambda vm: {BACKUP}
+    stage.backup_ids = lambda vm, strict=False: {BACKUP}
     return stage
 
 

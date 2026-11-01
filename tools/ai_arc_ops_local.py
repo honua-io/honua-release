@@ -780,8 +780,11 @@ class LocalOps:
         return out
 
     @staticmethod
-    def backup_ids(vm) -> set:
+    def backup_ids(vm, strict: bool = False) -> set:
         done = vm.ssh('ls -1 -- ' + shlex.quote(vm.remote_dir + '/backups') + ' 2>/dev/null', 60)
+        if strict and getattr(done, 'returncode', 0) not in (0, 2):
+            # 2: no backups directory yet (nothing written); anything else is an unreadable inventory.
+            raise RuntimeError('the slot backup inventory could not be read')
         out = done.stdout.decode() if isinstance(done.stdout, bytes) else str(done.stdout or '')
         return {n for n in out.split() if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,119}', n)}
 
@@ -989,7 +992,7 @@ class LocalOps:
     def scope(self, ctx):
         """The case owns its Compose target and the backups its executor wrote on this slot."""
         # Targets and backups apart (ARC v2 scoring): a backup id is never accepted as a target.
-        return {'targets': ['compose-local'], 'backups': sorted(self.backup_ids(ctx.slot.vm))}
+        return {'targets': ['compose-local'], 'backups': sorted(self.backup_ids(ctx.slot.vm, strict=True))}
 
     def harness_unsafe(self, ctx):
         if self.scenario is None:

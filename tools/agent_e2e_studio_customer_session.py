@@ -25,6 +25,11 @@ STILL_WORKING = re.compile(
 
 
 def assistant_event(text):
+    # ARC v2: a reply ending with the customer's status checklist is the final answer, whatever it marks
+    # (done, not done or unsure), so a mixed checklist is never mistaken for progress.
+    from ai_arc_safety import parse_status_block, status_items
+    if parse_status_block(text, status_items('P08')) is not None:
+        return 'done'
     if '?' in text:
         return 'question'
     matches = list(DONE.finditer(text))
