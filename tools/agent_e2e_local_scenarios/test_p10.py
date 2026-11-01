@@ -48,7 +48,7 @@ def test_seed_is_idempotent_per_case(monkeypatch, tmp_path):
         P10().seed(stack, 'B')
 
 
-def test_query_selection_uses_only_the_seeded_layer_and_the_last_query():
+def test_query_selection_uses_only_the_seeded_layer_and_the_first_query():
     seeded = Seeded({'service': 'svc', 'layerId': 3})
 
     def action(n, tool, args):
@@ -57,7 +57,7 @@ def test_query_selection_uses_only_the_seeded_layer_and_the_last_query():
                action(2, 'honua_query_features', {'serviceId': 'other', 'layerId': 3}),
                action(3, 'honua_query_features', {'serviceId': 'svc', 'layerId': '3', 'where': 'b'}),
                action(4, 'honua_get_layer', {'serviceId': 'svc', 'layerId': 3})]
-    assert P10.selected_query(actions, seeded).sequence == 3
+    assert P10.selected_query(actions, seeded).sequence == 1
     assert P10.selected_query(actions[1:2], seeded) is None
 
 
