@@ -11,7 +11,8 @@ def action(n, tool, arguments, status='pass'):
 
 
 class Recorder:
-    def __init__(self, actions): self.log, self.calls = actions, []
+    def __init__(self, actions, *, publication_error=False):
+        self.log, self.calls, self.publication_error = actions, [], publication_error
     def actions(self): return self.log
     def table_rows(self, step, schema, table, columns):
         self.calls.append(('sql', step, schema, table, columns))
@@ -22,7 +23,7 @@ class Recorder:
         return {'observation': {'body': body}}
     def action_result(self, step, selected):
         self.calls.append(('action-result', selected.sequence))
-        return SimpleNamespace(json={'result': {'structuredContent': {'status': 'Completed',
+        return SimpleNamespace(json={'result': {'isError': self.publication_error, 'structuredContent': {'status': 'Completed',
             'operationId': 'service.publish', 'serviceName': 'agent-service', 'layerId': '2'}}})
     def replay(self, step, selected): self.calls.append(('replay', step, selected.sequence))
     def mcp_call(self, step, tool, arguments): self.calls.append(('mcp', step, tool, arguments))
@@ -61,6 +62,16 @@ def test_foreign_table_publication_never_selects_a_query():
                                                     'connectionId': 'conn'})
     query = action(2, 'honua_query_features', {'serviceId': 'agent-service', 'layerId': 2})
     rec = Recorder([publish, query])
+    state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
+    ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A')
+    assert not any(call[0] == 'replay' for call in rec.calls)
+
+
+def test_error_publication_result_never_selects_a_query():
+    publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
+                                                    'connectionId': 'conn'})
+    query = action(2, 'honua_query_features', {'serviceId': 'agent-service', 'layerId': 2})
+    rec = Recorder([publish, query], publication_error=True)
     state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
     ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A')
     assert not any(call[0] == 'replay' for call in rec.calls)
