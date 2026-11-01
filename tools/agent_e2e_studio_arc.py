@@ -382,8 +382,6 @@ def arc_stage(ctx):
                 if context.remaining() <= 0:
                     failure = {'category': 'model', 'reason': 'Studio stage time limit reached'}
                     break
-                if driver == 'console-assistant':
-                    provision_local_server(context.slot.vm, self.signing, enable_assistant=True)
                 runtime = self._runtime(context, driver)
                 if driver == 'console-assistant':
                     runtime.disallowed_subjects = frozenset(cli_subjects)
@@ -395,6 +393,8 @@ def arc_stage(ctx):
                 fixture, case = select_arc_case(context, prompt)
                 scenario = runner.load_scenario('P08')
                 try:
+                    if driver == 'console-assistant':
+                        provision_local_server(context.slot.vm, self.signing, enable_assistant=True)
                     receipt = runner.execute_case(case_id='P08:' + fixture + ':local-docker',
                         scenario=scenario, variant=fixture, case=case,
                         candidate_digest=context.candidate['imageDigest'], runtime=runtime)
@@ -402,6 +402,8 @@ def arc_stage(ctx):
                     if driver == 'console-assistant':
                         provision_local_server(context.slot.vm, self.signing)
                 self.cases[driver] = [{'scenario': 'P08', 'receipt': receipt}]
+                if len(runtime.customer_subjects) != 1 or len(runtime.customer_keys) != 1:
+                    raise ValueError('Studio customer identity evidence is unavailable')
                 if driver == 'console-assistant':
                     if cli_subjects & runtime.customer_subjects or cli_keys & runtime.customer_keys:
                         raise ValueError('Studio assistant and CLI customers are not distinct')
