@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Report the scripting certification work scope without overriding release gates.
+"""Report the QGIS scripting work scope without overriding release gates.
 
-The two producer grids remain the outcome authority. This report reconciles their
+The producer grid remains the outcome authority. This report reconciles its
 complete cell identities with a versioned scope and retains excluded raw results.
 Only the protocol certification gate can validate receipts and certify a lock.
 """
@@ -14,13 +14,11 @@ import hashlib
 import json
 from pathlib import Path
 
-from check_protocol_certification import (
-    DIGEST_RE, SCRIPTING_DRIVER, _reject_json_constant, _unique_json_object,
-)
+from check_protocol_certification import DIGEST_RE, _reject_json_constant, _unique_json_object
 
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE = ROOT / "certification/sources/desktop-scripting-scope.v1.json"
-DRIVERS = {"licensed-scripting": SCRIPTING_DRIVER, "qgis-scripting": "pyqgis"}
+DRIVERS = {"qgis-scripting": "pyqgis"}
 OUTCOMES = {"certified", "certified-prior", "failing", "blocked", "not-probed", "not-applicable"}
 
 
@@ -47,10 +45,8 @@ def normalize(grid: dict, source: str) -> dict:
     driver = DRIVERS[source]
     cells = {}
     for row in grid["rows"]:
-        if source == "licensed-scripting" and row.get("driver") != driver:
-            continue
         for column, entry in row["cells"].items():
-            cell = entry if source == "licensed-scripting" else entry[driver]
+            cell = entry[driver]
             if cell["value"] not in OUTCOMES:
                 raise ValueError("Unknown original outcome")
             key = (row["row"], column)
@@ -87,7 +83,7 @@ def report(scope: dict, grids: dict, candidate_digest: str) -> dict:
         if len(deferred) != len(expected["deferred_preview_cells"]) or not set(deferred) <= set(cells):
             raise ValueError("Deferred scope contains duplicate or unknown cells")
         for key, entry in deferred.items():
-            if source != "qgis-scripting" or key[0] != "sensorthings" or entry["target_release"] != "2026.2":
+            if key[0] != "sensorthings" or entry["target_release"] != "2026.2":
                 raise ValueError("Only the approved preview deferral belongs in this version")
         for (row, column), cell in sorted(cells.items()):
             entry = {"source": source, "row": row, "column": column,
@@ -117,14 +113,12 @@ def report(scope: dict, grids: dict, candidate_digest: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scope", type=Path, default=SCOPE)
-    parser.add_argument("--licensed-grid", type=Path, required=True)
     parser.add_argument("--qgis-grid", type=Path, required=True)
     parser.add_argument("--candidate-digest", required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     inputs = {name: read_input(path) for name, path in (
-        ("scope", args.scope), ("licensed-scripting", args.licensed_grid),
-        ("qgis-scripting", args.qgis_grid))}
+        ("scope", args.scope), ("qgis-scripting", args.qgis_grid))}
     result = report(inputs["scope"][0], {
         name: inputs[name][0] for name in DRIVERS
     }, args.candidate_digest)

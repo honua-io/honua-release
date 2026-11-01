@@ -125,7 +125,7 @@
       "methods": "",
       "status": "implemented",
       "endpoint": "GET /rest/services/{serviceId}/MapServer/layers",
-      "notes": "Alias of allLayersAndTables returning the identical document; the ArcGIS Maps SDK for JavaScript and the .NET Runtime SDK hydrate sublayers from this spelling (#1454)."
+      "notes": "Alias of allLayersAndTables returning the identical document; clients may hydrate sublayers from this spelling (#1454)."
     },
     {
       "id": "MS-OP-LEGEND",

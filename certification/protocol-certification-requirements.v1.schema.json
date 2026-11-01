@@ -32,7 +32,6 @@
   "properties": {
     "schema": { "const": "honua.protocol-certification-requirements/v1" },
     "revision": { "type": "string", "minLength": 1 },
-    "trademarkNotice": { "type": "string", "minLength": 1 },
     "receipt_schema_min": { "enum": ["v1", "v2"] },
     "complete": { "type": "boolean" },
     "scope_notes": { "type": "string", "minLength": 1 },
@@ -44,8 +43,8 @@
         "ruling": { "const": "R40" },
         "drivers": {
           "type": "object",
-          "minProperties": 4,
-          "maxProperties": 4,
+          "minProperties": 2,
+          "maxProperties": 2,
           "additionalProperties": { "$ref": "#/$defs/driverCounts" }
         }
       }
@@ -236,7 +235,7 @@
             "then": {
               "properties": {
                 "entitlement_policy_revision": {
-                  "enum": ["honua-pro-feature-subscriptions-v1", "esri-arcgis-pro-arcpy-v1", "licensed-desktop-client-v1"]
+                  "enum": ["honua-pro-feature-subscriptions-v1"]
                 }
               }
             },
@@ -251,18 +250,6 @@
               "properties": {
                 "deployment_target": { "const": "licensed-release" },
                 "auth_policy_revision": { "const": "api-key-protected-v1" }
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": { "entitlement_policy_revision": { "enum": ["esri-arcgis-pro-arcpy-v1", "licensed-desktop-client-v1"] } },
-              "required": ["entitlement_policy_revision"]
-            },
-            "then": {
-              "properties": {
-                "deployment_target": { "const": "windows-licensed" },
-                "auth_policy_revision": { "const": "anonymous-and-protected-v1" }
               }
             }
           },
