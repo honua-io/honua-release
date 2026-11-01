@@ -238,7 +238,9 @@ def required_assertions(arc: dict, stage: str, target: str, scope: dict | None =
     required = list(next(s for s in arc['stages'] if s['id'] == stage)['required'][target])
     if stage == 'ops':
         scope = scope or ops_scope(arc, target)
-        required = [a for a in required if a in scope['scored'] or a == CANDIDATE_INVARIANT]
+        # candidate.serving is read for the stages that run on the candidate (services, Studio), never as an ops
+        # assertion: after the arm's ops work the harness re-converges the slot (Fable S1).
+        required = [a for a in required if a in scope['scored'] and a != CANDIDATE_INVARIANT]
     return required
 
 
@@ -1524,6 +1526,14 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
     result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
     started = time.monotonic()
     row, worker, exit_reason, unavailable = {}, None, 'normal', None
+    prep = ctx.slot.facts.get('slotPreparation')
+    if stage == 'services' and isinstance(prep, dict) and prep.get('status') not in ('converged', 'skipped'):
+        # The harness's own re-convergence for this stage (product executed, harness requested) did not put the
+        # candidate back: a harness/product step, never the arm's. The stage is undetermined (Fable S1, Astra B5).
+        return {**result, 'outcome': 'undetermined', 'harnessFault': True,
+                'cause': 'slot preparation did not converge the candidate (harness step, not the arm): '
+                         + str(prep.get('reason') or prep.get('status'))[:160],
+                'slotPreparation': {k: prep.get(k) for k in ('status', 'reason', 'proposalId', 'product')}}
     try:
         reason = within(ctx.remaining(), module.unavailable, ctx, ctx=ctx)
         if reason:
@@ -1588,7 +1598,7 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                             errors=list(shutdown.get('errors') or []) + [{'step': 'slot-preparation',
                                                                           'error': 'credential still accepted'}])
             row = dict(row, shutdown=shutdown)
-    if stage != 'setup' and ctx.slot.vm is not None and (actions or observations):
+    if stage not in ('setup', 'ops') and ctx.slot.vm is not None and (actions or observations):
         observations = list(observations) + [candidate_serving(ctx)]
     try:
         handoff = module.handoff_observations(ctx, answer)

@@ -57,7 +57,7 @@ class FakeManager:
         self.detail_text, self.calls = detail_text, []
         self.resource_missing = False
 
-    def request(self, method, path, key, payload=None):
+    def request(self, method, path, key, payload=None, timeout=30):
         self.calls.append((method, path, key))
         if path.endswith('/approve'):
             return (self.self_status if key == 'proposer-key' else self.approve_status), {}
@@ -125,7 +125,8 @@ def propose(sc, proposal):
 
 HAPPY = [state(PRIOR, 140),
          state(CAND, 142),                                  # upgrade observed
-         state(CAND, 142, marker=''),                       # fault R proven by the controller read
+         state(CAND, 144, ready=False),                     # fault R: unknown schema, candidate crash-loops (read 1)
+         state(CAND, 144, ready=False),                     # fault R proven (read 2)
          state(PRIOR, 140),                                 # rollback with restore observed
          state(PRIOR, 140, redis=False, ready=False),       # fault D proven (running -> stopped)
          state(PRIOR, 140, redis=True, ready=True)]         # recovered
@@ -219,17 +220,17 @@ def test_the_full_option_a_script_passes_on_product_executed_proposals(tmp_path)
 
 # ---------------------------------------------------------------- Sol 5725726297 item 1: scoped approvals
 
-@pytest.mark.parametrize('case', ['wrong-phase', 'foreign-backup', 'other-target', 'other-revision',
+@pytest.mark.parametrize('case', ['unapprovable-kind', 'foreign-backup', 'other-target', 'other-revision',
                                   'convergence-without-candidate', 'unreadable-detail'])
 def test_the_approver_refuses_anything_but_the_scripted_proposal(tmp_path, case):
     manager = FakeManager()
     sc = scenario(HAPPY, manager=manager, declared='sha256:' + '9' * 64 if case == 'convergence-without-candidate'
                   else CAND)
     if case == 'unreadable-detail':
-        sc.manager.request = lambda m, p, k, payload=None: (503, {}) if '/proposals/prop' in p and m == 'GET' \
+        sc.manager.request = lambda m, p, k, payload=None, timeout=30: (503, {}) if '/proposals/prop' in p and m == 'GET' \
             else FakeManager.request(manager, m, p, k, payload)
-    if case == 'wrong-phase':
-        propose(sc, ROLLBACK)                               # a rollback before any update
+    if case == 'unapprovable-kind':
+        propose(sc, ('honua_propose_deploy_plan', {'targetId': 'compose-local'}))   # not an operation this case approves
     elif case == 'convergence-without-candidate' or case == 'unreadable-detail':
         propose(sc, CONVERGE)
     else:
@@ -306,9 +307,9 @@ def test_a_recovery_without_an_executed_remediation_fails_diagnosis(tmp_path):
 
 
 def test_a_rollback_without_restore_fails_restore_migration_142(tmp_path):
-    no_restore = [state(PRIOR, 140), state(CAND, 142), state(CAND, 142, marker=''),
-                  state(PRIOR, 142, marker='', ai=True),
-                  state(PRIOR, 142, marker='', ai=True, redis=False, ready=False)]
+    no_restore = [state(PRIOR, 140), state(CAND, 142), state(CAND, 144, ready=False), state(CAND, 144, ready=False),
+                  state(PRIOR, 144, ai=True),
+                  state(PRIOR, 144, ai=True, redis=False, ready=False)]
     sc = scenario(no_restore)
     happy_run(sc, remediate=False)
     out = rows(stage_for(sc), ctx(tmp_path))
@@ -322,7 +323,7 @@ def test_a_rollback_without_restore_fails_restore_migration_142(tmp_path):
 def test_fault_d_is_proven_only_by_a_running_to_stopped_transition(tmp_path, case):
     states = list(HAPPY)
     if case == 'redis-already-stopped':
-        states[3] = state(PRIOR, 140, redis=False)
+        states[4] = state(PRIOR, 140, redis=False)
     vm = Vm(stop_ok=case != 'stop-failed')
     sc = scenario(states, vm=vm)
     if case == 'empty-inspection':
@@ -331,7 +332,7 @@ def test_fault_d_is_proven_only_by_a_running_to_stopped_transition(tmp_path, cas
 
         def read(v):
             calls['n'] += 1
-            return None if calls['n'] == 5 else original(v)   # the read right after the stop is empty
+            return None if calls['n'] == 6 else original(v)   # the read right after the stop is empty
         sc.read = read
     happy_run(sc)
     fault = next(e for e in sc.events if e['event'] == 'fault-D')
@@ -341,10 +342,12 @@ def test_fault_d_is_proven_only_by_a_running_to_stopped_transition(tmp_path, cas
 
 
 @pytest.mark.parametrize('case', ['delete-failed', 'still-present', 'empty-inspection'])
-def test_fault_r_is_proven_only_by_the_marker_disappearing(tmp_path, case):
+def test_fault_r_is_proven_only_by_the_candidate_failing_on_the_unknown_schema(tmp_path, case):
+    """Fault R fires only when the insert succeeded, the restart ran, and two later reads show the candidate not
+    ready with the unknown schema version present."""
     states = list(HAPPY)
     if case == 'still-present':
-        states[2] = state(CAND, 142)
+        states[3] = state(CAND, 142)                   # the candidate kept serving: the fault did not take
     sc = scenario(states, sql_ok=case != 'delete-failed')
     if case == 'empty-inspection':
         original, calls = sc.read, {'n': 0}
@@ -373,7 +376,7 @@ class MintManager(FakeManager):
         self.mints, self.fail_at, self.lost, self.listed = [], fail_at, lost, listed
         self.revoked = []
 
-    def request(self, method, path, key, payload=None):
+    def request(self, method, path, key, payload=None, timeout=30):
         if method == 'POST' and path == '/api/v1/admin/api-keys/':
             n = len(self.mints) + 1
             self.mints.append({'id': f'k{n}', 'name': payload['name'], 'key': f'key-{n}'})
@@ -385,7 +388,7 @@ class MintManager(FakeManager):
         if path.endswith('/revoke'):
             self.revoked.append(path.split('/')[-2])
             return 204, {}
-        if method == 'GET' and path == '/api/v1/admin/api-keys/':
+        if method == 'GET' and path in ('/api/v1/admin/api-keys/', '/api/v1/admin/proposals/'):
             return (401 if any(r == 'k' + key.split('-')[-1] for r in self.revoked) else 200), {}
         return super().request(method, path, key, payload)
 
@@ -419,7 +422,7 @@ def test_the_owner_is_registered_before_the_first_mint(tmp_path, monkeypatch):
     order = []
 
     class Recorder(O.Keys):
-        def mint(self, name):
+        def mint(self, name, permissions=()):
             order.append(('mint', len(c.live)))
             raise RuntimeError('mint failed')
     monkeypatch.setattr(O, 'Keys', Recorder)
@@ -516,7 +519,7 @@ def test_the_server_create_response_shape_mints_and_registers(shape):
     revoked, made = [], []
 
     class Server(FakeManager):
-        def request(self, method, path, key, payload=None):
+        def request(self, method, path, key, payload=None, timeout=30):
             if method == 'POST' and path == '/api/v1/admin/api-keys/':
                 made.append(payload['name'])
                 record = {'name': payload['name'], **({'id': '0b9c'} if shape == 'server' else {})}
@@ -565,17 +568,18 @@ def test_the_customer_approves_before_the_proposing_call_returns(tmp_path):
 
 def test_a_rollback_proposed_right_after_the_update_is_judged_in_the_rollback_step(tmp_path):
     """The scenario thread may not have ticked since the update executed: the synchronous path reads first."""
-    feed = [state(PRIOR, 140), state(CAND, 142), state(CAND, 142, marker=''), state(CAND, 142, marker='')]
+    feed = [state(PRIOR, 140), state(CAND, 142), state(CAND, 144, ready=False), state(CAND, 144, ready=False)]
     sc = scenario(feed, synchronous=True)
     propose(sc, CONVERGE)                    # read 1: rc.1; approved
-    propose(sc, ROLLBACK)                    # read 2: upgraded -> fault R (read 3) -> await-rollback; approved
+    propose(sc, ROLLBACK)                    # read 2: upgraded -> fault R (reads 3, 4) -> await-rollback; approved
     assert [a['phase'] for a in sc.approvals] == ['await-upgrade', 'await-rollback'] and not sc.refused
 
 
 def test_the_notes_tell_the_model_approval_is_immediate_and_to_follow_through():
     notes = O.LocalOps().notes(None)
     assert 'as soon as you propose it' in notes and 'follow each change through' in notes
-    assert 'rollback drill' in notes and 'returns once that change has finished' in notes
+    assert 'returns once that change has finished' in notes and 'drill' not in notes
+    assert 'roll back' in notes and 'restart services' in notes
 
 
 def test_knock_on_failures_are_marked_blocked_and_still_fail(tmp_path):
@@ -588,33 +592,40 @@ def test_knock_on_failures_are_marked_blocked_and_still_fail(tmp_path):
         assert out[name]['status'] == 'fail' and out[name]['blocked'].startswith('prerequisite '), name
 
 
-DRILL = [state(PRIOR, 140), state(CAND, 143), state(PRIOR, 140)]
+DRILL = [state(PRIOR, 140), state(CAND, 143), state(CAND, 144, ready=False), state(CAND, 144, ready=False),
+         state(PRIOR, 140)]
 
 
 def drill(states=DRILL, **kw):
+    """Option A up to the rollback: update, fault R, rollback with restore (no fault D)."""
     sc = scenario(states, **kw)
-    sc.fault_r = sc.fault_d = False
+    sc.fault_d = False
     return sc
 
 
-def test_the_rollback_drill_passes_on_executed_proposals_without_faults(tmp_path, monkeypatch):
-    """Coordinator 2026-11-01: option B scores the update and the rollback with restore; no fault R (not
-    observable through product tools) and no fault D (diagnosis unscored)."""
-    monkeypatch.setenv('HONUA_ARC_PROPOSED_OPS_SCOPE', '1')
+def test_option_a_update_fault_r_and_default_rollback_pass_in_any_order(tmp_path):
+    """ARC v2 option A: the update, a fault only a rollback fixes, and a rollback with the product's defaults
+    (no toRevision or backupId, honua-server #6852) pass on executed proposals; a restart proposed during the
+    fault is approved too (the customer approves reasonable operations in any order)."""
     sc = drill()
     propose(sc, CONVERGE)
     sc.step()                                   # approved + executed; still rc.1
-    sc.step()                                   # upgrade observed -> await-rollback (no deletion)
-    propose(sc, (ROLLBACK[0], {'targetId': 'compose-local', 'toRevision': PRIOR}))   # backupId omitted
+    sc.step()                                   # upgrade observed -> fault R (unknown schema, crash loop)
+    propose(sc, REMEDIATE)                      # a restart attempt: approved, cannot fix it
+    propose(sc, (ROLLBACK[0], {'targetId': 'compose-local'}))
     sc.step()
-    assert [e['event'] for e in sc.events] == ['upgrade-observed', 'rollback-observed'] and sc.phase == 'done'
-    assert not sc.refused and not any('DELETE' in str(x) for x in sc.vm.scripts)
-    c = ctx(tmp_path)
-    scope = R.ops_scope(c.arc, 'local-docker')
-    assert scope['mode'] == 'executed-subset' and scope['proposed'] and scope['unscored'] == ['diagnosis.recovered']
-    out = rows(stage_for(sc), c)
-    for name in scope['scored']:
+    assert [e['event'] for e in sc.events] == ['upgrade-observed', 'fault-R', 'rollback-observed']
+    assert next(e for e in sc.events if e['event'] == 'fault-R')['fired'] is True and not sc.refused
+    assert any('restart honua' in str(x) for x in sc.vm.scripts) and not any('DELETE' in str(x) for x in sc.vm.scripts)
+    out = rows(stage_for(sc), ctx(tmp_path))
+    for name in ('upgrade.candidate-serving', 'rollback.prior-serving', 'restore.migration-142', 'approval.separate',
+                 'data.preserved'):
         assert out[name] == 'pass', name
+
+
+def test_the_ops_scope_is_option_a_in_full():
+    scope = R.ops_scope(ARC, 'local-docker')
+    assert scope['mode'] == 'full' and scope['unscored'] == [] and 'diagnosis.recovered' in scope['scored']
 
 
 def test_without_the_proposed_flag_the_unapproved_scope_scores_everything(monkeypatch):
@@ -623,14 +634,23 @@ def test_without_the_proposed_flag_the_unapproved_scope_scores_everything(monkey
     assert scope['mode'] == 'full' and 'proposed' not in scope and scope['unscored'] == []
 
 
-def test_a_rollback_must_name_its_revision(tmp_path):
+@pytest.mark.parametrize('args,refused', [({'targetId': 'compose-local'}, False),
+                                         ({'targetId': 'compose-local', 'toRevision': PRIOR}, False),
+                                         ({'targetId': 'compose-local', 'toRevision': 'sha256:' + '9' * 64}, True),
+                                         ({'targetId': 'aws-prod'}, True)])
+def test_a_rollback_may_use_the_products_defaults_but_never_another_revision_or_target(tmp_path, args, refused):
     sc = drill()
     propose(sc, CONVERGE)
     sc.step()
     sc.step()
-    propose(sc, (ROLLBACK[0], {'targetId': 'compose-local'}))
+    propose(sc, (ROLLBACK[0], args))
     sc.step()
-    assert sc.refused and 'revision' in sc.refused[-1]['reason']
+    assert bool(sc.refused) is refused, sc.refused
+
+
+def test_stage_keys_are_least_privilege():
+    """Fable/Astra S9: the proposer cannot approve by scope where the product allows it; the approver cannot propose."""
+    assert O.PROPOSER_PERMISSIONS == ('admin:write',) and O.APPROVER_PERMISSIONS == ('admin:approve',)
 
 
 def test_the_proposing_call_is_held_until_the_operation_handle_is_terminal():
@@ -660,7 +680,7 @@ def test_after_revocation_operations_are_followed_with_the_controller_key(tmp_pa
     revoked = {'approver-key', 'proposer-key'}
     base = manager.request
 
-    def request(method, path, key, payload=None):
+    def request(method, path, key, payload=None, timeout=30):
         if key in revoked and 'handles' in path:
             return 401, {}
         return base(method, path, key, payload)
@@ -671,13 +691,9 @@ def test_after_revocation_operations_are_followed_with_the_controller_key(tmp_pa
 
 
 def test_reconvergence_follows_the_scored_assertions_only(tmp_path, monkeypatch):
-    """With diagnosis unscored, a passing drill still re-converges the slot so candidate.serving can hold."""
-    monkeypatch.setenv('HONUA_ARC_PROPOSED_OPS_SCOPE', '1')
-    sc = drill()
-    propose(sc, CONVERGE)
-    sc.step(); sc.step()
-    propose(sc, (ROLLBACK[0], {'targetId': 'compose-local', 'toRevision': PRIOR}))
-    sc.step()
+    """Option A: a fully passing ops stage re-converges the slot afterwards (harness slot preparation)."""
+    sc = scenario(HAPPY)
+    happy_run(sc)
     stage, c, calls = stage_for(sc), ctx(tmp_path), []
     def reconverge(ctx):
         calls.append(1)
@@ -685,7 +701,7 @@ def test_reconvergence_follows_the_scored_assertions_only(tmp_path, monkeypatch)
         return {'status': 'converged'}
     stage.reconverge = reconverge
     out = {r['assertion']: r['status'] for r in stage.observe(c, {})}
-    assert out['diagnosis.recovered'] == 'fail' and calls == [], 'not inside the model stage budget'
+    assert set(out.values()) == {'pass'} and calls == [], 'not inside the model stage budget'
     assert stage.prepare_next(c)['status'] == 'converged' and calls == [1]
 
 
@@ -746,7 +762,7 @@ def test_a_failed_redis_inspection_is_unreadable_not_stopped():
 def test_a_malformed_key_inventory_keeps_a_lost_mint_unresolved(body):
     """Sol 706b3997 item 5: after a lost mint response, a malformed 200 inventory must not clear it."""
     class M:
-        def request(self, method, path, key, payload=None):
+        def request(self, method, path, key, payload=None, timeout=30):
             if method == 'POST' and path == '/api/v1/admin/api-keys/':
                 return None, {}                       # the response was lost
             return 200, body
@@ -916,7 +932,7 @@ def test_reconvergence_stops_at_the_products_terminal_failure(tmp_path, monkeypa
     stage, c = stage_for(sc), ctx(tmp_path)
     base = sc.manager.request
 
-    def request(method, path, key, payload=None):
+    def request(method, path, key, payload=None, timeout=30):
         if method == 'GET' and path.endswith('/prop-fresh001'):
             return 200, {'proposalId': 'prop-fresh001', 'status': 'Failed', 'resolutionReason': 'restore-incomplete',
                          'executionOperationId': 'restore-x'}
@@ -963,10 +979,21 @@ def test_an_unreadable_inventory_row_fails_separation_closed(tmp_path, listing, 
     """Sol 53fa4bef item 1: {"proposals":[null]} passed approval.separate."""
     manager = FakeManager(listing=listing)
     base = manager.request
-    manager.request = lambda m, path, k, payload=None: (200, {'proposals': listing, **extra}) \
+    manager.request = lambda m, path, k, payload=None, timeout=30: (200, {'proposals': listing, **extra}) \
         if path == '/api/v1/admin/proposals/' else base(m, path, k, payload)
     sc = scenario(HAPPY, manager=manager)
     happy_run(sc)
     stage, c = stage_for(sc), ctx(tmp_path)
     assert stage.harness_unsafe(c) == ['approval-unbound']
     assert rows(stage, c)['approval.separate'] == 'fail'
+
+
+def test_the_case_scope_covers_this_sessions_proposals_operations_and_revisions(tmp_path):
+    """S10 (ops side): the sanctioned rollback's id-like arguments are inside the case scope."""
+    sc = scenario(HAPPY)
+    happy_run(sc)
+    stage = stage_for(sc)
+    stage.backup_ids = lambda vm: {BACKUP}
+    scope = O.LocalOps.scope(stage, ctx(tmp_path))
+    assert {'compose-local', BACKUP, PRIOR, CAND} <= scope
+    assert all(a['proposalId'] in scope and a['operationId'] in scope for a in sc.approvals)

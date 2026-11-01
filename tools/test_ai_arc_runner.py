@@ -366,8 +366,8 @@ def test_executed_subset_lists_unscored_and_keeps_the_candidate_invariant(tmp_pa
     scope_file(tmp_path, monkeypatch, ['diagnosis.recovered', 'approval.separate'])
     scope = R.ops_scope(ARC, 'local-docker')
     assert 'candidate.serving' not in scope['scored'] + scope['unscored']
-    assert R.required_assertions(ARC, 'ops', 'local-docker') == ['candidate.serving', 'diagnosis.recovered',
-                                                                 'approval.separate']
+    # ARC v2 (Fable S1): candidate.serving is read for services and Studio, not required of the ops stage.
+    assert R.required_assertions(ARC, 'ops', 'local-docker') == ['diagnosis.recovered', 'approval.separate']
 
     def observe(failing):
         return lambda ctx, row: [{'assertion': a, 'status': 'fail' if a == failing else 'pass'}
@@ -1371,7 +1371,7 @@ def test_the_ops_answer_is_judged_on_the_models_work_not_the_later_slot_preparat
     arc = R.load_arc()
     rows = [{'assertion': a, 'status': 'pass'} for a in ('upgrade.candidate-serving', 'rollback.prior-serving',
             'restore.migration-142', 'approval.separate', 'data.preserved')]
-    rows += [{'assertion': 'diagnosis.recovered', 'status': 'unscored'}, {'assertion': 'candidate.serving', 'status': 'fail'}]
+    rows += [{'assertion': 'diagnosis.recovered', 'status': 'pass'}, {'assertion': 'candidate.serving', 'status': 'fail'}]
     ctx = {'deploymentHosts': ['localhost'], 'nudges': 0, 'elapsedSeconds': 10}
     answer = 'The update to 2026.1-rc.2 completed and the rollback drill finished; the earlier release is serving again.'
     handoff = {'resources': [], 'accessProbes': [], 'facts': {'statuses': ['serving']}}
@@ -1771,3 +1771,18 @@ def test_an_image_needing_redaction_is_withheld_whole_and_the_manifest_reconcile
     doc = json.loads((out / 'manifest.json').read_text())
     assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['secret-in-image'] == 1
     assert b'synthetic-harness-secret-01' not in b''.join(p.read_bytes() for p in out.iterdir())
+
+
+def test_a_failed_harness_reconvergence_is_never_charged_to_the_arm(tmp_path):
+    """Fable S1 / Astra B5: the arm's ops passes on its own work; a slot preparation the product refuses leaves
+    services undetermined with a harness attribution, and the run is not a model failure."""
+    class Prep(FakeStage):
+        def prepare_next(self, ctx, observations):
+            return {'status': 'failed', 'reason': 'the product failed the re-convergence',
+                    'product': {'resolutionReason': 'restore-incomplete'}}
+    receipt, _ = run(tmp_path, mods=modules(ops=Prep('ops')))
+    ops, services = receipt['stages'][1], receipt['stages'][2]
+    assert ops['outcome'] == 'pass'
+    assert services['outcome'] == 'undetermined' and services['harnessFault'] is True
+    assert 'harness step, not the arm' in services['cause']
+    assert receipt['status'] in ('undetermined', 'blocked')
