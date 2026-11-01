@@ -18,6 +18,8 @@ Identity: ``ssh`` with ``-i <identity>`` and an explicit known_hosts file, so a 
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import re
 import secrets as pysecrets
@@ -35,6 +37,12 @@ HOST = re.compile(r'\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\Z')
 SLOT = re.compile(r'\Aarc-[a-z0-9]{8,40}\Z')
 PORT_BASE, PORT_STRIDE, SLOTS_PER_HOST = 18080, 100, 3
 SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_KEYRING_PASSWORD')
+# The product's quickstart package (honua-server scripts/docker/package_quickstart.py) and the secrets its
+# initializer generates (scripts/docker/compose_quickstart.py SECRET_KEYS and AUDIT_KEYS).
+PACKAGE_FILES = frozenset(('compose.yaml', 'compose.executor.yaml', 'quickstart.py', 'images.json', 'README.md'))
+INSTALLED_SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MANAGER_ADMIN_PASSWORD',
+                         'HONUA_MANAGER_POSTGRES_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_MANAGER_MASTER_KEY',
+                         'HONUA_KEYRING_PASSWORD', 'HONUA_AUDIT_CHAIN_KEY', 'HONUA_MANAGER_AUDIT_CHAIN_KEY')
 
 
 def resolve_alias(alias: str, run: Callable = subprocess.run) -> str:
@@ -139,6 +147,60 @@ class VmSlot:
         return {'remoteDir': self.remote_dir, 'httpPort': self.http_port, 'grpcPort': self.grpc_port,
                 'dockerServerVersion': done.stdout.decode().strip().splitlines()[-1][:40]}
 
+    def package_env(self, install: dict, prior_max_schema: int) -> str:
+        """The customer's own choices for the packaged quickstart, before its initializer runs: which release
+        to serve first (the install release), the prior image and its schema for rollback (never guessed: the
+        install release's), this slot's ports and Compose project. No secret: quickstart.py generates them."""
+        if type(prior_max_schema) is not int or not 0 < prior_max_schema < 10000:
+            raise ValueError('the prior image schema must be an exact migration number')
+        image = f"{install['image']}@{install['imageDigest']}"
+        rows = {'COMPOSE_PROJECT_NAME': self.project, 'HONUA_IMAGE': image, 'HONUA_PRIOR_IMAGE': image,
+                'HONUA_PRIOR_MAX_SCHEMA': str(prior_max_schema), 'HONUA_HTTP_PORT': str(self.http_port),
+                'HONUA_GRPC_PORT': str(self.grpc_port), 'HONUA_MANAGER_PORT': str(self.manager_port)}
+        return ''.join(f'{k}={v}\n' for k, v in rows.items())
+
+    @property
+    def manager_port(self) -> int:
+        return self.http_port + 2          # the package's own layout: serving, gRPC, management
+
+    def stage_package(self, install: dict, package: dict[str, bytes], prior_max_schema: int) -> dict:
+        """The customer downloads the product's quickstart package into an empty private directory and writes
+        their choices into .env. Everything else (secrets, the key ring, starting the stack) is the agent's
+        work through ``python3 quickstart.py``."""
+        if set(package) != PACKAGE_FILES or any(not isinstance(v, bytes) for v in package.values()):
+            raise ValueError('the quickstart package is incomplete')
+        fence = 'HONUA_PKG_' + pysecrets.token_hex(8)
+        files = dict(package, **{'.env': self.package_env(install, prior_max_schema).encode()})
+        if any(fence.encode() in raw for raw in files.values()):
+            raise ValueError('invalid package delimiter')
+        script = ('set -eu\numask 077\n'
+                  f'mkdir -p -m 700 -- {shlex.quote(str(Path(self.remote_dir).parent))}\n'
+                  f'mkdir -m 700 -- {shlex.quote(self.remote_dir)}\ncd -- {shlex.quote(self.remote_dir)}\n'
+                  + ''.join(f"base64 -d > {shlex.quote(name)} <<'{fence}'\n"
+                            + base64.b64encode(raw).decode() + f'\n{fence}\n' for name, raw in sorted(files.items()))
+                  + "docker info --format '{{.ServerVersion}}'\n")
+        done = self.ssh(script)
+        if done.returncode:
+            raise RuntimeError('could not stage the quickstart package on the VM')
+        return {'remoteDir': self.remote_dir, 'httpPort': self.http_port, 'grpcPort': self.grpc_port,
+                'managerPort': self.manager_port, 'composition': 'quickstart-package',
+                'packageSha256': {n: 'sha256:' + hashlib.sha256(r).hexdigest() for n, r in sorted(package.items())},
+                'dockerServerVersion': done.stdout.decode().strip().splitlines()[-1][:40]}
+
+    def read_installed_secrets(self) -> dict:
+        """After the agent's install: the secrets quickstart.py generated in .env, read by the harness over its own
+        SSH (never through the model's shell) so it can act as the operator and redact them everywhere."""
+        done = self.ssh('set -eu\ncd -- ' + shlex.quote(self.remote_dir) + '\ncat .env\n', 60)
+        if done.returncode:
+            raise RuntimeError('the installed .env could not be read')
+        values = dict(line.split('=', 1) for line in done.stdout.decode().splitlines()
+                      if '=' in line and not line.startswith('#'))
+        wanted = INSTALLED_SECRET_KEYS
+        if any(not values.get(k) for k in ('HONUA_ADMIN_PASSWORD', 'HONUA_MANAGER_ADMIN_PASSWORD')):
+            raise RuntimeError('the install did not generate its administrator credentials')
+        self.secrets = {k: values[k] for k in wanted if values.get(k)}
+        return dict(self.secrets)
+
     def quickstart_shell(self, approved_compose: str):
         from agent_cli_backends import RemoteQuickstartShell, parse_quickstart
         from agent_cli_sessions import digest
@@ -170,8 +232,11 @@ class VmSlot:
         return SshTunnel(shell, remote_port=port or self.http_port).start()
 
     def teardown(self) -> dict:
+        d = shlex.quote(self.remote_dir)
+        # Files the product's executor wrote (uid 1002: backups, receipts) are handed back before removal.
         script = ('set -u\n' + self.compose('down', '--volumes', '--remove-orphans', '--timeout', '30')
-                  + '\nrc=$?\ncd /\nrm -rf -- ' + shlex.quote(self.remote_dir)
+                  + f'\nrc=$?\ndocker run --rm -v {d}:{d} redis:7.4-alpine chown -R "$(id -u):$(id -g)" {d} 2>/dev/null'
+                  + '\ncd /\nrm -rf -- ' + d
                   + '\nleft="$(docker ps -aq --filter label=com.docker.compose.project=' + self.project + ')"'
                   + '\n[ -z "$left" ] && [ "$rc" = 0 ]\n')
         done = self.ssh(script)
@@ -373,3 +438,41 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
             'authRequired': anonymous.get('status') in (401, 403) and admin.get('status') == 200,
             'console': bool(console), 'consolePort': console_port, 'consoleRepoDigests': console_digests,
             'evidence': evidence}
+
+
+def build_quickstart_package(source: Path, pin: dict, out: Path, *, server: str, executor: str, worker: str,
+                             version: str, run: Callable = subprocess.run) -> dict[str, bytes]:
+    """The product's customer package, built by the product's own packager at the arc's pinned revision.
+
+    ``source`` holds the pinned files (arc spec ``quickstartPackage.files``), each checked against its pin. They
+    are laid out as in honua-server, plus an empty migration named for the candidate's maximum schema (the
+    packager reads only the migration file names). The packager then runs isolated (``python3 -I``), with the
+    candidate release lock."""
+    out = Path(out)
+    tree = out / 'honua-server'
+    for rel, want in sorted(pin['files'].items()):
+        raw = (Path(source) / rel).read_bytes()
+        if 'sha256:' + hashlib.sha256(raw).hexdigest() != want:
+            raise ValueError(f'{rel} is not the pinned quickstart package source')
+        target = tree / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    schema = pin['candidateMaxSchema']
+    if type(schema) is not int or not 0 < schema < 10000:
+        raise ValueError('invalid candidate schema')
+    migrations = tree / 'src/Honua.Server/Migrations'
+    migrations.mkdir(parents=True, exist_ok=True)
+    (migrations / f'{schema:03d}_PinnedCandidateSchema.sql').write_bytes(b'')
+    package = out / 'package'
+    done = run([sys.executable, '-I', str(tree / 'scripts/docker/package_quickstart.py'), '--server-image', server,
+                '--executor-image', executor, '--worker-image', worker, '--version', version, '--output', str(package)],
+               capture_output=True, timeout=120, check=False, cwd=str(out))
+    if done.returncode:
+        raise RuntimeError('the product packager refused the candidate lock: '
+                           + (done.stderr.decode('utf-8', 'replace') if isinstance(done.stderr, bytes) else '')[-200:])
+    files = {name: (package / name).read_bytes() for name in sorted(PACKAGE_FILES)}
+    lock = json.loads(files['images.json'])
+    if (lock.get('server'), lock.get('executor'), lock.get('worker'), lock.get('version'), lock.get('maxSchema')) != \
+            (server, executor, worker, version, schema):
+        raise ValueError('the package lock is not the candidate release lock')
+    return files

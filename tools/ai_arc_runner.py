@@ -544,17 +544,44 @@ class LocalSetup(StageModule):
         self.compose = ai_arc_local.quickstart_compose(page)
         ctx.slot.facts['quickstart'] = {'pageSha256': sha256(page), 'composeSha256': sha256(self.compose),
                                         'revision': ctx.options.get('quickstart_revision')}
+        self.package = None
+        if ctx.options.get('quickstart_package_source'):
+            # ARC v2 B1/S4: the product's shipped quickstart package, built by the product's packager at the pin
+            # from the candidate release lock. The harness only downloads it and writes the customer's choices;
+            # the agent generates the secrets and key ring and starts the stack itself (python3 quickstart.py).
+            pin = ctx.arc['quickstartPackage']
+            self.package = ai_arc_local.build_quickstart_package(
+                Path(ctx.options['quickstart_package_source']), pin, ctx.private_dir / 'setup' / 'package-build',
+                **package_lock(ctx))
+            if self.package['compose.yaml'].decode('utf-8') != self.compose:
+                raise ValueError('the package compose is not the pinned guide\'s compose definition')
+            ctx.slot.facts['vm'] = ctx.slot.vm.stage_package(ctx.install, self.package, pin['priorMaxSchema'])
+            ctx.slot.facts['quickstart']['packageSha256'] = ctx.slot.facts['vm']['packageSha256']
+            return
         ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install, self.compose)
         ctx.slot.harness_secrets.extend(ctx.slot.vm.secrets.values())
         ctx.slot.controller['admin_key'] = ctx.slot.vm.secrets['HONUA_ADMIN_PASSWORD']
 
+    def adopt_install(self, ctx):
+        """After the agent ran the package's initializer: the harness reads the generated credentials itself."""
+        if self.package is None or ctx.slot.controller.get('admin_key'):
+            return
+        installed = ctx.slot.vm.read_installed_secrets()
+        ctx.slot.harness_secrets.extend(v for v in installed.values() if v not in ctx.slot.harness_secrets)
+        ctx.slot.controller['admin_key'] = installed['HONUA_ADMIN_PASSWORD']
+        ctx.slot.controller['manager_admin_key'] = installed['HONUA_MANAGER_ADMIN_PASSWORD']
+
     def notes(self, ctx):
-        notes = ctx.arc['targets'][ctx.target]['customerNotes']['setup']
+        notes = ctx.arc['targets'][ctx.target]['customerNotes'][
+            'setupPackage' if getattr(self, 'package', None) else 'setup']
         return (notes.replace('{release}', ctx.install['release'])
                 .replace('{image}', ctx.install['image'] + '@' + ctx.install['imageDigest'])
                 .replace('{port}', str(ctx.slot.vm.http_port)))
 
     def attachment(self, ctx):
+        if getattr(self, 'package', None):
+            return ('Honua getting-started guide', self.page + '\n\n---\n\nREADME.md from the downloaded package:\n\n'
+                    + self.package['README.md'].decode('utf-8'))
         return ('Honua getting-started guide', self.page)
 
     def backends(self, ctx):
@@ -563,6 +590,13 @@ class LocalSetup(StageModule):
 
     def observe(self, ctx, row):
         import ai_arc_local
+        try:
+            self.adopt_install(ctx)
+        except (RuntimeError, ValueError, OSError) as exc:
+            # No generated administrator credential: the agent's install did not complete.
+            evidence = {'reason': str(exc)[:160]}
+            return [assert_row('install.identity', False, evidence), assert_row('deployment.ready', False, evidence),
+                    assert_row('authentication.required', False, evidence)]
         tunnel = ctx.slot.controller.get('tunnel')
         if tunnel is None:
             tunnel = ai_arc_local.tunnel_for(ctx.slot.vm)
@@ -594,6 +628,18 @@ class LocalSetup(StageModule):
 
     def deployment_hosts(self, ctx):
         return ('localhost', '127.0.0.1', '::1')
+
+
+def package_lock(ctx: StageContext) -> dict:
+    """The candidate release lock the quickstart package carries: serving and worker image (one artifact, as the
+    ops stage declares it), the product executor image built from the same source, and the release version."""
+    cand = ctx.candidate
+    server = cand['imageDigest'] if cand.get('development') else f"{cand['image']}@{cand['imageDigest']}"
+    executor = cand.get('executorImage')
+    if not isinstance(executor, str) or not re.fullmatch(r'(?:[a-z0-9./:_-]+@)?sha256:[0-9a-f]{64}', executor):
+        raise ValueError('the candidate lock names no immutable compose executor image')
+    return {'server': server, 'executor': executor, 'worker': server,
+            'version': ctx.arc['versionPair']['candidate']['release']}
 
 
 def observe_local_handoff(ctx: StageContext, answer: str | None) -> dict | None:
@@ -2506,9 +2552,20 @@ def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str 
             raise SystemExit('development candidate lock is malformed')
         return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
                 'image': artifact['reference'].split(':')[0], 'reference': artifact['reference'],
-                'development': True}
+                'development': True, **executor_image(component, development=True)}
     return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
-            'image': 'ghcr.io/honua-io/honua-server'}
+            'image': 'ghcr.io/honua-io/honua-server', **executor_image(component, development=False)}
+
+
+def executor_image(component: dict, development: bool) -> dict:
+    """The lock's product Compose executor image (the quickstart package's third image), when it names one."""
+    rows = [a for a in component.get('artifacts', []) if a.get('kind') == 'executor-image']
+    if len(rows) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', str(rows[0].get('digest', ''))):
+        return {}
+    if development:
+        return {'executorImage': rows[0]['digest']}           # a local image id on the eval hosts
+    reference = str(rows[0].get('reference') or '').split('@')[0].split(':')[0]
+    return {'executorImage': f"{reference}@{rows[0]['digest']}"} if reference else {}
 
 
 def build_slot(target: str, args, run_index: int = 0) -> Slot:
@@ -2554,6 +2611,8 @@ def main(argv=None) -> int:
     trial.add_argument('--known-hosts', default=str(Path.home() / '.ssh/known_hosts'))
     trial.add_argument('--quickstart')
     trial.add_argument('--quickstart-revision')
+    trial.add_argument('--quickstart-package-source',
+                       help='the pinned quickstart package sources (arc spec quickstartPackage.files)')
     trial.add_argument('--slot-receipt')
     trial.add_argument('--slot-credentials')
     trial.add_argument('--deploy-identity-contract', help='honua-iac deploy_identity_contract export (absolute path)')
@@ -2601,6 +2660,7 @@ def main(argv=None) -> int:
         goal_set = load_goal_set(args.goal_set) if args.goal_set else None
         slot = build_slot(args.target, args)
         options = {'quickstart': args.quickstart, 'quickstart_revision': args.quickstart_revision,
+                   'quickstart_package_source': args.quickstart_package_source,
                    'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials,
                    'deploy_identity_contract': args.deploy_identity_contract,
                    'bootstrap_outputs': args.bootstrap_outputs, 'operator_binary': args.operator_binary,
