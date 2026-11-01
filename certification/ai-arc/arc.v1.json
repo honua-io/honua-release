@@ -576,8 +576,8 @@
   },
   "console": {
     "image": "ghcr.io/honua-io/honua-console",
-    "imageDigest": "sha256:b74dfd7ccfd30744e87021b852f287cb81c266b40051ef860314dab33fde2e54",
-    "source": "Console c00d16a8: #513 embedded Studio style-editor fix and #514 1 MiB draft cap (honua-server #6854 compose re-pin; honua-iac #369; honua-release #1189)",
+    "imageDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+    "source": "Console 626c13cc (#515: the Studio assistant uses the supported Studio AI chat and MCP routes; includes #513 and #514); honua-server #6857 compose re-pin, honua-iac #370, honua-release #1190",
     "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed."
   },
   "opsComposition": {
