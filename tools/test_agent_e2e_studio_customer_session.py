@@ -8,7 +8,9 @@ from agent_studio_customer import CustomerScriptError
 
 def state(text, number, **overrides):
     return json.dumps({'assistantMessages': number, 'modelCalls': number, 'dispatchedToolCalls': 0,
-                       'streaming': False, 'boundHit': False, 'status': 'complete', 'text': text, **overrides})
+                       'streaming': False, 'ready': True, 'panelOpen': True, 'connected': True, 'mounted': True,
+                       'boundHit': False, 'status': 'complete', 'text': text,
+                       **overrides})
 
 
 def test_customer_sends_only_the_request_and_frozen_clarifications():
@@ -92,3 +94,31 @@ def test_customer_waits_for_the_async_studio_chat_to_mount():
     result = run_customer(invoke=invoke, prompt='Make a map', script=[],
                           clock=lambda: now[0], sleep=lambda _: now.__setitem__(0, now[0] + 1))
     assert result['answer'] == 'Saved and done.' and observations == 3
+
+
+def test_customer_waits_until_the_chat_input_is_enabled():
+    now = [0.0]
+    states = iter([state('', 0, ready=False), state('', 0, ready=True), state('Saved and done.', 1)])
+    actions = []
+    def invoke(name, arguments):
+        actions.append(name)
+        return next(states) if name == 'studio_chat_observe' else 'ok'
+    result = run_customer(invoke=invoke, prompt='Make a map', script=[], clock=lambda: now[0],
+                          sleep=lambda _: now.__setitem__(0, now[0] + 1))
+    assert result['answer'] == 'Saved and done.'
+    assert actions[:4] == ['studio_navigate', 'studio_chat_observe', 'studio_chat_observe', 'studio_customer_type']
+
+
+def test_customer_opens_and_connects_console_conversation():
+    now = [0.0]
+    states = iter([state('', 0, panelOpen=False, connected=False, ready=False),
+                   state('', 0, panelOpen=True, connected=False, ready=False),
+                   state('', 0), state('Saved and done.', 1)])
+    actions = []
+    def invoke(name, arguments):
+        actions.append((name, arguments))
+        return next(states) if name == 'studio_chat_observe' else 'ok'
+    run_customer(invoke=invoke, prompt='Make a map', script=[], clock=lambda: now[0],
+                 sleep=lambda _: now.__setitem__(0, now[0] + 1))
+    assert ('studio_click', {'selector': '[data-agent-workspace] > summary'}) in actions
+    assert ('studio_click', {'selector': '[data-workspace-start]'}) in actions

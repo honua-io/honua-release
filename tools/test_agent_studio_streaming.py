@@ -15,10 +15,11 @@ def test_chat_state_reads_visible_messages_and_tool_calls_without_eval():
             pass
 
         def do_GET(self):
-            body = (b'<section data-testid="studio-chat"><p data-testid="studio-chat-message" '
-                    b'data-role="assistant" data-status="complete"><span '
-                    b'data-testid="studio-chat-message-text">A question?</span><span '
-                    b'data-testid="studio-chat-tool-call">A tool</span></p></section>')
+            body = (b'<details open data-agent-workspace data-connected="true"><summary>Conversation</summary>'
+                    b'<div data-workspace-messages><p>assistant: A question?</p></div>'
+                    b'<p data-workspace-working hidden>Working</p><form>'
+                    b'<textarea data-workspace-prompt></textarea><button type="submit">Send</button>'
+                    b'</form></details>')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.send_header('Content-Length', str(len(body)))
@@ -32,9 +33,10 @@ def test_chat_state_reads_visible_messages_and_tool_calls_without_eval():
     try:
         page = PlaywrightPage(OriginLock(f'http://127.0.0.1:{server.server_port}'))
         page.goto('/')
-        assert page.chat_state() == {'assistantMessages': 1, 'toolCalls': 1, 'streaming': False,
+        assert page.chat_state() == {'assistantMessages': 1, 'toolCalls': 0, 'streaming': False,
                                      'status': 'complete', 'text': 'A question?', 'modelCalls': 0,
-                                     'dispatchedToolCalls': 0, 'boundHit': False}
+                                     'dispatchedToolCalls': 0, 'boundHit': False, 'ready': True,
+                                     'panelOpen': True, 'connected': True, 'mounted': False}
     finally:
         if page is not None:
             page.close()

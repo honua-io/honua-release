@@ -76,3 +76,17 @@ def test_effective_default_provider_must_be_configured_bedrock_sonnet():
         verify_capabilities(recorder({**provider, 'model': 'another-model'}), model)
     with pytest.raises(ProjectionError, match='required configured'):
         verify_capabilities(recorder({**provider, 'configured': False}), model)
+
+
+def test_assistant_usage_accepts_only_the_minted_customer_key():
+    model = 'us.anthropic.claude-sonnet-4-6'
+    key = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    user = 'subject:issuer:customer@tenant:public'
+    event = {'actor': 'apikey:api-key:' + key, 'resourceType': 'studio_ai_provider',
+             'action': 'studio_ai.chat', 'outcome': 'Success',
+             'details': '{"kind":"bedrock","model":"' + model + '","promptTokens":10,"completionTokens":4}'}
+    assert assistant_usage({}, {1: event}, user_id=user, subject='customer', model=model,
+                           observed_calls=1, agent_key_id=key)
+    with pytest.raises(ProjectionError, match='customer'):
+        assistant_usage({}, {1: event}, user_id=user, subject='customer', model=model,
+                        observed_calls=1, agent_key_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')

@@ -64,7 +64,10 @@ def provision_local_server(slot, signing_key):
            'Oidc__Generic__Enabled': 'true', 'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
            'Oidc__Generic__ClientId': 'terminal-journey',
            'Oidc__TokenValidation__SymmetricSigningKey': signing_key,
-           'Studio__EndUserAuthorization__Enabled': 'true'}
+           'Studio__EndUserAuthorization__Enabled': 'true',
+           'StudioAiProxy__TranscriptSigning__KeyId': 'studio-arc-transcript',
+           'StudioAiProxy__TranscriptSigning__PrivateKeyReference': 'env://HONUA_STUDIO_TRANSCRIPT_SEED',
+           'HONUA_STUDIO_TRANSCRIPT_SEED': '${HONUA_STUDIO_TRANSCRIPT_SEED}'}
     override = yaml.safe_dump({'services': {'server': {'image': '${HONUA_STUDIO_ACTIVE_IMAGE}',
                                                         'environment': env}}}, sort_keys=True)
     fence = 'HONUA_STUDIO_' + secrets.token_hex(12)
@@ -74,6 +77,8 @@ def provision_local_server(slot, signing_key):
               + 'HONUA_STUDIO_ACTIVE_IMAGE=$(docker inspect --format "{{.Image}}" "$server_id")\n'
               + 'case "$HONUA_STUDIO_ACTIVE_IMAGE" in sha256:*) ;; *) exit 1 ;; esac\n'
               + 'export HONUA_STUDIO_ACTIVE_IMAGE\n'
+              + "HONUA_STUDIO_TRANSCRIPT_SEED=$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')\n"
+              + 'export HONUA_STUDIO_TRANSCRIPT_SEED\n'
               + f"cat > studio-customer.yaml <<'{fence}'\n{override}{fence}\n"
               + slot.compose('-f', 'compose.yaml', '-f', 'studio-customer.yaml', 'up', '-d', '--no-deps',
                              '--wait', '--wait-timeout', '240', 'server') + '\n')
@@ -263,6 +268,7 @@ def arc_stage(ctx):
 
         def sign_in_probe(self, context):
             from agent_browser_studio import open_studio_browser
+            from agent_e2e_studio_customer_session import prepare_conversation, rpc
             self.signing = secrets.token_urlsafe(48)
             context.slot.harness_secrets.append(self.signing)
             try:
@@ -272,17 +278,12 @@ def arc_stage(ctx):
                 browser = None
                 try:
                     runtime.start_console(stack)
-                    log = runner.ActionLog(Path(stack.workdir) / 'sign-in-probe', 1, set(), 30)
-                    browser = open_studio_browser(stack, log, identity=runtime._console_identities[stack.compose_project])
-                    status, _, _ = browser.perform('studio_navigate', {'url': '/studio'})
-                    if status != 'ok':
-                        return {'ok': False}
-                    for _ in range(20):
-                        status, text, _ = browser.perform('studio_snapshot', {})
-                        if status == 'ok' and 'Connected to' in text:
-                            return {'ok': True, 'source': 'runner-minted customer in pinned CaseConsole'}
-                        time.sleep(1)
-                    return {'ok': False}
+                    log = runner.ActionLog(Path(stack.workdir) / 'sign-in-probe', 1, set(), 200)
+                    browser = open_studio_browser(stack, log, identity=runtime._console_identities[stack.compose_project],
+                                                  scripted_customer=True)
+                    prepare_conversation(invoke=lambda name, args: rpc(browser.endpoint, name, args),
+                                         deadline=time.monotonic() + 30)
+                    return {'ok': True, 'source': 'runner-minted customer in pinned CaseConsole workspace'}
                 finally:
                     if browser is not None:
                         browser.stop()

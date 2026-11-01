@@ -1145,3 +1145,23 @@ def test_missing_saved_label_rule_is_not_style_evidence():
     body['mapSpec']['layers'] = [row for row in body['mapSpec']['layers'] if row['type'] != 'symbol']
     with pytest.raises(PackError, match='label'):
         style_from_body(body)
+
+
+def test_assistant_console_receives_only_the_runner_minted_agent_key(tmp_path, monkeypatch):
+    import agent_browser_studio as studio
+    calls = []
+    stack = Stack('http://127.0.0.1:8137', 'controller-secret', None, 'g41', 'f', str(tmp_path), DIGEST, {})
+    monkeypatch.setenv('DOCKER_HOST', 'ssh://honua-eval-4')
+    monkeypatch.setenv('HONUA_AGENT_API_KEY', 'inherited-wrong-key')
+    def run(command, **kwargs):
+        calls.append((command, kwargs['env']))
+        return SimpleNamespace(returncode=1, stdout='')
+    monkeypatch.setattr(studio.subprocess, 'run', run)
+    with pytest.raises(RuntimeError, match='could not start'):
+        studio.CaseConsole(stack, 'ghcr.io/honua-io/honua-console@sha256:' + 'a' * 64,
+                           agent_key='customer-agent-key', release_id='rc2')
+    command, env = calls[0]
+    assert env['HONUA_AGENT_API_KEY'] == 'customer-agent-key'
+    assert env['HONUA_NATIVE_MODEL_ENABLED'] == 'true'
+    assert 'customer-agent-key' not in command
+    assert 'HONUA_ADMIN_API_KEY' not in env

@@ -98,7 +98,7 @@ def remote_docker_host():
 
 class CaseConsole:
     """A digest-pinned quickstart Console attached to one remote case network."""
-    def __init__(self, stack, image, *, edge_secret=None):
+    def __init__(self, stack, image, *, edge_secret=None, agent_key=None, release_id=None):
         self.host = remote_docker_host()
         if self.host is None:
             raise ValueError('Console requires an approved remote eval Docker host')
@@ -115,6 +115,8 @@ class CaseConsole:
         self.url = None
         env = dict(os.environ, DOCKER_HOST=self._docker_host)
         env.pop('HONUA_ADMIN_API_KEY', None)
+        for name in ('HONUA_AGENT_API_KEY', 'HONUA_NATIVE_MODEL_ENABLED', 'HONUA_AGENT_RELEASE_ID'):
+            env.pop(name, None)
         command = ['docker', 'run', '--detach', '--name', self.name,
                    '--label', 'honua.corpus.case=' + stack.compose_project,
                    '--network', stack.compose_project + '_default', '--publish', '127.0.0.1::8080',
@@ -129,6 +131,14 @@ class CaseConsole:
             env['Honua__Console__Auth__EdgeForwarded__SharedSecret'] = edge_secret
             command[-1:-1] = ['--env', 'Honua__Console__Auth__Mode=EdgeForwarded',
                                '--env', 'Honua__Console__Auth__EdgeForwarded__SharedSecret']
+        if agent_key is not None:
+            if (not isinstance(agent_key, str) or not agent_key or agent_key == stack.admin_key
+                    or not isinstance(release_id, str) or not release_id):
+                raise ValueError('invalid customer agent credential or release')
+            env.update(HONUA_AGENT_API_KEY=agent_key, HONUA_NATIVE_MODEL_ENABLED='true',
+                       HONUA_AGENT_RELEASE_ID=release_id)
+            command[-1:-1] = ['--env', 'HONUA_AGENT_API_KEY', '--env', 'HONUA_NATIVE_MODEL_ENABLED',
+                               '--env', 'HONUA_AGENT_RELEASE_ID']
         try:
             self._attempted = True
             result = subprocess.run(command, env=env, capture_output=True, timeout=180, check=False)
@@ -571,16 +581,25 @@ class PlaywrightPage:
     def chat_state(self):
         """Read the visible Studio chat without evaluating page code."""
         self._check_origin()
-        chat = self._page.locator('[data-testid="studio-chat"]')
+        chat = self._page.locator('[data-agent-workspace]')
         if chat.count() != 1:
             raise BrowserUnavailable('Studio chat is unavailable or ambiguous')
-        messages = chat.locator('[data-testid="studio-chat-message"][data-role="assistant"]')
-        last = messages.last if messages.count() else None
-        result = {'assistantMessages': messages.count(), 'toolCalls': chat.locator(
-            '[data-testid="studio-chat-tool-call"]').count(),
-            'streaming': chat.locator('[data-testid="studio-chat-cancel"]').count() > 0,
-            'status': last.get_attribute('data-status') if last else None,
-            'text': last.locator('[data-testid="studio-chat-message-text"]').inner_text(timeout=5000) if last else '',
+        rows = chat.locator('[data-workspace-messages] > p')
+        messages = [rows.nth(i).inner_text(timeout=5000) for i in range(rows.count())]
+        answers = [line[len('assistant:'):].strip() for line in messages if line.lower().startswith('assistant:')]
+        entry = chat.locator('[data-workspace-prompt]')
+        send = chat.locator('form button[type="submit"]')
+        working = chat.locator('[data-workspace-working]')
+        panel_open = chat.get_attribute('open') is not None
+        connected = chat.get_attribute('data-connected') == 'true'
+        streaming = working.count() == 1 and working.is_visible()
+        result = {'assistantMessages': len(answers), 'toolCalls': self._assistant_tool_calls,
+            'streaming': streaming, 'panelOpen': panel_open, 'connected': connected,
+            'mounted': chat.get_attribute('data-mounted') == 'true',
+            'ready': (connected and entry.count() == 1 and send.count() == 1 and entry.is_visible()
+                      and entry.is_enabled() and send.is_enabled()),
+            'status': 'complete' if answers and not streaming else None,
+            'text': answers[-1] if answers else '',
             'modelCalls': self._assistant_model_calls, 'dispatchedToolCalls': self._assistant_tool_calls,
             'boundHit': self._assistant_bound_hit}
         self._check_origin()
@@ -813,7 +832,7 @@ class StudioBrowserServer:
         text = arguments['text']
         if not isinstance(text, str) or len(text) > 8192 or '\x00' in text:
             raise OriginLocked('refused customer text')
-        if arguments['selector'] != '[data-testid="studio-chat-input"]':
+        if arguments['selector'] != '[data-workspace-prompt]':
             raise OriginLocked('refused customer input')
         self.page.fill(arguments['selector'], text)
         return 'typed'

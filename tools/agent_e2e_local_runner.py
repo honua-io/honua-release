@@ -1036,9 +1036,14 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             try:
                 if inspect_region(remote_docker_host(), stack.compose_project, provider) != region_evidence:
                     raise ProjectionError('Studio provider container changed during the session')
+                owner = runtime.custody(stack)
+                if (owner.get('agentKeyId') != stack.extra.get('agentPrincipal')
+                        or owner.get('agentKeyOwnerUserId') != identity.get('userId')):
+                    raise ProjectionError('Studio agent key is not bound to the customer')
                 verified_usage = assistant_usage(studio_audit_before, studio_audit_after, user_id=identity.get('userId'),
                                                  subject=identity.get('subject'), model=MODEL,
-                                                 observed_calls=sessions[-1].get('studioObservedModelCalls'))
+                                                 observed_calls=sessions[-1].get('studioObservedModelCalls'),
+                                                 agent_key_id=owner['agentKeyId'])
             except (ProjectionError, TypeError, ValueError) as exc:
                 raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
                     'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
@@ -1687,7 +1692,12 @@ class LocalRuntime:
         identity = self._console_identities.get(stack.compose_project)
         if identity is None:
             raise ValueError('case has no minted Console customer identity')
-        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
+        assistant = getattr(self, 'agent', None) == 'console-assistant'
+        if assistant and not os.environ.get(self.AGENT_ENV):
+            raise ValueError('case has no minted customer agent credential')
+        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'],
+                              agent_key=os.environ.get(self.AGENT_ENV) if assistant else None,
+                              release_id=self.release_id if assistant else None)
         try:
             self.attest(stack, 'studioConsoleImage', pin, [])
         except Exception:

@@ -36,6 +36,43 @@ def rpc(endpoint, name, arguments):
     return content[0]['text']
 
 
+def prepare_conversation(*, invoke, deadline, clock=time.monotonic, sleep=time.sleep):
+    """Open the customer's real Console workspace without sending a model turn."""
+    invoke('studio_navigate', {'url': '/studio'})
+    # Console mounts the Studio workspace asynchronously after navigation.
+    # Keep polling recorded and bounded; do not send the customer's request
+    # until the chat actually exists.
+    ready_by = min(deadline, clock() + 30)
+    opened = started = False
+    while True:
+        try:
+            initial = json.loads(invoke('studio_chat_observe', {}))
+        except CustomerScriptError:
+            if clock() >= ready_by:
+                raise CustomerScriptError('Studio chat did not become ready') from None
+            sleep(0.5)
+            continue
+        except (ValueError, TypeError) as exc:
+            raise CustomerScriptError('initial Studio chat state is malformed') from exc
+        if (not isinstance(initial, dict) or type(initial.get('assistantMessages')) is not int
+                or type(initial.get('ready')) is not bool or type(initial.get('streaming')) is not bool
+                or type(initial.get('panelOpen')) is not bool or type(initial.get('connected')) is not bool
+                or type(initial.get('mounted')) is not bool):
+            raise CustomerScriptError('initial Studio chat state is malformed')
+        if not initial['panelOpen'] and not opened:
+            invoke('studio_click', {'selector': '[data-agent-workspace] > summary'})
+            opened = True
+        elif initial['panelOpen'] and initial['mounted'] and not initial['connected'] and not started:
+            invoke('studio_click', {'selector': '[data-workspace-start]'})
+            started = True
+        if initial['ready'] and not initial['streaming']:
+            break
+        if clock() >= ready_by:
+            raise CustomerScriptError('Studio chat did not become ready')
+        sleep(0.5)
+    return initial
+
+
 def run_customer(*, invoke, prompt, script, timeout=2700, clock=time.monotonic, sleep=time.sleep):
     """Drive only the customer's frozen turns; chat state is never scoring evidence."""
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8192:
@@ -49,32 +86,13 @@ def run_customer(*, invoke, prompt, script, timeout=2700, clock=time.monotonic, 
         nonlocal turns, nudges
         if turns >= 60 or clock() >= end:
             raise CustomerScriptError('customer turn or time bound exceeded')
-        invoke('studio_customer_type', {'selector': '[data-testid="studio-chat-input"]', 'text': text})
-        invoke('studio_click', {'selector': '[data-testid="studio-chat-send"]'})
+        invoke('studio_customer_type', {'selector': '[data-workspace-prompt]', 'text': text})
+        invoke('studio_click', {'selector': '[data-agent-workspace] form button[type="submit"]'})
         turns += 1
         nudges += int(continuation)
         digests.append('sha256:' + hashlib.sha256(text.encode()).hexdigest())
 
-    invoke('studio_navigate', {'url': '/studio'})
-    # Console mounts the Studio workspace asynchronously after navigation.
-    # Keep polling recorded and bounded; do not send the customer's request
-    # until the chat actually exists.
-    ready_by = min(end, clock() + 30)
-    while True:
-        try:
-            initial_text = invoke('studio_chat_observe', {})
-            break
-        except CustomerScriptError:
-            if clock() >= ready_by:
-                raise CustomerScriptError('Studio chat did not become ready') from None
-            sleep(0.5)
-    try:
-        initial = json.loads(initial_text)
-    except (ValueError, TypeError) as exc:
-        raise CustomerScriptError('initial Studio chat state is malformed') from exc
-    if (not isinstance(initial, dict) or type(initial.get('assistantMessages')) is not int
-            or initial.get('streaming') is not False):
-        raise CustomerScriptError('Studio chat is unavailable or already busy')
+    initial = prepare_conversation(invoke=invoke, deadline=end, clock=clock, sleep=sleep)
     seen = initial['assistantMessages']
     send(prompt)
     last_progress = clock()

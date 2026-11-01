@@ -86,11 +86,18 @@ def verify(before, after, controller_principals):
             'controller principal appeared in Studio session audit')
 
 
-def assistant_usage(before, after, *, user_id, subject, model, observed_calls):
+def assistant_usage(before, after, *, user_id, subject, model, observed_calls, agent_key_id=None):
     """Bind model and usage to customer-attributed server AI audit records."""
     require(isinstance(user_id, str) and user_id.startswith('subject:')
             and isinstance(subject, str) and subject, 'customer identity is unavailable')
     canonical_subject = user_id.split('@tenant:', 1)[0]
+    key_actors = set()
+    if agent_key_id is not None:
+        try:
+            key_id = str(UUID(agent_key_id))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ProjectionError('customer agent key identity is malformed') from exc
+        key_actors = {key_id, 'api-key:' + key_id, 'apikey:api-key:' + key_id}
     events = [event for key, event in after.items() if key not in before
               and event.get('resourceType') == 'studio_ai_provider' and event.get('action') == 'studio_ai.chat']
     require(type(observed_calls) is int and 0 < observed_calls <= 60 and len(events) == observed_calls,
@@ -98,7 +105,8 @@ def assistant_usage(before, after, *, user_id, subject, model, observed_calls):
     usage = []
     for event in events:
         actor = event.get('actor', '')
-        require(actor in (subject, user_id, canonical_subject) or actor.endswith(':' + canonical_subject),
+        require(actor in (subject, user_id, canonical_subject) or actor.endswith(':' + canonical_subject)
+                or actor.casefold() in key_actors,
                 'Studio AI audit is not attributed to the customer')
         require(event.get('outcome') == 'Success' and isinstance(event.get('details'), str),
                 'Studio AI audit reports a failed or incomplete call')
