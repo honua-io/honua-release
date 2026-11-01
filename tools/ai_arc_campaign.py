@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,103 @@ def suspected_harness_fault(receipt: dict) -> bool:
     prep = (receipt.get('slotFacts') or {}).get('slotPreparation') or {}
     return isinstance(prep, dict) and prep.get('status') not in (None, 'skipped', 'converged')
 
+def _hours(receipt: dict) -> float | None:
+    from datetime import datetime
+    try:
+        a, b = (datetime.fromisoformat(str(receipt[k]).replace('Z', '+00:00')) for k in ('startedAt', 'finishedAt'))
+        return max(0.0, (b - a).total_seconds() / 3600)
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+# Every ledger row says which figures are measured against a published price and which are estimates.
+RATE_BASIS = {'bedrock': 'AWS public price list (Regional CRIS on-demand, us-east-1)',
+              'compute': 'estimate (VM and AWS cell hourly rates are not verified against the price list)',
+              'cliSubscription': 'unknown (flat subscription; never priced)'}
+
+
+def run_cost(receipt: dict | None, target: str, spend: dict) -> dict:
+    """One run's spend (Astra S4): Bedrock tokens from the receipt (the Studio built-in assistant, priced at the
+    us-east-1 rate), the VM or AWS cell estimate for the run's wall clock, and the CLI subscription recorded as
+    unknown (flat subscription; never priced). A run without a readable receipt is charged the per-run estimate."""
+    rates = spend['rates']
+    if not isinstance(receipt, dict):
+        return {'bedrockUsd': None, 'computeUsd': None, 'cliSubscriptionUsd': 'unknown',
+                'totalUsd': float(spend['perRunEstimateUsd']), 'basis': 'estimate (no receipt)',
+                'rateBasis': RATE_BASIS}
+    tokens = {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}
+    # The Studio audit projection reports prompt_tokens / completion_tokens (agent_studio_session_audit);
+    # Sol d7af7588 item 1: they price as input and output.
+    keys = {'input': ('inputTokens', 'input_tokens', 'prompt_tokens', 'promptTokens'),
+            'output': ('outputTokens', 'output_tokens', 'completion_tokens', 'completionTokens'),
+            'cacheRead': ('cacheReadInputTokens', 'cache_read_input_tokens'),
+            'cacheWrite': ('cacheWriteInputTokens', 'cacheCreationInputTokens', 'cache_creation_input_tokens')}
+    for stage in receipt.get('stages') or []:
+        usage = stage.get('assistantUsage') if isinstance(stage, dict) else None
+        for row in (usage if isinstance(usage, list) else [usage] if isinstance(usage, dict) else []):
+            for kind, names in keys.items():
+                tokens[kind] += sum(row.get(n, 0) for n in names if isinstance(row.get(n), (int, float)))
+    bedrock = rates['bedrock']
+    bedrock_usd = sum(tokens[k] * bedrock[k + 'PerMTok'] for k in tokens) / 1e6
+    hours = _hours(receipt)
+    hourly = rates['vmHourUsd'] if target == 'local-docker' else rates['awsCellHourUsd']
+    compute = hours * hourly if hours is not None else float(spend['perRunEstimateUsd'])
+    return {'bedrockUsd': round(bedrock_usd, 4), 'bedrockTokens': tokens, 'computeUsd': round(compute, 4),
+            'computeHours': None if hours is None else round(hours, 3), 'cliSubscriptionUsd': 'unknown',
+            'totalUsd': round(bedrock_usd + compute, 4),
+            'basis': 'receipt' if hours is not None else 'receipt (no wall clock: compute is the per-run estimate)',
+            'rateBasis': RATE_BASIS}
+
+
+class SpendLedger:
+    """The campaign spend ledger against the frozen cap, shared by every campaign that names the same file (one
+    lock per append). Scheduling stops before a launch whose estimate would take the total over the cap."""
+
+    def __init__(self, path: Path, spend: dict):
+        self.path, self.spend = Path(path), spend
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.tokens = {}       # runId -> this campaign's live reservation (Sol d7af7588 item 2)
+
+    def _locked(self, fn):
+        import fcntl
+        with open(self.path.with_suffix('.lock'), 'a') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                rows = json.loads(self.path.read_text()) if self.path.is_file() else []
+                result = fn(rows)
+                tmp = self.path.with_suffix('.tmp')
+                tmp.write_text(json.dumps(rows, indent=1) + '\n')
+                tmp.replace(self.path)
+                return result
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def reserve(self, run_id: str) -> dict | None:
+        """None when the launch fits under the cap (recorded as reserved), else the stop report."""
+        def check(rows):
+            spent = sum(r['totalUsd'] for r in rows if r.get('kind') == 'run')
+            # A completion releases only the one reservation it names. A redispatch that reuses a schedule
+            # runId keeps its own live reservation (Sol d7af7588 item 2).
+            closed = {x.get('reservation') for x in rows if x.get('kind') == 'run' and x.get('reservation')}
+            open_ = sum(1 for r in rows if r.get('kind') == 'reserved' and r.get('reservation') not in closed)
+            observed = [r['totalUsd'] for r in rows if r.get('kind') == 'run']
+            estimate = max([float(self.spend['perRunEstimateUsd'])] + observed)
+            projected = spent + estimate * (open_ + 1)
+            if projected > float(self.spend['capUsd']):
+                return {'stopped': True, 'runId': run_id, 'spentUsd': round(spent, 2), 'openRuns': open_,
+                        'perRunEstimateUsd': round(estimate, 2), 'projectedUsd': round(projected, 2),
+                        'capUsd': self.spend['capUsd'], 'cliSubscriptionUsd': 'unknown'}
+            token = uuid.uuid4().hex
+            self.tokens[run_id] = token
+            rows.append({'kind': 'reserved', 'runId': run_id, 'reservation': token, 'estimateUsd': round(estimate, 4)})
+            return None
+        return self._locked(check)
+
+    def record(self, run_id: str, cost: dict):
+        token = self.tokens.pop(run_id, None)
+        self._locked(lambda rows: rows.append({'kind': 'run', 'runId': run_id, 'reservation': token, **cost}))
+
+
 def slots(hosts: list[str], per_host: int) -> list[tuple[str, int]]:
     if not hosts or not 1 <= per_host <= 3:
         raise ValueError('at least one host and 1..3 slots per host')
@@ -47,7 +145,8 @@ def slots(hosts: list[str], per_host: int) -> list[tuple[str, int]]:
 
 
 def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, common: list[str],
-                 reserve_rows=(), launch=None, wait_poll=30.0, max_wait=None, provisioner=None, arc=None) -> list[dict]:
+                 reserve_rows=(), launch=None, wait_poll=30.0, max_wait=None, provisioner=None, arc=None,
+                 ledger: Path | None = None) -> list[dict]:
     """Run every scheduled row once; returns [{runId, status, receipt}]. ``launch(row, slot) -> int``.
 
     After an undetermined (or missing) run nothing new starts until that run has an adjudication that
@@ -63,6 +162,8 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
     results, pending, voids, threads, rejected = [], [], [], [], {}
     adjudicated = {}
     queue, reserves = list(schedule_rows), list(reserve_rows)
+    spend = SpendLedger(ledger or (out / 'spend-ledger.json'), arc['spendCap'])
+    stopped = {}
 
     def run_dir(row):
         return out / 'runs' / row['runId'].replace(':', '-')
@@ -100,7 +201,8 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         (out / 'campaign-state.json').write_text(json.dumps({'pending': pending, 'voids': voids,
                                                              'rejectedAdjudications': rejected,
                                                              'reservesLeft': [r['runId'] for r in reserves],
-                                                             'finished': [r['runId'] for r in results]}, indent=2) + '\n')
+                                                             'finished': [r['runId'] for r in results],
+                                                             'spendCapStop': stopped or None}, indent=2) + '\n')
         if pending:
             (out / 'PENDING-ADJUDICATION').write_text('\n'.join(pending) + '\n')
         else:
@@ -112,6 +214,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         finally:
             path = run_dir(row) / 'trial-receipt.json'
             receipt = json.loads(path.read_text()) if path.is_file() else None
+            spend.record(row['runId'], run_cost(receipt, target, arc['spendCap']))
             with lock:
                 results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
                                 'receipt': str(path) if receipt else None})
@@ -170,10 +273,36 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         queue.insert(0, reserve)
         return True
 
+    def scan_holds():
+        for hold in sorted((out / 'holds').glob('*.hold')) if (out / 'holds').is_dir() else []:
+            # A hold placed on any run, finished or in flight, is a suspected defect: nothing new starts
+            # until it is adjudicated (Sol 09e293be). A hold for a run not yet started blocks it too.
+            held = next((r['runId'] for r in results if r['runId'].replace(':', '-') + '.hold' == hold.name),
+                        None)
+            generation = hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
+            # An acknowledgement answers one hold generation; a fresh hold needs a fresh decision
+            # (Sol 4ac23739 item 2).
+            if held and held not in pending and adjudicated.get(held) != generation:
+                pending.append(held)
+
     started = time.monotonic()
     try:
         with lock:
             while queue or pending or len(results) < len(threads):
+                if stopped and len(results) >= len(threads):
+                    # Sol d7af7588 item 3: a spend stop drains independently of the launch barriers. Once every
+                    # running run has finished, the campaign ends (exit 3). Pending adjudications, including
+                    # holds placed on finished runs, are recorded in the state, not awaited.
+                    scan_holds()
+                    save_state()
+                    break
+                if stopped:
+                    # Sol 811796f3: while draining, nothing is adjudicated (an adjudication can raise on an
+                    # exhausted void cap or reserve, which would skip the joins and lose exit 3); running runs
+                    # only finish, and holds are recorded.
+                    scan_holds()
+                    lock.wait(wait_poll)
+                    continue
                 if pending:
                     cleared, generation = adjudicate(pending[0])
                     if cleared:
@@ -185,16 +314,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                         raise TimeoutError('runs await a valid adjudication: ' + ', '.join(pending))
                     lock.wait(wait_poll)
                     continue
-                for hold in sorted((out / 'holds').glob('*.hold')) if (out / 'holds').is_dir() else []:
-                    # A hold placed on any run, finished or in flight, is a suspected defect: nothing new starts
-                    # until it is adjudicated (Sol 09e293be). A hold for a run not yet started blocks it too.
-                    held = next((r['runId'] for r in results if r['runId'].replace(':', '-') + '.hold' == hold.name),
-                                None)
-                    generation = hashlib.sha256(hold.read_bytes()).hexdigest() + ':' + str(hold.stat().st_mtime_ns)
-                    # An acknowledgement answers one hold generation; a fresh hold needs a fresh decision
-                    # (Sol 4ac23739 item 2).
-                    if held and held not in pending and adjudicated.get(held) != generation:
-                        pending.append(held)
+                scan_holds()
                 if pending:
                     continue
                 if any(h.name.endswith('.hold') for h in ((out / 'holds').iterdir() if (out / 'holds').is_dir() else [])
@@ -212,6 +332,13 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                     continue
                 if not queue or not free:
                     lock.wait(wait_poll)
+                    continue
+                report = spend.reserve(queue[0]["runId"])
+                if report is not None:
+                    # Astra S4: the next launch would exceed the frozen spend cap. Nothing new starts; running
+                    # runs finish; the stop and every unstarted row are reported.
+                    stopped.update(report, unstarted=[r['runId'] for r in queue])
+                    (out / 'SPEND-CAP-REACHED').write_text(json.dumps(stopped, indent=2) + '\n')
                     continue
                 row, slot = queue.pop(0), free.pop(0)
                 thread = threading.Thread(target=worker, args=(row, slot), daemon=True)
@@ -240,6 +367,7 @@ def main(argv=None) -> int:
     parser.add_argument('--console-compose', help='honua-server docker-compose.yml at the arc pin (stage 4)')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--slot-provisioner', help='AWS targets: executable with acquire/release <target> <run>')
+    parser.add_argument('--spend-ledger', type=Path, help='shared spend ledger (one per gate campaign; Astra S4)')
     args = parser.parse_args(argv)
     if args.out.exists():
         parser.error('output directory exists; every previous campaign is preserved')
@@ -258,9 +386,12 @@ def main(argv=None) -> int:
             common += [flag, value]
     results = run_campaign(target=args.target, arm=args.arm, schedule_rows=rows, out=args.out,
                            hosts=[h for h in args.hosts.split(',') if h], per_host=args.per_host, common=common,
-                           reserve_rows=reserve_rows, provisioner=args.slot_provisioner, arc=arc)
-    print(json.dumps({'runs': len(results), 'statuses': sorted(r['status'] for r in results)}))
-    return 0
+                           reserve_rows=reserve_rows, provisioner=args.slot_provisioner, arc=arc,
+                           ledger=args.spend_ledger)
+    stop = args.out / 'SPEND-CAP-REACHED'
+    print(json.dumps({'runs': len(results), 'statuses': sorted(r['status'] for r in results),
+                      'spendCapReached': json.loads(stop.read_text()) if stop.is_file() else None}))
+    return 3 if stop.is_file() else 0
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 
 seed     publish the frozen town (published-town) through the runner recorder and read
          the shelters layer once (seed-phase baseline)
-observe  replay the model's own last honua_query_features call on the seeded shelters
+observe  replay the model's own matching honua_query_features call on the seeded shelters
          layer from the digest-verified action log, with controller credentials, and
          read the shelters layer again (observe-phase)
 score    the runner projects the replay response to its source_id set (filter.exact) and
@@ -30,7 +30,7 @@ class P10(Scenario):
     supported_variants = ('A', 'B')
 
     def seed(self, stack, variant):
-        from agent_e2e_scenario_backend import TownSetup
+        from agent_e2e_local_scenarios.w2g3_common import town_setup
         from agent_e2e_p10_observer import source_path
         if variant not in self.supported_variants:
             raise ValueError('unsupported P10 variant')
@@ -42,7 +42,7 @@ class P10(Scenario):
         namespace = 'p10_' + stack.compose_project.replace('-', '')[-16:]
         if 'connectionId' not in stack.extra:
             stack.extra['connectionId'] = stack.extra['ensureConnection']()
-        town = TownSetup(recorder, ROOT / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
+        town = town_setup(recorder, variant).prepare(
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
         binding = town['layers']['shelters']
@@ -57,22 +57,26 @@ class P10(Scenario):
 
     @staticmethod
     def selected_query(actions, seeded):
-        """The model's last query of the seeded shelters layer, from the verified action log."""
-        chosen = None
-        for action in actions:
-            arguments = action.arguments if isinstance(action.arguments, dict) else {}
-            if (action.kind == 'tool_call' and action.tool == QUERY_TOOL
-                    and str(arguments.get('serviceId')) == str(seeded.state['service'])
-                    and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
-                chosen = action
-        return chosen
+        """Only the last query is eligible, including failures and queries of other layers."""
+        queries = [a for a in actions if a.kind == 'tool_call' and a.tool == QUERY_TOOL]
+        if not queries:
+            return None
+        action = queries[-1]
+        arguments = action.arguments if isinstance(action.arguments, dict) else {}
+        if (action.status == 'pass' and str(arguments.get('serviceId')) == str(seeded.state['service'])
+                and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
+            return action
+        return None
 
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_p10_observer import source_path
         recorder = stack.extra['recorder']
         binding = {'service': seeded.state['service'], 'layerId': seeded.state['layerId']}
         recorder.json('p10-source-after', 'GET', source_path(binding))
-        query = self.selected_query(recorder.actions(), seeded)
+        actions = recorder.actions()
+        from agent_e2e_local_expectations import fixture_catalog
+        count = sum(a.kind == 'tool_call' and a.tool == QUERY_TOOL for a in actions)
+        query = self.selected_query(actions, seeded) if count <= fixture_catalog()['maxP10Queries'] else None
         if query is not None:
             try:
                 recorder.replay('p10-replay-query', query)

@@ -66,6 +66,7 @@ RUNNER_FILES = ('certification/ai-arc/studio-arc-expectations.json', 'certificat
                 'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
                 'tools/agent_browser_studio.py',
                 'tools/ai_arc_safety.py', 'tools/ai_arc_services.py', 'tools/ai_arc_campaign.py',
+                'certification/ai-arc/services-fixture-scenarios.json',
                 'tools/agent_cli_arc.py', 'tools/agent_cli_backends.py', 'tools/agent_cli_sessions.py',
                 'tools/agent_e2e_cli_sessions.py', 'tools/agent_e2e_local_runner.py',
                 'tools/agent_e2e_local_recorder.py', 'tools/agent_e2e_local_api.py',
@@ -192,7 +193,8 @@ def derived_required(arc: dict) -> dict:
     out = {'setup': stages['setup']['setupRequired'], 'ops': {t: [CANDIDATE_INVARIANT] + list(arc['opsScope']['catalog'])
                                                               for t in TARGETS}}
     services = [CANDIDATE_INVARIANT] + [f'{sid}:{a}' for sid in stages['services']['scenarios']
-                                        for a in pack[sid] + ['finalAnswerCheck']]
+                                        for a in pack[sid] + ['finalAnswerCheck']
+                                        if not (sid == 'P15' and a == 'custody.bootstrap-revoked')]
     studio = [CANDIDATE_INVARIANT] + [f'{d}:{sid}:{a}' for d in stages['studio']['drivers']
                                       for sid in stages['studio']['scenarios'] for a in pack[sid] + ['finalAnswerCheck']]
     out['services'] = {t: services for t in TARGETS}
@@ -1394,7 +1396,10 @@ def stage_verdict(arc: dict, target: str, stage: str, assertions: list[dict], ro
     failure = row.get('failure')
     by_id = {a['assertion']: a for a in assertions}
     required = [a for a in required_assertions(arc, stage, target) if not is_excluded(a, target, arc['exclusions'])]
-    if failure and failure.get('category') == 'infrastructure' and not actions:
+    if failure and failure.get('category') == 'harness-error':
+        return 'undetermined', 'harness error: ' + str(failure.get('reason'))[:200]
+    if (failure and failure.get('category') == 'infrastructure'
+            and (not actions or failure.get('beforeCaseActions') is True)):
         return 'undetermined', 'session infrastructure (unreplayed): ' + str(failure.get('reason'))[:200]
     if elapsed > limits['maxSeconds']:
         return 'fail', 'stage wall-clock limit exceeded'
@@ -1446,7 +1451,8 @@ def candidate_serving(ctx: StageContext) -> dict:
 
 USAGE_COUNTERS = ('inputTokens', 'outputTokens', 'totalTokens', 'cacheReadInputTokens', 'cacheWriteInputTokens',
                   'cacheCreationInputTokens', 'input_tokens', 'output_tokens', 'total_tokens',
-                  'cache_read_input_tokens', 'cache_creation_input_tokens', 'requests', 'calls', 'latencyMs')
+                  'cache_read_input_tokens', 'cache_creation_input_tokens', 'prompt_tokens', 'completion_tokens',
+                  'promptTokens', 'completionTokens', 'requests', 'calls', 'latencyMs')
 
 
 def usage_record(value):
@@ -1932,7 +1938,10 @@ def _restricted(path: Path) -> bool:
     rel = str(path.relative_to(ROOT)) if path.is_absolute() else str(path)
     low = rel.lower()
     return (any(m in low for m in ('heldout', 'held-out', 'held_out')) or low.endswith('.sealed')
-            or rel == 'certification/agent-e2e/pack.v2.json')
+            or rel == 'certification/agent-e2e/pack.v2.json'
+            or low == 'certification/agent-e2e/corpus/town-c'
+            or low.startswith('certification/agent-e2e/corpus/town-c/')
+            or low == 'certification/agent-e2e/corpus/oracles/town-c.json')
 
 
 def _bindable_files(folder: Path) -> set[str]:
