@@ -93,6 +93,8 @@ def test_the_executor_flows_from_manifest_through_lock_and_bundle_into_the_packa
     (executor(image='ghcr.io/honua-io/honua-server@' + EXEC_INDEX), 'composeExecutor.image'),
     (executor(platformDigests={'amd64': 'sha256:' + 'e' * 64}), 'composeExecutor.platformDigests'),
     ([executor(), executor()], 'exactly one Compose executor image'),
+    # Sol 796a8b80: an image from another repository is never the server's executor.
+    (executor(image='ghcr.io/honua-io/sdk:test'), "composeExecutor.image: 'ghcr.io/honua-io/sdk' is not the serving"),
 ])
 def test_a_wrong_executor_declaration_is_refused_and_never_signed(candidate, declared, reason):
     paths = with_server(candidate, declared)

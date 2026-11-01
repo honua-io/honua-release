@@ -172,6 +172,12 @@ def _compose_executor(component: dict[str, Any], server: dict[str, Any] | None, 
     if not (server or {}).get("version"):
         refuse(f"{path}: the serving image's platform version is not bound", "AT-CUT")
         return None
+    if (server or {}).get("kind") != "image" or image.rsplit(":", 1)[0] != server.get("coordinate"):
+        # The product publishes its executor in the server's own repository (nightly-compose-executor-<sha7>);
+        # an image from any other repository is not the server's executor.
+        refuse(f"{path}.image: {image.rsplit(':', 1)[0]!r} is not the serving image's repository "
+               f"{(server or {}).get('coordinate')!r}", "AT-CUT")
+        return None
     architectures = declared.get("architectures")
     if not architectures:
         refuse(f"{path}.architectures: registry architecture set is not declared", "AT-CUT")
