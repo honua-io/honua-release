@@ -6,8 +6,8 @@
       {
         "id": "compose-proposal-executor",
         "ref": "https://github.com/honua-io/honua-server/pull/6824",
-        "merged": false,
-        "mergeCommit": null
+        "merged": true,
+        "mergeCommit": "50d4857832c87e6bf08429b8e32a0232ccb65bd2"
       },
       {
         "id": "restore-142",

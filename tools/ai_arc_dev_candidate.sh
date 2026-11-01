@@ -9,7 +9,8 @@
 # The image is built once on the first host (DOCKER_HOST=ssh://host1), labelled with the source
 # revision, tagged honua-arc-dev/honua-server:<sha12>, and copied byte-for-byte to the other hosts
 # (docker save | docker load), so every host runs the same image id. The checkout must be clean at
-# that commit; the build context is exactly `git archive <sha>`.
+# that commit; the build context is exactly `git archive <sha>`. The Dockerfile is the production
+# serving one (docker/Dockerfile.aot) unless HONUA_DOCKERFILE names another path in the archive.
 set -euo pipefail
 
 src=${1:?honua-server checkout} sha=${2:?trunk sha} out=${3:?output lock}
@@ -25,7 +26,7 @@ git -C "$src" archive --format=tar "$sha" |
     --label "org.opencontainers.image.revision=$sha" \
     --label "org.opencontainers.image.source=https://github.com/honua-io/honua-server" \
     --label "io.honua.arc.development=true" \
-    -t "$tag" - >/dev/null
+    -f "${HONUA_DOCKERFILE:-docker/Dockerfile.aot}" -t "$tag" - >/dev/null
 
 image_id=$(DOCKER_HOST="ssh://$first" docker image inspect --format '{{.Id}}' "$tag")
 for host in "${@:2}"; do

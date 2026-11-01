@@ -98,7 +98,7 @@ def test_aws_setup_maps_the_harness_checks_and_binds_its_approval(tmp_path):
 def test_ops_refuses_until_every_executor_is_merged(tmp_path, monkeypatch):
     import arc_ops
     reason = arc_ops.arc_stage(ctx_for(tmp_path, 'local-docker', 'ops')).unavailable(None)
-    assert 'honua-server/pull/6824' in reason and 'restore-142' in reason
+    assert 'restore-142' in reason and 'pull/6824' not in reason, 'only open gates are named (#6824 merged)'
     reason = arc_ops.arc_stage(ctx_for(tmp_path, 'aws-ecs', 'ops')).unavailable(None)
     assert 'honua-iac/issues/351' in reason
     gates = tmp_path / 'gates.json'
