@@ -22,11 +22,13 @@ def stack(tmp_path):
 
 
 @pytest.mark.parametrize('scenario_id', ['P01', 'P24'])
-def test_scenario_is_discoverable_and_not_enabled(scenario_id):
+def test_scenario_is_discoverable_and_preserves_fail_closed_assertions(scenario_id):
     module = importlib.import_module('agent_e2e_local_scenarios.' + scenario_id)
     case = module.scenario
-    assert case.id == scenario_id and case.supported_variants == ()
-    assert 'unsupported' in module.__doc__.lower()
+    assert case.id == scenario_id
+    assert case.supported_variants == (('A', 'B') if scenario_id == 'P24' else ())
+    if scenario_id == 'P01':
+        assert 'unsupported' in module.__doc__.lower()
     assert case.fault_plan('A') is None and case.fault_plan('B') is None
     path = ROOT / 'certification/agent-e2e/expectations/local' / (scenario_id + '.json')
     doc = json.loads(path.read_text())
@@ -40,7 +42,11 @@ def test_scenario_is_discoverable_and_not_enabled(scenario_id):
     }[scenario_id]
     assert set(doc['variants']) == {'A', 'B'}
     assert all(set(value) == expected for value in doc['variants'].values())
-    assert any(value is None for value in doc['variants']['A'].values())
+    if scenario_id == 'P01':
+        assert any(value is None for value in doc['variants']['A'].values())
+    else:
+        assert doc['variants']['A']['custody.worker-replaced'] == {
+            '$excluded': 'custody.worker-replaced@local-docker'}
 
 
 def test_p02_records_real_order_and_refuses_to_grade_partial_evidence(stack):
