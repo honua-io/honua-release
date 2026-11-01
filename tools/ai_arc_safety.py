@@ -705,7 +705,7 @@ def _iac_operands(program: str, args: list[str]) -> list[str]:
 
 
 INTERPRETERS = {'python': '-c', 'python3': '-c', 'node': '-e', 'perl': '-e', 'ruby': '-e', 'php': '-r'}
-STRING_LITERAL = re.compile(r"(['\"])((?:\\.|(?!\1).)*)\1")
+STRING_LITERAL = re.compile(r"(['\"])((?:\\.|(?!\1)[^\\])*)\1")
 ENV_LITERAL = re.compile(r"(?:^|[^\w.])\.env\b|keyring|key-ring|secrets/", re.I)
 
 
@@ -776,10 +776,13 @@ def classify_inner(program: str, args: list[str], ports=None, raw: str | None = 
     except Unmodeled as exc:
         _gap(str(exc))
         return None
+    _command_gap(program, {}, [program])
     kinds = classify_anywhere(program, words, redirs, ports,
                               expands=expands_secret(raw if raw is not None else ' '.join(args)))
     if program in SHELLS or program == 'eval':
         body = ' '.join(words) if program == 'eval' else _shell_body(words)
+        for construct in construct_gaps(body or ''):
+            _gap('shell construct ' + construct + ' in a container body (not modelled)')
         if not body and not (words and all(w in HELP for w in words)):
             _gap('a shell script or stdin program in a container (not modelled)')
         try:
@@ -789,15 +792,108 @@ def classify_inner(program: str, args: list[str], ports=None, raw: str | None = 
             lines, subs = [], []
         for sub in subs:
             for segment in _segments_soft(sub):
-                inner, rest, _ = _program(segment)
+                inner, rest, assigned = _program(segment)
+                _container_state_gap(segment, assigned)
                 if inner and (kind := classify_inner(inner, rest, ports, sub, depth + 1)):
                     kinds.append(kind)
         for line in lines:
             for segment in _segments_soft(line, whole=False):
-                inner, rest, _ = _program(segment)
+                inner, rest, assigned = _program(segment)
+                _container_state_gap(segment, assigned)
                 if inner and (kind := classify_inner(inner, rest, ports, line, depth + 1)):
                     kinds.append(kind)
     return kinds[0] if kinds else None
+
+
+# =========================================================================== allowlist (release-session ruling)
+#
+# A command counts as classified ONLY if every construct in it is one this module fully models (release session,
+# 2026-11-01 21:43 UTC). Anything else is an `unclassified-command` coverage gap (safetyUnverified: the stage is
+# undetermined and adjudicated, never auto-passed), while every finding already recognized is still reported.
+# Modelled: plain words, quoted literals, the operators ; && || | and newlines, the redirections in
+# REDIRECT_OPS, `#` comments, and the commands in KNOWN_COMMANDS (plus shells whose -c body is itself checked).
+# Not modelled, so a gap: variable assignments and any $ expansion ($VAR, ${..}, $(..), $((..)), $'..'),
+# backticks, globs and brace expansion, subshells and groups, a lone & (background), history !, backslash
+# escapes, here-documents and here-strings, process substitution, keywords (if/for/while/case/function ...),
+# eval, source and ., alias, and any command not on the list.
+
+KNOWN_COMMANDS = ({'docker', 'docker-compose', 'curl', 'wget', 'aws', 'terraform', 'tofu', 'terragrunt', 'pulumi',
+                   'cdk', 'kubectl', 'helm', 'cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg',
+                   'base64', 'xxd', 'od', 'strings', 'nl', 'tac', 'sort', 'uniq', 'cut', 'tr', 'wc', 'diff', 'cmp',
+                   'echo', 'printf', 'ls', 'pwd', 'cd', 'true', 'false', 'sleep', 'date', 'whoami', 'id', 'uname',
+                   'hostname', 'nproc', 'uptime', 'df', 'du', 'free', 'stat', 'file', 'which', 'env', 'printenv',
+                   'sha256sum', 'sha1sum', 'md5sum', 'shasum', 'ps', 'tar', 'zip', 'unzip', 'gzip', 'gunzip'}
+                  | HOST_MUTATE | (PATH_MUTATE - {'sed'})) - {'su'}
+UNMODELLED_WORDS = {'if', 'then', 'else', 'elif', 'fi', 'while', 'until', 'do', 'done', 'for', 'case', 'esac', 'select',
+                    'function', 'eval', 'source', '.', 'alias', 'unalias', 'export', 'declare', 'typeset', 'local',
+                    'readonly', 'set', 'unset', 'read', 'mapfile', 'readarray', 'trap', 'exec', 'coproc', '[', '[[',
+                    'test', '!', '{', '}', '(', ')', 'xargs', 'watch', 'nohup'}
+
+
+def construct_gaps(text: str) -> list[str]:
+    """The shell constructs in ``text`` this module does not model (single-quoted text is literal here; a shell
+    body that will be re-parsed, such as an sh -c argument, is checked again when it is classified)."""
+    out, quote, i = [], None, 0
+    while i < len(text):
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ''
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif quote == '"':
+            if c == '"':
+                quote = None
+            elif c in '$`\\!':
+                out.append(f'{c!r} inside double quotes')
+        elif c in '\'"':
+            quote = c
+        elif c == '#' and (i == 0 or text[i - 1] in ' \t\n;&|'):
+            j = text.find('\n', i)
+            i = len(text) if j < 0 else j
+            continue
+        elif c in '$`*?[]{}()\\!~':
+            if not (c == '~' and (i == 0 or text[i - 1] in ' =:') and nxt in ('/', ' ', '')):
+                out.append(repr(c))
+        elif c == '&':
+            if nxt == '&' or nxt == '>' or (i > 0 and text[i - 1] in '>&'):
+                pass
+            else:
+                out.append('background &')
+        elif c == '<' and nxt == '<':
+            out.append('here-document or here-string')
+        i += 1
+    try:
+        words = shlex.split(text, comments=True)
+    except ValueError:
+        words = []
+    plain = re.findall(r"(?:^|[\s;&|])([A-Za-z]+)(?=$|[\s;&|])", re.sub(r"'[^']*'|\"[^\"]*\"", ' ', text))
+    for word in set(plain) & SHELL_KEYWORDS:
+        if word in words:
+            out.append(f'keyword {word}')
+    return sorted(set(out))
+
+
+SHELL_KEYWORDS = {'if', 'then', 'else', 'elif', 'fi', 'while', 'until', 'do', 'done', 'for', 'case', 'esac', 'select',
+                  'function', 'coproc', 'in'}
+
+
+def _command_gap(program: str, assignments: dict, words: list[str]) -> None:
+    """Gap for an unmodelled simple command: an assignment, an unmodelled word, or a command not on the list."""
+    if any(not k.startswith('__') for k in assignments):
+        _gap('a variable assignment (not modelled)')
+    if words and words[0] in UNMODELLED_WORDS:
+        _gap(f'{words[0]!r} (not modelled)')
+    elif program and program not in KNOWN_COMMANDS and program not in SHELLS \
+            and not INTERPRETER_NAME.fullmatch(program):
+        _gap(f'the command {program[:40]!r} (not on the modelled list)')
+
+
+def _container_state_gap(segment: list[str], assigned: dict) -> None:
+    """A shell body inside a container is judged command by command without its shell state: a variable it
+    assigns or expands (f=server.pem; cat "$f") cannot be resolved there, so the body is a coverage gap
+    (Sol 1203 r9), never a clean read. Known findings in the same body are still reported."""
+    if assigned or any('$' in token for token in segment) or (segment and segment[0] in ('export', 'read', 'cd')):
+        _gap('a container shell body with variables or state (not modelled)')
 
 
 def _segments_soft(text: str, whole: bool = True) -> list[list[str]]:
@@ -945,6 +1041,8 @@ def _classify_command(command, stdin, project, approved_compose, ports, depth, s
         return []
     found = []
     state = state if state is not None else {'cwd_outside': False, 'env': {}}
+    for construct in construct_gaps(command):
+        _gap('shell construct ' + construct + ' (not modelled)')
     try:
         lines, subs = _scan(command)
     except Unmodeled as exc:
@@ -987,6 +1085,7 @@ def _classify_segment(tokens, expands, stdin, project, approved_compose, ports, 
     if True:  # noqa: SIM108  (kept as one block)
         words, redirs = _redirections([_resolve(t, state['env']) for t in tokens])
         program, args, assignments = _program(words)
+        _command_gap(program, assignments, [t for t in tokens if not ASSIGNMENT.fullmatch(t)][:1])
 
         def again(text):                                   # a nested shell inherits this shell's directory and env
             inherited = {'cwd_outside': state['cwd_outside'] or (assignments.get('__chdir__') is not None and
