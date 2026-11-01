@@ -86,3 +86,6 @@ def test_adapter_rejects_partial_or_mismatched_fixture_arguments_before_setup(tm
         ai_arc_services.run_services(**common, goal='request')
     with pytest.raises(ValueError):
         ai_arc_services.run_services(**common, goal='request', fixture_id='town-B', scenario_id='P10')
+    common['scenarios'] = ('P12',)
+    with pytest.raises(ValueError, match='adopted ARC runtime'):
+        ai_arc_services.run_services(**common, goal='request', fixture_id='town-A', scenario_id='P12')

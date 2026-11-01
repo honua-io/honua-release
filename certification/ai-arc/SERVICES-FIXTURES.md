@@ -11,8 +11,8 @@ and expectations fail closed before a session is started.
 | town-B | B | P10, P12, P13 |
 
 P07 has neither a scenario module nor frozen local expectations on this checkout; it is refused.
-P12 requires a server restart between sessions, which the current adopted ARC runtime refuses, so
-its presence in the corpus catalog does not mean ARC can execute it successfully. The catalog does
+P12 requires a server restart between sessions, which the current adopted ARC runtime refuses; the
+ARC adapter rejects it before starting a session. The catalog does
 not admit other fixture IDs, including fixtures without frozen expectations.
 
 The ARC owner can call `ai_arc_services.run_services` with `goal`, `fixture_id` and the authoritative
