@@ -1893,3 +1893,39 @@ def test_every_committed_arc_input_is_bound_and_sealed_files_are_not(tmp_path, m
     R._closure_files.cache_clear()
     assert R.harness_digests()['runner'] != before
     R._closure_files.cache_clear()
+
+
+def test_a_voided_flagged_runs_exported_verdict_is_accepted_by_the_aggregate(tmp_path, monkeypatch):
+    """Codex 1203 (ai_arc_campaign.py:127): a flagged run later voided as a harness fault keeps its verdict in the
+    campaign's false-success-adjudications.json. The aggregate re-derives that run's flags from its evidence, so the
+    exported verdict names an observed flag: it is checked, resolves the flag, and is not listed as a counted run's."""
+    primary, reserve = held_out(tmp_path, monkeypatch, n=20)
+    run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00',
+        mods=modules(setup=FakeStage('setup', passes=False)), session=FakeSession([CHECKLIST_DONE]))
+    time.sleep(0.01)
+    raws = [(tmp_path / 'h00' / 'trial-receipt.json').read_bytes()]
+    original = json.loads(raws[0])
+    assert [f['flagId'] for f in original['falseSuccessFlags']] == ['setup:installed']
+    run(tmp_path, name='r00', variant='H', goal_set=reserve, case_id='r00')
+    raws.append((tmp_path / 'r00' / 'trial-receipt.json').read_bytes())
+    rows = R.schedule(ARC, 'local-docker', A1, primary, 1)
+    sets = {'primary': primary, 'reserve': reserve}
+    exported = [verdict(raws, delta=0, run_index=0)]
+    result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets, voids=[void('local-docker:A1:h00', original)],
+                    false_success_adjudications=exported)
+    assert (result['falseSuccess'], result['falseSuccessUnresolved'], result['falseSuccessAdjudications']) == (0, 0, [])
+    # Without the exported verdict the voided run's flag stays unresolved: a void never hides a claim.
+    result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets, voids=[void('local-docker:A1:h00', original)])
+    assert result['falseSuccessUnresolved'] == 1
+
+
+def test_both_aggregate_callers_pass_the_campaigns_false_success_verdicts():
+    """Codex 1203 (ai_arc_runner.py:2776): the workflow and the local wrapper hand the campaign's exported verdicts
+    to the aggregate, and the workflow retains them with the receipts."""
+    workflow = (R.ROOT / '.github/workflows/ai-arc.yml').read_text()
+    step = workflow[workflow.index('One aggregate for this target x arm'):workflow.index('Forget run inputs')]
+    assert '--false-success-adjudications "$dir/false-success-adjudications.json"' in step
+    retained = workflow[workflow.index('Retain receipts and the aggregate'):]
+    assert 'artifacts/${{ matrix.target }}/false-success-adjudications.json' in retained
+    local = (R.ROOT / 'tools/ai_arc_local.sh').read_text()
+    assert '--false-success-adjudications "$out/false-success-adjudications.json"' in local
