@@ -1796,9 +1796,13 @@ def test_a_voided_flagged_runs_verdict_is_accepted_but_not_counted():
              'r2': {'runId': 'r2', 'startedAt': '2026-11-02T14:00:00Z', 'finishedAt': '2026-11-02T15:00:00Z'}}
     item = {'runId': 'r1', 'flagId': 'setup:installed', 'verdict': 'rejected', 'reviewerFamily': 'openai',
             'adjudication': 'https://x.example/1', 'adjudicatedAt': '2026-11-02T13:10:00Z'}
-    rows, upheld, unresolved = R.verify_false_success_adjudications(
-        ARC, a1, {'r1': [{'flagId': 'setup:installed', 'claimant': 'arm'}]}, [item], by_id, counted={'r2'})
+    flags = {'r1': [{'flagId': 'setup:installed', 'claimant': 'arm'}]}
+    rows, upheld, unresolved = R.verify_false_success_adjudications(ARC, a1, flags, [item], by_id, counted={'r2'})
     assert (rows, upheld, unresolved) == ([], 0, 0)
+    # Sol 1203 r3: a voided run's unadjudicated flag stays unresolved; an upheld one still counts.
+    assert R.verify_false_success_adjudications(ARC, a1, flags, [], by_id, counted={'r2'})[2] == 1
+    assert R.verify_false_success_adjudications(ARC, a1, flags, [dict(item, verdict='upheld')], by_id,
+                                                counted={'r2'})[1] == 1
 
 
 def test_score_stage_marks_who_made_each_claim():

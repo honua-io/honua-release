@@ -781,9 +781,10 @@ class LocalOps:
 
     @staticmethod
     def backup_ids(vm, strict: bool = False) -> set:
-        done = vm.ssh('ls -1 -- ' + shlex.quote(vm.remote_dir + '/backups') + ' 2>/dev/null', 60)
-        if strict and getattr(done, 'returncode', 0) not in (0, 2):
-            # 2: no backups directory yet (nothing written); anything else is an unreadable inventory.
+        folder = shlex.quote(vm.remote_dir + '/backups')
+        # A missing folder is a confirmed empty inventory; any other failure (permissions, SSH) is unreadable.
+        done = vm.ssh(f'if [ -e {folder} ]; then ls -1 -- {folder}; else echo __no_backups__; fi', 60)
+        if strict and getattr(done, 'returncode', 0) != 0:
             raise RuntimeError('the slot backup inventory could not be read')
         out = done.stdout.decode() if isinstance(done.stdout, bytes) else str(done.stdout or '')
         return {n for n in out.split() if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,119}', n)}

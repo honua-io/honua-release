@@ -2421,11 +2421,13 @@ def verify_false_success_adjudications(arc: dict, arm: dict, flags: dict, adjudi
                      'nextRunStartedAt': min((o['startedAt'] for o in by_id.values()
                                               if parse_time(o['startedAt']) > parse_time(by_id[run]['finishedAt'])),
                                              key=parse_time, default=None)})
-    counted = set(flags) if counted is None else set(counted)
-    rows = [r for r in rows if r['runId'] in counted]
-    total = sum(len(v) for run, v in flags.items() if run in counted)
+    # Totals cover every observed flag, a voided run's too: a void replaces the run's completion count, never its
+    # claims, so an unadjudicated flag on a voided run stays unresolved and an upheld one still counts.
+    total = sum(len(v) for v in flags.values())
     upheld = sum(1 for r in rows if r['verdict'] == 'upheld')
-    return rows, upheld, total - len(rows)
+    unresolved = total - len(rows)
+    counted = set(flags) if counted is None else set(counted)
+    return [r for r in rows if r['runId'] in counted], upheld, unresolved
 
 
 def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict], receipts: list[bytes],
@@ -2495,7 +2497,17 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
                       'falseSuccessUnresolved': facts['unresolved'], 'host': receipt.get('host'),
                       'teardownClean': receipt.get('teardownClean')})
     flags = {run: verified[run]['flags'] for run in counted if run in verified and verified[run]['flags']}
-    observed_flags = dict(flags, **{run: by_id[run].get('falseSuccessFlags') or [] for run in voided if run in by_id})
+    observed_flags = dict(flags)
+    for run in voided:
+        if run not in by_id:
+            continue
+        try:   # a voided run's flags are re-derived from its retained evidence like any other
+            facts = verify_run(arc, by_id[run], target=target, arm_id=arm_id, candidate=candidate, digests=digests,
+                               row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run))
+            observed_flags[run] = facts['flags']
+        except (ValueError, OSError, KeyError):
+            observed_flags[run] = list(by_id[run].get('falseSuccessFlags') or [])   # the void's own fault
+    observed_flags = {run: v for run, v in observed_flags.items() if v}
     fs_rows, false_claims, unresolved = verify_false_success_adjudications(
         arc, arm, observed_flags, list(false_success_adjudications or []), by_id, counted=set(counted))
     for case in cases:

@@ -971,3 +971,15 @@ def test_an_unreadable_inventory_row_fails_separation_closed(tmp_path, listing, 
     stage, c = stage_for(sc), ctx(tmp_path)
     assert stage.harness_unsafe(c) == ['approval-unbound']
     assert rows(stage, c)['approval.separate'] == 'fail'
+
+
+def test_an_unreadable_backup_inventory_is_never_an_empty_one():
+    """Sol 1203 r3: a permissions or SSH failure must not read as 'this slot holds no backups'."""
+    import types as _types
+    from ai_arc_ops_local import LocalOps as OpsLocal
+    vm = _types.SimpleNamespace(remote_dir='/srv/slot', ssh=lambda cmd, t: _types.SimpleNamespace(returncode=2, stdout=b''))
+    with pytest.raises(RuntimeError, match='could not be read'):
+        OpsLocal.backup_ids(vm, strict=True)
+    absent = _types.SimpleNamespace(remote_dir='/srv/slot',
+                                    ssh=lambda cmd, t: _types.SimpleNamespace(returncode=0, stdout=b'__no_backups__\n'))
+    assert OpsLocal.backup_ids(absent, strict=True) == set()
