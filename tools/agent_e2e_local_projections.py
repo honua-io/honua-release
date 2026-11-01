@@ -65,7 +65,8 @@ def require(condition, reason):
 
 
 _STEP_OPS = ('body', 'status', 'sha256', 'principal', 'method', 'replayOf', 'disclosed',
-             'featureServerPoints', 'featureQueryIds', 'target', 'featureServerFeatures', 'absent')
+             'featureServerPoints', 'featureQueryIds', 'target', 'featureServerFeatures', 'absent',
+             'fullPublished', 'sourceRows')
 
 
 def referenced_steps(spec, found=None):
@@ -489,7 +490,8 @@ def evaluate(spec, ctx, *, item=None, step=None):
             if str(ctx.roles[role]) in found:
                 out.append(ctx.roles[role])
         return sorted(out, key=str)
-    if keys == {'featureQueryIds', 'service', 'layer'}:
+    if keys in ({'featureQueryIds', 'service', 'layer'},
+                {'featureQueryIds', 'service', 'layer', 'fullPublished', 'sourceRows'}):
         record = ctx.record(named(spec['featureQueryIds']))
         require(record.kind == 'mcp' and record.status == 200 and isinstance(record.json, dict),
                 'feature query response missing or failed')
@@ -517,6 +519,30 @@ def evaluate(spec, ctx, *, item=None, step=None):
                for feature in features]
         require(all(isinstance(i, str) and i for i in ids) and len(set(ids)) == len(ids),
                 'feature query lacks distinct source ids')
+        if 'fullPublished' in spec:
+            full, source = ctx.record(named(spec['fullPublished'])), ctx.record(named(spec['sourceRows']))
+            request = (full.request_arguments or {}).get('arguments') or {}
+            require(full.kind == 'mcp' and full.status == 200 and full.principal == 'controller'
+                    and (full.request_arguments or {}).get('tool') == 'honua_query_features'
+                    and request == {'serviceId': str(service), 'layerId': int(layer), 'where': '1=1',
+                        'outFields': ['*'], 'limit': 1000, 'resultOffset': 0, 'returnGeometry': True,
+                        'outSrid': 3857, 'geometryPrecision': -1}, 'full published query request differs')
+            result = (full.json or {}).get('result') or {}
+            value = result.get('structuredContent') or {}
+            collection = value.get('geojson') or {}
+            published = collection.get('features')
+            require(result.get('isError', False) is False and str(value.get('serviceId')) == str(service)
+                    and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
+                    and value.get('resultOffset') == 0 and isinstance(published, list)
+                    and type(value.get('returnedCount')) is int and value['returnedCount'] == len(published)
+                    and collection.get('type') == 'FeatureCollection' and source.kind == 'sql'
+                    and source.status == 200 and isinstance(source.json, list),
+                    'full published query or source rows are incomplete')
+            observed = [{'geometry': f.get('geometry'), 'properties': f.get('properties')}
+                        for f in published if isinstance(f, dict)]
+            require(len(observed) == len(published) and
+                    sorted(map(canonical, observed)) == sorted(map(canonical, source.json)),
+                    'published service contents differ from the raw fixture table')
         return sorted(ids)
     raise ProjectionError('unknown projection operation: ' + ','.join(sorted(keys)))
 
@@ -1073,22 +1099,30 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         authored = None
         if binding.created_by is not None:
             spec = binding.created_by
-            require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {'tool', 'pointer', 'where'},
+            require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {'tool', 'pointer', 'where', 'whereAll'}
+                    and not ('where' in spec and 'whereAll' in spec),
                     'invalid created_by: ' + name)
             where = spec.get('where')
-            require(where is None or (isinstance(where, dict) and set(where) == {'argument', 'role'}
-                                      and where['role'] in roles),
+            conditions = spec.get('whereAll', [] if where is None else [where])
+            require(isinstance(conditions, list) and ('whereAll' not in spec or conditions)
+                    and all(isinstance(w, dict) and set(w) == {'argument', 'role'}
+                                                         and w['role'] in roles for w in conditions),
                     'created_by.where needs {"argument": "/pointer", "role": <resolved role>}: ' + name)
             authored = set()
             for result in action_results:
-                if where is not None:
-                    # Source-specific selection: only the agent call whose own argument equals that role's id.
+                selected = True
+                for where in conditions:
+                    # Every declared source argument must equal its independently resolved role.
                     try:
                         chosen = pointer_get(result.get('arguments') or {}, where['argument'])
                     except ProjectionError:
-                        continue
+                        selected = False
+                        break
                     if str(chosen) != str(roles[where['role']]):
-                        continue
+                        selected = False
+                        break
+                if not selected:
+                    continue
                 if result.get('tool') == spec['tool'] and result.get('status') == 'pass':
                     try:
                         value = pointer_get(result['json'], spec['pointer'])

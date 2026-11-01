@@ -1,0 +1,375 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P10",
+  "derivation": "ARC raw input profile: agent publishes the imported shelters table; SQL snapshots bind and preserve the fixture.",
+  "roles": [
+    {
+      "role": "seeded:table:shelters",
+      "step": "import-shelters",
+      "pointer": "/physicalTableName"
+    },
+    {
+      "role": "seeded:schema:shelters",
+      "step": "import-shelters",
+      "pointer": "/schema"
+    },
+    {
+      "role": "seeded:connection:shelters",
+      "step": "arc-p10-connection-create",
+      "pointer": "/data/connectionId"
+    },
+    {
+      "role": "created:service:shelters",
+      "step": "arc-p10-services-after",
+      "items": "/data",
+      "id": "/serviceName",
+      "before": "arc-p10-services-before",
+      "created_by": {
+        "tool": "honua_publish_service",
+        "pointer": "/result/structuredContent/serviceName",
+        "whereAll": [
+          {
+            "argument": "/table",
+            "role": "seeded:table:shelters"
+          },
+          {
+            "argument": "/schema",
+            "role": "seeded:schema:shelters"
+          },
+          {
+            "argument": "/connectionId",
+            "role": "seeded:connection:shelters"
+          }
+        ]
+      }
+    },
+    {
+      "role": "child:layer:shelters",
+      "step": "arc-p10-service-meta",
+      "pointer": "/layers/0/id",
+      "parent": "created:service:shelters",
+      "parent_link": {
+        "at": {
+          "pathSegment": 2
+        },
+        "pointer": "/serviceName"
+      }
+    }
+  ],
+  "projections": {
+    "filter.exact": {
+      "spec": {
+        "object": {
+          "resourceIds": {
+            "featureQueryIds": "p10-replay-query",
+            "service": {
+              "role": "created:service:shelters"
+            },
+            "layer": {
+              "role": "child:layer:shelters"
+            },
+            "fullPublished": "arc-p10-published-full",
+            "sourceRows": "arc-p10-source-after"
+          }
+        }
+      },
+      "reads": {
+        "p10-replay-query": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "replayOfModelAction": true
+        },
+        "arc-p10-published-full": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            {
+              "role": "created:service:shelters",
+              "at": {
+                "argument": "/serviceId"
+              }
+            },
+            {
+              "role": "child:layer:shelters",
+              "at": {
+                "argument": "/layerId"
+              }
+            }
+          ]
+        },
+        "arc-p10-source-after": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "path": "BEGIN; LOCK TABLE ONLY \"honua_data\"\\.\"[a-z][a-z0-9_]*\" IN ACCESS SHARE MODE; .*",
+          "addresses": [
+            {
+              "role": "seeded:table:shelters",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ],
+          "phase": "observe"
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "protectedContent": [
+          {
+            "label": "shelters",
+            "before": "arc-p10-source-before",
+            "after": "arc-p10-source-after",
+            "resource": [
+              {
+                "role": "seeded:table:shelters",
+                "at": {
+                  "sqlFrom": "table"
+                }
+              }
+            ],
+            "content": {
+              "object": {
+                "rows": {
+                  "sorted": {
+                    "body": "$step",
+                    "pointer": ""
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "reads": {
+        "arc-p10-source-before": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "path": "BEGIN; LOCK TABLE ONLY \"honua_data\"\\.\"[a-z][a-z0-9_]*\" IN ACCESS SHARE MODE; .*",
+          "addresses": [
+            {
+              "role": "seeded:table:shelters",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ],
+          "phase": "seed"
+        },
+        "arc-p10-source-after": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "path": "BEGIN; LOCK TABLE ONLY \"honua_data\"\\.\"[a-z][a-z0-9_]*\" IN ACCESS SHARE MODE; .*",
+          "addresses": [
+            {
+              "role": "seeded:table:shelters",
+              "at": {
+                "sqlFrom": "table"
+              }
+            }
+          ],
+          "phase": "observe"
+        }
+      }
+    }
+  },
+  "variants": {
+    "A": {
+      "filter.exact": {
+        "$fixture": {
+          "assertion": "filter.exact"
+        }
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "rows": [
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -18800,
+                      -4700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "Kestrel Central",
+                    "source_id": "s2"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19100,
+                      -4700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s3"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19400,
+                      -4700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "Kestrel Central",
+                    "source_id": "s1"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -19700,
+                      -4700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s4"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -20000,
+                      -4700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s5"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "B": {
+      "filter.exact": {
+        "$fixture": {
+          "assertion": "filter.exact"
+        }
+      },
+      "source-content.unchanged": {
+        "profile": "honua.protected-content/v1",
+        "resources": [
+          {
+            "resourceId": "shelters",
+            "content": {
+              "rows": [
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13000,
+                      -7700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": null,
+                    "is_open": true,
+                    "name": "M\u0101lama refuge",
+                    "source_id": "s105"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13300,
+                      -7700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 50,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s101"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13600,
+                      -7700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 120,
+                    "is_open": false,
+                    "name": "H\u0101lau, \"North\" refuge",
+                    "source_id": "s103"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      13900,
+                      -7700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 75,
+                    "is_open": true,
+                    "name": "Centre d\u2019accueil",
+                    "source_id": "s104"
+                  }
+                },
+                {
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      14200,
+                      -7700
+                    ]
+                  },
+                  "properties": {
+                    "capacity": 80,
+                    "is_open": true,
+                    "name": "Willow Central",
+                    "source_id": "s102"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
