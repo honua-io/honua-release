@@ -2130,7 +2130,7 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
     forms = []
     for s in secrets:
         forms += [s.encode(), base64.b64encode(s.encode()), json.dumps(s)[1:-1].encode()]
-    withheld_images = set()
+    withheld_images = {}
     for path in sorted(Path(private).rglob('*')):
         if not path.is_file() or path.is_symlink():
             continue
@@ -2145,7 +2145,11 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
             # Evidence images are never altered (their sha256 is bound to the action log): one that would need
             # redaction is withheld whole, and the exported manifest says so (Sol 0b9bd1d5).
             if any(form in raw for form in forms):
-                withheld_images.add(str(path.relative_to(private)))
+                withheld_images[str(path.relative_to(private))] = 'secret-in-image'
+                continue
+            if redact_goals(raw) != raw:
+                # A held-out goal inside an image (e.g. a screenshot of the prompt): withheld whole too (Sol d8355f1f).
+                withheld_images[str(path.relative_to(private))] = 'goal-in-image'
                 continue
             write_private(out_dir / path.relative_to(private), raw)
             continue
@@ -2173,9 +2177,10 @@ def export_private(private: Path, out_dir: Path, secrets) -> None:
             doc = json.loads(manifest.read_bytes())
         except (OSError, ValueError):
             continue
-        names = {Path(w).name for w in withheld_images if str(Path(w).parent) == folder}
-        doc['kept'] = [row for row in doc.get('kept', []) if row.get('file') not in names]
-        doc.setdefault('dropped', {})['secret-in-image'] = len(names)
+        here = {Path(w).name: why for w, why in withheld_images.items() if str(Path(w).parent) == folder}
+        doc['kept'] = [row for row in doc.get('kept', []) if row.get('file') not in here]
+        for why in sorted(set(here.values())):
+            doc.setdefault('dropped', {})[why] = sum(1 for v in here.values() if v == why)
         tmp = manifest.with_name('manifest.json.reconciled')
         write_private(tmp, json.dumps(doc, sort_keys=True, indent=1).encode())
         tmp.replace(manifest)

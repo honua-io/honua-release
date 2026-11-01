@@ -1976,3 +1976,29 @@ def test_an_oversized_referenced_folder_fails_closed(tmp_path, monkeypatch):
         R._bindable_files(folder)
     monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 6)
     assert len(R._bindable_files(folder)) == 6
+
+
+def test_an_image_containing_a_held_out_goal_is_withheld_whole(tmp_path):
+    """Sol d8355f1f: export protection for goals covers committed PNGs, which are never altered."""
+    import agent_cli_sessions as CS
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    goal = 'Please move our synthetic Kestrel install to the newer release and keep the data'
+    E._reset_for_tests()
+    sink = E.open_sink(tmp_path / 'private' / 'studio' / 'screenshots', owner='run')
+    clean, leaking = png(salt=1), png(salt=3) + goal.encode()
+    sink.retain('render', 'clean', clean)
+    sink.retain('render', 'goal', leaking)
+    E.close_sink(sink)
+    E._reset_for_tests()
+    CS.withhold_texts([goal])
+    try:
+        R.export_private(tmp_path / 'private', tmp_path / 'out', [])
+    finally:
+        CS.withhold_texts([])
+    out = tmp_path / 'out' / 'studio' / 'screenshots'
+    assert sorted(p.name for p in out.glob('*.png')) == ['001-render-clean.png']
+    assert (out / '001-render-clean.png').read_bytes() == clean
+    doc = json.loads((out / 'manifest.json').read_text())
+    assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['goal-in-image'] == 1
+    assert goal.encode() not in b''.join(p.read_bytes() for p in out.iterdir())
