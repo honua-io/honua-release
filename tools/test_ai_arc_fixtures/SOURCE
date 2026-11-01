@@ -1,2 +1,2 @@
-honua-server 6f477f6176fb9612ef869205a7110e719ff8f492 docs/get-started/quickstart.md (test fixture copy)
+honua-server d4bf97a22ab2182730b2c155b09fdb7f3ba581cd docs/get-started/quickstart.md (test fixture copy; the arc.v1.json quickstart pin)
 honua-server d4bf97a22ab2182730b2c155b09fdb7f3ba581cd quickstart-package/ (the four package source files pinned in arc.v1.json quickstartPackage.files; test fixture copy)

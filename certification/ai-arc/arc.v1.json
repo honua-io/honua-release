@@ -581,7 +581,14 @@
     "image": "ghcr.io/honua-io/honua-console",
     "imageDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
     "source": "Console 626c13cc (#515: the Studio assistant uses the supported Studio AI chat and MCP routes; includes #513 and #514); honua-server #6857 compose re-pin, honua-iac #370, honua-release #1190",
-    "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed."
+    "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed.",
+    "compose": {
+      "repo": "honua-io/honua-server",
+      "revision": "ea11c8601d6508ec936510217eb9d33c8cb2a37b",
+      "path": "docker-compose.yml",
+      "sha256": "sha256:c3f3ed29a5069f19cf13ec1621c253d6cbc44e887d841de584fedaa42868baed",
+      "rule": "Stage 4 adds Console from exactly this compose file (honua-server #6857, which selects the pinned Console digest); the workflow passes it, so stage 4 runs in CI (Fable B3)."
+    }
   },
   "opsComposition": {
     "executorCompose": "docs/get-started/compose.executor.yaml",
@@ -603,5 +610,12 @@
       "scripts/docker/package_quickstart.py": "sha256:918f148e0ed3ea6ced1fc546e7c3a52492fce3f29370c40a0a91fcde33342273"
     },
     "candidateMaxSchema": 143
+  },
+  "quickstart": {
+    "repo": "honua-io/honua-server",
+    "revision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
+    "path": "docs/get-started/quickstart.md",
+    "sha256": "sha256:00f41159fa1523f258eba90df2946015e0d81f6d0756e4df2dac785766372426",
+    "rule": "The setup attachment is exactly this page (ARC v2, Fable/Astra S5): the workflow fetches it at the pinned revision, the runner rejects any other bytes, and verify_run rejects a receipt whose quickstart.pageSha256 differs."
   }
 }
