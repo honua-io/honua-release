@@ -675,6 +675,7 @@ components:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
+    # 2026-11-01 ADVANCE: Console #515 restores the Studio assistant transport.
     # 2026-11-01 ADVANCE: Console #513 and #514, including Studio draft-style and session fixes.
     # 2026-10-31 ADVANCE: Console #473, #488 and #493, built and smoke-tested by Container run 41246051095.
     # Anonymous GHCR manifest retrieval confirmed the index and platform digests below.
@@ -701,16 +702,16 @@ components:
     #   skipped 631594c: no published SHA-bound image
     # The earlier index and platform digests were re-read from GHCR with the resolver's own
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    sha: "c00d16a81a0d3af64aa92e4a2c0a170721b17e58"   # trunk commit (2026-11-01)
-    # Public multi-architecture image built from this SHA by Console Container run 41291444402.
-    image: "ghcr.io/honua-io/honua-console:nightly-c00d16a81a0d"
-    digest: "sha256:b74dfd7ccfd30744e87021b852f287cb81c266b40051ef860314dab33fde2e54"
-    artifactSourceRevision: "c00d16a81a0d3af64aa92e4a2c0a170721b17e58"
+    sha: "626c13cc97a1af87fcd8767c059f9fc2209e3f0a"   # trunk commit (2026-11-01)
+    # Public multi-architecture image built from this SHA by Console Container run 41297791077.
+    image: "ghcr.io/honua-io/honua-console:nightly-626c13cc97a1"
+    digest: "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24"
+    artifactSourceRevision: "626c13cc97a1af87fcd8767c059f9fc2209e3f0a"
     architectures: [amd64, arm64]
     # Read from the public pinned index on 2026-11-01.
     platformDigests:
-      amd64: sha256:a1142a8e7953c9a70c85799f0c428a6ffd5ac79cfe5581beda64d054257a7d13
-      arm64: sha256:a2212668d0c30e0898e326620edf7505cfd6ac89c90c7e473cce586b6c5c8b06
+      amd64: sha256:91c1d56ab48c38d95247d7581f2ef3f7c03fee540d133e24672d5b147cbae0af
+      arm64: sha256:1bfaaa80efff2b8c7ccd9f1e3bec1d59463a68603c8fa1adea8ad688f288dc04
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"

@@ -1,4 +1,4 @@
 {
-  "image": "ghcr.io/honua-io/honua-console@sha256:b74dfd7ccfd30744e87021b852f287cb81c266b40051ef860314dab33fde2e54",
-  "sourceRevision": "c00d16a81a0d3af64aa92e4a2c0a170721b17e58"
+  "image": "ghcr.io/honua-io/honua-console@sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+  "sourceRevision": "626c13cc97a1af87fcd8767c059f9fc2209e3f0a"
 }

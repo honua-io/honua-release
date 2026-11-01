@@ -637,28 +637,28 @@
       ]
     },
     {
-      "digest": "sha256:b74dfd7ccfd30744e87021b852f287cb81c266b40051ef860314dab33fde2e54",
+      "digest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
       "disposition": "published",
       "evidence_class": "anonymous-oci-manifest",
       "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-console:nightly-c00d16a81a0d",
-      "image": "ghcr.io/honua-io/honua-console:nightly-c00d16a81a0d",
+      "id": "oci:ghcr.io/honua-io/honua-console:nightly-626c13cc97a1",
+      "image": "ghcr.io/honua-io/honua-console:nightly-626c13cc97a1",
       "manifest_fields": [
         "components.honua-console.image"
       ],
       "media_type": "application/vnd.oci.image.index.v1+json",
       "pins": {
-        "index_digest": "sha256:b74dfd7ccfd30744e87021b852f287cb81c266b40051ef860314dab33fde2e54",
-        "linux_amd64_digest": "sha256:a1142a8e7953c9a70c85799f0c428a6ffd5ac79cfe5581beda64d054257a7d13"
+        "index_digest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+        "linux_amd64_digest": "sha256:91c1d56ab48c38d95247d7581f2ef3f7c03fee540d133e24672d5b147cbae0af"
       },
       "platform_digests": {
-        "linux/amd64": "sha256:a1142a8e7953c9a70c85799f0c428a6ffd5ac79cfe5581beda64d054257a7d13"
+        "linux/amd64": "sha256:91c1d56ab48c38d95247d7581f2ef3f7c03fee540d133e24672d5b147cbae0af"
       },
-      "publication": "ghcr.io/honua-io/honua-console:nightly-c00d16a81a0d",
+      "publication": "ghcr.io/honua-io/honua-console:nightly-626c13cc97a1",
       "urls": [
         "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-console:pull",
-        "https://ghcr.io/v2/honua-io/honua-console/manifests/nightly-c00d16a81a0d",
-        "https://ghcr.io/v2/honua-io/honua-console/manifests/sha256:a1142a8e7953c9a70c85799f0c428a6ffd5ac79cfe5581beda64d054257a7d13"
+        "https://ghcr.io/v2/honua-io/honua-console/manifests/nightly-626c13cc97a1",
+        "https://ghcr.io/v2/honua-io/honua-console/manifests/sha256:91c1d56ab48c38d95247d7581f2ef3f7c03fee540d133e24672d5b147cbae0af"
       ]
     },
     {
