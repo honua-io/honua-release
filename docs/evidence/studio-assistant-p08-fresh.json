@@ -1,0 +1,65 @@
+{
+  "admissible": false,
+  "assertions": [
+    {
+      "assertion": "map.composition",
+      "reason": "observation failed (ProjectionError): unsupported catalog map view",
+      "status": "fail"
+    },
+    {
+      "assertion": "render.actual",
+      "reason": "observation failed (ProjectionError): unsupported catalog map view",
+      "status": "fail"
+    },
+    {
+      "assertion": "source-content.unchanged",
+      "reason": "observation failed (ProjectionError): unsupported catalog map view",
+      "status": "fail"
+    }
+  ],
+  "auditControllerPrincipalObserved": false,
+  "candidateDigest": "sha256:4704299841fc406a1711f74bb924d3d8f64e6503d7a0039089deab0925d73592",
+  "consoleDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+  "controllerEvidence": [
+    {
+      "sha256": "sha256:3a8137fbc9b6db75c3e7652c778e36aa92917a769cc050bf6ca09fe6484475b6",
+      "status": 200,
+      "step": "studio-ai-capabilities"
+    },
+    {
+      "sha256": "sha256:2c490f0fd255c45fc5552b145f2c65a24a08d1e0b21cd59affbcf4add7d4b9cc",
+      "status": 200,
+      "step": "studio-ai-provider-config"
+    },
+    {
+      "sha256": "sha256:d13fbf23f2a6a02a657964c852e5ebfcc059f3294dbd0a9c921e98100e2bf340",
+      "status": 200,
+      "step": "studio-audit-after-0"
+    },
+    {
+      "sha256": "sha256:3ca37bb6ab9468ce4109aef603e2b74b335866260a98619eb04d354eb7e60b75",
+      "status": 200,
+      "step": "p08-version"
+    }
+  ],
+  "customerKeyRevoked": true,
+  "developmentOnly": true,
+  "failureDetail": "The controller-read saved map body has no view. Composition, render, and source-content observations could not be completed.",
+  "finalAnswerCheck": {
+    "reason": "missing final answer or independent handoff observations",
+    "status": "fail"
+  },
+  "kind": "fresh-live-previous-observer",
+  "model": "us.anthropic.claude-sonnet-4-6",
+  "observerNote": "After this run, the observer was corrected to retain other observations and handoff scoring for maps with no view. This receipt is not re-scored.",
+  "packSha256": "sha256:06133470b94486c451226b8e1671d25bcfedd980bab597fe18809a49d91ee86d",
+  "receiptSha256": "sha256:8949a81fe9d20c586cea3eac4c82c64c7dc16d146f7502c5728d468e4d9906ae",
+  "region": "us-east-1",
+  "serverSourceRevision": "15707609be1fe4e29252390792dda3c35129bd28",
+  "status": "fail",
+  "usage": {
+    "calls": 15,
+    "inputTokens": 390233,
+    "outputTokens": 3295
+  }
+}

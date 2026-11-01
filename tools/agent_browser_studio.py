@@ -106,6 +106,9 @@ class CaseConsole:
             raise ValueError('invalid case Compose project')
         if not re.fullmatch(r'ghcr\.io/honua-io/honua-console@sha256:[0-9a-f]{64}', image):
             raise ValueError('Console image is not the pinned digest')
+        server_host = stack.extra.get('serverHost', 'server')
+        if server_host not in ('server', 'honua'):
+            raise ValueError('invalid case server host')
         self.name = stack.compose_project + '-console-' + secrets.token_hex(16)
         self._project = stack.compose_project
         self._docker_host = 'ssh://' + self.host
@@ -113,13 +116,16 @@ class CaseConsole:
         self._created = False
         self._tunnel = None
         self.url = None
-        env = dict(os.environ, DOCKER_HOST=self._docker_host, HONUA_ADMIN_API_KEY=stack.admin_key)
+        env = dict(os.environ, DOCKER_HOST=self._docker_host)
+        env.pop('HONUA_ADMIN_API_KEY', None)
+        for name in ('HONUA_AGENT_API_KEY', 'HONUA_NATIVE_MODEL_ENABLED', 'HONUA_AGENT_RELEASE_ID'):
+            env.pop(name, None)
         command = ['docker', 'run', '--detach', '--name', self.name,
                    '--label', 'honua.corpus.case=' + stack.compose_project,
                    '--network', stack.compose_project + '_default', '--publish', '127.0.0.1::8080',
                    '--env', 'ASPNETCORE_ENVIRONMENT=Development', '--env', 'ASPNETCORE_URLS=http://+:8080',
                    '--env', 'Studio__EmbedJsStudio=true',
-                   '--env', 'HONUA_SERVER_BASE_URL=http://server:8080', '--env', 'HONUA_ADMIN_API_KEY',
+                   '--env', 'HONUA_SERVER_BASE_URL=http://' + server_host + ':8080',
                    '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
                    '--tmpfs', '/tmp:noexec,nosuid,size=100m', image]
         if edge_secret is not None:
@@ -127,6 +133,7 @@ class CaseConsole:
                 raise ValueError('Console edge secret is invalid')
             env['Honua__Console__Auth__EdgeForwarded__SharedSecret'] = edge_secret
             command[-1:-1] = ['--env', 'Honua__Console__Auth__Mode=EdgeForwarded',
+                               '--env', 'Honua__Console__Auth__EdgeForwarded__ServerSessionIssuer=https://terminal-journey.invalid',
                                '--env', 'Honua__Console__Auth__EdgeForwarded__SharedSecret']
         try:
             self._attempted = True
@@ -377,7 +384,7 @@ def render_contract():
 class PlaywrightPage:
     """Controller page. It screenshots and reads attributes. It has no evaluate tool."""
 
-    def __init__(self, origin, identity=None):
+    def __init__(self, origin, identity=None, assistant_log=None, stage_gate=None, refusal_log=None):
         use_worktree_browsers()
         from playwright.sync_api import sync_playwright
         self.origin = origin
@@ -385,6 +392,12 @@ class PlaywrightPage:
         self._initial_document = True
         self._origin_failed = False
         self._identity = identity
+        self._assistant_log = assistant_log
+        self._refusal_log = refusal_log
+        self._stage_gate = stage_gate
+        self._assistant_model_calls = 0
+        self._assistant_tool_calls = 0
+        self._assistant_bound_hit = False
         self._identity_tokens = []
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(**launch_options())
@@ -424,9 +437,41 @@ class PlaywrightPage:
 
     def _gate(self, route):
         url = route.request.url
+        if getattr(self, '_stage_gate', None) is not None and self._stage_gate.closed:
+            route.abort('blockedbyclient')
+            return
         if not self.origin.route_allows(url):
             self.aborted.append(url)
             route.abort('blockedbyclient')
+            return
+        # The Console assistant uses a long-lived SSE response. Browser CSP on
+        # the admitted document enforces same-origin connect redirects, while
+        # direct continuation allows response chunks to reach the chat promptly.
+        if (route.request.method == 'POST'
+                and urlsplit(url).path == '/api/agent-workspace/studio/ai'):
+            if self._assistant_log is None:
+                self.aborted.append(url)
+                route.abort('blockedbyclient')
+                if self._refusal_log is not None:
+                    self._refusal_log.names.add('studio_ai.chat')
+                    selected = {'kind': 'tool_call', 'tool': 'studio_ai.chat', 'arguments': {}}
+                    self._refusal_log.dispatch('tool_call', selected,
+                        lambda _kind, _action: {'status': 'fail', 'refusal': 'out-of-scope'})
+                return
+            if self._assistant_log is not None:
+                if self._assistant_model_calls >= 60:
+                    self._assistant_bound_hit = True
+                    route.abort('blockedbyclient')
+                    return
+                self._assistant_model_calls += 1
+            headers = dict(route.request.headers)
+            if self._identity is not None:
+                token = self._identity['mintToken']()
+                self._identity_tokens.append(token)
+                headers.update({'X-Honua-Edge-Auth': self._identity['edgeSecret'],
+                                'X-Forwarded-User': self._identity['subject'],
+                                'X-Forwarded-Access-Token': token.removeprefix('Bearer ')})
+            route.continue_(headers=headers)
             return
         # Playwright's default continuation follows redirects internally without
         # invoking this handler for every hop. Fetch exactly one hop, inspect its
@@ -440,19 +485,73 @@ class PlaywrightPage:
                     'X-Honua-Edge-Auth': self._identity['edgeSecret'],
                     'X-Forwarded-User': self._identity['subject'],
                     'X-Forwarded-Access-Token': token.removeprefix('Bearer ')}
-            response = route.fetch(**fetch_args)
-            headers = dict(response.headers)
-            location = headers.get('location')
-            if 300 <= response.status < 400 and location and not self.origin.allows(urljoin(url, location)):
-                self.aborted.append(urljoin(url, location))
-                route.abort('blockedbyclient')
-                return
-            if route.request.resource_type == 'document':
-                ws_origin = ('wss://' if self.origin.scheme == 'https' else 'ws://') + self.origin.origin.split('://', 1)[1]
-                policy = f"connect-src 'self' {ws_origin}; frame-src 'self'; object-src 'none'; base-uri 'self'"
-                previous = headers.get('content-security-policy')
-                headers['content-security-policy'] = previous + ', ' + policy if previous else policy
-            route.fulfill(response=response, headers=headers)
+            def fetch():
+                response = route.fetch(**fetch_args)
+                headers = dict(response.headers)
+                location = headers.get('location')
+                if 300 <= response.status < 400 and location and not self.origin.allows(urljoin(url, location)):
+                    self.aborted.append(urljoin(url, location))
+                    raise OriginLocked('refused cross-origin redirect')
+                if route.request.resource_type == 'document':
+                    ws_origin = ('wss://' if self.origin.scheme == 'https' else 'ws://') + self.origin.origin.split('://', 1)[1]
+                    policy = f"connect-src 'self' {ws_origin}; frame-src 'self'; object-src 'none'; base-uri 'self'"
+                    previous = headers.get('content-security-policy')
+                    headers['content-security-policy'] = previous + ', ' + policy if previous else policy
+                route.fulfill(response=response, headers=headers)
+                return response
+
+            if self._assistant_log is not None and route.request.method == 'POST' and \
+                    urlsplit(url).path == '/api/agent-workspace/studio/mcp':
+                payload = route.request.post_data_json
+                if not isinstance(payload, dict):
+                    raise OriginLocked('refused malformed assistant MCP request')
+                if payload.get('method') == 'tools/call':
+                    params = payload.get('params')
+                    if not isinstance(params, dict) or not isinstance(params.get('name'), str) \
+                            or not isinstance(params.get('arguments'), dict):
+                        raise OriginLocked('refused malformed assistant tool call')
+                    if self._assistant_tool_calls >= 60:
+                        self._assistant_bound_hit = True
+                        raise OriginLocked('assistant tool call bound exceeded')
+                    self._assistant_tool_calls += 1
+                    selected = {'kind': 'tool_call', 'tool': params['name'], 'arguments': params['arguments']}
+                    self._assistant_log.names.add(params['name'])
+
+                    def recorded(_kind, _action):
+                        response = fetch()
+                        raw = response.body()
+                        require(len(raw) <= MAX_BODY, 'assistant tool response exceeds bound')
+                        try:
+                            content_type = response.headers.get('content-type', '').lower()
+                            if 'text/event-stream' in content_type:
+                                frames = raw.replace(b'\r\n', b'\n').split(b'\n\n')
+                                messages = [json.loads(data) for frame in frames[:-1]
+                                    if (data := b'\n'.join(line[5:].lstrip() for line in frame.split(b'\n')
+                                                           if line.startswith(b'data:')))]
+                                messages = [item for item in messages if isinstance(item, dict)
+                                            and item.get('id') == payload.get('id') and 'id' in item]
+                                if len(messages) != 1:
+                                    raise ValueError('missing or duplicate MCP response')
+                                message = messages[0]
+                            else:
+                                message = json.loads(raw)
+                            error = message.get('error') if isinstance(message, dict) else None
+                            result = message.get('result') if isinstance(message, dict) else None
+                            failed = (not isinstance(message, dict) or 'error' in message or not isinstance(result, dict)
+                                      or result.get('isError') is True)
+                            code = error.get('code') if isinstance(error, dict) else None
+                            code = code if type(code) is int else 'mcp-tool-error'
+                        except (ValueError, TypeError):
+                            failed, code = True, 'invalid-mcp-response'
+                        out = {'status': 'ok' if 200 <= response.status < 300 and not failed else 'fail',
+                               '_rawResponse': (response.status, raw)}
+                        if out['status'] == 'fail':
+                            out['errorCode'] = code if 200 <= response.status < 300 else response.status
+                        return out
+
+                    self._assistant_log.dispatch('tool_call', selected, recorded)
+                    return
+            fetch()
         except Exception:
             route.abort('blockedbyclient')
 
@@ -510,6 +609,33 @@ class PlaywrightPage:
         self._check_origin()
         return (text or '')[:8000]
 
+    def chat_state(self):
+        """Read the visible Studio chat without evaluating page code."""
+        self._check_origin()
+        chat = self._page.locator('[data-agent-workspace]')
+        if chat.count() != 1:
+            raise BrowserUnavailable('Studio chat is unavailable or ambiguous')
+        rows = chat.locator('[data-workspace-messages] > p')
+        messages = [rows.nth(i).inner_text(timeout=5000) for i in range(rows.count())]
+        answers = [line[len('assistant:'):].strip() for line in messages if line.lower().startswith('assistant:')]
+        entry = chat.locator('[data-workspace-prompt]')
+        send = chat.locator('form button[type="submit"]')
+        working = chat.locator('[data-workspace-working]')
+        panel_open = chat.get_attribute('open') is not None
+        connected = chat.get_attribute('data-connected') == 'true'
+        streaming = working.count() == 1 and working.is_visible()
+        result = {'assistantMessages': len(answers), 'toolCalls': self._assistant_tool_calls,
+            'streaming': streaming, 'panelOpen': panel_open, 'connected': connected,
+            'mounted': chat.get_attribute('data-mounted') == 'true',
+            'ready': (connected and entry.count() == 1 and send.count() == 1 and entry.is_visible()
+                      and entry.is_enabled() and send.is_enabled()),
+            'status': 'complete' if answers and not streaming else None,
+            'text': answers[-1] if answers else '',
+            'modelCalls': self._assistant_model_calls, 'dispatchedToolCalls': self._assistant_tool_calls,
+            'boundHit': self._assistant_bound_hit}
+        self._check_origin()
+        return result
+
     def close(self):
         try:
             self._browser.close()
@@ -520,12 +646,17 @@ class PlaywrightPage:
 class StudioBrowserServer:
     """Loopback MCP server. Tools are the allowlist above; evaluate and devtools are absent."""
 
-    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=(), identity=None):
+    def __init__(self, studio_url, action_log, fixture_dir, *, page_factory=None, sensitive=(), identity=None,
+                 scripted_customer=False, stage_gate=None):
         self.studio_url = studio_url
         self.action_log = action_log
         self.fixture_dir = fixture_dir
         self.page_factory = page_factory
         self.identity = identity
+        self.scripted_customer = scripted_customer
+        self.stage_gate = stage_gate
+        if scripted_customer:
+            self.action_log.names.update(('studio_chat_observe', 'studio_customer_type'))
         self.token = secrets.token_hex(24)
         self._sensitive = tuple(value for value in sensitive if isinstance(value, str) and len(value) >= 8)
         self.page = None
@@ -543,7 +674,9 @@ class StudioBrowserServer:
         self.lock = OriginLock(self.studio_url)
         self._owner = _DaemonOwner()
         try:
-            factory = self.page_factory or (lambda lock: PlaywrightPage(lock, identity=self.identity))
+            factory = self.page_factory or (lambda lock: PlaywrightPage(
+                lock, identity=self.identity, assistant_log=self.action_log if self.scripted_customer else None,
+                stage_gate=self.stage_gate, refusal_log=self.action_log))
             self.page = self._owner.submit(factory, self.lock).result(timeout=self.owner_timeout)
             if isinstance(self.page, PlaywrightPage):
                 self._owner.idle = self.page.pump_events
@@ -650,6 +783,8 @@ class StudioBrowserServer:
                 self._owner = None
 
     def perform(self, name, arguments, *, rpc_id=None):
+        if self.stage_gate is not None and self.stage_gate.closed:
+            raise BrowserUnavailable('Studio stage has ended')
         if self._poisoned:
             raise BrowserUnavailable('browser unavailable')
         if self._owner is not None:
@@ -676,9 +811,14 @@ class StudioBrowserServer:
         def execute(_kind, _action):
             status, text = 'fail', 'refused'
             try:
-                if not isinstance(name, str) or name not in TOOLS or set(arguments) != TOOL_ARGS[name]:
+                internal_chat = self.scripted_customer and name == 'studio_chat_observe' and arguments == {}
+                internal_type = (self.scripted_customer and name == 'studio_customer_type'
+                                 and set(arguments) == {'selector', 'text'})
+                if not (internal_chat or internal_type) and (not isinstance(name, str) or name not in TOOLS
+                                                              or set(arguments) != TOOL_ARGS[name]):
                     raise OriginLocked('tool is not available')
-                text = getattr(self, '_' + name)(arguments)
+                text = (self._studio_chat_observe() if internal_chat else
+                        self._studio_customer_type(arguments) if internal_type else getattr(self, '_' + name)(arguments))
                 status = 'ok'
             except OriginLocked as exc:
                 text = str(exc)
@@ -719,6 +859,15 @@ class StudioBrowserServer:
         self.page.fill(_selector(arguments['selector']), text)
         return 'typed'
 
+    def _studio_customer_type(self, arguments):
+        text = arguments['text']
+        if not isinstance(text, str) or len(text) > 8192 or '\x00' in text:
+            raise OriginLocked('refused customer text')
+        if arguments['selector'] != '[data-workspace-prompt]':
+            raise OriginLocked('refused customer input')
+        self.page.fill(arguments['selector'], text)
+        return 'typed'
+
     def _studio_press(self, arguments):
         if not isinstance(arguments['key'], str) or not KEY.fullmatch(arguments['key']):
             raise OriginLocked('refused key')
@@ -726,7 +875,9 @@ class StudioBrowserServer:
         return 'pressed'
 
     def _studio_snapshot(self, _arguments):
-        text = self.page.snapshot_text()
+        return self._screen_text(self.page.snapshot_text())
+
+    def _screen_text(self, text):
         values = self._sensitive + (self.token,)
         if self.identity is not None:
             values += (self.identity['edgeSecret'],)
@@ -744,6 +895,11 @@ class StudioBrowserServer:
         except ValueError:
             raise OriginLocked('refused sensitive page content') from None
         return text
+
+    def _studio_chat_observe(self):
+        state = self.page.chat_state()
+        state['text'] = self._screen_text(state['text'])
+        return json.dumps(state, separators=(',', ':'))
 
     def _studio_upload(self, arguments):
         path = resolve_fixture(self.fixture_dir, arguments['name'])
@@ -783,7 +939,7 @@ def _tool_result(status, text, digest):
             'structuredContent': {'screenshotSha256': digest}}
 
 
-def open_studio_browser(stack, action_log, *, identity=None):
+def open_studio_browser(stack, action_log, *, identity=None, scripted_customer=False):
     """Start the studio MCP server for one session. The runner stops it."""
     origin = stack.extra.get('consoleUrl') or stack.extra.get('studioUrl')
     require(isinstance(origin, str) and origin, 'case has no provisioned Console origin')
@@ -792,7 +948,8 @@ def open_studio_browser(stack, action_log, *, identity=None):
     sensitive = (stack.admin_key, stack.approver_key, os.environ.get('HONUA_CORPUS_AGENT_KEY'),
                  os.environ.get('HONUA_CORPUS_BOOTSTRAP_KEY'))
     server = StudioBrowserServer(origin, action_log, fixture, page_factory=stack.extra.get('studioPageFactory'),
-                                 sensitive=sensitive, identity=identity)
+                                 sensitive=sensitive, identity=identity, scripted_customer=scripted_customer,
+                                 stage_gate=stack.extra.get('studioGate'))
     server.start()
     return server
 
@@ -894,9 +1051,9 @@ def fixture_map_body(variant, layers, source_ids, *, styled):
     return body
 
 
-def observed_fixture_source_ids(recorder, layers):
+def observed_fixture_source_ids(recorder, layers, step='p09-source-catalog'):
     """Resolve Studio catalog identities from an authenticated controller MCP read."""
-    result = recorder.mcp_call('p09-source-catalog', 'honua_list_layers', {'offset': 0, 'limit': 500})
+    result = recorder.mcp_call(step, 'honua_list_layers', {'offset': 0, 'limit': 500})
     data = result.get('structuredContent') if isinstance(result, dict) else None
     require(isinstance(data, dict) and data.get('offset') == 0 and data.get('hasMore') is False
             and isinstance(data.get('layers'), list) and data.get('layerCount') == len(data['layers']),
@@ -1045,6 +1202,76 @@ def default_map_spec(body):
     return {'version': 8, 'sources': {name: {'type': 'geojson'} for name in LAYER_NAMES}, 'layers': rules}
 
 
+def normalize_catalog_map(body, source_ids, fixtures):
+    """Bind an unstyled Studio map's source IDs to the controller's fixture catalog."""
+    import math
+    require(isinstance(body, dict) and 'mapSpec' not in body and 'sourceBindings' not in body
+            and isinstance(body.get('layers'), list) and len(body['layers']) == len(LAYER_NAMES)
+            and set(source_ids) == set(fixtures) == set(LAYER_NAMES)
+            and len(set(source_ids.values())) == len(LAYER_NAMES), 'invalid catalog-bound map')
+    reverse = {value: name for name, value in source_ids.items()}
+    normalized = copy.deepcopy(body)
+    original_ids = {}
+    for row in normalized['layers']:
+        require(isinstance(row, dict) and 'styleRef' not in row and row.get('sourceId') in reverse,
+                'saved source is absent from fixture catalog or has an authored style')
+        name = reverse[row['sourceId']]
+        require(name not in original_ids and isinstance(row.get('id'), str) and row['id'],
+                'saved source is duplicated in fixture catalog')
+        original_ids[name] = row['id']
+        row['id'] = name
+    require(set(original_ids) == set(LAYER_NAMES), 'saved sources differ from fixture catalog')
+    view = normalized.get('view')
+    require(isinstance(view, dict) and view.get('crs', 'EPSG:4326') in ('EPSG:3857', 'EPSG:4326', 'CRS84')
+            and isinstance(view.get('bbox'), list) and len(view['bbox']) == 4
+            and all(type(v) in (int, float) and math.isfinite(v) and abs(v) <= 20037508.35 for v in view['bbox']),
+            'unsupported catalog map view')
+    x1, y1, x2, y2 = view['bbox']
+    require(x1 < x2 and y1 < y2, 'invalid catalog map view')
+    def geographic(x, y):
+        return [math.degrees(x / 6378137), math.degrees(2 * math.atan(math.exp(y / 6378137)) - math.pi / 2)]
+    if view.get('crs', 'EPSG:4326') == 'EPSG:3857':
+        view.update(crs='EPSG:4326', bbox=geographic(x1, y1) + geographic(x2, y2))
+    else:
+        require(-180 <= x1 < x2 <= 180 and -85 <= y1 < y2 <= 85, 'invalid catalog geographic view')
+    normalized['sourceBindings'] = [
+        {'sourceId': source_ids[name], 'protocol': 'geoservices_feature_service',
+         'locator': {'url': f"/rest/services/{fixtures[name]['service']}/FeatureServer/{fixtures[name]['layerId']}",
+                     'layerId': fixtures[name]['layerId']}} for name in LAYER_NAMES]
+    spec = default_map_spec(normalized)
+    palette = ('#0b6b4d', '#b4531b', '#3a5fa8', '#8a2f6b', '#1f7a8c', '#94741a', '#5c3b8f', '#a03a3a')
+    colors = {}
+    for row in spec['layers']:
+        name = row['id']
+        hashed = 0x811c9dc5
+        for char in original_ids[name]:
+            hashed = ((hashed ^ ord(char)) * 0x01000193) & 0xffffffff
+        color = palette[hashed % len(palette)]
+        row['paint'][row['type'] + '-color'] = color
+        if row['type'] == 'fill':
+            row['paint']['fill-outline-color'] = color
+        colors[name] = [int(color[i:i + 2], 16) for i in (1, 3, 5)] + [115 if row['type'] == 'fill' else 255]
+    normalized['mapSpec'] = spec
+    return normalized, colors
+
+
+def catalog_composition_without_view(body, source_ids):
+    """Preserve controller-observed layers when a saved map has no view."""
+    require(isinstance(body, dict) and body.get('view') is None and isinstance(body.get('layers'), list)
+            and len(body['layers']) == len(LAYER_NAMES) and set(source_ids) == set(LAYER_NAMES)
+            and len(set(source_ids.values())) == len(LAYER_NAMES), 'invalid viewless catalog map')
+    reverse = {value: name for name, value in source_ids.items()}
+    ordered, visibility = [], {}
+    for row in body['layers']:
+        require(isinstance(row, dict) and 'styleRef' not in row and row.get('sourceId') in reverse
+                and type(row.get('visible')) is bool, 'invalid viewless catalog layer')
+        name = reverse[row['sourceId']]
+        require(name not in visibility, 'duplicate viewless catalog layer')
+        ordered.append(name)
+        visibility[name] = row['visible']
+    return {'orderedLayerIds': ordered, 'visibility': visibility, 'view': None}
+
+
 def saved_authored_exports(body, fixtures, *, variant='A', allow_default=False):
     """Translate supported literal saved layer paint to fixture-bound server exports.
 
@@ -1130,7 +1357,7 @@ def saved_authored_exports(body, fixtures, *, variant='A', allow_default=False):
 
 
 def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, expected_rgba, regions, minimum_pixels,
-                                 variant='A', allow_default=False):
+                                 variant='A', allow_default=False, render_body=None):
     """Verify each saved, fixture-bound literal rule against controller-fetched pixels.
 
     This checks the individual server exports only. It does not assert that text
@@ -1143,7 +1370,7 @@ def verify_saved_authored_layers(recorder, version_step, prefix, *, fixtures, ex
             and isinstance(limits, dict) and set(limits) == set(fixtures)
             and all(type(value) is int and value > 0 for value in limits.values()),
             'invalid frozen authored expectations')
-    exports = saved_authored_exports(package_body(recorder.records[version_step].json), fixtures,
+    exports = saved_authored_exports(render_body or package_body(recorder.records[version_step].json), fixtures,
                                      variant=variant, allow_default=allow_default)
     matches = {}
     for row in exports:
@@ -1435,7 +1662,7 @@ map.once('idle',async()=>{
         thread.join(timeout=5)
 
 
-def record_independent_render(stack, seeded, prefix, version_step):
+def record_independent_render(stack, seeded, prefix, version_step, *, render_body=None, default_colors=None):
     """Score controller exports and a separate runner-owned composite from saved state."""
     recorder, variant = stack.extra['recorder'], seeded.state['variant']
     fixtures = seeded.state.get('layers') or {}
@@ -1443,13 +1670,13 @@ def record_independent_render(stack, seeded, prefix, version_step):
     contract = json.loads(COMPOSITE_CONTRACT_PATH.read_text(encoding='utf-8'))
     require(variant in ('A', 'B') and isinstance(contract, dict), 'invalid frozen composite contract')
     default = prefix == 'p08' and 'mapSpec' not in package_body(recorder.records[version_step].json)
-    colors = contract['defaultRgba'] if default else contract['authoredRgba']
+    colors = (default_colors or contract['defaultRgba']) if default else contract['authoredRgba']
     verify_saved_authored_layers(recorder, version_step, prefix + '-export', fixtures=fixtures,
         expected_rgba=colors, regions={name: [0, 0, 512, 512] for name in LAYER_NAMES},
-        minimum_pixels=contract['minimumLayerPixels'], variant=variant, allow_default=default)
+        minimum_pixels=contract['minimumLayerPixels'], variant=variant, allow_default=default, render_body=render_body)
     sources = {name: fixture_geojson_source(recorder.records[f'{prefix}-src-{slug}-after-geo'], variant, name)
                for name, slug in SOURCE_LAYERS}
-    body = package_body(recorder.records[version_step].json)
+    body = render_body or package_body(recorder.records[version_step].json)
     try:
         from playwright.sync_api import Error as PlaywrightError
     except ImportError as exc:
@@ -1459,7 +1686,8 @@ def record_independent_render(stack, seeded, prefix, version_step):
             sample_mercator=contract['sampleMercator'][variant], allow_default=default)
     except PlaywrightError as exc:
         raise ProjectionError('independent browser render failed') from exc
-    color = contract['defaultFloodRgba'] if default else contract['floodRgba']
+    color = ([round(255 * (1 - 0.45) + channel * 0.45) for channel in colors['flood_zones'][:3]] + [255]
+             if default_colors else contract['defaultFloodRgba'] if default else contract['floodRgba'])
     measurement = measure_png(rendering['png'], {'background': contract['background'],
         'backgroundTolerance': contract['backgroundTolerance'], 'regions': [
             {'id': 'flood', 'rect': rendering['sampleRect'], 'rgba': color, 'tolerance': contract['floodTolerance']}]},
@@ -1502,9 +1730,9 @@ def saved_digest(body):
     return canonical_digest(body)[7:]
 
 
-def record_map_measurements(recorder, version_step, prefix):
+def record_map_measurements(recorder, version_step, prefix, *, composition_body=None):
     body = package_body(recorder.records[version_step].json)
-    recorder.store_derived(prefix + '-composition', composition_from_body(body))
+    recorder.store_derived(prefix + '-composition', composition_from_body(composition_body or body))
     if prefix != 'p08' and 'mapSpec' in body:
         recorder.store_derived(prefix + '-style', style_from_body(body))
     recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(body)})
@@ -1565,6 +1793,11 @@ def seed_unstyled_map(recorder, variant, layers, owner):
     require(saved['observation']['httpStatus'] in (200, 201), 'unstyled map was not saved')
 
 
+def case_namespace(prefix, workdir):
+    """Keep case fixtures distinct even when drivers share a Compose project."""
+    return prefix + '_' + hashlib.sha256(str(workdir).encode()).hexdigest()[:16]
+
+
 def seed_case(scenario_id, stack, variant, *, create_map):
     from agent_e2e_local_api import Seeded
     key = scenario_id.lower() + 'Seed'
@@ -1602,11 +1835,13 @@ def seed_case(scenario_id, stack, variant, *, create_map):
     if scenario_id == 'P24':
         layers = dict(stack.extra.get('publishedLayers') or {})
     else:
-        from agent_e2e_scenario_backend import TownSetup
+        from agent_e2e_local_scenarios.w2g3_common import town_setup
         if 'connectionId' not in stack.extra:
             stack.extra['connectionId'] = stack.extra['ensureConnection']()
-        namespace = prefix + '_' + stack.compose_project.replace('-', '')[-16:]
-        town = TownSetup(recorder, CORPUS / 'manifest.v1.json').prepare(
+        # Multiple Studio drivers share the arc's Compose project but need
+        # distinct imported tables and service names.
+        namespace = case_namespace(prefix, stack.workdir)
+        town = town_setup(recorder, variant).prepare(
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
         layers = {name: {'service': town['layers'][name]['service'], 'layerId': town['layers'][name]['layerId']}
@@ -1644,7 +1879,17 @@ def observe_map(stack, seeded, prefix, *, created):
         require(len(matches) == 1, 'seeded map is not in the live list')
         row = matches[0]
     recorder.json(prefix + '-version', 'GET', version_path(row.get('itemId'), row.get('currentVersionId')))
-    record_map_measurements(recorder, prefix + '-version', prefix)
+    render_body = default_colors = None
+    saved_body = package_body(recorder.records[prefix + '-version'].json)
+    if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:
+        catalog = observed_fixture_source_ids(recorder, layers, step='p08-source-catalog')
+        if saved_body.get('view') is None:
+            recorder.store_derived(prefix + '-composition', catalog_composition_without_view(saved_body, catalog))
+            recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(saved_body)})
+            stack.extra[prefix + 'RenderFailure'] = 'saved map has no view'
+            return
+        render_body, default_colors = normalize_catalog_map(saved_body, catalog, layers)
+    record_map_measurements(recorder, prefix + '-version', prefix, composition_body=render_body)
     if prefix == 'p24' and not layers:
         from agent_e2e_local_projections import audited_map_sources
         from types import SimpleNamespace
@@ -1668,7 +1913,8 @@ def observe_map(stack, seeded, prefix, *, created):
             stack.extra[prefix + 'SourceFailure'] = str(exc)[:200]
     if set(layers) == set(LAYER_NAMES):
         try:
-            record_independent_render(stack, seeded, prefix, prefix + '-version')
+            record_independent_render(stack, seeded, prefix, prefix + '-version', render_body=render_body,
+                                      default_colors=default_colors)
         except (ProjectionError, OSError, ValueError) as exc:
             # Keep other assertions observable. The missing render step fails closed.
             stack.extra[prefix + 'RenderFailure'] = str(exc)[:200]

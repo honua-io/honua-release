@@ -70,8 +70,8 @@ def test_studio_view_reprojects_fixture_and_rejects_wrong_crs(bounds):
     view = {'bbox': [lon(bounds[0]), lat(bounds[1]), lon(bounds[2]), lat(bounds[3])], 'crs': 'EPSG:4326'}
     assert studio_view_contains_fixture(view, bounds)
     view['crs'] = 'EPSG:3857'
-    with pytest.raises(ProjectionError, match='CRS'):
-        studio_view_contains_fixture(view, bounds)
+    assert not studio_view_contains_fixture(view, bounds)
+    assert studio_view_contains_fixture({'bbox': bounds, 'crs': 'EPSG:3857'}, bounds)
     view['crs'] = 'EPSG:4326'
     view['bbox'][0] = view['bbox'][2] - (view['bbox'][2] - view['bbox'][0]) / 2
     assert not studio_view_contains_fixture(view, bounds)

@@ -745,6 +745,10 @@ class ActionLog:
             row.update(resultRawSha256='sha256:' + hashlib.sha256(raw).hexdigest(), resultRawPath=str(result_path),
                        resultHttpStatus=status)
         row['status'] = 'pass' if execution.get('status') in ('ok', 'pass') else 'fail'
+        if type(execution.get('errorCode')) is int or execution.get('errorCode') in ('mcp-tool-error', 'invalid-mcp-response'):
+            row['errorCode'] = execution['errorCode']
+        if execution.get('refusal') == 'out-of-scope':
+            row['refusal'] = 'out-of-scope'
         row['resultDigest'] = 'sha256:' + hashlib.sha256(action_bytes(execution)).hexdigest()
         return execution
 
@@ -896,12 +900,54 @@ def _session_receipt(row, session_id):
                                   if isinstance(row.get('finalAnswer'), str) else None)}
 
 
+def retain_interrupted_studio_usage(receipt, recorder, runtime, stack, before, controller_principals, provider, region):
+    """Keep controller-audited counters on a failed assistant session, without making it pass."""
+    from agent_studio_session_audit import assistant_usage, snapshot, verify
+    from agent_e2e_studio_customer_session import MODEL
+    from agent_browser_studio import remote_docker_host
+    from agent_studio_provider_evidence import inspect_region
+    try:
+        recorder.set_phase('observe')
+        after = snapshot(recorder, 'after')
+        verify(before, after, controller_principals)
+        if inspect_region(remote_docker_host(), stack.compose_project, provider) != region:
+            raise ValueError('provider changed')
+        identity = runtime._console_identities.get(stack.compose_project) or {}
+        owner = runtime.custody(stack)
+        if (owner.get('agentKeyId') != stack.extra.get('agentPrincipal')
+                or owner.get('agentKeyOwnerUserId') != identity.get('userId')):
+            raise ValueError('customer custody differs')
+        events = {key: event for key, event in after.items() if key not in before
+                  and event.get('resourceType') == 'studio_ai_provider' and event.get('action') == 'studio_ai.chat'}
+        usage, actors, rejected = [], set(), 0
+        for key, event in events.items():
+            try:
+                usage.extend(assistant_usage(before, {**before, key: event}, user_id=identity.get('userId'),
+                    subject=identity.get('subject'), model=MODEL, observed_calls=1,
+                    agent_key_id=owner['agentKeyId'], allow_failed=True))
+                actors.add(event['actor'])
+            except (ProjectionError, TypeError, ValueError):
+                rejected += 1
+        if actors and hasattr(runtime, 'register_assistant_actors'):
+            runtime.register_assistant_actors(actors)
+        receipt['model'] = MODEL
+        receipt['sessions'][-1]['modelId'] = MODEL
+        receipt['sessions'][-1]['usage'] = usage
+        receipt['tokens'] += sum(item['prompt_tokens'] + item['completion_tokens'] for item in usage)
+        receipt['studioAssistant'] = {'model': MODEL, 'region': region['region'], 'provider': provider,
+            'usage': usage, 'usageStatus': 'partial', 'unavailableCalls': rejected,
+            'evidenceSteps': ['studio-ai-capabilities', 'studio-ai-provider-config'] + sorted(
+                step for step in recorder.records if step.startswith('studio-audit-after-'))}
+    except Exception:  # Audit failures must not replace the interrupted model verdict.
+        receipt['studioAssistant'] = {'usageStatus': 'unavailable'}
+
+
 def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime):
     """Execute one case once; the runtime owns the fresh stack, credentials and recorder."""
     prompt = case['prompts'][variant]
     agent = getattr(runtime, 'agent', 'bedrock-proxy')
     receipt = {'caseId': case_id, 'apiVersion': API_VERSION, 'arm': arm_for(agent), 'agentType': agent,
-               'packSha256': PACK_SHA256,
+               'packSha256': getattr(runtime, 'pack_sha256', PACK_SHA256),
                'candidateDigest': candidate_digest, 'attempt': 1, 'status': 'infrastructure',
                'model': runtime.model, 'temperature': None,
                'temperaturePolicy': 'omitted: provider default, as the shipped Studio AI client sends',
@@ -966,6 +1012,22 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
         stage_customer_handoffs(stack, frozen_customer_handoffs(scenario, variant), receipt, runtime)
         if hasattr(runtime, 'attest') and stack.extra.get('customerFiles'):
             runtime.attest(stack, 'customerFiles:before', {f['corpusPath']: f['sha256'] for f in stack.extra['customerFiles']}, [])
+        studio_audit_before = None
+        if stack.extra.get('needsStudioBrowser'):
+            from agent_studio_session_audit import controller_actors, snapshot
+            if session_count != 1:
+                raise ValueError('Studio audit guard requires one customer session')
+            if agent == 'console-assistant':
+                from agent_studio_session_audit import verify_capabilities
+                from agent_e2e_studio_customer_session import MODEL
+                from agent_browser_studio import remote_docker_host
+                from agent_studio_provider_evidence import retain_region
+                provider = verify_capabilities(recorder, MODEL)
+                region_evidence = retain_region(recorder, remote_docker_host(), stack.compose_project, provider)
+                runtime.attest(stack, 'studioAssistantRegion', region_evidence['region'],
+                               ['studio-ai-capabilities', 'studio-ai-provider-config'])
+            studio_controller_actors = controller_actors(recorder, stack.admin_key)
+            studio_audit_before = snapshot(recorder, 'before')
         recorder.set_phase('session')
         sessions, session_ids = [], []
         clarifications = list(case.get('clarifications') or [])
@@ -980,6 +1042,11 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                 receipt['sessions'].append(_session_receipt({**exc.progress, 'finalAnswer': None}, session_id))
                 receipt['nudges'] += exc.progress['nudges']
                 receipt['tokens'] += exc.progress['tokens']
+                if agent == 'console-assistant' and studio_audit_before is not None:
+                    receipt['tokens'] -= exc.progress['tokens']  # Only controller-audited counters count.
+                    receipt['sessions'][-1]['usage'] = []
+                    retain_interrupted_studio_usage(receipt, recorder, runtime, stack, studio_audit_before,
+                                                    studio_controller_actors, provider, region_evidence)
                 raise
             sessions.append(row)
             session_ids.append(session_id)
@@ -1002,6 +1069,49 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                         receipt.setdefault('betweenSessions', []).append({'afterSession': number, 'restart': fact})
         acted = bool(all_actions())
         recorder.set_phase('observe')
+        if studio_audit_before is not None:
+            from agent_studio_session_audit import snapshot, verify
+            try:
+                studio_audit_after = snapshot(recorder, 'after')
+                verify(studio_audit_before, studio_audit_after, studio_controller_actors,
+                       forbid_assistant=agent != 'console-assistant')
+            except (ProjectionError, OSError, ValueError) as exc:
+                raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
+                    'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
+                    'messageIds': []}, f'Studio session audit failed: {exc}') from exc
+        if agent == 'console-assistant':
+            from agent_studio_session_audit import assistant_usage
+            from agent_e2e_studio_customer_session import MODEL
+            from agent_browser_studio import remote_docker_host
+            from agent_studio_provider_evidence import inspect_region
+            identity = runtime._console_identities.get(stack.compose_project) or {}
+            try:
+                if inspect_region(remote_docker_host(), stack.compose_project, provider) != region_evidence:
+                    raise ProjectionError('Studio provider container changed during the session')
+                owner = runtime.custody(stack)
+                if (owner.get('agentKeyId') != stack.extra.get('agentPrincipal')
+                        or owner.get('agentKeyOwnerUserId') != identity.get('userId')):
+                    raise ProjectionError('Studio agent key is not bound to the customer')
+                verified_usage = assistant_usage(studio_audit_before, studio_audit_after, user_id=identity.get('userId'),
+                                                 subject=identity.get('subject'), model=MODEL,
+                                                 observed_calls=sessions[-1].get('studioObservedModelCalls'),
+                                                 agent_key_id=owner['agentKeyId'])
+                if hasattr(runtime, 'register_assistant_actors'):
+                    runtime.register_assistant_actors({event['actor'] for key, event in studio_audit_after.items()
+                        if key not in studio_audit_before and event.get('action') == 'studio_ai.chat'})
+            except (ProjectionError, TypeError, ValueError) as exc:
+                raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
+                    'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,
+                    'messageIds': []}, f'Studio AI evidence failed: {exc}') from exc
+            receipt['model'] = MODEL
+            receipt['sessions'][-1]['modelId'] = MODEL
+            receipt['sessions'][-1]['usage'] = verified_usage
+            receipt['tokens'] += sum(item['prompt_tokens'] + item['completion_tokens'] for item in verified_usage)
+            receipt['studioAssistant'] = {'model': MODEL, 'region': region_evidence['region'],
+                                          'provider': provider, 'usage': verified_usage,
+                                          'evidenceSteps': ['studio-ai-capabilities',
+                                                            'studio-ai-provider-config'] + sorted(
+                                              step for step in recorder.records if step.startswith('studio-audit-after-'))}
         custody = runtime.custody(stack)
         clar = tuple(c for s in sessions for c in s.get('clarifications', []))
         injector = stack.extra.get('faultInjector')
@@ -1102,7 +1212,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             receipt['usage'] = [u for s in receipt['sessions'] for u in s['usage']]
             try:
                 receipt['cost'] = (None if agent in ('claude-cli', 'codex-cli') else
-                                   model_cost(receipt['usage'], runtime.model) if receipt['usage'] else None)
+                                   model_cost(receipt['usage'], receipt['model'] if agent == 'console-assistant'
+                                              else runtime.model) if receipt['usage'] else None)
             except ValueError as exc:
                 receipt['cost'] = {'usd': None, 'reason': str(exc)}
             if seeded is not None:
@@ -1222,7 +1333,9 @@ class _GatewayLog:
         return execution
 
 
-SESSIONS = {'bedrock-proxy': BedrockProxySession}
+from agent_e2e_studio_customer_session import StudioCustomerSession  # noqa: E402
+
+SESSIONS = {'bedrock-proxy': BedrockProxySession, 'console-assistant': StudioCustomerSession}
 
 
 def register_session(name, factory):
@@ -1576,9 +1689,11 @@ class LocalRuntime:
         """Mint a short-lived local customer bearer and bind the runner's key mint to that user."""
         from urllib.parse import quote
         driver = _live_driver_module()
-        state = driver._read_state(stack.extra['workspaceId'])
-        path = Path(state['workdir']) / 'private-principals.json'
-        signing = json.loads(path.read_text(encoding='utf-8')).get('signingKey')
+        signing = stack.extra.get('studioSigningKey')
+        if signing is None:
+            state = driver._read_state(stack.extra['workspaceId'])
+            path = Path(state['workdir']) / 'private-principals.json'
+            signing = json.loads(path.read_text(encoding='utf-8')).get('signingKey')
         if not isinstance(signing, str) or len(signing) < 32:
             raise ValueError('case has no local customer signing authority')
         fixture = driver.local_fixture
@@ -1821,7 +1936,10 @@ class LocalRuntime:
         canary = _canary()
         tool_view = self.tool_view(stack)
         names = set(canary._tool_names(tool_view))
-        action_log = ActionLog(Path(stack.workdir) / f'session-{number}', number, names, self.max_actions)
+        # Browser observations are recorded too; the Studio assistant's own
+        # model and tool calls have separate hard limits in its browser gate.
+        action_limit = 6000 if self.agent == 'console-assistant' else self.max_actions
+        action_log = ActionLog(Path(stack.workdir) / f'session-{number}', number, names, action_limit)
         raw = self.raw_execute(stack, names)
         injector = stack.extra.get('faultInjector')
         if injector is not None:
@@ -1845,8 +1963,12 @@ class LocalRuntime:
             if stack.extra.get('needsStudioBrowser'):
                 from agent_browser_studio import open_studio_browser
                 server = open_studio_browser(stack, action_log,
-                    identity=self._console_identities.get(stack.compose_project))
+                    identity=self._console_identities.get(stack.compose_project),
+                    scripted_customer=self.agent == 'console-assistant')
                 studio_servers.append(server)
+                register_browser = getattr(self, 'register_studio_browser', None)
+                if callable(register_browser):
+                    register_browser(server)
                 endpoint = server.endpoint
 
                 def studio_browser():
@@ -1885,6 +2007,7 @@ class LocalRuntime:
                   'messageIds': list(result.message_ids), 'finalAnswer': result.final_answer,
                   'agentType': result.agent_type, 'modelId': result.model_id, 'temperature': result.temperature,
                   'temperaturePolicy': result.temperature_policy, 'costUsd': result.cost_usd,
+                  'studioObservedModelCalls': result.extra.get('observedModelCalls'),
                   'systemContractSha256': result.extra.get('systemContractSha256'),
                   'toolViewSha256': result.extra.get('toolViewSha256')}
         if result.failure is not None or not isinstance(result.final_answer, str):
