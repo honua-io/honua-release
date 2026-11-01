@@ -30,7 +30,7 @@ class P10(Scenario):
     supported_variants = ('A', 'B')
 
     def seed(self, stack, variant):
-        from agent_e2e_scenario_backend import TownSetup
+        from agent_e2e_local_scenarios.w2g3_common import town_setup
         from agent_e2e_p10_observer import source_path
         if variant not in self.supported_variants:
             raise ValueError('unsupported P10 variant')
@@ -42,7 +42,7 @@ class P10(Scenario):
         namespace = 'p10_' + stack.compose_project.replace('-', '')[-16:]
         if 'connectionId' not in stack.extra:
             stack.extra['connectionId'] = stack.extra['ensureConnection']()
-        town = TownSetup(recorder, ROOT / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
+        town = town_setup(recorder, variant).prepare(
             variant=variant, namespace=namespace, starting_state='published-town',
             connection_id=stack.extra['connectionId'])
         binding = town['layers']['shelters']
