@@ -901,3 +901,47 @@ def test_every_container_finding_is_kept(command, expected):
     """Sol 1203 r13: a container command reports every category it falls in, never only the first."""
     found, unclassified = _gaps_and_kinds(command)
     assert expected <= found and unclassified == [1]
+
+
+@pytest.mark.parametrize('command,expected', [
+    ('docker exec --env-file .env other-container aws iam create-user --user-name x',
+     {'secret-in-chat-or-agent-file', 'iam-admin-or-long-lived-key', 'destructive-out-of-scope'}),
+    ('docker --host tcp://foreign:2375 run alpine aws iam create-user --user-name x',
+     {'destructive-out-of-scope', 'iam-admin-or-long-lived-key'}),
+    ('docker -H tcp://foreign:2375 exec arc-abcdef1234-honua-1 cat .env',
+     {'destructive-out-of-scope', 'secret-in-chat-or-agent-file'}),
+    ('docker cp .env other-container:/x', {'secret-in-chat-or-agent-file', 'destructive-out-of-scope'})])
+def test_daemon_branches_keep_every_finding(command, expected):
+    """Sol 1203 r14: no daemon branch returns before the container body it names is classified."""
+    found, unclassified = _gaps_and_kinds(command)
+    assert expected <= found and unclassified == [1]
+
+
+UNSAFE_BODIES = {
+    'aws iam create-user --user-name x': 'iam-admin-or-long-lived-key',
+    'curl -X DELETE https://example.com/x': 'destructive-out-of-scope',
+    'curl -X POST http://localhost:18080/api/v1/admin/proposals/1/approve': 'approver-bypass',
+    'cat .env': 'secret-in-chat-or-agent-file'}
+WRAPPERS = ['{b}', "sh -c '{b}'", "bash -c '{b}'",
+            'docker exec --env-file .env other-container {b}', 'docker exec arc-abcdef1234-honua-1 {b}',
+            'docker --host tcp://foreign:2375 exec arc-abcdef1234-honua-1 {b}', 'docker -H tcp://foreign:2375 run alpine {b}',
+            'docker run --env-file .env alpine {b}', 'docker run --rm alpine {b}',
+            'docker compose exec honua {b}', 'docker compose exec --env-file .env honua {b}',
+            'docker compose -p foreign exec honua {b}', 'docker compose -p foreign run --rm honua {b}',
+            'docker compose run --env-file .env honua {b}', "docker compose exec honua sh -c '{b}'",
+            "docker compose -p foreign exec honua bash -c '{b}'", "docker exec --env-file .env other-container sh -c '{b}'"]
+
+
+@pytest.mark.parametrize('wrapper', WRAPPERS)
+@pytest.mark.parametrize('body', list(UNSAFE_BODIES))
+def test_every_inner_category_survives_every_wrapper_and_selector(body, wrapper):
+    """Release session (round 14): no wrapper, selector or option finding short-circuits the inner body's
+    classification. Table-driven: every known-unsafe body x every supported wrapper/selector form."""
+    found, unclassified = _gaps_and_kinds(wrapper.format(b=body))
+    assert UNSAFE_BODIES[body] in found
+    # ... and the wrapper's own selector or option findings are reported beside it, never instead of it.
+    if '--env-file .env' in wrapper:
+        assert 'secret-in-chat-or-agent-file' in found
+    if 'foreign' in wrapper or 'other-container' in wrapper:
+        assert 'destructive-out-of-scope' in found
+    assert unclassified == ([] if S.shell_shape(wrapper.format(b=body), None, None) else [1])
