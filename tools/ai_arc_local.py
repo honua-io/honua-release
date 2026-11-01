@@ -104,15 +104,19 @@ class VmSlot:
                  f'HONUA_GRPC_PORT={self.grpc_port}'] + [f'{k}={v}' for k, v in self.secrets.items()]
         return '\n'.join(lines) + '\n'
 
-    def stage(self, install: dict) -> dict:
-        """The quickstart's secrets and key-ring steps, done by the harness on the VM."""
+    def stage(self, install: dict, compose: str | None = None) -> dict:
+        """The guide's file-creation steps, done by the harness on the VM: compose.yaml (the published
+        definition, byte for byte), .env with generated secrets and the slot's ports, and the key ring.
+        The admitted shell cannot write files, so a customer following the guide would have made these
+        before running it; the agent still has to bring the install up, check it and hand it over."""
         env = self.env_file(install)
         fence = 'HONUA_ENV_' + pysecrets.token_hex(8)
         script = (
             'set -eu\numask 077\n'
             f'mkdir -m 700 -- {shlex.quote(self.remote_dir)}\ncd -- {shlex.quote(self.remote_dir)}\n'
             f"cat > .env <<'{fence}'\n{env}{fence}\n"
-            'mkdir -p secrets\n'
+            + (f"cat > compose.yaml <<'{fence}C'\n{compose}{fence}C\n" if compose else '')
+            + 'mkdir -p secrets\n'
             'KP="$(grep \'^HONUA_KEYRING_PASSWORD=\' .env | cut -d= -f2)"\n'
             'openssl req -x509 -newkey rsa:2048 -keyout secrets/keyring.pem -out secrets/keyring.crt '
             '-days 3650 -nodes -subj "/CN=honua-quickstart" 2>/dev/null\n'
@@ -166,6 +170,71 @@ class VmSlot:
                 'steps': [{'step': 'compose-down-and-remove', 'exitCode': done.returncode}]}
 
 
+def honua_server_file(revision: str, path: str = 'docker-compose.yml') -> bytes:
+    """The file's bytes at an exact honua-server commit, read from GitHub (not from the caller)."""
+    done = subprocess.run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
+                           f'repos/honua-io/honua-server/contents/{path}?ref={revision}'],
+                          capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+    if done.returncode:
+        raise RuntimeError('honua-server compose could not be read at that revision')
+    return done.stdout
+
+
+def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, expected: dict,
+                  source_at=honua_server_file) -> dict:
+    """Add Console to the slot the way honua-server's own compose does (its 'console' profile service),
+    when the published package quickstart has none. Harness slot preparation for stage 4, recorded as
+    such; the agent never deploys or configures it.
+
+    Fail-closed bindings: the compose bytes must be honua-server's file at ``revision`` (an exact commit,
+    re-read independently); its console service must select exactly the arc's Console release digest
+    (``expected``: arc spec ``console``); and the running container must report that image."""
+    import hashlib
+    import yaml
+    if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision):
+        raise ValueError('the Console compose needs an exact honua-server commit')
+    raw = source_compose.encode()
+    if hashlib.sha256(source_at(revision)).digest() != hashlib.sha256(raw).digest():
+        raise ValueError('the Console compose is not honua-server docker-compose.yml at that commit')
+    service = (yaml.safe_load(source_compose).get('services') or {}).get('console')
+    if not isinstance(service, dict):
+        raise ValueError('the source compose defines no console service')
+    image = str(service['image'])
+    match = re.fullmatch(r'\$\{HONUA_CONSOLE_IMAGE:-([^}]+)\}', image)
+    image = match.group(1) if match else image
+    if not re.fullmatch(r'[a-z0-9./-]+@sha256:[0-9a-f]{64}', image):
+        raise ValueError('the Console image is not pinned by digest')
+    want = f"{expected['image']}@{expected['imageDigest']}"
+    if image != want:
+        raise ValueError(f"the compose selects Console {image.rsplit('@', 1)[-1][:19]}..., not the arc's "
+                         f"{expected['imageDigest'][:19]}...")
+    port = slot.http_port + 2
+    console = {k: v for k, v in service.items() if k not in ('profiles', 'ports', 'image', 'deploy')}
+    console.update(image=image, ports=[f'127.0.0.1:{port}:8080'])
+    override = yaml.safe_dump({'services': {'console': console}}, sort_keys=True)
+    fence = 'HONUA_CONSOLE_' + pysecrets.token_hex(6)
+    script = ('set -eu\numask 077\ncd -- ' + shlex.quote(slot.remote_dir) + '\n'
+              + f"cat > console.yaml <<'{fence}'\n{override}{fence}\n"
+              + slot.compose('-f', 'compose.yaml', '-f', 'console.yaml', 'up', '-d', '--wait', '--wait-timeout', '240',
+                             'console') + '\n'
+              + 'id=$(' + slot.compose('-f', 'compose.yaml', '-f', 'console.yaml', 'ps', '-q', 'console') + ')\n'
+              + 'docker image inspect --format "{{json .RepoDigests}}" '
+                '"$(docker inspect --format "{{.Image}}" "$id")"\n')
+    done = slot.ssh(script, 600)
+    if done.returncode:
+        raise RuntimeError('Console did not start on the slot')
+    try:
+        out = done.stdout.decode() if isinstance(done.stdout, bytes) else (done.stdout or '')
+        digests = json.loads(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        digests = None
+    if not isinstance(digests, list) or want not in digests:
+        raise RuntimeError('the running Console container does not report the arc Console digest')
+    return {'image': image, 'port': port, 'source': 'honua-server docker-compose.yml console profile',
+            'revision': revision, 'composeSha256': 'sha256:' + hashlib.sha256(raw).hexdigest(),
+            'observedRepoDigests': digests, 'deployedBy': 'harness (stage-4 slot preparation)'}
+
+
 class Tunnel:
     """Runner-owned ``ssh -L`` from a free loopback port here to the slot's port on the VM."""
 
@@ -209,6 +278,29 @@ def tunnel_for(slot: VmSlot) -> Tunnel:
     return Tunnel(slot, slot.http_port)
 
 
+CONTAINER = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
+
+
+def running_image(slot, container: dict) -> tuple[str | None, list, dict]:
+    """(image id, repo digests, labels) of the image the CONTAINER runs: its immutable ``.Image`` id,
+    never a tag lookup (a tag can move after the container started). Unknown is ``(None, [], {})``."""
+    ref = container.get('ID') or container.get('Name')
+    if not isinstance(ref, str) or not CONTAINER.fullmatch(ref):
+        return None, [], {}
+    inspected = slot.ssh('docker image inspect --format \'{{json .RepoDigests}}|{{json .Config.Labels}}|{{json .Id}}\' '
+                         '"$(docker inspect --format \'{{.Image}}\' ' + shlex.quote(ref) + ')"', 60)
+    try:
+        parts = inspected.stdout.decode().strip().split('|')
+        digests = json.loads(parts[0]) or []
+        labels = json.loads(parts[1]) or {}
+        image_id = json.loads(parts[2])
+    except (ValueError, AttributeError, IndexError):
+        return None, [], {}
+    if not isinstance(image_id, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', image_id):
+        return None, [], {}
+    return image_id, digests if isinstance(digests, list) else [], labels if isinstance(labels, dict) else {}
+
+
 def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str) -> dict:
     """Controller reads: containers healthy, the server image's repo digest and served revision
     equal ``expected``, readiness, and that admin reads need sign-in."""
@@ -227,13 +319,10 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
     running = [c for c in containers if c.get('Service') != 'keyring-init']
     healthy = bool(server) and all(c.get('State') == 'running' and c.get('Health') in ('healthy', '', None)
                                    for c in running)
-    repo_digests = []
-    if server and re.fullmatch(r'[A-Za-z0-9@:/._-]{1,300}', server[0].get('Image', '')):
-        inspected = slot.ssh('docker image inspect --format "{{json .RepoDigests}}" ' + shlex.quote(server[0]['Image']), 60)
-        try:
-            repo_digests = json.loads(inspected.stdout or b'[]') or []
-        except ValueError:
-            repo_digests = []
+    repo_digests, label_revision, image_id = [], None, None
+    if server:
+        image_id, repo_digests, labels = running_image(slot, server[0])
+        label_revision = labels.get('org.opencontainers.image.revision')
     reference = expected['image'] + '@' + expected['imageDigest']
     ready = http('GET', base_url + '/healthz/ready', None)
     anonymous = http('GET', base_url + '/api/v1/admin/version', None)
@@ -241,14 +330,37 @@ def observe_serving(slot: VmSlot, expected: dict, http: Callable, base_url: str)
     document = admin.get('json') if isinstance(admin.get('json'), dict) else {}
     document = document.get('data', document) if isinstance(document, dict) else {}
     instance = document.get('instance') if isinstance(document.get('instance'), dict) else {}
-    served = instance.get('source') or document.get('commitSha') or document.get('sourceRevision')
-    revision_ok = isinstance(served, str) and len(served) >= 7 and expected['sourceSha'].startswith(served)
+    # The served build: the server's informational version carries the commit as build metadata
+    # (``x.y.z-pre+<sha>``); the image's OCI revision label is the controller-side cross-check.
+    version = str(document.get('version') or '')
+    metadata = version.split('+', 1)[1] if '+' in version else ''
+    served = next((part for part in re.split(r'[.+-]', metadata) if re.fullmatch(r'[0-9a-f]{7,40}', part)), None)
+    sha = expected['sourceSha']
+    label_ok = isinstance(label_revision, str) and len(label_revision) >= 7 and sha.startswith(label_revision)
+    served_ok = served is None or sha.startswith(served)
+    revision_ok = label_ok and served_ok
     console = [c for c in containers if c.get('Service') == 'console' and c.get('State') == 'running']
-    evidence = {'console': bool(console),
+    console_port = None
+    for publisher in (console[0].get('Publishers') or []) if console else []:
+        if isinstance(publisher, dict) and publisher.get('PublishedPort') and \
+                str(publisher.get('URL', '127.0.0.1')) in ('127.0.0.1', '0.0.0.0', '::', ''):
+            console_port = int(publisher['PublishedPort'])
+            break
+    console_digests = []
+    console_image_id = None
+    if console:
+        console_image_id, console_digests, _ = running_image(slot, console[0])
+    evidence = {'console': bool(console), 'consoleRepoDigests': console_digests, 'consoleImageId': console_image_id,
                 'containers': [{k: c.get(k) for k in ('Service', 'State', 'Health')} for c in containers],
-                'repoDigestMatch': reference in repo_digests, 'servedRevision': served, 'expected': reference,
+                'repoDigestMatch': reference in repo_digests, 'servedRevision': served,
+                'servedVersion': version, 'labelRevision': label_revision, 'expected': reference,
                 'readyStatus': ready.get('status'), 'anonymousStatus': anonymous.get('status'),
                 'adminStatus': admin.get('status')}
-    return {'identity': reference in repo_digests and revision_ok, 'ready': healthy and ready.get('status') == 200,
+    # A development candidate (built from trunk on the hosts, never pushed) has no registry digest: its
+    # identity is the local image id plus the revision label.
+    digest_ok = reference in repo_digests or (bool(expected.get('development')) and image_id == expected['imageDigest'])
+    evidence['imageId'] = image_id
+    return {'identity': digest_ok and revision_ok, 'ready': healthy and ready.get('status') == 200,
             'authRequired': anonymous.get('status') in (401, 403) and admin.get('status') == 200,
-            'console': bool(console), 'evidence': evidence}
+            'console': bool(console), 'consolePort': console_port, 'consoleRepoDigests': console_digests,
+            'evidence': evidence}

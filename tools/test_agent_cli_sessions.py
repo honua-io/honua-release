@@ -59,6 +59,8 @@ prompt = sys.stdin.read()
 assert prompt == 'Customer goal only'
 if AGENT == 'claude-cli':
     assert int(os.environ['MCP_TOOL_TIMEOUT']) >= 2700000
+    # A held proposal sends no progress for ~10 minutes; the default 300 s idle abort must not apply.
+    assert int(os.environ['CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT']) >= 2700000
     assert args[args.index('--tools') + 1] == ''
     assert args[args.index('--permission-mode') + 1] == 'dontAsk'
     assert '--strict-mcp-config' in args and '--restricted' in args
@@ -81,6 +83,7 @@ else:
     assert catalog['models'][0]['experimental_supported_tools'] == []
     url = json.loads(overrides['mcp_servers.honua.url'])
     assert json.loads(overrides['mcp_servers.honua.tool_timeout_sec']) >= 2700
+    assert json.loads(overrides['mcp_servers.honua.default_tools_approval_mode']) == 'approve'
     assert json.loads(overrides['mcp_servers.honua.startup_timeout_sec']) >= 2700
     assert os.environ['RUST_LOG'] == 'codex=debug'
     assert json.loads(overrides['tools.update_plan.enabled']) == (MODE == 'plan')
@@ -314,3 +317,33 @@ def test_model_pairing_refused_before_process():
 def test_codex_builtin_attempts_fail(item):
     raw=encoded({'type':'item.started','item':{'type':item}})
     assert parse_transcript('codex-cli',raw,{'honua_query_features'})[-1]
+
+
+
+def test_codex_0166_resource_listing_is_bookkeeping_but_other_builtins_are_not():
+    """Rehearsal finding (A2): Codex 0.166 called its built-in list_mcp_resources (server "codex"),
+    which reached the recording proxy as resources/list."""
+    names = {'quickstart_shell': {'run_quickstart'}}
+    v = 'codex-cli 0.166.0'
+    listing = (b'{"type":"item.completed","item":{"id":"i","type":"mcp_tool_call","server":"codex",'
+               b'"tool":"list_mcp_resources","arguments":{},"status":"completed"}}\n'
+               b'{"type":"item.completed","item":{"id":"j","type":"agent_message","text":"ok"}}\n')
+    assert not parse_transcript('codex-cli', listing, names, v)[-1]
+    assert parse_transcript('codex-cli', listing, names, 'codex-cli 0.165.0')[-1]
+    assert parse_transcript('codex-cli', listing.replace(b'list_mcp_resources', b'read_mcp_resource'), names, v)[-1]
+    diag = b'event.name="codex.tool_call_received" tool_namespace="functions" tool_name="list_mcp_resources"\n'
+    assert not codex_forbidden_diagnostics(diag, names, v)
+    assert codex_forbidden_diagnostics(diag.replace(b'list_mcp_resources', b'exec_command'), names, v)
+
+
+@pytest.mark.parametrize('agent, model', [('claude-cli', 'claude-opus-5-5'), ('codex-cli', 'gpt-6.1-sol')])
+def test_a_cli_other_than_the_pinned_version_refuses_before_any_dispatch(tmp_path, agent, model):
+    """Astra #1177 re-review item 2: the installed CLI ('fake-cli 1.0') is not the pinned one."""
+    calls = []
+    cli = CliModelSession(agent, model, binary=fake_cli(tmp_path, agent), auth_root=tmp_path,
+                          expected_version='codex-cli 0.166.0' if agent == 'codex-cli' else '2.1.316 (Claude Code)')
+    with pytest.raises(CliFailure, match='not the pinned') as failure:
+        cli.run(prompt='Customer goal only', tool_view=TOOLS, execute=lambda k, a: calls.append(a),
+                log_dir=tmp_path / 'log')
+    assert calls == [] and failure.value.category == 'infrastructure'
+    assert not (tmp_path / 'log' / 'cli-stdout.jsonl').exists(), 'the CLI was never launched'

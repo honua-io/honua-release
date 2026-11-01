@@ -49,7 +49,9 @@ class FakeVm:
                 {'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'},
                 {'Name': 'p', 'Service': 'postgres', 'State': 'running', 'Health': 'healthy', 'Image': 'pg'}))
         if 'docker image inspect' in script:
-            out = json.dumps([self.serving['image'] + '@' + self.serving['imageDigest']]).encode()
+            labels = {'org.opencontainers.image.revision': self.serving.get('revision', INSTALL['sourceRevision'])}
+            out = (json.dumps([self.serving['image'] + '@' + self.serving['imageDigest']]) + '|'
+                   + json.dumps(labels) + '|' + json.dumps('sha256:' + '9' * 64)).encode()
         return subprocess.CompletedProcess(argv, 0, out, b'')
 
 
@@ -69,7 +71,8 @@ def http_for(source):
             return {'status': 200}
         if key is None:
             return {'status': 401}
-        return {'status': 200, 'json': {'data': {'instance': {'id': 'i', 'source': source}}}}
+        return {'status': 200, 'json': {'data': {'version': '1.0.0-rc.1+' + source[:12],
+                                                 'instance': {'id': 'i', 'source': 'hostname'}}}}
     return http
 
 
@@ -724,5 +727,51 @@ def test_a_mint_that_fails_before_returning_is_never_lost(tmp_path, monkeypatch,
             # Never registered: the outstanding acquisition keeps the shutdown incomplete.
             assert any('mint outcome unknown' in str(r.get('error')) for r in shutdown['revoked'])
             assert shutdown['complete'] is False and result['outcome'] == 'undetermined'
+    finally:
+        server.shutdown()
+
+
+def test_recovered_unregistered_mint_is_revoked_and_no_longer_authenticates(tmp_path, monkeypatch):
+    """Review nit (10th review): automated liveness coverage of credential recovery. The product accepts
+    the bootstrap mint and the response is lost before registration; finalization recovers the key from
+    the controller's own list, revokes it, and the key must no longer authenticate."""
+    import urllib.error
+    import urllib.request
+    import agent_e2e_local_recorder as recorder_mod
+    corpus = pytest.importorskip('test_agent_e2e_local_runner')
+    original_request = recorder_mod.ControllerRecorder._request
+
+    def request(self, step, principal, method, path, body, content_type):
+        if step == 'runner-custody-mint-bootstrap':
+            http = urllib.request.Request(self.base_url + path, data=body, method=method,
+                                          headers={'Content-Type': content_type, 'X-API-Key': corpus.ADMIN})
+            urllib.request.urlopen(http, timeout=10).read()
+            raise OSError('connection reset while reading the response')
+        return original_request(self, step, principal, method, path, body, content_type)
+    monkeypatch.setattr(recorder_mod.ControllerRecorder, '_request', request)
+    state, server, ctx, corpus = overrun(tmp_path, monkeypatch, lambda execute, corpus: None, deadline=120.0)
+    handler = server.RequestHandlerClass
+    original_get = handler.do_GET
+
+    def do_GET(self):
+        if self.path.rstrip('/') == '/api/v1/admin/api-keys' and self.headers.get('X-API-Key') == corpus.ADMIN:
+            rows = [{'id': row['id'], 'name': f"{ctx.slot.project}-p10-{row['id']}", 'revoked': row['revoked']}
+                    for row in state.keys.values()]
+            return self.reply(200, {'data': rows})
+        return original_get(self)
+    handler.do_GET = do_GET
+    try:
+        result = R.run_stage(ctx, R.ServicesStage(('P10',)), R.ArcSession(R.arm_by_id(ctx.arc, 'A1')), '', None)
+        recovered = [r for r in result['shutdown']['revoked'] if r.get('note') == 'recovered unregistered mint']
+        assert recovered and all(r['status'] in (200, 204) for r in recovered)
+        for key in state.keys:
+            req = urllib.request.Request(f'http://127.0.0.1:{server.server_address[1]}/api/v1/admin/api-keys/',
+                                         headers={'X-API-Key': key})
+            try:
+                status = urllib.request.urlopen(req, timeout=10).status
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+            assert status in (401, 403), 'a recovered credential no longer authenticates'
+        assert result['shutdown']['complete'] is False, 'the unaccounted acquisition still keeps it incomplete'
     finally:
         server.shutdown()

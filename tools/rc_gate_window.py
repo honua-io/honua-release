@@ -362,7 +362,11 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
         arc_raw = (ARC_DIR / "arc.v1.json").read_bytes()
         if "sha256:" + hashlib.sha256(arc_raw).hexdigest() != frozen["arcSpec"]:
             return False
-        catalog = json.loads(arc_raw)["opsScope"]["catalog"]
+        arc_scope = json.loads(arc_raw)["opsScope"]
+        catalog = arc_scope["catalog"]
+        # The arc spec's executed-subset rule is the single source the runner also enforces.
+        subset_rule = arc_scope["executedSubsetRule"]
+        must_score, never_score = set(subset_rule["mustScore"]), set(subset_rule["neverScore"])
         modes, scored_by_target = scope["opsScope"], scope["scoredOps"]
         if (not isinstance(catalog, list) or not catalog
                 or any(not isinstance(x, str) or not x.strip() for x in catalog)
@@ -384,8 +388,7 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                 if scored and set(scored) != set(catalog):
                     return False
                 scored = catalog
-            elif (not scored or not {"diagnosis.recovered", "approval.separate"} <= set(scored)
-                  or set(scored) & {"upgrade.candidate-serving", "rollback.prior-serving", "restore.migration-142"}):
+            elif not scored or not must_score <= set(scored) or set(scored) & never_score:
                 return False
             # Match the runner's catalog order for unscored entries and scope digest binding.
             expected_ops[target] = {"mode": mode, "scored": scored,

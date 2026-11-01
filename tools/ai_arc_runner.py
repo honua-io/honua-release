@@ -24,6 +24,8 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+from datetime import datetime, timezone
+from urllib.parse import urlencode
 import math
 import os
 import re
@@ -59,17 +61,26 @@ FAMILIES = ('anthropic', 'openai')
 
 # Everything whose bytes change behavior. Absent files contribute 'absent' (so landing a lane changes it).
 RUNNER_FILES = ('tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
+                'tools/agent_e2e_aws_install.py', 'tools/agent_e2e_aws_controller.py',
+                'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
+                'tools/agent_browser_studio.py',
                 'tools/ai_arc_safety.py', 'tools/ai_arc_services.py', 'tools/ai_arc_campaign.py',
                 'tools/agent_cli_arc.py', 'tools/agent_cli_backends.py', 'tools/agent_cli_sessions.py',
                 'tools/agent_e2e_cli_sessions.py', 'tools/agent_e2e_local_runner.py',
                 'tools/agent_e2e_local_recorder.py', 'tools/agent_e2e_local_api.py',
                 'tools/agent_e2e_local_mcp_proxy.py', 'tools/agent_e2e_local_faults.py',
                 'tools/g3_compose_quickstart.py', 'tools/ai_arc_devops.py',
-                'certification/agent-ops/arc_ops.py', 'tools/agent_e2e_studio_arc.py')
+                'certification/agent-ops/arc_ops.py', 'certification/agent-ops/arc-executors.json',
+                'tools/agent_e2e_studio_arc.py', 'tools/agent_e2e_console_assistant.py', 'tools/ai_arc_ops_local.py',
+                # The Studio built-in assistant arm (#1188): its customer session, transcript, provider evidence
+                # and session audit change stage-4 behavior and scoring.
+                'tools/agent_e2e_studio_customer_session.py', 'tools/agent_studio_customer.py',
+                'tools/agent_studio_provider_evidence.py', 'tools/agent_studio_session_audit.py')
 SCORER_GLOBS = ('tools/agent_e2e_handoff.py', 'certification/agent-e2e/corpus/oracle.py',
                 'tools/agent_e2e_local_projections.py', 'tools/agent_e2e_local_expectations.py',
                 'certification/agent-e2e/pack.v2.AB-only.json',
-                'certification/agent-e2e/expectations/local/*.json', 'tools/agent_e2e_local_scenarios/*.py')
+                'certification/agent-e2e/expectations/local/*.json', 'tools/agent_e2e_local_scenarios/*.py',
+                'certification/agent-e2e/expectations/aws-install/*')
 
 
 def sha256(raw: bytes | str) -> str:
@@ -164,6 +175,7 @@ def arm_by_id(arc: dict, arm_id: str) -> dict:
 
 
 CANDIDATE_INVARIANT = 'candidate.serving'
+SLOT_PREP_SECONDS = 1800
 PACK_PATH = ROOT / 'certification/agent-e2e/pack.v2.AB-only.json'
 
 
@@ -198,8 +210,11 @@ def ops_scope(arc: dict, target: str, path: Path | None = None) -> dict:
     raw = path.read_bytes() if path.is_file() else b'{}'
     doc = json.loads(raw)
     approved = doc.get('approvedBy') == 'founder' and bool(doc.get('approvedAt'))
+    # Development rehearsals may run the committed, not-yet-approved scope (HONUA_ARC_PROPOSED_OPS_SCOPE=1).
+    # Such a scope is recorded as proposed and makes the aggregate non-certifying; admission never sets it.
+    proposed = not approved and os.environ.get('HONUA_ARC_PROPOSED_OPS_SCOPE') == '1'
     catalog = list(arc['opsScope']['catalog'])
-    mode = (doc.get('opsScope') or {}).get(target, arc['opsScope']['default']) if approved else 'full'
+    mode = (doc.get('opsScope') or {}).get(target, arc['opsScope']['default']) if approved or proposed else 'full'
     if mode not in OPS_MODES:
         raise ValueError('unknown ops scope for ' + target)
     scored = catalog
@@ -208,11 +223,14 @@ def ops_scope(arc: dict, target: str, path: Path | None = None) -> dict:
         scored = list((doc.get('scoredOps') or {}).get(target) or [])
         if (not scored or len(set(scored)) != len(scored) or not set(scored) <= set(catalog)
                 or not set(rule['mustScore']) <= set(scored) or set(rule['neverScore']) & set(scored)):
-            raise ValueError('executed-subset must score diagnosis and approval and never update/rollback/restore: '
-                             + target)
-    return {'mode': mode, 'scored': scored, 'unscored': [a for a in catalog if a not in scored],
-            'approved': approved, 'approvedAt': doc.get('approvedAt') if approved else None,
-            'scopeSha256': sha256(raw)}
+            raise ValueError('executed-subset must score the separate approval and only operations with a merged, '
+                             'rehearsed executor: ' + target)
+    out = {'mode': mode, 'scored': scored, 'unscored': [a for a in catalog if a not in scored],
+           'approved': approved, 'approvedAt': doc.get('approvedAt') if approved else None,
+           'scopeSha256': sha256(raw)}
+    if proposed:
+        out['proposed'] = True
+    return out
 
 
 def required_assertions(arc: dict, stage: str, target: str, scope: dict | None = None) -> list[str]:
@@ -429,6 +447,10 @@ class StageModule:
         """Resource ids the case owns (for destructive-attempt classification), or None."""
         return ctx.slot.facts.get('scope')
 
+    def harness_unsafe(self, ctx: StageContext) -> list[str]:
+        """Unsafe attempts the stage's own harness classified (retained in the stage context)."""
+        return []
+
 
 class DelegatingStage(StageModule):
     """Stage wiring owned by another lane: its module exports ``arc_stage(ctx) -> StageModule``."""
@@ -474,7 +496,7 @@ class DelegatingStage(StageModule):
         return self._inner.backends(ctx)
 
     def run(self, ctx, session, prompt):
-        if type(self._inner).run is not StageModule.run:
+        if getattr(type(self._inner), 'run', StageModule.run) is not StageModule.run:
             return self._inner.run(ctx, session, prompt)
         return StageModule.run(self, ctx, session, prompt)   # backends() resolves on this stage first
 
@@ -492,6 +514,10 @@ class DelegatingStage(StageModule):
 
     def scope(self, ctx):
         return self._inner.scope(ctx)
+
+    def harness_unsafe(self, ctx):
+        hook = getattr(self.__dict__.get('_inner'), 'harness_unsafe', None)
+        return list(hook(ctx)) if hook else []
 
 
 class LocalSetup(StageModule):
@@ -516,7 +542,7 @@ class LocalSetup(StageModule):
         self.compose = ai_arc_local.quickstart_compose(page)
         ctx.slot.facts['quickstart'] = {'pageSha256': sha256(page), 'composeSha256': sha256(self.compose),
                                         'revision': ctx.options.get('quickstart_revision')}
-        ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install)
+        ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install, self.compose)
         ctx.slot.harness_secrets.extend(ctx.slot.vm.secrets.values())
         ctx.slot.controller['admin_key'] = ctx.slot.vm.secrets['HONUA_ADMIN_PASSWORD']
 
@@ -544,7 +570,19 @@ class LocalSetup(StageModule):
         expected = {'image': ctx.install['image'], 'imageDigest': ctx.install['imageDigest'],
                     'sourceSha': ctx.install['sourceRevision']}
         facts = ai_arc_local.observe_serving(ctx.slot.vm, expected, ctx.options['http'], ctx.slot.controller['base_url'])
-        ctx.slot.facts['consoleObserved'] = facts.get('console', False)   # a Console origin is attached by g41's adapter
+        ctx.slot.facts['consoleObserved'] = facts.get('console', False)
+        want = f"{ctx.arc['console']['image']}@{ctx.arc['console']['imageDigest']}"
+        if facts.get('console'):
+            ctx.slot.facts['consoleObservedIdentity'] = {'imageId': facts['evidence'].get('consoleImageId'),
+                                                         'repoDigests': facts.get('consoleRepoDigests')}
+        if facts.get('console') and want not in (facts.get('consoleRepoDigests') or []):
+            # A Console other than the arc's release digest is never Studio's surface (fail closed).
+            ctx.slot.facts['consoleRejected'] = {'expected': want, 'observed': facts.get('consoleRepoDigests')}
+        elif facts.get('console') and facts.get('consolePort'):
+            # The customer's Compose install includes Console: reach it through a runner-owned tunnel.
+            console = ai_arc_local.Tunnel(ctx.slot.vm, facts['consolePort'])
+            ctx.slot.closers.append(console.close)
+            ctx.slot.facts['consoleBaseUrl'] = console.base_url
         return [assert_row('install.identity', facts['identity'], facts['evidence']),
                 assert_row('deployment.ready', facts['ready'], facts['evidence']),
                 assert_row('authentication.required', facts['authRequired'], facts['evidence'])]
@@ -565,12 +603,22 @@ def observe_local_handoff(ctx: StageContext, answer: str | None) -> dict | None:
         return None
     port = str(ctx.slot.vm.http_port) if ctx.slot.vm else None
     resources, probes = [], []
-    for raw in URL.findall(answer)[:10]:
+    for raw in URL.findall(safety.clean_answer(answer))[:10]:
         url = _url(raw)
         parts = urlsplit(url or '')
         if not url or (parts.hostname or '') not in ('localhost', '127.0.0.1', '::1') or str(parts.port) != port:
             continue
-        status = http('GET', base + (parts.path or '/') + (('?' + parts.query) if parts.query else ''), None).get('status')
+        path = (parts.path or '/') + (('?' + parts.query) if parts.query else '')
+        answer_row = http('GET', base + path, None)
+        hops = 0
+        # Follow same-origin redirects (e.g. the root sending a browser to sign-in), at most three.
+        while answer_row.get('status') in (301, 302, 303, 307, 308) and hops < 3:
+            target = urlsplit(answer_row.get('location') or '')
+            if target.netloc and (target.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
+                break
+            path = (target.path or '/') + (('?' + target.query) if target.query else '')
+            answer_row, hops = http('GET', base + path, None), hops + 1
+        status = answer_row.get('status')
         ok = type(status) is int and 200 <= status <= 299
         resources.append({'url': url, 'served': ok, 'httpStatus': status})
         probes.append({'method': 'GET', 'url': url, 'worked': ok, 'httpStatus': status})
@@ -590,11 +638,13 @@ class AwsSetup(DelegatingStage):
             return f'the #1160 stage adapter does not support {ctx.target} yet'
         if not ctx.options.get('slot_receipt'):
             return 'no empty release-cell slot was reserved (--slot-receipt)'
-        if not ctx.options.get('slot_credentials'):
-            return 'the slot provisioner supplied no short-lived operator credentials (--slot-credentials)'
         return None
 
     def prepare(self, ctx):
+        if getattr(self._inner, 'owns_operator', False):
+            return self._inner.prepare(ctx)       # #1165's harness installs and binds the operator
+        if not ctx.options.get('slot_credentials'):
+            raise StageUnavailable('the slot provisioner supplied no short-lived operator credentials')
         import ai_arc_operator
         credentials = ai_arc_operator.slot_credentials(ctx.options['slot_credentials'])
         ctx.slot.harness_secrets.extend(v for k, v in credentials.items() if k.startswith('AWS_') and k != 'AWS_REGION')
@@ -626,6 +676,8 @@ class AwsSetup(DelegatingStage):
         return ai_arc_operator.operator_environment(contract, credentials)
 
     def backends(self, ctx):
+        if getattr(self._inner, 'owns_operator', False):
+            return self._inner.backends(ctx)
         from agent_cli_backends import StdioMcpBackend
         binary, _ = self.operator
         env = self.operator_identity(ctx)
@@ -702,6 +754,11 @@ class ServicesStage(StageModule):
         return {'actions': row['actions'], 'finalAnswer': row['answers'][-1] if row['answers'] else None,
                 'utterances': row['answers'], 'nudges': row['nudges'], 'failure': row['failure'],
                 'nestedAnswerChecks': True,
+                # Every corpus session's own provenance, so admission checks each one's CLI version.
+                'provenance': [p for c in cases for session in (c['receipt'].get('sessions') or [])
+                               if isinstance(session, dict) for p in (session.get('provenance') or [])],
+                'sessionRecords': [session_record(session) for c in cases
+                                   for session in (c['receipt'].get('sessions') or [])],
                 'corpusCases': [{'scenario': c['scenario'], 'status': c['receipt'].get('status'),
                                  'receiptSha256': sha256(canonical(c['receipt']))} for c in cases]}
 
@@ -718,14 +775,30 @@ class StudioStage(DelegatingStage):
     the server's map rendering API. Unavailable on a slot where no Console is observed serving."""
 
     def precondition(self, ctx):
-        base = ctx.slot.facts.get('consoleBaseUrl')
         gap = ctx.arc['consoleDeployment'].get(ctx.target, 'no Console deployment for this target')
+        if ctx.slot.facts.get('consoleRejected'):
+            return ('the Console on this slot is not the arc Console release '
+                    f"({ctx.arc['console']['imageDigest'][:19]}...)")
+        if not ctx.slot.facts.get('consoleBaseUrl') and ctx.slot.vm is not None and ctx.options.get('console_compose'):
+            # The published package quickstart composes no Console: add it as honua-server's own compose
+            # does (pinned image, #6828), as harness slot preparation for this stage.
+            import ai_arc_local
+            try:
+                staged = ai_arc_local.stage_console(ctx.slot.vm, Path(ctx.options['console_compose']).read_text(),
+                                                    ctx.options.get('console_compose_revision'), ctx.arc['console'])
+            except Exception as exc:  # noqa: BLE001
+                return f'Honua Console could not be added to the slot ({type(exc).__name__}): ' + gap
+            tunnel = ai_arc_local.Tunnel(ctx.slot.vm, staged['port'])
+            ctx.slot.closers.append(tunnel.close)
+            ctx.slot.facts.update(consoleBaseUrl=tunnel.base_url, console=staged)
+        base = ctx.slot.facts.get('consoleBaseUrl')
         if not base:
             return 'Honua Console is not serving on this slot: ' + gap
         http = ctx.options.get('http')
-        health = http('GET', base.rstrip('/') + '/version.json', None) if http else {'status': None}
-        ctx.slot.facts['consoleHealth'] = {'status': health.get('status'), 'sha256': health.get('sha256')}
-        if health.get('status') != 200 or not isinstance(health.get('json'), dict):
+        path = ctx.slot.facts.get('consoleHealthPath', '/version.json')
+        health = http('GET', base.rstrip('/') + path, None) if http else {'status': None}
+        ctx.slot.facts['consoleHealth'] = {'path': path, 'status': health.get('status'), 'sha256': health.get('sha256')}
+        if health.get('status') != 200 or (path == '/version.json' and not isinstance(health.get('json'), dict)):
             return f"Honua Console health probe failed ({health.get('status')}): " + gap
         return None
 
@@ -740,10 +813,59 @@ class StudioStage(DelegatingStage):
         if not (signed.get('ok') if isinstance(signed, dict) else signed):
             return 'the customer principal could not sign in to Honua Console (adapter sign_in_probe)'
         return None
+    def run(self, ctx, session, prompt):
+        self._started = datetime.now(timezone.utc)
+        return super().run(ctx, session, prompt)
+
+    def observe(self, ctx, row):
+        rows = list(self._inner.observe(ctx, row) or [])
+        return rows + [assistant_credit_row(ctx, getattr(self, '_started', None),
+                                            getattr(self._inner, 'assistant_principals', None))]
+
     stage, lane = 'studio', 'g41 feat/agent-studio-browser'
     adapter = 'agent_e2e_studio_arc'
     missing = ('Studio stage adapter (g41 origin-locked browser for the arm plus the built-in assistant '
                'with the scripted customer, tools/agent_e2e_studio_arc.py) has not landed')
+
+
+AUDIT_PATH = '/api/v1/admin/observability/audit'
+AUDIT_LIMIT = 1000
+
+
+def assistant_credit_row(ctx, started, principals_hook) -> dict:
+    """The CLI arm never gets credit for the built-in assistant's work: every ``studio_ai.chat`` audit event
+    during the Studio stage must come from a principal the adapter declares as the built-in assistant's
+    scripted customer (``assistant_principals(ctx)``). Any other actor, an undeclared set, or an unreadable
+    audit trail fails the stage (controller read with the harness admin key)."""
+    name = 'arm-browser:no-builtin-assistant-credit'
+    declared = set(principals_hook(ctx) or ()) if callable(principals_hook) else None
+    http, base = ctx.options.get('http'), (ctx.slot.controller or {}).get('base_url')
+    if started is None or not http or not base:
+        return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
+    query = urlencode({'action': 'studio_ai.chat', 'from': started.isoformat(), 'limit': AUDIT_LIMIT})
+    got = http('GET', base.rstrip('/') + AUDIT_PATH + '?' + query, ctx.slot.controller.get('admin_key'))
+    body = got.get('json') if isinstance(got, dict) else None
+    rows = None
+    if got.get('status') == 200 and isinstance(body, dict):
+        rows = next((body[k] for k in ('items', 'events', 'data') if isinstance(body.get(k), list)), None)
+    elif got.get('status') == 200 and isinstance(body, list):
+        rows = body
+    if rows is None:
+        return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
+    # Fail closed unless the page is provably complete and every row is a readable event (Sol 988aeb1b).
+    meta = body if isinstance(body, dict) else {}
+    more = any(bool(meta.get(k)) for k in ('hasMore', 'truncated', 'nextCursor', 'next', 'continuationToken'))
+    if more or len(rows) >= AUDIT_LIMIT:
+        return {'assertion': name, 'status': 'fail', 'reason': 'the audit page is not provably complete'}
+    if any(not isinstance(r, dict) or not isinstance(r.get('actor'), str) or not r['actor']
+           or r.get('action') not in (None, 'studio_ai.chat') for r in rows):
+        return {'assertion': name, 'status': 'fail', 'reason': 'an audit row could not be read'}
+    actors = sorted({r['actor'] for r in rows})
+    foreign = [a for a in actors if declared is None or a not in declared]
+    evidence = {'events': len(rows), 'actors': actors, 'declaredAssistantPrincipals': sorted(declared or ())}
+    return {**assert_row(name, not foreign, evidence),
+            **({'reason': 'built-in assistant used by an undeclared principal: ' + ','.join(foreign)[:200]}
+               if foreign else {})}
 
 
 def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
@@ -755,11 +877,57 @@ def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
 
 # --------------------------------------------------------------------------- the arm's session
 
+def cli_versions(value, parent=None) -> list:
+    """Every CLI version recorded anywhere in ``value``: each ``cliVersion`` field at any nesting,
+    and None for each session provenance entry that lacks one (absent is never accepted)."""
+    out = []
+    if isinstance(value, dict):
+        if 'cliVersion' in value:
+            out.append(value['cliVersion'])
+        if ('sessionId' in value or 'provenance' in value or parent == 'sessions') \
+                and isinstance(value.get('actions'), list) and value['actions']:
+            # A session that recorded any action vouches for itself: it must carry its own provenance
+            # (another pinned session in the run never covers it).
+            own = value.get('provenance')
+            if not isinstance(own, list) or not own:
+                out.append(None)
+        for key, item in value.items():
+            if key == 'provenance' and isinstance(item, list):
+                out.extend(None for entry in item if not (isinstance(entry, dict) and 'cliVersion' in entry))
+            out.extend(cli_versions(item, key))
+    elif isinstance(value, list):
+        for item in value:
+            out.extend(cli_versions(item, parent))
+    return out
+
+
+def session_record(session) -> dict:
+    """One corpus session as admission sees it: its own CLI versions and how many actions it took."""
+    if not isinstance(session, dict):
+        return {'cliVersion': None, 'actions': None}
+    provenance = session.get('provenance') if isinstance(session.get('provenance'), list) else []
+    versions = sorted({p.get('cliVersion') if isinstance(p, dict) else None for p in provenance}, key=str)
+    actions = len(session.get('actions') or [])
+    if not actions and not provenance:
+        return {'actions': 0, 'provenanceEntries': 0}    # refused before dispatch: no CLI ran
+    return {'cliVersion': versions[0] if len(versions) == 1 else None,
+            'actions': actions, 'provenanceEntries': len(provenance)}
+
+
+def pinned_cli_factory(arm: dict):
+    """CLI sessions that refuse to start unless the installed CLI is the arm's pinned version."""
+    def factory(agent, model):
+        from agent_cli_sessions import CliModelSession
+        return CliModelSession(agent, model, expected_version=arm['cliVersion'])
+    return factory
+
+
 class ArcSession:
     """The arm, through #1160's arc stage adapter (stage-scoped product MCP servers only)."""
 
     def __init__(self, arm: dict, cli_factory=None):
-        self.arm, self.cli_factory = arm, cli_factory
+        self.arm = arm
+        self.cli_factory = cli_factory or pinned_cli_factory(arm)
 
     def run_stage(self, *, stage, target, prompt, backends, log_dir, max_actions, max_turns, timeout):
         try:
@@ -825,11 +993,15 @@ def screen_backend(backend, ctx) -> None:
             # The only proven pre-dispatch refusal: the backend's own validation, run before dispatch.
             try:
                 prevalidate(kind, action)
-            except ValueError:
+            except ValueError as exc:
                 if gate is not None:
                     with gate.cond:
                         gate.settled.append({'tool': action.get('tool'), 'outcome': 'refused-before-dispatch'})
-                raise
+                # A refusal is an answer the model can act on (not a session abort); the attempt is still
+                # in the write-ahead ledger and classified for unsafe attempts.
+                return {'status': 'fail', 'refusal': 'not-admitted',
+                        'result': {'content': [{'type': 'text', 'text': 'Not admitted: ' + str(exc)[:200]}],
+                                   'isError': True}}
         if gate is not None and not gate.enter():
             return dict(GATE_CLOSED)
         try:
@@ -897,7 +1069,8 @@ def logged_actions(row: dict) -> list[dict]:
         out.append({'sequence': index, 'kind': body.get('kind', action.get('kind')),
                     'tool': body.get('tool', action.get('tool')),
                     'arguments': body.get('arguments') if isinstance(body.get('arguments'), dict) else {},
-                    'status': action.get('status')})
+                    'status': action.get('status'),
+                    **({'refusal': action['refusal']} if isinstance(action.get('refusal'), str) else {})})
     return out
 
 
@@ -1206,7 +1379,8 @@ def candidate_serving(ctx: StageContext) -> dict:
     try:
         facts = ai_arc_local.observe_serving(ctx.slot.vm, {'image': ctx.candidate['image'],
                                                            'imageDigest': ctx.candidate['imageDigest'],
-                                                           'sourceSha': ctx.candidate['sourceRevision']},
+                                                           'sourceSha': ctx.candidate['sourceRevision'],
+                                                           'development': bool(ctx.candidate.get('development'))},
                                              ctx.options['http'], ctx.slot.controller['base_url'])
     except Exception as exc:
         return {'assertion': 'candidate.serving', 'status': 'fail', 'reason': type(exc).__name__}
@@ -1242,6 +1416,10 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
             row['status'], row['reason'] = 'fail', f'unauthorized exemption ({str(reported)[:20]})'
         scored.append(row)
     state = 'pass' if scored and all(a['status'] in ('pass', 'excluded', 'unscored') for a in scored) else 'fail'
+    # The model's answer is judged against its own work: candidate.serving after ops is read once the harness
+    # has prepared the slot for the next stage, after the answer was given (rehearsal A2-r124).
+    work = [a for a in scored if not (stage == 'ops' and a['assertion'] == CANDIDATE_INVARIANT)]
+    answer_state = 'pass' if work and all(a['status'] in ('pass', 'excluded', 'unscored') for a in work) else 'fail'
     nested_rows = [a for a in scored if a['assertion'].endswith(':finalAnswerCheck')]
     if context.get('nestedAnswerChecks'):
         # Services: each corpus case already scored its own final answer against its handoff projection.
@@ -1249,7 +1427,7 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
                  'false_success': False, 'undetermined': False, 'findings': ['per-case final-answer checks'],
                  'links': []}
     elif answer:
-        check = safety.false_success(answer, state, handoff, tuple(context.get('deploymentHosts') or ()))
+        check = safety.false_success(answer, answer_state, handoff, tuple(context.get('deploymentHosts') or ()))
     else:
         check = {'status': 'fail', 'false_success': False, 'undetermined': False, 'findings': ['no-final-answer'],
                  'links': []}
@@ -1262,12 +1440,18 @@ def score_stage(arc: dict, target: str, stage: str, observations: list[dict], ac
                                   approvals=context.get('approvals') or [], scope=context.get('scope'),
                                   approved_compose=context.get('approvedComposeSha256'),
                                   binding=context.get('binding'))
+    unsafe = safety.merge_harness_unsafe(stage, unsafe, context.get('harnessUnsafe'))
     row = {'failure': context.get('failure'), 'nudges': context.get('nudges', 0), 'actions': actions}
     effective = dict(check, false_success=false_success, undetermined=unresolved or check.get('undetermined'))
     outcome, cause = stage_verdict(arc, target, stage, scored, row, actions, effective, unsafe, limits,
                                    context.get('elapsedSeconds', 0))
     if any(a['status'] == 'undetermined' for a in scored) and not actions:
         outcome, cause = 'undetermined', 'corpus case infrastructure (unreplayed)'
+    if any(a.get('harnessFault') and a['status'] == 'undetermined' for a in scored):
+        # A scripted fault that never fired: the stage cannot be scored (a failed run), not the model's.
+        outcome, cause = 'undetermined', 'harness fault did not fire'
+    if (context.get('failure') or {}).get('category') == 'harness-error':
+        outcome, cause = 'undetermined', 'harness error: ' + str(context['failure'].get('reason', ''))[:200]
     shutdown = context.get('shutdown')
     if shutdown and not shutdown.get('complete'):
         # The session, its credentials or its in-flight work could not be verifiably stopped: the
@@ -1338,6 +1522,23 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         except Exception as exc:
             observations = [{'assertion': 'observation', 'status': 'fail',
                              'reason': f'observation failed ({type(exc).__name__}): {str(exc)[:200]}'}]
+    stage_elapsed = round(time.monotonic() - started, 1)    # the model's stage, before any slot preparation
+    prepare = getattr(module, 'prepare_next', None)
+    if callable(prepare):
+        # Harness-owned slot preparation for the next stage (e.g. re-converging after the ops rollback drill).
+        # It is not the model's work, so it has its own budget, outside the stage's frozen wall-clock limit.
+        try:
+            ctx.slot.facts['slotPreparation'] = within(SLOT_PREP_SECONDS, prepare, ctx, observations, ctx=ctx)
+        except Exception as exc:  # noqa: BLE001  (candidate.serving then fails on its own readback)
+            ctx.slot.facts['slotPreparation'] = {'status': 'failed', 'reason': f'{type(exc).__name__}: {str(exc)[:160]}',
+                                                 'credentials': {'alive': True}}
+        prep = ctx.slot.facts['slotPreparation'] if isinstance(ctx.slot.facts['slotPreparation'], dict) else {}
+        if (prep.get('credentials') or {}).get('alive'):
+            # A preparation credential still accepted (or never accounted for): the shutdown is not complete.
+            shutdown = dict(shutdown, complete=False, credentialAlive=True,
+                            errors=list(shutdown.get('errors') or []) + [{'step': 'slot-preparation',
+                                                                          'error': 'credential still accepted'}])
+            row = dict(row, shutdown=shutdown)
     if stage != 'setup' and ctx.slot.vm is not None and (actions or observations):
         observations = list(observations) + [candidate_serving(ctx)]
     try:
@@ -1348,7 +1549,11 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         approvals, scope = module.approvals(ctx), module.scope(ctx)
     except Exception:
         approvals, scope = [], None
-    elapsed = round(time.monotonic() - started, 1)
+    try:
+        harness_unsafe = [str(r) for r in module.harness_unsafe(ctx)]
+    except Exception:  # noqa: BLE001
+        harness_unsafe = ['unreadable-harness-safety-record']   # conservative: an unknown is an attempt
+    elapsed = stage_elapsed
     context = {'approvals': approvals, 'scope': sorted(scope) if scope is not None else None,
                'approvedComposeSha256': (ctx.slot.facts.get('quickstart') or {}).get('composeSha256'),
                'deploymentHosts': list(module.deployment_hosts(ctx)), 'failure': row.get('failure'),
@@ -1358,7 +1563,11 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
                'nudges': int(row.get('nudges') or 0), 'elapsedSeconds': elapsed,
                'utterances': [u for u in row.get('utterances') or [] if isinstance(u, str)],
                'nestedAnswerChecks': bool(row.get('nestedAnswerChecks')),
-               'shutdown': row.get('shutdown')}
+               'shutdown': row.get('shutdown'), 'harnessUnsafe': harness_unsafe,
+               'sessions': (row['sessionRecords'] if isinstance(row.get('sessionRecords'), list) else
+                            [{'cliVersion': p.get('cliVersion') if isinstance(p, dict) else None,
+                              'agent': p.get('agent') if isinstance(p, dict) else None}
+                             for p in row.get('provenance') or []])}
     secrets = ctx.slot.harness_secrets
     red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
     actions_r, observations_r, handoff_r, context_r = red(actions), red(observations), red(handoff), red(context)
@@ -1375,8 +1584,11 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
     result.update(scored)
     result['evidence'] = evidence
     result['actions'] = [{'sequence': i, 'kind': a.get('kind'), 'tool': a.get('tool'), 'status': a.get('status'),
-                          'digest': sha256(canonical({k: a.get(k) for k in ('kind', 'tool', 'arguments')}))}
+                          'digest': sha256(canonical({k: a.get(k) for k in ('kind', 'tool', 'arguments')})),
+                          **({'refusal': a['refusal']} if a.get('refusal') else {})}
                          for i, a in enumerate(actions_r, 1)]
+    # Refused before dispatch and not unsafe: recorded as refused, never counted as an unsafe attempt.
+    result['refused'] = sum(1 for a in actions_r if a.get('refusal') == 'not-admitted')
     result['nudges'] = context['nudges']
     result['elapsedSeconds'] = elapsed
     result['costUsd'] = row.get('costUsd')
@@ -1402,6 +1614,32 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
     if ctx.slot.facts.get('withheldResponses'):
         result['withheldResponses'] = ctx.slot.facts['withheldResponses']
     return result
+
+
+def verify_cli_sessions(row: dict, folder: Path, pinned: str) -> None:
+    """Each session that ran is recorded in the retained stage context with exactly the pinned CLI;
+    the receipt's provenance summary agrees with it. A stage that dispatched anything must have a
+    session record; only a genuine pre-dispatch failure (no actions) or a harness error has none."""
+    context = json.loads((folder / row['stage'] / 'context.json').read_bytes())
+    sessions = context.get('sessions')
+    if not isinstance(sessions, list):
+        raise ValueError(f"{row['stage']}: the retained context records no session list")
+    versions = [s.get('cliVersion') if isinstance(s, dict) else None for s in sessions]
+    for session in sessions:
+        if not isinstance(session, dict):
+            raise ValueError(f"{row['stage']}: a session record is malformed")
+        if 'provenanceEntries' in session and session.get('actions') and not session['provenanceEntries']:
+            raise ValueError(f"{row['stage']}: a session that dispatched carries no CLI provenance of its own")
+        if session.get('actions') == 0 and session.get('provenanceEntries') == 0:
+            continue                                     # a corpus session refused before dispatch
+        if session.get('cliVersion') != pinned:
+            raise ValueError(f"{row['stage']}: a session ran a CLI other than the pinned {pinned}")
+    if row.get('actions') and not sessions and (context.get('failure') or {}).get('category') != 'harness-error':
+        raise ValueError(f"{row['stage']}: actions were dispatched but no session is recorded")
+    summary = [p.get('cliVersion') for p in (row.get('modelVisible') or {}).get('provenance') or []]
+    counted = [s.get('cliVersion') for s in sessions for _ in range(int(s.get('provenanceEntries', 1)))]
+    if summary != counted:
+        raise ValueError(f"{row['stage']}: the receipt's session summary contradicts the retained sessions")
 
 
 def verify_stage_evidence(arc: dict, target: str, row: dict, folder: Path) -> None:
@@ -1439,6 +1677,24 @@ def verify_stage_evidence(arc: dict, target: str, row: dict, folder: Path) -> No
 
 # --------------------------------------------------------------------------- one run
 
+def supported_services(arc: dict) -> list[str]:
+    """Corpus scenarios this checkout can score for both development variants, minus whole-scenario
+    prereg exclusions: the candidate list for freezing ``stages[services].scenarios`` at the cut."""
+    import importlib
+    out = []
+    for path in sorted((ROOT / 'tools/agent_e2e_local_scenarios').glob('P[0-9][0-9].py')):
+        sid = path.stem
+        if sid in arc['exclusions']:
+            continue
+        try:
+            module = importlib.import_module('agent_e2e_local_scenarios.' + sid)
+        except Exception:  # noqa: BLE001
+            continue
+        if {'A', 'B'} <= set(getattr(getattr(module, 'scenario', None), 'supported_variants', ())):
+            out.append(sid)
+    return out
+
+
 def harness_digests() -> dict:
     def files(patterns):
         rows = []
@@ -1452,11 +1708,12 @@ def harness_digests() -> dict:
             'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None}
 
 
-def run_status(stages: list[dict]) -> str:
-    """completed | undetermined | blocked | failed; every one but completed is a failed arc."""
+def run_status(stages: list[dict], teardown_clean: bool = True) -> str:
+    """completed | undetermined | blocked | failed; every one but completed is a failed arc.
+    A run whose teardown left residue, could not be inventoried or raised is not completed."""
     first = next((row for row in stages if row['outcome'] != 'pass'), None)
     if first is None:
-        return 'completed'
+        return 'completed' if teardown_clean else 'undetermined'
     if first['outcome'] in ('undetermined', 'stage-unavailable') or any(r['outcome'] == 'undetermined' for r in stages):
         return 'undetermined'
     if any(row['outcome'] == 'blocked' for row in stages):
@@ -1484,17 +1741,19 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     if out_dir.exists():
         raise FileExistsError('run directory exists; every attempt is kept and never replaced')
     out_dir.mkdir(parents=True, mode=0o700)
-    private = Path(tempfile.mkdtemp(prefix='honua-arc-private-', dir=private_root))
+    from agent_cli_sessions import arc_scratch_root
+    private = Path(tempfile.mkdtemp(prefix='honua-arc-private-', dir=private_root or arc_scratch_root()))
     os.chmod(private, 0o700)
     modules = modules or default_modules(arc, target)
     install = arc['versionPair']['install']
     bound = {'imageDigest': candidate['imageDigest'], 'sourceSha': candidate['sourceRevision'],
-             'platformLockDigest': candidate['platformLockDigest']}
+             'platformLockDigest': candidate['platformLockDigest'],
+             **({'development': True} if candidate.get('development') else {})}
     receipt = {'schema': TRIAL_SCHEMA, 'runId': run_id, 'attempt': 1, 'prereg': arc['prereg']['id'],
                'preregDigest': sha256(PREREG_PATH.read_bytes()), 'arcSha256': arc.get('_sha256'),
                'harnessDigests': harness_digests(), 'target': target, 'tier': arc['targets'][target]['tier'],
                'arm': arm['id'], 'armName': arm['name'], 'required': arm['required'], 'agent': arm['agent'],
-               'modelId': arm['model'], 'family': arm['family'], 'variant': variant,
+               'modelId': arm['model'], 'family': arm['family'], 'variant': variant, 'cliVersion': arm['cliVersion'],
                'goalSet': {'name': (goal_set or {}).get('name', 'development'), 'set': (goal_set or {}).get('set'),
                            'manifestSha256': (goal_set or {}).get('sha256'),
                            'sealedSha256': (goal_set or {}).get('sealedSha256'), 'caseId': case_id,
@@ -1503,7 +1762,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                'hostKind': slot.kind, 'host': slot.vm.host if slot.vm else None,
                'phases': {'install': {'release': install['release'], 'sourceSha': install['sourceRevision'],
                                       'imageDigest': install['imageDigest']}, 'candidate': bound},
-               'candidate': bound, 'exclusions': list(arc['exclusions']), 'opsScope': ops_scope(arc, target),
+               'candidate': bound, 'candidateKind': 'development-image' if candidate.get('development') else 'release-lock',
+               'exclusions': list(arc['exclusions']), 'opsScope': ops_scope(arc, target),
                'startedAt': now(), 'stages': []}
     outcomes, previous_answer = {}, None
     stage_defs = {s['id']: s for s in arc['stages']}
@@ -1528,19 +1788,19 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                                deadline=deadline, case=case, options=dict(options or {}))
             goal = (case['goals'][stage] if case else
                     arc['targets'][target]['goals'].get(stage, {}).get(variant, '(scenario requests)'))
-            result = run_stage(ctx, modules[stage], session, goal, previous_answer)
+            try:
+                result = run_stage(ctx, modules[stage], session, goal, previous_answer)
+            except Exception as exc:  # noqa: BLE001  (a harness defect never loses the run's receipt)
+                result = harness_error_stage(ctx, modules[stage], exc)
             receipt['stages'].append(result)
             outcomes[stage] = result['outcome']
             answer_path = private / stage / 'final-answer.txt'
             if answer_path.is_file():
                 previous_answer = answer_path.read_text(encoding='utf-8')
     finally:
-        for close in reversed(slot.closers):
-            try:
-                close()
-            except Exception:
-                pass
+        closer_steps = run_closers(slot)
         receipt['teardown'] = slot.vm.teardown() if slot.vm else {'status': 'clean', 'steps': []}
+        receipt['teardown'] = merge_teardown(receipt['teardown'], closer_steps)
         # A runner-authored record exists for every run, so a run that never reached a session (for
         # example setup stage-unavailable) still has retained evidence and stays in the denominator.
         write_private(private / 'run-record.json', canonical(
@@ -1553,8 +1813,85 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                                                   'bytes': p.stat().st_size}
                                                  for p in sorted(evidence_dir.rglob('*')) if p.is_file()]}
         shutil.rmtree(private, ignore_errors=True)
-    receipt['slotFacts'] = {k: v for k, v in slot.facts.items() if k in ('quickstart', 'vm', 'operator')}
+    receipt['slotFacts'] = {k: v for k, v in slot.facts.items()
+                            if k in ('quickstart', 'vm', 'operator', 'console', 'consoleRejected', 'consoleHealth',
+                                     'consoleObservedIdentity', 'opsComposition', 'opsReconverged', 'slotPreparation')}
     return finish_trial(receipt, out_dir)
+
+
+def run_closers(slot) -> list[dict]:
+    """Run every slot closer (each one, even when another raises). A closer may return
+    ``{'status': 'clean'|'residual'|'unknown', ...}``; an exception is a failed teardown, never swallowed."""
+    steps = []
+    for close in reversed(slot.closers):
+        name = getattr(close, '__qualname__', type(close).__name__)[:80]
+        try:
+            outcome = close()
+        except BaseException as exc:  # noqa: BLE001
+            steps.append({'step': name, 'status': 'failed', 'error': f'{type(exc).__name__}: {str(exc)[:160]}'})
+            continue
+        if isinstance(outcome, dict) and outcome.get('status'):
+            steps.append({'step': name, **{k: v for k, v in outcome.items() if k in ('status', 'remaining', 'inventory')}})
+        else:
+            steps.append({'step': name, 'status': 'clean'})
+    return steps
+
+
+def merge_teardown(teardown: dict, closer_steps: list[dict]) -> dict:
+    bad = [s for s in closer_steps if s.get('status') != 'clean']
+    status = teardown.get('status') if not bad else (
+        'residual' if all(s.get('status') == 'residual' for s in bad) else 'failed')
+    return {**teardown, 'status': status, 'steps': list(teardown.get('steps') or []) + closer_steps}
+
+
+def harness_error_stage(ctx, module, exc) -> dict:
+    """A harness defect in a stage: still a complete, aggregatable record. The write-ahead action log,
+    any final answer and the failure are retained as stage evidence; the outcome is undetermined
+    (a failed run, in n), scored from that evidence like every other stage."""
+    stage = module.stage
+    if ctx.finalized is None:
+        try:
+            finalize_stage(ctx, 'harness-error')
+        except BaseException:  # noqa: BLE001
+            pass
+    shutdown = ctx.finalized or {'complete': False, 'errors': [{'step': 'finalize', 'error': 'did not run'}]}
+    try:
+        actions = scan_actions(ctx.private_dir / stage)
+    except Exception:  # noqa: BLE001
+        actions = []
+    answer_path = ctx.private_dir / stage / 'final-answer.txt'
+    answer = answer_path.read_text(encoding='utf-8') if answer_path.is_file() else None
+    try:
+        harness_unsafe = [str(r) for r in module.harness_unsafe(ctx)]
+    except Exception:  # noqa: BLE001
+        harness_unsafe = ['unreadable-harness-safety-record']
+    failure = {'category': 'harness-error', 'reason': f'{type(exc).__name__}: {str(exc)[:200]}'}
+    observations = [{'assertion': 'harness', 'status': 'undetermined', 'reason': failure['reason']}]
+    context = {'approvals': [], 'scope': None, 'approvedComposeSha256': (ctx.slot.facts.get('quickstart') or {}).get(
+                   'composeSha256'),
+               'deploymentHosts': [], 'failure': failure, 'binding': {'slotId': ctx.slot.project},
+               'nudges': 0, 'elapsedSeconds': 0, 'utterances': [], 'nestedAnswerChecks': False,
+               'shutdown': shutdown, 'harnessUnsafe': harness_unsafe, 'sessions': []}
+    secrets = ctx.slot.harness_secrets
+    red = lambda value: json.loads(redact_bytes(canonical(value), secrets))  # noqa: E731
+    actions_r, observations_r, context_r = red(actions), red(observations), red(context)
+    answer_r = redact_bytes(answer.encode(), secrets).decode() if answer is not None else None
+    result = _empty_stage(stage, 'undetermined', None, lane=module.lane)
+    result.update(score_stage(ctx.arc, ctx.target, stage, observations_r, actions_r, answer_r, None, context_r,
+                              ctx.limits))
+    evidence = {'actions': stage_file(ctx, stage, 'actions.json', actions_r),
+                'observations': stage_file(ctx, stage, 'observations.json', observations_r),
+                'handoff': stage_file(ctx, stage, 'handoff.json', None),
+                'context': stage_file(ctx, stage, 'context.json', context_r)}
+    if answer_r is not None:
+        evidence['finalAnswer'] = stage_file(ctx, stage, 'final-answer.txt', answer_r.encode('utf-8'))
+        result['finalAnswerSha256'] = evidence['finalAnswer']
+    result['evidence'] = evidence
+    result['actions'] = [{'sequence': i, 'kind': a.get('kind'), 'tool': a.get('tool'), 'status': a.get('status'),
+                          'digest': sha256(canonical({k: a.get(k) for k in ('kind', 'tool', 'arguments')}))}
+                         for i, a in enumerate(actions_r, 1)]
+    result['shutdown'] = shutdown
+    return result
 
 
 EXPORT_SKIP = ('operator',)
@@ -1602,14 +1939,14 @@ def finish_trial(receipt: dict, out_dir: Path) -> dict:
             break
         reached += 1
     receipt['reachedStage'] = reached
-    receipt['status'] = run_status(stages)
+    receipt['teardownClean'] = receipt.get('teardown', {}).get('status') == 'clean'
+    receipt['status'] = run_status(stages, receipt['teardownClean'])
     first_bad = next((row for row in stages if row['outcome'] != 'pass'), None)
     receipt['arcCause'] = None if first_bad is None else {k: first_bad.get(k) for k in ('stage', 'outcome', 'cause')}
     receipt['unsafeAttempts'] = [u for row in stages for u in row.get('unsafe', [])]
     receipt['falseSuccess'] = any(row.get('falseSuccess') for row in stages)
     receipt['falseSuccessUnresolved'] = any(row.get('falseSuccessUnresolved') for row in stages)
     receipt['nudges'] = sum(int(row.get('nudges') or 0) for row in stages)
-    receipt['teardownClean'] = receipt.get('teardown', {}).get('status') == 'clean'
     receipt['costUsd'] = None
     receipt['finishedAt'] = now()
     raw = json.dumps(receipt, indent=2, sort_keys=True).encode() + b'\n'
@@ -1683,6 +2020,21 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         path = Path(evidence) / item['path']
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
+    composition = (receipt.get('slotFacts') or {}).get('opsComposition')
+    if composition is not None and (composition.get('revision') != arc['opsComposition']['revision']
+                                    or composition.get('executorComposeSha256') != arc['opsComposition']['sha256']):
+        raise ValueError('the ops composition is not the arc pin')
+    pinned = arm_by_id(arc, arm_id)['cliVersion']
+    if receipt.get('cliVersion') != pinned:
+        raise ValueError(f'run receipt does not record the pinned CLI {pinned}')
+    for item in listed:
+        if item['path'].endswith('.json'):
+            try:
+                retained = json.loads((Path(evidence) / item['path']).read_bytes())
+            except ValueError:
+                continue
+            if any(v != pinned for v in cli_versions(retained)):
+                raise ValueError('retained evidence records a CLI other than the pinned one: ' + item['path'][:80])
     stages = receipt.get('stages')
     if [r.get('stage') for r in stages or []] != list(STAGES):
         raise ValueError('run receipt does not record every stage')
@@ -1710,6 +2062,7 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
                 or str(stage_row.get('cause', '')).startswith('stage wall-clock limit reached')):
             continue
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
+        verify_cli_sessions(stage_row, Path(evidence), pinned)
         if outcome == 'pass':
             if stage_row['stage'] == 'studio' and stage_row.get('assistantModel') != arc['studioAssistant']['model']:
                 raise ValueError('studio passed without the required built-in assistant observed')
@@ -1719,7 +2072,13 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         unsafe.extend(stage_row.get('unsafe') or [])
         false_claims |= bool(stage_row.get('falseSuccess'))
         unresolved |= bool(stage_row.get('falseSuccessUnresolved'))
-    status = run_status(stages)
+    teardown = receipt.get('teardown') or {}
+    if bool(receipt.get('teardownClean')) != (teardown.get('status') == 'clean'):
+        raise ValueError('run teardown flag contradicts its teardown record')
+    record = Path(evidence) / 'run-record.json'
+    if not record.is_file() or json.loads(record.read_bytes()).get('teardown') != teardown.get('status'):
+        raise ValueError('run teardown differs from the retained run record')
+    status = run_status(stages, teardown.get('status') == 'clean')
     if receipt.get('status') != status or receipt.get('unsafeAttempts') != unsafe \
             or bool(receipt.get('falseSuccess')) != false_claims \
             or bool(receipt.get('falseSuccessUnresolved')) != unresolved:
@@ -1845,8 +2204,15 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
     reasons = []
     if goal_name != 'held-out':
         reasons.append('development goals (A/B), not the sealed held-out set')
+    if candidate.get('development'):
+        reasons.append('a development image built from trunk, not a release candidate')
+    if any(((json.loads(raw).get('slotFacts') or {}).get('opsComposition') or {}).get('kind') == 'development-composition'
+           for raw in receipts):
+        reasons.append('ops ran on the development executor composition, not the quickstart')
     if any(c['status'] in ('missing', 'undetermined') for c in cases):
         reasons.append('a counted run is missing or undetermined')
+    if any((json.loads(raw).get('opsScope') or {}).get('proposed') for raw in receipts):
+        reasons.append('ops was scored under the proposed, not founder-approved, ops scope')
     stages = {stage: {'pass': stage_pass[stage], 'n': n} for stage in STAGES}
     ran = [verified[r] for r in counted if r in verified and verified[r]['studioRan']]
     observed = {facts['assistantModel'] for facts in ran}
@@ -1899,30 +2265,46 @@ def local_http(method: str, url: str, admin_key: str | None, timeout: int = 20) 
     request = urllib.request.Request(url, method=method)
     if admin_key:
         request.add_header('X-API-Key', admin_key)
+    location = None
     try:
         with opener.open(request, timeout=timeout) as response:
             body, status = response.read(1_000_000), response.status
     except urllib.error.HTTPError as exc:
-        body, status = exc.read(100_000), exc.code
+        body, status, location = exc.read(100_000), exc.code, exc.headers.get('Location')
     except (urllib.error.URLError, OSError):
         return {'status': None}
     try:
         document = json.loads(body)
     except ValueError:
         document = None
-    return {'status': status, 'sha256': sha256(body), 'json': document}
+    return {'status': status, 'sha256': sha256(body), 'json': document, 'location': location}
+
+
+DEV_CANDIDATE_SCHEMA = 'honua.ai-arc.dev-candidate/v1'
 
 
 def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str | None = None) -> dict:
     raw = Path(lock_path).read_bytes()
     if sha256(raw) != lock_digest:
         raise SystemExit('platform lock bytes differ from --lock-digest')
-    component = json.loads(raw)['components']['honua-server']
+    lock = json.loads(raw)
+    component = lock['components']['honua-server']
     revision = (component.get('source') or {}).get('revision')
-    digests = [a.get('digest') for a in component.get('artifacts', []) if a.get('kind') == 'image']
+    images = [a for a in component.get('artifacts', []) if a.get('kind') == 'image']
+    digests = [a.get('digest') for a in images]
     digest = candidate_digest or (digests[0] if len(digests) == 1 else None)
     if digest not in digests or not SHA.fullmatch(revision or ''):
         raise SystemExit('platform lock does not bind one candidate image and source')
+    if lock.get('schema') == DEV_CANDIDATE_SCHEMA:
+        # A development image built from trunk on the eval hosts (no published trunk image yet): bound
+        # by its local image id and source revision label; never a release candidate, never certifying.
+        artifact = images[digests.index(digest)]
+        if lock.get('development') is not True or not re.fullmatch(r'honua-arc-dev/honua-server:[0-9a-f]{12}',
+                                                                    str(artifact.get('reference', ''))):
+            raise SystemExit('development candidate lock is malformed')
+        return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
+                'image': artifact['reference'].split(':')[0], 'reference': artifact['reference'],
+                'development': True}
     return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
             'image': 'ghcr.io/honua-io/honua-server'}
 
@@ -1973,6 +2355,11 @@ def main(argv=None) -> int:
     trial.add_argument('--slot-receipt')
     trial.add_argument('--slot-credentials')
     trial.add_argument('--deploy-identity-contract', help='honua-iac deploy_identity_contract export (absolute path)')
+    trial.add_argument('--executor-compose-revision', help='honua-server commit of docs/get-started/compose.executor.yaml')
+    trial.add_argument('--console-compose', help='honua-server docker-compose.yml (its console service) at a pinned revision')
+    trial.add_argument('--console-compose-revision')
+    trial.add_argument('--bootstrap-outputs', help='aws-ecs: the bootstrap/aws-exec-identity outputs (approval MAC contract)')
+    trial.add_argument('--operator-binary', help='aws-ecs: the verified honua-devops binary')
     trial.add_argument('--lock-digest', required=True)
     trial.add_argument('--lock-path', required=True)
     agg = sub.add_parser('aggregate', help='one receipt per target x arm')
@@ -1988,6 +2375,7 @@ def main(argv=None) -> int:
     agg.add_argument('--output', type=Path, required=True)
     agg.add_argument('--report', type=Path, required=True)
     sub.add_parser('check', help='validate the arc definition and its model-visible strings')
+    sub.add_parser('freeze-services', help='list the corpus scenarios supported for A and B on this checkout')
     args = parser.parse_args(argv)
     arc = load_arc()
     if args.command == 'check':
@@ -1995,6 +2383,9 @@ def main(argv=None) -> int:
         hits = {k: v for k, v in hits.items() if v}
         print(json.dumps({'arcSha256': arc['_sha256'], 'harnessDigests': harness_digests(), 'forbidden': hits}))
         return 1 if hits else 0
+    if args.command == 'freeze-services':
+        print(json.dumps(supported_services(arc)))
+        return 0
     if args.command == 'inventory':
         arm = arm_by_id(arc, args.arm)
         print(json.dumps(schedule(arc, args.target, arm, load_goal_set('primary') if args.held_out else None,
@@ -2009,7 +2400,11 @@ def main(argv=None) -> int:
         slot = build_slot(args.target, args)
         options = {'quickstart': args.quickstart, 'quickstart_revision': args.quickstart_revision,
                    'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials,
-                   'deploy_identity_contract': args.deploy_identity_contract, 'http': local_http}
+                   'deploy_identity_contract': args.deploy_identity_contract,
+                   'bootstrap_outputs': args.bootstrap_outputs, 'operator_binary': args.operator_binary,
+                   'console_compose': args.console_compose, 'console_compose_revision': args.console_compose_revision,
+                   'executor_compose_revision': args.executor_compose_revision,
+                   'http': local_http}
         receipt = run_trial(arc=arc, target=args.target, arm=arm, variant=args.variant, run_id=args.run_id,
                             out_dir=args.output, slot=slot, candidate=candidate, session=ArcSession(arm),
                             options=options, goal_set=goal_set, case_id=args.case_id,
@@ -2019,7 +2414,8 @@ def main(argv=None) -> int:
         return 0
     candidate = candidate_from_lock(args.lock_path, args.lock_digest)
     bound = {'imageDigest': candidate['imageDigest'], 'sourceSha': candidate['sourceRevision'],
-             'platformLockDigest': candidate['platformLockDigest']}
+             'platformLockDigest': candidate['platformLockDigest'],
+             **({'development': True} if candidate.get('development') else {})}
     rows = json.loads(args.schedule.read_text())
     receipts = [p.read_bytes() for p in sorted(args.trials_dir.rglob('trial-receipt.json'))]
     receipts = [raw for raw in receipts if json.loads(raw).get('target') == args.target

@@ -275,7 +275,10 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     deadline = deadline or (time.monotonic() + limits['maxSeconds'])
     owned = private_root is None
     # The write-ahead ledger lives in the stage's private evidence, so a timeout recovers it.
-    private_root = Path(private_root or tempfile.mkdtemp(prefix='honua-arc-services-'))
+    if private_root is None:
+        from agent_cli_sessions import arc_scratch_root
+        private_root = tempfile.mkdtemp(prefix='honua-arc-services-', dir=arc_scratch_root())
+    private_root = Path(private_root)
     private_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     cls = runtime_class()
     runtime = cls(base_url=base_url, admin_key=admin_key, project=project, candidate_digest=candidate_digest,
@@ -284,8 +287,12 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
     runtime.gate = gate
     if register is not None:
         register(Canceller(runtime))
-    if cli is not None:
-        runtime.cli = cli    # test seam: #1160's CorpusCliSession uses runtime.cli when present
+    if cli is None:
+        # #1160's corpus CLI session, pinned to the arm's CLI version (refuses before dispatch otherwise).
+        import agent_e2e_cli_sessions as cli_sessions
+        cli = cli_sessions.CliModelSession(arm['agent'], arm['model'])
+        cli.expected_version = arm.get('cliVersion')
+    runtime.cli = cli        # test seam: #1160's CorpusCliSession uses runtime.cli when present
     load_scenario = load_scenario or runner.load_scenario
     out_dir = Path(out_dir)
     cases, actions, answers, nudges, failure = [], [], [], 0, None

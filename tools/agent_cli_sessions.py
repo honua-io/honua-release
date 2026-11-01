@@ -36,13 +36,30 @@ QUICKSTART_CONTRACT = ('Complete the customer request using the provided MCP too
 SERVER_NAMES = frozenset(('honua', 'honua_devops', 'studio', 'quickstart_shell'))
 # Version-specific, audited built-ins. These are bookkeeping, not MCP actions.
 INTERNAL_TOOLS = {'claude-cli': {'2.1.316 (Claude Code)': frozenset()},
-                  'codex-cli': {'codex-cli 0.165.0': frozenset(('update_plan',))}}
+                  'codex-cli': {'codex-cli 0.165.0': frozenset(('update_plan',)),
+                                # 0.166 lists the configured MCP servers' resources with a built-in tool
+                                # (reported as server "codex"); the listing goes through the recording
+                                # proxy as resources/list, so it is bookkeeping, not an unrecorded action.
+                                'codex-cli 0.166.0': frozenset(('update_plan', 'list_mcp_resources',
+                                                                'list_mcp_resource_templates'))}}
 _CREDENTIAL_FIELD = re.compile(
     r'^(?:aws_?access_?key_?id|aws_?secret_?access_?key|access_?key_?id|secret_?access_?key|'
     r'session_?token|access_?token|refresh_?token|password|passwd|pwd|api_?key|private_?key)$', re.I)
 _CREDENTIAL_TEXT = re.compile(
     r'\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bpostgres(?:ql)?://[^\s:/]+:[^\s@]+@|'
     r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*[^\s,}]+', re.I)
+
+
+def arc_scratch_root() -> Path:
+    """Real-disk root for the arc's private controller state (trial private dirs, CLI scratch homes, the
+    operator launcher). /tmp is wiped on reboot and the lane rules forbid it: HONUA_ARC_SCRATCH, default
+    ~/.cache/honua-arc, mode 0700; a root under /tmp or /var/tmp is refused."""
+    root = Path(os.environ.get('HONUA_ARC_SCRATCH') or Path.home() / '.cache' / 'honua-arc').expanduser().resolve()
+    if any(str(root) == t or str(root).startswith(t + '/') for t in ('/tmp', '/var/tmp', '/dev/shm')):
+        raise ValueError('the arc scratch root must be on real disk, not ' + str(root))
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    return root
 
 
 def digest(raw):
@@ -231,7 +248,11 @@ class RecordingProxy:
             valid = name in self.names and isinstance(arguments, dict)
         elif method == 'resources/read':
             action = {'kind': 'resource_read', 'uri': params.get('uri')}
-            valid = self.server_name in (None, 'honua') and action['uri'] == 'honua://catalog/processes'
+            uri = action['uri'] if isinstance(action['uri'], str) else ''
+            # Proposal resources are readable only on a surface that offers proposal tools (arc ops).
+            proposals = any(n.startswith('honua_propose_') for n in self.names) and bool(
+                re.fullmatch(r'honua://proposals/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}', uri))
+            valid = self.server_name in (None, 'honua') and (uri == 'honua://catalog/processes' or proposals)
         else:
             # Optional MCP discovery extensions are not model actions. Reject
             # them at the protocol boundary without killing an otherwise valid session.
@@ -261,7 +282,7 @@ class RecordingProxy:
                 raise
             recording = result.pop('_recording', None)
             if recording is not None: row['runnerMetadata'] = recording
-            if result.get('refusal') == 'unsafe-iam-request': row['refusal'] = 'unsafe-iam-request'
+            if result.get('refusal') in ('unsafe-iam-request', 'not-admitted'): row['refusal'] = result['refusal']
             try:
                 screen_model_input(result)
             except ValueError:
@@ -354,6 +375,9 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
     for name, item in servers.items():
         overrides[f'mcp_servers.{name}.url'] = item['url']
         overrides[f'mcp_servers.{name}.enabled_tools'] = sorted(item['names'])
+        # Codex 0.166 asks for approval per MCP call; under approval_policy=never that refuses every call.
+        # The harness MCP surface is the guarded boundary, so its enabled tools are pre-approved.
+        overrides[f'mcp_servers.{name}.default_tools_approval_mode'] = 'approve'
         overrides[f'mcp_servers.{name}.startup_timeout_sec'] = tool_timeout
         overrides[f'mcp_servers.{name}.tool_timeout_sec'] = tool_timeout
     args = [binary, 'exec', '--model', model, '--sandbox', 'read-only', '--skip-git-repo-check',
@@ -393,7 +417,9 @@ def parse_transcript(agent, raw, names, version=None):
                 item = event.get('item', {})
                 kind = item.get('type')
                 if kind == 'mcp_tool_call':
-                    if item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
+                    internal = (item.get('server') == 'codex' and item.get('tool', '').startswith('list_mcp_resource')
+                                and item.get('tool') in INTERNAL_TOOLS.get(agent, {}).get(version, ()))
+                    if not internal and item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
                 elif kind == 'todo_list':
                     if 'update_plan' not in INTERNAL_TOOLS.get(agent, {}).get(version, ()): forbidden = True
                 elif kind not in ('agent_message', 'reasoning', 'error', None):
@@ -464,10 +490,12 @@ def internal_events(agent, version, stdout, stderr):
 
 
 class CliModelSession:
-    def __init__(self, agent, model, *, binary=None, auth_root=None):
+    def __init__(self, agent, model, *, binary=None, auth_root=None, expected_version=None):
         if agent not in MODELS or model not in MODELS[agent]:
             raise ValueError('unsupported CLI/model pairing')
         self.agent, self.model = agent, model
+        # When set (the arc pins it per arm), a different installed CLI refuses before any dispatch.
+        self.expected_version = expected_version
         self.binary = str(Path(binary or shutil.which('claude' if agent == 'claude-cli' else 'codex') or '').resolve())
         if not Path(self.binary).is_file(): raise ValueError('CLI executable missing')
         self.auth_root = auth_root
@@ -513,7 +541,7 @@ class CliModelSession:
                'messageIds': [f'S{session}-customer'], 'finalAnswer': None,
                'toolViewSha256': digest(encoded(primary_view)), 'systemContractSha256': digest(contract.encode())}
         self._progress = out
-        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir='/tmp') as scratch:
+        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir=arc_scratch_root()) as scratch:
             home = Path(scratch)
             # No repository or ancestor instructions may be reachable through cwd discovery.
             if any((p / name).exists() for p in (home, *home.parents)
@@ -521,10 +549,18 @@ class CliModelSession:
                 raise ValueError('scratch directory has reachable repository instructions')
             env = cli_environment(home, self.agent, auth_root=self.auth_root)
             tool_timeout = max(2700, int(timeout))
-            if self.agent == 'claude-cli': env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
+            if self.agent == 'claude-cli':
+                env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
+                # Claude Code also aborts a call that sends no progress for 300 s; a held proposal (the executor's
+                # ~10 minute observation window) needs the same bound as the tool timeout (rehearsal A1-r132).
+                env['CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT'] = str(tool_timeout * 1000)
             else: env['RUST_LOG'] = 'codex=debug'
             version = subprocess.run([self.binary, '--version'], env=env, cwd=home,
                                      capture_output=True, check=True, timeout=20).stdout.decode().strip()
+            out['cliVersion'] = version
+            if self.expected_version is not None and version != self.expected_version:
+                raise CliFailure(f'CLI version {version[:60]!r} is not the pinned {self.expected_version!r}', out,
+                                 'infrastructure')
             if 'update_plan' in INTERNAL_TOOLS.get(self.agent, {}).get(version, ()):
                 contract += ' You may use update_plan solely for internal bookkeeping; it is not a Honua action.'
                 out['systemContractSha256'] = digest(contract.encode())

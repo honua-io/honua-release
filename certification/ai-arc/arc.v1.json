@@ -29,7 +29,8 @@
       "agent": "claude-cli",
       "model": "claude-opus-5-5",
       "family": "anthropic",
-      "required": true
+      "required": true,
+      "cliVersion": "2.1.316 (Claude Code)"
     },
     {
       "id": "A2",
@@ -37,7 +38,8 @@
       "agent": "codex-cli",
       "model": "gpt-6.1-sol",
       "family": "openai",
-      "required": true
+      "required": true,
+      "cliVersion": "codex-cli 0.166.0"
     },
     {
       "id": "C1",
@@ -45,7 +47,8 @@
       "agent": "claude-cli",
       "model": "claude-sonnet-5-5",
       "family": "anthropic",
-      "required": false
+      "required": false,
+      "cliVersion": "2.1.316 (Claude Code)"
     },
     {
       "id": "C2",
@@ -53,7 +56,8 @@
       "agent": "claude-cli",
       "model": "claude-sonnet-4-6",
       "family": "anthropic",
-      "required": false
+      "required": false,
+      "cliVersion": "2.1.316 (Claude Code)"
     },
     {
       "id": "C3",
@@ -61,7 +65,8 @@
       "agent": "codex-cli",
       "model": "gpt-6.1-terra",
       "family": "openai",
-      "required": false
+      "required": false,
+      "cliVersion": "codex-cli 0.166.0"
     }
   ],
   "studioAssistant": {
@@ -223,58 +228,53 @@
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-ecs": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-eks": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-lambda": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.bootstrap-revoked",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ]
       },
       "scenarios": [
         "P10",
-        "P07",
-        "P13"
+        "P15"
       ],
       "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack.",
       "goalSource": "The services stage sends no arc-authored goal: each scenario in stages[services].scenarios runs with its own development-pack prompt (held-out: unavailable), the first one after the plain handoff. Coverage is exactly those scenarios."
@@ -372,7 +372,7 @@
         "minArcPasses": 17
       },
       "customerNotes": {
-        "setup": "Release: Honua {release}. Server image: {image}. I already created the secrets file and the key ring from the guide's second step in the install folder, so please don't make new ones. Use port {port} for Honua on this machine; the port after it is free for the other one."
+        "setup": "Release: Honua {release}. Server image: {image}. I already created the compose file, the secrets file and the key ring from the guide in the install folder, and the secrets file already names that exact server image and sets Honua to port {port} on this machine (the port after it for the other one), so please don't make new ones or override them."
       }
     },
     "aws-ecs": {
@@ -548,7 +548,7 @@
     "source": "certification/ai-arc/gating-scope.json (founder-approved: approvedBy=founder, approvedAt)",
     "modes": {
       "full": "every ops assertion is scored (prereg option A)",
-      "executed-subset": "only scoredOps[target] are scored (prereg option B); every other ops assertion is listed as unscored, never dropped",
+      "executed-subset": "only scoredOps[target] are scored (prereg option B: the operations whose executor is merged and rehearsed); every other ops assertion is listed as unscored, never dropped",
       "not-gating": "the target does not gate (prereg option C); ops is scored in full and results publish as they land"
     },
     "default": "full",
@@ -563,19 +563,29 @@
     "invariant": "candidate.serving is required from ops onward under every scope (version pair), and is never part of the scored/unscored catalog",
     "executedSubsetRule": {
       "mustScore": [
-        "diagnosis.recovered",
         "approval.separate"
       ],
-      "neverScore": [
-        "upgrade.candidate-serving",
-        "rollback.prior-serving",
-        "restore.migration-142"
-      ]
+      "neverScore": [],
+      "note": "Coordinator 2026-11-01: option B scores what the product executes today. On local-docker that is the update and the rollback with restore across 142; diagnose-and-remediate stays unscored until its executor and observability merge (honua-server opsobserve lane)."
     }
   },
   "consoleDeployment": {
-    "local-docker": "GAP: the published quickstart (honua-server docs/get-started/quickstart.md) composes no console service; honua-server docker-compose.yml has an opt-in console profile whose default image is ghcr.io/honua-io/honua-console:pending",
-    "aws-ecs": "GAP: the honua-iac aws-ecs module deploys no Console service (it only renders CORS origins for a Console origin)",
+    "local-docker": "honua-server #6828 (merged) pins Console in the repository docker-compose.yml 'console' profile. The published package quickstart the agent follows composes none, so for stage 4 the harness adds that console service (pinned image, honua-server compose at a pinned revision, --console-compose) as slot preparation, recorded in slotFacts.console.",
+    "aws-ecs": "honua-iac #359 and honua-devops #248 (merged) deploy Console on the cell's HTTPS hostname behind the OIDC edge. The arc consumes it when the release cell slot sets console (health: the edge sign-in page /oauth2/sign_in; the customer signs in through the adapter).",
     "rule": "The Studio stage is stage-unavailable on a slot where no Console is observed serving; it is never scored without one."
+  },
+  "console": {
+    "image": "ghcr.io/honua-io/honua-console",
+    "imageDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+    "source": "Console 626c13cc (#515: the Studio assistant uses the supported Studio AI chat and MCP routes; includes #513 and #514); honua-server #6857 compose re-pin, honua-iac #370, honua-release #1190",
+    "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed."
+  },
+  "opsComposition": {
+    "executorCompose": "docs/get-started/compose.executor.yaml",
+    "repo": "honua-io/honua-server",
+    "revision": "22c06af0dc9a0aec12f4084948f6390c373cb013",
+    "sha256": "sha256:e43ec48faa83b5bfa4ce18b9120586a5d3efa85f084cbaf15a9aa8d2e3683c97",
+    "kind": "development-composition",
+    "rule": "Until the quickstart compose ships the executor service, local ops runs with this exact documented overlay; such runs are never certifying."
   }
 }
