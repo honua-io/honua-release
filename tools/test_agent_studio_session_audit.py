@@ -40,6 +40,14 @@ def test_audit_snapshots_reject_incomplete_or_mutated_evidence():
         snapshot(Recorder([{}]), 'after')
 
 
+def test_cli_audit_rejects_customer_assistant_calls():
+    before = {1: {'actor': 'customer', 'action': 'studio_ai.chat'}}
+    after = {**before, 2: {'actor': 'customer', 'action': 'studio_ai.chat'}}
+    with pytest.raises(ProjectionError, match='invoked during CLI'):
+        verify(before, after, frozenset({'admin'}), forbid_assistant=True)
+    verify(before, after, frozenset({'admin'}), forbid_assistant=False)
+
+
 def test_managed_controller_identity_is_matched_from_server_inventory():
     key_id = '12345678-1234-1234-1234-123456789abc'
     recorder = Recorder([{'data': [{'id': key_id, 'keyPrefix': 'hnua_example'}]}])

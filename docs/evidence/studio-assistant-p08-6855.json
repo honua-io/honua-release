@@ -1,4 +1,5 @@
 {
+  "admissible": false,
   "assertions": [
     {
       "assertion": "map.composition",
@@ -107,6 +108,7 @@
     }
   ],
   "consoleDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+  "developmentOnly": true,
   "finalAnswerCheck": {
     "false_success": false,
     "findings": [],
@@ -126,6 +128,7 @@
       "outputTokens": 1610
     }
   },
+  "historicalScorerNote": "This historical re-score used the former publication-language exception, which was removed after review. It is not a proof under the current handoff scorer.",
   "kind": "independent-rescore-of-original-live-session",
   "model": {
     "evidenceSteps": [

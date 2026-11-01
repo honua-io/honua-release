@@ -1022,7 +1022,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
             from agent_studio_session_audit import snapshot, verify
             try:
                 studio_audit_after = snapshot(recorder, 'after')
-                verify(studio_audit_before, studio_audit_after, studio_controller_actors)
+                verify(studio_audit_before, studio_audit_after, studio_controller_actors,
+                       forbid_assistant=agent != 'console-assistant')
             except (ProjectionError, OSError, ValueError) as exc:
                 raise SessionInterrupted('model', {'actions': all_actions(), 'modelVisibleDigests': [],
                     'usage': [], 'provenance': [], 'nudges': 0, 'clarifications': [], 'tokens': 0,

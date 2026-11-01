@@ -1179,6 +1179,31 @@ def test_catalog_bound_unstyled_map_normalizes_identifiers_without_changing_pale
     body['view'] = {'crs': 'EPSG:4326', 'bbox': normalized['view']['bbox']}
     geographic, _ = normalize_catalog_map(body, ids, LAYERS)
     assert geographic['view'] == body['view']
+    body['layers'][1]['styleRef'] = 'authored-style'
+    with pytest.raises(ProjectionError, match='authored style'):
+        normalize_catalog_map(body, ids, LAYERS)
+    del body['layers'][1]['styleRef']
     body['layers'][1]['sourceId'] = 'svc-foreign/1'
     with pytest.raises(ProjectionError, match='catalog'):
         normalize_catalog_map(body, ids, LAYERS)
+
+
+def test_cli_browser_refuses_and_records_studio_ai_post(tmp_path):
+    from types import SimpleNamespace
+    from agent_browser_studio import OriginLock, PlaywrightPage
+    from agent_e2e_local_runner import ActionLog
+    page = PlaywrightPage.__new__(PlaywrightPage)
+    page.origin = OriginLock('http://localhost:1234')
+    page._stage_gate = None
+    page._assistant_log = None
+    page._refusal_log = ActionLog(tmp_path, 1, set(), 10)
+    page.aborted = []
+    class Route:
+        request = SimpleNamespace(url='http://localhost:1234/api/agent-workspace/studio/ai', method='POST')
+        def abort(self, reason): self.reason = reason
+        def continue_(self, **kwargs): raise AssertionError('AI request must never be sent')
+    route = Route()
+    page._gate(route)
+    assert route.reason == 'blockedbyclient'
+    assert page._refusal_log.rows[0]['status'] == 'fail'
+    assert json.loads((tmp_path / 'action-0001.json').read_text())['tool'] == 'studio_ai.chat'

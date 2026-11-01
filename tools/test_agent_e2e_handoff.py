@@ -115,9 +115,3 @@ def test_negated_published_contradicts_an_observed_published_map():
     assert "status-does-not-match-observation" in result["findings"]
 
 
-def test_checking_what_is_published_is_not_a_map_publication_claim():
-    observed = {'resources': [], 'facts': {'mapId': 'map-1', 'orderedLayerIds': ['parcels']}}
-    checked = score_final_answer("I'll check what's published. The map is saved.", observed, state_status='pass')
-    assert not checked['false_success']
-    claimed = score_final_answer('The map is published.', observed, state_status='pass')
-    assert claimed['false_success']

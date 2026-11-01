@@ -74,7 +74,7 @@ def controller_actors(recorder, key):
     return frozenset(actor.casefold() for actor in actors)
 
 
-def verify(before, after, controller_principals):
+def verify(before, after, controller_principals, *, forbid_assistant=False):
     """Reject controller-attributed actions appearing during the customer session."""
     require(before.keys() <= after.keys(), 'Studio session audit lost baseline events')
     require(all(after[key] == event for key, event in before.items()),
@@ -84,6 +84,10 @@ def verify(before, after, controller_principals):
     require(not any(event['actor'].casefold() in controller_principals
                     for key, event in after.items() if key not in before),
             'controller principal appeared in Studio session audit')
+    if forbid_assistant:
+        require(not any(event.get('action') == 'studio_ai.chat'
+                        for key, event in after.items() if key not in before),
+                'Studio assistant was invoked during CLI session')
 
 
 def assistant_usage(before, after, *, user_id, subject, model, observed_calls, agent_key_id=None):

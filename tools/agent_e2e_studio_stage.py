@@ -60,7 +60,7 @@ def initialize_admission(recorder):
             raise ValueError('Studio admission ' + action + ' was not completed')
 
 
-def provision_local_server(slot, signing_key):
+def provision_local_server(slot, signing_key, *, enable_assistant=False):
     """Configure the existing local stack for a customer identity and Bedrock provider.
 
     The slot's published Compose stays intact; the private override is applied to
@@ -76,7 +76,8 @@ def provision_local_server(slot, signing_key):
         raise ValueError('invalid slot directory')
     if not isinstance(signing_key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', signing_key):
         raise ValueError('invalid customer signing authority')
-    env = {**studio_provider_environment(), 'Oidc__Enabled': 'true',
+    env = {**(studio_provider_environment() if enable_assistant else {'StudioAiProxy__Enabled': 'false'}),
+           'Oidc__Enabled': 'true',
            'Oidc__Generic__Enabled': 'true', 'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
            'Oidc__Generic__ClientId': 'terminal-journey',
            'Oidc__TokenValidation__SymmetricSigningKey': signing_key,
@@ -147,9 +148,11 @@ def studio_runtime_class():
                                                                    'serverHost': 'honua',
                                                                    'studioGate': self.gate})
             self._prepare(stack, list(agent_permissions))
+            self.stacks.append(stack)
+            if getattr(self, 'initialize_studio_admission', False):
+                initialize_admission(stack.extra['recorder'])
             stack.extra['startConsole'] = lambda: self.start_console(stack)
             stack.extra['ensureConnection'] = lambda: self.fixture_connection(stack)
-            self.stacks.append(stack)
             for value in self._secrets:
                 if value not in self.extra_secrets:
                     self.extra_secrets.append(value)
@@ -226,8 +229,7 @@ def scored_actions(driver, actions, receipts):
     return joined
 
 
-RESTORED_PACK = Path('/home/mike/honua-io/handoffs/rc2-lanes/pack.v2.AB-only.json')
-RESTORED_PACK_DIGEST = 'sha256:62f6f3361a781817f50524a7c78bf2c1369e00344a8d711f378ae75fbdd6d6a6'
+from agent_e2e_local_runner import PACK as RESTORED_PACK, PACK_SHA256 as RESTORED_PACK_DIGEST
 
 
 def arc_stage(ctx):
@@ -292,7 +294,6 @@ def arc_stage(ctx):
                 stack = runtime.setup('P08:' + context.variant + ':local-docker', context.candidate['imageDigest'])
                 browser = None
                 try:
-                    initialize_admission(stack.extra['recorder'])
                     runtime.start_console(stack)
                     log = runner.ActionLog(Path(stack.workdir) / 'sign-in-probe', 1, set(), 200)
                     browser = open_studio_browser(stack, log, identity=runtime._console_identities[stack.compose_project],
@@ -311,19 +312,26 @@ def arc_stage(ctx):
             from ai_arc_runner import redact_bytes
             actions, answers, provenance, records, failure = [], [], [], [], None
             nudges = 0
-            for driver in ('console-assistant', 'arm-browser'):
+            for driver in ('arm-browser', 'console-assistant'):
                 if context.remaining() <= 0:
                     failure = {'category': 'model', 'reason': 'Studio stage time limit reached'}
                     break
+                if driver == 'console-assistant':
+                    provision_local_server(context.slot.vm, self.signing, enable_assistant=True)
                 runtime = self._runtime(context, driver)
+                runtime.initialize_studio_admission = driver == 'console-assistant'
                 runtime.timeout = min(2700, max(1, int(context.remaining())))
                 if driver == 'arm-browser' and getattr(session, 'cli', None) is not None:
                     runtime.cli = session.cli
                 case = load_development_case(RESTORED_PACK, RESTORED_PACK_DIGEST, 'P08', context.variant)
                 scenario = runner.load_scenario('P08')
-                receipt = runner.execute_case(case_id='P08:' + context.variant + ':local-docker',
-                    scenario=scenario, variant=context.variant, case=case,
-                    candidate_digest=context.candidate['imageDigest'], runtime=runtime)
+                try:
+                    receipt = runner.execute_case(case_id='P08:' + context.variant + ':local-docker',
+                        scenario=scenario, variant=context.variant, case=case,
+                        candidate_digest=context.candidate['imageDigest'], runtime=runtime)
+                finally:
+                    if driver == 'console-assistant':
+                        provision_local_server(context.slot.vm, self.signing)
                 self.cases[driver] = [{'scenario': 'P08', 'receipt': receipt}]
                 target = context.private_dir / 'studio' / driver
                 target.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -348,7 +356,8 @@ def arc_stage(ctx):
             assistant = (self.cases.get('console-assistant') or [{}])[0].get('receipt', {}).get('studioAssistant', {})
             return {'actions': actions, 'finalAnswer': answers[-1] if answers else None, 'utterances': answers,
                     'nudges': nudges, 'failure': failure, 'nestedAnswerChecks': True,
-                    'provenance': provenance, 'sessionRecords': records, 'assistantModel': assistant.get('model')}
+                    'provenance': provenance, 'sessionRecords': records, 'assistantModel': assistant.get('model'),
+                    'assistantRegion': assistant.get('region'), 'assistantUsage': assistant.get('usage')}
 
         def observe(self, context, row):
             return [item for driver, cases in self.cases.items() for item in driver_assertions(driver, cases)]

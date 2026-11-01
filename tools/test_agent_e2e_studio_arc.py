@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from agent_e2e_studio_arc import load_development_case, studio_provider_environment
+from agent_e2e_studio_stage import load_development_case, studio_provider_environment
 
 
 def test_pack_is_digest_bound_and_only_accepts_ab(tmp_path):
@@ -33,7 +33,7 @@ def test_bedrock_provider_config_is_scoped_and_has_no_credentials():
 
 def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
     from types import SimpleNamespace
-    from agent_e2e_studio_arc import provision_local_server
+    from agent_e2e_studio_stage import provision_local_server
     class Slot:
         remote_dir = '/tmp/arc-owned'
         project = 'arc-12345678'
@@ -51,12 +51,15 @@ def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
     assert 'x' * 48 not in str(result)
     assert 'Oidc__TokenValidation__SymmetricSigningKey' in slot.script
     assert 'AWS_ACCESS_KEY' not in slot.script
+    assert "StudioAiProxy__Enabled: 'false'" in slot.script
+    provision_local_server(slot, 'x' * 48, enable_assistant=True)
+    assert "StudioAiProxy__Enabled: 'true'" in slot.script
 
 
 def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_path):
     import ai_arc_services
     import agent_e2e_local_runner as runner
-    from agent_e2e_studio_arc import studio_runtime_class
+    from agent_e2e_studio_stage import studio_runtime_class
     calls = []
     base = ai_arc_services.runtime_class()
     monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: base)
@@ -75,7 +78,7 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
 
 
 def test_driver_assertions_keep_independent_fail_and_false_success():
-    from agent_e2e_studio_arc import driver_assertions
+    from agent_e2e_studio_stage import driver_assertions
     cases = [{'scenario': 'P08', 'receipt': {'status': 'fail', 'assertions': [
         {'assertion': 'render.actual', 'status': 'fail'}],
         'finalAnswerCheck': {'status': 'fail', 'false_success': True}}}]
@@ -91,7 +94,7 @@ def test_driver_assertions_keep_independent_fail_and_false_success():
 def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path):
     from types import SimpleNamespace
     import agent_e2e_local_runner as runner
-    import agent_e2e_studio_arc as studio
+    import agent_e2e_studio_stage as studio
     data = {'scenarios': [{'id': 'P08', 'prompts': {'A': 'map'}, 'assertions': ['render.actual']}]}
     path = tmp_path / 'pack.v2.AB-only.json'
     path.write_text(json.dumps(data))
@@ -107,6 +110,9 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
         def cancel(self): return []
         def probe(self): return []
     monkeypatch.setattr(studio, 'studio_runtime_class', lambda: Runtime)
+    provisioned = []
+    monkeypatch.setattr(studio, 'provision_local_server',
+                        lambda *args, **kwargs: provisioned.append(kwargs.get('enable_assistant', False)))
     monkeypatch.setattr(runner, 'load_scenario', lambda name: object())
     def execute_case(**kwargs):
         agent = kwargs['runtime'].agent
@@ -126,7 +132,8 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     stage.signing = 'x' * 48
     result = stage.run(context, SimpleNamespace(), 'ignored')
     scores = stage.observe(context, result)
-    assert seen == ['console-assistant', 'codex-cli']
+    assert seen == ['codex-cli', 'console-assistant']
+    assert provisioned == [True, False]
     assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
     assert any(row.get('falseSuccess') for row in scores)
 
@@ -140,7 +147,7 @@ def test_shared_project_drivers_get_distinct_fixture_names():
 
 
 def test_action_rows_retain_recorded_outcomes_and_exclude_customer_polling():
-    from agent_e2e_studio_arc import scored_actions
+    from agent_e2e_studio_stage import scored_actions
     rows = [{'kind': 'tool_call', 'tool': 'studio_chat_observe', 'arguments': {}},
             {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}}]
     result = scored_actions('console-assistant', rows, [{'status': 'pass'}, {'status': 'fail'}])
@@ -152,7 +159,7 @@ def test_action_rows_retain_recorded_outcomes_and_exclude_customer_polling():
 
 
 def test_arc_closes_browser_at_gate_and_only_once():
-    from agent_e2e_studio_arc import close_browser_on_gate
+    from agent_e2e_studio_stage import close_browser_on_gate
     class Browser:
         _poisoned = False
         def __init__(self): self.calls = 0
@@ -184,7 +191,7 @@ def test_closed_stage_blocks_browser_and_network_before_dispatch():
 
 
 def test_admission_initializes_and_resumes_only_completed_operations():
-    from agent_e2e_studio_arc import initialize_admission
+    from agent_e2e_studio_stage import initialize_admission
     class Recorder:
         def __init__(self, status): self.status, self.calls = status, []
         def json(self, step, method, path, body):

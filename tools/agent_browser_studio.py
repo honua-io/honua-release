@@ -383,7 +383,7 @@ def render_contract():
 class PlaywrightPage:
     """Controller page. It screenshots and reads attributes. It has no evaluate tool."""
 
-    def __init__(self, origin, identity=None, assistant_log=None, stage_gate=None):
+    def __init__(self, origin, identity=None, assistant_log=None, stage_gate=None, refusal_log=None):
         use_worktree_browsers()
         from playwright.sync_api import sync_playwright
         self.origin = origin
@@ -392,6 +392,7 @@ class PlaywrightPage:
         self._origin_failed = False
         self._identity = identity
         self._assistant_log = assistant_log
+        self._refusal_log = refusal_log
         self._stage_gate = stage_gate
         self._assistant_model_calls = 0
         self._assistant_tool_calls = 0
@@ -447,6 +448,14 @@ class PlaywrightPage:
         # direct continuation allows response chunks to reach the chat promptly.
         if (route.request.method == 'POST'
                 and urlsplit(url).path == '/api/agent-workspace/studio/ai'):
+            if self._assistant_log is None:
+                self.aborted.append(url)
+                route.abort('blockedbyclient')
+                if self._refusal_log is not None:
+                    selected = {'kind': 'tool_call', 'tool': 'studio_ai.chat', 'arguments': {}}
+                    self._refusal_log.dispatch('tool_call', selected,
+                        lambda _kind, _action: {'status': 'fail', 'refusal': 'out-of-scope'})
+                return
             if self._assistant_log is not None:
                 if self._assistant_model_calls >= 60:
                     self._assistant_bound_hit = True
@@ -640,7 +649,7 @@ class StudioBrowserServer:
         try:
             factory = self.page_factory or (lambda lock: PlaywrightPage(
                 lock, identity=self.identity, assistant_log=self.action_log if self.scripted_customer else None,
-                stage_gate=self.stage_gate))
+                stage_gate=self.stage_gate, refusal_log=self.action_log))
             self.page = self._owner.submit(factory, self.lock).result(timeout=self.owner_timeout)
             if isinstance(self.page, PlaywrightPage):
                 self._owner.idle = self.page.pump_events
@@ -1177,7 +1186,8 @@ def normalize_catalog_map(body, source_ids, fixtures):
     normalized = copy.deepcopy(body)
     original_ids = {}
     for row in normalized['layers']:
-        require(isinstance(row, dict) and row.get('sourceId') in reverse, 'saved source is absent from fixture catalog')
+        require(isinstance(row, dict) and 'styleRef' not in row and row.get('sourceId') in reverse,
+                'saved source is absent from fixture catalog or has an authored style')
         name = reverse[row['sourceId']]
         require(name not in original_ids and isinstance(row.get('id'), str) and row['id'],
                 'saved source is duplicated in fixture catalog')
