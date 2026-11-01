@@ -49,8 +49,9 @@
     "reason": "missing final answer or independent handoff observations",
     "status": "fail"
   },
-  "kind": "fresh-live-final-observer",
+  "kind": "fresh-live-previous-observer",
   "model": "us.anthropic.claude-sonnet-4-6",
+  "observerNote": "After this run, the observer was corrected to retain other observations and handoff scoring for maps with no view. This receipt is not re-scored.",
   "packSha256": "sha256:06133470b94486c451226b8e1671d25bcfedd980bab597fe18809a49d91ee86d",
   "receiptSha256": "sha256:8949a81fe9d20c586cea3eac4c82c64c7dc16d146f7502c5728d468e4d9906ae",
   "region": "us-east-1",

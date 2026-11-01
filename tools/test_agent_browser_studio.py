@@ -1210,3 +1210,18 @@ def test_cli_browser_refuses_and_records_studio_ai_post(tmp_path):
     assert page._refusal_log.rows[0]['status'] == 'fail'
     assert page._refusal_log.rows[0]['refusal'] == 'out-of-scope'
     assert json.loads((tmp_path / 'action-0001.json').read_text())['tool'] == 'studio_ai.chat'
+
+
+def test_viewless_catalog_map_keeps_layer_facts_for_failed_handoff():
+    from agent_browser_studio import catalog_composition_without_view
+    from agent_e2e_local_runner import score_final_answer
+    ids = {'parcels': 'svc/0', 'flood_zones': 'svc/1', 'shelters': 'svc/2'}
+    body = {'layers': [{'sourceId': source, 'visible': True} for source in ids.values()]}
+    facts = catalog_composition_without_view(body, ids)
+    assert facts == {'orderedLayerIds': list(ids), 'visibility': dict.fromkeys(ids, True), 'view': None}
+    result = score_final_answer('The map is complete.', {'resources': [], 'facts': facts},
+                                [{'assertion': 'map.composition', 'status': 'fail'}])
+    assert result['false_success'] is True
+    body['layers'][0]['styleRef'] = 'authored'
+    with pytest.raises(ProjectionError, match='viewless catalog layer'):
+        catalog_composition_without_view(body, ids)

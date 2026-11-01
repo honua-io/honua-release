@@ -1230,6 +1230,23 @@ def normalize_catalog_map(body, source_ids, fixtures):
     return normalized, colors
 
 
+def catalog_composition_without_view(body, source_ids):
+    """Preserve controller-observed layers when a saved map has no view."""
+    require(isinstance(body, dict) and body.get('view') is None and isinstance(body.get('layers'), list)
+            and len(body['layers']) == len(LAYER_NAMES) and set(source_ids) == set(LAYER_NAMES)
+            and len(set(source_ids.values())) == len(LAYER_NAMES), 'invalid viewless catalog map')
+    reverse = {value: name for name, value in source_ids.items()}
+    ordered, visibility = [], {}
+    for row in body['layers']:
+        require(isinstance(row, dict) and 'styleRef' not in row and row.get('sourceId') in reverse
+                and type(row.get('visible')) is bool, 'invalid viewless catalog layer')
+        name = reverse[row['sourceId']]
+        require(name not in visibility, 'duplicate viewless catalog layer')
+        ordered.append(name)
+        visibility[name] = row['visible']
+    return {'orderedLayerIds': ordered, 'visibility': visibility, 'view': None}
+
+
 def saved_authored_exports(body, fixtures, *, variant='A', allow_default=False):
     """Translate supported literal saved layer paint to fixture-bound server exports.
 
@@ -1841,6 +1858,11 @@ def observe_map(stack, seeded, prefix, *, created):
     saved_body = package_body(recorder.records[prefix + '-version'].json)
     if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:
         catalog = observed_fixture_source_ids(recorder, layers, step='p08-source-catalog')
+        if saved_body.get('view') is None:
+            recorder.store_derived(prefix + '-composition', catalog_composition_without_view(saved_body, catalog))
+            recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(saved_body)})
+            stack.extra[prefix + 'RenderFailure'] = 'saved map has no view'
+            return
         render_body, default_colors = normalize_catalog_map(saved_body, catalog, layers)
     record_map_measurements(recorder, prefix + '-version', prefix, composition_body=render_body)
     if prefix == 'p24' and not layers:
