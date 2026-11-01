@@ -62,6 +62,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Components whose REST/SDK public surfaces this gate tracks, and the manifest key each is pinned by.
 SURFACE_COMPONENTS = ("honua-server", "honua-sdk-python", "honua-sdk-dotnet", "honua-sdk-js")
+# Keep this component fail-closed until a neutral package is actually published. In particular,
+# `update` must not turn the current manifest pin into a new baseline for the retired package API.
+BLOCKED_SURFACES = {
+    "honua-sdk-js": "awaiting a neutral published client package; no public API baseline is claimed",
+}
 
 SERVER_OPENAPI_FILES = (
     "src/Honua.Server/openapi.json",
@@ -578,6 +583,9 @@ def cmd_update(platform: str, repos_root: Path, manifest_path: Path, baseline_ro
     pins = _load_pins(manifest_path)
     base = baseline_root / platform
     for component in SURFACE_COMPONENTS:
+        if component in BLOCKED_SURFACES:
+            print(f"::warning::{component} baseline not captured: {BLOCKED_SURFACES[component]}", file=sys.stderr)
+            continue
         sha = pins.get(component)
         if not sha:
             print(f"::warning::{component} has no sha in the manifest; skipping", file=sys.stderr)
@@ -721,6 +729,10 @@ def check(platform: str, repos_root: Path, manifest_path: Path, baseline_root: P
     for component in SURFACE_COMPONENTS:
         sha = pins.get(component)
         cdir = base / component
+        if component in BLOCKED_SURFACES:
+            rows.append({"component": component, "status": "blocked",
+                         "why": BLOCKED_SURFACES[component]})
+            continue
         if not sha:
             rows.append({"component": component, "status": "blocked", "why": "no sha in manifest"})
             continue
