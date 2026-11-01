@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from agent_browser_studio import OriginLock, PlaywrightPage
+from agent_e2e_local_runner import ActionLog
 
 
 def test_chat_state_reads_visible_messages_and_tool_calls_without_eval():
@@ -45,7 +46,7 @@ def test_chat_state_reads_visible_messages_and_tool_calls_without_eval():
         thread.join(timeout=5)
 
 
-def test_console_assistant_stream_does_not_block_browser_actions():
+def test_console_assistant_stream_does_not_block_browser_actions(tmp_path):
     pytest.importorskip('playwright.sync_api')
     started, release = threading.Event(), threading.Event()
 
@@ -79,7 +80,8 @@ def test_console_assistant_stream_does_not_block_browser_actions():
     thread.start()
     page = None
     try:
-        page = PlaywrightPage(OriginLock(f'http://127.0.0.1:{server.server_port}'))
+        page = PlaywrightPage(OriginLock(f'http://127.0.0.1:{server.server_port}'),
+                              assistant_log=ActionLog(tmp_path / 'assistant', 1, set(), 60))
         page.goto('/')
         timer = threading.Timer(2, release.set)
         timer.start()
@@ -98,7 +100,7 @@ def test_console_assistant_stream_does_not_block_browser_actions():
         thread.join(timeout=5)
 
 
-def test_console_assistant_stream_cannot_follow_cross_origin_redirect():
+def test_console_assistant_stream_cannot_follow_cross_origin_redirect(tmp_path):
     pytest.importorskip('playwright.sync_api')
     reached = threading.Event()
 
@@ -139,7 +141,8 @@ def test_console_assistant_stream_cannot_follow_cross_origin_redirect():
     page = None
     try:
         identity = {'edgeSecret': 'test-edge-secret', 'subject': 'test-user', 'mintToken': lambda: 'Bearer test-token'}
-        page = PlaywrightPage(OriginLock(f'http://127.0.0.1:{console.server_port}'), identity=identity)
+        page = PlaywrightPage(OriginLock(f'http://127.0.0.1:{console.server_port}'), identity=identity,
+                              assistant_log=ActionLog(tmp_path / 'assistant', 1, set(), 60))
         page.goto('/')
         page.click('#go')
         page._page.get_by_text('blocked').wait_for(timeout=3000)

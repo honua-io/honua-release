@@ -1736,6 +1736,152 @@ def test_the_workflow_has_no_free_quickstart_input_and_passes_the_console_compos
     assert '--console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"' in workflow
 
 
+def test_a_held_out_run_leaves_no_goal_text_on_disk(tmp_path, monkeypatch):
+    """Coordinator (#1196): held-out goals are sealed; a run writes their digest, never their text, even when
+    the CLI echoes the prompt into its logs."""
+    import agent_cli_sessions as CS
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    case = primary['cases']['h00']
+
+    class Echo(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            log = ctx.private_dir / stage / 'cli'
+            log.mkdir(parents=True, exist_ok=True)
+            (log / 'cli-stdout.jsonl').write_text(json.dumps({'echo': prompt}) + '\n')   # a CLI echoing its input
+            (log / 'cli-inputs.json').write_text(json.dumps({'prompt': prompt}))
+            return row
+    run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00', session=Echo())
+    goals = [g.encode() for g in case['goals'].values()]
+    for path in tmp_path.rglob('*'):
+        if path.is_file() and 'sealed' not in path.name and not path.name.endswith('.json.enc'):
+            raw = path.read_bytes()
+            assert not any(g in raw for g in goals), path
+    assert CS._WITHHELD == [], 'the withheld set is cleared after the run'
+
+
+def test_cli_inputs_record_only_the_digest_of_a_withheld_prompt(tmp_path):
+    import agent_cli_sessions as CS
+    CS.withhold_texts(['Please install Honua on this machine with Docker for the held-out case'])
+    try:
+        assert CS.withheld_forms()
+        target = tmp_path / 'log.jsonl'
+        target.write_text('{"text": "Please install Honua on this machine with Docker for the held-out case"}')
+        CS.scrub_file(target)
+        assert b'held-out case' not in target.read_bytes() and CS.WITHHELD_MARK in target.read_bytes()
+    finally:
+        CS.withhold_texts([])
+
+
+def test_a_held_out_goal_in_an_answer_or_a_cause_never_reaches_evidence_or_the_receipt(tmp_path, monkeypatch):
+    """Sol be3c1598: redaction precedes hashing and scoring (evidence verifies), and the receipt is covered."""
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    case = primary['cases']['h00']
+    goal = case['goals']['ops']
+
+    class Quoting(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            if stage == 'ops':
+                row['finalAnswer'] = 'You asked: ' + goal + ' Done; the update finished.'
+            return row
+    receipt, _ = run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00', session=Quoting(),
+                     mods=modules(services=FakeStage('services', unavailable='no fixtures for ' + case['goals']['services'])))
+    raws = [p.read_bytes() for p in tmp_path.rglob('*') if p.is_file() and 'sealed' not in p.name]
+    assert not any(g.encode() in raw for raw in raws for g in case['goals'].values())
+    # Sol 199fb5c 3: the goal marker is not the credential marker, so the quoted goal is not a secret disclosure;
+    # ops passes as it would without the quotation and the injected services cause is what the run reports.
+    by_stage = {row['stage']: row for row in receipt['stages']}
+    assert by_stage['ops']['outcome'] == 'pass' and by_stage['ops']['unsafe'] == []
+    assert by_stage['services']['outcome'] == 'stage-unavailable'
+    assert by_stage['services']['cause'].startswith('no fixtures for ')
+    assert CS_MARK.decode() in by_stage['services']['cause'] and '[redacted]' not in by_stage['services']['cause']
+    # Sol 199fb5c 1: the returned receipt (what the trial CLI prints) is the sanitized one.
+    assert not any(g in json.dumps(receipt) for g in case['goals'].values())
+    assert receipt['arcCause']['stage'] == 'services' and CS_MARK.decode() in receipt['arcCause']['cause']
+    rows = R.schedule(ARC, 'local-docker', A1, primary, 1)
+    agg(tmp_path, None, [(tmp_path / 'h00' / 'trial-receipt.json').read_bytes()], rows=rows,
+        goal_sets={'primary': primary})                                # evidence still verifies after redaction
+
+
+import agent_cli_sessions as _CS  # noqa: E402
+CS_MARK = _CS.WITHHELD_MARK
+
+
+def test_the_trial_cli_prints_no_held_out_goal(tmp_path, monkeypatch, capsys):
+    """Sol 199fb5c 1: the trial command prints arcCause from the returned receipt; it carries no goal text."""
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    case = primary['cases']['h00']
+    real = R.run_trial
+
+    def wired(**kw):
+        kw.update(modules=modules(services=FakeStage('services', unavailable='cannot serve ' + case['goals']['services'])),
+                  private_root=tmp_path, session=FakeSession())
+        return real(**kw)
+    monkeypatch.setattr(R, 'run_trial', wired)
+    monkeypatch.setattr(R, 'candidate_from_lock', lambda *a, **k: CAND_IN)
+    monkeypatch.setattr(R, 'build_slot', lambda target, args, run_index=0: R.Slot(target, 'none', 'arc-abcdef1234'))
+    assert R.main(['trial', '--target', 'local-docker', '--arm', 'A1', '--run-id', 'local-docker:A1:h00',
+                   '--variant', 'H', '--case-id', 'h00', '--goal-set', 'primary', '--output', str(tmp_path / 'h00'),
+                   '--lock-digest', 'x', '--lock-path', 'x']) == 0
+    out = capsys.readouterr().out
+    printed = json.loads(out.strip().splitlines()[-1])
+    assert printed['arcCause']['stage'] == 'services'
+    assert not any(g in out for g in case['goals'].values())
+
+
+class _Boom:
+    host = 'h'
+
+    def __init__(self, raise_teardown):
+        self.raise_teardown = raise_teardown
+
+    def teardown(self):
+        if self.raise_teardown:
+            raise TimeoutError('teardown timed out')
+        return {'status': 'clean', 'steps': []}
+
+
+def _private_dirs(tmp_path):
+    return [p for p in tmp_path.iterdir() if p.name.startswith('honua-arc-private-')]
+
+
+def test_a_teardown_failure_still_deletes_private_evidence_and_clears_the_registry(tmp_path, monkeypatch):
+    """Sol 199fb5c 2: a raising VM teardown is a failed teardown on a kept receipt; nothing private survives."""
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    slot = R.Slot('local-docker', 'none', 'arc-abcdef1234')
+    slot.vm = _Boom(True)
+    receipt, _ = run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00', slot=slot)
+    assert receipt['teardown']['status'] == 'failed' and receipt['teardownClean'] is False
+    assert receipt['status'] != 'completed'
+    assert _private_dirs(tmp_path) == [] and _CS._WITHHELD == []
+
+
+def test_a_run_record_write_failure_still_deletes_private_evidence_and_clears_the_registry(tmp_path, monkeypatch):
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+    real = R.write_private
+
+    def failing(path, raw, *a, **k):
+        if Path(path).name == 'run-record.json':
+            raise OSError('disk full')
+        return real(path, raw, *a, **k)
+    monkeypatch.setattr(R, 'write_private', failing)
+    with pytest.raises(OSError):
+        run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00')
+    assert _private_dirs(tmp_path) == [] and _CS._WITHHELD == []
+
+
+def test_an_export_failure_still_deletes_private_evidence_and_clears_the_registry(tmp_path, monkeypatch):
+    primary, _ = held_out(tmp_path, monkeypatch, n=20)
+
+    def failing(*a, **k):
+        raise ValueError('hash failed')
+    monkeypatch.setattr(R, 'export_private', failing)
+    with pytest.raises(ValueError):
+        run(tmp_path, name='h00', variant='H', goal_set=primary, case_id='h00')
+    assert _private_dirs(tmp_path) == [] and _CS._WITHHELD == []
+
+
 def test_an_undetermined_run_counts_as_a_failure_and_does_not_block_certification(tmp_path):
     """ARC v2 (Fable S6, Astra S3): per the prereg, undetermined counts as a fail inside the bar; only a run with
     no receipt keeps the aggregate from certifying."""
@@ -1936,6 +2082,32 @@ def test_an_oversized_referenced_folder_fails_closed(tmp_path, monkeypatch):
         R._bindable_files(folder)
     monkeypatch.setattr(R, 'CLOSURE_MAX_FILES', 6)
     assert len(R._bindable_files(folder)) == 6
+
+
+def test_an_image_containing_a_held_out_goal_is_withheld_whole(tmp_path):
+    """Sol d8355f1f: export protection for goals covers committed PNGs, which are never altered."""
+    import agent_cli_sessions as CS
+    import ai_arc_evidence_images as E
+    from test_ai_arc_evidence_images import png
+    goal = 'Please move our synthetic Kestrel install to the newer release and keep the data'
+    E._reset_for_tests()
+    sink = E.open_sink(tmp_path / 'private' / 'studio' / 'screenshots', owner='run')
+    clean, leaking = png(salt=1), png(salt=3) + goal.encode()
+    sink.retain('render', 'clean', clean)
+    sink.retain('render', 'goal', leaking)
+    E.close_sink(sink)
+    E._reset_for_tests()
+    CS.withhold_texts([goal])
+    try:
+        R.export_private(tmp_path / 'private', tmp_path / 'out', [])
+    finally:
+        CS.withhold_texts([])
+    out = tmp_path / 'out' / 'studio' / 'screenshots'
+    assert sorted(p.name for p in out.glob('*.png')) == ['001-render-clean.png']
+    assert (out / '001-render-clean.png').read_bytes() == clean
+    doc = json.loads((out / 'manifest.json').read_text())
+    assert [r['file'] for r in doc['kept']] == ['001-render-clean.png'] and doc['dropped']['goal-in-image'] == 1
+    assert goal.encode() not in b''.join(p.read_bytes() for p in out.iterdir())
 
 
 @pytest.mark.parametrize('agent', ['claude-cli', 'codex-cli'])
