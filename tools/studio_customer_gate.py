@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -19,6 +20,8 @@ REQUIRED_STAGES = frozenset({
     'two-layers-filter-widget', 'session-expiry-recovery', 'authored-style-labels', 'save-reload-reopen',
     'independent-server-render', 'separate-approval', 'public-audience', 'accessibility',
 })
+AGENT_STAGES = frozenset({'agent-live-revision', 'agent-degradation-finding', 'agent-approval-recovery',
+                          'agent-published-services', 'agent-audit-ownership'})
 REPO = 'honua-io/honua-console'
 WORKFLOW = 'console-live-journey.yml'
 
@@ -48,7 +51,8 @@ def validate_lock(raw: bytes, expected_digest: str, manifest: bytes, pins: dict)
         raise ValueError('platform lock does not bind this manifest')
     for name, pin in pins.items():
         artifacts = lock.get('components', {}).get(f'honua-{name}', {}).get('artifacts', [])
-        images = [item for item in artifacts if isinstance(item, dict) and item.get('kind') == 'image']
+        images = [item for item in artifacts if isinstance(item, dict) and item.get('kind') == 'image'
+                  and item.get('digest') == pin['digest']]
         if len(images) != 1:
             raise ValueError(f'platform lock must contain exactly one {name} image')
         image = images[0]
@@ -56,6 +60,19 @@ def validate_lock(raw: bytes, expected_digest: str, manifest: bytes, pins: dict)
         if (image.get('coordinate', '').removeprefix('oci://') != repository or
                 image.get('digest') != pin['digest'] or image.get('sourceRevision') != pin['sha']):
             raise ValueError(f'platform lock {name} image differs from manifest')
+
+
+def bind_executor(lock: dict, pins: dict, image: str) -> str:
+    match = re.fullmatch(r'ghcr\.io/honua-io/honua-server@(sha256:[0-9a-f]{64})', image)
+    if not match or match.group(1) == pins['server']['digest']:
+        raise ValueError('executor must be a distinct immutable server-package image')
+    artifacts = lock.get('components', {}).get('honua-server', {}).get('artifacts', [])
+    matches = [item for item in artifacts if isinstance(item, dict) and item.get('kind') == 'image'
+               and item.get('coordinate', '').removeprefix('oci://') == 'ghcr.io/honua-io/honua-server'
+               and item.get('digest') == match.group(1) and item.get('sourceRevision') == pins['server']['sha']]
+    if len(matches) != 1:
+        raise ValueError('executor image is not uniquely bound to the candidate server revision')
+    return image
 
 
 def validate_evidence(pins: dict, runtime: dict, results: dict, progress: dict) -> None:
@@ -74,12 +91,47 @@ def validate_evidence(pins: dict, runtime: dict, results: dict, progress: dict) 
         raise ValueError('customer journey is partial')
 
 
+def validate_agent_progress(progress: dict) -> None:
+    if progress.get('qualificationComplete') is not True or not AGENT_STAGES.issubset(progress.get('completed', [])):
+        raise ValueError('agent reflection journey is partial')
+
+
+def validate_agent_runtime(pins: dict, executor_image: str, runtime: dict) -> None:
+    for component, selected in pins.items():
+        observed = runtime.get(component, {})
+        if observed.get('requested') != selected['image'] or observed.get('sourceRevision') != selected['sha']:
+            raise ValueError(f'agent journey {component} runtime differs from candidate')
+    executor = runtime.get('executor', {})
+    if executor.get('requested') != executor_image or executor.get('sourceRevision') != pins['server']['sha']:
+        raise ValueError('agent journey executor runtime differs from candidate')
+    if runtime.get('suiteSourceRevision') != pins['console']['sha']:
+        raise ValueError('agent journey did not run at the pinned Console revision')
+
+
+def extract_progress(results: dict) -> tuple[dict, dict]:
+    attachments = {'customer-journey-progress.json': [], 'agent-reflection-progress.json': []}
+    def visit(value):
+        if isinstance(value, dict):
+            name = value.get('name')
+            if isinstance(name, str) and name in attachments and value.get('body'):
+                attachments[name].append(json.loads(base64.b64decode(value['body'], validate=True)))
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    visit(results)
+    if any(len(items) != 1 for items in attachments.values()):
+        raise ValueError('missing unique inline journey progress attachment')
+    return attachments['customer-journey-progress.json'][0], attachments['agent-reflection-progress.json'][0]
+
+
 def gh(*args: str, json_output: bool = False):
     result = subprocess.run(['gh', *args], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True)
     return json.loads(result.stdout) if json_output else result.stdout
 
 
-def dispatch_customer(pins: dict, dispatch_id: str) -> None:
+def dispatch_customer(pins: dict, dispatch_id: str, executor_image: str) -> None:
     # GitHub workflow dispatch accepts a branch or tag, not a raw commit SHA.
     # A fresh tag per dispatch avoids moving or trusting an existing ref.
     tag = f'studio-customer-gate/{dispatch_id}'
@@ -91,7 +143,8 @@ def dispatch_customer(pins: dict, dispatch_id: str) -> None:
         raise ValueError('Console dispatch tag does not resolve to the pinned commit')
     gh('workflow', 'run', WORKFLOW, '--repo', REPO, '--ref', ref,
        '-f', 'suite=studio-customer', '-f', f'dispatch_id={dispatch_id}',
-       '-f', f'console_image={pins["console"]["image"]}', '-f', f'server_image={pins["server"]["image"]}')
+       '-f', f'console_image={pins["console"]["image"]}', '-f', f'server_image={pins["server"]["image"]}',
+       '-f', f'executor_image={executor_image}')
 
 
 def one_file(root: Path, name: str) -> dict:
@@ -106,13 +159,16 @@ def main() -> int:
     parser.add_argument('--manifest', default='platform-manifest.yaml')
     parser.add_argument('--platform-lock', required=True)
     parser.add_argument('--lock-file', default='platform-lock.json')
+    parser.add_argument('--executor-image', required=True)
     parser.add_argument('--out', default='out/studio-customer')
     args = parser.parse_args()
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', args.platform_lock):
         parser.error('--platform-lock must identify the candidate platform-lock.json')
     manifest_bytes = Path(args.manifest).read_bytes()
     pins = resolve_pins(yaml.safe_load(manifest_bytes))
-    validate_lock(Path(args.lock_file).read_bytes(), args.platform_lock, manifest_bytes, pins)
+    lock_bytes = Path(args.lock_file).read_bytes()
+    validate_lock(lock_bytes, args.platform_lock, manifest_bytes, pins)
+    executor_image = bind_executor(json.loads(lock_bytes), pins, args.executor_image)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     dispatch_id = 'release-' + uuid.uuid4().hex
@@ -121,9 +177,10 @@ def main() -> int:
               'platformLockDigest': args.platform_lock,
               'manifestDigest': 'sha256:' + hashlib.sha256(manifest_bytes).hexdigest(),
               'consoleSha': pins['console']['sha'], 'consoleDigest': pins['console']['digest'],
+              'executorDigest': executor_image.split('@', 1)[1],
               'dispatchId': dispatch_id}
     try:
-        dispatch_customer(pins, dispatch_id)
+        dispatch_customer(pins, dispatch_id, executor_image)
         deadline = time.monotonic() + 2700
         run = None
         while time.monotonic() < deadline:
@@ -147,21 +204,15 @@ def main() -> int:
         gh('run', 'download', str(run['id']), '--repo', REPO, '--name', 'studio-customer-journey-evidence', '--dir', str(evidence))
         # Progress is a Playwright attachment, not an unverified workflow output.
         results = one_file(evidence, 'playwright-results.json')
-        progress_attachments = []
-        def visit(value):
-            if isinstance(value, dict):
-                if value.get('name') == 'customer-journey-progress.json' and value.get('body'):
-                    import base64
-                    progress_attachments.append(json.loads(base64.b64decode(value['body'])))
-                for child in value.values():
-                    visit(child)
-            elif isinstance(value, list):
-                for child in value:
-                    visit(child)
-        visit(results)
-        if len(progress_attachments) != 1:
-            raise ValueError('missing unique inline customer journey progress attachment')
-        validate_evidence(pins, one_file(evidence, 'runtime-identity.json'), results, progress_attachments[0])
+        agent_results = one_file(evidence, 'agent-reflection-results.json')
+        customer_progress, agent_progress = extract_progress({'customer': results, 'agent': agent_results})
+        validate_evidence(pins, one_file(evidence, 'runtime-identity.json'), results, customer_progress)
+        validate_agent_runtime(pins, executor_image, one_file(evidence, 'agent-runtime-identity.json'))
+        agent_stats = agent_results.get('stats', {})
+        if not isinstance(agent_stats.get('expected'), int) or agent_stats['expected'] < 1 or any(
+                agent_stats.get(key) != 0 for key in ('unexpected', 'flaky', 'skipped')):
+            raise ValueError('agent reflection tests failed, retried, skipped or did not run')
+        validate_agent_progress(agent_progress)
         report.update(status='pass', certifying=True)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as exc:
         report['reason'] = str(exc)

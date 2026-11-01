@@ -11,6 +11,10 @@ on:
         description: 'Optional immutable candidate snapshot'
         required: false
         type: string
+      executor_image:
+        description: 'Candidate-lock-bound immutable Compose executor image'
+        required: true
+        type: string
       lock_run_id:
         description: 'Workflow run containing the frozen platform lock artifact'
         required: true
@@ -24,6 +28,7 @@ on:
     inputs:
       platform_lock_digest: { required: true, type: string }
       candidate_ref: { required: false, type: string, default: '' }
+      executor_image: { required: true, type: string }
       lock_run_id: { required: true, type: string }
       lock_artifact: { required: false, type: string, default: 'platform-lock' }
     secrets:
@@ -71,7 +76,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           PLATFORM_LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
-        run: python tools/studio_customer_gate.py --platform-lock "$PLATFORM_LOCK_DIGEST" --lock-file candidate-lock/platform-lock.json
+          EXECUTOR_IMAGE: ${{ inputs.executor_image }}
+        run: python tools/studio_customer_gate.py --platform-lock "$PLATFORM_LOCK_DIGEST" --lock-file candidate-lock/platform-lock.json --executor-image "$EXECUTOR_IMAGE"
       - name: Read fail-closed verdict
         id: verdict
         if: always()
