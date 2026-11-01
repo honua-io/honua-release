@@ -1721,8 +1721,20 @@ def test_pinned_inputs_are_fetched_at_the_pins_and_digest_checked(tmp_path):
     arc = json.loads(json.dumps(ARC))
     arc['quickstart']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('quickstart.md'))])
     arc['console']['compose']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('docker-compose.yml'))])
+    package = arc['quickstartPackage']
+    for rel in package['files']:
+        url = f"https://raw.githubusercontent.com/{package['repo']}/{package['revision']}/{rel}"
+        raw = pages.setdefault(url, b'package-' + rel.encode())    # the guide is the same file at the same pin
+        package['files'][rel] = R.sha256(raw)
     got = R.pinned_inputs(arc, tmp_path / 'in', fetch=pages.__getitem__)
-    assert set(got) == {'quickstart.md', 'docker-compose.yml'} and (tmp_path / 'in' / 'quickstart.md').is_file()
+    assert set(got) == {'quickstart.md', 'docker-compose.yml'} | {'quickstart-package/' + r for r in package['files']}
+    assert (tmp_path / 'in' / 'quickstart.md').is_file()
+    assert (tmp_path / 'in' / 'quickstart-package/scripts/docker/package_quickstart.py').read_bytes() == \
+        b'package-scripts/docker/package_quickstart.py'
+    bad = json.loads(json.dumps(arc))
+    bad['quickstartPackage']['files']['scripts/docker/compose_quickstart.py'] = 'sha256:' + '0' * 64
+    with pytest.raises(ValueError, match='package pin'):
+        R.pinned_inputs(bad, tmp_path / 'in3', fetch=pages.__getitem__)
     arc['quickstart']['sha256'] = 'sha256:' + '0' * 64
     with pytest.raises(ValueError):
         R.pinned_inputs(arc, tmp_path / 'in2', fetch=pages.__getitem__)
@@ -1732,6 +1744,7 @@ def test_the_workflow_has_no_free_quickstart_input_and_passes_the_console_compos
     workflow = (R.ROOT / '.github/workflows/ai-arc.yml').read_text()
     assert 'quickstart_revision' not in workflow and 'pinned-inputs' in workflow
     assert '--console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"' in workflow
+    assert '--quickstart-package-source "$RUNNER_TEMP/arc-inputs/quickstart-package"' in workflow
 
 
 def test_the_runner_digest_closes_over_transitive_and_path_loaded_dependencies():

@@ -182,6 +182,7 @@ class VmSlot:
         done = self.ssh(script)
         if done.returncode:
             raise RuntimeError('could not stage the quickstart package on the VM')
+        self.packaged = True
         return {'remoteDir': self.remote_dir, 'httpPort': self.http_port, 'grpcPort': self.grpc_port,
                 'managerPort': self.manager_port, 'composition': 'quickstart-package',
                 'packageSha256': {n: 'sha256:' + hashlib.sha256(r).hexdigest() for n, r in sorted(package.items())},

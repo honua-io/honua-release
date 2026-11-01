@@ -1855,6 +1855,20 @@ def pinned_inputs(arc: dict, out: Path, fetch=None) -> dict:
             raise ValueError(f'{name} at the pinned revision does not match its pinned sha256')
         (out / name).write_bytes(raw)
         written[name] = {'revision': pin['revision'], 'sha256': pin['sha256']}
+    # ARC v2 B1: the product's quickstart package sources at the package pin (built per run from the candidate).
+    package = arc['quickstartPackage']
+    if not SHA.fullmatch(package['revision']) or package['repo'] != 'honua-io/honua-server':
+        raise ValueError('invalid pin for the quickstart package')
+    for rel, want in sorted(package['files'].items()):
+        if not re.fullmatch(r'(?:docs|scripts)/[A-Za-z0-9_./-]+', rel) or '..' in rel:
+            raise ValueError('invalid quickstart package path')
+        raw = fetch(f"https://raw.githubusercontent.com/{package['repo']}/{package['revision']}/{rel}")
+        if sha256(raw) != want:
+            raise ValueError(f'{rel} at the package pin does not match its pinned sha256')
+        target = out / 'quickstart-package' / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+        written['quickstart-package/' + rel] = {'revision': package['revision'], 'sha256': want}
     return written
 
 

@@ -174,6 +174,7 @@ def main(argv=None) -> int:
     parser.add_argument('--quickstart')
     parser.add_argument('--quickstart-revision', help='optional; must equal the arc pin')
     parser.add_argument('--console-compose', help='honua-server docker-compose.yml at the arc pin (stage 4)')
+    parser.add_argument('--quickstart-package-source', help='pinned quickstart package sources (pinned-inputs)')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--slot-provisioner', help='AWS targets: executable with acquire/release <target> <run>')
     args = parser.parse_args(argv)
@@ -189,7 +190,8 @@ def main(argv=None) -> int:
     (args.out / 'schedule.json').write_text(json.dumps(rows, indent=2) + '\n')
     common = ['--lock-path', args.lock_path, '--lock-digest', args.lock_digest]
     for flag, value in (('--quickstart', args.quickstart), ('--quickstart-revision', args.quickstart_revision),
-                        ('--console-compose', args.console_compose)):
+                        ('--console-compose', args.console_compose),
+                        ('--quickstart-package-source', args.quickstart_package_source)):
         if value:
             common += [flag, value]
     results = run_campaign(target=args.target, arm=args.arm, schedule_rows=rows, out=args.out,

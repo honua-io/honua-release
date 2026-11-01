@@ -168,3 +168,47 @@ def test_teardown_hands_executor_files_back_before_removing_the_slot(tmp_path):
     vm(tmp_path, run).teardown()
     script = seen['script']
     assert script.index('chown -R') < script.index('rm -rf') and '/home/ubuntu/honua-arc/arc-abcdef123456' in script
+
+
+def test_ops_adopts_the_installed_package_without_adding_to_the_stack(tmp_path):
+    import types
+    import ai_arc_ops_local as O
+    scripts = []
+
+    def run(command, input=None, **kw):
+        text = input.decode()
+        scripts.append(text)
+        if 'ps' in text and 'json' in text:
+            out = '\n'.join(json.dumps(r) for r in (
+                {'Service': 'honua', 'State': 'running', 'Health': 'healthy'},
+                {'Service': 'compose-manager', 'State': 'running', 'Health': 'healthy'},
+                {'Service': 'compose-executor', 'State': 'running', 'Health': 'healthy'}))
+            return subprocess.CompletedProcess(command, 0, out.encode(), b'')
+        if 'HONUA_RELEASE_IMAGE' in text:
+            return subprocess.CompletedProcess(command, 0, ('HONUA_RELEASE_IMAGE=' + SERVER + '\n').encode(), b'')
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    slot = vm(tmp_path, run)
+    slot.stage_package(INSTALL, build(tmp_path), PIN['priorMaxSchema'])
+    assert slot.packaged and ' -f ' not in O.slot_compose(slot, 'ps')
+    ctx = types.SimpleNamespace(slot=types.SimpleNamespace(vm=slot, facts={'quickstart': {'packageSha256': {'x': 1}}},
+                                                           controller={'admin_key': 'a', 'manager_admin_key': 'm'}),
+                                arc=R.load_arc())
+    composition = O.LocalOps.adopt_package(object(), ctx)
+    assert composition['kind'] == 'quickstart-package' and composition['managerPort'] == 18182
+    assert composition['declaredRelease'] == SERVER
+    assert not any('compose.executor.yaml <<' in s or ' up ' in s for s in scripts[1:]), 'nothing is added'
+    assert O.manager_key(ctx) == 'm'
+
+
+def test_ops_refuses_a_package_without_its_running_manager(tmp_path):
+    import types
+    import ai_arc_ops_local as O
+
+    def run(command, input=None, **kw):
+        return subprocess.CompletedProcess(command, 0, json.dumps(
+            {'Service': 'honua', 'State': 'running', 'Health': 'healthy'}).encode(), b'')
+    slot = vm(tmp_path, run)
+    slot.packaged = True
+    ctx = types.SimpleNamespace(slot=types.SimpleNamespace(vm=slot, facts={}, controller={}), arc=R.load_arc())
+    with pytest.raises(RuntimeError, match='no running compose-manager'):
+        O.LocalOps.adopt_package(object(), ctx)

@@ -131,6 +131,7 @@ jobs:
           set -euo pipefail
           args=(--target "$TARGET" --arm "$ARM" --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST"
                 --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md"
+                --quickstart-package-source "$RUNNER_TEMP/arc-inputs/quickstart-package"
                 --console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"
                 --out "artifacts/$TARGET")
           [ "$TARGET" != local-docker ] || args+=(--hosts "$HOSTS" --per-host 3)
