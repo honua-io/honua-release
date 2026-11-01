@@ -1344,7 +1344,7 @@
       },
       {
         "path": "certification/audits/2026-10-17/ai-gp-migration.json",
-        "sha256": "c628aa96b35f48c125f7534445211d01dffa65a0492f595e0aa9f4205be85e86"
+        "sha256": "786088a658cecac35a3c49815aa749898f11de4bc0cd69ef37f23b847478f49a"
       },
       {
         "path": "certification/audits/2026-10-17/deploy-isolation-raster.json",

@@ -41,15 +41,6 @@
       ]
     },
     {
-      "claim": "Migration core persists atomic checkpoints under process lease, inspects uncertain writes before retry, and refuses ambiguous non-idempotent replay; acceptance tests use FakeExecutor.",
-      "sources": [
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/runs/orchestration.py#L230",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/tests/migrate/test_runs.py#L24",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/tests/migrate/test_runs.py#L125",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/tests/migrate/test_runs.py#L156"
-      ]
-    },
-    {
       "claim": "Console real-server smoke uses Testcontainers/Postgres and server-bound clients with bUnit render assertions; it is opt-in/skippable. Enterprise approval test independently reads zero drafts after pending approval response.",
       "sources": [
         "https://github.com/honua-io/honua-console/blob/46a55297cc843ff645ae25e56749b64214d28eb6/tests/Honua.Console.IntegrationTests/ConsoleEndToEndSmokeTests.cs#L12",
@@ -72,34 +63,6 @@
         "https://github.com/honua-io/honua-release/issues/381"
       ],
       "next": "Exercise existing durable lifecycle through installed client against owned candidate with real interruption, duplicate delivery, cancel/cessation and independent no-post-cancel writes/output assertions; preserve existing denominator."
-    },
-    {
-      "kind": "confirmed existing implementation defect",
-      "claim": "Source-service apply still collects all start responses before emitting; later start failure loses earlier queued IDs. Reconciliation CLI prints mismatched/partial and returns normally. Generic durable core is not wired to service adapters in reviewed source (register_executor has definition but no production registrations); its FakeExecutor tests cannot establish actual service resume.",
-      "sources": [
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/services/arcgis.py#L627",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/runs/cli.py#L153",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/runs/cli.py#L28"
-      ],
-      "owners": [
-        "https://github.com/honua-io/honua-migrate/issues/192",
-        "https://github.com/honua-io/honua-migrate/issues/95"
-      ],
-      "scope_note": "192 is currently classified post-cut hardening; release owner should adjudicate required assisted-import false-success/recovery expectations explicitly, not infer completion from closed95."
-    },
-    {
-      "kind": "fresh-app qualification/harness gap",
-      "claim": "Real migration CLI installs registry runtimes, builds and runs Chromium, but reviewed browser source is one synthetic three-row HTTP FeatureServer. Cohort assertions compare static hand-counted migration readiness metrics; some admitted fixtures retain source-platform dependencies requiring documented manual work. These are useful foundations, not two existing apps passing fresh imported-service behavior.",
-      "sources": [
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/migration-pipeline.test.ts#L255",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/fixtures/js-migration-pipeline-app/browser-check.mjs#L10",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/migration-cohort-2026-1.test.ts#L195",
-        "https://github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/packages/javascript/upstream/test/js-migration-cohort-2026.1.json#L18"
-      ],
-      "owners": [
-        "https://github.com/honua-io/honua-migrate/issues/152",
-        "https://github.com/honua-io/honua-release/issues/325"
-      ]
     },
     {
       "kind": "published-client qualification pending, producer PR exists",
