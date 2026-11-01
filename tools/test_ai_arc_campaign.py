@@ -158,7 +158,7 @@ def test_vm_staging_keeps_secrets_off_argv_and_teardown_is_scoped(tmp_path):
     assert 'HONUA_IMAGE=ghcr.io/honua-io/honua-server@sha256:' in script and 'StrictHostKeyChecking=yes' in argv
     vm.teardown()
     teardown = calls[-1][1]
-    assert '--project-name arc-abcdef123456' in teardown and 'rm -rf -- /tmp/honua-arc-arc-abcdef123456' in teardown
+    assert '--project-name arc-abcdef123456' in teardown and 'rm -rf -- /home/ubuntu/honua-arc/arc-abcdef123456' in teardown
     with pytest.raises(ValueError):
         L.VmSlot(host='h;rm -rf /', user='ubuntu', identity_file='i', known_hosts='k', project='arc-abcdef123456', index=0)
 

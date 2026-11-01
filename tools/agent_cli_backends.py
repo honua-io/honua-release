@@ -335,7 +335,8 @@ class RemoteQuickstartShell:
             if ipaddress.ip_address(host).is_loopback: raise ValueError('a remote VM host is required')
         except ValueError as exc:
             if str(exc) == 'a remote VM host is required': raise
-        if not _SAFE_ID.fullmatch(user) or not re.fullmatch(r'/tmp/honua-arc-[a-z0-9-]{8,80}', remote_dir):
+        if not _SAFE_ID.fullmatch(user) or not re.fullmatch(
+                r'(?:/home/[a-z_][a-z0-9_-]{0,31}|/root)/honua-arc/arc-[a-z0-9-]{8,50}', remote_dir):
             raise ValueError('invalid isolated VM slot')
         if not re.fullmatch(r'arc-[a-z0-9-]{8,50}', slot): raise ValueError('invalid compose project')
         if not Path(identity_file).is_file() or not Path(known_hosts).is_file(): raise ValueError('SSH identity and host key required')
