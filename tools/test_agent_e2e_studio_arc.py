@@ -13,6 +13,15 @@ def test_development_pack_matches_arc_assertion_source():
     assert RESTORED_PACK_DIGEST == 'sha256:' + hashlib.sha256(PACK_PATH.read_bytes()).hexdigest()
 
 
+def test_arc_stage_exposes_the_runner_contract():
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import arc_stage
+    stage = arc_stage(SimpleNamespace(target='local-docker'))
+    for name in ('unavailable', 'sign_in_probe', 'prepare', 'notes', 'attachment', 'run', 'observe',
+                 'handoff_observations', 'deployment_hosts', 'approvals', 'scope', 'assistant_principals'):
+        assert callable(getattr(stage, name, None))
+
+
 def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectations(monkeypatch, tmp_path):
     from cryptography.fernet import Fernet
     from types import SimpleNamespace
