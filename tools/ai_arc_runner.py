@@ -741,16 +741,16 @@ class ServicesStage(StageModule):
             return 'no adopted controller endpoint for the installed stack'
         if ctx.slot.vm is None:
             return 'services fixtures need the adopted VM slot'
-        fixture_id, fault = self.fixture(ctx)
+        fixture_id, _fault = self.fixture(ctx)
         try:
             _variant, scenarios = fixture_scenarios(fixture_id)
         except (OSError, ValueError, KeyError, TypeError):
-            return 'services fixture is not in the committed fixture catalog'
+            # Sol 5204f069: an unmapped fixture ID (or a missing or unsupported fault) is an invalid case input,
+            # not a missing stage capability. The adapter (run_fixture_services) names it as the stage failure.
+            return None
         if set(scenarios) != set(self.scenarios):
             # The required assertions come from stages[services].scenarios; the catalog must agree.
             return 'services fixture catalog differs from the frozen scenario list'
-        if not isinstance(fault, str) or not fault:
-            return 'no services fault is frozen for this run'
         return None
 
     def run(self, ctx, session, prompt):

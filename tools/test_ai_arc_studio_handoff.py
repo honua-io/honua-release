@@ -197,10 +197,30 @@ def test_development_and_held_out_services_take_the_fixture_path(tmp_path):
     assert stage.fixture(held) == ('town-B', 'http_503_once')
     assert stage.unavailable(held) is None                 # held-out is no longer refused
     assert 'catalog differs' in R.ServicesStage(('P10',), {'A': 'http_503_once'}).unavailable(services_ctx(tmp_path / 'c'))
-    assert 'not in the committed fixture catalog' in stage.unavailable(
-        services_ctx(tmp_path / 'u', case={'fixtures': 'town-Z', 'fault': 'http_503_once'}, variant='H'))
-    assert 'no services fault' in R.ServicesStage(tuple(stages['services']['scenarios']), {}).unavailable(
-        services_ctx(tmp_path / 'f'))
+    # Sol 5204f069: invalid case inputs are not "unavailable"; the adapter names them as stage failures.
+    assert stage.unavailable(
+        services_ctx(tmp_path / 'u', case={'fixtures': 'town-Z', 'fault': 'http_503_once'}, variant='H')) is None
+    assert R.ServicesStage(tuple(stages['services']['scenarios']), {}).unavailable(services_ctx(tmp_path / 'f')) is None
+
+
+@pytest.mark.parametrize('case,variant,reason', [
+    ({'fixtures': 'town-Z', 'fault': 'http_503_once'}, 'H', None),     # unmapped fixture ID
+    ({'fixtures': 'town-B', 'fault': None}, 'H', 'fixture ID or fault is missing'),
+    ({'fixtures': 'town-B', 'fault': ''}, 'H', 'fault'),
+    ({'fixtures': None, 'fault': 'http_503_once'}, 'H', 'fixture ID or fault is missing'),
+    (None, 'A', 'fixture ID or fault is missing'),                      # no development fault frozen
+])
+def test_invalid_services_case_inputs_end_as_named_stage_failures_through_run_stage(tmp_path, case, variant, reason):
+    """Sol 5204f069: the final stage outcome is a named failure from the adapter, never stage-unavailable."""
+    stages = {s['id']: s for s in ARC['stages']}
+    faults = stages['services']['developmentFaults'] if case is not None else {}
+    stage = R.ServicesStage(tuple(stages['services']['scenarios']), faults)
+    ctx = services_ctx(tmp_path, case=case, variant=variant)
+    row = R._run_stage(ctx, stage, None, 'Publish the three town layers for the planners.', None)
+    assert row['outcome'] == 'fail', row
+    assert row['outcome'] != 'stage-unavailable' and row['cause']
+    if reason:
+        assert reason in str(row['cause'])
 
 
 def test_development_services_goals_are_customer_language():
