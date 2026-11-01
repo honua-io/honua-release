@@ -1720,7 +1720,7 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                                   systemContractSha256=row.get('systemContractSha256'),
                                   provenance=[{k: p.get(k) for k in ('agent', 'cliVersion', 'model', 'promptSha256',
                                                                      'servedToolListsSha256', 'configSha256',
-                                                                     'mcpMethods', 'transcriptSha256')}
+                                                                     'mcpMethods', 'transcriptSha256', 'budgets')}
                                               for p in row.get('provenance') or [] if isinstance(p, dict)])
     # The prompts the sessions actually received (the adapter's own, e.g. the Studio customer script), beside
     # the runner's stage prompt digest.
