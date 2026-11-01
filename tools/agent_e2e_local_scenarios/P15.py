@@ -97,7 +97,12 @@ class P15(Scenario):
                     and all(a.arguments.get(k) == state[k] for k in ('itemId', 'versionId', 'contentHash'))]
         if selected:
             # No publication mutation is replayed by the controller.
-            path = route_path(selected[-1].arguments.get('route'))
+            try:
+                path = route_path(selected[-1].arguments.get('route'))
+            except ValueError:
+                # The model selected an invalid path. Leave the publication reads
+                # absent so that assertion fails, while independent evidence is scored.
+                return [Observation(a, None, {'projection': 'extract/v1'}) for a in self.expected(variant)]
             answer = rec.json('p15-operator', 'GET', path, principal='operator')
             if answer['observation']['httpStatus'] == 200:
                 artifact = data(answer)
