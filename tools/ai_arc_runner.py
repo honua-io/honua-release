@@ -829,6 +829,7 @@ class StudioStage(DelegatingStage):
 
 
 AUDIT_PATH = '/api/v1/admin/observability/audit'
+AUDIT_LIMIT = 1000
 
 
 def assistant_credit_row(ctx, started, principals_hook) -> dict:
@@ -841,7 +842,7 @@ def assistant_credit_row(ctx, started, principals_hook) -> dict:
     http, base = ctx.options.get('http'), (ctx.slot.controller or {}).get('base_url')
     if started is None or not http or not base:
         return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
-    query = urlencode({'action': 'studio_ai.chat', 'from': started.isoformat(), 'limit': 1000})
+    query = urlencode({'action': 'studio_ai.chat', 'from': started.isoformat(), 'limit': AUDIT_LIMIT})
     got = http('GET', base.rstrip('/') + AUDIT_PATH + '?' + query, ctx.slot.controller.get('admin_key'))
     body = got.get('json') if isinstance(got, dict) else None
     rows = None
@@ -851,8 +852,15 @@ def assistant_credit_row(ctx, started, principals_hook) -> dict:
         rows = body
     if rows is None:
         return {'assertion': name, 'status': 'fail', 'reason': 'the audit trail could not be read'}
-    actors = sorted({str(r.get('actor')) for r in rows if isinstance(r, dict)
-                     and r.get('action', 'studio_ai.chat') == 'studio_ai.chat'})
+    # Fail closed unless the page is provably complete and every row is a readable event (Sol 988aeb1b).
+    meta = body if isinstance(body, dict) else {}
+    more = any(bool(meta.get(k)) for k in ('hasMore', 'truncated', 'nextCursor', 'next', 'continuationToken'))
+    if more or len(rows) >= AUDIT_LIMIT:
+        return {'assertion': name, 'status': 'fail', 'reason': 'the audit page is not provably complete'}
+    if any(not isinstance(r, dict) or not isinstance(r.get('actor'), str) or not r['actor']
+           or r.get('action') not in (None, 'studio_ai.chat') for r in rows):
+        return {'assertion': name, 'status': 'fail', 'reason': 'an audit row could not be read'}
+    actors = sorted({r['actor'] for r in rows})
     foreign = [a for a in actors if declared is None or a not in declared]
     evidence = {'events': len(rows), 'actors': actors, 'declaredAssistantPrincipals': sorted(declared or ())}
     return {**assert_row(name, not foreign, evidence),

@@ -1596,3 +1596,20 @@ def test_the_cli_arm_never_gets_credit_for_the_builtin_assistant(response, decla
     row = R.assistant_credit_row(ctx, _dt.datetime(2026, 11, 1, tzinfo=_dt.timezone.utc), hook)
     assert (row['status'] == 'pass') is ok, row
     assert 'action=studio_ai.chat' in seen[0][1] and seen[0][2] == 'adm'
+
+
+
+@pytest.mark.parametrize('body', [
+    {'items': [None]}, {'items': ['x']}, {'items': [{'action': 'studio_ai.chat'}]},
+    {'items': [{'actor': '', 'action': 'studio_ai.chat'}]},
+    {'items': [{'actor': 'customer-assistant', 'action': 'other'}]},
+    {'items': [{'actor': 'customer-assistant', 'action': 'studio_ai.chat'}], 'hasMore': True},
+    {'items': [{'actor': 'customer-assistant', 'action': 'studio_ai.chat'}], 'nextCursor': 'c2'},
+    {'items': [{'actor': 'customer-assistant', 'action': 'studio_ai.chat'}] * 1000}])
+def test_the_assistant_credit_guard_fails_closed_on_unreadable_or_incomplete_audit(body):
+    """Sol 988aeb1b item 1."""
+    import datetime as _dt
+    ctx, _ = _audit_ctx({'status': 200, 'json': body})
+    row = R.assistant_credit_row(ctx, _dt.datetime(2026, 11, 1, tzinfo=_dt.timezone.utc),
+                                 lambda c: {'customer-assistant'})
+    assert row['status'] == 'fail', row
