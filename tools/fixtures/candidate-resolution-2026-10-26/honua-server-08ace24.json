@@ -4281,22 +4281,6 @@
    "check_suite": {
     "id": 109268031167
    },
-   "completed_at": "2026-10-26T11:51:16Z",
-   "conclusion": "success",
-   "details_url": "https://github.com/honua-io/honua-server/actions/runs/40317136321/job/121552641102",
-   "html_url": "https://github.com/honua-io/honua-server/actions/runs/40317136321/job/121552641102",
-   "id": 121552641102,
-   "name": "Esri Leaflet Browser Tests",
-   "started_at": "2026-10-26T11:43:50Z",
-   "status": "completed"
-  },
-  {
-   "app": {
-    "slug": "github-actions"
-   },
-   "check_suite": {
-    "id": 109268031167
-   },
    "completed_at": "2026-10-26T11:56:51Z",
    "conclusion": "success",
    "details_url": "https://github.com/honua-io/honua-server/actions/runs/40317136321/job/121552641093",

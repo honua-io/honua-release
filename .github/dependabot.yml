@@ -22,8 +22,6 @@ updates:
 
   - package-ecosystem: npm
     directories:
-      - "/e2e/agent-map"
-      - "/e2e/agent-map/app"
       - "/certification/executable-docs/compiler"
     schedule:
       interval: weekly

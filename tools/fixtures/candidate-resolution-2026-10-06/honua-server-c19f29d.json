@@ -1459,22 +1459,6 @@
       }
     },
     {
-      "id": 112202996976,
-      "name": "Esri Leaflet Browser Tests",
-      "status": "completed",
-      "conclusion": "success",
-      "started_at": "2026-10-06T08:18:08Z",
-      "completed_at": "2026-10-06T08:25:06Z",
-      "details_url": "https://github.com/honua-io/honua-server/actions/runs/37435142851/job/112202996976",
-      "html_url": "https://github.com/honua-io/honua-server/actions/runs/37435142851/job/112202996976",
-      "app": {
-        "slug": "github-actions"
-      },
-      "check_suite": {
-        "id": 101398599770
-      }
-    },
-    {
       "id": 112202996962,
       "name": "Postgres Compatibility (postgis/postgis:17-3.5)",
       "status": "completed",
@@ -5371,22 +5355,6 @@
       "completed_at": "2026-10-06T07:41:18Z",
       "details_url": "https://github.com/honua-io/honua-server/actions/runs/37425638885/job/112158607604",
       "html_url": "https://github.com/honua-io/honua-server/actions/runs/37425638885/job/112158607604",
-      "app": {
-        "slug": "github-actions"
-      },
-      "check_suite": {
-        "id": 101372947477
-      }
-    },
-    {
-      "id": 112158607558,
-      "name": "Esri Leaflet Browser Tests",
-      "status": "completed",
-      "conclusion": "success",
-      "started_at": "2026-10-06T07:30:23Z",
-      "completed_at": "2026-10-06T07:37:05Z",
-      "details_url": "https://github.com/honua-io/honua-server/actions/runs/37425638885/job/112158607558",
-      "html_url": "https://github.com/honua-io/honua-server/actions/runs/37425638885/job/112158607558",
       "app": {
         "slug": "github-actions"
       },

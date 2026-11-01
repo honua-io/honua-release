@@ -19,14 +19,11 @@ mutation. This document does not authorize a documentation lane to write to AWS,
 change IAM, or change secrets or variables. Operator commands below are **not
 verified AWS observations** until the operator executes them and attaches evidence.
 
-The committed [agent-map harness](../e2e/agent-map/README.md) currently composes a
-browser map over the public Maui demo using a direct Anthropic Bedrock SDK loop.
-It cannot install ECS, publish a durable map, roll back, or tear down, and its
-sources are hardcoded to the demo. Do not pass an ECS URL to it and claim that it
-rendered the new layer. The recorded AWS journey must use the installed server's
-StudioAi Bedrock adapter and discovered CLI/MCP operations; missing operations
-are blockers under #377/#381. A direct-provider harness run is separate evidence,
-not proof of that adapter or of a complete M1 run.
+The agent-map browser harness has been retired because its published SDK package
+graph still includes the retired client compatibility package. No map-demo or
+agent-model qualification is claimed from that harness. The recorded AWS journey
+must use the installed server's StudioAi Bedrock adapter and discovered CLI/MCP
+operations; missing operations are blockers under #377/#381.
 
 Use synthetic data only. Capture prompts, model responses and selected tool names
 and outcomes through an allowlist recorder. Keep a private, access-restricted
@@ -56,13 +53,12 @@ python3 --version
 aws --version
 docker version
 npx -y -p @honua/sdk-js honua --help
-node e2e/agent-map/mcp-call.mjs https://demo.honua.io honua_list_sources '{}'
+node e2e/mcp-call.mjs https://demo.honua.io honua_list_sources '{}'
 ```
 
-Expected: Node meets the app's >=20.19.0 requirement; Python, AWS CLI and Docker
-are available, the published CLI advertises its command surface, and the MCP
-call initializes and lists public-demo sources. This read-only demo discovery
-is not evidence of the AWS cell. Record registry
+Expected: Node and Python, AWS CLI and Docker are available, the published CLI
+advertises its command surface, and the MCP call initializes and lists
+public-demo sources. This read-only discovery is not evidence of the AWS cell. Record registry
 versions/integrities in the operator receipt. Preview floating package discovery
 is not exact-lock certification. Supply the installed tool schemas to Claude;
 do not invent command flags from prose.
@@ -343,24 +339,16 @@ npm_config_cache=/tmp/dogfood-npm-cache python3 certification/terminal-journey/r
   --workdir /tmp/dogfood-local-clients \
   --output /tmp/dogfood-local-receipt.json \
   --evidence-uri file:///tmp/dogfood-local-receipt.json
-cd e2e/agent-map
-npm_config_cache=/tmp/dogfood-npm-cache npm install
-npm --prefix app run typecheck
-npm --prefix app run build
-npm start
 ```
 
 Expected: live driver consumes published pins, starts the manifest-pinned local
 Docker stack, probes readiness/identity/admin refusal/MCP and tears down. Read
-its per-stage receipt: a probe pass is not a stage pass. Typecheck/build succeed;
-`npm start` advertises loopback control and Vite URLs. Stop it with Ctrl-C.
-Without AWS credentials do not submit a model prompt. The app also requires the
-public demo/basemap network and a browser; it has no offline local-server mode.
+its per-stage receipt: a probe pass is not a stage pass.
 
 Record actual outputs in the PR. Local Docker cannot verify AWS IAM, SNS,
 Bedrock/StudioAi, ECR inputs, billing, ECS install/rollback or AWS teardown.
-The current deterministic driver and browser harness do not implement the
-complete publish/save/approve journey; preserve any blocked outcomes. The
+The current deterministic driver does not implement the complete
+publish/save/approve journey; preserve any blocked outcomes. The
 recorded real-AWS run and public claims audit remain operator work.
 
 Refs #378 (released: the recorded AWS run and the claims audit need the operator)

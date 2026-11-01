@@ -26,9 +26,8 @@
 #     seeded rows ARE that sample's own fixture assets (id/title/category/risk/zone/score/x/y).
 #
 # NOT seeded: imagery / hillshade / terrain rasters. The publish API is vector-only
-# (schema+table+geometry column), there is no raster ingest path through it, and none of the five
-# driven demos requires a raster â€” esri-leaflet probes the ImageServer tile route and honestly
-# reports those two bases absent. demo-imagery-terrain.html is out of S9 scope.
+# (schema+table+geometry column), there is no raster ingest path through it, and none of the four
+# retained driven demos requires a raster. demo-imagery-terrain.html is out of S9 scope.
 #
 # Writes $E2E_OUT/seed-manifest.json with the resolved ids so drivers never hardcode.
 #
@@ -164,8 +163,7 @@ UPDATE honua_data.maui_zoning
 ALTER TABLE honua_data.maui_zoning DROP COLUMN lon, DROP COLUMN lat;
 
 -- â”€â”€ maui-parcels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- A TMK grid over Kahului/Wailuku. The esri-leaflet "click to query" scene opens at
--- (20.79, -156.46) z15 and the workbench/demo maps open over Kahului, so the grid deliberately
+-- A TMK grid over Kahului/Wailuku. The workbench/demo maps open over Kahului, so the grid deliberately
 -- spans both. `zone` carries the state land-use district codes '1'..'6' the demos colour by.
 DROP TABLE IF EXISTS honua_data.maui_parcels;
 CREATE TABLE honua_data.maui_parcels (

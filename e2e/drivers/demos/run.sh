@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# S9 — the five driveable honua-site demos, headless-driven against the seeded candidate server.
+# S9 — the retained honua-site demos, headless-driven against the seeded candidate server.
 #
-#   two-protocols · esri-leaflet · geoprocessing · editing · analyst-workbench
+#   two-protocols · geoprocessing · editing · analyst-workbench
 #   (maui-3d and sdk-controls are out of scope by design — they are SDK-native, not backend demos.)
 #
 # HOW: a local static copy of honua-site is served on its own origin (a DIFFERENT origin from the
@@ -26,7 +26,7 @@ REPO_ROOT="$(cd "$E2E_DIR/.." && pwd)"
 # shellcheck source=../../harness/lib/common.sh
 source "$HERE/../../harness/lib/common.sh"
 
-DEMOS=(shim-security two-protocols esri-leaflet geoprocessing editing analyst-workbench)
+DEMOS=(shim-security two-protocols geoprocessing editing analyst-workbench)
 block_all() { for d in "${DEMOS[@]}"; do emit_scenario "S9-demos-$d" blocked "$1"; done; }
 
 # ── preconditions ──────────────────────────────────────────────────────────────────────────────

@@ -757,25 +757,6 @@ def test_the_site_root_alias_is_allowlisted_only_in_the_two_route_tables():
     assert not alias.covers("honua-server", alias.paths[0], "Es" "ri")
 
 
-def test_the_recorded_leaflet_check_name_is_allowlisted_only_in_the_server_fixtures():
-    """The c19f29d and 08ace249 fixtures quote a real Actions job name. The exception does not
-    cover any other token or path."""
-    paths = ("tools/fixtures/candidate-resolution-2026-10-06/honua-server-c19f29d.json",
-             "tools/fixtures/candidate-resolution-2026-10-26/honua-server-08ace24.json")
-    token = "Es" "ri" " Leaflet"
-    for path in paths:
-        entries = [entry for entry in vt.load_allowlist(vt.ALLOWLIST) if entry.covers("honua-release", path, token)]
-        assert len(entries) == 1
-        entry = entries[0]
-        assert entry.tokens == (token,)
-        assert entry.paths == paths
-        assert entry.reason and entry.owner
-        assert not entry.covers("honua-release", path, "Arc" "GIS")
-        assert not entry.covers("honua-release", path, "es" "ri")
-    other = "tools/fixtures/candidate-resolution-2026-10-06/honua-sdk-js-984425f.json"
-    assert not entry.covers("honua-release", other, token)
-
-
 def test_the_gate_pins_its_tooling_and_fails_on_known_confidential_uses():
     workflow = (vt.ROOT / ".github" / "workflows" / "gate-vendor-terms.yml").read_text()
     assert "--fail-on-known-confidential" in workflow

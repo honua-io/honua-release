@@ -1,4 +1,4 @@
-// Minimal MCP stdio client: node mcp-call.mjs <baseUrl> <tool> '<json args>' [<tool> '<json args>' ...]
+// Minimal MCP stdio client: node e2e/mcp-call.mjs <baseUrl> <tool> '<json args>' [<tool> '<json args>' ...]
 import { spawn } from "node:child_process";
 const [baseUrl, ...rest] = process.argv.slice(2);
 const child = spawn("npx", ["-y", "-p", "@honua/mcp-server", "honua-mcp"], {

@@ -1990,7 +1990,7 @@ def test_an_unreadable_server_vocabulary_refuses(body, message):
 
 
 def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_observations():
-    """Keep captured bytes intact; an old name-only fixture cannot certify current execution."""
+    """The filtered historical check-run fixture cannot certify current execution."""
     captured = json.loads((
         resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
     ).read_text())

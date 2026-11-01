@@ -179,7 +179,6 @@ const DEMO_PAGES = [
   "demo-two-protocols.html",
   "demo-geoprocessing.html",
   "demo-editing.html",
-  "demo-esri-leaflet.html",
   "demo-analyst-workbench.html",
 ];
 
@@ -396,53 +395,6 @@ async function checkTwoProtocols(context) {
     );
   } catch (error) {
     record("two-protocols", "fail", `demo did not reach a live, matching result: ${error.message}`, diag(page));
-  } finally {
-    await page.close();
-  }
-}
-
-/* ── 2. esri-leaflet ───────────────────────────────────────────────────────── */
-
-async function checkEsriLeaflet(context) {
-  const page = await newPage(context);
-  try {
-    await page.goto(demoUrl("demo-esri-leaflet.html"), { waitUntil: "domcontentloaded", timeout: STEP });
-    await waitForAttr(page, "#el-status", "data-state", "live");
-
-    // Scene 1 renders the zoning FeatureServer through unmodified esri-leaflet: real SVG paths.
-    await page.waitForFunction(
-      () => document.querySelectorAll(".leaflet-overlay-pane svg path").length > 0,
-      null,
-      { timeout: STEP }
-    );
-    const rendered = await page.locator(".leaflet-overlay-pane svg path").count();
-
-    // Scene 3 ("Click to query") runs L.esri.query().intersects() against the parcels FeatureServer.
-    await page.locator('.el-scene-chip[data-scene="query"]').click();
-    await page.waitForTimeout(1800); // scene flyTo
-    const box = await page.locator("#el-map").boundingBox();
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForSelector(".leaflet-popup-content", { timeout: STEP });
-    const popup = (await page.locator(".leaflet-popup-content").innerText()).trim();
-    const codeStrip = await page.locator("#el-code-block, .el-code-strip pre").first().innerText().catch(() => "");
-
-    const statusText = (await page.locator("#el-status").innerText()).trim();
-    if (!/Parcel \(TMK\)/i.test(popup) || !/tmk/i.test(popup)) {
-      record("esri-leaflet", "fail", `click query returned no parcel attributes: ${popup.slice(0, 160)}`, diag(page, { statusText, rendered, popup: popup.slice(0, 300) }));
-      return;
-    }
-    if (!/feature\(s\) in/.test(codeStrip)) {
-      record("esri-leaflet", "fail", "the code strip did not record a completed L.esri.query run", diag(page, { statusText, rendered, codeStrip: codeStrip.slice(0, 300) }));
-      return;
-    }
-    record(
-      "esri-leaflet",
-      "pass",
-      `unmodified esri-leaflet rendered ${rendered} features from the candidate and L.esri.query().intersects() returned live parcel attributes`,
-      { statusText, renderedPaths: rendered, popup: popup.slice(0, 300), codeStrip: codeStrip.slice(0, 300) }
-    );
-  } catch (error) {
-    record("esri-leaflet", "fail", `demo did not render/query live: ${error.message}`, diag(page));
   } finally {
     await page.close();
   }
@@ -809,7 +761,6 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 900 
 try {
   await checkShimSecurity(context);
   await checkTwoProtocols(context);
-  await checkEsriLeaflet(context);
   await checkGeoprocessing(context);
   await checkEditing(context);
   await checkAnalystWorkbench(context);

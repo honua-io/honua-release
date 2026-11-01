@@ -126,9 +126,9 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
     assert data["sha"] == "c19f29d1828814f0f4c372b0dce73554074ba3b1"
     status, why = _classify("honua-server", payload)
     assert status == "pass", why
-    # 115, not 120: the Resolve pull request identity job is governance and the four green/skipped Server Test Prebuild Parity Observation checks in this
-    # capture are advisory too (server-test-prebuild-parity.yml, 2026-10-26).
-    assert why.startswith("all 115 core check-run(s) green")
+    # 113, not 118: the Resolve pull request identity job is governance, four Server Test
+    # Prebuild Parity Observation checks are advisory, and retired suite observations were removed.
+    assert why.startswith("all 113 core check-run(s) green")
     for name in PREBUILD:
         assert name in why
 
@@ -144,8 +144,8 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
         bt.load_advisory(),
     )
     row = report["components"][0]
-    # Preserve historical captured bytes. They contain check metadata but no authoritative
-    # job/attempt + immutable shard inventory observations required by the strengthened gate.
+    # The fixture retains check metadata but no authoritative job/attempt + immutable shard
+    # inventory observations required by the strengthened gate.
     assert row["decided"] == "fail"
     assert "missing actual Actions job and pinned shard selection evidence" in row["why"]
 
@@ -158,7 +158,7 @@ def test_prebuild_checks_stay_core_when_the_workflow_path_was_not_recorded():
     status, why = _classify("honua-server", stripped)
     assert status == "fail"
     assert _red_names(why) == (
-        "2/123 core check-run(s) red (['failure']: "
+        "2/121 core check-run(s) red (['failure']: "
         "['Prebuild repeated project / geoservices', 'Prebuild repeated project / server'])"
     )
 
