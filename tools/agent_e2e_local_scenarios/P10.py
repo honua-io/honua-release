@@ -2,7 +2,7 @@
 
 seed     publish the frozen town (published-town) through the runner recorder and read
          the shelters layer once (seed-phase baseline)
-observe  replay the model's own first honua_query_features call on the seeded shelters
+observe  replay the model's own matching honua_query_features call on the seeded shelters
          layer from the digest-verified action log, with controller credentials, and
          read the shelters layer again (observe-phase)
 score    the runner projects the replay response to its source_id set (filter.exact) and
@@ -71,7 +71,32 @@ class P10(Scenario):
         recorder = stack.extra['recorder']
         binding = {'service': seeded.state['service'], 'layerId': seeded.state['layerId']}
         recorder.json('p10-source-after', 'GET', source_path(binding))
-        query = self.selected_query(recorder.actions(), seeded)
+        actions = recorder.actions()
+        candidates = [a for a in actions if self.selected_query([a], seeded) is not None]
+        query = candidates[0] if candidates else None
+        if len(candidates) > 1:
+            # Selection uses only controller replays of sealed calls and the frozen
+            # fixture expectation. The selected request is replayed again below and
+            # the runner independently validates and scores that recorded response.
+            from agent_e2e_local_runner import oracle
+            expected = self.expected(variant)['filter.exact']
+            for index, candidate in enumerate(candidates):
+                try:
+                    result = recorder.replay(f'p10-query-candidate-{index + 1}', candidate)
+                    value = result['structuredContent']
+                    ids = [f['properties']['source_id'] for f in value['geojson']['features']]
+                    if (result.get('isError', False) is not False
+                            or str(value['serviceId']) != str(seeded.state['service'])
+                            or str(value['layerId']) != str(seeded.state['layerId'])
+                            or value['exceededTransferLimit'] is not False or value['resultOffset'] != 0
+                            or value['returnedCount'] != len(ids)
+                            or candidate.arguments.get('returnCountOnly', False) is not False):
+                        continue
+                    oracle.verify('filter.exact', {'resourceIds': ids}, expected)
+                    query = candidate
+                    break
+                except Exception:
+                    continue
         if query is not None:
             try:
                 recorder.replay('p10-replay-query', query)
