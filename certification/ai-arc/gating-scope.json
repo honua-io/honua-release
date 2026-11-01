@@ -4,17 +4,9 @@
   "approvedAt": null,
   "opsScope": {
     "aws-ecs": "not-gating",
-    "local-docker": "executed-subset"
+    "local-docker": "full"
   },
-  "scoredOps": {
-    "local-docker": [
-      "upgrade.candidate-serving",
-      "rollback.prior-serving",
-      "restore.migration-142",
-      "approval.separate",
-      "data.preserved"
-    ]
-  },
+  "scoredOps": {},
   "measuredOperations": {
     "local-docker": [
       {
@@ -24,8 +16,12 @@
       {
         "kind": "rollback with restore across migration 142",
         "executor": "https://github.com/honua-io/honua-server/pull/6823"
+      },
+      {
+        "kind": "service restart from a Compose-stack finding",
+        "executor": "https://github.com/honua-io/honua-server/pull/6851"
       }
     ]
   },
-  "note": "Coordinator decision for rc.2 (proposed, for founder sign-off Sun 20:00): aws-ecs is prereg option C; local-docker is option B, scoring the update and the rollback with restore across 142 (both executed by the product today) and the separate approval; diagnosis.recovered is unscored until honua-server ships Compose-stack observability and a restart remediation. Applies only once the founder sets approvedBy=founder and approvedAt; until then every target is scored in full, except development rehearsals run with HONUA_ARC_PROPOSED_OPS_SCOPE=1, which are recorded as proposed and never certify."
+  "note": "ARC v2 (founder decision 2026-11-01): local-docker ops is prereg option A, scored in full: the update, a fault that only a rollback fixes, the rollback with restore across 142, and a failing service the agent diagnoses and the product restarts (honua-server #6851). aws-ecs is option C. Applies to admission only once the founder sets approvedBy and approvedAt."
 }
