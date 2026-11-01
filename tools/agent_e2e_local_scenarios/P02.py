@@ -1,6 +1,7 @@
-"""P02 observes persisted connections and scans exact recorded artifacts for secrets.
+"""P02 is unsupported until a runner-provisioned database secret reference is handed off.
 
-A controller-owned canary is seeded separately from the agent-owned connection.
+The runner currently exposes a raw password, while the MCP create operation requires
+a reference. Admin connection metadata is not proof of the referenced target.
 """
 from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_scenario_operations import body
@@ -8,7 +9,7 @@ from agent_e2e_scenario_operations import body
 
 class P02(Scenario):
     id = 'P02'
-    supported_variants = ('A', 'B')
+    supported_variants = ()
 
     def sessions_required(self):
         return 2

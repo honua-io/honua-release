@@ -345,7 +345,7 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
 
 def test_p02_scans_raw_bytes_instead_of_canonical_hashes():
     case = importlib.import_module('agent_e2e_local_scenarios.P02').scenario
-    assert case.supported_variants == ('A', 'B')
+    assert case.supported_variants == ()
     raw = b'{"success":true,"data":[],"timestamp":"2026-01-01T00:00:00Z"}'
     raw_digest = hashlib.sha256(raw).hexdigest()
     data_digest = hashlib.sha256(json.dumps([], separators=(',', ':')).encode()).hexdigest()
