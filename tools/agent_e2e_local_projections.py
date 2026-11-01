@@ -1030,7 +1030,7 @@ def audited_map_sources(records, action_results, custody, agent_principal, map_i
     return output
 
 
-def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None):
+def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None, run_facts=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
     for binding in bindings:
@@ -1125,9 +1125,16 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         authored = None
         if binding.created_by is not None:
             spec = binding.created_by
-            require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {'tool', 'pointer', 'where', 'whereAll'}
+            require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {
+                    'tool', 'pointer', 'where', 'whereAll', 'allowFaultKind'}
                     and not ('where' in spec and 'whereAll' in spec),
                     'invalid created_by: ' + name)
+            require(spec.get('allowFaultKind') in (None, 'response_lost_after_commit'),
+                    'unreviewed created_by fault kind')
+            if spec.get('allowFaultKind') is not None:
+                require(spec['tool'] == 'honua_publish_service'
+                        and spec['pointer'] == '/result/structuredContent/serviceName',
+                        'lost-response authorship is only supported for service publication')
             where = spec.get('where')
             conditions = spec.get('whereAll', [] if where is None else [where])
             require(isinstance(conditions, list) and ('whereAll' not in spec or conditions)
@@ -1149,12 +1156,42 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                         break
                 if not selected:
                     continue
-                if result.get('tool') == spec['tool'] and result.get('status') == 'pass':
+                if result.get('tool') == spec['tool']:
                     try:
                         value = pointer_get(result['json'], spec['pointer'])
                     except ProjectionError:
                         continue
-                    if isinstance(value, (str, int)) and not isinstance(value, bool):
+                    accepted = result.get('status') == 'pass'
+                    if (not accepted and result.get('status') == 'fail'
+                            and spec.get('allowFaultKind') == 'response_lost_after_commit'
+                            and isinstance(result.get('_digest'), str)
+                            and re.fullmatch(r'sha256:[0-9a-f]{64}', result['_digest'])
+                            and isinstance(result.get('_responseSha256'), str)
+                            and re.fullmatch(r'sha256:[0-9a-f]{64}', result['_responseSha256'])):
+                        from urllib.parse import quote
+                        rpc = result.get('json', {}).get('result', {})
+                        payload = rpc.get('structuredContent', {}) if isinstance(rpc, dict) else {}
+                        event_rows = [e for e in (run_facts or {}).get('faultEvents', [])
+                                      if e.get('kind') == spec['allowFaultKind'] and e.get('forwarded') is True
+                                      and e.get('tool') == spec['tool'] and e.get('actionDigest') == result.get('_digest')
+                                      and e.get('upstreamOutcome') == 'ok'
+                                      and type(e.get('upstreamStatus')) is int and 200 <= e['upstreamStatus'] < 300
+                                      and e.get('upstreamResponseSha256') == result.get('_responseSha256')
+                                      and str(e.get('committedResourceId')) == str(value)]
+                        if (len(event_rows) == 1 and isinstance(rpc, dict) and rpc.get('isError', False) is False
+                                and isinstance(payload, dict) and payload.get('status') == 'Completed'
+                                and payload.get('operationId') == 'service.publish'):
+                            confirmation = event_rows[0].get('confirmation') or {}
+                            expected_path = '/api/v1/admin/services/' + quote(str(value), safe='') + '/settings'
+                            checks = confirmation.get('checks') or []
+                            last = checks[-1] if isinstance(checks, list) and checks else {}
+                            proof = records.get(last.get('step')) if isinstance(last, dict) else None
+                            accepted = bool(confirmation.get('path') == expected_path and last.get('status') == 200
+                                            and proof is not None and proof.intact() and proof.phase == 'session-confirm'
+                                            and proof.origin == 'fault-confirmation' and proof.kind == 'http'
+                                            and proof.principal == 'controller' and proof.method == 'GET'
+                                            and proof.path == expected_path and proof.status == 200)
+                    if accepted and isinstance(value, (str, int)) and not isinstance(value, bool):
                         authored.add(str(value))
         matches = []
         for row in rows:

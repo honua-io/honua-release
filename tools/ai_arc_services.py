@@ -310,15 +310,19 @@ class Canceller:
         return self.runtime.probe()
 
 
-def shared_publication(receipt, retained_bytes, variant):
+def shared_publication(receipt, retained_bytes, variant, fault='http_503_once'):
     """Bind the next case to the prior passing P10 receipt and its fired fault."""
     roles = receipt.get('roles') or {}
     service, layer = roles.get('created:service:shelters'), roles.get('child:layer:shelters')
     events = receipt.get('faultEvents') or []
+    expected_id = {'http_503_once': 'arc-p10-query-503',
+                   'response_lost_after_commit': 'arc-p10-publish-lost'}.get(fault)
     if (receipt.get('status') != 'pass' or not isinstance(service, str)
             or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
             or type(layer) is not int or layer < 0 or len(events) != 1
-            or events[0].get('kind') != 'http_503_once' or events[0].get('id') != 'arc-p10-query-503'):
+            or expected_id is None or events[0].get('kind') != fault or events[0].get('id') != expected_id
+            or (fault == 'response_lost_after_commit' and
+                (events[0].get('forwarded') is not True or events[0].get('committedResourceId') != service))):
         raise ValueError('prior P10 did not prove a passing agent publication and required fault')
     return {'variant': variant, 'service': service, 'layerId': layer,
             'caseReceiptSha256': 'sha256:' + hashlib.sha256(retained_bytes).hexdigest()}
@@ -349,9 +353,11 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
         try:
             fixture_variant, fixture_cases = runner.select_fixture_cases(goal=goal, fixture_id=fixture_id)
             scenarios, variant = tuple(fixture_cases), fixture_variant
+            if fault not in ('http_503_once', 'response_lost_after_commit'):
+                raise ValueError('services fault is incompatible with fixture scenarios')
             from agent_e2e_local_scenarios.arc_p10 import ArcP10
             from agent_e2e_local_scenarios.arc_p15 import ArcP15
-            fixture_scenarios = {'P10': ArcP10(), 'P15': ArcP15()}
+            fixture_scenarios = {'P10': ArcP10(fault), 'P15': ArcP15()}
             if set(scenarios) != set(fixture_scenarios):
                 raise ValueError('services fixture has an unsupported scenario inventory')
             plans = [fixture_scenarios[sid].fault_plan(variant) for sid in scenarios]
@@ -449,7 +455,7 @@ def run_services(*, scenarios, variant, candidate_digest, base_url, admin_key, p
             (out_dir / sid / 'case-receipt.json').write_bytes(retained)
             if fixture_cases is not None and sid == 'P10':
                 try:
-                    runtime.shared_service = shared_publication(receipt, retained, variant)
+                    runtime.shared_service = shared_publication(receipt, retained, variant, fault)
                 except ValueError as exc:
                     failure = failure or {'category': 'model', 'reason': str(exc)}
             answer = runtime.answers.get(f'{project}-{sid.lower()}')
