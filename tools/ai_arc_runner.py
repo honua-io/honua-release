@@ -1449,7 +1449,8 @@ def candidate_serving(ctx: StageContext) -> dict:
 
 USAGE_COUNTERS = ('inputTokens', 'outputTokens', 'totalTokens', 'cacheReadInputTokens', 'cacheWriteInputTokens',
                   'cacheCreationInputTokens', 'input_tokens', 'output_tokens', 'total_tokens',
-                  'cache_read_input_tokens', 'cache_creation_input_tokens', 'requests', 'calls', 'latencyMs')
+                  'cache_read_input_tokens', 'cache_creation_input_tokens', 'prompt_tokens', 'completion_tokens',
+                  'promptTokens', 'completionTokens', 'requests', 'calls', 'latencyMs')
 
 
 def usage_record(value):
