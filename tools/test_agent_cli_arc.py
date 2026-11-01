@@ -463,3 +463,14 @@ def test_name_only_compose_output_is_visible_and_anything_else_is_withheld(tmp_p
     assert b'--format=json' in sent[1]
     withheld=run('docker compose config --services')
     assert 'hidden' not in withheld and 'output withheld' in withheld
+
+
+@pytest.mark.parametrize('command,expected', [('docker compose run --help', ['docker','compose','run','--help']),
+                                              ('docker compose --help', ['docker','compose','--help'])])
+def test_quickstart_admits_compose_usage(command, expected):
+    assert parse_quickstart(command) == expected
+
+
+@pytest.mark.parametrize('command', ['docker compose run honua --help', 'docker compose frobnicate --help'])
+def test_quickstart_refuses_help_that_is_not_usage(command):
+    with pytest.raises(ValueError): parse_quickstart(command)

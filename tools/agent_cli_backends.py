@@ -258,6 +258,9 @@ COMPOSE_ADMITTED = {
     'top': set(),
     'port': set(),
     'version': set()}
+COMPOSE_SUBCOMMANDS = {'attach','build','commit','config','cp','create','down','events','exec','export','images','kill',
+                       'logs','ls','pause','port','ps','pull','push','restart','rm','run','scale','start','stats','stop',
+                       'top','unpause','up','version','wait','watch'}
 # Output that names images, services or volumes only: visible to the model when every line is such a name.
 VISIBLE_NAMES = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,255}\Z')
 
@@ -275,6 +278,9 @@ def parse_quickstart(command):
                     or parts[position] in ('-f','--file') and parts[position+1] == '-')):
                 raise ValueError('invalid compose option')
             options += parts[position:position+2]; position += 2
+        tail = parts[position:]
+        if tail and tail[-1] in ('--help','-h') and len(tail) <= 2 and (len(tail) == 1 or tail[0] in COMPOSE_SUBCOMMANDS):
+            return ['docker','compose',*tail[:-1],'--help']      # usage text only; runs nothing
         if position >= len(parts) or parts[position] not in COMPOSE_ADMITTED:
             raise ValueError('compose operation is not admitted')
         operation = parts[position]; rest = parts[position+1:]
@@ -373,7 +379,7 @@ class RemoteQuickstartShell:
         if command[:2] == ['docker','compose']:
             index = 2
             while index < len(command) and command[index] in ('-f','--file','--profile'): index += 2
-            operation = command[index]
+            operation = command[index] if index < len(command) else None
             names_only = (operation in ('config','ps') and bool({'--images','--services','--volumes'} & set(command))
                           or operation == 'images' and bool({'-q','--quiet'} & set(command)) or operation == 'port')
             if operation in ('ps','images') and not names_only and '--format=json' not in command:
@@ -392,6 +398,8 @@ class RemoteQuickstartShell:
             visible = raw.decode('utf-8')
         elif command[0] == 'curl' and raw.strip() in (b'Ready',b'Healthy',b'OK',b'Unhealthy'):
             visible = raw.decode('utf-8')
+        elif command[-1] == '--help' and command[:2] == ['docker','compose'] and len(raw) <= 65536:
+            visible = raw.decode('utf-8','replace')
         elif operation is not None and names_only:
             lines = [line.strip() for line in raw.decode('utf-8','replace').splitlines() if line.strip()]
             if len(lines) <= 200 and all(VISIBLE_NAMES.fullmatch(line) for line in lines):
