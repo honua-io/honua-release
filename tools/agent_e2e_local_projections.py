@@ -525,7 +525,8 @@ def evaluate(spec, ctx, *, item=None, step=None):
             require(full.kind == 'mcp' and full.status == 200 and full.principal == 'controller'
                     and (full.request_arguments or {}).get('tool') == 'honua_query_features'
                     and request == {'serviceId': str(service), 'layerId': int(layer), 'where': '1=1',
-                        'outFields': ['*'], 'limit': 1000, 'resultOffset': 0, 'returnGeometry': True,
+                        'outFields': ['source_id', 'name', 'capacity', 'is_open'], 'limit': 1000,
+                        'resultOffset': 0, 'returnGeometry': True,
                         'outSrid': 3857, 'geometryPrecision': -1}, 'full published query request differs')
             result = (full.json or {}).get('result') or {}
             value = result.get('structuredContent') or {}

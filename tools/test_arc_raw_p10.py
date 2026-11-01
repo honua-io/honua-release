@@ -103,7 +103,8 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows()
         'serviceId': 'agent-service', 'layerId': 2, 'exceededTransferLimit': False, 'resultOffset': 0,
         'returnedCount': len(ids), 'geojson': {'type': 'FeatureCollection', 'features': [
             {'properties': {'source_id': identity}} for identity in ids]}}}}
-    full_args = {'serviceId': 'agent-service', 'layerId': 2, 'where': '1=1', 'outFields': ['*'],
+    full_args = {'serviceId': 'agent-service', 'layerId': 2, 'where': '1=1',
+                 'outFields': ['source_id', 'name', 'capacity', 'is_open'],
                  'limit': 1000, 'resultOffset': 0, 'returnGeometry': True, 'outSrid': 3857,
                  'geometryPrecision': -1}
     full_result = {'jsonrpc': '2.0', 'id': 2, 'result': {'structuredContent': {
