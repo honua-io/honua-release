@@ -8,6 +8,7 @@ from pathlib import Path
 from agent_e2e_studio_customer_session import MODEL
 
 CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/manifest.v1.json'
+CORPUS_MANIFEST_SHA256 = '166fad2a58cdfb5560882181a1c0afe04b81442401a1b465d28d6dc9710f846e'
 
 
 def fixture_variant(fixture_id, scenario_id, *, manifest_path=CORPUS_MANIFEST):
@@ -15,7 +16,10 @@ def fixture_variant(fixture_id, scenario_id, *, manifest_path=CORPUS_MANIFEST):
     from agent_e2e_local_expectations import load_expected, load_projections
     if scenario_id not in ('P08', 'P09', 'P24') or not isinstance(fixture_id, str):
         raise ValueError('unsupported Studio fixture or scenario')
-    manifest = json.loads(Path(manifest_path).read_bytes())
+    raw = Path(manifest_path).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != CORPUS_MANIFEST_SHA256:
+        raise ValueError('Studio fixture catalog digest differs')
+    manifest = json.loads(raw)
     matches = [(row.get('id'), variant) for row in manifest.get('fixtures', []) if row.get('committed') is not False
                for variant, spec in (row.get('variants') or {}).items()
                if variant in ('A', 'B') and isinstance(spec, dict) and spec.get('path') == fixture_id]
@@ -35,7 +39,7 @@ def select_arc_case(context, prompt=None):
     if context.case is None:
         if context.variant not in ('A', 'B'):
             raise ValueError('invalid development variant')
-        return context.variant, load_development_case(RESTORED_PACK, RESTORED_PACK_DIGEST, 'P08', context.variant)
+        return fixture_variant('town-' + context.variant, 'P08')
     if context.variant != 'H' or context.candidate.get('development'):
         raise ValueError('held-out Studio requires a release candidate')
     if not isinstance(context.case, dict) or context.case.get('target') != context.target:

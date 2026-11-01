@@ -13,7 +13,7 @@ def test_development_pack_matches_arc_assertion_source():
     assert RESTORED_PACK_DIGEST == 'sha256:' + hashlib.sha256(PACK_PATH.read_bytes()).hexdigest()
 
 
-def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectations(monkeypatch):
+def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectations(monkeypatch, tmp_path):
     from cryptography.fernet import Fernet
     from types import SimpleNamespace
     from agent_e2e_studio_arc import fixture_variant, select_arc_case
@@ -38,6 +38,10 @@ def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectation
     monkeypatch.setattr(expectations, 'load_expected', lambda *_args: {})
     with pytest.raises(ValueError, match='frozen Studio expectations'):
         fixture_variant('town-A', 'P08')
+    bad_catalog = tmp_path / 'catalog.json'
+    bad_catalog.write_text('{}')
+    with pytest.raises(ValueError, match='catalog digest'):
+        fixture_variant('town-A', 'P08', manifest_path=bad_catalog)
 
 
 def test_pack_is_digest_bound_and_only_accepts_ab(tmp_path):
@@ -135,7 +139,8 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     from types import SimpleNamespace
     import agent_e2e_local_runner as runner
     import agent_e2e_studio_arc as studio
-    data = {'scenarios': [{'id': 'P08', 'prompts': {'A': 'map'}, 'assertions': ['render.actual']}]}
+    data = {'scenarios': [{'id': 'P08', 'prompts': {'A': 'map'}, 'fixtureIds': ['synthetic-town'],
+                           'assertions': ['render.actual']}]}
     path = tmp_path / 'pack.v2.AB-only.json'
     path.write_text(json.dumps(data))
     monkeypatch.setattr(studio, 'RESTORED_PACK', path)
