@@ -2,6 +2,7 @@ import hashlib
 import json
 
 import pytest
+from pathlib import Path
 
 import agent_e2e_studio_arc
 from agent_e2e_studio_arc import load_development_case
@@ -352,7 +353,12 @@ def test_slot_provision_keeps_the_packages_compose_files():
     slot = Slot()
     provision_local_server(slot, 'x' * 48)
     assert 'sed -n "s/^COMPOSE_FILE=//p" .env' in slot.script
-    assert 'export COMPOSE_FILE="$files:studio-customer.yaml"' in slot.script
+    assert 'export COMPOSE_FILE="$files" ' in slot.script
+    # Sol console2: the override joins COMPOSE_FILE only after it is written, and before the up.
+    script = slot.script
+    assert script.index('cat > studio-customer.yaml') < script.index('export COMPOSE_FILE="$COMPOSE_FILE:studio-customer.yaml"') \
+        < script.index('up -d --no-deps')
+    assert script.index('ps -q honua') < script.index('cat > studio-customer.yaml')
     assert 'docker compose -f' not in slot.script and 'up -d --no-deps --wait --wait-timeout 240 honua' in slot.script
 
 
@@ -386,3 +392,51 @@ def test_the_harness_sets_only_the_customer_identity_step_on_the_server():
     assert set(honua['environment']) == documented | set(TEST_IDP_ONLY)
     assert set(honua) == {'image', 'environment'} and honua['image'] == '${HONUA_STUDIO_ACTIVE_IMAGE}'
     assert 'Studio__EndUserAuthorization__Enabled' not in honua['environment']      # the package's own (#6896)
+
+
+def test_slot_provision_script_runs_on_a_fresh_slot(tmp_path):
+    """Sol console2 P1: run the real provisioning script with a stub docker that refuses a COMPOSE_FILE naming a
+    file that does not exist (as Compose does)."""
+    import os
+    import stat
+    import subprocess
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import provision_local_server
+    import shutil
+    import tempfile
+    # provision_local_server refuses slot directories under /tmp, so the slot lives under the user's cache.
+    base = Path(tempfile.mkdtemp(prefix='arc-provision-test-', dir=Path.home() / '.cache'
+                                 if (Path.home() / '.cache').is_dir() else Path.home()))
+    remote = base / 'arc-owned'
+    remote.mkdir()
+    request_cleanup = shutil.rmtree
+    (remote / '.env').write_text('COMPOSE_FILE=compose.yaml:compose.executor.yaml\n')
+    for name in ('compose.yaml', 'compose.executor.yaml'):
+        (remote / name).write_text('services: {}\n')
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    log = tmp_path / 'docker.log'
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    'IFS=:; for f in $COMPOSE_FILE; do [ -f "$f" ] || { echo "missing $f" >&2; exit 14; }; done; unset IFS\n'
+                    f'echo "COMPOSE_FILE=$COMPOSE_FILE ARGS=$*" >> {log}\n'
+                    'case "$*" in *"ps -q honua"*) echo h1 ;; "inspect --format {{.Image}} h1") echo sha256:abc ;; esac\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+
+    class Slot:
+        remote_dir = str(remote)
+        project = 'arc-12345678'
+
+        def compose(self, *args):
+            import ai_arc_local as L
+            return L.VmSlot.compose(self, *args)
+
+        def ssh(self, script, timeout):
+            return subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
+                                  env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
+    try:
+        assert provision_local_server(Slot(), 'x' * 48) == {'studioAiProxy': 'disabled'}
+    finally:
+        request_cleanup(base, ignore_errors=True)
+    up = [line for line in log.read_text().splitlines() if ' up ' in line]
+    assert len(up) == 1 and 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:studio-customer.yaml ' in up[0]

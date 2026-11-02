@@ -258,18 +258,19 @@ def honua_server_file(revision: str, path: str = 'docker-compose.yml') -> bytes:
     return done.stdout
 
 
-def slot_compose_files(override: str) -> str:
+def slot_compose_files(override: str | None) -> str:
     """Shell lines (run in the slot directory) exporting COMPOSE_FILE as the slot's own compose files plus
     ``override``, for compose commands given no -f. The shipped package's .env names its files in COMPOSE_FILE
     (compose.yaml, compose.executor.yaml, compose.executor.image.yaml); without it, compose.yaml plus
     compose.executor.yaml when present. An explicit -f list would drop the package's overrides and change honua."""
-    if not re.fullmatch(r'[a-z][a-z0-9.-]{0,63}\.yaml', override):
+    if override is not None and not re.fullmatch(r'[a-z][a-z0-9.-]{0,63}\.yaml', override):
         raise ValueError('invalid compose override name')
     return ('files="$(sed -n "s/^COMPOSE_FILE=//p" .env 2>/dev/null | tail -n 1)"\n'
             'files="${files#\\"}"; files="${files%\\"}"\n'
             'if [ -z "$files" ]; then files=compose.yaml; '
             'if [ -f compose.executor.yaml ]; then files="$files:compose.executor.yaml"; fi; fi\n'
-            f'export COMPOSE_FILE="$files:{override}" COMPOSE_PATH_SEPARATOR=:\n')
+            + (f'export COMPOSE_FILE="$files:{override}" COMPOSE_PATH_SEPARATOR=:\n' if override
+               else 'export COMPOSE_FILE="$files" COMPOSE_PATH_SEPARATOR=:\n'))
 
 
 CONSOLE_DOC = Path(__file__).resolve().parents[1] / 'docs/2026.1-add-console-to-compose-quickstart.md'

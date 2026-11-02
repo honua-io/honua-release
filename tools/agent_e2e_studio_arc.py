@@ -510,13 +510,16 @@ def provision_local_server(slot, signing_key):
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(str(remote)) + '\n'
               # The slot's own compose files (the package's COMPOSE_FILE) plus this override: an explicit
               # "-f compose.yaml" dropped the executor overlay (its AllowedHosts admit Console's calls to honua).
-              + slot_compose_files('studio-customer.yaml')
+              # Sol console2: the running server is read with the slot's files alone; the override is added to
+              # COMPOSE_FILE only once it is written.
+              + slot_compose_files(None)
               + 'server_id=$(' + slot.compose('ps', '-q', 'honua') + ')\n'
               + '[ -n "$server_id" ]\n'
               + 'HONUA_STUDIO_ACTIVE_IMAGE=$(docker inspect --format "{{.Image}}" "$server_id")\n'
               + 'case "$HONUA_STUDIO_ACTIVE_IMAGE" in sha256:*) ;; *) exit 1 ;; esac\n'
               + 'export HONUA_STUDIO_ACTIVE_IMAGE\n'
               + f"cat > studio-customer.yaml <<'{fence}'\n{override}{fence}\n"
+              + 'export COMPOSE_FILE="$COMPOSE_FILE:studio-customer.yaml"\n'
               + slot.compose('up', '-d', '--no-deps', '--wait', '--wait-timeout', '240', 'honua') + '\n')
     if slot.ssh(script, timeout=300).returncode:
         raise RuntimeError('could not configure the local Studio server')
