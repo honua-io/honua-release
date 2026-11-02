@@ -1080,4 +1080,6 @@ def test_the_documented_console_healthcheck_names_the_file_the_pinned_image_ship
     import ai_arc_local as L
     override, _ = L.documented_console()
     check = yaml.safe_load(override.replace(L.CONSOLE_DIGEST_PLACEHOLDER, '@' + CONSOLE['imageDigest']))
-    assert check['services']['console']['healthcheck']['test'] == ['CMD-SHELL', 'test -s /app/version.json']
+    # Either path, as honua-server #6899: the rc.2 image's /app/version.json, or an older image's wwwroot copy.
+    assert check['services']['console']['healthcheck']['test'] == [
+        'CMD-SHELL', 'test -s /app/version.json || test -s /app/wwwroot/version.json']
