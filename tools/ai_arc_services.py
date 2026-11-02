@@ -139,6 +139,7 @@ def runtime_class():
             identity = body.get('data', {}).get('connectionId') if isinstance(body, dict) else None
             if answer['observation']['httpStatus'] != 201 or not isinstance(identity, str) or not identity:
                 raise ValueError('adopted fixture connection was not created')
+            stack.extra['connectionName'] = stack.compose_project + '-fixture'
             return identity
 
         def _recorder(self, stack, principals):
@@ -281,6 +282,11 @@ def runtime_class():
             return view
 
         def session(self, stack, prompt, number, **kwargs):
+            imports = customer_imports(stack) if number == 1 else None
+            if imports:
+                # The customer's own knowledge of their import, before the case's request (dev and held-out alike;
+                # the goal text itself is unchanged).
+                prompt = customer_import_note(imports) + '\n\n' + prompt
             try:
                 output = super().session(stack, prompt, number, **kwargs)
             except runner.SessionInterrupted as exc:
@@ -343,6 +349,43 @@ def shared_publication(receipt, retained_bytes, variant, fault='http_503_once'):
         raise ValueError('prior P10 did not prove a passing agent publication and required fault')
     return {'variant': variant, 'service': service, 'layerId': layer,
             'caseReceiptSha256': 'sha256:' + hashlib.sha256(retained_bytes).hexdigest()}
+
+
+def customer_imports(stack) -> dict | None:
+    """The customer's own import, from the harness's recorded import responses on this case's stack (the same
+    derivation as the stage-four handoff, ai_arc_runner.imported_table): the fixture connection and every imported
+    town dataset. None when the case imported nothing; a partial record raises (never a partial handoff)."""
+    from ai_arc_runner import STUDIO_LAYERS, imported_table
+    extra = getattr(stack, 'extra', None)
+    recorder = extra.get('recorder') if isinstance(extra, dict) else None
+    root = getattr(recorder, 'root', None)
+    if root is None or not any((Path(root) / f"import-{n.replace('_', '-')}.json").is_file() for n in STUDIO_LAYERS):
+        return None
+    connection = extra.get('connectionId')
+    if not isinstance(connection, str) or not connection:
+        raise ValueError('the imported town has no recorded connection')
+    return {'connectionId': connection, 'connectionName': extra.get('connectionName'),
+            'datasets': [dict(dataset=n, **imported_table(Path(root), n)) for n in STUDIO_LAYERS]}
+
+
+def customer_import_note(imports: dict) -> str:
+    """Where the customer's imported tables are, in their own words (release session 2026-11-02): the connection
+    (name and id) and each dataset's schema and table. It names no tool and no answer. Disclosed: "the services
+    handoff tells the agent where the customer's imported tables are (connection, schema, table), as a customer
+    would know"."""
+    datasets = imports.get('datasets') if isinstance(imports, dict) else None
+    connection = imports.get('connectionId') if isinstance(imports, dict) else None
+    if not datasets or not isinstance(connection, str) or not connection:
+        raise ValueError('the customer import handoff needs the connection and every imported dataset')
+    name = imports.get('connectionName')
+    where = (f'the database connection "{name}" (connection id {connection})' if name
+             else f'the database connection with id {connection}')
+    lines = [f'Where our imported data is: we loaded these tables into Honua ourselves, through {where}.']
+    for row in datasets:
+        if not all(isinstance(row.get(k), str) and row[k] for k in ('dataset', 'schema', 'table')):
+            raise ValueError('an imported dataset has no schema or table')
+        lines.append(f"- {row['dataset'].replace('_', ' ')}: table {row['table']} in schema {row['schema']}")
+    return '\n'.join(lines)
 
 
 def run_fixture_services(*, goal, fixture_id, fault, **kwargs):
