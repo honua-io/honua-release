@@ -571,6 +571,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(Path(args.config))
+    # A retired or comment-only section loads as None; every section is a mapping from here on.
+    for section in ALL_SECTIONS:
+        if config.get(section) is None:
+            config[section] = {}
     candidate_sha, candidate_image, candidate_digest = _pinned_server(Path(args.manifest))
     if candidate_image:
         config.setdefault("esri", {})["expectedImage"] = candidate_image

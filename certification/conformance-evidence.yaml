@@ -64,7 +64,7 @@ releaseScope:
     reason: "operator ruling 2026-10-22: GeoServices desktop and QGIS client certification deferred past rc"
     reportAs: "not certified for 2026.1"
 
-esri:
+esri: {}   # retired 2026-11-02 (see below); an explicit empty mapping, never null
   # honua-esri-compat's license-free lanes (ArcGIS API for Python, ArcGIS Maps SDK for .NET, and the
   # SDK-driven GeoServices/OGC/auth/geoprocessing lanes) emit per-service `.cert.json` evidence.
   # Desktop results are referenced only by their private producer evidence identifiers.

@@ -874,7 +874,8 @@ def test_mint_declares_fixtures_from_every_gate_record(candidate, tmp_path):
                               '--out-dir', str(output), '--check'], capture_output=True, text=True)
     assert checked.returncode == 0, checked.stdout + checked.stderr
     retained = json.loads((output / 'fixture-revisions.json').read_bytes())
-    assert retained['fixtures'] == declared and len(retained['records']) == 8
+    # One record per fixture gate job: 7 since conformance-esri-geoservices was retired (2026-11-02).
+    assert retained['fixtures'] == declared and len(retained['records']) == 7
 
 
 def test_a_candidate_that_declares_the_gate_fixtures_keeps_its_exact_bytes(inputs, tmp_path):
@@ -1747,3 +1748,14 @@ def test_a_verified_executor_provenance_is_checked_against_its_source_revision(i
     executor = [args for args in verified if args[0] == f'oci://ghcr.io/honua-io/sdk@{index}']
     assert executor and all('sourceRevision' in args[2] and 'signerWorkflow' in args[2] for args in executor)
     assert {args[4] for args in executor} >= {'https://slsa.dev/provenance/v1'}
+
+
+def test_retired_esri_producer_is_not_a_fixture_gate_and_its_record_is_refused():
+    # evidenceSources.esri-compat was retired 2026-11-02; its conformance job checks out nothing.
+    assert fixture_revisions.FIXTURE_GATES['certification'] == ('conformance-mcp',)
+    complete = records()
+    assert not any(record['job'] == 'conformance-esri-geoservices' for record in complete)
+    fixture_revisions.declare(complete, run_id=RUN)  # the active producers alone are complete
+    stray = {**complete[0], 'gate': 'certification', 'job': 'conformance-esri-geoservices'}
+    with pytest.raises(ValueError):
+        fixture_revisions.declare([*complete, stray], run_id=RUN)
