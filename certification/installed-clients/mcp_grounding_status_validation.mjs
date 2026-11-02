@@ -50,8 +50,17 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
       encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ...env },
     });
     verifyBytes();
-    if (result.error || result.signal || result.status !== 0)
-      throw new Error("independent grounding/status source observer or judge refused");
+    if (result.error || result.signal || result.status !== 0) {
+      // The caller retains this message in its result evidence. Keep the original
+      // diagnostic, but redact credentials passed to the independent observer.
+      let stderr = String(result.stderr ?? "");
+      for (const [key, value] of Object.entries({ ...process.env, ...env }))
+        if (/key|token|password|secret|credential/i.test(key) && typeof value === "string" && value.length >= 4)
+          stderr = stderr.split(value).join("[REDACTED]");
+      throw new Error(`independent grounding/status source observer or judge refused: ${name}; `
+        + `status=${result.status}; signal=${result.signal ?? "none"}; `
+        + `error=${result.error?.code ?? "none"}; stderr=${stderr.slice(0, 16_384)}`);
+    }
     return JSON.parse(result.stdout);
   };
   const inspect = (source, selectedImage) => launch("mcp_render_validation.py", [

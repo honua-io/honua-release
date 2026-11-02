@@ -86,6 +86,8 @@ async function setup(mode) {
       "    print(json.dumps(item)); sys.exit(0)",
       "if name=='mcp_render_validation.py' and '--inspect-runtime' in args:",
       "    print(json.dumps(state['runtimeBefore'])); sys.exit(0)",
+      "if mode=='observer-refusal' and name=='mcp_grounding_status_state.py':",
+      "    print('controlled observer diagnostic: '+os.environ['HONUA_MCP_API_KEY'],file=sys.stderr); sys.exit(7)",
       "if name=='mcp_grounding_status_state.py':",
       "    key='preflightBefore' if '--admin-preflight' in args else 'graphObservation'",
       "    print(json.dumps(state[key])); sys.exit(0)",
@@ -117,7 +119,7 @@ async function setup(mode) {
   }
 }
 
-for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"]) {
+for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure", "observer-refusal"]) {
   test(`offline full grounding/status producer ${mode}`, async () => {
     const control = await setup(mode), oldPath = process.env.PATH;
     process.env.PATH = control.directory + delimiter + oldPath;
@@ -132,7 +134,14 @@ for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"
         installationRoot: control.installationRoot, credential: "controlled-full-key",
         ownedDisposableCandidate: true, results });
       const seen = readFileSync(control.seenPath, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
-      assert.equal(seen.length, 13);
+      assert.equal(seen.length, mode === "observer-refusal" ? 0 : 13);
+      if (mode === "observer-refusal") {
+        const failure = checks[control.fixture.observed.operations[0]];
+        assert.equal(failure.pass, false);
+        assert.match(failure.error, /mcp_grounding_status_state.py; status=7/);
+        assert.match(failure.error, /stderr=controlled observer diagnostic: \[REDACTED\]/);
+        assert.ok(!failure.error.includes("controlled-full-key"));
+      }
       if (mode === "valid") {
         for (const operation of control.fixture.observed.operations) {
           assert.equal(checks[operation].pass, true, checks[operation].error);
