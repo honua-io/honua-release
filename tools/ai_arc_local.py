@@ -238,26 +238,28 @@ class VmSlot:
     def teardown(self) -> dict:
         d = shlex.quote(self.remote_dir)
         # Files the product's executor wrote (uid 1002: backups, receipts) are handed back before removal.
-        # The slot's lifetime starts when its compose.yaml was staged (its mtime; chmod/chown never change it), less a
-        # minute. Anonymous volumes created since then that no container uses any more are this slot's leftovers
-        # (a recreated or orphaned container's), and are removed; a volume still named for the project, or a
-        # dangling anonymous one from the slot's lifetime that could not be removed, leaves the teardown dirty
-        # (release session 2026-11-02: leftover state between admission runs is a contamination risk).
+        # Release session 2026-11-02 (leftover state between admission runs is a contamination risk); Sol console9:
+        # only volumes this slot owns are touched. Before the down, the volumes mounted by the slot's own containers
+        # (its compose project, and stage four's CaseConsole, labelled honua.corpus.case=<project>) are listed; after
+        # it, any of them still present is removed (an in-use volume is refused by Docker). Another slot's volumes,
+        # dangling or not, are never selected. The clean check fails if a slot container, a project-labelled volume
+        # or one of the slot's own volumes remains. Orphans no container mounts any more cannot be attributed and
+        # are left to the admission preflight's host sweep (inspected before removal).
+        p = self.project
+        owned = ('{ docker ps -aq --filter label=com.docker.compose.project=' + p
+                 + '; docker ps -aq --filter label=honua.corpus.case=' + p + '; } | sort -u')
         script = ('set -u\n'
-                  + f'since="$(stat -c %Y -- {d}/compose.yaml 2>/dev/null || echo 0)"; since=$((since - 60))\n'
+                  + 'vols="$(for c in $(' + owned + '); do docker inspect --format '
+                    '\'{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\\n"}}{{end}}{{end}}\' "$c"; done | sort -u)"\n'
+                  + 'for c in $(docker ps -aq --filter label=honua.corpus.case=' + p + '); do docker rm -f "$c" >/dev/null 2>&1; done\n'
                   + self.compose('down', '--volumes', '--remove-orphans', '--timeout', '30')
                   + f'\nrc=$?\ndocker run --rm -v {d}:{d} redis:7.4-alpine chown -R "$(id -u):$(id -g)" {d} 2>/dev/null'
-                  + '\ncd /\nrm -rf -- ' + d
-                  + '\nnew_dangling() {\n'
-                  + '  for v in $(docker volume ls -q --filter dangling=true --filter label=com.docker.volume.anonymous); do\n'
-                  + '    t="$(date -d "$(docker volume inspect --format \'{{.CreatedAt}}\' "$v")" +%s 2>/dev/null || echo 0)"\n'
-                  + '    [ "$since" -gt 0 ] && [ "$t" -ge "$since" ] && echo "$v"\n'
-                  + '  done\n}\n'
-                  + 'for v in $(new_dangling); do docker volume rm "$v" >/dev/null 2>&1; done\n'
-                  + 'left="$(docker ps -aq --filter label=com.docker.compose.project=' + self.project + ')"\n'
-                  + 'leftvol="$(docker volume ls -q --filter label=com.docker.compose.project=' + self.project + ')"\n'
-                  + 'leftanon="$(new_dangling)"\n'
-                  + '[ -z "$left" ] && [ -z "$leftvol" ] && [ -z "$leftanon" ] && [ "$rc" = 0 ]\n')
+                  + '\ncd /\nrm -rf -- ' + d + '\n'
+                  + 'for v in $vols; do docker volume inspect "$v" >/dev/null 2>&1 && docker volume rm "$v" >/dev/null 2>&1; done\n'
+                  + 'left="$(' + owned + ')"\n'
+                  + 'leftvol="$(docker volume ls -q --filter label=com.docker.compose.project=' + p + ')"\n'
+                  + 'leftown=""; for v in $vols; do docker volume inspect "$v" >/dev/null 2>&1 && leftown="$leftown $v"; done\n'
+                  + '[ -z "$left" ] && [ -z "$leftvol" ] && [ -z "$leftown" ] && [ "$rc" = 0 ]\n')
         done = self.ssh(script)
         return {'status': 'clean' if done.returncode == 0 else 'dirty',
                 'steps': [{'step': 'compose-down-and-remove', 'exitCode': done.returncode}]}

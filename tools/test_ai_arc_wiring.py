@@ -1085,23 +1085,22 @@ def test_the_documented_console_healthcheck_names_the_file_the_pinned_image_ship
         'CMD-SHELL', 'test -s /app/version.json || test -s /app/wwwroot/version.json']
 
 
-def _run_teardown(tmp_path, anon, project_volumes=(), compose_age=600):
-    """VmSlot.teardown's script for real (sh) against a stub docker holding volumes with creation times."""
+def _run_teardown(tmp_path, containers, volumes, *, project_volumes=(), in_use=()):
+    """VmSlot.teardown's script for real (sh) against a stub docker. ``containers`` maps the slot's container ids to
+    the volumes they mount; ``volumes`` are every volume on the host (other slots' included)."""
     import os
     import stat
     import subprocess
-    import time
     import ai_arc_local as L
-    home = tmp_path / 'home'
-    remote = home / 'honua-arc' / 'arc-abcdef123456'
+    remote = tmp_path / 'home' / 'honua-arc' / 'arc-abcdef123456'
     remote.mkdir(parents=True)
-    (remote / 'compose.yaml').write_text('services: {}\n')
-    staged = time.time() - compose_age
-    os.utime(remote / 'compose.yaml', (staged, staged))
-    state = tmp_path / 'state'
-    state.mkdir()
-    for name, created in anon.items():
-        (state / name).write_text(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(created)))
+    vols, cons = tmp_path / 'vols', tmp_path / 'cons'
+    vols.mkdir()
+    cons.mkdir()
+    for v in volumes:
+        (vols / v).write_text('in-use' if v in in_use else '')
+    for c, mounts in containers.items():
+        (cons / c).write_text(''.join(m + '\n' for m in mounts))
     (tmp_path / 'proj.txt').write_text(''.join(v + '\n' for v in project_volumes))
     bindir = tmp_path / 'bin'
     bindir.mkdir()
@@ -1110,28 +1109,35 @@ def _run_teardown(tmp_path, anon, project_volumes=(), compose_age=600):
     stub.write_text('#!/bin/sh\n'
                     f'echo "$*" >> {log}\n'
                     'case "$*" in\n'
-                    f'  "volume ls -q --filter dangling=true --filter label=com.docker.volume.anonymous") ls {state} ;;\n'
-                    f'  "volume inspect --format {{{{.CreatedAt}}}} "*) cat {state}/"$5" ;;\n'
-                    f'  "volume rm "*) rm -f {state}/"$3" ;;\n'
-                    f'  "volume ls -q --filter label=com.docker.compose.project="*) cat {tmp_path}/proj.txt ;;\n'
-                    'esac\nexit 0\n')
+                    f'  "ps -aq --filter label=com.docker.compose.project=arc-abcdef123456") ls {cons} ;;\n'
+                    '  "ps -aq --filter label=honua.corpus.case=arc-abcdef123456") ;;\n'
+                    f'  "inspect --format "*) cat {cons}/"$4" ;;\n'
+                    f'  *" down "*) rm -f {cons}/* ;;\n'
+                    f'  "volume inspect "*) [ -f {vols}/"$3" ] ;;\n'
+                    f'  "volume rm "*) [ "$(cat {vols}/"$3")" != in-use ] && rm -f {vols}/"$3" ;;\n'
+                    f'  "volume ls -q --filter label=com.docker.compose.project=arc-abcdef123456") cat {tmp_path}/proj.txt ;;\n'
+                    'esac\n')
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     vm = L.VmSlot(host='h1', user='ubuntu', identity_file='/k', known_hosts='/kh', project='arc-abcdef123456', index=0)
     vm.remote_dir = str(remote)
     vm.ssh = lambda script, timeout=300: subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
                                                         env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
-    return vm.teardown(), sorted(p.name for p in state.iterdir()), log.read_text()
+    return vm.teardown(), sorted(p.name for p in vols.iterdir()), log.read_text()
 
 
-def test_teardown_removes_the_slots_leftover_anonymous_volumes_only(tmp_path):
-    """Release session 2026-11-02: eval hosts kept anonymous volumes after slot teardown (contamination risk)."""
-    import time
-    now = time.time()
-    result, remaining, log = _run_teardown(tmp_path, {'old-anon': now - 86400, 'slot-anon': now - 300})
+def test_teardown_removes_only_the_volumes_its_own_containers_mount(tmp_path):
+    """Release session 2026-11-02 + Sol console9: the slot's anonymous volumes go; another live slot's volumes
+    (even dangling, even newer) and older unrelated volumes are never selected."""
+    result, remaining, log = _run_teardown(
+        tmp_path, {'c-redis': ['slot-anon'], 'c-honua': []},
+        ['slot-anon', 'other-slot-dangling', 'old-unrelated'])
     assert result['status'] == 'clean'
-    assert remaining == ['old-anon'] and 'volume rm slot-anon' in log and 'volume rm old-anon' not in log
+    assert remaining == ['old-unrelated', 'other-slot-dangling']
+    assert 'volume rm slot-anon' in log and 'volume rm other-slot-dangling' not in log and 'volume rm old-unrelated' not in log
 
 
-def test_teardown_is_dirty_while_a_project_volume_remains(tmp_path):
-    result, _, _ = _run_teardown(tmp_path, {}, project_volumes=['arc-abcdef123456_compose-manager-postgres'])
+def test_teardown_is_dirty_when_an_owned_or_project_volume_remains(tmp_path):
+    result, _, _ = _run_teardown(tmp_path, {'c-redis': ['slot-anon']}, ['slot-anon'], in_use=('slot-anon',))
+    assert result['status'] == 'dirty'
+    result, _, _ = _run_teardown(tmp_path / 'b', {}, [], project_volumes=['arc-abcdef123456_compose-manager-postgres'])
     assert result['status'] == 'dirty'
