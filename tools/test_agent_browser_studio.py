@@ -1268,3 +1268,40 @@ def test_browser_tool_results_carry_the_page_text_in_structured_content():
     result = studio._tool_result('ok', '- heading "Studio" [level=1]', 'a' * 64)
     assert result['structuredContent'] == {'text': '- heading "Studio" [level=1]', 'screenshotSha256': 'a' * 64}
     assert result['content'] == [{'type': 'text', 'text': '- heading "Studio" [level=1]'}]
+
+
+def test_the_snapshot_includes_embedded_frames_with_their_selector_prefix():
+    """Studio DEV shakeout run 11b: Studio's style editor (Maputnik) is a sandboxed iframe; the body's accessibility
+    snapshot omitted it, so the arm could not see the colour, opacity and label controls."""
+    import agent_browser_studio as studio
+
+    class Loc:
+        def __init__(self, text=None, title=None):
+            self.text, self.title = text, title
+
+        def aria_snapshot(self, timeout=None):
+            return self.text
+
+        def get_attribute(self, name, timeout=None):
+            return self.title
+
+        def count(self):
+            return 1
+
+        def nth(self, i):
+            return self
+
+        def locator(self, selector):
+            return Loc('- button "Fill color"\n- slider "Opacity"')
+
+    class Page:
+        def locator(self, selector):
+            return Loc('- heading "Studio" [level=1]', 'Maputnik visual map style editor') if selector else None
+
+        def frame_locator(self, selector):
+            return Loc()
+    page = studio.PlaywrightPage.__new__(studio.PlaywrightPage)
+    page._page = Page()
+    text = page._frame_text()
+    assert 'frame 0 "Maputnik visual map style editor"' in text
+    assert 'iframe >> nth=0 >> internal:control=enter-frame >> ' in text and '  - slider "Opacity"' in text

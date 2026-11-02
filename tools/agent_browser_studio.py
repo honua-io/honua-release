@@ -626,8 +626,27 @@ class PlaywrightPage:
             text = body.aria_snapshot(timeout=5000)
         except Exception:
             text = body.inner_text(timeout=5000)
+        text = (text or '') + self._frame_text()
         self._check_origin()
-        return (text or '')[:8000]
+        return text[:16000]
+
+    def _frame_text(self):
+        """The page's embedded frames (e.g. Studio's sandboxed Maputnik style editor), which the body's accessibility
+        snapshot does not include. Each is listed with the selector prefix that reaches into it, so the arm can click
+        and type inside, as a customer's browser agent can (Studio DEV shakeout run 11b: the style and label controls
+        were invisible to the arm). Frames stay under the same origin lock."""
+        out = []
+        for index in range(self._page.locator('iframe').count()):
+            frame = self._page.locator('iframe').nth(index)
+            title = (frame.get_attribute('title', timeout=2000) or '').replace('"', "'")[:80]
+            prefix = f'iframe >> nth={index} >> internal:control=enter-frame >> '
+            try:
+                inner = self._page.frame_locator('iframe').nth(index).locator('body').aria_snapshot(timeout=5000)
+            except Exception:
+                inner = '(frame content unavailable)'
+            out.append(f'\n- frame {index} "{title}" (prefix selectors with: {prefix}):\n'
+                       + '\n'.join('  ' + line for line in (inner or '').splitlines()))
+        return ''.join(out)
 
     def chat_state(self):
         """Read the visible Studio chat without evaluating page code."""
@@ -864,10 +883,10 @@ class StudioBrowserServer:
                     shot['url'] = self.page.current_url() if self.page is not None else None
                 except Exception:  # noqa: BLE001  (an unknown URL may be a sign-in page: never kept)
                     shot['url'] = None
-            result = {'status': status, 'text': text[:8000], 'screenshotSha256': digest}
+            result = {"status": status, "text": text[:16000], "screenshotSha256": digest}
             # The action is written before execution. Its result, including the screenshot digest,
             # is retained separately and bound by the runner's response digest and action chain.
-            response = {'jsonrpc': '2.0', 'id': rpc_id, 'result': _tool_result(status, text[:8000], digest)}
+            response = {'jsonrpc': '2.0', 'id': rpc_id, 'result': _tool_result(status, text[:16000], digest)}
             return {**result, '_rawResponse': (200, action_bytes(response))}
 
         result = self.action_log.dispatch('tool_call', selected, execute)
