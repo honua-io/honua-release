@@ -304,6 +304,9 @@ class OracleTests(unittest.TestCase):
         self.assertIsNone(judge.polygon_rings({"type": "LineString", "coordinates": ring}))
         self.assertIsNone(judge.polygon_rings({"type": "Polygon", "coordinates": []}))
         self.assertIsNone(judge.polygon_rings(None))
+        # Untyped coordinates are not a declared polygon.
+        self.assertIsNone(judge.polygon_rings({"coordinates": [ring]}))
+        self.assertIsNone(judge.polygon_rings({"type": None, "coordinates": [ring]}))
         # The unwrapped polygon is valid WKB input; the nested MultiPolygon coordinates were not.
         judge.polygon_wkb(judge.polygon_rings({"type": "MultiPolygon", "coordinates": [[ring]]}))
         with self.assertRaises(TypeError):

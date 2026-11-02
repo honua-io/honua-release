@@ -241,7 +241,7 @@ def polygon_rings(geometry: Any) -> list[Any] | None:
         if len(coordinates) != 1 or not isinstance(coordinates[0], list):
             return None
         coordinates = coordinates[0]
-    elif kind not in ("Polygon", None):
+    elif kind != "Polygon":
         return None
     return coordinates if coordinates else None
 
