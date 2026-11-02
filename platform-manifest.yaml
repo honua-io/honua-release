@@ -1633,20 +1633,11 @@ clientArtifacts:
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
 evidenceSources:
-  esri-compat:
-    repository: honua-io/honua-esri-compat
-    workflowPath: .github/workflows/esri-sdk-certification.yml
-    # REFRESHED 2026-08-27, 167b510a -> ece4c3a2 (trunk HEAD, honua-esri-compat#76 "test: bind live
-    # fixture evidence to a candidate"). NOT GREEN: 2 failures, both `License-free Esri SDK lanes` —
-    # named here because that lane is exactly the licensing-gated surface this producer covers, and
-    # calling it green would be the "reads as a pass" failure this file warns about above.
-    # certification/conformance-evidence.yaml esri.evidenceRef is updated to the SAME value in this
-    # commit; validate_platform.check_legacy_evidence_pin_coherence hard-fails if they disagree.
-    producerSha: "ece4c3a2f68557fe8329e9932de36193d0732894"
-    trustedEvents: [workflow_dispatch]
-    trustedBranch: trunk
-    artifactIdentity: esri-certification-bundle
-    evidencePolicyRevision: conformance-evidence-v1
+  # esri-compat: RETIRED 2026-11-02 (rc.2 cut). Founder ruling 2026-10-30: ignore esri-compat. Its producer
+  # repository honua-io/honua-esri-compat no longer exists (HTTP 404 to an org-admin token since ~2026-10-31),
+  # so its pinned producerSha ece4c3a2 cannot be reached and every exact-candidate check refused. The
+  # conformance-esri-geoservices lane is advisory for 2026.1 ("not certified for 2026.1"), so no 2026.1
+  # admission depended on this source. Its certification/conformance-evidence.yaml mirror is removed with it.
   cite:
     repository: honua-io/honua-server
     workflowPath: .github/workflows/cite-evidence-report.yml
