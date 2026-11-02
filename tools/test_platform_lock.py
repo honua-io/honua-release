@@ -303,20 +303,27 @@ def test_generator_reports_all_current_unresolved_release_work():
     draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
     joined = "\n".join(draft.unresolved)
     # The MCP standard content digest is declared and verified against its pinned source bytes
-    # by tools/verify_content_digests.py; the runtime catalog/OKF digests need the candidate.
-    assert "contentDigests.geospatialMcp" not in joined
+    # by tools/verify_content_digests.py. Since the 2026-11-02 rc.2 cut the runtime catalog/OKF
+    # digests are declared at the candidate server revision (daf56db2) too.
+    assert "contentDigests" not in joined
     assert draft.lock["contentDigests"] == {
-        "geospatialMcp": "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
+        "geospatialMcp": "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c",
+        "catalog": "sha256:349d7b7c04c90fdb956aa1cb83f2f2447342c5835a9b5ad7c14862a68367ef44",
+        "okf": "sha256:f3e514b3bb6b447679731777dd52a74c1332c9bb5aa504fa03b91a5847901144",
     }
-    assert "contentDigests.catalog" in joined
-    assert "contentDigests.okf" in joined
-    assert "fixtures" in joined and "$.sbom:" in joined and "$.provenance:" in joined
+    # With the server candidate bound, only the post-gate facts remain (qualification marks them pending).
+    assert draft.unresolved == [
+        "[AT-CUT] $.fixtures: fixture repository revisions are not declared",
+        "[AT-CUT] $.sbom: immutable SBOM references and hashes are not declared",
+        "[AT-CUT] $.provenance: immutable provenance references and hashes are not declared",
+        "[AT-CUT] $.notes: immutable release-notes content/reference is not declared",
+    ]
     assert "$.notes: immutable release-notes content/reference is not declared" in joined
     assert "notes" not in draft.lock
     assert "[DECISION]" not in joined
     # honua-iac is pinned to its v0.6.2 release (commit archive), so its artifact version resolves.
     assert "honua-iac.artifacts[0]" not in joined
-    assert "sourceRevision" in joined
+    assert "sourceRevision" not in joined
     assert "TBD" not in str(draft.lock)
     assert draft.lock["components"]["geospatial-mcp"]["artifacts"][0]["sha256"] == (
         "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"

@@ -106,11 +106,13 @@ deploy:
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
     # if it drifts. Advanced with the 2026-10-27 rc re-pin #4 (8cb074f -> a4bde4b).
-    deploysServerImage: "sha:a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"
+    # 2026-11-02 RC2 CUT: advanced with the rc.2 server pin (a4bde4b -> daf56db).
+    deploysServerImage: "sha:daf56db25c208765f5440e484a7c24fbc5ba81ab"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
     # Same coupling as honua-iac above; advanced with the 2026-10-27 rc re-pin #4 (a4bde4b).
-    appVersion: "sha:a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"
+    # 2026-11-02 RC2 CUT: advanced with the rc.2 server pin (daf56db).
+    appVersion: "sha:daf56db25c208765f5440e484a7c24fbc5ba81ab"
     awsEks:
       target: aws-eks
       architectures:
@@ -156,6 +158,8 @@ data:
     # 135_RecordMigrationReaderCompatibility.sql); the floor stays >=115.
     # 2026-10-22 rc re-pin #3 to 8cb074f moves it to 136 (136_CreateAdminApiKeys.sql); the floor stays >=115.
     # 2026-10-27 rc re-pin #4 to a4bde4b moves it to 140 (140_CreateAiExecutionAdmission.sql); the floor stays >=115.
+    # 2026-11-02 RC2 CUT to daf56db moves it to 143 (141_CreateImportedDatasetSpatialMetadata.sql,
+    # 142_CreateAiFinancialAccounting.sql, 143_PromoteImportTypedColumns.sql); the floor stays >=115.
     requiresDbSchema: ">=115"
     # Graph schema (metadataSchemaVersion), not the metadata API id under contracts.metadata.
     # The pinned server declaration names this value. The manifest copies it as
