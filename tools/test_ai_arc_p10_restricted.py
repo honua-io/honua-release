@@ -385,3 +385,10 @@ def test_the_restricted_path_accepts_the_published_id_in_the_final_query():
     assert _scored(records, actions)['status'] == 'pass'
     records, actions = _case(extra_args={'serviceId': 'svc-publish-other'}, echo='svc-publish-other')
     assert _scored(records, actions)['status'] == 'fail'
+
+
+def test_restricting_before_publishing_the_list_still_fails_p10():
+    # Release session 2026-11-02 (with the Studio handoff's admin-catalog read): restricting the service before the
+    # agent's own list exists locks the agent out; P10 fails, whatever the handoff can read.
+    records, actions = _case(final_ok=False)
+    assert _scored(records, actions)['status'] == 'fail'

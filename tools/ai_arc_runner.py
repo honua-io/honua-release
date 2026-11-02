@@ -1051,12 +1051,44 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
             continue
         identities[event['resourceId']] = identity
         handles.setdefault((identity['service'], str(identity['layerId'])), []).append(event)
+    records = ctx.private_dir / 'services' / 'corpus' / 'P10' / 'export' / 'controller-records'
+    tables = {name: imported_table(records, name) for name in STUDIO_LAYERS}
+    connection = roles.get('seeded:connection:shelters')
     layers = {}
     for name, (service, layer) in published.items():
         matched = handles.get((service, str(layer))) or []
         if len(matched) != 1:
             raise ValueError(f'{name}: no unique completed agent publication in the stage window')
         meta = read('/rest/services/' + quote(service, safe='') + '/FeatureServer/' + str(layer) + '?f=json')
+        denied = isinstance(meta.get('error'), dict) and meta['error'].get('code') == 403
+        if denied:
+            # The agent produced the list and THEN restricted the service, as P10 asks (release session 2026-11-02):
+            # the data plane refuses every principal, the harness's admin key included. The layer is read, like the
+            # P10 restricted path, from the admin catalog: the service's own role-restricted access policy, and
+            # exactly one enabled catalog layer of that service, with that id, bound to the imported fixture table.
+            # Any other denial, or any mismatch, fails closed.
+            settings = read('/api/v1/admin/services/' + quote(service, safe='') + '/settings')
+            data = settings.get('data') if isinstance(settings.get('data'), dict) else settings
+            policy = data.get('accessPolicy') if isinstance(data, dict) else None
+            allowed = policy.get('allowedRoles') if isinstance(policy, dict) else None
+            if not (isinstance(policy, dict) and policy.get('allowAnonymous') is False and isinstance(allowed, list)
+                    and allowed and all(isinstance(r, str) and r.strip() for r in allowed)):
+                raise ValueError(name + ': the layer is refused but the service is not role-restricted')
+            if not isinstance(connection, str) or not connection:
+                raise ValueError('the fixture connection is unknown')
+            catalog = read('/api/v1/admin/connections/' + quote(connection, safe='') + '/layers?serviceName='
+                           + quote(service, safe=''))
+            rows = [r for r in (catalog.get('data') if isinstance(catalog.get('data'), list) else [])
+                    if isinstance(r, dict) and r.get('serviceName') == service and r.get('layerId') == layer]
+            row = rows[0] if len(rows) == 1 else None
+            if (row is None or row.get('enabled') is not True or not isinstance(row.get('geometryType'), str)
+                    or (row.get('schema'), row.get('table')) != (tables[name]['schema'], tables[name]['table'])):
+                raise ValueError(name + ': the admin catalog does not bind the restricted layer to the imported table')
+            layers[name] = {'service': service, 'layerId': layer,
+                            'operationInstanceId': matched[0]['resourceId'], 'auditId': matched[0]['auditId'],
+                            'geometryType': row['geometryType'], 'fields': None,
+                            'readThrough': 'admin-catalog (role-restricted service)'}
+            continue
         fields = meta.get('fields')
         if (not isinstance(fields, list) or not fields or not isinstance(meta.get('geometryType'), str)
                 or any(not isinstance(f, dict) or not isinstance(f.get('name'), str)
@@ -1071,8 +1103,6 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
     if len(actors) != 1:
         raise ValueError('stage-three publications name more than one principal')
     principal = actors.pop()
-    records = ctx.private_dir / 'services' / 'corpus' / 'P10' / 'export' / 'controller-records'
-    tables = {name: imported_table(records, name) for name in STUDIO_LAYERS}
     for name in layers:
         if (roles.get('seeded:table:' + name), roles.get('seeded:schema:' + name)) != \
                 (tables[name]['table'], tables[name]['schema']):
@@ -1081,7 +1111,6 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
         if identity['operationId'] == 'admin.layer.publish' and \
                 (identity['table'], identity['schema']) != (tables[name]['table'], tables[name]['schema']):
             raise ValueError(name + ': the admin publication names another table than the imported fixture table')
-    connection = roles.get('seeded:connection:shelters')
     if not isinstance(connection, str) or not connection:
         raise ValueError('the fixture connection is unknown')
     return {'schema': STUDIO_HANDOFF_SCHEMA, 'variant': variant, 'fixtureId': fixture_id, 'principal': principal,

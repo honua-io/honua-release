@@ -395,3 +395,61 @@ def test_the_publication_handle_identity_for_both_routes():
                 {'operationId': 'service.publish', 'status': 'Completed', 'resourceIds': {}}):
         with pytest.raises(ProjectionError):
             publication_handle_identity(bad)
+
+
+# Release session 2026-11-02: a correct agent produces the list and THEN role-restricts the service, as P10 asks;
+# the data plane then refuses the harness too, so the handoff reads the layer from the admin catalog (the P10
+# restricted path's authority) and fails closed on anything else.
+DENIED_META = {'status': 200, 'json': {'error': {'code': 403, 'message': 'Forbidden'}}}
+
+
+def restricted_controller(events, *, policy=None, rows=None):
+    inner, calls = controller(events, meta=DENIED_META)
+    policy = policy if policy is not None else {'allowAnonymous': False, 'allowedRoles': ['operators']}
+    rows = rows if rows is not None else [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data',
+                                           'table': 'arc10_x_shelters', 'enabled': True, 'geometryType': 'Point'}]
+
+    def http(method, url, key):
+        path = url.split('http://c', 1)[1]
+        if path == '/api/v1/admin/services/kestrel-shelters/settings':
+            calls.append(url)
+            return {'status': 200, 'json': {'success': True, 'data': {'serviceName': 'kestrel-shelters',
+                                                                      'accessPolicy': policy}}}
+        if path == '/api/v1/admin/connections/conn-1/layers?serviceName=kestrel-shelters':
+            calls.append(url)
+            return {'status': 200, 'json': {'success': True, 'data': rows}}
+        return inner(method, url, key)
+    return http, calls
+
+
+def test_a_service_restricted_after_the_list_reaches_stage_four_through_the_admin_catalog(tmp_path):
+    http, calls = restricted_controller([event()])
+    handoff = R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+    layer = handoff['layers']['shelters']
+    assert layer['service'] == 'kestrel-shelters' and layer['layerId'] == 0 and layer['geometryType'] == 'Point'
+    assert layer['readThrough'].startswith('admin-catalog') and layer['operationInstanceId'] == 'op-1'
+    assert any('/settings' in c for c in calls) and any('/layers?serviceName=' in c for c in calls)
+
+
+@pytest.mark.parametrize('policy,rows,why', [
+    ({'allowAnonymous': True, 'allowedRoles': []}, None, 'not role-restricted'),             # denied, not by roles
+    ({'allowAnonymous': False, 'allowedRoles': []}, None, 'not role-restricted'),
+    (None, [], 'does not bind'),                                                              # absent from catalog
+    (None, [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data', 'table': 'arc10_x_parcels',
+             'enabled': True, 'geometryType': 'Point'}], 'does not bind'),                    # another table
+    (None, [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data', 'table': 'arc10_x_shelters',
+             'enabled': False, 'geometryType': 'Point'}], 'does not bind'),                   # disabled
+    (None, [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data', 'table': 'arc10_x_shelters',
+             'enabled': True, 'geometryType': 'Point'}] * 2, 'does not bind')])               # ambiguous
+def test_a_refused_layer_fails_closed_unless_the_catalog_binds_it(tmp_path, policy, rows, why):
+    http, _ = restricted_controller([event()], policy=policy, rows=rows)
+    with pytest.raises(ValueError, match=why):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+def test_a_refused_layer_without_a_completed_agent_publication_still_fails(tmp_path):
+    # The catalog never substitutes for the audited agent publication (restricted before publishing: P10 fails, and
+    # the handoff has nothing to bind).
+    http, _ = restricted_controller([event(actor='api-key:someone-else')])
+    with pytest.raises(ValueError, match='no unique completed agent publication'):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
