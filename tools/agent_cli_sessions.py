@@ -737,6 +737,9 @@ class CliModelSession:
                             'inputHashScope': 'runner-controlled bytes; provider and CLI prepends are not claimed'}
                 metadata['servedToolListsSha256'] = {name: digest(encoded(view)) for name, view in tool_views.items()}
                 metadata['stage'] = stage
+                # #1219's preflight (durations and booleans only: longLivedToken, expiryUnknown) is retained with
+                # the session, so a receipt shows which kind of login the arm ran on.
+                metadata['authPreflight'] = out.get('authPreflight')
                 out['provenance'] = [metadata]
                 held = any(text in prompt for text in _WITHHELD)
                 write_private(log_dir / 'cli-inputs.json', encoded({

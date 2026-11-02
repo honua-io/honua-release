@@ -43,7 +43,8 @@
             "role": "seeded:connection:shelters"
           }
         ],
-        "allowFaultKind": "response_lost_after_commit"
+        "allowFaultKind": "response_lost_after_commit",
+        "alsoTool": {"tool": "honua_admin_layer_publish", "operationId": "admin.layer.publish", "response": "/result/structuredContent/details/response", "pointer": "/data/serviceName"}
       }
     },
     {

@@ -1093,6 +1093,37 @@ def imported_role(binding, records):
     return result['table' if binding.pointer == '/physicalTableName' else 'schema']
 
 
+ADMIN_LAYER_PUBLISH = {'tool': 'honua_admin_layer_publish', 'operationId': 'admin.layer.publish',
+                       'response': '/result/structuredContent/details/response', 'pointer': '/data/serviceName'}
+
+
+def admin_layer_publication(result) -> str | None:
+    """The service a honua_admin_layer_publish call created, or None. Only an accepted (pass) tool call whose
+    operation completed, that was not a dry run (argument dryRun absent or false), and whose embedded admin response
+    is a real publication (success with a layerId, not a validation) counts."""
+    import json as _json
+    arguments = result.get('arguments') if isinstance(result.get('arguments'), dict) else {}
+    if (result.get('kind') != 'tool_call' or result.get('status') != 'pass'
+            or arguments.get('dryRun', False) is not False):
+        return None
+    rpc = (result.get('json') or {}).get('result') if isinstance(result.get('json'), dict) else None
+    payload = rpc.get('structuredContent') if isinstance(rpc, dict) else None
+    if (not isinstance(payload, dict) or rpc.get('isError', False) is not False or payload.get('status') != 'Completed'
+            or payload.get('operationId') != ADMIN_LAYER_PUBLISH['operationId']):
+        return None
+    try:
+        embedded = _json.loads(pointer_get(result['json'], ADMIN_LAYER_PUBLISH['response']))
+        value = pointer_get(embedded, ADMIN_LAYER_PUBLISH['pointer'])
+    except (ProjectionError, ValueError, TypeError):
+        return None
+    data = embedded.get('data') if isinstance(embedded, dict) else None
+    if (embedded.get('success') is not True or not isinstance(data, dict) or 'isValid' in data
+            or type(data.get('layerId')) is not int or not isinstance(value, str)
+            or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', value)):
+        return None
+    return value
+
+
 def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None, run_facts=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
@@ -1210,9 +1241,13 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         if binding.created_by is not None:
             spec = binding.created_by
             require(isinstance(spec, dict) and {'tool', 'pointer'} <= set(spec) <= {
-                    'tool', 'pointer', 'where', 'whereAll', 'allowFaultKind'}
+                    'tool', 'pointer', 'where', 'whereAll', 'allowFaultKind', 'alsoTool'}
                     and not ('where' in spec and 'whereAll' in spec),
                     'invalid created_by: ' + name)
+            also = spec.get('alsoTool')
+            # Release session 2026-11-02 (rehearsal of record r3): the one reviewed alternative publication tool. It
+            # is bound by the same whereAll arguments; only its own completed, non-dry-run publication counts.
+            require(also is None or also == ADMIN_LAYER_PUBLISH, 'unreviewed created_by alternative: ' + name)
             require(spec.get('allowFaultKind') in (None, 'response_lost_after_commit'),
                     'unreviewed created_by fault kind')
             if spec.get('allowFaultKind') is not None:
@@ -1239,6 +1274,11 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                         selected = False
                         break
                 if not selected:
+                    continue
+                if also is not None and result.get('tool') == also['tool']:
+                    value = admin_layer_publication(result)
+                    if value is not None:
+                        authored.add(value)
                     continue
                 if result.get('tool') == spec['tool']:
                     if spec.get('allowFaultKind') is not None:
