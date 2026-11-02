@@ -34,6 +34,8 @@ digest="sha256:$(sha256sum "$lock" | cut -d' ' -f1)"
 "$PYTHON" "$ROOT/tools/ai_arc_campaign.py" "${pass[@]}" --lock-digest "$digest"
 "$PYTHON" "$ROOT/tools/ai_arc_runner.py" aggregate --target "$target" --arm "$arm" \
   --schedule "$out/schedule.json" --trials-dir "$out/runs" --voids "$out/voids.json" \
+  --false-success-adjudications "$out/false-success-adjudications.json" \
+  --safety-gap-adjudications "$out/safety-gap-adjudications.json" \
   --evidence-root "$out-evidence" ${held:-} ${package:+--quickstart-package-source "$package"} \
   --lock-path "$lock" --lock-digest "$digest" \
   --output "$out/ai-arc-aggregate-$target-$arm.json" --report "$out/ai-arc-report-$target-$arm.json"
