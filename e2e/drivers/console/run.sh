@@ -230,9 +230,13 @@ if (
   export HONUA_CONSOLE_E2E_SOURCE_PASSWORD="honua"
   export HONUA_CONSOLE_E2E_SOURCE_TABLE="public.e2e_layer_src"
   export PLAYWRIGHT_JSON_OUTPUT_NAME="$PW_RESULTS"
+  # S4 is the console's operator suite: its `chromium` project (with `setup` as its dependency).
+  # The live config also defines the `agent-reflection` and `studio-customer` projects, which need
+  # their own harness and have their own gates (Console agent reflection evidence,
+  # gate-studio-customer-journey.yml). Unselected, they ran here without it and failed S4.
   cd "$PW_DIR"
   npm ci --silent && npx playwright install "${WITH_DEPS[@]}" chromium \
-    && npx playwright test --config playwright.live.config.ts --reporter=list,json --output "$PW_ARTIFACTS"
+    && npx playwright test --config playwright.live.config.ts --project chromium --reporter=list,json --output "$PW_ARTIFACTS"
 ) >"$LOG" 2>&1; then
   suite=0
 else
