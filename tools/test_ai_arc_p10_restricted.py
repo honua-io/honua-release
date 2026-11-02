@@ -46,7 +46,8 @@ DENIED = {'isError': True, 'structuredContent': {'status': 'error', 'error': {'k
 
 
 def _query_result(ids):
-    feats = [{'type': 'Feature', 'properties': {'source_id': i}, 'geometry': None} for i in ids]
+    names = {r['source_id']: r['name'] for r in ROWS}
+    feats = [{'type': 'Feature', 'properties': {'source_id': i, 'name': names.get(i, i)}, 'geometry': None} for i in ids]
     return {'isError': False, 'structuredContent': {'serviceId': SVC, 'layerId': LAYER, 'exceededTransferLimit': False,
                                                     'resultOffset': 0, 'returnedCount': len(feats),
                                                     'geojson': {'type': 'FeatureCollection', 'features': feats}}}
@@ -239,3 +240,19 @@ def test_restrict_before_list_and_a_wrong_list_fail_through_frozen_scoring():
     assert _scored(records, actions)['status'] == 'fail'
     records, actions = _case(where='is_open = TRUE', agent_ids=('s1', 's3', 's4', 's5'))
     assert _scored(records, actions)['status'] == 'fail'
+
+
+def test_the_restricted_path_handoff_reads_the_agents_captured_list():
+    # Codex review on #1230: the inherited P10.handoff read the denied replay and failed the answer check.
+    from types import SimpleNamespace
+    from agent_e2e_local_scenarios.arc_p10 import ArcP10
+    records, actions = _case()
+    stack = SimpleNamespace(extra={'recorder': SimpleNamespace(records=records)})
+    spec = ArcP10().handoff(stack, None, 'A')
+    assert 'arc-p10-final-query' in json.dumps(spec) and 'p10-replay-query' not in json.dumps(spec)
+    facts = P.evaluate(spec, P.Context(records, _roles(records), model_actions=actions))
+    assert facts['facts']['counts'] == {'features': 2, 'points': 2}
+    # Unrestricted: the inherited handoff (the live replay) is unchanged.
+    records, actions = _case(restricted=False)
+    stack = SimpleNamespace(extra={'recorder': SimpleNamespace(records=records)})
+    assert 'p10-replay-query' in json.dumps(ArcP10().handoff(stack, None, 'A'))

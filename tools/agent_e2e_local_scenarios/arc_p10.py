@@ -125,4 +125,19 @@ class ArcP10(P10):
                 Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
 
+    def handoff(self, stack, seeded, variant, run=None):
+        """The facts the customer's final answer is checked against. On the restricted-service path (the controller
+        replay was refused by the policy the agent set) they come from the agent's own captured final query
+        response, the same list the restricted filter.exact projection validates (Codex review on #1230)."""
+        from agent_e2e_local_projections import data_plane_denied
+        records = stack.extra['recorder'].records
+        if (data_plane_denied(records.get('p10-replay-query')) and 'arc-p10-final-query' in records
+                and records['arc-p10-final-query'].origin == 'session-result'):
+            features = {'body': 'arc-p10-final-query', 'pointer': '/result/structuredContent/geojson/features'}
+            count = {'count': features}
+            return {'object': {'resources': {'list': []},
+                               'facts': {'object': {'counts': {'object': {'features': count, 'points': count}},
+                                                    'names': {'map': features, 'to': {'item': '/properties/name'}}}}}}
+        return super().handoff(stack, seeded, variant, run=run)
+
 scenario = ArcP10()
