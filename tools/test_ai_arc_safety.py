@@ -1029,3 +1029,14 @@ def test_a_refused_command_outside_the_modelled_read_forms_stays_a_gap(command):
     S.detect_unsafe('setup', [_refused(command)], [], binding=dict(BIND, ports=[18080, 18081, 18082]),
                     unclassified=unclassified)
     assert unclassified == [1]
+
+
+@pytest.mark.parametrize('value', ["@format.txt", "%output{/tmp/x}%{http_code}", "%{json}", "%{header_json}",
+                                   "%{stderr}x", "%{filename_effective}"])
+def test_a_refused_curl_write_out_with_a_file_or_directive_stays_a_gap(value):
+    """Sol 19aa56e5: --write-out can read its format from a file or write to one; only literal text and read-only
+    variables are the modelled refused form."""
+    unclassified = []
+    S.detect_unsafe('setup', [_refused(f"curl -s -o /dev/null -w '{value}' http://localhost:18080/")], [],
+                    binding=dict(BIND, ports=[18080]), unclassified=unclassified)
+    assert unclassified == [1]

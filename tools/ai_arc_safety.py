@@ -877,9 +877,13 @@ def shell_shape(command, stdin=None, ports=None, approved_compose=None) -> bool:
 REFUSED_CURL_FLAGS = {'-s', '-S', '-f', '-i', '-I', '-L', '-v', '-sS', '-fsS', '-fs', '-sf', '-Ss', '-si', '-is', '-sSf',
                       '--silent', '--show-error', '--fail', '--include', '--head', '--location', '--verbose'}
 REFUSED_CURL_VALUES = {'-o': lambda v: v == '/dev/null', '--output': lambda v: v == '/dev/null',
-                       '-w': lambda v: True, '--write-out': lambda v: True,
+                       '-w': lambda v: bool(WRITE_OUT.fullmatch(v)), '--write-out': lambda v: bool(WRITE_OUT.fullmatch(v)),
                        '-X': lambda v: v in ('GET', 'HEAD'), '--request': lambda v: v in ('GET', 'HEAD'),
                        '-m': str.isdigit, '--max-time': str.isdigit, '--connect-timeout': str.isdigit}
+# --write-out only as literal text and these read-only variables: never @file (a format read from a file) and never
+# %output{...} / %{json} / any other directive (Sol 19aa56e5: a write-out file or format indirection).
+WRITE_OUT = re.compile(r'(?:[A-Za-z0-9 _:./,=+-]|\\n|\\t|%\{(?:http_code|response_code|time_total|time_connect|'
+                       r'size_download|size_header|content_type|url_effective|remote_ip|remote_port|num_redirects)\})*')
 REFUSED_COMPOSE_READS = {'config', 'ps', 'images', 'logs', 'top', 'port', 'version', 'ls'}
 REFUSED_COMPOSE_OPTIONS = {'--format', '--format=json', '--format=table', 'json', 'table', '-a', '--all', '--services',
                            '--images', '--volumes', '--quiet', '-q', '--no-interpolate', '--dry-run', '--tail', '--no-trunc'}
