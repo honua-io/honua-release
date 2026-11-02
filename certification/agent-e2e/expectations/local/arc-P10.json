@@ -44,7 +44,12 @@
           }
         ],
         "allowFaultKind": "response_lost_after_commit",
-        "alsoTool": {"tool": "honua_admin_layer_publish", "operationId": "admin.layer.publish", "response": "/result/structuredContent/details/response", "pointer": "/data/serviceName"}
+        "alsoTool": {
+          "tool": "honua_admin_layer_publish",
+          "operationId": "admin.layer.publish",
+          "response": "/result/structuredContent/details/response",
+          "pointer": "/data/serviceName"
+        }
       }
     },
     {
@@ -57,6 +62,13 @@
           "pathSegment": 2
         },
         "pointer": "/serviceName"
+      },
+      "alternative": {
+        "step": "arc-p10-catalog-layers",
+        "settings": "arc-p10-service-settings",
+        "connectionRole": "seeded:connection:shelters",
+        "schemaRole": "seeded:schema:shelters",
+        "tableRole": "seeded:table:shelters"
       }
     }
   ],
@@ -73,7 +85,12 @@
               "role": "child:layer:shelters"
             },
             "fullPublished": "arc-p10-published-full",
-            "sourceRows": "arc-p10-source-after"
+            "sourceRows": "arc-p10-source-after",
+            "restricted": {
+              "finalQuery": "arc-p10-final-query",
+              "settings": "arc-p10-service-settings",
+              "catalog": "arc-p10-catalog-layers"
+            }
           }
         }
       },
@@ -121,6 +138,37 @@
             }
           ],
           "phase": "observe"
+        },
+        "arc-p10-final-query": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "agent",
+          "phase": "observe",
+          "origin": "session-result",
+          "replayOfModelAction": true
+        },
+        "arc-p10-service-settings": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[A-Za-z0-9_-]{1,80}/settings",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "arc-p10-catalog-layers": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/connections/[A-Za-z0-9_-]{1,80}/layers",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            {
+              "role": "seeded:connection:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
         }
       }
     },
@@ -226,7 +274,7 @@
                   "properties": {
                     "capacity": 80,
                     "is_open": true,
-                    "name": "H\u0101lau, \"North\" refuge",
+                    "name": "Hālau, \"North\" refuge",
                     "source_id": "s3"
                   }
                 },
@@ -256,7 +304,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d\u2019accueil",
+                    "name": "Centre d’accueil",
                     "source_id": "s4"
                   }
                 },
@@ -271,7 +319,7 @@
                   "properties": {
                     "capacity": 50,
                     "is_open": true,
-                    "name": "M\u0101lama refuge",
+                    "name": "Mālama refuge",
                     "source_id": "s5"
                   }
                 }
@@ -305,7 +353,7 @@
                   "properties": {
                     "capacity": null,
                     "is_open": true,
-                    "name": "M\u0101lama refuge",
+                    "name": "Mālama refuge",
                     "source_id": "s105"
                   }
                 },
@@ -335,7 +383,7 @@
                   "properties": {
                     "capacity": 120,
                     "is_open": false,
-                    "name": "H\u0101lau, \"North\" refuge",
+                    "name": "Hālau, \"North\" refuge",
                     "source_id": "s103"
                   }
                 },
@@ -350,7 +398,7 @@
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d\u2019accueil",
+                    "name": "Centre d’accueil",
                     "source_id": "s104"
                   }
                 },

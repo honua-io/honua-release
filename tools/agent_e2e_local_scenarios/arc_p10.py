@@ -96,9 +96,17 @@ class ArcP10(P10):
             service, layer = publications[0]
             meta = rec.json('arc-p10-service-meta', 'GET', '/rest/services/' + quote(service, safe='') + '/FeatureServer?f=json')
             body = meta['observation']['body']
+            # Founder decision 2026-11-02: the admin catalog's view of the service (its access policy and the
+            # connection's published layers), read without the data plane, so a service the agent role-restricted
+            # stays observable and no principal bypasses the policy (agent_e2e_local_projections ARC_P10_*).
+            rec.json('arc-p10-service-settings', 'GET', '/api/v1/admin/services/' + quote(service, safe='') + '/settings')
+            rec.json('arc-p10-catalog-layers', 'GET',
+                     '/api/v1/admin/connections/' + quote(str(state['connection']), safe='') + '/layers')
             layers = body.get('layers')
-            if (body.get('serviceName') == service and isinstance(layers, list) and len(layers) == 1
-                    and isinstance(layers[0], dict) and layers[0].get('id') == layer):
+            readable = (body.get('serviceName') == service and isinstance(layers, list) and len(layers) == 1
+                        and isinstance(layers[0], dict) and layers[0].get('id') == layer)
+            denied = isinstance(body.get('error'), dict) and body['error'].get('code') == 403
+            if readable or denied:
                 state.update(service=service, layerId=layer)
                 rec.mcp_call('arc-p10-published-full', 'honua_query_features', {
                     'serviceId': service, 'layerId': layer, 'where': '1=1',
@@ -110,6 +118,9 @@ class ArcP10(P10):
                 query = self.selected_query(actions, seeded) if count <= fixture_catalog()['maxP10Queries'] else None
                 if query is not None:
                     rec.replay('p10-replay-query', query)
+                    # The agent's own final query response: the list it produced (scored only on the
+                    # restricted-service path, where the controller replay is refused by the policy).
+                    rec.action_result('arc-p10-final-query', query)
         return [Observation('filter.exact', None, {'projection': 'extract/v1'}),
                 Observation('source-content.unchanged', None, {'projection': 'extract/v1'})]
 
