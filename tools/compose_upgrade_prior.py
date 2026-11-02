@@ -38,6 +38,14 @@ Architecture is x86_64 only (linux/amd64); multi-tenant scenarios are out of sco
 
   resolve   print GITHUB_OUTPUT lines (ready=1, prior=..., candidate=..., ...) or ready=0 + why
   receipt   assemble the compose upgrade receipt from the harness observations
+
+Candidate binding (rc admission, tools/rc_gate_window.py CANDIDATE_BOUND_GATES). A plain dispatch never
+names a platform lock, so its receipt can never certify a candidate. With `lock_run_id`/`lock_digest` the
+workflow verifies the release-train qualification lock exactly as gate-studio-customer-journey.yml does
+(attested manifest and matrix, re-derived lock, byte equality, dispatched digest) and `receipt
+--candidate-lock` then binds the run to it (bind_candidate_lock): the lock's own bytes, its manifest
+input, its honua-server sourceRevision and index digest, the amd64 child the harness actually ran and the
+image's revision label must all agree, or the receipt fails without any binding.
 """
 from __future__ import annotations
 
@@ -317,6 +325,68 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
     }
 
 
+def bind_candidate_lock(receipt: dict, *, lock_raw: bytes, lock_digest: str, manifest_raw: bytes,
+                        revision_label: str, lock_run: str = "") -> dict:
+    """Bind a receipt to the verified qualification lock, or fail it with no binding at all.
+
+    Every check fails closed. The binding is written only when all of them hold: the lock bytes carry the
+    dispatched digest; the lock's platformManifest input is this checkout's manifest; the lock's honua-server
+    image (sourceRevision, index digest, amd64 child, repository) is exactly the manifest pin; the candidate
+    the harness ran (pair reference and observed candidate-phase digest) is that amd64 child; and the pulled
+    image's org.opencontainers.image.revision label is the lock's sourceRevision.
+    """
+    from upgrade_lock_binding import BindingError, artifact
+
+    def refuse(reason: str) -> dict:
+        receipt["status"] = "fail"
+        receipt["why"] = " ".join(f"candidate lock binding refused: {reason}. {receipt.get('why') or ''}".split())
+        for key in ("candidateLockDigest", "candidateBinding"):
+            receipt.pop(key, None)
+        return receipt
+
+    if not DIGEST.fullmatch(str(lock_digest or "")):
+        return refuse("lock_digest is not sha256:<64 hex>")
+    if _bytes_digest(lock_raw) != lock_digest:
+        return refuse(f"lock bytes digest {_bytes_digest(lock_raw)} is not the dispatched {lock_digest}")
+    try:
+        lock = json.loads(lock_raw)
+        manifest = yaml.safe_load(manifest_raw)
+        if not isinstance(lock, dict) or not isinstance(manifest, dict):
+            raise ValueError("lock and manifest must be objects")
+        image = artifact(lock, "honua-server", "image")
+        pinned = manifest["components"]["honua-server"]
+    except (ValueError, TypeError, KeyError, AttributeError, BindingError, yaml.YAMLError) as exc:
+        return refuse(f"unreadable lock or manifest ({exc})")
+    manifest_input = ((lock.get("sourceInputs") or {}).get("platformManifest") or {}).get("sha256")
+    if manifest_input != _bytes_digest(manifest_raw):
+        return refuse("the lock's platformManifest input is not this checkout's platform-manifest.yaml")
+    source, index = image.get("sourceRevision"), image.get("digest")
+    amd64 = (image.get("platformDigests") or {}).get(ARCHITECTURE)
+    coordinate = str(image.get("coordinate") or "")
+    if not (isinstance(source, str) and SHA.fullmatch(source) and DIGEST.fullmatch(str(index))
+            and DIGEST.fullmatch(str(amd64)) and coordinate):
+        return refuse("the lock's honua-server image has no exact sourceRevision, index digest and amd64 digest")
+    if (pinned.get("sha") != source or pinned.get("digest") != index
+            or (pinned.get("platformDigests") or {}).get(ARCHITECTURE) != amd64
+            or _untagged(str(pinned.get("image") or "")) != coordinate):
+        return refuse("the lock's honua-server image is not the platform-manifest.yaml pin")
+    expected = f"{coordinate}@{amd64}"
+    candidate_phase = (receipt.get("phases") or {}).get("candidate")
+    if (receipt.get("candidate") or {}).get("image") != expected:
+        return refuse(f"the harness candidate {(receipt.get('candidate') or {}).get('image')!r} is not {expected}")
+    if not isinstance(candidate_phase, dict) or candidate_phase.get("imageDigest") != amd64:
+        return refuse("the observed candidate phase did not run the lock's amd64 image")
+    if revision_label != source:
+        return refuse(f"the candidate image revision label {revision_label!r} is not the lock's {source}")
+    candidate_phase["sourceRevision"] = source
+    candidate_phase["serverDigest"] = index
+    receipt["candidateLockDigest"] = lock_digest
+    receipt["candidateBinding"] = {"lockDigest": lock_digest, "lockRun": lock_run, "sourceRevision": source,
+                                   "serverDigest": index, "amd64Digest": amd64, "revisionLabel": revision_label,
+                                   "verification": "gate-studio-customer-journey.yml qualification-lock re-derivation"}
+    return receipt
+
+
 def classify(scenario: str, exit_code: int, harness: dict, expect_why: str = "") -> tuple[str, str]:
     """Fragment status from the harness exit code and its own recorded verdict.
 
@@ -369,6 +439,11 @@ def main(argv=None) -> int:
     b.add_argument("--run", default="")
     b.add_argument("--commit", default="")
     b.add_argument("--output", type=Path, required=True)
+    b.add_argument("--candidate-lock", type=Path, help="verified qualification platform-lock.json (bind_candidate_lock)")
+    b.add_argument("--candidate-lock-digest", default="")
+    b.add_argument("--candidate-manifest", type=Path, default=Path("platform-manifest.yaml"))
+    b.add_argument("--candidate-revision-label", default="")
+    b.add_argument("--lock-run", default="")
     args = parser.parse_args(argv)
 
     if args.command == "resolve":
@@ -400,6 +475,15 @@ def main(argv=None) -> int:
                             observed=_load_json(args.observed, {}),
                             phases={k: v for k, v in phases.items() if v is not None},
                             harness=_load_json(args.harness, {}), run=args.run, commit=args.commit)
+    if args.candidate_lock is not None:
+        try:
+            lock_raw, manifest_raw = args.candidate_lock.read_bytes(), args.candidate_manifest.read_bytes()
+        except OSError as exc:
+            lock_raw, manifest_raw = b"", b""
+            receipt["why"] = f"candidate lock unreadable ({exc}). {receipt.get('why') or ''}"
+        receipt = bind_candidate_lock(receipt, lock_raw=lock_raw, lock_digest=args.candidate_lock_digest,
+                                      manifest_raw=manifest_raw, revision_label=args.candidate_revision_label,
+                                      lock_run=args.lock_run)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"compose upgrade receipt: {receipt['status']} ({args.output})")
