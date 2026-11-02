@@ -356,16 +356,23 @@ def default_runner(argv: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
 
 
 def secret_values(run_dir: Path) -> list[str]:
-    env_path = run_dir / ".env"
-    if not env_path.is_file():
-        return []
     values: list[str] = []
-    for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key in SECRET_KEYS and len(value) >= 6:
-            values.append(value)
+    env_path = run_dir / ".env"
+    if env_path.is_file():
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key in SECRET_KEYS and len(value) >= 6:
+                values.append(value)
+    # honua-server #6888: secrets also live as files, secrets/<lower-case key> (the key ring itself is binary).
+    secrets_dir = run_dir / "secrets"
+    if secrets_dir.is_dir():
+        for path in sorted(secrets_dir.iterdir()):
+            if path.is_file() and path.suffix not in (".pfx", ".pem", ".crt", ".key") and not path.name.startswith("."):
+                value = path.read_text(encoding="utf-8", errors="replace").strip()
+                if len(value) >= 6:
+                    values.append(value)
     return values
 
 

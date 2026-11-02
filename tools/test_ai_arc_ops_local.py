@@ -584,21 +584,21 @@ def test_the_notes_tell_the_model_approval_is_immediate_and_to_follow_through():
 
 
 def test_the_notes_carry_the_release_notes_version_known_issue_verbatim():
-    """Pre-cut shakeout 11-01 (A1-s02): rc.1 and rc.2 both report server version 2026.1.1 (honua-server#6865), so the
-    agent read the update as a downgrade. The customer's rc.2 release notes say how to tell them apart; the ops notes
-    quote that text, in the customer's words, without any harness vocabulary."""
+    """Pre-cut shakeout 11-01 (A1-s02): rc.1 reported server version 2026.1.1 (honua-server#6865), so the agent read
+    the update as a downgrade. With honua-server#6884 rc.2 reports 2026.1.0-rc.2. The customer's rc.2 release notes say
+    how to tell builds apart; the ops notes quote that text, in the customer's words, without harness vocabulary."""
     import ai_arc_runner as R
     notes = O.LocalOps().notes(None)
     assert notes.endswith(O.RELEASE_NOTE_VERSION)
-    for phrase in ('2026.1 pre-release builds all report server version 2026.1.1',
-                   'Identify the running build by deploymentRevision or by image digest',
-                   'rc.2 is newer than rc.1 even though both report the same version'):
+    for phrase in ('rc.1 reported server version 2026.1.1 in error',
+                   'rc.2 reports 2026.1.0-rc.2 and is newer',
+                   'Identify builds by deploymentRevision or image digest'):
         assert phrase in notes
     assert not R.forbidden_hits(O.RELEASE_NOTE_VERSION)
     notes_md = (Path(__file__).resolve().parents[1] / 'release-notes' / '2026.1.md')
-    if notes_md.is_file() and 'report server version `2026.1.1`' in notes_md.read_text():
-        text = notes_md.read_text().replace('`', '')
-        assert 'Identify the running build by deploymentRevision or by image' in text.replace('\n', ' ')
+    text = notes_md.read_text().replace('`', '').replace('\n', ' ') if notes_md.is_file() else ''
+    if 'reported server version 2026.1.1 in error' in text:      # the release notes' current wording
+        assert 'Identify builds by deploymentRevision or image digest' in text
 
 
 def test_knock_on_failures_are_marked_blocked_and_still_fail(tmp_path):

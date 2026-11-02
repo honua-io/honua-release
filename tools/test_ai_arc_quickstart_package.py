@@ -244,3 +244,71 @@ def test_the_local_campaign_wrapper_forwards_the_package_sources_to_campaign_and
     assert 'ai_arc_campaign.py' in campaign and '--quickstart-package-source /in/quickstart-package' in campaign
     assert '--console-compose /in/docker-compose.yml' in campaign
     assert 'aggregate' in aggregate and '--quickstart-package-source /in/quickstart-package' in aggregate
+
+
+GUIDE = ('# Working in a Honua install directory\n\nRead this before acting. Secrets live in `.env`; never print them.\n'
+         'Ünïcode and "quotes" stay byte-identical.\n')
+
+
+def guide_source(tmp_path):
+    """The pinned sources plus a packager that, like honua-server #6885, ships the docs agent guide as AGENTS.md."""
+    import copy
+    import hashlib
+    source = tmp_path / 'guide-src'
+    for rel in PIN['files']:
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes((SOURCE / rel).read_bytes())
+    packager = source / 'scripts/docker/package_quickstart.py'
+    text = packager.read_text()
+    anchor = "    shutil.copyfile(Path(__file__).with_name('compose_quickstart.py'), destination / 'quickstart.py')\n"
+    assert anchor in text
+    packager.write_text(text.replace(anchor, anchor + (
+        "    guide = (ROOT / 'docs/guides/connect/working-with-ai-agents.md').read_text()\n"
+        "    guide = re.search(r'<!-- agent-guide:begin -->\\n(.*?)<!-- agent-guide:end -->', guide, re.S).group(1)\n"
+        "    (destination / 'AGENTS.md').write_text(guide.strip() + '\\n')\n"), 1))
+    doc = source / 'docs/guides/connect/working-with-ai-agents.md'
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text('Intro.\n<!-- agent-guide:begin -->\n' + GUIDE + '<!-- agent-guide:end -->\nOutro.\n')
+    pin = copy.deepcopy(PIN)
+    for rel in ('scripts/docker/package_quickstart.py', 'docs/guides/connect/working-with-ai-agents.md'):
+        pin['files'][rel] = 'sha256:' + hashlib.sha256((source / rel).read_bytes()).hexdigest()
+    return source, pin
+
+
+def test_a_package_that_ships_the_agent_guide_is_staged_with_it_byte_identical(tmp_path):
+    source, pin = guide_source(tmp_path)
+    files = ai_arc_local.build_quickstart_package(source, pin, tmp_path / 'build', server=SERVER, executor=EXECUTOR,
+                                                  worker=SERVER, version='2026.1-rc.2')
+    assert set(files) == ai_arc_local.PACKAGE_FILES | {'AGENTS.md'}
+    assert files['AGENTS.md'] == (tmp_path / 'build/package/AGENTS.md').read_bytes() == GUIDE.encode()
+    seen = {}
+
+    def run(command, input=None, **kw):
+        seen['script'] = input.decode()
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    facts = vm(tmp_path, run).stage_package(INSTALL, files, PIN['priorMaxSchema'])
+    staged = {name.strip("'"): base64.b64decode(body) for name, body in
+              re.findall(r"base64 -d > (\S+) <<'HONUA_PKG_[0-9a-f]+'\n([A-Za-z0-9+/=]*)\n", seen['script'])}
+    assert staged['AGENTS.md'] == GUIDE.encode()                       # exactly as shipped, never edited
+    assert set(facts['packageSha256']) == ai_arc_local.PACKAGE_FILES | {'AGENTS.md'}
+
+
+def test_a_package_without_the_guide_is_unaffected_and_unknown_files_are_refused(tmp_path):
+    files = build(tmp_path)
+    assert 'AGENTS.md' not in files and set(files) == ai_arc_local.PACKAGE_FILES
+
+    def run(command, input=None, **kw):
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    with pytest.raises(ValueError, match='incomplete'):
+        vm(tmp_path, run).stage_package(INSTALL, dict(files, **{'NOTES.md': b'x'}), PIN['priorMaxSchema'])
+
+
+def test_admission_accepts_the_package_binding_with_or_without_the_guide():
+    import rc_gate_window as G
+    digest = 'sha256:' + 'd' * 64
+    base = {n: digest for n in G.ARC_PACKAGE_FILES}
+    for files in (base, dict(base, **{'AGENTS.md': digest})):
+        agg = {'quickstartPackage': {'revision': 'r', 'declaredRelease': 'x', 'sha256': files}}
+        assert G._arc_package_binding(agg, 'r') is not None
+    agg = {'quickstartPackage': {'revision': 'r', 'declaredRelease': 'x', 'sha256': dict(base, **{'X.md': digest})}}
+    assert G._arc_package_binding(agg, 'r') is None

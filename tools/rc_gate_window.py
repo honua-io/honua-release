@@ -345,6 +345,7 @@ ARC_EXCLUSIONS = {"tenant.denied", "P18", "custody.worker-replaced@local-docker"
 
 
 ARC_PACKAGE_FILES = {"compose.yaml", "compose.executor.yaml", "quickstart.py", "images.json", "README.md"}
+# The product agent guide is part of the package when the product packager ships it (ai_arc_local.AGENT_GUIDE).
 
 
 def _arc_package_binding(aggregate: dict, revision: str) -> dict | None:
@@ -352,7 +353,8 @@ def _arc_package_binding(aggregate: dict, revision: str) -> dict | None:
     pkg = aggregate.get("quickstartPackage")
     if (not isinstance(pkg, dict) or set(pkg) != {"revision", "declaredRelease", "sha256"}
             or pkg["revision"] != revision or not isinstance(pkg["declaredRelease"], str) or not pkg["declaredRelease"]
-            or not isinstance(pkg["sha256"], dict) or set(pkg["sha256"]) != ARC_PACKAGE_FILES
+            or not isinstance(pkg["sha256"], dict)
+            or set(pkg["sha256"]) not in (ARC_PACKAGE_FILES, ARC_PACKAGE_FILES | {"AGENTS.md"})
             or any(not isinstance(v, str) or normalize_digest(v) != v for v in pkg["sha256"].values())):
         return None
     return pkg
