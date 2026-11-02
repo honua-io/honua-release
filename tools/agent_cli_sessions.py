@@ -353,7 +353,7 @@ class RecordingProxy:
 # loads the package's AGENTS.md as project instructions, as it would when run in the install directory, and nothing
 # else. The arc sets it once the package is staged (ai_arc_local.VmSlot.stage_package); None leaves every session as
 # before (no file, project-instruction loading disabled).
-_AGENT_GUIDE = {'raw': None}
+_AGENT_GUIDE = {'raw': None, 'required': None}
 # Every file either pinned CLI loads as project instructions from a directory or its ancestors (Claude Code loads an
 # ancestor's .claude/CLAUDE.md as project memory; both treat .git as a project root marker).
 INSTRUCTION_NAMES = ('AGENTS.md', 'AGENTS.override.md', 'CLAUDE.md', 'CLAUDE.local.md', '.claude', '.mcp.json', '.git',
@@ -440,6 +440,34 @@ def set_agent_guide(raw):
 
 def agent_guide():
     return _AGENT_GUIDE['raw']
+
+
+def require_agent_guide(sha256):
+    """The staged package ships AGENTS.md with this digest (None: it ships none). Release session 2026-11-02: when it
+    does, a session that would not load exactly that guide refuses to start (fail closed), so a run without the guide
+    is impossible, not only visible in its receipt."""
+    if sha256 is not None and (not isinstance(sha256, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', sha256)):
+        raise ValueError('the required agent guide digest is malformed')
+    _AGENT_GUIDE['required'] = sha256
+
+
+def required_agent_guide():
+    return _AGENT_GUIDE['required']
+
+
+def verify_guide_flags(agent: str, args: list, guide) -> None:
+    """The launch flags load the guide exactly when one is staged (checked immediately before the CLI starts)."""
+    if agent == 'claude-cli':
+        sources = args[args.index('--setting-sources') + 1] if '--setting-sources' in args else None
+        loads = '--restricted' not in args and sources == 'project'
+        disabled = '--restricted' in args and sources == ''
+    else:
+        values = [a.split('=', 1)[1] for a in args if isinstance(a, str) and a.startswith('project_doc_max_bytes=')]
+        size = json.loads(values[0]) if len(values) == 1 else None
+        loads = guide is not None and size == len(guide)
+        disabled = size == 0
+    if (guide is not None and not loads) or (guide is None and not disabled):
+        raise ValueError('the CLI flags do not match the staged agent guide (loaded exactly when staged)')
 
 
 def stage_agent_guide(scratch: Path, guide: bytes, agent: str, env: dict) -> Path:
@@ -857,6 +885,10 @@ class CliModelSession:
                    for name in ('AGENTS.md', 'CLAUDE.md', '.git')):
                 raise ValueError('scratch directory has reachable repository instructions')
             guide = agent_guide()
+            required = required_agent_guide()
+            if required is not None and (guide is None or digest(guide) != required):
+                # Release session 2026-11-02 (Studio DEV shakeout runs 4-6 ran without the guide): fail closed.
+                raise ValueError('the staged package ships AGENTS.md, but this session would not load it')
             scratch_root = home
             if guide is not None:
                 home = scratch_root / 'home'          # the CLI's HOME and config, a sibling of its working directory
@@ -924,6 +956,7 @@ class CliModelSession:
                     if guide is not None:
                         # Checked again at launch: exactly the shipped guide, and nothing else reachable.
                         verify_guide_isolation(work, guide, self.agent, env)
+                    verify_guide_flags(self.agent, args, guide)
                     started = time.monotonic()
                     process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                                cwd=work, env=env, start_new_session=True)

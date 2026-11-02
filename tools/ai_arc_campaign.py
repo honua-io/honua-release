@@ -215,6 +215,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                 results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
                                 'receipt': str(path) if receipt else None})
                 if receipt is None or receipt['status'] == 'undetermined' or suspected_harness_fault(receipt) \
+                        or arc_runner.agent_guide_gaps(receipt) \
                         or (out / 'holds' / (row['runId'].replace(':', '-') + '.hold')).is_file() \
                         or receipt.get('falseSuccessFlags') or arc_runner.stage_gaps(receipt.get('stages') or []):
                     # Adjudication barrier (Astra S3): any suspected harness defect stops the campaign before the

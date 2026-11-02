@@ -294,3 +294,93 @@ def test_the_receipt_provenance_records_the_effective_flags(tmp_path, monkeypatc
 def test_the_workflow_prepares_the_guide_root_on_the_controller_runner():
     text = (Path(__file__).resolve().parents[1] / '.github/workflows/ai-arc.yml').read_text()
     assert 'install -d -m 700' in text and '/var/lib/honua-arc-cli' in text
+
+
+# Release session 2026-11-02: when the staged package ships AGENTS.md, a run without it must be impossible.
+def _required_run(tmp_path, monkeypatch, agent, model, guide, required):
+    binary, record = recorder(tmp_path)
+    root = tmp_path / 'guide-root'
+    root.mkdir(mode=0o700)
+    monkeypatch.setattr(C, 'guide_scratch_root', lambda **_: root)
+    monkeypatch.setattr(C, 'arc_scratch_root', lambda: root)
+    C.set_agent_guide(guide)
+    C.require_agent_guide(required)
+    cli = C.CliModelSession(agent, model, binary=str(binary), auth_root=tmp_path / 'noauth')
+    try:
+        with pytest.raises((C.CliFailure, ValueError)) as raised:
+            cli.run(prompt='Customer goal only', tool_view=TOOLS, execute=lambda *_: None, log_dir=tmp_path / 'log',
+                    timeout=600)
+    finally:
+        C.require_agent_guide(None)
+    return raised.value, record
+
+
+@pytest.mark.parametrize('agent,model', [('claude-cli', 'claude-opus-5-5'), ('codex-cli', 'gpt-6.1-sol')])
+def test_a_required_guide_that_is_not_loaded_refuses_the_session(tmp_path, monkeypatch, agent, model):
+    import hashlib
+    shipped = 'sha256:' + hashlib.sha256(GUIDE).hexdigest()
+    error, record = _required_run(tmp_path, monkeypatch, agent, model, None, shipped)
+    assert isinstance(error, C.CliFailure) and error.category != 'model' and not record.exists()  # never started
+
+
+def test_a_required_guide_with_other_bytes_refuses_the_session(tmp_path, monkeypatch):
+    import hashlib
+    other = 'sha256:' + hashlib.sha256(b'another guide').hexdigest()
+    error, record = _required_run(tmp_path, monkeypatch, 'claude-cli', 'claude-opus-5-5', GUIDE, other)
+    assert isinstance(error, C.CliFailure) and error.category != 'model' and not record.exists()
+
+
+def test_a_required_guide_that_is_loaded_starts_the_session(tmp_path, monkeypatch):
+    import hashlib
+    shipped = 'sha256:' + hashlib.sha256(GUIDE).hexdigest()
+    _, record = _required_run(tmp_path, monkeypatch, 'claude-cli', 'claude-opus-5-5', GUIDE, shipped)
+    seen = json.loads(record.read_text())
+    assert '--restricted' not in seen['argv'] and seen['guide'].encode() == GUIDE
+
+
+@pytest.mark.parametrize('agent,args,guide', [
+    ('claude-cli', ['claude', '--restricted', '--setting-sources', 'project'], GUIDE),   # guide mode, still restricted
+    ('claude-cli', ['claude', '--setting-sources', ''], GUIDE),                          # guide mode, no project source
+    ('claude-cli', ['claude', '--setting-sources', 'project'], None),                    # no guide, loading enabled
+    ('codex-cli', ['codex', '-c', 'project_doc_max_bytes=0'], GUIDE),                    # guide mode, docs disabled
+    ('codex-cli', ['codex', '-c', 'project_doc_max_bytes=7'], GUIDE),                    # truncated guide
+    ('codex-cli', ['codex', '-c', f'project_doc_max_bytes={len(GUIDE)}'], None),         # no guide, docs enabled
+    ('codex-cli', ['codex'], GUIDE)])
+def test_launch_flags_must_load_the_guide_exactly_when_staged(agent, args, guide):
+    with pytest.raises(ValueError, match='do not match the staged agent guide'):
+        C.verify_guide_flags(agent, args, guide)
+
+
+def test_launch_flags_that_match_pass():
+    C.verify_guide_flags('claude-cli', ['claude', '--setting-sources', 'project'], GUIDE)
+    C.verify_guide_flags('claude-cli', ['claude', '--restricted', '--setting-sources', ''], None)
+    C.verify_guide_flags('codex-cli', ['codex', '-c', f'project_doc_max_bytes={len(GUIDE)}'], GUIDE)
+    C.verify_guide_flags('codex-cli', ['codex', '-c', 'project_doc_max_bytes=0'], None)
+
+
+def _receipt(shipped, guide_record, flags=()):
+    stage = {'stage': 'services', 'modelVisible': {'provenance': [
+        {'cliVersion': 'x', 'agentGuide': guide_record, 'cliFlags': list(flags)}]}}
+    files = {'compose.yaml': 'sha256:' + 'c' * 64, **({'AGENTS.md': shipped} if shipped else {})}
+    return {'slotFacts': {'quickstart': {'packageSha256': files}}, 'stages': [stage]}
+
+
+def test_a_receipt_without_the_shipped_guide_is_never_admissible():
+    import inspect
+    import ai_arc_runner as R
+    import ai_arc_campaign as K
+    shipped = 'sha256:' + 'a' * 64
+    assert R.agent_guide_gaps(_receipt(shipped, {'sha256': shipped, 'loaded': True})) == []
+    assert R.agent_guide_gaps(_receipt(shipped, None)) == ['services']                       # runs 4-6 shape
+    assert R.agent_guide_gaps(_receipt(shipped, {'sha256': 'sha256:' + 'b' * 64, 'loaded': True})) == ['services']
+    assert R.agent_guide_gaps(_receipt(shipped, {'sha256': shipped, 'loaded': True}, ['--restricted'])) == ['services']
+    assert R.agent_guide_gaps(_receipt(None, None)) == []                                   # no guide shipped
+    assert 'agent_guide_gaps(receipt)' in inspect.getsource(R.verify_run)                  # admission refuses it
+    assert 'arc_runner.agent_guide_gaps(receipt)' in inspect.getsource(K)                  # the campaign stops
+
+
+def test_staging_a_package_with_agents_md_makes_the_guide_required():
+    import inspect
+    import ai_arc_local as L
+    source = inspect.getsource(L)
+    assert "require_agent_guide('sha256:' + hashlib.sha256(package[AGENT_GUIDE]).hexdigest()" in source

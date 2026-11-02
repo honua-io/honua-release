@@ -209,8 +209,11 @@ class VmSlot:
         self.packaged = True
         # Each arm's CLI loads the shipped AGENTS.md as project instructions (release session, under founder D1);
         # without one in the package, nothing is staged and loading stays disabled.
-        from agent_cli_sessions import set_agent_guide
+        from agent_cli_sessions import require_agent_guide, set_agent_guide
         set_agent_guide(package.get(AGENT_GUIDE))
+        # A package that ships AGENTS.md makes the guide required: no session of this trial may start without it.
+        require_agent_guide('sha256:' + hashlib.sha256(package[AGENT_GUIDE]).hexdigest()
+                            if AGENT_GUIDE in package else None)
         # The package documents the agent may read through the shell (cat AGENTS.md / README.md): their staged bytes.
         self.package_documents = tuple('sha256:' + hashlib.sha256(raw).hexdigest() for name, raw in sorted(package.items())
                                        if name in (AGENT_GUIDE, 'README.md'))
