@@ -75,12 +75,16 @@ AI_GATES: tuple[str, ...] = (
 )
 # Operator triage 2026-10-22 (release#376): these gates are deferred to GA. They are reported, never
 # required, for rc.N. capacity-soak needs a producer bundle the nightly cannot yet mint; rollback-
-# certification needs a signed lock (gate-upgrade's rollback leg covers rc); gate-journey needs cloud-cell
-# receipts plus the data-driven roster.
+# certification needs a signed lock; gate-journey needs cloud-cell receipts plus the data-driven roster.
+# Founder decision 2026-11-02 (docs/2026.1-release-decision-overrides.json
+# `upgrade-gate-ga-deferred-2026-11-02`): gate-upgrade is not required for rc.N. 2026.1-rc.1 was never
+# announced, so no customer upgrades from it. gate-upgrade (and with it the rc upgrade/rollback leg) stays a
+# GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
     "gate-journey.yml",
+    "gate-upgrade.yml",
 )
 # Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
 # `wedge-critical-retier-2026-10-25`, honua-release#376 comment 6407009748): "The AI gates (full agent
