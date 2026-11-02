@@ -1318,12 +1318,15 @@ components:
     # publisher attestations present, honua-iac leaves the sdk-attestation-exception-2026-10-27 set.
     # RC.2: v0.6.0 adds topology-scoped deploy identities (#349) and Docker evaluation hosts (#352).
     # The topology input is required; its feature flags are optional, so the pre-1.0 policy calls for a minor bump.
-    version: "0.6.1"                   # annotated v0.6.1; Git-source distribution
-    sha: "fd00eadfe53b611cfdc3d10afd160e6010671ca6"   # v0.6.1^{}
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/fd00eadfe53b611cfdc3d10afd160e6010671ca6.tar.gz"
-    artifactSourceRevision: "fd00eadfe53b611cfdc3d10afd160e6010671ca6"   # the tarball's pax comment (git get-tar-commit-id)
-    artifactSha256: "sha256:f09493329774a1e6fe639a18a02930ed4bdc8d8231aec73c0b83c73c725cba4e"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
-    # Version maps: release/component-versions.json at v0.6.1 (fd00eadf).
+    # 2026-11-02 RELEASE v0.6.1 -> v0.6.2 at trunk 2ea185dc (honua-iac#372 merge commit): the AWS example
+    # pins the final rc.2 Console image (c63b37fd). Annotated tag object a1ee2813; commit archive attested
+    # (2 attestations, attest-source-archive.yml push run at 2ea185dc).
+    version: "0.6.2"                   # annotated v0.6.2; Git-source distribution
+    sha: "2ea185dc90e55d3b65118f6be475b647d4094e7a"   # v0.6.2^{}
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/2ea185dc90e55d3b65118f6be475b647d4094e7a.tar.gz"
+    artifactSourceRevision: "2ea185dc90e55d3b65118f6be475b647d4094e7a"   # the tarball's pax comment (git get-tar-commit-id)
+    artifactSha256: "sha256:b2b9fc4dec5fdc3d3bb2d5861bb99d05918baddba1caf8c598d67e94fdb6936e"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
+    # Version maps: release/component-versions.json at v0.6.2 (2ea185dc; unchanged from v0.6.1).
     contractVersions:
       operator-contract: "honua.operator-contract/v2"
       runtime-binding: "honua.runtime-binding/v1"
