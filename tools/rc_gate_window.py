@@ -603,7 +603,7 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             actual_counts[status] += 1
             for row in rows:
                 actual_stages[row["stage"]] += row["outcome"] == "pass"
-        if len(set(ids)) != scheduled or len(set(digests)) != scheduled or flag_total != len(adjudications):
+        if len(set(ids)) != scheduled or len(set(digests)) != scheduled:
             return False
         if any(d[k] != actual_counts[k] for k in counts) or any(stage_counts[k]["pass"] != actual_stages[k] for k in stages):
             return False
@@ -633,9 +633,17 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                                                       or row.get("falseSuccessUnresolved") not in (False, None))
                            for row in originals[0].get("stages") or [])):
                 return False
+            # The aggregate lists every observed flag's verdict, voided runs included (falseSuccessFlags): a voided
+            # original's flags are reconciled and validated like a counted run's (Sol 9de0449e).
+            if not all(flags_cleared(void["runId"], row.get("falseSuccessFlags", []), originals[0])
+                       for row in originals[0].get("stages") or [] if isinstance(row, dict)):
+                return False
+            flag_total += len(originals[0].get("falseSuccessFlags") or [])
             void_ids.append(void["runId"])
             replacements.append(void["replacementRunId"])
         if len(set(void_ids)) != len(void_ids) or len(set(replacements)) != len(replacements):
+            return False
+        if flag_total != len(adjudications):
             return False
     return True
 

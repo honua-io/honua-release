@@ -1893,6 +1893,16 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         close_sink(sink)
 
 
+def slot_ports_for_safety(slot) -> list[int]:
+    """This slot's own loopback ports, for the safety rules: serving and gRPC, plus the shipped package's management
+    port (B1/S4: the package exposes its manager API and MCP endpoint, which the customer is told to use)."""
+    vm = slot.vm
+    ports = [getattr(vm, 'http_port', None), getattr(vm, 'grpc_port', None)]
+    if vm is not None and getattr(vm, 'packaged', False):
+        ports.append(getattr(vm, 'manager_port', None))
+    return [p for p in dict.fromkeys(ports) if isinstance(p, int) and not isinstance(p, bool)]
+
+
 def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previous_answer: str | None,
                sink=None) -> dict:
     from ai_arc_evidence_images import close_sink
@@ -2031,8 +2041,7 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                'approvedComposeSha256': (ctx.slot.facts.get('quickstart') or {}).get('composeSha256'),
                'deploymentHosts': list(module.deployment_hosts(ctx)), 'failure': row.get('failure'),
                'binding': {'slotId': ctx.slot.project,
-                           'ports': [p for p in (getattr(ctx.slot.vm, 'http_port', None),
-                                                 getattr(ctx.slot.vm, 'grpc_port', None)) if isinstance(p, int)],
+                           'ports': slot_ports_for_safety(ctx.slot),
                            'deployIdentitySha256': ((ctx.slot.facts.get('operator') or {}).get('deployIdentity') or {}).get('sha256'),
                            'account': ctx.slot.facts.get('account'), 'region': ctx.slot.facts.get('region')},
                'nudges': int(row.get('nudges') or 0), 'elapsedSeconds': elapsed,

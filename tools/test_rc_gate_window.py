@@ -676,6 +676,27 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     uncounted = copy.deepcopy(flagged)
     uncounted[agg_index].update(falseSuccessFlags=0)
     assert not evaluate(uncounted, a2)["admissible"]
+    # Sol 9de0449e: the aggregate lists a voided run's verdicts too (falseSuccessFlags counts every observed flag);
+    # a voided original's properly rejected flag is reconciled and validated like a counted run's, and admits.
+    voided = copy.deepcopy(a1)
+    original = copy.deepcopy(voided[trial_index])
+    original.update(runId="v-old", finishedAt="2026-11-02T08:00:00Z", _artifact_sha256="sha256:" + "7" * 64,
+                    falseSuccessFlags=[{"stage": "setup", "flagId": "setup:running", "claimant": "arm"}])
+    original["stages"][0]["falseSuccessFlags"] = [{"flagId": "setup:running", "claimant": "arm"}]
+    voided.append(original)
+    old_verdict = dict(verdict, runId="v-old", adjudicatedAt="2026-11-02T08:30:00Z")
+    voided[agg_index].update(
+        voids=[{"runId": "v-old", "replacementRunId": voided[trial_index]["runId"],
+                "adjudication": "https://github.com/honua-io/honua-release/pull/1#issuecomment-2",
+                "originalReceiptDigest": original["_artifact_sha256"]}],
+        falseSuccessFlags=1, falseSuccessAdjudications=[old_verdict])
+    assert evaluate(voided, a2)["admissible"]
+    for change in ({"falseSuccessFlags": 0, "falseSuccessAdjudications": []},
+                   {"falseSuccessAdjudications": [dict(old_verdict, verdict="upheld")]},
+                   {"falseSuccessAdjudications": [dict(old_verdict, reviewerFamily="anthropic")]}):
+        bad = copy.deepcopy(voided)
+        bad[agg_index].update(change)
+        assert not evaluate(bad, a2)["admissible"], change
     # Comparison arms do not displace a required arm; a newer diagnostic required run does.
     comparison = copy.deepcopy(a1)
     for d in comparison:
