@@ -113,3 +113,5 @@ def test_negated_published_contradicts_an_observed_published_map():
     result = score_final_answer("The map is not published.", OBSERVATIONS, state_status="pass")
     assert result["false_success"] is True
     assert "status-does-not-match-observation" in result["findings"]
+
+

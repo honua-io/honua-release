@@ -77,15 +77,16 @@ class Record:
 
     @property
     def request_arguments(self) -> dict | None:
-        """MCP records only: the {"tool", "arguments"} (or {"uri"}) that was sent. HTTP records return None;
-        their request body is kept as raw bytes in ``request_arguments_raw`` and compared byte for byte."""
+        """MCP records: the {"tool", "arguments"} (or {"uri"}) that was sent. SQL records: the structured read
+        request ({"op", "schema", "table", "columns"}). HTTP records return None; their request body is kept as
+        raw bytes in ``request_arguments_raw`` and compared byte for byte."""
         if self.request_arguments_raw is None:
             return None
         try:
             value = json.loads(self.request_arguments_raw)
         except ValueError:
             return None
-        return value if isinstance(value, dict) and self.kind == 'mcp' else None
+        return value if isinstance(value, dict) and self.kind in ('mcp', 'sql') else None
 
     def intact(self) -> bool:
         return 'sha256:' + hashlib.sha256(self.raw).hexdigest() == self.sha256
@@ -268,7 +269,9 @@ class EvidenceVault:
             except ValueError:
                 continue
             action = json.loads(raw)
-            out.append({'tool': action.get('tool'), 'kind': action.get('kind'), 'status': status, 'json': message})
+            out.append({'tool': action.get('tool'), 'kind': action.get('kind'), 'status': status, 'json': message,
+                        'arguments': action.get('arguments'), '_digest': _digest, '_responseSha256': raw_sha,
+                        '_responseHttpStatus': _http})
         return out
 
     def model_actions(self):
@@ -287,7 +290,7 @@ class ControllerRecorder:
     """
 
     def __init__(self, *, base_url, workdir, candidate_digest, attempt_id, principals,
-                 http_factory=None, mcp_factory=None, vault=None, admitted_remote_origin=None):
+                 http_factory=None, mcp_factory=None, vault=None, admitted_remote_origin=None, sql_executor=None):
         self.base_url = base_url.rstrip('/')
         self._admitted_remote_origin = admitted_remote_origin
         if admitted_remote_origin is not None:
@@ -308,6 +311,7 @@ class ControllerRecorder:
         self._pending = {}
         self._http_factory = http_factory
         self._mcp_factory = mcp_factory
+        self._sql = sql_executor   # runtime-provided read-only SQL transport: (query) -> raw JSON bytes
         vault = vault if vault is not None else EvidenceVault(attempt_id)
         # Only these two capabilities of the runtime-owned vault are kept: deliver a new record, and
         # read the sealed action inventory. The recorder can neither seal actions nor rewrite records.
@@ -390,7 +394,11 @@ class ControllerRecorder:
         if env is not None:
             token = os.environ.get(env)
             require(isinstance(token, str) and token, 'recorder credential is not available')
-            headers['X-API-Key'] = token
+            if principal == 'agent-user':
+                require(token.startswith('Bearer '), 'agent user needs a bearer credential')
+                headers['Authorization'] = token
+            else:
+                headers['X-API-Key'] = token
         content_type = None
         if self._http_factory is not None:
             status, raw = self._http_factory(self, principal, method, path, body, headers)
@@ -442,6 +450,32 @@ class ControllerRecorder:
                   'Content-Type: application/geo+json\r\n\r\n'.encode(), raw, f'\r\n--{boundary}--\r\n'.encode()]
         return self._request(step, principal, 'POST', '/api/v1/admin/import/upload', b''.join(parts),
                              'multipart/form-data; boundary=' + boundary)
+
+    # -- SQL ---------------------------------------------------------------
+    # Controller SQL is NOT free-form. Scenarios name a base table (or a schema inventory); the runtime
+    # verifies the catalog (base table, no row-level security, columns of reviewed built-in or PostGIS types)
+    # and generates the only SQL that runs. No expression, filter, operator, cast or function of the
+    # scenario's choosing ever reaches the database. Records are kind 'sql' with structured arguments.
+    def table_rows(self, step, schema, table, columns):
+        """Every row of one reviewed base table (the listed columns; geometry as GeoJSON). Unordered:
+        sort in a projection. Returns the parsed rows."""
+        return self._structured(step, {'op': 'table_rows', 'schema': schema, 'table': table, 'columns': list(columns)})
+
+    def table_inventory(self, step, schema):
+        """Every base table of one reviewed schema (pg_catalog only, no user code): [{table_schema, table_name}]."""
+        return self._structured(step, {'op': 'inventory', 'schema': schema})
+
+    def _structured(self, step, request):
+        from agent_e2e_local_runner import structured_sql_request
+        self._claim(step)
+        require(self._sql is not None, 'this stack has no controller SQL transport')
+        request = structured_sql_request(request)
+        status, raw, sql = self._sql(request)
+        record = self._store(Record(step, self.phase, 'sql', 'controller', 'case-database-reader', 'SELECT', sql,
+                                    status, raw, 'sha256:' + hashlib.sha256(raw).hexdigest(),
+                                    request_arguments_raw=action_bytes(request), content_type='application/json'))
+        require(status == 200, 'controller SQL read failed')
+        return record.json
 
     def confirmation_read(self, step, path):
         """Runner only (the fault injector): a controller GET made DURING the session to verify that a
@@ -507,6 +541,36 @@ class ControllerRecorder:
         return self._mcp(step, principal, lambda c: c.read_resource(uri), arguments={'uri': uri}, label='resources/read')
 
     # -- replay of the harness action log ----------------------------------
+    def store_derived(self, step, payload):
+        """Retain one controller measurement computed from recorded bytes.
+
+        Scenarios cannot author evidence through this. The studio observation module is the
+        only caller, and it may store only outside the model session.
+        """
+        import inspect
+        caller = Path(inspect.stack()[1].filename).name
+        require(caller == 'agent_browser_studio.py', 'derived records are studio observations only')
+        require(isinstance(payload, dict) and payload, 'derived record must be an object')
+        raw = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
+                         allow_nan=False).encode('utf-8')
+        self._claim(step)
+        digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        return self._store(Record(step, self.phase, 'http', 'controller', None, 'GET', '/derived/' + step,
+                                  200, raw, digest))
+
+    def store_studio_provider_config(self, payload):
+        """Retain the runner's secret-free server-container provider inspection."""
+        import inspect
+        caller = Path(inspect.stack()[1].filename).name
+        require(caller == 'agent_studio_provider_evidence.py', 'provider config is runner-owned')
+        require(isinstance(payload, dict) and set(payload) == {'region', 'containerId', 'imageId'},
+                'invalid provider config evidence')
+        self._claim('studio-ai-provider-config')
+        raw = action_bytes(payload)
+        digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        return self._store(Record('studio-ai-provider-config', self.phase, 'host-config', 'controller', None,
+                                  'READ', '/controller/studio-ai-provider', 200, raw, digest))
+
     def _verified_entries(self):
         return [entry for entry, _raw in self._sealed_entries()]
 

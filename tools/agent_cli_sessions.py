@@ -6,10 +6,12 @@ actions, resource hints, fault evidence, or oracle observations.
 """
 from __future__ import annotations
 
+import base64
 import copy
 from contextlib import ExitStack
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -20,6 +22,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Protocol
 
@@ -36,13 +39,62 @@ QUICKSTART_CONTRACT = ('Complete the customer request using the provided MCP too
 SERVER_NAMES = frozenset(('honua', 'honua_devops', 'studio', 'quickstart_shell'))
 # Version-specific, audited built-ins. These are bookkeeping, not MCP actions.
 INTERNAL_TOOLS = {'claude-cli': {'2.1.316 (Claude Code)': frozenset()},
-                  'codex-cli': {'codex-cli 0.165.0': frozenset(('update_plan',))}}
+                  'codex-cli': {'codex-cli 0.165.0': frozenset(('update_plan',)),
+                                # 0.166 lists the configured MCP servers' resources with a built-in tool
+                                # (reported as server "codex"); the listing goes through the recording
+                                # proxy as resources/list, so it is bookkeeping, not an unrecorded action.
+                                'codex-cli 0.166.0': frozenset(('update_plan', 'list_mcp_resources',
+                                                                'list_mcp_resource_templates'))}}
 _CREDENTIAL_FIELD = re.compile(
     r'^(?:aws_?access_?key_?id|aws_?secret_?access_?key|access_?key_?id|secret_?access_?key|'
     r'session_?token|access_?token|refresh_?token|password|passwd|pwd|api_?key|private_?key)$', re.I)
 _CREDENTIAL_TEXT = re.compile(
     r'\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bpostgres(?:ql)?://[^\s:/]+:[^\s@]+@|'
-    r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*[^\s,}]+', re.I)
+    r'\b(?:aws_secret_access_key|aws_session_token|db_password|database_password)\s*[:=]\s*'
+    r'(?!\[redacted\](?=$|[\s,}"\']))[^\s,}]+', re.I)
+
+
+# Text that must never be written to disk in plaintext (a held-out run's sealed goals): cli-inputs.json records
+# only the prompt digest, and the session's own logs are scrubbed when it ends.
+_WITHHELD: list[str] = []
+WITHHELD_MARK = b'[held-out text withheld]'
+
+
+def withhold_texts(texts) -> None:
+    """Register the texts of this process's held-out case (or clear them with an empty list)."""
+    _WITHHELD[:] = [t for t in (texts or []) if isinstance(t, str) and len(t) >= 12]
+
+
+def withheld_forms() -> list[bytes]:
+    out = []
+    for text in _WITHHELD:
+        out += [text.encode(), json.dumps(text)[1:-1].encode(), json.dumps(text, ensure_ascii=False)[1:-1].encode()]
+    return [f for f in dict.fromkeys(out) if f]
+
+
+def scrub_file(path: Path) -> None:
+    """Replace every withheld text in ``path`` (in place); a missing file is left alone."""
+    forms = withheld_forms()
+    if not forms or not Path(path).is_file():
+        return
+    raw = Path(path).read_bytes()
+    clean = raw
+    for form in forms:
+        clean = clean.replace(form, WITHHELD_MARK)
+    if clean != raw:
+        Path(path).write_bytes(clean)
+
+
+def arc_scratch_root() -> Path:
+    """Real-disk root for the arc's private controller state (trial private dirs, CLI scratch homes, the
+    operator launcher). /tmp is wiped on reboot and the lane rules forbid it: HONUA_ARC_SCRATCH, default
+    ~/.cache/honua-arc, mode 0700; a root under /tmp or /var/tmp is refused."""
+    root = Path(os.environ.get('HONUA_ARC_SCRATCH') or Path.home() / '.cache' / 'honua-arc').expanduser().resolve()
+    if any(str(root) == t or str(root).startswith(t + '/') for t in ('/tmp', '/var/tmp', '/dev/shm')):
+        raise ValueError('the arc scratch root must be on real disk, not ' + str(root))
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    return root
 
 
 def digest(raw):
@@ -231,7 +283,11 @@ class RecordingProxy:
             valid = name in self.names and isinstance(arguments, dict)
         elif method == 'resources/read':
             action = {'kind': 'resource_read', 'uri': params.get('uri')}
-            valid = self.server_name in (None, 'honua') and action['uri'] == 'honua://catalog/processes'
+            uri = action['uri'] if isinstance(action['uri'], str) else ''
+            # Proposal resources are readable only on a surface that offers proposal tools (arc ops).
+            proposals = any(n.startswith('honua_propose_') for n in self.names) and bool(
+                re.fullmatch(r'honua://proposals/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}', uri))
+            valid = self.server_name in (None, 'honua') and (uri == 'honua://catalog/processes' or proposals)
         else:
             # Optional MCP discovery extensions are not model actions. Reject
             # them at the protocol boundary without killing an otherwise valid session.
@@ -245,6 +301,8 @@ class RecordingProxy:
                 self.failure_category = 'model'
                 raise ValueError(self.failure)
             raw = action_bytes(action)
+            for form in withheld_forms():
+                raw = raw.replace(form, WITHHELD_MARK)   # a held-out goal echoed into an argument never reaches disk
             path = self.log_dir / f'action-{len(self.actions) + 1:04d}.json'
             write_private(path, raw)
             row = {'session': self.session, 'sequence': len(self.actions) + 1,
@@ -261,7 +319,7 @@ class RecordingProxy:
                 raise
             recording = result.pop('_recording', None)
             if recording is not None: row['runnerMetadata'] = recording
-            if result.get('refusal') == 'unsafe-iam-request': row['refusal'] = 'unsafe-iam-request'
+            if result.get('refusal') in ('unsafe-iam-request', 'not-admitted'): row['refusal'] = result['refusal']
             try:
                 screen_model_input(result)
             except ValueError:
@@ -319,6 +377,117 @@ def cli_environment(home, agent, *, auth_root=None):
     return env
 
 
+# A subscription login is copied into the session as a snapshot. It cannot be refreshed once any other process
+# on the controller refreshes the shared login, because that rotates the refresh token. So a session whose copied
+# access token would expire inside its own wall clock ends mid-stage with "OAuth session expired and could not be
+# refreshed" (rehearsal 9 A1 ops, 2026-11-02). A session that starts with less validity than it may need fails
+# closed as infrastructure before any CLI process starts, so the model never spends a turn. Claude's snapshot
+# carries ``claudeAiOauth.expiresAt`` (ms); Codex's ChatGPT login carries ``tokens.access_token``, a JWT whose
+# ``exp`` claim is read unverified, plus any explicit expiry field. CLAUDE_CODE_OAUTH_TOKEN (a long-lived
+# `claude setup-token` token) is not a rotating snapshot. Nothing here returns, logs or keeps credential material:
+# only durations and booleans leave these functions.
+AUTH_MARGIN_SECONDS = 300
+_EXPIRY_FIELDS = ('expires_at', 'expiresAt', 'expiry', 'expires')
+
+
+def _epoch_seconds(value):
+    """A finite epoch time in seconds from seconds, milliseconds or an ISO-8601 string; None otherwise."""
+    if isinstance(value, str):
+        try:
+            stamp = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+        except ValueError:
+            return None
+        return (stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).timestamp()
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return None
+    return value / 1000.0 if value > 1e11 else float(value)
+
+
+def _jwt_expiry(token):
+    """The unverified ``exp`` claim of a JWT, in epoch seconds; None for anything malformed. Only the payload
+    segment is base64url-decoded; the signature is never checked and no part of the token is kept."""
+    if not isinstance(token, str) or token.count('.') != 2:
+        return None
+    payload = token.split('.')[1]
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+    except (ValueError, TypeError):          # binascii.Error and UnicodeDecodeError are ValueErrors
+        return None
+    exp = claims.get('exp') if isinstance(claims, dict) else None
+    if isinstance(exp, bool) or not isinstance(exp, (int, float)) or not math.isfinite(exp):
+        return None
+    return float(exp)
+
+
+def _copied_login_expiry(env, agent):
+    """(kind, epoch seconds or None) for the session's copied subscription login. kind is 'long-lived' (not a
+    snapshot: not judged), 'none' (no copied login) or 'snapshot'."""
+    if agent == 'claude-cli':
+        if env.get('CLAUDE_CODE_OAUTH_TOKEN'):
+            return 'long-lived', None
+        path = Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json' if env.get('CLAUDE_CONFIG_DIR') else None
+    else:
+        path = Path(env['CODEX_HOME']) / 'auth.json' if env.get('CODEX_HOME') else None
+    if path is None or not path.is_file():
+        return 'none', None
+    try:
+        auth = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return 'snapshot', None
+    if not isinstance(auth, dict):
+        return 'snapshot', None
+    if agent == 'claude-cli':
+        oauth = auth.get('claudeAiOauth')
+        value = oauth.get('expiresAt') if isinstance(oauth, dict) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return 'snapshot', None
+        return 'snapshot', value / 1000.0
+    tokens = auth.get('tokens') if isinstance(auth.get('tokens'), dict) else {}
+    found = [_jwt_expiry(tokens.get('access_token'))]
+    found += [_epoch_seconds(scope.get(name)) for scope in (tokens, auth) for name in _EXPIRY_FIELDS]
+    found = [value for value in found if value is not None]
+    return 'snapshot', min(found) if found else None     # the earliest known expiry binds
+
+
+def auth_window_check(env, agent, needed_seconds, now=None):
+    """(reason or None, preflight record). The reason is set when the copied subscription login expires inside
+    ``needed_seconds`` plus a margin. An absent or unreadable expiry is allowed and recorded as ``expiryUnknown``
+    (the CLI reports its own auth failure). The reason and the record carry durations and booleans only."""
+    kind, expires = _copied_login_expiry(env, agent)
+    record = {'longLivedToken': kind == 'long-lived', 'expiryUnknown': kind != 'long-lived' and expires is None}
+    if expires is None:
+        return None, record
+    remaining = expires - (time.time() if now is None else now)
+    needed = int(needed_seconds) + AUTH_MARGIN_SECONDS
+    if remaining >= needed:
+        return None, record
+    provider, remedy = (('claude', 'refresh the controller login or set CLAUDE_CODE_OAUTH_TOKEN') if agent == 'claude-cli'
+                        else ('codex', 'refresh the controller login (codex login)'))
+    return (f'{provider} subscription login expires in {max(0, int(remaining))} s, inside this session\'s '
+            f'{needed} s window (wall clock plus margin); a copied login cannot refresh once the controller '
+            f'rotates it: {remedy}'), record
+
+
+def auth_window_shortfall(env, agent, needed_seconds, now=None):
+    """None when the session's copied subscription auth outlives ``needed_seconds`` plus a margin (or can't be
+    judged); otherwise the reason. The reason names times only, never a credential value."""
+    return auth_window_check(env, agent, needed_seconds, now)[0]
+
+
+def arm_budgets(agent: str, max_actions: int, max_turns: int, timeout: int) -> dict:
+    """The per-arm budget record in every receipt: what binds (identical for both arms) and what does not."""
+    return {'binding': {'maxToolCalls': max_actions, 'wallClockSeconds': timeout},
+            'cliTurnCeiling': turn_ceiling(max_turns) if agent == 'claude-cli' else None,
+            'turnCounting': 'harness counts tool calls and wall clock for both arms; CLI turn counters are not budgets',
+            'systemPrompt': 'append' if agent == 'claude-cli' else 'developer_instructions (appended to bundled)'}
+
+
+def turn_ceiling(max_turns: int) -> int:
+    """Claude's --max-turns: a safety ceiling, not a budget. Codex has no equivalent flag and a Codex 'turn' is the
+    whole exec, so the arms' binding budgets are the harness's own: tool calls (proxy-enforced) and wall clock."""
+    return 4 * max_turns + 20
+
+
 def _commands(agent, model, binary, home, servers, max_turns, env, contract, tool_timeout, debug_path, version):
     if agent == 'claude-cli':
         config = {'mcpServers': {name: {'type': 'http', 'url': item['url']} for name, item in servers.items()}}
@@ -330,7 +499,10 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
                 '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
                 '--strict-mcp-config', '--mcp-config', str(path), '--setting-sources', '',
                 '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
-                '--max-turns', str(max_turns), '--system-prompt', contract]
+                # Arm parity (ARC v2 S7/S13): like Codex's developer_instructions, the contract is appended to the
+                # CLI's own default instructions, never a replacement; --max-turns is a ceiling the shared budgets
+                # (tool calls, wall clock) reach first, so neither CLI's own turn counter binds an arm.
+                '--max-turns', str(turn_ceiling(max_turns)), '--append-system-prompt', contract]
         return args, {'mcp': digest(path.read_bytes()), 'system': digest(contract.encode())}
     # The model catalog controls builtin apply_patch independently of shell_tool.
     # Keep bundled model instructions/defaults; remove only builtin tool capabilities.
@@ -354,6 +526,9 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
     for name, item in servers.items():
         overrides[f'mcp_servers.{name}.url'] = item['url']
         overrides[f'mcp_servers.{name}.enabled_tools'] = sorted(item['names'])
+        # Codex 0.166 asks for approval per MCP call; under approval_policy=never that refuses every call.
+        # The harness MCP surface is the guarded boundary, so its enabled tools are pre-approved.
+        overrides[f'mcp_servers.{name}.default_tools_approval_mode'] = 'approve'
         overrides[f'mcp_servers.{name}.startup_timeout_sec'] = tool_timeout
         overrides[f'mcp_servers.{name}.tool_timeout_sec'] = tool_timeout
     args = [binary, 'exec', '--model', model, '--sandbox', 'read-only', '--skip-git-repo-check',
@@ -393,7 +568,9 @@ def parse_transcript(agent, raw, names, version=None):
                 item = event.get('item', {})
                 kind = item.get('type')
                 if kind == 'mcp_tool_call':
-                    if item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
+                    internal = (item.get('server') == 'codex' and item.get('tool', '').startswith('list_mcp_resource')
+                                and item.get('tool') in INTERNAL_TOOLS.get(agent, {}).get(version, ()))
+                    if not internal and item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
                 elif kind == 'todo_list':
                     if 'update_plan' not in INTERNAL_TOOLS.get(agent, {}).get(version, ()): forbidden = True
                 elif kind not in ('agent_message', 'reasoning', 'error', None):
@@ -464,10 +641,12 @@ def internal_events(agent, version, stdout, stderr):
 
 
 class CliModelSession:
-    def __init__(self, agent, model, *, binary=None, auth_root=None):
+    def __init__(self, agent, model, *, binary=None, auth_root=None, expected_version=None):
         if agent not in MODELS or model not in MODELS[agent]:
             raise ValueError('unsupported CLI/model pairing')
         self.agent, self.model = agent, model
+        # When set (the arc pins it per arm), a different installed CLI refuses before any dispatch.
+        self.expected_version = expected_version
         self.binary = str(Path(binary or shutil.which('claude' if agent == 'claude-cli' else 'codex') or '').resolve())
         if not Path(self.binary).is_file(): raise ValueError('CLI executable missing')
         self.auth_root = auth_root
@@ -513,18 +692,29 @@ class CliModelSession:
                'messageIds': [f'S{session}-customer'], 'finalAnswer': None,
                'toolViewSha256': digest(encoded(primary_view)), 'systemContractSha256': digest(contract.encode())}
         self._progress = out
-        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir='/tmp') as scratch:
+        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir=arc_scratch_root()) as scratch:
             home = Path(scratch)
             # No repository or ancestor instructions may be reachable through cwd discovery.
             if any((p / name).exists() for p in (home, *home.parents)
                    for name in ('AGENTS.md', 'CLAUDE.md', '.git')):
                 raise ValueError('scratch directory has reachable repository instructions')
             env = cli_environment(home, self.agent, auth_root=self.auth_root)
+            shortfall, out['authPreflight'] = auth_window_check(env, self.agent, timeout)
+            if shortfall:
+                raise CliFailure(shortfall, out, 'infrastructure')
             tool_timeout = max(2700, int(timeout))
-            if self.agent == 'claude-cli': env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
+            if self.agent == 'claude-cli':
+                env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
+                # Claude Code also aborts a call that sends no progress for 300 s; a held proposal (the executor's
+                # ~10 minute observation window) needs the same bound as the tool timeout (rehearsal A1-r132).
+                env['CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT'] = str(tool_timeout * 1000)
             else: env['RUST_LOG'] = 'codex=debug'
             version = subprocess.run([self.binary, '--version'], env=env, cwd=home,
                                      capture_output=True, check=True, timeout=20).stdout.decode().strip()
+            out['cliVersion'] = version
+            if self.expected_version is not None and version != self.expected_version:
+                raise CliFailure(f'CLI version {version[:60]!r} is not the pinned {self.expected_version!r}', out,
+                                 'infrastructure')
             if 'update_plan' in INTERNAL_TOOLS.get(self.agent, {}).get(version, ()):
                 contract += ' You may use update_plan solely for internal bookkeeping; it is not a Honua action.'
                 out['systemContractSha256'] = digest(contract.encode())
@@ -542,12 +732,20 @@ class CliModelSession:
                             'metering': 'subscription', 'promptSha256': digest(prompt.encode()),
                             'servedToolListSha256': out['toolViewSha256'], 'cliFlagsSha256': digest(encoded(args)),
                             'configSha256': inputs, 'maxTurns': max_turns, 'timeoutSeconds': timeout,
+                            'budgets': arm_budgets(self.agent, max_actions, max_turns, timeout),
                             'mcpToolTimeoutSeconds': tool_timeout,
                             'inputHashScope': 'runner-controlled bytes; provider and CLI prepends are not claimed'}
                 metadata['servedToolListsSha256'] = {name: digest(encoded(view)) for name, view in tool_views.items()}
                 metadata['stage'] = stage
+                # #1219's preflight (durations and booleans only: longLivedToken, expiryUnknown) is retained with
+                # the session, so a receipt shows which kind of login the arm ran on.
+                metadata['authPreflight'] = out.get('authPreflight')
                 out['provenance'] = [metadata]
-                write_private(log_dir / 'cli-inputs.json', encoded({'flags': args, 'prompt': prompt, 'tools': primary_view}))
+                held = any(text in prompt for text in _WITHHELD)
+                write_private(log_dir / 'cli-inputs.json', encoded({
+                    'flags': args, 'tools': primary_view,
+                    **({'prompt': {'withheld': 'held-out goal', 'promptSha256': digest(prompt.encode())}} if held
+                       else {'prompt': prompt})}))
                 # Files avoid pipe deadlocks and bound retained output. The process group includes children.
                 stdout_path, stderr_path = log_dir / 'cli-stdout.jsonl', log_dir / 'cli-stderr.log'
                 with os.fdopen(os.open(stdout_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600), 'w+b') as stdout, \
@@ -573,6 +771,8 @@ class CliModelSession:
                     stderr.seek(0)
                     stderr_raw = stderr.read(16_000_001)
                     metadata['exitCode'] = process.returncode
+                    for path in (stdout_path, stderr_path, debug_path, *(p.event_path for p in proxies.values())):
+                        scrub_file(path)        # a held-out goal the CLI echoed never stays on disk
                     metadata['elapsedSeconds'] = round(time.monotonic() - started, 3)
                     metadata['diagnosticPaths'] = {'stdout': str(stdout_path), 'stderr': str(stderr_path),
                         'proxy': {name: str(p.event_path) for name, p in proxies.items()}}
@@ -615,7 +815,7 @@ class CliModelSession:
                     event.get('type') in ('item.started', 'item.completed') and
                     isinstance(event.get('item'), dict) and event['item'].get('type') == 'error')
                     for event in (json.loads(line) for line in raw.splitlines()))
-                if (forbidden or turns > max_turns or self.agent == 'codex-cli' and
+                if (forbidden or self.agent == 'codex-cli' and
                         codex_forbidden_diagnostics(stderr_raw, {name: p.names for name, p in proxies.items()}, version)):
                     raise CliFailure('forbidden action or turn bound exceeded', out)
                 if reported_failure:

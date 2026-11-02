@@ -1,0 +1,90 @@
+{
+  "note": "Ops stage executor gates for the AI arc. A target's ops stage runs only when every listed product executor is merged and included in the candidate under test; until then it is stage-unavailable (the run is undetermined). Flip 'merged' only with the merge commit recorded. Each gate lists the ops catalog assertions its executor performs ('covers'); a target's ops stage waits only on unmerged gates covering an assertion its ops scope scores (every gate under the full scope).",
+  "local-docker": {
+    "driver": "#1164 product_ops (server /mcp ops + proposal tools, harness as separate approver)",
+    "executors": [
+      {
+        "id": "compose-proposal-executor",
+        "ref": "https://github.com/honua-io/honua-server/pull/6824",
+        "merged": true,
+        "mergeCommit": "50d4857832c87e6bf08429b8e32a0232ccb65bd2",
+        "kind": "compose release convergence, rollback and service remediation",
+        "covers": [
+          "upgrade.candidate-serving",
+          "rollback.prior-serving",
+          "diagnosis.recovered"
+        ]
+      },
+      {
+        "id": "restore-142",
+        "ref": "https://github.com/honua-io/honua-server/issues/6813",
+        "merged": true,
+        "mergeCommit": "16c0fe23817a437cd92eec3d173b0b89dfaedd8a",
+        "mergedVia": "https://github.com/honua-io/honua-server/pull/6823",
+        "kind": "database restore across migration 142",
+        "covers": [
+          "rollback.prior-serving",
+          "restore.migration-142"
+        ]
+      }
+    ]
+  },
+  "aws-ecs": {
+    "driver": "#1164 ecs_stage",
+    "executors": [
+      {
+        "id": "ecs-convergence",
+        "ref": "https://github.com/honua-io/honua-server/pull/6825",
+        "merged": true,
+        "mergeCommit": "a5e593bdf6cf3d201f7721b67121ef1367d50df7",
+        "kind": "ECS release image convergence",
+        "covers": [
+          "upgrade.candidate-serving"
+        ]
+      },
+      {
+        "id": "convergence-image",
+        "ref": "https://github.com/honua-io/honua-server/issues/6812",
+        "merged": false,
+        "mergeCommit": null,
+        "kind": "upgrade image release",
+        "covers": [
+          "upgrade.candidate-serving"
+        ]
+      },
+      {
+        "id": "restore-142",
+        "ref": "https://github.com/honua-io/honua-server/issues/6813",
+        "merged": true,
+        "mergeCommit": "16c0fe23817a437cd92eec3d173b0b89dfaedd8a",
+        "mergedVia": "https://github.com/honua-io/honua-server/pull/6823",
+        "kind": "database restore across migration 142",
+        "covers": [
+          "rollback.prior-serving",
+          "restore.migration-142"
+        ]
+      },
+      {
+        "id": "restart-config",
+        "ref": "https://github.com/honua-io/honua-server/issues/6814",
+        "merged": true,
+        "mergeCommit": "aa1ecb755c529eec49f3582120444bf5110623ac",
+        "mergedVia": "https://github.com/honua-io/honua-server/pull/6826",
+        "kind": "restart/config remediation",
+        "covers": [
+          "diagnosis.recovered"
+        ]
+      },
+      {
+        "id": "controller-cert-cell",
+        "ref": "https://github.com/honua-io/honua-iac/issues/351",
+        "merged": false,
+        "mergeCommit": null,
+        "kind": "controller restore",
+        "covers": [
+          "restore.migration-142"
+        ]
+      }
+    ]
+  }
+}

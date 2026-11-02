@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "c05215aa20329ceff88be0db7b1a41f56dc153ee",
+      "revision": "3126d1a7e21212b570452f7293255df0d789b5c4",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/c05215aa20329ceff88be0db7b1a41f56dc153ee/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/3126d1a7e21212b570452f7293255df0d789b5c4/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -1629,11 +1629,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "0879649fa7e98a2b78705ef2bd8e828d15922b09",
+      "revision": "f880a4b4acc285db9fbaed4ec16d43a29d26034f",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/0879649fa7e98a2b78705ef2bd8e828d15922b09/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/f880a4b4acc285db9fbaed4ec16d43a29d26034f/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1641,36 +1641,36 @@
       "blocks": [
         {
           "index": 0,
-          "line": 44,
+          "line": 97,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "file",
           "intentSource": "heuristic",
-          "sha256": "3ce610311dd4c05473c8df3be95ef6dd6dcdc53f66d4b519adae8d0725d347cc",
+          "sha256": "dfe2eab025fcdf531d3251c8b4ce1d638297650e110b8292cfe101088ff8fe35",
           "file": "compose.yaml"
         },
         {
           "index": 1,
-          "line": 138,
+          "line": 192,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "3baa59ee1244873d506f25f1f23976221bb69e9f882aff792c8dbf13df076bd7"
+          "sha256": "87fc4667489ec63ae5d462f687f31ce82c835bd696e7a1b57c9614c71329b437"
         },
         {
           "index": 2,
-          "line": 155,
+          "line": 211,
           "language": "powershell",
           "infoString": "powershell",
           "intent": "alternative",
           "intentSource": "heuristic",
-          "sha256": "23cc713a6ff0a0fec864ea209ebf4890a2764a5a30497abb57ceccbd8e0fa90a",
+          "sha256": "b62e34c39af469d839ccfcd8a041506990f06a855f645266acfcb224af177139",
           "reason": "powershell is a Windows variant; this lane runs the Linux/macOS instructions"
         },
         {
           "index": 3,
-          "line": 186,
+          "line": 249,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1679,7 +1679,7 @@
         },
         {
           "index": 4,
-          "line": 207,
+          "line": 270,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1688,7 +1688,7 @@
         },
         {
           "index": 5,
-          "line": 230,
+          "line": 293,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1697,7 +1697,7 @@
         },
         {
           "index": 6,
-          "line": 246,
+          "line": 309,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1706,7 +1706,7 @@
         },
         {
           "index": 7,
-          "line": 255,
+          "line": 318,
           "language": "python",
           "infoString": "python",
           "intent": "file",
@@ -1716,7 +1716,7 @@
         },
         {
           "index": 8,
-          "line": 286,
+          "line": 349,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1725,7 +1725,7 @@
         },
         {
           "index": 9,
-          "line": 315,
+          "line": 417,
           "language": "shell",
           "infoString": "bash",
           "intent": "teardown",
@@ -2027,11 +2027,11 @@
       "id": "honua-server-docs-get-started-registry-clients",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/registry-clients.md",
-      "revision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+      "revision": "daf56db25c208765f5440e484a7c24fbc5ba81ab",
       "revisionRule": {
         "component": "honua-server"
       },
-      "url": "https://github.com/honua-io/honua-server/blob/a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e/docs/get-started/registry-clients.md",
+      "url": "https://github.com/honua-io/honua-server/blob/daf56db25c208765f5440e484a7c24fbc5ba81ab/docs/get-started/registry-clients.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -2052,11 +2052,11 @@
       "id": "honua-server-docs-sdks-javascript-javascript-getting-started",
       "repo": "honua-io/honua-server",
       "path": "docs/sdks/javascript/javascript-getting-started.md",
-      "revision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+      "revision": "daf56db25c208765f5440e484a7c24fbc5ba81ab",
       "revisionRule": {
         "component": "honua-server"
       },
-      "url": "https://github.com/honua-io/honua-server/blob/a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e/docs/sdks/javascript/javascript-getting-started.md",
+      "url": "https://github.com/honua-io/honua-server/blob/daf56db25c208765f5440e484a7c24fbc5ba81ab/docs/sdks/javascript/javascript-getting-started.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2119,11 +2119,11 @@
       "id": "honua-server-docs-sdks-python-python-getting-started",
       "repo": "honua-io/honua-server",
       "path": "docs/sdks/python/python-getting-started.md",
-      "revision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+      "revision": "daf56db25c208765f5440e484a7c24fbc5ba81ab",
       "revisionRule": {
         "component": "honua-server"
       },
-      "url": "https://github.com/honua-io/honua-server/blob/a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e/docs/sdks/python/python-getting-started.md",
+      "url": "https://github.com/honua-io/honua-server/blob/daf56db25c208765f5440e484a7c24fbc5ba81ab/docs/sdks/python/python-getting-started.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2190,11 +2190,11 @@
       "id": "honua-server-docs-sdks-dotnet-dotnet-getting-started",
       "repo": "honua-io/honua-server",
       "path": "docs/sdks/dotnet/dotnet-getting-started.md",
-      "revision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+      "revision": "daf56db25c208765f5440e484a7c24fbc5ba81ab",
       "revisionRule": {
         "component": "honua-server"
       },
-      "url": "https://github.com/honua-io/honua-server/blob/a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e/docs/sdks/dotnet/dotnet-getting-started.md",
+      "url": "https://github.com/honua-io/honua-server/blob/daf56db25c208765f5440e484a7c24fbc5ba81ab/docs/sdks/dotnet/dotnet-getting-started.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -25,7 +26,7 @@ def test_expectations_reject_held_out_variant():
 
 
 def test_seed_is_idempotent_per_case(monkeypatch, tmp_path):
-    import agent_e2e_scenario_backend
+    import agent_e2e_local_scenarios.w2g3_common as common
     calls = []
 
     class Town:
@@ -37,7 +38,7 @@ def test_seed_is_idempotent_per_case(monkeypatch, tmp_path):
     class Recorder:
         def __init__(self): self.steps = []
         def json(self, step, method, path, body=None, **kw): self.steps.append(step)
-    monkeypatch.setattr(agent_e2e_scenario_backend, 'TownSetup', Town)
+    monkeypatch.setattr(common, 'town_setup', lambda recorder, variant: Town(recorder, None))
     recorder = Recorder()
     stack = Stack('http://127.0.0.1:1', 'k', None, 'corpus-abc', 'f', str(tmp_path), 'sha256:' + 'a' * 64,
                   {'recorder': recorder, 'ensureConnection': lambda: 'conn-1'})
@@ -48,7 +49,7 @@ def test_seed_is_idempotent_per_case(monkeypatch, tmp_path):
         P10().seed(stack, 'B')
 
 
-def test_query_selection_uses_only_the_seeded_layer_and_the_last_query():
+def test_query_selection_uses_the_last_query_and_requires_the_seeded_layer():
     seeded = Seeded({'service': 'svc', 'layerId': 3})
 
     def action(n, tool, args):
@@ -59,6 +60,7 @@ def test_query_selection_uses_only_the_seeded_layer_and_the_last_query():
                action(4, 'honua_get_layer', {'serviceId': 'svc', 'layerId': 3})]
     assert P10.selected_query(actions, seeded).sequence == 3
     assert P10.selected_query(actions[1:2], seeded) is None
+    assert P10.selected_query([replace(actions[0], status='fail')], seeded) is None
 
 
 def test_observations_are_projection_specs_not_values(tmp_path):

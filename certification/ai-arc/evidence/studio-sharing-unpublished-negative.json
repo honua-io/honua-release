@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "developmentOnly": true,
+  "purpose": "Studio unpublished colleague negative control",
+  "timestampUtc": "2026-11-01T19:10:25.840127+00:00",
+  "serverImageId": "sha256:579abe80742b0ca888546514feb07dfd996c16c04939399a968d1365f0e7ebf7",
+  "serverSourceRevision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
+  "observations": {
+    "colleagueAuthenticationHttpStatus": 200,
+    "unpublishedColleagueHttpStatus": 403,
+    "unpublishedAnonymousHttpStatus": 401,
+    "sharingAssertion": "fail"
+  },
+  "result": "pass"
+}

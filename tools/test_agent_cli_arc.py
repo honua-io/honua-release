@@ -154,7 +154,7 @@ def remote_shell(tmp_path, executor):
     identity=tmp_path/'identity'; identity.write_text('dummy')
     hosts=tmp_path/'known_hosts'; hosts.write_text('dummy')
     return RemoteQuickstartShell(host='vm123.example',user='runner',identity_file=identity,known_hosts=hosts,
-        remote_dir='/tmp/honua-arc-12345678',slot='arc-12345678',executor=executor)
+        remote_dir='/home/runner/honua-arc/arc-12345678',slot='arc-12345678',executor=executor)
 
 
 def test_remote_shell_never_invokes_local_docker_or_exposes_secret_output(tmp_path):
@@ -427,3 +427,134 @@ def test_aws_stage_requires_temporary_operator_credentials(tmp_path):
     with pytest.raises(ValueError, match='temporary operator credentials'):
         run_stage(agent='claude-cli', model='claude-opus-5-5', stage=1, target_kind='aws-ecs',
                   prompt='Complete the stage', backends={'honua_devops': backend}, log_dir=tmp_path, cli_factory=never)
+
+
+@pytest.mark.parametrize('command',['docker compose config --images','docker compose config --format json',
+    'docker compose config --services','docker compose images','docker compose images --format json',
+    'docker compose ps -a --format json','docker compose ps --services','docker compose logs --tail 50 honua',
+    'docker compose port honua 8080','docker compose top'])
+def test_quickstart_admits_read_only_compose_inspection(command):
+    """Rehearsal A1-r113: read-only compose subcommands a customer's shell allows were refused."""
+    assert parse_quickstart(command)[:2] == ['docker','compose']
+
+
+@pytest.mark.parametrize('command',['docker compose exec -T honua printenv HONUA_IMAGE','docker compose run honua id',
+    'docker compose cp honua:/app/.env .','docker compose rm -f','docker compose stop','docker compose restart',
+    'docker compose kill','docker compose config --output x.yml','docker compose logs --tail 99999',
+    'docker compose ps --format \'{{.Command}}\'','docker compose images --format template'])
+def test_quickstart_still_refuses_container_access_and_changes(command):
+    with pytest.raises(ValueError): parse_quickstart(command)
+
+
+def test_name_only_compose_output_is_visible_and_anything_else_is_withheld(tmp_path):
+    outputs={'config --images':b'ghcr.io/honua-io/honua-server@sha256:'+b'a'*64+b'\npostgis/postgis:16-3.4\n',
+             'images':json.dumps([{'ContainerName':'arc-1-honua-1','Repository':'ghcr.io/honua-io/honua-server',
+                                   'Tag':'2026.1-rc','ID':'c8d7aef98761','Size':'1GB','Command':'SECRET=x'}]).encode(),
+             'config --services':b'honua\nDATABASE_PASSWORD=hidden secret\n'}
+    sent=[]
+    def fake(command,**kwargs):
+        sent.append(kwargs['input'])
+        return subprocess.CompletedProcess(command,0,next(v for k,v in outputs.items() if k.encode() in kwargs['input']),b'')
+    shell=remote_shell(tmp_path,fake)
+    run=lambda c: shell.execute('shell_command',{'tool':'run_quickstart','arguments':{'command':c}})['result']['content'][0]['text']
+    assert run('docker compose config --images').splitlines()[0].startswith('ghcr.io/honua-io/honua-server@sha256:')
+    assert json.loads(run('docker compose images'))==[{'ContainerName':'arc-1-honua-1',
+        'Repository':'ghcr.io/honua-io/honua-server','Tag':'2026.1-rc','ID':'c8d7aef98761'}]
+    assert b'--format=json' in sent[1]
+    withheld=run('docker compose config --services')
+    assert 'hidden' not in withheld and 'output withheld' in withheld
+
+
+@pytest.mark.parametrize('command,expected', [('docker compose run --help', ['docker','compose','run','--help']),
+                                              ('docker compose --help', ['docker','compose','--help'])])
+def test_quickstart_admits_compose_usage(command, expected):
+    assert parse_quickstart(command) == expected
+
+
+@pytest.mark.parametrize('command', ['docker compose run honua --help', 'docker compose frobnicate --help'])
+def test_quickstart_refuses_help_that_is_not_usage(command):
+    with pytest.raises(ValueError): parse_quickstart(command)
+
+
+@pytest.mark.parametrize('command', [
+    "docker compose up '#--project-name=foreign' '#--project-directory=/srv/foreign' -d",
+    "docker compose up '#--file=/srv/foreign/compose.yaml' -d", "docker compose logs '#--tail' 5",
+    "docker compose up -d --wait-timeout '#5'", "docker compose logs --tail 5 '#5'"])
+def test_caller_supplied_marker_tokens_are_refused(command):
+    """Sol b6a4079b: '#'-prefixed tokens bypassed validation and were stripped before dispatch."""
+    with pytest.raises(ValueError): parse_quickstart(command)
+
+
+def test_numeric_option_values_pass_unchanged():
+    assert parse_quickstart('docker compose up -d --wait --wait-timeout 180')[-2:] == ['--wait-timeout', '180']
+    assert parse_quickstart('docker compose logs --tail 50 honua')[-3:] == ['--tail', '50', 'honua']
+
+
+@pytest.mark.parametrize('remote_dir,ok', [('/home/ubuntu/honua-arc/arc-12345678', True), ('/root/honua-arc/arc-12345678', True),
+                                           ('/tmp/honua-arc-12345678', False), ('/home/ubuntu/honua-arc/../etc', False),
+                                           ('/home/ubuntu/other/arc-12345678', False)])
+def test_the_remote_shell_admits_only_the_slot_directory_on_real_disk(tmp_path, remote_dir, ok):
+    """ARC v2 (Astra): the slot lives on the VM's real disk, which Studio's local stage also admits."""
+    identity=tmp_path/'identity'; identity.write_text('dummy')
+    hosts=tmp_path/'known_hosts'; hosts.write_text('dummy')
+    make=lambda: RemoteQuickstartShell(host='vm123.example',user='ubuntu',identity_file=identity,known_hosts=hosts,
+        remote_dir=remote_dir,slot='arc-12345678',executor=lambda *a, **k: None)
+    if ok: make()
+    else:
+        with pytest.raises(ValueError): make()
+
+
+@pytest.mark.parametrize('command', ['python3 quickstart.py', 'python3 quickstart.py --init-only',
+                                     'python3 quickstart.py --help'])
+def test_quickstart_admits_the_packaged_initializer(command):
+    """ARC v2 B1/S4: the agent runs the product's packaged initializer itself, as its README says."""
+    assert parse_quickstart(command) == command.split()
+
+
+@pytest.mark.parametrize('command', ['python3 quickstart.py --directory /', 'python3 -c print(1)',
+                                     'python3 other.py', 'python3 ./quickstart.py', 'python3 quickstart.py x',
+                                     'python quickstart.py', 'python3 -I quickstart.py', 'sh quickstart.py'])
+def test_quickstart_refuses_any_other_python(command):
+    with pytest.raises(ValueError): parse_quickstart(command)
+
+
+# Rehearsal 9 (release session 11-02): ordinary read-only curl checks a customer's shell allows.
+CURL_ADMITTED = [
+    'curl -sf http://localhost:18080/healthz/ready', 'curl -s http://127.0.0.1:18080/',
+    "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/healthz/ready",
+    "curl -sS -o /dev/null -w '%{http_code} %{time_total}' http://localhost:18080/",
+    'curl --silent --show-error --fail --output /dev/null http://localhost:18080/',
+    'curl -I http://localhost:18080/', 'curl --head http://localhost:18080/', 'curl -i http://localhost:18080/',
+    'curl -v http://localhost:18080/', 'curl -X GET http://localhost:18080/api/v1/', 'curl --request HEAD http://localhost:18080/',
+    'curl -H "Accept: application/json" http://localhost:18080/api/v1/', 'curl --header "X-Request-Id: 1" http://localhost:18080/',
+    'curl -m 10 http://localhost:18080/', 'curl --max-time 30 http://localhost:18080/',
+    'curl --connect-timeout 5 http://localhost:18080/', 'curl --retry 3 -sf http://localhost:18080/healthz/ready',
+    'curl --retry 0 http://localhost:18080/']
+CURL_REFUSED = [
+    'curl -L http://localhost:18080/', 'curl --location http://localhost:18080/', 'curl -sfL http://localhost:18080/',
+    'curl -o out.html http://localhost:18080/', 'curl --output /srv/x http://localhost:18080/',
+    'curl -O http://localhost:18080/x', 'curl -d a=1 http://localhost:18080/', 'curl --data a http://localhost:18080/',
+    'curl --data-binary @f http://localhost:18080/', 'curl -F f=@x http://localhost:18080/',
+    'curl -X POST http://localhost:18080/', 'curl -X DELETE http://localhost:18080/x', 'curl -XGET http://localhost:18080/',
+    'curl -T f http://localhost:18080/', 'curl -c jar http://localhost:18080/', 'curl -b a=1 http://localhost:18080/',
+    'curl --config f http://localhost:18080/', 'curl -K f http://localhost:18080/', 'curl -u a:b http://localhost:18080/',
+    'curl -H "Authorization: Bearer x" http://localhost:18080/', 'curl -H "Cookie: s=1" http://localhost:18080/',
+    'curl -H "X-Api-Key: k" http://localhost:18080/', 'curl -H @headers.txt http://localhost:18080/',
+    'curl -H "NoColon" http://localhost:18080/', 'curl -m 999 http://localhost:18080/', 'curl --retry 50 http://localhost:18080/',
+    'curl -m 0 http://localhost:18080/', 'curl --max-time 0 http://localhost:18080/',
+    'curl --connect-timeout 0 http://localhost:18080/',
+    'curl -w @fmt http://localhost:18080/', "curl -w '%{json}' http://localhost:18080/",
+    "curl -w '%output{/tmp/x}' http://localhost:18080/", 'curl -o', 'curl -sf http://example.com/',
+    'curl -sf http://localhost:18080/ http://localhost:18081/', 'curl --next http://localhost:18080/']
+
+
+@pytest.mark.parametrize('command', CURL_ADMITTED)
+def test_quickstart_admits_read_only_localhost_curl(command):
+    parsed = parse_quickstart(command)
+    assert parsed[:5] == ['curl', '--max-time', '30', '--proto', '=http,https']
+
+
+@pytest.mark.parametrize('command', CURL_REFUSED)
+def test_quickstart_still_refuses_writing_or_credentialed_curl(command):
+    with pytest.raises(ValueError):
+        parse_quickstart(command)

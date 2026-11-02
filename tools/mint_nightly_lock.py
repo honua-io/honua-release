@@ -303,7 +303,11 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     references = {'sbom': [], 'provenance': []}
     documents, pending = {}, []
 
-    def oci(name, coordinate, digest, context, source_repository, source_revision, component):
+    def oci(name, coordinate, digest, context, source_repository, source_revision, component, *,
+            verified_source=False):
+        # verified_source (the Compose executor, ARC v2 B1): embedded BuildKit evidence alone never establishes
+        # who built the image; a GitHub provenance attestation verified against the source repository, its
+        # producing workflow and the exact revision is required even when embedded coverage is complete.
         parsed = urllib.parse.urlsplit('oci://' + coordinate)
         if (parsed.netloc != 'ghcr.io' or parsed.query or parsed.fragment
                 or not re.fullmatch(r'/[a-z0-9._/-]+', parsed.path)
@@ -335,7 +339,8 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                         references[field].append(reference)
         # Helm/OCI publishers can use signed GitHub attestations instead of BuildKit index
         # layers. An attestation verified against the index digest covers every named child.
-        if any(covered != subjects for covered in coverage.values()):
+        signed = set()
+        if verified_source or any(covered != subjects for covered in coverage.values()):
             source_repo = source_repository.removeprefix('https://github.com/')
             try:
                 rows = attestations(source_repo, digest)
@@ -344,7 +349,7 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                     statement = json.loads(base64.b64decode(
                         (bundle.get('dsseEnvelope') or {}).get('payload', ''), validate=True))
                     field = statement_field(statement, {digest})
-                    if not field or coverage[field] == subjects:
+                    if not field or (coverage[field] == subjects and not (verified_source and field not in signed)):
                         continue
                     verifier(f'oci://{coordinate}@{digest}', bundle,
                              {'sourceRevision': source_revision, 'signerWorkflow': signer_workflow(
@@ -354,9 +359,14 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                     documents[path] = json.dumps(bundle, sort_keys=True, separators=(',', ':')).encode()
                     pending.append((field, name, path))
                     coverage[field] = subjects.copy()
+                    signed.add(field)
             except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                 errors.append(f'{context}: publisher attestations unavailable or unverified: '
                               + str(getattr(exc, 'stderr', None) or exc).strip())
+        if verified_source and 'provenance' not in signed:
+            errors.append(f'{context}: the Compose executor has no GitHub provenance attestation verified against '
+                          f'{source_repository} at {source_revision} and its signer workflow (embedded BuildKit '
+                          'evidence alone does not prove who built it)')
         for field, covered in coverage.items():
             if covered != subjects:
                 # The pin is the runnable child, so BuildKit's evidence index is not
@@ -397,10 +407,10 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
             if not digest:
                 errors.append(f'{context}: cannot bind attestations without a published digest')
                 continue
-            if artifact['kind'] in {'image', 'oci-chart'}:
+            if artifact['kind'] in {'image', 'oci-chart', 'executor-image'}:
                 oci(name, artifact['coordinate'], digest, context,
                     component['source']['repository'], artifact.get('sourceRevision', ''),
-                    data['components'][name])
+                    data['components'][name], verified_source=artifact['kind'] == 'executor-image')
                 continue
             repo = component['source']['repository'].removeprefix('https://github.com/')
             exception = excepted(exceptions, name, artifact, digest)

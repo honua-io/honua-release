@@ -240,10 +240,62 @@ class HttpMcpBackend:
     def close(self): pass
 
 
-SHELL_TOOL = {'name':'run_quickstart', 'description':'Run an allowed Docker Compose or localhost curl command on the isolated quickstart host.',
+SHELL_TOOL = {'name':'run_quickstart', 'description':'Run an allowed command on the isolated quickstart host: python3 quickstart.py, Docker Compose, or localhost curl.',
               'inputSchema':{'type':'object','properties':{'command':{'type':'string','maxLength':2048},
                   'stdin':{'type':'string','maxLength':65536}},
                              'required':['command'],'additionalProperties':False}}
+
+
+# Read-only compose inspection a customer's shell allows, plus the quickstart's own up/pull. Never exec, run,
+# cp, down, rm, stop or anything that changes containers, volumes or networks outside 'up'.
+COMPOSE_ADMITTED = {
+    'up': {'-d','--detach','--wait','--no-build','--quiet-pull','--wait-timeout'},
+    'pull': {'--quiet','-q'},
+    'ps': {'-a','--all','--format=json','--services','--status'},
+    'logs': {'--no-color','--timestamps','-t','--tail'},
+    'config': {'--quiet','-q','--images','--services','--volumes','--format=json','--no-interpolate'},
+    'images': {'--format=json','-q','--quiet'},
+    'top': set(),
+    'port': set(),
+    'version': set()}
+COMPOSE_SUBCOMMANDS = {'attach','build','commit','config','cp','create','down','events','exec','export','images','kill',
+                       'logs','ls','pause','port','ps','pull','push','restart','rm','run','scale','start','stats','stop',
+                       'top','unpause','up','version','wait','watch'}
+# Output that names images, services or volumes only: visible to the model when every line is such a name.
+VISIBLE_NAMES = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,255}\Z')
+
+
+# Read-only curl a customer's shell allows against this host's loopback (rehearsal 9: ordinary health and read checks
+# such as `curl -sf <url>` and `curl -s -o /dev/null -w '%{http_code}' <url>` were refused). GET or HEAD only; output
+# to the terminal or /dev/null only; headers without credentials and never read from a file. Not admitted: -L /
+# --location (a redirect target is not bounded to this host: Sol 9de0449e), -o/--output to a path, -d/--data*, -F,
+# -T, -X other than GET/HEAD, -c/-b cookies, -K/--config, -u/--user and every other option.
+CURL_FLAGS = {'-s','-S','-f','-i','-I','-v','-sS','-fsS','-fs','-sf','-Ss','-si','-is','-sSf','-sfS','-Sfs','-fSs',
+              '-sI','-Is','-sSI','-sv','-vs','--silent','--show-error','--fail','--include','--head','--verbose'}
+CREDENTIAL_HEADER = re.compile(r'AUTH|COOKIE|TOKEN|KEY|SECRET|PASS|SESSION|CREDENTIAL|SIGNATURE|PRIVATE', re.I)
+CURL_WRITE_OUT = re.compile(r'(?:[A-Za-z0-9 _:./,=+-]|\\n|\\t|%\{(?:http_code|response_code|time_total|time_connect|'
+                            r'size_download|size_header|content_type|url_effective|remote_ip|remote_port|'
+                            r'num_redirects)\})*')
+
+
+def _plain_header(value):
+    name, sep, rest = value.partition(':')
+    return (bool(sep) and bool(re.fullmatch(r'[A-Za-z0-9-]{1,64}', name)) and not CREDENTIAL_HEADER.search(name)
+            and not value.startswith('@') and len(value) <= 256 and value.isprintable())
+
+
+def _bounded(low, high):
+    return lambda v: v.isdigit() and low <= int(v) <= high
+
+
+CURL_VALUES = {'-o': lambda v: v == '/dev/null', '--output': lambda v: v == '/dev/null',
+               '-w': lambda v: bool(CURL_WRITE_OUT.fullmatch(v)), '--write-out': lambda v: bool(CURL_WRITE_OUT.fullmatch(v)),
+               '-X': lambda v: v in ('GET','HEAD'), '--request': lambda v: v in ('GET','HEAD'),
+               '-H': _plain_header, '--header': _plain_header,
+               # A timeout of 0 disables curl's limit and, as the last value wins, would override the shell's own
+               # --max-time 30: timeouts are 1..30 (chatgpt-codex-connector on #1220). --retry 0 is meaningful.
+               '-m': _bounded(1, 30), '--max-time': _bounded(1, 30), '--connect-timeout': _bounded(1, 30),
+               '--retry': _bounded(0, 5)}
 
 
 def parse_quickstart(command):
@@ -259,27 +311,53 @@ def parse_quickstart(command):
                     or parts[position] in ('-f','--file') and parts[position+1] == '-')):
                 raise ValueError('invalid compose option')
             options += parts[position:position+2]; position += 2
-        if position >= len(parts) or parts[position] not in ('up','pull','ps','logs','config','version'):
+        tail = parts[position:]
+        if tail and tail[-1] in ('--help','-h') and len(tail) <= 2 and (len(tail) == 1 or tail[0] in COMPOSE_SUBCOMMANDS):
+            return ['docker','compose',*tail[:-1],'--help']      # usage text only; runs nothing
+        if position >= len(parts) or parts[position] not in COMPOSE_ADMITTED:
             raise ValueError('compose operation is not admitted')
         operation = parts[position]; rest = parts[position+1:]
-        allowed = {'up':{'-d','--detach','--wait','--no-build','--quiet-pull','--wait-timeout'},
-                   'pull':{'--quiet'},'ps':{'-a','--all','--format=json'},
-                   'logs':{'--no-color','--timestamps'},'config':{'--quiet'},'version':set()}[operation]
-        if '--wait-timeout' in rest:
-            if rest.count('--wait-timeout') != 1: raise ValueError('duplicate compose wait timeout')
-            ix=rest.index('--wait-timeout')
-            if ix+1 >= len(rest) or not rest[ix+1].isdigit() or not 1 <= int(rest[ix+1]) <= 300:
-                raise ValueError('invalid compose wait timeout')
-        if any(token.startswith('-') and token not in allowed or not token.startswith('-') and not _SAFE_ID.fullmatch(token)
-               for token in rest): raise ValueError('compose argument is not admitted')
-        if operation in ('config','version') and rest: raise ValueError('compose operation takes no arguments')
+        # '--format json' and '--format=json' are the same request; normalize to the one form.
+        joined = []
+        for token in rest:
+            if joined and joined[-1] == '--format' and token in ('json','table'): joined[-1] = '--format=' + token
+            else: joined.append(token)
+        rest = joined
+        allowed = COMPOSE_ADMITTED[operation]
+        # Numeric option values are validated by position; no token is ever rewritten (Sol b6a4079b).
+        values = set()
+        for flag, low, high in (('--wait-timeout',1,300),('--tail',1,2000)):
+            if flag in rest:
+                if rest.count(flag) != 1: raise ValueError('duplicate compose ' + flag[2:])
+                ix=rest.index(flag)
+                if ix+1 >= len(rest) or not rest[ix+1].isdigit() or not low <= int(rest[ix+1]) <= high:
+                    raise ValueError('invalid compose ' + flag[2:])
+                values.add(ix+1)
+        if any(i not in values and (token.startswith('-') and token not in allowed
+                                    or not token.startswith('-') and not _SAFE_ID.fullmatch(token))
+               for i, token in enumerate(rest)):
+            raise ValueError('compose argument is not admitted')
+        if operation == 'version' and rest: raise ValueError('compose operation takes no arguments')
+        if operation == 'config' and any(not t.startswith('-') for t in rest):
+            raise ValueError('compose operation takes no arguments')
         return ['docker','compose',*options,operation,*rest]
+    if parts[:2] == ['python3','quickstart.py']:
+        # The product's packaged initializer (honua-server package_quickstart.py), exactly as its README says to
+        # run it from the install directory: it writes .env secrets and the key ring locally, then starts the
+        # stack. No other script, interpreter flag or directory is admitted.
+        if parts[2:] in ([], ['--init-only'], ['--help'], ['-h']):
+            return parts
+        raise ValueError('quickstart.py argument is not admitted')
     if parts and parts[0] == 'curl':
         opts, urls, position = [], [], 1
         while position < len(parts):
             token = parts[position]
-            if token in ('-f','-s','-S','-sS','-fsS','--fail','--silent','--show-error','-i','--include'):
+            if token in CURL_FLAGS:
                 opts.append(token)
+            elif token in CURL_VALUES:
+                if position + 1 >= len(parts) or not CURL_VALUES[token](parts[position+1]):
+                    raise ValueError('curl option value is not admitted')
+                opts += parts[position:position+2]; position += 1
             elif token.startswith('-'): raise ValueError('curl option is not admitted')
             else: urls.append(token)
             position += 1
@@ -288,7 +366,7 @@ def parse_quickstart(command):
         if (url.scheme not in ('http','https') or url.hostname not in ('localhost','127.0.0.1','::1')
                 or url.username or url.password or url.fragment): raise ValueError('curl is restricted to localhost')
         return ['curl','--max-time','30','--proto','=http,https',*opts,urls[0]]
-    raise ValueError('only docker compose and localhost curl are admitted')
+    raise ValueError('only docker compose, python3 quickstart.py and localhost curl are admitted')
 
 
 class RemoteQuickstartShell:
@@ -301,7 +379,8 @@ class RemoteQuickstartShell:
             if ipaddress.ip_address(host).is_loopback: raise ValueError('a remote VM host is required')
         except ValueError as exc:
             if str(exc) == 'a remote VM host is required': raise
-        if not _SAFE_ID.fullmatch(user) or not re.fullmatch(r'/tmp/honua-arc-[a-z0-9-]{8,80}', remote_dir):
+        if not _SAFE_ID.fullmatch(user) or not re.fullmatch(
+                r'(?:/home/[a-z_][a-z0-9_-]{0,31}|/root)/honua-arc/arc-[a-z0-9-]{8,50}', remote_dir):
             raise ValueError('invalid isolated VM slot')
         if not re.fullmatch(r'arc-[a-z0-9-]{8,50}', slot): raise ValueError('invalid compose project')
         if not Path(identity_file).is_file() or not Path(known_hosts).is_file(): raise ValueError('SSH identity and host key required')
@@ -343,12 +422,15 @@ class RemoteQuickstartShell:
                 raise ValueError('inline compose must match the runner-approved published quickstart')
         elif source is not None:
             raise ValueError('stdin is only allowed for an approved inline compose file')
-        operation = None
+        operation, names_only = None, False
         if command[:2] == ['docker','compose']:
             index = 2
             while index < len(command) and command[index] in ('-f','--file','--profile'): index += 2
-            operation = command[index]
-            if operation == 'ps' and '--format=json' not in command: command.append('--format=json')
+            operation = command[index] if index < len(command) else None
+            names_only = (operation in ('config','ps') and bool({'--images','--services','--volumes'} & set(command))
+                          or operation == 'images' and bool({'-q','--quiet'} & set(command)) or operation == 'port')
+            if operation in ('ps','images') and not names_only and '--format=json' not in command:
+                command.append('--format=json')
             command[2:2] = ['--project-directory',self.remote_dir,'--project-name',self.slot]
         script = 'cd -- ' + shlex.quote(self.remote_dir) + ' && exec ' + shlex.join(command)
         if inline:
@@ -363,14 +445,25 @@ class RemoteQuickstartShell:
             visible = raw.decode('utf-8')
         elif command[0] == 'curl' and raw.strip() in (b'Ready',b'Healthy',b'OK',b'Unhealthy'):
             visible = raw.decode('utf-8')
-        elif operation == 'ps':
+        elif command[-1] in ('--help','-h') and command[:2] in (['docker','compose'],['python3','quickstart.py']) \
+                and len(raw) <= 65536:
+            visible = raw.decode('utf-8','replace')
+        elif operation is not None and names_only:
+            lines = [line.strip() for line in raw.decode('utf-8','replace').splitlines() if line.strip()]
+            if len(lines) <= 200 and all(VISIBLE_NAMES.fullmatch(line) for line in lines):
+                visible = '\n'.join(lines)
+            else:
+                visible = f'Command exited {result.returncode}; output withheld; sha256 {digest(result.stdout)}'
+        elif operation in ('ps','images'):
+            fields = {'ps':('Name','Service','State','Health','Image'),
+                      'images':('ContainerName','Repository','Tag','ID')}[operation]
             try:
                 try: rows = json.loads(raw)
                 except ValueError: rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
                 if isinstance(rows,dict): rows = [rows]
                 if not isinstance(rows,list) or len(rows) > 100: raise ValueError('invalid compose status')
-                visible = json.dumps([{key:value for key in ('Name','Service','State','Health')
-                                       if isinstance((value:=row.get(key)),str) and _SAFE_ID.fullmatch(value)}
+                visible = json.dumps([{key:value for key in fields
+                                       if isinstance((value:=row.get(key)),str) and VISIBLE_NAMES.fullmatch(value)}
                                       for row in rows if isinstance(row,dict)])
             except ValueError:
                 visible = f'Command exited {result.returncode}; status output unavailable; sha256 {digest(result.stdout)}'

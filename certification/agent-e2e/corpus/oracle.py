@@ -214,10 +214,16 @@ def permission_matrix(observed,expected):
     denied={r["resourceId"] for r in rows if r["status"] in [401,403,404]}
     require(bool(denied) and denied<=allowed,"denial lacks an authorized positive control for the same resource")
     for row,want in zip(rows,expected["requests"]):
-        for field in ["principalId","method","resourceId","status"]:
+        for field in ["principalId","method","resourceId"]:
             exact(row[field],want[field])
+        status=want["status"]
+        if isinstance(status,list):
+            require(bool(status) and all(type(s) is int and s in (401,403,404) for s in status),"invalid denial statuses")
+            require(row["status"] in status,"unexpected denial status")
+        else:
+            exact(row["status"],status)
         require(isinstance(row["responseSha256"],str) and re.fullmatch(r"[0-9a-f]{64}",row["responseSha256"]),"missing raw response binding")
-        if want["status"] in [401,403,404]:
+        if isinstance(status,list) or status in [401,403,404]:
             exact(row["disclosedResourceIds"],[])
 
 

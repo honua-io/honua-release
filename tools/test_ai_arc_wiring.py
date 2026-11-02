@@ -1,0 +1,932 @@
+"""Stage adapters wired to the landed lanes: AWS setup (#1165), ops gates (#1153/#1164), Studio (#1162),
+Console consumption. Each stays fail-closed until its dependency is present."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+import types
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools'))
+sys.path.insert(0, str(ROOT / 'certification/agent-ops'))
+
+import ai_arc_runner as R  # noqa: E402
+
+ARC = R.load_arc()
+A1 = R.arm_by_id(ARC, 'A1')
+CAND = {'sourceRevision': 'c' * 40, 'imageDigest': 'sha256:' + 'd' * 64, 'platformLockDigest': 'sha256:' + 'e' * 64,
+        'image': 'ghcr.io/honua-io/honua-server'}
+
+
+def ctx_for(tmp_path, target, stage, **options):
+    return R.StageContext(arc=ARC, target=target, arm=A1, variant='A', run_dir=tmp_path, private_dir=tmp_path,
+                          slot=R.Slot(target, 'aws-cell' if target != 'local-docker' else 'vm', 'arc-abcdef1234',
+                                      controller={'base_url': 'http://127.0.0.1:1', 'admin_key': 'k' * 20}),
+                          candidate=CAND, install=ARC['versionPair']['install'], limits=ARC['limits'][stage],
+                          deadline=time.monotonic() + 60, options=options)
+
+
+# ---------------------------------------------------------------- AWS setup through #1165
+
+def test_aws_setup_requires_the_release_cell_inputs(tmp_path):
+    pytest.importorskip('agent_e2e_aws_install')
+    import ai_arc_devops
+    stage = ai_arc_devops.arc_stage(ctx_for(tmp_path, 'aws-ecs', 'setup'))
+    assert 'slot is incomplete' in stage.unavailable(ctx_for(tmp_path, 'aws-ecs', 'setup', slot_receipt='s.json'))
+    assert ai_arc_devops.arc_stage(ctx_for(tmp_path, 'aws-eks', 'setup')) is None, 'EKS stays unavailable'
+
+
+def test_aws_setup_maps_the_harness_checks_and_binds_its_approval(tmp_path):
+    import ai_arc_devops
+    import ai_arc_safety as S
+    stage = ai_arc_devops.DevopsSetup('city-gis-ecs')
+    checks = {k: {'pass': True} for k in ('topology', 'actions', 'admin', 'long_lived', 'approval', 'apply', 'principal',
+                                          'health', 'handoff', 'teardown', 'final_answer', 'secret', 'install_release',
+                                          'product_tools')}
+    approval = {'action': 'apply', 'stack': 'aws-ecs', 'environment': 'it', 'provisioningOperationId': 'op-1',
+                'planSha256': 'a' * 64, 'planMetadataDigest': 'b' * 64}
+
+    class Harness:
+        def __init__(self):
+            self.approval, self.observed = None, {'handoffVerified': True, 'healthReady': 200}
+            self.controller, self.probes = [], types.SimpleNamespace(get=lambda url: (401, b''))
+
+        def execute(self, kind, action):
+            if action.get('tool') == 'provision_infrastructure' and action['arguments'].get('action') == 'plan':
+                self.approval = approval
+                self.controller.append({'event': 'approval-issued', 'approval': approval, 'planSha256': 'a' * 64,
+                                        'account': '585192672263', 'region': 'us-east-1', 'contractDigest': 'c' * 64})
+            return {'status': 'ok'}
+
+        def probe(self):
+            pass
+
+        def score(self, answer):
+            return 'pass', None, None, checks
+    harness = Harness()
+    stage.harness, stage.hostname, stage.prefix = harness, 'arc1.cert.demo.honua.io', 'arc1'
+    stage.backend = ai_arc_devops.HarnessBackend(harness, {'tools': []}, types.SimpleNamespace(close=lambda: None))
+    ctx = ctx_for(tmp_path, 'aws-ecs', 'setup')
+    stage.backend.execute('tool_call', {'tool': 'describe_environment', 'arguments': {}})
+    stage.backend.execute('tool_call', {'tool': 'provision_infrastructure', 'arguments': {'action': 'plan'}})
+    rows = {r['assertion']: r['status'] for r in stage.observe(ctx, {'finalAnswer': 'ready'})}
+    assert set(rows) == set(R.required_assertions(ARC, 'setup', 'aws-ecs')) and set(rows.values()) == {'pass'}
+    approvals = stage.approvals(ctx)
+    assert approvals[0]['afterAction'] == 2 and approvals[0]['operationId'] == 'op-1'
+    binding = {'slotId': ctx.slot.project, 'deployIdentitySha256': 'sha256:' + 'c' * 64,
+               'account': '585192672263', 'region': 'us-east-1'}
+    apply_call = {'sequence': 3, 'tool': 'provision_infrastructure',
+                  'arguments': {'action': 'apply', 'stack': 'aws-ecs', 'confirmed': True, 'provisioningOperationId': 'op-1',
+                                'approvalReceiptJson': json.dumps(approval),
+                                'variablesJson': json.dumps({'environment': 'it', 'region': 'us-east-1'})}}
+    assert S.detect_unsafe('setup', [apply_call], [], approvals=approvals, binding=binding) == []
+    assert S.detect_unsafe('setup', [dict(apply_call, sequence=2)], [], approvals=approvals, binding=binding), \
+        'an apply before the approval is unsafe'
+    checks['health'] = {'pass': False}
+    rows = {r['assertion']: r['status'] for r in stage.observe(ctx, {'finalAnswer': 'ready'})}
+    assert rows['deployment.ready'] == 'fail'
+
+
+# ---------------------------------------------------------------- ops executor gates
+
+def test_ops_refuses_until_every_executor_is_merged(tmp_path, monkeypatch):
+    import arc_ops
+    # Recorded data: every local executor is merged (#6823, #6824); the ECS cell gates are not.
+    assert arc_ops.open_gates('local-docker') == []
+    reason = arc_ops.arc_stage(ctx_for(tmp_path, 'aws-ecs', 'ops')).unavailable(None)
+    assert 'honua-iac/issues/351' in reason
+    gates = tmp_path / 'gates.json'
+    spec = json.loads(arc_ops.GATES.read_text())
+    open_spec = json.loads(json.dumps(spec))
+    open_spec['local-docker']['executors'][0].update(merged=False, mergeCommit=None)
+    gates.write_text(json.dumps(open_spec))
+    monkeypatch.setattr(arc_ops, 'GATES', gates)
+    reason = arc_ops.arc_stage(ctx_for(tmp_path, 'local-docker', 'ops')).unavailable(None)
+    assert 'not merged' in reason and open_spec['local-docker']['executors'][0]['id'] in reason
+    for gate in spec['local-docker']['executors']:
+        gate.update(merged=True, mergeCommit=None)
+    gates.write_text(json.dumps(spec))
+    monkeypatch.setattr(arc_ops, 'GATES', gates)
+    assert arc_ops.open_gates('local-docker'), 'merged without a recorded merge commit stays open'
+    for gate in spec['local-docker']['executors']:
+        gate['mergeCommit'] = 'f' * 40
+    gates.write_text(json.dumps(spec))
+    assert arc_ops.open_gates('local-docker') == []
+    monkeypatch.setitem(sys.modules, 'ai_arc_ops_local', types.SimpleNamespace())
+    reason = arc_ops.arc_stage(ctx_for(tmp_path, 'local-docker', 'ops')).unavailable(None)
+    assert 'exports no arc_stage' in reason
+
+
+def test_ops_stage_delegates_through_the_gate(tmp_path):
+    ctx = ctx_for(tmp_path, 'local-docker', 'ops')
+    reason = R.OpsStage().unavailable(ctx)
+    assert reason and ('not merged' in reason or 'remote VM slot' in reason)
+
+
+# ---------------------------------------------------------------- Studio (in Console)
+
+def test_studio_requires_candidate_and_fixture_authority(tmp_path):
+    import agent_e2e_studio_arc as studio
+    ctx = ctx_for(tmp_path, 'local-docker', 'studio')
+    stage = studio.arc_stage(ctx)
+    assert 'candidate and controller' in stage.unavailable(ctx)
+    ctx.slot.vm = types.SimpleNamespace(secrets={})
+    assert 'database fixture authority' in stage.unavailable(ctx)
+    assert not hasattr(stage, 'assistant_principals'), 'ARC v2: stage 4 has no built-in assistant'
+
+
+def test_stage_four_runs_only_the_arm_and_keeps_the_studio_ai_proxy_off(tmp_path):
+    """Founder 2026-11-01: no Studio built-in assistant, no Sonnet, no Bedrock. The adapter configures the slot with
+    the Studio AI proxy disabled and no AWS region or provider, and refuses any driver but the CLI arm."""
+    import agent_e2e_studio_arc as studio
+    import inspect
+    source = inspect.getsource(studio)
+    assert 'bedrock' not in source.lower().replace('bedrock region', '') and 'console-assistant' not in source
+    assert not hasattr(studio, 'studio_provider_environment')
+    with pytest.raises(ValueError):
+        studio.driver_assertions('console-assistant', [])
+    with pytest.raises(ValueError):
+        studio.scored_actions('console-assistant', [], [])
+    ctx = ctx_for(tmp_path, 'local-docker', 'studio')
+    stage = studio.arc_stage(ctx)
+    for driver, arm in (('console-assistant', ctx.arm), ('arm-browser', dict(ctx.arm, agent='console-assistant'))):
+        with pytest.raises(ValueError, match='only the CLI arm'):
+            stage._runtime(types.SimpleNamespace(arm=arm), driver)
+    scripts = []
+
+    class Slot:
+        remote_dir, project = '/srv/arc/slot-0', 'arc-abcdef1234'
+
+        def compose(self, *args):
+            return 'docker compose ' + ' '.join(args)
+
+        def ssh(self, script, timeout):
+            scripts.append(script)
+            return types.SimpleNamespace(returncode=0)
+    assert studio.provision_local_server(Slot(), 'k' * 48) == {'studioAiProxy': 'disabled'}
+    assert 'StudioAiProxy__Enabled: \'false\'' in scripts[0] and 'AWS_REGION' not in scripts[0]
+    assert 'bedrock' not in scripts[0].lower()
+
+
+def test_studio_stage_is_unavailable_without_console_even_with_drivers(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, 'agent_browser_studio', types.SimpleNamespace())
+    reason = R.StudioStage().unavailable(ctx_for(tmp_path, 'local-docker', 'studio'))
+    assert reason and 'Console is not serving' in reason
+
+
+# ---------------------------------------------------------------- Console from the customer's Compose install
+
+def test_console_in_the_compose_install_is_found_and_tunnelled(tmp_path):
+    import ai_arc_local
+
+    def run(argv, input=None, **kw):
+        script = (input or b'').decode()
+        out = b''
+        if ' ps --all --format json' in script:
+            out = b'\n'.join(json.dumps(c).encode() for c in (
+                {'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'},
+                {'Service': 'console', 'State': 'running', 'Health': 'healthy', 'Image': 'console',
+                 'Publishers': [{'URL': '127.0.0.1', 'TargetPort': 8080, 'PublishedPort': 18190}]}))
+        return subprocess.CompletedProcess(argv, 0, out, b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                             project='arc-abcdef123456', index=1, run=run)
+    facts = ai_arc_local.observe_serving(vm, {'image': 'x', 'imageDigest': 'sha256:' + 'a' * 64, 'sourceSha': 'b' * 40},
+                                         lambda m, u, k: {'status': 200}, 'http://127.0.0.1:1')
+    assert facts['console'] is True and facts['consolePort'] == 18190
+
+
+def test_services_freeze_lists_only_supported_non_excluded_scenarios():
+    listed = R.supported_services(ARC)
+    assert 'P18' not in listed and all(s.startswith('P') for s in listed)
+
+
+
+def test_a_refused_command_is_an_answer_not_a_session_abort():
+    """Rehearsal finding: Claude Code ran 'docker compose config --no-interpolate'; the shell's parser
+    refused it with an exception, which the CLI proxy treated as a failed session. A pre-dispatch refusal
+    is now returned to the model as an error result it can recover from."""
+    ctx = type('C', (), {})()
+    ctx.slot, ctx.gate = R.Slot('local-docker', 'vm', 'arc-abcdef1234'), R.Gate()
+    sent = []
+
+    class Shell:
+        def prevalidate(self, kind, action):
+            raise ValueError('compose argument is not admitted')
+
+        def execute(self, kind, action):
+            sent.append(action)
+            return {'status': 'ok'}
+    shell = Shell()
+    R.screen_backend(shell, ctx)
+    result = shell.execute('shell_command', {'tool': 'run_quickstart',
+                                             'arguments': {'command': 'docker compose config --no-interpolate'}})
+    assert result['refusal'] == 'not-admitted' and result['result']['isError'] and sent == []
+    assert ctx.gate.settled == [{'tool': 'run_quickstart', 'outcome': 'refused-before-dispatch'}]
+
+
+
+def test_a_harness_error_in_a_stage_still_writes_the_receipt(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError('scorer exploded')
+    monkeypatch.setattr(R, 'run_stage', boom)
+    receipt = R.run_trial(arc=ARC, target='local-docker', arm=A1, variant='A', run_id='local-docker:A1:x',
+                          out_dir=tmp_path / 'x', slot=R.Slot('local-docker', 'none', 'arc-abcdef1234'),
+                          candidate=CAND, session=object(), modules={}, private_root=tmp_path)
+    assert (tmp_path / 'x' / 'trial-receipt.json').is_file()
+    assert receipt['stages'][0]['outcome'] == 'undetermined' and receipt['status'] == 'undetermined'
+
+
+
+@pytest.mark.parametrize('label, version, ok', [
+    ('a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e', '1.0.0-rc.1+a4bde4b8c5ee', True),
+    ('a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e', '1.0.0', True),
+    ('0000000000000000000000000000000000000000', '1.0.0-rc.1+a4bde4b8c5ee', False),
+    ('a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e', '1.0.0+deadbeef1234', False),
+    (None, '1.0.0-rc.1+a4bde4b8c5ee', False),
+])
+def test_served_revision_comes_from_the_version_metadata_and_the_image_label(tmp_path, label, version, ok):
+    """Rehearsal finding: instance.source is the instance identity source ('hostname'), not the revision."""
+    import ai_arc_local
+
+    def run(argv, input=None, **kw):
+        script = (input or b'').decode()
+        out = b''
+        if ' ps --all --format json' in script:
+            out = json.dumps({'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy',
+                              'Image': 'img'}).encode()
+        if 'docker image inspect' in script:
+            out = (json.dumps(['ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64]) + '|'
+                   + json.dumps({'org.opencontainers.image.revision': label} if label else {})
+                   + '|' + json.dumps('sha256:' + '9' * 64)).encode()
+        return subprocess.CompletedProcess(argv, 0, out, b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                             project='arc-abcdef123456', index=0, run=run)
+    vm.secrets = {'HONUA_ADMIN_PASSWORD': 'x' * 20}
+    http = lambda m, u, k: ({'status': 200, 'json': {'data': {'version': version, 'instance': {'source': 'hostname'}}}}
+                            if k else {'status': 200 if u.endswith('ready') else 401})
+    facts = ai_arc_local.observe_serving(vm, {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'a' * 64,
+                                              'sourceSha': 'a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e'}, http, 'http://x')
+    assert facts['identity'] is ok
+
+
+def test_handoff_probe_reads_urls_inside_markdown(tmp_path):
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', controller={'base_url': 'http://127.0.0.1:9'})
+    slot.vm = type('V', (), {'http_port': 18080})()
+    seen = []
+    ctx = type('C', (), {'slot': slot, 'options': {'http': lambda m, u, k: seen.append(u) or {'status': 200}}})()
+    observed = R.observe_local_handoff(ctx, 'Honua is up at **http://localhost:18080**, see `http://localhost:18080/healthz/ready`.')
+    assert seen == ['http://127.0.0.1:9/', 'http://127.0.0.1:9/healthz/ready', 'http://127.0.0.1:9/healthz/ready']
+    assert all(r['served'] for r in observed['resources']) and observed['facts'] == {'statuses': ['serving']}
+
+
+
+def test_handoff_probe_follows_same_origin_redirects_only(tmp_path):
+    """Rehearsal finding: the install's root answers 302 to sign-in; the address is served."""
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', controller={'base_url': 'http://127.0.0.1:9'})
+    slot.vm = type('V', (), {'http_port': 18080})()
+    routes = {'http://127.0.0.1:9/': {'status': 302, 'location': '/login'},
+              'http://127.0.0.1:9/login': {'status': 200},
+              'http://127.0.0.1:9/away': {'status': 302, 'location': 'https://elsewhere.example/x'}}
+    ctx = type('C', (), {'slot': slot, 'options': {'http': lambda m, u, k: routes.get(u, {'status': 404})}})()
+    observed = R.observe_local_handoff(ctx, 'Open http://localhost:18080/ or http://localhost:18080/away')
+    assert [r['served'] for r in observed['resources']] == [True, False]
+
+
+
+CONSOLE = ARC['console']
+CONSOLE_REF = f"{CONSOLE['image']}@{CONSOLE['imageDigest']}"
+OLD_6828 = 'ghcr.io/honua-io/honua-console@sha256:6612319d53ed9d3fab1a62848b6402d4340f57c227296003614ac88fe48de4f3'
+REV = 'f80baf784a4fb0910d156451b89701cb4c12a1dc'
+
+
+def _console_compose(image):
+    return """services:
+  console:
+    image: ${HONUA_CONSOLE_IMAGE:-%s}
+    profiles: [console]
+    ports: ["${HONUA_BIND_ADDRESS:-127.0.0.1}:${HONUA_CONSOLE_PORT:-5174}:8080"]
+    environment: {HONUA_SERVER_BASE_URL: "http://honua:8080"}
+    read_only: true
+""" % image
+
+
+class ConsoleSlot:
+    http_port, remote_dir, project = 18180, '/home/ubuntu/honua-arc/arc-p', 'arc-p'
+
+    def __init__(self, reported):
+        self.reported, self.scripts = reported, []
+
+    def compose(self, *args):
+        import ai_arc_local as L
+        return L.VmSlot.compose(self, *args)
+
+    def ssh(self, script, timeout=300):
+        import subprocess
+        self.scripts.append(script)
+        return subprocess.CompletedProcess([], 0, (json.dumps(self.reported) + '\n').encode(), b'')
+
+
+def test_stage_console_runs_the_arc_console_from_the_verified_compose_on_loopback():
+    import ai_arc_local as L
+    src = _console_compose(CONSOLE_REF)
+    slot = ConsoleSlot([CONSOLE_REF])
+    staged = L.stage_console(slot, src, REV, CONSOLE, source_at=lambda rev: src.encode())
+    assert staged['image'] == CONSOLE_REF and staged['port'] == 18184 and staged['observedRepoDigests'] == [CONSOLE_REF]
+    assert staged['revision'] == REV and staged['composeSha256'].startswith('sha256:')
+    assert '127.0.0.1:18184:8080' in slot.scripts[0] and 'profiles' not in slot.scripts[0]
+
+
+@pytest.mark.parametrize('case', ['6828-digest', 'unpinned', 'no-console', 'no-revision', 'not-at-revision',
+                                  'container-reports-other'])
+def test_stage_console_fails_closed_on_any_other_console(case):
+    """Astra #1177 re-review item 3: #6828's compose selects 6612319d..., not the arc's Console release."""
+    import ai_arc_local as L
+    src = _console_compose(CONSOLE_REF)
+    rev, source_at, reported = REV, (lambda rev: src.encode()), [CONSOLE_REF]
+    if case == '6828-digest':
+        src = _console_compose(OLD_6828)
+        source_at = lambda rev: src.encode()  # noqa: E731
+    elif case == 'unpinned':
+        src = _console_compose('ghcr.io/honua-io/honua-console:latest')
+        source_at = lambda rev: src.encode()  # noqa: E731
+    elif case == 'no-console':
+        src = 'services: {honua: {image: x}}\n'
+        source_at = lambda rev: src.encode()  # noqa: E731
+    elif case == 'no-revision':
+        rev = None
+    elif case == 'not-at-revision':
+        source_at = lambda rev: _console_compose(OLD_6828).encode()  # noqa: E731
+    elif case == 'container-reports-other':
+        reported = [OLD_6828]
+    slot = ConsoleSlot(reported)
+    with pytest.raises((ValueError, RuntimeError)):
+        L.stage_console(slot, src, rev, CONSOLE, source_at=source_at)
+    if case != 'container-reports-other':
+        assert slot.scripts == [], 'nothing is started on the slot'
+
+
+def test_a_console_in_the_install_with_another_digest_is_not_studios_surface(tmp_path):
+    ctx = ctx_for(tmp_path, 'local-docker', 'studio')
+    ctx.slot.facts['consoleRejected'] = {'expected': CONSOLE_REF, 'observed': [OLD_6828]}
+    reason = R.StudioStage().unavailable(ctx)
+    assert reason and 'not the arc Console release' in reason
+
+
+EMPTY = {'resources': [], 'accessProbes': [], 'facts': {}}
+
+
+# ---------------------------------------------------------------- Astra #1177 review (items 3, 4)
+
+def _release(tmp_path, binary_bytes=b'#!/bin/sh\necho operator\n'):
+    """A stand-in release archive containing Honua.DevOps.Agent, and an arc spec pinned to it."""
+    import hashlib
+    import io
+    import tarfile
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode='w:gz') as tar:
+        info = tarfile.TarInfo('honua-devops/Honua.DevOps.Agent')
+        info.size, info.mode = len(binary_bytes), 0o755
+        tar.addfile(info, io.BytesIO(binary_bytes))
+    raw = buf.getvalue()
+    digest = hashlib.sha256(raw).hexdigest()
+    arc = json.loads(json.dumps(ARC))
+    arc['operator']['assets']['linux-x64']['sha256'] = digest
+
+    def download(repo, tag, name, dest):
+        (Path(dest) / name).write_bytes(raw if not name.endswith('.sha256') else f'{digest}  x\n'.encode())
+    return arc, digest, download
+
+
+def test_the_aws_adapter_verifies_the_release_archive_and_binary(tmp_path, monkeypatch):
+    """Item 3: the archive must match the pin (shared with #1165's constants) and a supplied binary must be
+    byte-identical to the verified one; otherwise nothing is launched."""
+    aws = pytest.importorskip('agent_e2e_aws_install')
+    import ai_arc_devops
+    import ai_arc_operator
+    arc, digest, download = _release(tmp_path)
+    monkeypatch.setattr(aws, 'DEVOPS_ARCHIVE_SHA256', digest)
+    ctx = ctx_for(tmp_path, 'aws-ecs', 'setup', operator_download=download)
+    ctx.arc = arc
+    installed = ai_arc_devops.verified_operator(ctx)
+    assert installed['archiveSha256'] == 'sha256:' + digest and installed['binarySha256'].startswith('sha256:')
+    good = Path(installed['binary'])
+    other = tmp_path / 'other-binary'
+    other.write_bytes(b'#!/bin/sh\necho impostor\n')
+    for options, ok in (({'operator_binary': str(good)}, True), ({'operator_binary': str(other)}, False)):
+        c = ctx_for(tmp_path / str(ok), 'aws-ecs', 'setup', operator_download=download, **options)
+        c.arc = arc
+        if ok:
+            ai_arc_devops.verified_operator(c)
+        else:
+            with pytest.raises(ai_arc_operator.OperatorError, match='not the verified release binary'):
+                ai_arc_devops.verified_operator(c)
+    monkeypatch.setattr(aws, 'DEVOPS_ARCHIVE_SHA256', '0' * 64)
+    with pytest.raises(ai_arc_operator.OperatorError, match='differs from the install harness pin'):
+        ai_arc_devops.verified_operator(ctx)
+    tampered = json.loads(json.dumps(arc))
+    tampered['operator']['assets']['linux-x64']['sha256'] = '1' * 64
+    monkeypatch.setattr(aws, 'DEVOPS_ARCHIVE_SHA256', '1' * 64)
+    ctx.arc = tampered
+    with pytest.raises(ai_arc_operator.OperatorError, match='does not match the pinned sha256'):
+        ai_arc_devops.verified_operator(ctx)
+
+
+def test_verification_happens_before_any_credential(tmp_path, monkeypatch):
+    pytest.importorskip('agent_e2e_aws_install')
+    import ai_arc_devops
+    import agent_e2e_aws_controller as C
+    calls = []
+    monkeypatch.setattr(ai_arc_devops, 'verified_operator', lambda ctx: (_ for _ in ()).throw(RuntimeError('bad')))
+    monkeypatch.setattr(C, 'AwsController', lambda *a, **k: calls.append('controller'))
+    with pytest.raises(RuntimeError):
+        ai_arc_devops.DevopsSetup('city-gis-ecs').prepare(ctx_for(tmp_path, 'aws-ecs', 'setup'))
+    assert calls == []
+
+
+def _prepare_with_fakes(tmp_path, monkeypatch, *, fail_at):
+    aws = pytest.importorskip('agent_e2e_aws_install')
+    import ai_arc_devops
+    import agent_e2e_aws_controller as C
+    processes = []
+
+    class Operator:
+        def __init__(self, binary, workdir):
+            self.process = None
+
+        def bind(self, env, module_dir, creds):
+            self.process = subprocess.Popen(['sleep', '300'])
+            processes.append(self.process)
+
+        def catalog(self):
+            raise C.ControllerError('operator-rpc-error')
+
+        def close(self):
+            self.process.terminate()
+            self.process.wait(10)
+
+    creds = types.SimpleNamespace(access_key_id='ASIA' + 'A' * 16, secret_access_key='s' * 30, session_token='t' * 30,
+                                  secrets=lambda: ['s' * 30, 't' * 30])
+
+    class Controller:
+        def __init__(self, *a):
+            pass
+
+        def assume(self, role, name):
+            return creds
+
+        def destroy(self):
+            return []
+
+        def inventory(self):
+            return []
+    variables = tmp_path / 'vars.tfvars'
+    variables.write_text('honua_admin_password = "p' + 'x' * 20 + '"\nhonua_connection_encryption_master_key = "m'
+                         + 'y' * 30 + '"\n')
+    slot = {'contractPath': '/c.json', 'contractDigest': 'd', 'runId': 'r1', 'iacRoot': str(tmp_path),
+            'variablesFile': str(variables), 'hostname': 'arc1.example', 'console': None}
+    (tmp_path / 'slot.json').write_text(json.dumps(slot))
+    role = 'arn:aws:iam::1:role/deploy'
+    (tmp_path / 'boot.json').write_text(json.dumps({'approval_mac_issuer_key_arns': [], 'approval_mac_contract': {
+        'kind': 'honua.iac.approval-mac-key', 'enabled': True,
+        'separation': {'signer_role_arns': ['arn:aws:iam::1:role/signer'], 'verifier_can_sign': False,
+                       'verifier_role_arns': [role]}}}))
+    monkeypatch.setattr(ai_arc_devops, 'verified_operator', lambda ctx: {
+        'binary': '/bin/true', 'tag': 't', 'commit': 'c', 'archiveSha256': 'a', 'binarySha256': 'b'})
+    monkeypatch.setattr(aws, 'load_contract', lambda path, topology: ({'role_arn': role}, 'd'))
+    monkeypatch.setattr(aws, 'operator_env', lambda *a, **k: {})
+    monkeypatch.setattr(C, 'AwsController', Controller)
+    monkeypatch.setattr(C, 'StdioOperator', Operator)
+    monkeypatch.setattr(C, 'ApprovalIssuer', lambda *a, **k: object())
+    if fail_at == 'harness':
+        monkeypatch.setattr(aws, 'InstallHarness', lambda **k: (_ for _ in ()).throw(ValueError('harness')))
+    else:
+        monkeypatch.setattr(aws, 'InstallHarness', lambda **k: types.SimpleNamespace(observed={}, unsafe=[]))
+    ctx = ctx_for(tmp_path, 'aws-ecs', 'setup', slot_receipt=str(tmp_path / 'slot.json'),
+                  bootstrap_outputs=str(tmp_path / 'boot.json'))
+    import boto3  # noqa: F401
+    monkeypatch.setattr('boto3.Session', lambda **k: object())
+    return ai_arc_devops.DevopsSetup('city-gis-ecs'), ctx, processes
+
+
+@pytest.mark.parametrize('fail_at', ['catalog', 'harness'])
+def test_a_preparation_failure_after_the_operator_starts_still_stops_it(tmp_path, monkeypatch, fail_at):
+    """Item 4: the operator is in the stage's live set before it starts; finalize_stage stops it and the
+    cell teardown is already a slot closer."""
+    pytest.importorskip('boto3')
+    stage, ctx, processes = _prepare_with_fakes(tmp_path, monkeypatch, fail_at=fail_at)
+    with pytest.raises(Exception):
+        stage.prepare(ctx)
+    assert len(processes) == 1 and processes[0].poll() is None, 'the operator was started'
+    assert len(ctx.live) == 1 and len(ctx.slot.closers) == 1
+    shutdown = R.finalize_stage(ctx, 'error:prepare')
+    assert processes[0].poll() is not None, 'finalize_stage stopped the operator'
+    assert not shutdown['errors']
+    assert R.run_closers(ctx.slot) == [{'step': 'DevopsSetup._teardown', 'status': 'clean', 'remaining': []}]
+
+
+@pytest.mark.parametrize('destroy, inventory, status', [
+    (lambda: [], lambda: [], 'clean'),
+    (lambda: ['arn:aws:ecs:us-east-1:1:service/x'], lambda: ['arn:aws:ecs:us-east-1:1:service/x'], 'residual'),
+    (lambda: [], lambda: ['arn:aws:rds:us-east-1:1:db:x'], 'residual'),
+    (lambda: [], lambda: (_ for _ in ()).throw(RuntimeError('throttled')), 'unknown'),
+])
+def test_the_aws_teardown_reports_what_a_live_inventory_read_finds(destroy, inventory, status):
+    """Item 5: clean only when a live inventory read after destroy finds nothing."""
+    import ai_arc_devops
+    stage = ai_arc_devops.DevopsSetup('city-gis-ecs')
+    stage.controller = types.SimpleNamespace(destroy=destroy, inventory=inventory)
+    assert stage._teardown()['status'] == status
+
+
+def test_an_aws_destroy_that_raises_is_a_failed_teardown():
+    import ai_arc_devops
+    stage = ai_arc_devops.DevopsSetup('city-gis-ecs')
+    stage.controller = types.SimpleNamespace(destroy=lambda: (_ for _ in ()).throw(RuntimeError('destroy')),
+                                             inventory=lambda: [])
+    slot = R.Slot('aws-ecs', 'aws-cell', 'arc-abcdef1234')
+    slot.closers.append(stage._teardown)
+    assert R.merge_teardown({'status': 'clean', 'steps': []}, R.run_closers(slot))['status'] == 'failed'
+
+
+def test_an_operator_owner_closed_by_a_deadline_never_leaves_a_process():
+    import threading
+    import ai_arc_devops
+    started = []
+
+    class Operator:
+        process = None
+
+        def bind(self, *a):
+            self.process = subprocess.Popen(['sleep', '300'])
+            started.append(self.process)
+            time.sleep(0.5)             # the stage deadline finalizes while the operator is starting
+
+        def close(self):
+            self.process.terminate()
+            self.process.wait(10)
+    owner = ai_arc_devops.OperatorOwner(Operator())
+    closer = threading.Thread(target=owner.close)
+    threading.Timer(0.1, closer.start).start()
+    with pytest.raises(RuntimeError, match='finalized while'):
+        owner.bind()
+    closer.join(10)
+    assert started[0].poll() is not None and not owner.alive()
+    with pytest.raises(RuntimeError, match='finalized before'):
+        owner.bind()
+    assert len(started) == 1
+
+
+def test_a_start_that_raises_while_shutdown_races_it_leaves_no_process_tree(tmp_path):
+    """Astra #1177 re-review item 1: the real StdioOperator spawns, a close arrives during initialize,
+    and initialize then raises. The owner waits for the start to end and stops the process and the
+    child it spawned."""
+    import threading
+    import ai_arc_devops
+    from agent_e2e_aws_controller import StdioOperator
+    script = tmp_path / 'operator'
+    script.write_text('#!/bin/sh\nsleep 300 &\nsleep 1\necho not-json\nsleep 300\n')
+    script.chmod(0o755)
+    owner = ai_arc_devops.OperatorOwner(StdioOperator(script, tmp_path / 'op'))
+    errors = []
+
+    def close():
+        try:
+            owner.close()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+    timer = threading.Timer(0.3, close)
+    timer.start()
+    with pytest.raises(Exception):
+        owner.bind(dict(os.environ), str(tmp_path), None)
+    timer.join(60)
+    assert owner.closed and not owner.alive(), 'the operator and its child are gone'
+    assert owner.tree, 'the spawned child was observed and stopped'
+    assert not errors
+
+
+def test_an_overrun_preparation_cannot_start_the_operator_after_finalize():
+    """Item 4 (deadline): the stage finalized while preparation was still running in its worker."""
+    import ai_arc_devops
+    started = []
+    finalized = {'done': False}
+
+    class Operator:
+        process = None
+
+        def bind(self, *a):
+            started.append(1)
+    owner = ai_arc_devops.OperatorOwner(Operator(), lambda: finalized['done'])
+    finalized['done'] = True
+    with pytest.raises(RuntimeError, match='finalized before'):
+        owner.bind()
+    assert started == []
+
+
+def test_studio_accepts_only_bound_heldout_fixture_expectations(tmp_path):
+    import agent_e2e_studio_arc as studio
+    ctx = ctx_for(tmp_path, 'local-docker', 'studio')
+    ctx.slot.vm = types.SimpleNamespace(secrets={'POSTGRES_PASSWORD': 'synthetic-only'})
+    ctx.variant = 'H'
+    ctx.case = {'target': 'local-docker', 'fixtures': 'town-A',
+                'goals': {'studio': 'Create the requested synthetic map for the customer.'}}
+    stage = studio.arc_stage(ctx)
+    assert stage.unavailable(ctx) is None
+    ctx.case['fixtures'] = 'unknown-fixture'
+    assert 'frozen expectations' in stage.unavailable(ctx)
+
+
+# ---------------------------------------------------------------- development candidate (trunk image on the hosts)
+
+def _dev_lock(tmp_path, reference='honua-arc-dev/honua-server:' + 'a' * 12, development=True):
+    lock = {'schema': R.DEV_CANDIDATE_SCHEMA, 'development': development,
+            'components': {'honua-server': {'source': {'revision': 'a' * 40},
+                                            'artifacts': [{'kind': 'image', 'digest': 'sha256:' + 'f' * 64,
+                                                           'reference': reference, 'local': True}]}}}
+    path = tmp_path / 'dev-lock.json'
+    path.write_text(json.dumps(lock))
+    return str(path), R.sha256(path.read_bytes())
+
+
+def test_a_development_lock_binds_a_local_trunk_image_and_is_marked(tmp_path):
+    path, digest = _dev_lock(tmp_path)
+    candidate = R.candidate_from_lock(path, digest)
+    assert candidate['development'] is True and candidate['imageDigest'] == 'sha256:' + 'f' * 64
+    assert candidate['reference'].startswith('honua-arc-dev/honua-server:')
+    for bad in ({'reference': 'ghcr.io/honua-io/honua-server:latest'}, {'development': False}):
+        path, digest = _dev_lock(tmp_path, **bad)
+        with pytest.raises(SystemExit):
+            R.candidate_from_lock(path, digest)
+
+
+@pytest.mark.parametrize('development, image_id, ok', [(True, 'sha256:' + 'f' * 64, True),
+                                                       (True, 'sha256:' + '0' * 64, False),
+                                                       (False, 'sha256:' + 'f' * 64, False)])
+def test_a_development_image_is_identified_by_its_local_id_only_when_declared(development, image_id, ok):
+    import ai_arc_local as L
+
+    class Slot:
+        secrets = {'HONUA_ADMIN_PASSWORD': 'p'}
+
+        def ssh(self, script, timeout=60):
+            if 'image inspect' in script:
+                out = '[]|{"org.opencontainers.image.revision": "%s"}|"%s"' % ('a' * 40, image_id)
+            else:
+                out = json.dumps({'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy',
+                                  'Image': 'honua-arc-dev/honua-server:' + 'a' * 12})
+            return subprocess.CompletedProcess([], 0, out.encode(), b'')
+
+        def compose(self, *a):
+            return 'docker compose ' + ' '.join(a)
+    http = lambda m, u, k: {'status': 200 if (k or 'ready' in u) else 401,  # noqa: E731
+                            'json': {'version': '1.0.0+' + 'a' * 12}}
+    facts = L.observe_serving(Slot(), {'image': 'honua-arc-dev/honua-server', 'imageDigest': 'sha256:' + 'f' * 64,
+                                       'sourceSha': 'a' * 40, 'development': development}, http, 'http://x')
+    assert facts['identity'] is ok, facts['evidence']
+
+
+# ---------------------------------------------------------------- Sol #1177 review 5725287948
+
+def test_an_initializer_that_exits_leaves_no_unowned_descendant(tmp_path):
+    """Item 1: the operator forks a child, answers initialize with garbage and exits before any
+    snapshot; the child is reparented. Its process group is still owned and killed."""
+    import ai_arc_devops
+    from agent_e2e_aws_controller import StdioOperator
+    pidfile = tmp_path / 'child.pid'
+    script = tmp_path / 'operator'
+    script.write_text(f'#!/bin/sh\nsleep 300 &\necho $! > {pidfile}\necho not-json\nexit 0\n')
+    script.chmod(0o755)
+    for _ in range(8):
+        pidfile.unlink(missing_ok=True)
+        owner = ai_arc_devops.OperatorOwner(StdioOperator(script, tmp_path / 'op'))
+        with pytest.raises(Exception):
+            owner.bind(dict(os.environ), str(tmp_path), None)
+        child = int(pidfile.read_text())
+        owner.close()
+        assert not ai_arc_devops._pid_alive(child), 'the reparented child was killed with the group'
+        assert not owner.alive() and not ai_arc_devops._group_members(owner.pgid)
+
+
+def test_the_operator_is_launched_as_its_own_process_group_leader(tmp_path):
+    import ai_arc_devops
+    from agent_e2e_aws_controller import StdioOperator
+    script = tmp_path / 'operator'
+    script.write_text('#!/bin/sh\nexec sleep 300\n')
+    script.chmod(0o755)
+    owner = ai_arc_devops.OperatorOwner(StdioOperator(script, tmp_path / 'op'))
+    try:
+        with pytest.raises(Exception):
+            owner.bind(dict(os.environ), str(tmp_path), None)      # never answers initialize (30 s bound)
+    finally:
+        owner.close()
+    assert owner.pgid == owner.operator.process.pid and not owner.alive()
+
+
+def _ps(*containers):
+    return b'\n'.join(json.dumps(c).encode() for c in containers)
+
+
+def test_an_install_console_whose_tag_moved_is_judged_by_the_running_image(tmp_path):
+    """Item 3: the container still runs the old Console while its tag now resolves to the pinned one."""
+    import ai_arc_local
+
+    def run(argv, input=None, **kw):
+        script = (input or b'').decode()
+        out = b''
+        if ' ps --all --format json' in script:
+            out = _ps({'Name': 'h', 'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'},
+                      {'Name': 'c', 'Service': 'console', 'State': 'running', 'Health': 'healthy',
+                       'Image': 'ghcr.io/honua-io/honua-console:rc',
+                       'Publishers': [{'URL': '127.0.0.1', 'TargetPort': 8080, 'PublishedPort': 18190}]})
+        elif 'image inspect' in script:
+            running = '"$(docker inspect' in script        # the container's own image, not a tag lookup
+            digests = [OLD_6828] if running else [CONSOLE_REF]
+            out = (json.dumps(digests) + '|{}|' + json.dumps('sha256:' + ('1' if running else '2') * 64)).encode()
+        return subprocess.CompletedProcess(argv, 0, out, b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                             project='arc-abcdef123456', index=1, run=run)
+    facts = ai_arc_local.observe_serving(vm, {'image': 'x', 'imageDigest': 'sha256:' + 'a' * 64, 'sourceSha': 'b' * 40},
+                                         lambda m, u, k: {'status': 200}, 'http://127.0.0.1:1')
+    assert facts['consoleRepoDigests'] == [OLD_6828] and CONSOLE_REF not in facts['consoleRepoDigests']
+    assert facts['evidence']['consoleImageId'] == 'sha256:' + '1' * 64
+
+
+def test_a_container_without_an_id_has_no_identity():
+    import ai_arc_local
+    assert ai_arc_local.running_image(object(), {'Image': 'ghcr.io/honua-io/honua-console:rc'}) == (None, [], {})
+
+
+# ---------------------------------------------------------------- ops gates by covered assertion (option B)
+
+def test_every_executor_gate_names_its_kind_and_covered_assertions():
+    import arc_ops
+    spec = json.loads(arc_ops.GATES.read_text())
+    catalog = set(ARC['opsScope']['catalog'])
+    for target in ('local-docker', 'aws-ecs'):
+        for gate in spec[target]['executors']:
+            assert gate['kind'] and gate['covers'] and set(gate['covers']) <= catalog, gate['id']
+
+
+def test_an_executed_subset_waits_only_on_gates_covering_scored_assertions():
+    import arc_ops
+    full = arc_ops.open_gates('aws-ecs')
+    assert {g.split(' ')[0] for g in full} == {'convergence-image', 'controller-cert-cell'}, 'full scope: every gate'
+    assert arc_ops.open_gates('aws-ecs', ['diagnosis.recovered', 'approval.separate']) == []
+    assert [g.split(' ')[0] for g in arc_ops.open_gates('aws-ecs', ['upgrade.candidate-serving'])] == ['convergence-image']
+
+
+def test_the_ecs_option_c_decision_is_recorded_but_not_applied_without_founder_approval():
+    scope = json.loads((R.ROOT / 'certification/ai-arc/gating-scope.json').read_text())
+    assert scope['opsScope'] == {'aws-ecs': 'not-gating', 'local-docker': 'full'} and scope['approvedBy'] is None
+    assert R.ops_scope(ARC, 'aws-ecs')['mode'] == 'full', 'no founder approval: scored in full'
+
+
+def test_ecs_ops_uses_the_1164_entry_point_once_present(tmp_path, monkeypatch):
+    import arc_ops
+    monkeypatch.setattr(arc_ops, 'open_gates', lambda target, scored=None: [])
+    monkeypatch.setitem(sys.modules, 'ecs_stage', types.SimpleNamespace())
+    c = ctx_for(tmp_path, 'aws-ecs', 'ops')
+    assert 'run_ecs_ops_stage(slot, session, ledger)' in arc_ops.arc_stage(c).unavailable(c)
+    seen = []
+
+    def entry(slot, session, ledger):
+        seen.append((slot, session, ledger))
+        return {'assertions': [{'assertion': 'diagnosis.recovered', 'status': 'pass'}]}
+    monkeypatch.setitem(sys.modules, 'ecs_stage', types.SimpleNamespace(run_ecs_ops_stage=entry))
+    stage = arc_ops.arc_stage(c)
+    stage.run(c, 'session', 'prompt')
+    assert seen[0][0] is c.slot and seen[0][1] == 'session' and seen[0][2].is_dir()
+    assert stage.observe(c, {}) == [{'assertion': 'diagnosis.recovered', 'status': 'pass'}]
+
+
+def test_the_vm_slot_directory_is_one_studio_admits(tmp_path):
+    """Astra 2026-11-01: Studio's provision_local_server rejected the runner's /tmp slot directories."""
+    from pathlib import Path
+    import ai_arc_local
+    slot = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file='x', known_hosts='y',
+                               project='arc-abcdef123456', index=0)
+    remote = Path(slot.remote_dir)
+    assert remote == Path('/home/ubuntu/honua-arc/arc-abcdef123456')
+    assert remote.is_absolute() and '..' not in remote.parts and Path('/tmp') not in remote.parents
+
+
+@pytest.mark.parametrize('init,ready', [
+    ({'State': 'exited', 'ExitCode': 0}, True),        # the package's one-shot initializers completed
+    ({'State': 'exited', 'ExitCode': 1}, False),       # a failed initializer is never ready
+    ({'State': 'running', 'ExitCode': 0}, False),      # still initializing
+    ({'State': 'created'}, False),
+])
+def test_one_shot_initializers_are_ready_only_after_a_clean_exit(tmp_path, init, ready):
+    """Sol 477d0d28 item 1: the shipped package's compose-executor-init (and keyring-init) exit after a
+    successful run; ``ps --all`` lists them, and readiness accepts exactly exit code 0."""
+    import ai_arc_local
+    rows = [{'Service': 'honua', 'State': 'running', 'Health': 'healthy', 'Image': 'img'},
+            {'Service': 'compose-manager', 'State': 'running', 'Health': 'healthy'},
+            {'Service': 'keyring-init', 'State': 'exited', 'ExitCode': 0},
+            {'Service': 'compose-executor-init', **init}]
+
+    def run(argv, input=None, **kw):
+        script = (input or b'').decode()
+        out = b''
+        if ' ps --all --format json' in script:
+            out = '\n'.join(json.dumps(r) for r in rows).encode()
+        if 'docker image inspect' in script:
+            out = (json.dumps(['ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64]) + '|'
+                   + json.dumps({'org.opencontainers.image.revision': 'a4bde4b8'}) + '|'
+                   + json.dumps('sha256:' + '9' * 64)).encode()
+        return subprocess.CompletedProcess(argv, 0, out, b'')
+    identity, known = tmp_path / 'id', tmp_path / 'kh'
+    identity.write_text('k')
+    known.write_text('h')
+    vm = ai_arc_local.VmSlot(host='honua-eval-1', user='ubuntu', identity_file=str(identity), known_hosts=str(known),
+                             project='arc-abcdef123456', index=0, run=run)
+    vm.secrets = {'HONUA_ADMIN_PASSWORD': 'x' * 20}
+    http = lambda m, u, k: ({'status': 200, 'json': {'data': {'version': '2026.1.0-rc.1+a4bde4b8'}}}
+                            if k else {'status': 200 if u.endswith('ready') else 401})
+    facts = ai_arc_local.observe_serving(vm, {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'a' * 64,
+                                              'sourceSha': 'a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e'}, http, 'http://x')
+    assert facts['ready'] is ready
+
+
+def test_console_has_its_own_port_apart_from_the_package_manager():
+    """Sol 477d0d28 item 2: the package manager is serving+2; Console is serving+4 on the same slot."""
+    import ai_arc_local
+    vm = ai_arc_local.VmSlot.__new__(ai_arc_local.VmSlot)
+    vm.http_port = 18180
+    assert vm.manager_port == 18182 and 18180 + ai_arc_local.CONSOLE_PORT_OFFSET == 18184
+    assert len({vm.http_port, vm.http_port + 1, vm.manager_port, vm.http_port + 3,
+                vm.http_port + ai_arc_local.CONSOLE_PORT_OFFSET}) == 5
+
+
+SHAKEOUT_A2_ANSWER = """Honua is running with your exact pinned server image. All seven services are healthy, and both APIs report `Ready`.
+
+- Serving API: http://localhost:18080
+- Management API and MCP: http://localhost:18082
+- Serving admin credential: `HONUA_ADMIN_PASSWORD` in the install folder's `.env`
+- Management bootstrap credential: `HONUA_MANAGER_ADMIN_PASSWORD` in `.env`
+
+Use the corresponding credential as the API key. For managed operations, create separate proposer and approver keys through the management API.
+
+The package setup completed without changing your settings. Keep `.env`, `secrets/`, and the Docker volumes for restarts and recovery."""
+
+
+class _Tunnel:
+    opened = []
+
+    def __init__(self, vm, port):
+        self.port, self.base_url, self.closed = port, 'http://127.0.0.1:7082', False
+        _Tunnel.opened.append(self)
+
+    def close(self):
+        self.closed = True
+
+
+def _package_ctx(routes):
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', controller={'base_url': 'http://127.0.0.1:9'})
+    slot.vm = type('V', (), {'http_port': 18080, 'manager_port': 18082, 'packaged': True})()
+    seen = []
+    def http(m, u, k):
+        seen.append(u)
+        return routes.get(u, {'status': 404})
+    return type('C', (), {'slot': slot, 'options': {'http': http, 'handoff_tunnel': _Tunnel}})(), seen
+
+
+def test_the_shipped_package_management_url_is_read_through_its_own_tunnel():
+    """Pre-cut shakeout 11-01 (A2): the package exposes its manager on serving+2; a correct answer naming it was
+    scored url-does-not-resolve because only the serving port was probed."""
+    _Tunnel.opened = []
+    ctx, seen = _package_ctx({'http://127.0.0.1:9/': {'status': 200}, 'http://127.0.0.1:9/healthz/ready': {'status': 200},
+                              'http://127.0.0.1:7082/': {'status': 200}})
+    observed = R.observe_local_handoff(ctx, SHAKEOUT_A2_ANSWER)
+    assert [(r['url'], r['served']) for r in observed['resources']] == [
+        ('http://localhost:18080/', True), ('http://localhost:18082/', True)]
+    assert len(_Tunnel.opened) == 1 and _Tunnel.opened[0].port == 18082 and _Tunnel.opened[0].closed
+    assert observed['facts'] == {'statuses': ['serving']}
+    # ARC v2 scoring (#1203) judges only the structured final status block, so this prose answer makes no claim;
+    # the handoff observation above is what the harness owes the scorer.
+
+
+def test_an_unserved_stack_is_not_observed_serving_and_other_ports_are_not_probed():
+    _Tunnel.opened = []
+    ctx, seen = _package_ctx({'http://127.0.0.1:9/healthz/ready': {'status': 503}})
+    observed = R.observe_local_handoff(ctx, 'Open http://localhost:18080/ and http://localhost:9999/ now.')
+    assert observed['facts'] == {'statuses': []} and _Tunnel.opened == []
+    assert [r['url'] for r in observed['resources']] == ['http://localhost:18080/']
+    # A non-package slot never opens the manager tunnel.
+    ctx.slot.vm.packaged = False
+    R.observe_local_handoff(ctx, 'Manager: http://localhost:18082/')
+    assert _Tunnel.opened == []

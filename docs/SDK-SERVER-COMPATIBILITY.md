@@ -19,7 +19,7 @@ SDK/server pairing. Certification requires an exact artifact-pair receipt in the
 | honua-sdk-js | @honua/sdk-js 0.2.10; @honua/mcp-server 0.2.10; @honua/sdk 0.2.10; @honua/react 0.2.10; @honua/geometry 0.2.10; @honua/app-platform 0.2.10; create-honua-app 0.2.3 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
 | honua-sdk-dotnet | Honua.Sdk 1.12.0 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
 | honua-sdk-python | honua-sdk 0.1.19; honua-admin 0.1.12 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json 1.0.0+d5a09d13 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json 1.0.0+3c5388a8 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
 
 The JavaScript repository also owns `@honua/mcp-server`; its Honua attachment must
 bind the consumed SDK and MCP manifests. Standalone third-party protocol reads do not

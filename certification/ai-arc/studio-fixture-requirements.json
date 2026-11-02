@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "fixtures": {
+    "town-A": {
+      "P08": ["layers", "style", "labels", "sharing"]
+    },
+    "town-B": {
+      "P08": ["layers", "style", "labels", "sharing"]
+    }
+  }
+}

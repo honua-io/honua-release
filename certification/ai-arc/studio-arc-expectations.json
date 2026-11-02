@@ -1,0 +1,577 @@
+{
+  "schemaVersion": 1,
+  "scenario": "P08",
+  "derivation": "ARC Studio: map/render requirements from P08; imported raw-table baselines; sources bound to independently read agent publication handles from stage three or four.",
+  "roles": [
+    {
+      "role": "arc:service:parcels",
+      "step": "arc-publish-parcels",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "arc:layer:parcels",
+      "step": "arc-publish-parcels",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "arc:service:flood_zones",
+      "step": "arc-publish-flood-zones",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "arc:layer:flood_zones",
+      "step": "arc-publish-flood-zones",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "arc:service:shelters",
+      "step": "arc-publish-shelters",
+      "pointer": "/data/resourceIds/serviceName"
+    },
+    {
+      "role": "arc:layer:shelters",
+      "step": "arc-publish-shelters",
+      "pointer": "/data/resourceIds/layerId"
+    },
+    {
+      "role": "created:map",
+      "step": "p08-maps",
+      "items": "/data/items",
+      "id": "/itemId",
+      "owner": "/ownerId",
+      "before": "p08-maps-before",
+      "owner_any_of": [
+        "{agentUser}",
+        "{agentKey}",
+        "api-key:{agentKey}"
+      ]
+    }
+  ],
+  "projections": {
+    "render.actual": {
+      "spec": {
+        "object": {
+          "httpStatus": {
+            "body": "p08-render",
+            "pointer": "/httpStatus"
+          },
+          "decodedWidth": {
+            "body": "p08-render",
+            "pointer": "/decodedWidth"
+          },
+          "decodedHeight": {
+            "body": "p08-render",
+            "pointer": "/decodedHeight"
+          },
+          "loadedLayerIds": {
+            "body": "p08-render",
+            "pointer": "/loadedLayerIds"
+          },
+          "nonBackgroundPixels": {
+            "body": "p08-render",
+            "pointer": "/nonBackgroundPixels"
+          },
+          "browserErrors": {
+            "body": "p08-render",
+            "pointer": "/browserErrors"
+          },
+          "regions": {
+            "body": "p08-render",
+            "pointer": "/regions"
+          },
+          "visibleLabelSourceIds": {
+            "body": "p08-render",
+            "pointer": "/visibleLabelSourceIds"
+          },
+          "sourceEvidence": {
+            "list": [
+              {
+                "sha256": "p08-version"
+              },
+              {
+                "sha256": "p08-src-parcels-after-raw"
+              },
+              {
+                "sha256": "p08-src-parcels-after-geo"
+              },
+              {
+                "sha256": "p08-export-parcels"
+              },
+              {
+                "sha256": "p08-src-flood-zones-after-raw"
+              },
+              {
+                "sha256": "p08-src-flood-zones-after-geo"
+              },
+              {
+                "sha256": "p08-export-flood-zones"
+              },
+              {
+                "sha256": "p08-src-shelters-after-raw"
+              },
+              {
+                "sha256": "p08-src-shelters-after-geo"
+              },
+              {
+                "sha256": "p08-export-shelters"
+              }
+            ]
+          }
+        }
+      },
+      "reads": {
+        "p08-render": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/derived/p08\\-render"
+        },
+        "p08-version": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+          "addresses": [
+            {
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-parcels-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-parcels-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-export-parcels": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
+          "addresses": [
+            {
+              "role": "arc:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:parcels",
+              "at": {
+                "query": "layers"
+              }
+            }
+          ]
+        },
+        "p08-src-flood-zones-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-flood-zones-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-export-flood-zones": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
+          "addresses": [
+            {
+              "role": "arc:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:flood_zones",
+              "at": {
+                "query": "layers"
+              }
+            }
+          ]
+        },
+        "p08-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-shelters-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-export-shelters": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/MapServer/export\\?.*",
+          "addresses": [
+            {
+              "role": "arc:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:shelters",
+              "at": {
+                "query": "layers"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "source-content.unchanged": {
+      "spec": {
+        "studioArcContent": [
+          "p08-src-shelters-after-raw",
+          "p08-src-parcels-after-raw",
+          "p08-src-flood-zones-after-raw",
+          "p08-src-shelters-after-geo",
+          "arc-source-parcels-before",
+          "arc-source-flood-zones-before",
+          "arc-source-shelters-before"
+        ]
+      },
+      "reads": {
+        "p08-src-shelters-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-parcels-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Cowner%2Csource_id%2Cvalue&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:parcels",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:parcels",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-flood-zones-after-raw": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=id%2Cname%2Csource_id&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:flood_zones",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:flood_zones",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "p08-src-shelters-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=id%2Ccapacity%2Cis_open%2Cname%2Csource_id&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000",
+          "addresses": [
+            {
+              "role": "arc:service:shelters",
+              "at": {
+                "pathSegment": 2
+              }
+            },
+            {
+              "role": "arc:layer:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            }
+          ]
+        },
+        "arc-source-parcels-before": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "seed",
+          "path": ".*"
+        },
+        "arc-source-flood-zones-before": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "seed",
+          "path": ".*"
+        },
+        "arc-source-shelters-before": {
+          "kind": "sql",
+          "method": "SELECT",
+          "principal": "controller",
+          "phase": "seed",
+          "path": ".*"
+        }
+      }
+    }
+  },
+  "variantProjections": {
+    "A": {
+      "map.composition": {
+        "spec": {
+          "object": {
+            "mapId": {
+              "target": "p08-version",
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            },
+            "orderedLayerIds": {
+              "body": "p08-composition",
+              "pointer": "/orderedLayerIds"
+            },
+            "visibility": {
+              "body": "p08-composition",
+              "pointer": "/visibility"
+            },
+            "extent": {
+              "studioViewContainsFixture": {
+                "body": "p08-composition",
+                "pointer": "/view"
+              },
+              "fixtureBounds3857": [
+                -20010,
+                -5010,
+                -18800,
+                -4700
+              ]
+            }
+          }
+        },
+        "reads": {
+          "p08-composition": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/derived/p08\\-composition"
+          },
+          "p08-version": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+            "addresses": [
+              {
+                "role": "created:map",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "B": {
+      "map.composition": {
+        "spec": {
+          "object": {
+            "mapId": {
+              "target": "p08-version",
+              "role": "created:map",
+              "at": {
+                "pathSegment": 4
+              }
+            },
+            "orderedLayerIds": {
+              "body": "p08-composition",
+              "pointer": "/orderedLayerIds"
+            },
+            "visibility": {
+              "body": "p08-composition",
+              "pointer": "/visibility"
+            },
+            "extent": {
+              "studioViewContainsFixture": {
+                "body": "p08-composition",
+                "pointer": "/view"
+              },
+              "fixtureBounds3857": [
+                12990,
+                -8010,
+                14200,
+                -7700
+              ]
+            }
+          }
+        },
+        "reads": {
+          "p08-composition": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/derived/p08\\-composition"
+          },
+          "p08-version": {
+            "kind": "http",
+            "method": "GET",
+            "principal": "controller",
+            "phase": "observe",
+            "path": "/api/v1/studio/content-items/[A-Za-z0-9-]{1,80}/versions/[A-Za-z0-9-]{1,80}",
+            "addresses": [
+              {
+                "role": "created:map",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

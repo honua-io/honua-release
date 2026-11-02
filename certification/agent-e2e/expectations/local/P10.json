@@ -48,8 +48,18 @@
             "before": "p10-source-before",
             "after": "p10-source-after",
             "resource": [
-              "seeded:service:shelters",
-              "seeded:layer:shelters"
+              {
+                "role": "seeded:service:shelters",
+                "at": {
+                  "pathSegment": 2
+                }
+              },
+              {
+                "role": "seeded:layer:shelters",
+                "at": {
+                  "pathSegment": 4
+                }
+              }
             ]
           }
         ]

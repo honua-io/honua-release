@@ -1,0 +1,14 @@
+{
+  "width": 512,
+  "height": 512,
+  "background": [255, 255, 255, 255],
+  "backgroundTolerance": 8,
+  "regions": [
+    {
+      "id": "flood",
+      "rect": [40, 40, 80, 60],
+      "rgba": [166, 213, 255, 255],
+      "tolerance": 8
+    }
+  ]
+}

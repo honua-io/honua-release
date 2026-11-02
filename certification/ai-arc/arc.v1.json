@@ -19,7 +19,8 @@
       "imageDigest": "sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37"
     },
     "candidate": {
-      "binding": "phases.candidate {sourceRevision, imageDigest, platformLockDigest} from the candidate platform lock, as gate-upgrade binds it"
+      "binding": "phases.candidate {sourceRevision, imageDigest, platformLockDigest} from the candidate platform lock, as gate-upgrade binds it",
+      "release": "2026.1-rc.2"
     }
   },
   "arms": [
@@ -29,7 +30,8 @@
       "agent": "claude-cli",
       "model": "claude-opus-5-5",
       "family": "anthropic",
-      "required": true
+      "required": true,
+      "cliVersion": "2.1.316 (Claude Code)"
     },
     {
       "id": "A2",
@@ -37,58 +39,10 @@
       "agent": "codex-cli",
       "model": "gpt-6.1-sol",
       "family": "openai",
-      "required": true
-    },
-    {
-      "id": "C1",
-      "name": "claude-code-sonnet-5-5",
-      "agent": "claude-cli",
-      "model": "claude-sonnet-5-5",
-      "family": "anthropic",
-      "required": false
-    },
-    {
-      "id": "C2",
-      "name": "claude-code-sonnet-4-6",
-      "agent": "claude-cli",
-      "model": "claude-sonnet-4-6",
-      "family": "anthropic",
-      "required": false
-    },
-    {
-      "id": "C3",
-      "name": "codex-gpt-6.1-terra",
-      "agent": "codex-cli",
-      "model": "gpt-6.1-terra",
-      "family": "openai",
-      "required": false
+      "required": true,
+      "cliVersion": "codex-cli 0.166.0"
     }
   ],
-  "studioAssistant": {
-    "id": "studio-assistant-sonnet-4-6",
-    "model": "us.anthropic.claude-sonnet-4-6",
-    "family": "anthropic",
-    "required": true,
-    "customerScript": [
-      {
-        "after": "first-reply",
-        "say": "Yes, use the three layers you just loaded."
-      },
-      {
-        "after": "question",
-        "say": "Shelters on top, parcels at the bottom."
-      },
-      {
-        "after": "question",
-        "say": "Name it Flood planning and share it with the operators only."
-      }
-    ],
-    "drivers": [
-      "assistant",
-      "arm-browser"
-    ],
-    "surface": "Honua Console built-in AI assistant (Studio AI proxy)"
-  },
   "stages": [
     {
       "id": "setup",
@@ -223,61 +177,56 @@
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-ecs": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-eks": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ],
         "aws-lambda": [
           "candidate.serving",
           "P10:filter.exact",
           "P10:source-content.unchanged",
           "P10:finalAnswerCheck",
-          "P07:catalog.exact",
-          "P07:tenant.denied",
-          "P07:finalAnswerCheck",
-          "P13:version.restored",
-          "P13:shared.preserved",
-          "P13:source-content.unchanged",
-          "P13:finalAnswerCheck"
+          "P15:publication.private",
+          "P15:tenant.denied",
+          "P15:custody.worker-replaced",
+          "P15:source-content.unchanged",
+          "P15:finalAnswerCheck"
         ]
       },
       "scenarios": [
         "P10",
-        "P07",
-        "P13"
+        "P15"
       ],
       "scenarioNote": "Only scenarios whose #1152 module supports the development variant and has been reviewed; frozen at Sun 23:00 from what is supported then. Each runs with its pack prompt (after the plain handoff) on the arc stack.",
-      "goalSource": "The services stage sends no arc-authored goal: each scenario in stages[services].scenarios runs with its own development-pack prompt (held-out: unavailable), the first one after the plain handoff. Coverage is exactly those scenarios."
+      "goalSource": "Development and held-out runs take one path, #1196's fixture entry point (ai_arc_services.run_fixture_services): fixture town-<variant> with targets[local-docker].goals.services and developmentFaults[variant] in development; the case's fixture, sealed services goal and fault held-out. The committed fixture catalog assigns the scenarios, which must equal stages[services].scenarios; the agent publishes the imported fixture table itself. On a services pass the harness reads back from the controller what the agent published (service, layer, operation, audit event, fields, geometry type, connection and imported tables) and hands it to stage four; a readback failure is a harness-undetermined services outcome.",
+      "developmentFaults": {
+        "A": "http_503_once",
+        "B": "response_lost_after_commit"
+      }
     },
     {
       "id": "studio",
@@ -287,16 +236,11 @@
       ],
       "versionRole": "candidate",
       "drivers": [
-        "console-assistant",
         "arm-browser"
       ],
       "required": {
         "local-docker": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -304,10 +248,6 @@
         ],
         "aws-ecs": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -315,10 +255,6 @@
         ],
         "aws-eks": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -326,10 +262,6 @@
         ],
         "aws-lambda": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -339,7 +271,7 @@
       "scenarios": [
         "P08"
       ],
-      "scenarioNote": "Studio is the map editor embedded in Honua Console (GA; honua-console, with the honua-studio editor runtime). Required path: Console's built-in AI assistant (calls the server's Studio AI proxy on Bedrock Sonnet 4.6), driven by a scripted customer turn-taker signed in to Console as the customer principal. CLI arms reach Console through #1162's origin-locked browser with real sign-in. Scoring: saved map and style documents via controller reads, plus an independent render through the server's map rendering API (never DOM markers). stages.studio.assistant is the model the Console assistant was observed to use (AI proxy response/audit).",
+      "scenarioNote": "Studio is the map editor embedded in Honua Console (GA; honua-console, with the honua-studio editor runtime). ARC v2 (founder 2026-11-01): the arm itself makes and saves the map through Studio in Console, reached through #1162's origin-locked browser with real sign-in. There is no built-in assistant sub-stage: the Studio AI proxy stays disabled on the slot, any studio_ai.chat audit event during the stage fails it, and no Studio-assistant result is claimed. Scoring: saved map and style documents via controller reads, plus an independent render through the server's map rendering API (never DOM markers), with the S12 requirements (UI-made map, layers, style, labels, filter, team/org sharing).",
       "requiresConsole": true
     }
   ],
@@ -360,7 +292,11 @@
         },
         "ops": {
           "A": "Honua is running from the earlier setup. Please update it to the newer release in the notes, make sure everything still works, and roll back if it doesn't. Afterwards, find out why the service that's now failing is unhealthy and tell me what you changed.",
-          "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Something also seems broken since this morning; can you look into it and get it working again?"
+          "B": "We need to move our Honua to the newer release in the notes without losing anything. If the update goes wrong, put it back how it was. Then, if anything is still unhealthy, find out why and get it working again."
+        },
+        "services": {
+          "A": "Our Kestrel shelter list was imported into Honua but nobody can see it yet. Please publish it, then show me only the Kestrel shelters that are open and can hold more than 50 people; leave out unknown capacities and ones that hold exactly 50. After that, share the Kestrel map with our operators only; it must stay private from the public and other teams.",
+          "B": "The Willow shelters table is loaded into Honua but isn't published. Can you make it available, then tell me which open shelters in Willow have room for more than 50 people? Skip any where we don't know the capacity. Then let our operator team open the Willow map without making it visible to everyone else."
         },
         "studio": {
           "A": "Make a Kestrel map in Studio with parcels underneath the flood zones and shelters on top. Make the flood zones blue and see-through, label shelters with their names, save it, and share it with our operators.",
@@ -372,7 +308,8 @@
         "minArcPasses": 17
       },
       "customerNotes": {
-        "setup": "Release: Honua {release}. Server image: {image}. I already created the secrets file and the key ring from the guide's second step in the install folder, so please don't make new ones. Use port {port} for Honua on this machine; the port after it is free for the other one."
+        "setup": "Release: Honua {release}. Server image: {image}. I already created the compose file, the secrets file and the key ring from the guide in the install folder, and the secrets file already names that exact server image and sets Honua to port {port} on this machine (the port after it for the other one), so please don't make new ones or override them.",
+        "setupPackage": "Release: Honua {release}. Server image: {image}. I downloaded the Honua quickstart package into the install folder and put my own choices in its settings file: serve that exact image first and keep it as the prior image for a rollback, and use port {port} on this machine (the next two ports for the other parts). Nothing else is set up yet; please do the rest from the package and the guide, and don't change those choices."
       }
     },
     "aws-ecs": {
@@ -541,14 +478,15 @@
     "local-docker": {
       "slotsPerHost": 3,
       "portBase": 18080,
-      "portStride": 100
+      "portStride": 100,
+      "slotDirectory": "/tmp/honua-arc-<project> on the eval VM, not on the controller. It is ephemeral per-run slot state: the compose project, its .env and key ring, and the executor's backups. The harness tears it down on every exit, and an eval-host reboot ends the run anyway (its containers are gone). The #1160 remote shell admits only this path, so the shell cannot reach anything else on the host. All controller-side private state (trial private dirs, CLI homes, the operator launcher) is on real disk under HONUA_ARC_SCRATCH, never /tmp."
     }
   },
   "opsScope": {
     "source": "certification/ai-arc/gating-scope.json (founder-approved: approvedBy=founder, approvedAt)",
     "modes": {
       "full": "every ops assertion is scored (prereg option A)",
-      "executed-subset": "only scoredOps[target] are scored (prereg option B); every other ops assertion is listed as unscored, never dropped",
+      "executed-subset": "only scoredOps[target] are scored (prereg option B: the operations whose executor is merged and rehearsed); every other ops assertion is listed as unscored, never dropped",
       "not-gating": "the target does not gate (prereg option C); ops is scored in full and results publish as they land"
     },
     "default": "full",
@@ -563,19 +501,73 @@
     "invariant": "candidate.serving is required from ops onward under every scope (version pair), and is never part of the scored/unscored catalog",
     "executedSubsetRule": {
       "mustScore": [
-        "diagnosis.recovered",
         "approval.separate"
       ],
-      "neverScore": [
-        "upgrade.candidate-serving",
-        "rollback.prior-serving",
-        "restore.migration-142"
-      ]
+      "neverScore": [],
+      "note": "Coordinator 2026-11-01: option B scores what the product executes today. On local-docker that is the update and the rollback with restore across 142; diagnose-and-remediate stays unscored until its executor and observability merge (honua-server opsobserve lane)."
     }
   },
   "consoleDeployment": {
-    "local-docker": "GAP: the published quickstart (honua-server docs/get-started/quickstart.md) composes no console service; honua-server docker-compose.yml has an opt-in console profile whose default image is ghcr.io/honua-io/honua-console:pending",
-    "aws-ecs": "GAP: the honua-iac aws-ecs module deploys no Console service (it only renders CORS origins for a Console origin)",
+    "local-docker": "honua-server #6828 (merged) pins Console in the repository docker-compose.yml 'console' profile. The published package quickstart the agent follows composes none, so for stage 4 the harness adds that console service (pinned image, honua-server compose at a pinned revision, --console-compose) as slot preparation, recorded in slotFacts.console.",
+    "aws-ecs": "honua-iac #359 and honua-devops #248 (merged) deploy Console on the cell's HTTPS hostname behind the OIDC edge. The arc consumes it when the release cell slot sets console (health: the edge sign-in page /oauth2/sign_in; the customer signs in through the adapter).",
     "rule": "The Studio stage is stage-unavailable on a slot where no Console is observed serving; it is never scored without one."
+  },
+  "console": {
+    "image": "ghcr.io/honua-io/honua-console",
+    "imageDigest": "sha256:ab453db9b2a468a05e58ebc445569fd2df84908df91967ae8d31417d6e971358",
+    "source": "Console c63b37fd (the final rc.2 Console build); honua-server #6864 compose re-pin, honua-iac #372, honua-release #1213",
+    "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed.",
+    "compose": {
+      "repo": "honua-io/honua-server",
+      "revision": "daf56db25c208765f5440e484a7c24fbc5ba81ab",
+      "path": "docker-compose.yml",
+      "sha256": "sha256:e6701f824316cf97c0dfa5067da9ae892385063ef51eb64fae05af674360a5b9",
+      "rule": "Stage 4 adds Console from exactly this compose file (honua-server #6864, which selects the pinned Console digest); the workflow passes it, so stage 4 runs in CI (Fable B3)."
+    }
+  },
+  "opsComposition": {
+    "executorCompose": "docs/get-started/compose.executor.yaml",
+    "repo": "honua-io/honua-server",
+    "revision": "22c06af0dc9a0aec12f4084948f6390c373cb013",
+    "sha256": "sha256:e43ec48faa83b5bfa4ce18b9120586a5d3efa85f084cbaf15a9aa8d2e3683c97",
+    "kind": "development-composition",
+    "rule": "Until the quickstart compose ships the executor service, local ops runs with this exact documented overlay; such runs are never certifying."
+  },
+  "quickstartPackage": {
+    "repo": "honua-io/honua-server",
+    "revision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
+    "priorMaxSchema": 140,
+    "certifyingRule": "ARC v2 B1/S4: only local runs whose setup installed this package and whose ops adopted its own manager and executor (slotFacts.opsComposition.kind quickstart-package) certify. The aggregate and tools/rc_gate_window.py admission both enforce it; the development composition (opsComposition) never certifies.",
+    "note": "The product's customer package (scripts/docker/package_quickstart.py, #6846) built at this revision from the candidate release lock; the harness stages it and the customer's .env choices only. priorMaxSchema is the install release's (rc.1) exact migration, never guessed.",
+    "files": {
+      "docs/get-started/quickstart.md": "sha256:00f41159fa1523f258eba90df2946015e0d81f6d0756e4df2dac785766372426",
+      "docs/get-started/compose.executor.yaml": "sha256:7e6a6dde32d133780247705784941ad77d3b77ca5cde227c8b8b715bee824764",
+      "scripts/docker/compose_quickstart.py": "sha256:1c164a77cecae32bd6626865fe7c1653fe76011dd87f1db6a76ed5e7e4adf0c8",
+      "scripts/docker/package_quickstart.py": "sha256:918f148e0ed3ea6ced1fc546e7c3a52492fce3f29370c40a0a91fcde33342273"
+    },
+    "candidateMaxSchema": 143
+  },
+  "quickstart": {
+    "repo": "honua-io/honua-server",
+    "revision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
+    "path": "docs/get-started/quickstart.md",
+    "sha256": "sha256:00f41159fa1523f258eba90df2946015e0d81f6d0756e4df2dac785766372426",
+    "rule": "The setup attachment is exactly this page (ARC v2, Fable/Astra S5): the workflow fetches it at the pinned revision, the runner rejects any other bytes, and verify_run rejects a receipt whose quickstart.pageSha256 differs."
+  },
+  "spendCap": {
+    "capUsd": 2500,
+    "perRunEstimateUsd": 25,
+    "rates": {
+      "vmHourUsd": 0.68,
+      "vmBasis": "ESTIMATE (not verified against the price list): c6i.4xlarge on-demand us-east-1 (honua-iac aws-eval-docker-hosts default), charged per run-hour as if the whole host (conservative)",
+      "awsCellHourUsd": 1.5,
+      "awsCellBasis": "ESTIMATE (not verified against the price list): one release cell slot (ECS, RDS share, ALB share) per run-hour"
+    },
+    "cliSubscription": "unknown: the CLI arms run on flat subscriptions; recorded as unknown, never priced",
+    "rule": "Astra S4: the campaign stops scheduling when spent plus the per-run estimate (the larger of perRunEstimateUsd and the most expensive observed run) for every open run and the next one would exceed capUsd; running runs finish and the stop is reported (SPEND-CAP-REACHED, exit 3). One ledger per gate campaign (--spend-ledger) is shared by every target and arm.",
+    "pricedComponents": [
+      "compute"
+    ],
+    "note": "ARC v2 runs no model behind a per-token price (no Studio built-in assistant): the CLI arms are flat subscriptions (unknown, never priced) and compute is the only priced component."
   }
 }

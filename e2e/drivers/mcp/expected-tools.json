@@ -56,6 +56,7 @@
       "honua_admin_api_key_effective_permissions",
       "honua_admin_api_key_list",
       "honua_admin_api_key_revoke",
+      "honua_admin_api_key_update_restrictions",
       "honua_admin_connections_create",
       "honua_admin_connections_test",
       "honua_admin_field_mask_policy_create",

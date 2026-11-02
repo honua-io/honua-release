@@ -1,0 +1,192 @@
+{
+  "admissible": false,
+  "assertions": [
+    {
+      "assertion": "map.composition",
+      "evidence": [
+        {
+          "sha256": "sha256:e647b28c0de958e3211af21febf917fee6909b8bafd4bc0a9857299e6e80bb8b",
+          "step": "p08-composition"
+        },
+        {
+          "sha256": "sha256:2746e3bd0582c319b28d0dfdb8dc2cb974c439a9cbd708018435eb4042841f03",
+          "step": "p08-version"
+        }
+      ],
+      "observedSha256": "sha256:0840cdee31231fc1b9a8c5d61b7063ac87607a983cd2d54f5dadfe192acc2865",
+      "status": "pass"
+    },
+    {
+      "assertion": "render.actual",
+      "evidence": [
+        {
+          "sha256": "sha256:824fdaa1bac217d69363322c2662a764ca6b9b59587b510156a6beb11a98a6d9",
+          "step": "p08-export-flood-zones"
+        },
+        {
+          "sha256": "sha256:c968e37fe4d7e71508adfa608363c30ec31490ac8ce39569a1b534348a9775cd",
+          "step": "p08-export-parcels"
+        },
+        {
+          "sha256": "sha256:855f238369005d3413f8d2b1985997bdb22d2c812f1f1207878d8e9ea00192b2",
+          "step": "p08-export-shelters"
+        },
+        {
+          "sha256": "sha256:8322e3ddb9c14661e052c87cedf328d6a0f19ee49452a7c71523058302049c57",
+          "step": "p08-render"
+        },
+        {
+          "sha256": "sha256:f268df49f0a8d5e6762a5b416664992a238d833062434dbc8900987821062cc8",
+          "step": "p08-src-flood-zones-after-geo"
+        },
+        {
+          "sha256": "sha256:a8fa8c4e922913efdbe6f99539d0647c1e9bfcd05a0e55187c75556135af6a70",
+          "step": "p08-src-flood-zones-after-raw"
+        },
+        {
+          "sha256": "sha256:cbbdf9416ef4b414c6d162c3e91de219c7aa972a8fb23854cc9e62ced76d41eb",
+          "step": "p08-src-parcels-after-geo"
+        },
+        {
+          "sha256": "sha256:86b73a299e45e7b77fc55a8f78497adcf45c0e18968e2d73b5c2e9313a475526",
+          "step": "p08-src-parcels-after-raw"
+        },
+        {
+          "sha256": "sha256:3aba6d3ecac8705afc61c25ba4c27deb60eff873fcab5db84856083f7a7d451a",
+          "step": "p08-src-shelters-after-geo"
+        },
+        {
+          "sha256": "sha256:5df0971390216827a67cdcc70f7765f671a6ef66bfc03ec225a425d50f912283",
+          "step": "p08-src-shelters-after-raw"
+        },
+        {
+          "sha256": "sha256:2746e3bd0582c319b28d0dfdb8dc2cb974c439a9cbd708018435eb4042841f03",
+          "step": "p08-version"
+        }
+      ],
+      "observedSha256": "sha256:eecabd133c6049981404154402eeafea93abbc015c5e7fc1e412cef4ad2e70c5",
+      "status": "pass"
+    },
+    {
+      "assertion": "source-content.unchanged",
+      "evidence": [
+        {
+          "sha256": "sha256:a8fa8c4e922913efdbe6f99539d0647c1e9bfcd05a0e55187c75556135af6a70",
+          "step": "p08-src-flood-zones-after-raw"
+        },
+        {
+          "sha256": "sha256:a8fa8c4e922913efdbe6f99539d0647c1e9bfcd05a0e55187c75556135af6a70",
+          "step": "p08-src-flood-zones-before-raw"
+        },
+        {
+          "sha256": "sha256:86b73a299e45e7b77fc55a8f78497adcf45c0e18968e2d73b5c2e9313a475526",
+          "step": "p08-src-parcels-after-raw"
+        },
+        {
+          "sha256": "sha256:86b73a299e45e7b77fc55a8f78497adcf45c0e18968e2d73b5c2e9313a475526",
+          "step": "p08-src-parcels-before-raw"
+        },
+        {
+          "sha256": "sha256:3aba6d3ecac8705afc61c25ba4c27deb60eff873fcab5db84856083f7a7d451a",
+          "step": "p08-src-shelters-after-geo"
+        },
+        {
+          "sha256": "sha256:5df0971390216827a67cdcc70f7765f671a6ef66bfc03ec225a425d50f912283",
+          "step": "p08-src-shelters-after-raw"
+        },
+        {
+          "sha256": "sha256:3aba6d3ecac8705afc61c25ba4c27deb60eff873fcab5db84856083f7a7d451a",
+          "step": "p08-src-shelters-before-geo"
+        },
+        {
+          "sha256": "sha256:5df0971390216827a67cdcc70f7765f671a6ef66bfc03ec225a425d50f912283",
+          "step": "p08-src-shelters-before-raw"
+        }
+      ],
+      "observedSha256": "sha256:bf03491299975c3f605cad4f3d44a298caf67e286c6c51800969854cccca06cb",
+      "status": "pass"
+    }
+  ],
+  "auditControllerPrincipalObserved": false,
+  "candidateDigest": "sha256:4704299841fc406a1711f74bb924d3d8f64e6503d7a0039089deab0925d73592",
+  "consoleDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
+  "controllerEvidence": [
+    {
+      "sha256": "sha256:5af8b2644c93a58340084417ba016b854d1ad79147151d05a2d7a4fa8840e2ac",
+      "status": 201,
+      "step": "runner-custody-mint-agent-controller"
+    },
+    {
+      "sha256": "sha256:e9873d3a7ad04363ff5e6b79e95a9696f76d4be5869a7aaff8b299c2fc2151e3",
+      "status": 200,
+      "step": "runner-console-user-mint"
+    },
+    {
+      "sha256": "sha256:68f6356b177e511ba25edfa345dd11d0a0a41d99d78c752fc1cd954134fbbf4f",
+      "status": 200,
+      "step": "p08-maps-before"
+    },
+    {
+      "sha256": "sha256:7997d42e652c7477a98cb6c214715f0324ec5546f4fb9060b43af4ea1081adb0",
+      "status": 200,
+      "step": "studio-ai-capabilities"
+    },
+    {
+      "sha256": "sha256:973faf1a80d6080f36e877e0099dd4428611b9baacb298d63396d887008eefff",
+      "status": 200,
+      "step": "studio-ai-provider-config"
+    },
+    {
+      "sha256": "sha256:f113354108ca5d136ea2d0d368ed345da1581e8808a4e5a02e7740217f9570a8",
+      "status": 200,
+      "step": "studio-audit-after-0"
+    },
+    {
+      "sha256": "sha256:a4d494e00cbd7e4932ab5f59c8e6f0ac1fa6df2624ff3b0bda328d3a4a5890e1",
+      "status": 200,
+      "step": "p08-maps"
+    },
+    {
+      "sha256": "sha256:2746e3bd0582c319b28d0dfdb8dc2cb974c439a9cbd708018435eb4042841f03",
+      "status": 200,
+      "step": "p08-version"
+    },
+    {
+      "sha256": "sha256:3aec5c76e7db3e34e2cd72ddac4013eb6bf9f904d172cd5018bfdb0a10755f25",
+      "status": 200,
+      "step": "p08-source-catalog"
+    },
+    {
+      "sha256": "sha256:e647b28c0de958e3211af21febf917fee6909b8bafd4bc0a9857299e6e80bb8b",
+      "status": 200,
+      "step": "p08-composition"
+    },
+    {
+      "sha256": "sha256:8322e3ddb9c14661e052c87cedf328d6a0f19ee49452a7c71523058302049c57",
+      "status": 200,
+      "step": "p08-render"
+    }
+  ],
+  "customerKeyRevoked": true,
+  "developmentOnly": true,
+  "finalAnswerCheck": {
+    "false_success": false,
+    "findings": [],
+    "judgeUsed": false,
+    "status": "pass",
+    "undetermined": false,
+    "unresolved-limitation-not-disclosed": false
+  },
+  "kind": "fresh-live-final-observer",
+  "model": "us.anthropic.claude-sonnet-4-6",
+  "packSha256": "sha256:06133470b94486c451226b8e1671d25bcfedd980bab597fe18809a49d91ee86d",
+  "receiptSha256": "sha256:71670895976463b02ed2e03f2c1b2b8921374e1eaa042c622c9e18aab6afff82",
+  "region": "us-east-1",
+  "serverSourceRevision": "15707609be1fe4e29252390792dda3c35129bd28",
+  "status": "pass",
+  "usage": {
+    "calls": 7,
+    "inputTokens": 174322,
+    "outputTokens": 1466
+  }
+}

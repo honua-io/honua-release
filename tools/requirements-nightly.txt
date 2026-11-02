@@ -7,6 +7,19 @@ pyyaml==6.0.3
 jsonschema==4.26.0
 referencing==0.37.0
 cryptography==50.0.2
+# Corpus Studio observations and the custody modules reachable from the canary.
+boto3==1.43.123
+botocore==1.43.123
+greenlet==3.5.6
+jmespath==1.1.0
+playwright==1.64.1
+psycopg==3.3.6
+psycopg-binary==3.3.6
+pyee==14.0.0
+python-dateutil==2.9.0.post0
+s3transfer==0.19.3
+six==1.17.0
+urllib3==2.8.0
 # Their dependencies, pinned so the night installs what validate proved.
 attrs==26.1.0
 cffi==2.1.1
