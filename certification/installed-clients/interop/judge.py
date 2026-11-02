@@ -557,7 +557,9 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "interop-edit-success": lambda o, f, p, obs, s: oracles.oracle_edit_success(o),
     "interop-edited-features": lambda o, f, p, obs, s: oracles._compare_features(o, edited_handoff(f), ["gid", "name", "rank"], "edited layer"),
     "interop-imported": lambda o, f, p, obs, s: oracle_imported(o, f),
-    "interop-area-published": lambda o, f, p, obs, s: _layer_published(o, p["area"], f["area"]["geometryType"]),
+    # honua-server #6850 (rc.2 notes): polygon datasets are stored and published as MultiPolygon, whatever the
+    # publish request's geometryType; the published layer must advertise exactly that stored family.
+    "interop-area-published": lambda o, f, p, obs, s: _layer_published(o, p["area"], f["area"]["publishedGeometryType"]),
     "interop-area-features": lambda o, f, p, obs, s: oracle_area_features(o, f),
     "interop-area-render": lambda o, f, p, obs, s: oracle_area_render(o, f),
     "interop-mcp-job-accepted": lambda o, f, p, obs, s: oracles.oracle_mcp_job_accepted(o),

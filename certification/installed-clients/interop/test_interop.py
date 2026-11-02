@@ -284,6 +284,16 @@ class OracleTests(unittest.TestCase):
         self.assertFalse(judge.oracle_area_features(observed(ring, [{"gid": feature["gid"], "name": "other"}]), FIXTURE)[0])
         self.assertFalse(judge.oracle_area_features({"rings": [ring + [ring[0]]]}, FIXTURE)[0])
 
+    def test_area_publication_must_advertise_the_stored_multipolygon_family(self):
+        area = plan()["area"]
+        published = {"serviceName": area["service"], "layerName": area["layerName"], "enabled": True, "layerId": 3}
+        oracle = judge.ORACLES["interop-area-published"]
+        self.assertEqual(FIXTURE["area"]["publishedGeometryType"], "MultiPolygon")
+        self.assertTrue(oracle({**published, "geometryType": "MultiPolygon"}, FIXTURE, plan(), {}, None)[0])
+        # honua-server #6850: a polygon import is stored as MultiPolygon, so advertising Polygon is wrong.
+        self.assertFalse(oracle({**published, "geometryType": "Polygon"}, FIXTURE, plan(), {}, None)[0])
+        self.assertFalse(oracle({**published, "geometryType": None}, FIXTURE, plan(), {}, None)[0])
+
     def test_polygon_rings_accept_one_polygon_only(self):
         ring = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]
         self.assertEqual(judge.polygon_rings({"type": "Polygon", "coordinates": [ring]}), [ring])
