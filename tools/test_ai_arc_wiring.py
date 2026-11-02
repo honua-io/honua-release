@@ -1115,7 +1115,7 @@ def _run_teardown(tmp_path, containers, volumes, *, project_volumes=(), in_use=(
                     f'  *" down "*) rm -f {cons}/* ;;\n'
                     f'  "volume inspect "*) [ -f {vols}/"$3" ] ;;\n'
                     f'  "volume rm "*) [ "$(cat {vols}/"$3")" != in-use ] && rm -f {vols}/"$3" ;;\n'
-                    f'  "volume ls -q --filter label=com.docker.compose.project=arc-abcdef123456") cat {tmp_path}/proj.txt ;;\n'
+                    f'  "volume ls -q --filter label=com.docker.compose.project=arc-abcdef123456") cat {tmp_path}/proj.txt ;;\n'                    f'  "volume ls -q") [ ! -f {tmp_path}/ls-fails ] || exit 1; ls {vols} ;;\n'
                     'esac\n')
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     vm = L.VmSlot(host='h1', user='ubuntu', identity_file='/k', known_hosts='/kh', project='arc-abcdef123456', index=0)
@@ -1147,3 +1147,10 @@ def test_teardown_is_dirty_when_the_slot_inventory_cannot_be_read(tmp_path):
     """Sol console10: a failed inspection must not count as an empty inventory (its volumes would be missed)."""
     result, remaining, _ = _run_teardown(tmp_path, {'c-broken': ['slot-anon']}, ['slot-anon'])
     assert result['status'] == 'dirty' and remaining == ['slot-anon']
+
+
+def test_teardown_is_dirty_when_the_volume_listing_fails(tmp_path):
+    """Sol console11: a failed volume inspection or listing never counts as "nothing left"."""
+    (tmp_path / 'ls-fails').write_text('')
+    result, _, _ = _run_teardown(tmp_path, {'c-redis': ['slot-anon']}, ['slot-anon'])
+    assert result['status'] == 'dirty'

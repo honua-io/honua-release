@@ -2819,4 +2819,25 @@ def test_recorded_responses_with_hidden_data_are_counted_per_stage(tmp_path):
     receipt = {'stages': [{'stage': 'services', 'mcpChannelGaps': 2}, {'stage': 'studio', 'mcpChannelGaps': 0}]}
     assert R.mcp_channel_gap_stages(receipt) == ['services']
     import inspect
-    assert 'mcp_channel_gap_stages(receipt)' in inspect.getsource(R.verify_run)
+    source = inspect.getsource(R.verify_run)
+    # Recomputed from the verified evidence, never taken from the receipt; the receipt's count must agree.
+    assert "mcp_channel_gaps(Path(evidence) / name, coverage=channel_coverage(stage))" in source and "stage.get('mcpChannelGaps') != 0" in source
+
+
+def test_admission_recomputes_the_channel_check_from_the_retained_evidence(tmp_path):
+    """Sol console11 P2: verify_run never trusts the receipt's mcpChannelGaps; it recomputes from the evidence and
+    the receipt's count must agree."""
+    names, raws = campaign(tmp_path, [True])
+    assert agg(tmp_path, names, raws) is not None                                   # clean as recorded
+    receipt = json.loads(raws[0])
+    assert all(s.get('mcpChannelGaps') == 0 for s in receipt['stages'] if s['stage'] != 'studio' or True)
+    stripped = json.loads(raws[0])
+    stripped['stages'][0].pop('mcpChannelGaps')                                     # a missing check record
+    with pytest.raises(ValueError, match='MCP channel check'):
+        agg(tmp_path, names, [json.dumps(stripped).encode()])
+    cli = tmp_path / '001.evidence' / 'ops' / 'cli'
+    cli.mkdir(parents=True, exist_ok=True)
+    (cli / 'action-0900.json').write_text(json.dumps({'kind': 'tool_call', 'tool': 'honua_query_features'}))
+    (cli / 'action-0900.response').write_bytes(_sse(ELIDED))                       # an elided result in evidence
+    with pytest.raises(ValueError, match='could not see recorded tool results in ops'):
+        agg(tmp_path, names, raws)

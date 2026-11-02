@@ -2559,7 +2559,7 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                     result = harness_error_stage(ctx, modules[stage], exc)
                 # Release session 2026-11-02 (A16): a recorded tool result whose data one CLI arm cannot see makes
                 # the run inadmissible (verify_run) and holds the campaign; counted per stage, files named.
-                gaps = mcp_channel_gaps(private / stage)
+                gaps = mcp_channel_gaps(private / stage, coverage=channel_coverage(result))
                 result['mcpChannelGaps'], result['mcpChannelGapExamples'] = len(gaps), gaps[:3]
                 receipt['stages'].append(result)
                 outcomes[stage] = result['outcome']
@@ -2860,11 +2860,23 @@ def mcp_result_visible_in_text(result) -> bool:
             and structured.get('text') == text)
 
 
-def mcp_channel_gaps(root: Path) -> list[str]:
-    """Recorded tool responses (action-*.response) under a stage's private directory whose data one CLI arm could
-    not see (mcp_result_visible_in_text). A no-model check on the candidate's real server traffic."""
+def mcp_channel_gaps(root: Path, coverage: bool = True) -> list[str]:
+    """Recorded tool results under a stage's directory (private or exported evidence) whose data one CLI arm could
+    not see (mcp_result_visible_in_text), plus coverage: on the CLI path (a ``cli`` directory, where RecordingProxy
+    keeps the exact forwarded result beside every action) an action without its ``.response`` is a gap too, so an
+    unrecorded result can never pass as clean (Sol console11). Corpus sessions (ActionLog) keep the server's raw
+    response for every dispatched call; an action they refused was never dispatched. A no-model check on the
+    candidate's real server traffic. ``coverage`` is off for a stage whose session did not complete (undetermined,
+    harness error): a write-ahead action of an interrupted session has no result, and that stage already counts as
+    a failed run."""
     gaps = []
-    for path in sorted(Path(root).rglob('action-*.response')) if Path(root).is_dir() else []:
+    root = Path(root)
+    if not root.is_dir():
+        return gaps
+    for action in sorted(root.rglob('action-*.json')) if coverage else []:
+        if action.parent.name == 'cli' and not action.with_suffix('.response').is_file():
+            gaps.append(str(action.with_suffix('.response').relative_to(root)) + ' (unrecorded)')
+    for path in sorted(root.rglob('action-*.response')):
         raw = path.read_bytes().decode('utf-8', 'replace')
         bodies = [line[5:].strip() for line in raw.splitlines() if line.startswith('data:')] or [raw]
         for body in bodies:
@@ -2876,6 +2888,11 @@ def mcp_channel_gaps(root: Path) -> list[str]:
                 gaps.append(str(path.relative_to(root)))
                 break
     return gaps
+
+
+def channel_coverage(stage: dict) -> bool:
+    """Response coverage is required for a stage whose sessions completed (not undetermined or never run)."""
+    return isinstance(stage, dict) and stage.get('outcome') in ('pass', 'fail')
 
 
 def mcp_channel_gap_stages(receipt: dict) -> list[str]:
@@ -2914,10 +2931,6 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         if not isinstance(quickstart, dict) or quickstart.get('pageSha256') != arc['quickstart']['sha256'] \
                 or quickstart.get('revision') != arc['quickstart']['revision']:
             raise ValueError('run receipt does not bind the pinned quickstart')
-    channel_gaps = mcp_channel_gap_stages(receipt)
-    if channel_gaps:
-        raise ValueError('a CLI arm could not see recorded tool results (MCP result channels differ): '
-                         + ', '.join(channel_gaps))
     install = arc['versionPair']['install']
     if receipt.get('phases', {}).get('install') != {'release': install['release'], 'sourceSha': install['sourceRevision'],
                                                     'imageDigest': install['imageDigest']}:
@@ -2935,6 +2948,18 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         path = Path(evidence) / item['path']
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
+    # PREREG A16 (Sol console11): recomputed from the verified evidence, never taken from the receipt; the
+    # receipt's own count must agree.
+    for stage in receipt.get('stages') or []:
+        if not isinstance(stage, dict):
+            continue
+        name = str(stage.get('stage'))
+        recomputed = mcp_channel_gaps(Path(evidence) / name, coverage=channel_coverage(stage))
+        if recomputed:
+            raise ValueError(f'a CLI arm could not see recorded tool results in {name} (MCP result channels): '
+                             + ', '.join(recomputed[:3]))
+        if (Path(evidence) / name).is_dir() and stage.get('mcpChannelGaps') != 0:
+            raise ValueError(f'the {name} stage record lacks or contradicts its MCP channel check')
     composition = (receipt.get('slotFacts') or {}).get('opsComposition')
     if composition is not None:
         kind = composition.get('kind') if isinstance(composition, dict) else None

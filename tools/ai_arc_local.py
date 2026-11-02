@@ -265,7 +265,9 @@ class VmSlot:
                   + 'for v in $vols; do docker volume inspect "$v" >/dev/null 2>&1 && docker volume rm "$v" >/dev/null 2>&1; done\n'
                   + 'left="$(' + owned + ')" || inv_ok=0\n'
                   + 'leftvol="$(docker volume ls -q --filter label=com.docker.compose.project=' + p + ')" || inv_ok=0\n'
-                  + 'leftown=""; for v in $vols; do docker volume inspect "$v" >/dev/null 2>&1 && leftown="$leftown $v"; done\n'
+                  # One listing decides what remains; a listing that fails is dirty, never "nothing left".
+                  + 'allvols="$(docker volume ls -q)" || inv_ok=0\n'
+                  + 'leftown=""; for v in $vols; do printf "%s\\n" "$allvols" | grep -qxF -- "$v" && leftown="$leftown $v"; done\n'
                   + '[ "$inv_ok" = 1 ] && [ -z "$left" ] && [ -z "$leftvol" ] && [ -z "$leftown" ] && [ "$rc" = 0 ]\n')
         done = self.ssh(script)
         return {'status': 'clean' if done.returncode == 0 else 'dirty',

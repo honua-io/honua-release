@@ -486,3 +486,24 @@ def test_codex_login_expiry_shapes(tmp_path):
     (tmp_path / '.codex/auth.json').unlink(); shutil.rmtree(home); home.mkdir()
     assert auth_window_check(cli_environment(home, 'codex-cli', auth_root=tmp_path), 'codex-cli', 10 ** 6) == unknown
 
+
+
+def test_the_cli_path_keeps_each_forwarded_result_and_the_channel_check_sees_an_elided_one(tmp_path):
+    """Sol console11 (PREREG A16): the CLI path kept only response digests, so an elided result passed the channel
+    check vacuously. RecordingProxy now keeps the exact forwarded result beside each action."""
+    import ai_arc_runner as R
+    elided = {'content': [{'type': 'text', 'text': 'Structured result (1,093 chars) returned in structuredContent; '
+                           'text summary elided to conserve context.'}], 'isError': False,
+              'structuredContent': {'features': [{'id': i} for i in range(50)]}}
+    full = {'content': [{'type': 'text', 'text': json.dumps({'layers': []})}], 'isError': False,
+            'structuredContent': {'layers': []}}
+    results = iter([full, elided])
+    cli = tmp_path / 'ops' / 'cli'
+    cli.mkdir(parents=True)
+    with RecordingProxy(TOOLS, lambda *_: {'status': 'ok', 'result': next(results)}, cli, 1, 4) as proxy:
+        proxy.rpc('tools/call', {'name': 'honua_query_features', 'arguments': {}})
+        proxy.rpc('tools/call', {'name': 'honua_query_features', 'arguments': {}})
+    assert json.loads((cli / 'action-0002.response').read_text())['result']['structuredContent'] == elided['structuredContent']
+    assert R.mcp_channel_gaps(tmp_path / 'ops') == ['cli/action-0002.response']
+    (cli / 'action-0001.response').unlink()                                  # an unrecorded result never passes
+    assert R.mcp_channel_gaps(tmp_path / 'ops') == ['cli/action-0001.response (unrecorded)', 'cli/action-0002.response']

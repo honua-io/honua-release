@@ -313,6 +313,7 @@ class RecordingProxy:
             try:
                 result = self.execute(action['kind'], action)
             except Exception as exc:
+                self._record_response(path, {'error': 'recorded action could not be completed'})
                 self.failure = 'recorded action could not be completed'
                 self.failure_category = ('model' if self.server_name == 'quickstart_shell' and isinstance(exc,ValueError)
                                          else 'post-action-undetermined')
@@ -323,6 +324,7 @@ class RecordingProxy:
             try:
                 screen_model_input(result)
             except ValueError:
+                self._record_response(path, {'error': 'withheld: restricted credential data'})
                 self.failure = 'recorded action returned restricted credential data'
                 self.failure_category = 'post-action-undetermined'
                 raise
@@ -333,11 +335,22 @@ class RecordingProxy:
             if action['kind'] == 'resource_read' and isinstance(body.get('resource'), dict):
                 body = body['resource']  # terminal journey driver wraps its actual server resource result
             if action['kind'] == 'resource_read' and 'contents' in body:
-                return body
-            if isinstance(body, dict) and 'content' in body:
-                return {**body, 'isError': row['status'] != 'pass' or body.get('isError', False)}
-            return {'content': [{'type': 'text', 'text': encoded(body).decode()}],
-                    'isError': row['status'] != 'pass'}
+                forwarded = body
+            elif isinstance(body, dict) and 'content' in body:
+                forwarded = {**body, 'isError': row['status'] != 'pass' or body.get('isError', False)}
+            else:
+                forwarded = {'content': [{'type': 'text', 'text': encoded(body).decode()}],
+                             'isError': row['status'] != 'pass'}
+            # PREREG A16 (Sol console11): the exact result forwarded to the CLI is kept beside its action, so the
+            # runner and admission can check that both CLI arms could see its data (ai_arc_runner.mcp_channel_gaps).
+            self._record_response(path, {'result': forwarded})
+            return forwarded
+
+    def _record_response(self, action_path, message):
+        raw = action_bytes(message)
+        for form in withheld_forms():
+            raw = raw.replace(form, WITHHELD_MARK)
+        write_private(action_path.with_suffix('.response'), raw)
 
     def _collect(self, value):
         if isinstance(value, dict):
