@@ -1071,3 +1071,13 @@ def test_documented_console_fails_closed(tmp_path, case):
         doc = L.CONSOLE_DOC.read_text().replace('@sha256:<digest from the release lock>', ':latest')
     staged, _, _ = _run_documented_console(tmp_path, env, honua_ids=ids, doc=doc)
     assert isinstance(staged, (RuntimeError, ValueError)), staged
+
+
+def test_the_documented_console_healthcheck_names_the_file_the_pinned_image_ships():
+    """Studio DEV shakeout run 5c: the pinned rc.2 Console image (c63b37fd) ships /app/version.json, not
+    /app/wwwroot/version.json, so the source compose's healthcheck never passed and `--wait` failed."""
+    import yaml
+    import ai_arc_local as L
+    override, _ = L.documented_console()
+    check = yaml.safe_load(override.replace(L.CONSOLE_DIGEST_PLACEHOLDER, '@' + CONSOLE['imageDigest']))
+    assert check['services']['console']['healthcheck']['test'] == ['CMD-SHELL', 'test -s /app/version.json']
