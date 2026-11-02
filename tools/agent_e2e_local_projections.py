@@ -1237,6 +1237,8 @@ def where_predicate(where, fields):
             return ('boolean', tok[1] == 'TRUE')
         raise Unverifiable('agent where clause compares against something that is not a literal')
 
+    leaves = []      # every comparison, checked on every row regardless of short-circuiting (Sol p10r1)
+
     def compare(field, op, lit):
         typ, value = lit
 
@@ -1254,6 +1256,7 @@ def where_predicate(where, fields):
                 raise Unverifiable('agent where clause compares a non-string field with a string')
             return {'=': current == value, '<>': current != value, '!=': current != value, '<': current < value,
                     '<=': current <= value, '>': current > value, '>=': current >= value}[op]
+        leaves.append(test)
         return test
 
     state = {'i': 0}
@@ -1278,10 +1281,9 @@ def where_predicate(where, fields):
         if tok == ('kw', 'NOT'):
             inner = primary()
             return lambda row: None if (v := inner(row)) is None else not v
-        if tok[0] == 'num' and peek() == ('op', '=') :
-            take()
-            other = take()
-            if other[0] == 'num' and tok[1] == other[1]:
+        if tok[0] == 'num':
+            # Only the literal constant 1=1 is in the reviewed subset (Sol p10r1: not 2=2 or any other constant).
+            if tok[1] == '1' and take() == ('op', '=') and take() == ('num', '1'):
                 return lambda row: True
             raise Unverifiable('agent where clause uses an untranslated constant comparison')
         if tok[0] != 'word' or tok[1].lower() not in lowered:
@@ -1320,7 +1322,12 @@ def where_predicate(where, fields):
     predicate = disjunction()
     if state['i'] != len(tokens):
         raise Unverifiable('agent where clause has trailing syntax outside the translated subset')
-    return lambda row: predicate(row) is True
+
+    def selected(row):
+        for leaf in leaves:      # an unsupported comparison anywhere is Unverifiable, even in a skipped branch
+            leaf(row)
+        return predicate(row) is True
+    return selected
 
 
 def restricted_feature_query_ids(spec, ctx, sub):

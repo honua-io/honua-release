@@ -33,6 +33,14 @@ def _mcp(step, principal, result, arguments, replay_of=None, origin='controller'
                   'sha256:' + hashlib.sha256(raw).hexdigest(), replay_of, action_bytes(arguments), origin)
 
 
+def _sql():
+    raw = json.dumps([{'geometry': None, 'properties': r} for r in ROWS]).encode()
+    path = f'BEGIN; LOCK TABLE ONLY "{SCHEMA}"."{TABLE}" IN ACCESS SHARE MODE; SELECT 1; COMMIT'
+    args = {'op': 'table_rows', 'schema': SCHEMA, 'table': TABLE, 'columns': ['geometry', 'properties']}
+    return Record('arc-p10-source-after', 'observe', 'sql', 'controller', None, 'SELECT', path, 200, raw,
+                  'sha256:' + hashlib.sha256(raw).hexdigest(), None, action_bytes(args))
+
+
 DENIED = {'isError': True, 'structuredContent': {'status': 'error', 'error': {'kind': 'AuthorizationDenied',
                                                                              'message': 'You do not have permission.'}}}
 
@@ -76,10 +84,7 @@ def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_r
         'arc-p10-final-query': _mcp('arc-p10-final-query', 'agent',
                                     _query_result(agent_ids) if final_ok else DENIED, call, replay_of=OCC,
                                     origin='session-result'),
-        'arc-p10-source-after': Record('arc-p10-source-after', 'observe', 'sql', 'controller', None, 'SELECT',
-                                       'BEGIN; ...', 200,
-                                       json.dumps([{'geometry': None, 'properties': r} for r in ROWS]).encode(),
-                                       'sha256:x'),
+        'arc-p10-source-after': _sql(),
     }
     full_args = {'serviceId': SVC, 'layerId': LAYER, 'where': '1=1', 'outFields': ['source_id', 'name', 'capacity',
                  'is_open'], 'limit': 1000, 'resultOffset': 0, 'returnGeometry': True, 'outSrid': 3857,
@@ -198,3 +203,39 @@ def test_only_the_reviewed_alternative_and_restricted_projection_are_accepted():
     spec['object']['resourceIds']['restricted']['catalog'] = 'other-step'
     with pytest.raises(ValueError, match='unreviewed restricted-service projection'):
         P.evaluate(spec, P.Context(records, _roles(records), model_actions=actions))
+
+
+def _scored(records, actions):
+    """filter.exact through the frozen runner scoring (score_assertions), as a real case is scored."""
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_expected, load_projections
+    from agent_e2e_local_runner import score_assertions
+    expected = {'filter.exact': load_expected('P10', 'A', 'arc')['filter.exact']}
+    frozen = {'filter.exact': load_projections('P10', 'A', 'arc')['filter.exact']}
+    return score_assertions(['filter.exact'], [Observation('filter.exact', None, {'projection': 'extract/v1'})],
+                            expected, records=records, roles=_roles(records), scenario_id='P10',
+                            model_actions=actions, frozen=frozen)[0]
+
+
+def test_restrict_after_list_passes_through_frozen_scoring():
+    records, actions = _case()
+    row = _scored(records, actions)
+    assert row['status'] == 'pass', row
+
+
+@pytest.mark.parametrize('where', [
+    'is_open = TRUE AND capacity > 50 AND (1=1 OR capacity = TRUE)',   # Sol p10r1: a skipped unsupported comparison
+    'is_open = TRUE AND capacity > 50 AND 2=2',                        # Sol p10r1: a constant other than 1=1
+    'is_open = TRUE AND capacity > 50 OR (capacity > 50 AND name > 3)',
+    "capacity > 50 AND is_open = TRUE AND NOT (name = 1)"])
+def test_unsupported_comparisons_anywhere_are_undetermined_through_frozen_scoring(where):
+    records, actions = _case(where=where)
+    row = _scored(records, actions)
+    assert row['status'] == 'undetermined' and row['reason'].startswith('unverifiable:'), row
+
+
+def test_restrict_before_list_and_a_wrong_list_fail_through_frozen_scoring():
+    records, actions = _case(final_ok=False)
+    assert _scored(records, actions)['status'] == 'fail'
+    records, actions = _case(where='is_open = TRUE', agent_ids=('s1', 's3', 's4', 's5'))
+    assert _scored(records, actions)['status'] == 'fail'
