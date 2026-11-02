@@ -1183,11 +1183,15 @@ jobs:
             buf lint >/tmp/grpc-lint.log 2>&1 || echo "buf lint reported issues (non-fatal for codegen):"
             OUT="$WORK/gen"; mkdir -p "$OUT"
             # If a buf.gen.yaml exists use it; else synthesize a minimal one so codegen is exercised.
+            # C# messages + gRPC stubs: the shipped binding's language, and needs no per-file
+            # language options (Go would require go_package, which the published protos don't set).
             if [ ! -f buf.gen.yaml ]; then
               cat > buf.gen.yaml <<'EOF'
           version: v1
           plugins:
-            - plugin: buf.build/protocolbuffers/go
+            - plugin: buf.build/protocolbuffers/csharp
+              out: gen
+            - plugin: buf.build/grpc/csharp
               out: gen
           EOF
             fi
