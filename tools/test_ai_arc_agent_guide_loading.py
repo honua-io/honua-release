@@ -18,9 +18,11 @@ REAL_GUIDE_SCRATCH_ROOT = C.guide_scratch_root
 @pytest.fixture(autouse=True)
 def _reset(tmp_path, monkeypatch):
     C.set_agent_guide(None)
+    C.require_agent_guide(None)
     monkeypatch.setattr(C, 'guide_scratch_root', lambda **_: tmp_path)   # pytest's tmp is tmpfs-free but under /tmp
     yield
     C.set_agent_guide(None)
+    C.require_agent_guide(None)
 
 
 def recorder(tmp_path):

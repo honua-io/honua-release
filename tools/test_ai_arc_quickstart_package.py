@@ -28,10 +28,12 @@ INSTALL = {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 
 
 @pytest.fixture(autouse=True)
 def _no_agent_guide_leaks():
-    from agent_cli_sessions import set_agent_guide
+    from agent_cli_sessions import require_agent_guide, set_agent_guide
     set_agent_guide(None)
+    require_agent_guide(None)
     yield
     set_agent_guide(None)
+    require_agent_guide(None)      # Sol guide4: staging sets the requirement too; never leak it into later tests
 
 
 def build(tmp_path, **kw):
