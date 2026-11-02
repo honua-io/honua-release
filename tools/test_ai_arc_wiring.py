@@ -1111,7 +1111,7 @@ def _run_teardown(tmp_path, containers, volumes, *, project_volumes=(), in_use=(
                     'case "$*" in\n'
                     f'  "ps -aq --filter label=com.docker.compose.project=arc-abcdef123456") ls {cons} ;;\n'
                     '  "ps -aq --filter label=honua.corpus.case=arc-abcdef123456") ;;\n'
-                    f'  "inspect --format "*) cat {cons}/"$4" ;;\n'
+                    f'  "inspect --format "*) [ "$4" != c-broken ] || exit 1; cat {cons}/"$4" ;;\n'
                     f'  *" down "*) rm -f {cons}/* ;;\n'
                     f'  "volume inspect "*) [ -f {vols}/"$3" ] ;;\n'
                     f'  "volume rm "*) [ "$(cat {vols}/"$3")" != in-use ] && rm -f {vols}/"$3" ;;\n'
@@ -1141,3 +1141,9 @@ def test_teardown_is_dirty_when_an_owned_or_project_volume_remains(tmp_path):
     assert result['status'] == 'dirty'
     result, _, _ = _run_teardown(tmp_path / 'b', {}, [], project_volumes=['arc-abcdef123456_compose-manager-postgres'])
     assert result['status'] == 'dirty'
+
+
+def test_teardown_is_dirty_when_the_slot_inventory_cannot_be_read(tmp_path):
+    """Sol console10: a failed inspection must not count as an empty inventory (its volumes would be missed)."""
+    result, remaining, _ = _run_teardown(tmp_path, {'c-broken': ['slot-anon']}, ['slot-anon'])
+    assert result['status'] == 'dirty' and remaining == ['slot-anon']

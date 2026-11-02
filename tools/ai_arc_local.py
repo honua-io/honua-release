@@ -246,20 +246,27 @@ class VmSlot:
         # or one of the slot's own volumes remains. Orphans no container mounts any more cannot be attributed and
         # are left to the admission preflight's host sweep (inspected before removal).
         p = self.project
-        owned = ('{ docker ps -aq --filter label=com.docker.compose.project=' + p
-                 + '; docker ps -aq --filter label=honua.corpus.case=' + p + '; } | sort -u')
-        script = ('set -u\n'
-                  + 'vols="$(for c in $(' + owned + '); do docker inspect --format '
-                    '\'{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\\n"}}{{end}}{{end}}\' "$c"; done | sort -u)"\n'
+        owned = 'owned_containers'
+        # Sol console10: an inventory that could not be read is never an empty one; it leaves the teardown dirty.
+        script = ('set -u\ninv_ok=1\n'
+                  + 'owned_containers() {\n'
+                  + '  a="$(docker ps -aq --filter label=com.docker.compose.project=' + p + ')" || return 1\n'
+                  + '  b="$(docker ps -aq --filter label=honua.corpus.case=' + p + ')" || return 1\n'
+                  + '  printf "%s\\n%s\\n" "$a" "$b" | sed "/^$/d" | sort -u\n}\n'
+                  + 'cons="$(' + owned + ')" || inv_ok=0\n'
+                  + 'vols=""\nfor c in $cons; do\n'
+                  + '  m="$(docker inspect --format \'{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}\' "$c")" '
+                    '|| { inv_ok=0; continue; }\n'
+                  + '  vols="$vols $m"\ndone\n'
                   + 'for c in $(docker ps -aq --filter label=honua.corpus.case=' + p + '); do docker rm -f "$c" >/dev/null 2>&1; done\n'
                   + self.compose('down', '--volumes', '--remove-orphans', '--timeout', '30')
                   + f'\nrc=$?\ndocker run --rm -v {d}:{d} redis:7.4-alpine chown -R "$(id -u):$(id -g)" {d} 2>/dev/null'
                   + '\ncd /\nrm -rf -- ' + d + '\n'
                   + 'for v in $vols; do docker volume inspect "$v" >/dev/null 2>&1 && docker volume rm "$v" >/dev/null 2>&1; done\n'
-                  + 'left="$(' + owned + ')"\n'
-                  + 'leftvol="$(docker volume ls -q --filter label=com.docker.compose.project=' + p + ')"\n'
+                  + 'left="$(' + owned + ')" || inv_ok=0\n'
+                  + 'leftvol="$(docker volume ls -q --filter label=com.docker.compose.project=' + p + ')" || inv_ok=0\n'
                   + 'leftown=""; for v in $vols; do docker volume inspect "$v" >/dev/null 2>&1 && leftown="$leftown $v"; done\n'
-                  + '[ -z "$left" ] && [ -z "$leftvol" ] && [ -z "$leftown" ] && [ "$rc" = 0 ]\n')
+                  + '[ "$inv_ok" = 1 ] && [ -z "$left" ] && [ -z "$leftvol" ] && [ -z "$leftown" ] && [ "$rc" = 0 ]\n')
         done = self.ssh(script)
         return {'status': 'clean' if done.returncode == 0 else 'dirty',
                 'steps': [{'step': 'compose-down-and-remove', 'exitCode': done.returncode}]}
