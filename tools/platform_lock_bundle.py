@@ -139,6 +139,9 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
             # made. Ignoring it let a hand-authored lock add any schema-valid version (R22).
             or (".artifacts[" in fact and ".version:" in fact)
             or ".releaseVersion:" in fact
+            # The Compose executor the shipped package runs (ARC v2 B1) is signed with the server: a missing or
+            # mismatched declaration never reaches a signature.
+            or ".composeExecutor" in fact
         ):
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")

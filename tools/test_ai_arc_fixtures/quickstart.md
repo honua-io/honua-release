@@ -6,8 +6,61 @@ resource: "https://github.com/honua-io/honua-server/pkgs/container/honua-server"
 ---
 # Quickstart: install, publish, and query
 
-Honua runs as one container beside PostGIS and Redis. This page starts it with
-Docker Compose, publishes a small dataset, and queries it back.
+The customer Compose package runs Honua beside PostGIS and Redis, plus a stable
+management service and a separate Compose executor. The executor only executes
+approved proposals; a different principal must approve the proposer's request.
+The serving container has no Docker access.
+
+## Install the customer package
+
+Use `honua-compose-quickstart.tar.gz` from your release's install assets. The nightly
+candidate build emits the same archive as `honua-compose-quickstart-<candidate-sha7>`.
+Release promotion must copy that archive and its checksum into the customer install
+assets without replacing its image lock with channel tags. Check the archive checksum,
+extract it into a dedicated local directory, and run `python3 quickstart.py` there.
+Docker Compose, Python 3.11+, and OpenSSL 3 are required; use WSL on Windows.
+No compiler or host Docker CLI bind mounts are needed.
+
+The archive contains `compose.yaml`, `compose.executor.yaml`, `quickstart.py`,
+`images.json`, and a README. `images.json` pins the serving and executor images as
+distinct `ghcr.io/honua-io/honua-server@sha256:...` references in `server` and
+`executor`. Executor discovery tags are `nightly-compose-executor-<candidate-sha7>`;
+the install uses its digest, not that tag. Both images use the existing public
+GHCR package, so installing does not depend on changing a new package's visibility.
+The executor is built from
+that exact serving candidate. Initialization validates those pins, creates private
+per-install secrets and a local key-ring certificate, and saves them in `.env` and
+`secrets/`. Restart with `python3 quickstart.py`; it preserves the credentials and
+any approved serving-image override. Keep these files and the manager's durable
+Postgres and Redis volumes.
+
+The serving API is at `http://localhost:18080`; the stable management API and MCP
+are at `http://localhost:18082`. Its bootstrap credential is
+`HONUA_MANAGER_ADMIN_PASSWORD` in the private `.env`, distinct from the serving
+admin credential. Create distinct proposer and approver API keys on the management
+service. Propose through its MCP endpoint, then approve with the other principal.
+Self approval is refused. The operation handle records execution and final readback;
+an awaiting-approval proposal has not changed the serving stack.
+
+The executor runs as uid 1002, separately from the servers' uid 1001. Only it gets
+the Docker socket and this install directory; only the manager shares its private
+Unix control socket. The executor allowlists this Compose project, its `honua`
+service, and immutable release images. Docker socket access itself grants host
+control, so use a dedicated local Docker host. This is an application scope boundary,
+not a Docker daemon authorization boundary.
+
+For convergence to a later release, set the release image, worker image, and version
+in `.env` from that release's lock and pull the serving image before approval.
+Rollback across an incompatible migration requires the verified pre-migration
+backup; unknown schemas and unsupported configuration changes fail closed. The
+executor retains backups under `backups/`; file storage needs its own backup.
+See [upgrade and rollback](../guides/deploy/upgrade-and-rollback.md).
+
+## Serving configuration reference
+
+The following recipe documents the serving portion included in the package and
+its publish/query checks. For approved operations, install the complete package
+above, which also starts the management and executor services by default.
 
 Prefer an agent-led walkthrough? Start with [Get started with AI](with-ai.md),
 including its [local prerequisite check](with-ai.md#agent-prerequisite-check).
@@ -65,6 +118,7 @@ services:
       ConnectionStrings__DefaultConnection: "Host=postgres;Database=honua;Username=honua;Password=${POSTGRES_PASSWORD:?Required}"
       ConnectionStrings__Redis: redis:6379
       HONUA_ADMIN_PASSWORD: ${HONUA_ADMIN_PASSWORD:?Required}
+      AuditLog__ChainVerification__Key: ${HONUA_AUDIT_CHAIN_KEY:?Required}
       Security__ConnectionEncryption__MasterKey: ${HONUA_MASTER_KEY:?Required}
       Operations__SecretChannel__KeyRingCertificatePath: /var/lib/honua/keyring.pfx
       Operations__SecretChannel__KeyRingCertificatePassword: ${HONUA_KEYRING_PASSWORD:?Required}
@@ -131,7 +185,7 @@ configs:
 
 ## 2. Set the secrets
 
-Four secrets go in a `.env` file beside `compose.yaml`. Generate them rather
+Six secrets go in a `.env` file beside `compose.yaml`. Generate them rather
 than inventing them.
 
 <!-- docs-validation:install.secrets mode=run -->
@@ -145,6 +199,8 @@ POSTGRES_PASSWORD=$(openssl rand -hex 32)
 HONUA_ADMIN_PASSWORD=Aa1!$(openssl rand -hex 32)
 HONUA_MASTER_KEY=$(openssl rand -hex 32)
 HONUA_KEYRING_PASSWORD=$(openssl rand -hex 16)
+HONUA_AUDIT_CHAIN_KEY=$(openssl rand -base64 32)
+HONUA_MANAGER_AUDIT_CHAIN_KEY=$(openssl rand -base64 32)
 EOF
 ```
 
@@ -154,6 +210,11 @@ EOF
 <!-- docs-validation:install.windows-secrets mode=skip reason="Native Windows alternative" -->
 ```powershell
 function New-Secret { -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) }) }
+function New-AuditKey {
+    $bytes = New-Object byte[] 32
+    $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $random.GetBytes($bytes); [Convert]::ToBase64String($bytes) } finally { $random.Dispose() }
+}
 @"
 COMPOSE_PROJECT_NAME=honua-quickstart
 HONUA_IMAGE=ghcr.io/honua-io/honua-server:2026.1-rc
@@ -162,6 +223,8 @@ POSTGRES_PASSWORD=$(New-Secret)
 HONUA_ADMIN_PASSWORD=Aa1!$(New-Secret)
 HONUA_MASTER_KEY=$(New-Secret)
 HONUA_KEYRING_PASSWORD=$(New-Secret)
+HONUA_AUDIT_CHAIN_KEY=$(New-AuditKey)
+HONUA_MANAGER_AUDIT_CHAIN_KEY=$(New-AuditKey)
 "@ | Set-Content .env -Encoding Ascii
 ```
 
@@ -171,7 +234,7 @@ Both ports bind to loopback only; PostgreSQL and Redis are reachable only on the
 project's own network. Change `HONUA_HTTP_PORT` if `18080` is taken, and set
 `HONUA_GRPC_PORT` if `18081` is.
 
-Keep `.env`. Losing it means losing the database.
+Keep `.env`. Losing it means losing the database and audit-chain verification keys. The serving server and optional manager use distinct audit keys; preserve both across restarts and upgrades.
 
 Production stores operation secrets in Redis. The server will not start until a certificate
 encrypts that key ring, so a copy of Redis does not hold both the secrets and the keys. This
@@ -300,57 +363,40 @@ one publish — OGC API Features at `/ogc/features/collections`, GeoServices RES
 rest. `admin.list_services()` and `admin.get_capabilities()` report what this
 deployment actually exposes, rather than what the list above assumes.
 
-## Optional: let an approved proposal update this stack
+## Approved operations and recovery
 
-The Compose file above does not mount the Docker socket into the server. To let
-`honua_propose_platform_release_convergence` and `honua_propose_rollback` change this
-project, copy [`compose.executor.yaml`](compose.executor.yaml) beside `compose.yaml`,
-create a `backups` directory, and make both that directory and this Compose
-directory writable by uid 1001 (the sidecar writes backups and
-`compose.executor.image.yaml` as that user). The overlay's init service changes the socket
-volume to that user before the executor binds it, and lists both compose files so a later
-image change keeps the management services. Load the immutable release image on the host before
-anyone approves it (`docker compose up` for the executor uses `--pull never`). Set
-`HONUA_RELEASE_IMAGE` to that digest, `HONUA_RELEASE_WORKER_IMAGE` to the co-versioned
-worker digest from the same release lock, `HONUA_RELEASE_VERSION` to its release version,
-`COMPOSE_PROJECT_NAME` to the project name
-(`docker compose ls` prints it; for this quickstart it is the directory name),
-`DOCKER_GID` to the host docker group (`getent group docker`). The executor needs to
-read the quickstart `.env` file when it invokes Compose. Keep its owner unchanged, set
-its group to that Docker group (`sudo chgrp "$DOCKER_GID" .env`), and grant only owner
-and group access (`chmod 0640 .env`). Membership in that group also grants Docker
-socket access. Set `HONUA_COMPOSE_CUSTOMER_PROBE` to an `http://honua:8080/...` route that returns a
-non-empty body. The published image does not include the Docker client, so the
-sidecar mounts the host `docker` binary and the Docker socket. The `honua` service
-mounts neither. Then start both files with
-`docker compose -f compose.yaml -f compose.executor.yaml up -d`.
+The customer package includes [`compose.executor.yaml`](compose.executor.yaml) by
+default. The manager has its own database and credentials so its startup cannot
+migrate the serving database before approval. Its durable state survives serving
+container replacement. Proposals execute only after a different principal approves.
+The executor accepts no arbitrary shell command, project, or service from a model.
 
-Set `HONUA_PRIOR_IMAGE` to the retained immutable prior image and
-`HONUA_PRIOR_MAX_SCHEMA` to the highest migration shipped in that exact image.
-This operator catalog is required for prior images without a schema label. An
-unknown prior schema refuses rollback.
+The package initializes the project directory and backup directory for private group
+access, sets the host Docker group in `DOCKER_GID`, and initializes the Unix socket
+volume for uid 1002. The Docker client and Compose plugin ship in the dedicated
+executor image. Neither HTTP server receives the Docker socket or host binaries.
 
-Set `HONUA_COMPOSE_PROJECT_DIRECTORY` to the absolute path of this directory on the
-Docker host. It is mounted at the same path in the executor so relative bind mounts
-continue to resolve on that host. Set `DOCKER_COMPOSE_PLUGIN` to the absolute host
-path of the Docker Compose plugin executable (for example,
-`/usr/libexec/docker/cli-plugins/docker-compose`). The overlay mounts that plugin
-alongside the Docker client. Both must run on the image's glibc.
+`HONUA_PRIOR_IMAGE` and `HONUA_PRIOR_MAX_SCHEMA` identify the retained immutable prior
+image and the highest migration shipped in that exact image. The package derives the
+initial schema from the same candidate source. For an older image without a schema
+label, supply its exact shipped schema rather than guessing. A reader-incompatible
+rollback restores a verified database backup before starting the prior image. It
+uses the image ID recorded in the backup. File storage is not part of this restore.
+Contract migration nonces still use `HONUA_MIGRATE_ONLY` and are not bypassed.
 
-The overlay runs the candidate image as a separate management process on loopback port
-`HONUA_MANAGER_PORT` (default 18082). Create distinct proposer and approver credentials
-there and use its MCP and approval endpoints. Its separate database prevents starting the
-manager from migrating the serving database before approval; retain its database and the
-management Redis volume across restarts. The executor uses the candidate image with
-`HONUA_COMPOSE_EXECUTOR=true`. It is the
-only service that receives the Docker socket. It accepts an immutable digest for this
-project only, and a different principal has to approve the proposal before anything
-changes. A rollback to an image that cannot read the live journal, including a
-reader-incompatible or contract migration, restores a verified database backup from
-`backups` before that image starts. Rollback
-uses the image id recorded in that backup. File storage is not part of this restore;
-the backup recipe in the Compose deploy guide still covers it. Contract-migration
-nonces stay on `HONUA_MIGRATE_ONLY` and are not bypassed here.
+The first approved convergence records the verified installed revision as the rollback
+baseline. After convergence completes, `honua_propose_rollback` can omit `toRevision`
+and `backupId`: it selects the prior serving revision and previews a verified matching
+backup. Review the selected revision and backup in the proposal's `diff` and `dryRun`
+before a separate principal approves it. Execution verifies the same backup again.
+
+Poll the proposal through the management API or `honua://proposals/{id}`. Both expose
+`Completed` or `Failed` after the canonical execution reaches that state; failures
+include `resolutionReason`. The proposal list retains the approval lifecycle; use detail
+or the MCP resource for execution status. A failed local Compose operation releases
+exclusive ownership once its child deployment, if any, is also verified terminal. Restore the failed dependency and
+create a new convergence proposal with a new `idempotencyKey`. Active, missing, or
+uncertain execution records keep ownership until their state can be established.
 
 ## What to do next
 
@@ -369,7 +415,7 @@ docker compose down              # stop, keep all data
 docker compose down --volumes    # stop and permanently delete this project's data
 ```
 
-`down --volumes` removes this project's three volumes and nothing else. Before
+`down --volumes` removes this project's data, including management state and audit history. Before
 storing anything you cannot lose, read
 [backup and recovery](../guides/deploy/backup-and-restore.md) — a restart is not
 a backup.
@@ -394,3 +440,13 @@ a backup.
   unpublished tag. The optional .NET client uses a different registry; see
   [registry clients](registry-clients.md) only if you need it.
 - **Anything else** — [troubleshooting](../guides/deploy/troubleshooting.md).
+
+## Enable the built-in Studio assistant (optional)
+
+The default quickstart keeps model calls disabled. To use the built-in browser
+assistant on Bedrock, follow [Studio assistant on Bedrock](../guides/deploy/studio-assistant-bedrock.md).
+The opt-in `docker-compose.studio-ai.yml` overlay sets Studio customer authorization,
+the tool-capable provider, exact disclosure approval and stable PostgreSQL admission
+identity. Initialize and resume the invocation ledger before submitting a prompt.
+Use an updated Console image; older images calling `/api/v1/agent/workspaces/`
+require a Console rebuild, since that separate API is absent from Server trunk.

@@ -477,7 +477,8 @@ def held_out_campaign(tmp_path, monkeypatch, outcomes):
     for i, passes in enumerate(outcomes):
         cid = f'h{i:02d}'
         run(tmp_path, name=cid, variant='H', goal_set=primary, case_id=cid,
-            mods=modules(studio=FakeStage('studio', passes=passes)),
+            # Held-out admission runs are on the shipped quickstart package (ARC v2 B1/S4).
+            mods=modules(studio=FakeStage('studio', passes=passes), ops=Packaged('ops')),
             session=FakeSession([GOOD_ANSWER] * 3 + [GOOD_ANSWER if passes else 'I was unable to save the map.']))
         raws.append((tmp_path / cid / 'trial-receipt.json').read_bytes())
     rows = R.schedule(ARC, 'local-docker', A1, primary, len(outcomes))
@@ -553,7 +554,7 @@ def test_aggregate_counts_missing_as_undetermined_and_adds_up(tmp_path):
 def test_held_out_aggregate_binds_cases_and_rejects_development_receipts(tmp_path, monkeypatch):
     primary, reserve, rows, raws = held_out_campaign(tmp_path, monkeypatch, [True, True])
     sets = {'primary': primary, 'reserve': reserve}
-    result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets)
+    result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets, package=PKG)
     assert result['completed'] == 2 and 'certifying' not in result or result.get('certifying') is not False
     names, dev_raws = campaign(tmp_path / 'dev', [True])
     relabelled = tamper(dev_raws[0], lambda d: d.update(runId='local-docker:A1:h00'))
@@ -1258,7 +1259,112 @@ def test_a_development_composition_run_is_never_certifying(tmp_path):
     assert receipt['slotFacts']['opsComposition']['kind'] == 'development-composition'
     aggregate, report = _admit(tmp_path, '001')
     assert aggregate.get('certifying') is False
-    assert 'ops ran on the development executor composition, not the quickstart' in report['notCertifyingBecause']
+    assert any('the development composition never certifies' in r for r in report['notCertifyingBecause'])
+
+
+PKG_SHA = {n: 'sha256:' + 'e' * 64 for n in ('README.md', 'compose.executor.yaml', 'compose.yaml', 'images.json',
+                                             'quickstart.py')}
+PKG = {'revision': ARC['quickstartPackage']['revision'], 'declaredRelease': 'ghcr.io/honua-io/honua-server@cand',
+       'sha256': PKG_SHA}
+
+
+class Packaged(FakeStage):
+    """Ops on the shipped package: setup installed the package (its digest in the quickstart facts) and ops
+    adopted the package's own manager and executor."""
+    def __init__(self, stage, package=True, composition=None):
+        super().__init__(stage)
+        self.package, self.composition = package, composition
+
+    def prepare(self, ctx):
+        if self.package:
+            ctx.slot.facts.setdefault('quickstart', {})['packageSha256'] = dict(PKG_SHA)
+        ctx.slot.facts['opsComposition'] = self.composition or {
+            'kind': 'quickstart-package', 'revision': PKG['revision'], 'declaredRelease': PKG['declaredRelease'],
+            'packageSha256': dict(PKG_SHA)}
+
+
+def _package_reasons(report):
+    return [r for r in report.get('notCertifyingBecause', []) if 'shipped quickstart package' in r]
+
+
+def _admit_packaged(tmp_path, name, package=PKG):
+    return agg(tmp_path, [name], [(tmp_path / name / 'trial-receipt.json').read_bytes()], package=package)
+
+
+def test_a_shipped_package_run_is_admitted_without_a_composition_reason(tmp_path):
+    run(tmp_path, mods=modules(ops=Packaged('ops')))
+    receipt = json.loads((tmp_path / '001' / 'trial-receipt.json').read_text())
+    assert R.on_shipped_package(receipt, PKG)
+    aggregate, report = _admit_packaged(tmp_path, '001')
+    assert _package_reasons(report) == [] and aggregate['quickstartPackage'] == PKG
+    # Without the independently rebuilt package the aggregate cannot certify a local run.
+    aggregate, report = _admit(tmp_path, '001')
+    assert 'quickstartPackage' not in aggregate and any('was not rebuilt' in r for r in report['notCertifyingBecause'])
+
+
+def test_a_relabelled_development_receipt_is_rejected_against_the_rebuilt_package(tmp_path):
+    """Sol 477d0d28 item 3: relabelling a development-composition receipt as the package, with a matching
+    self-asserted packageSha256, is rejected against the package rebuilt for the candidate."""
+    run(tmp_path, mods=modules(ops=Composed('ops', _composition())))
+    def relabel(receipt):
+        receipt['slotFacts'].setdefault('quickstart', {})['packageSha256'] = {'x': 1}
+        receipt['slotFacts']['opsComposition'] = {'kind': 'quickstart-package', 'revision': PKG['revision'],
+                                                  'declaredRelease': PKG['declaredRelease'], 'packageSha256': {'x': 1}}
+    _rewrite_receipt(tmp_path, '001', relabel)
+    with pytest.raises(ValueError, match='not the product package for this candidate'):
+        _admit_packaged(tmp_path, '001')
+
+
+@pytest.mark.parametrize('change', [{'declaredRelease': 'ghcr.io/honua-io/honua-server@other'},
+                                    {'packageSha256': dict(PKG_SHA, **{'images.json': 'sha256:' + '0' * 64})}])
+def test_a_package_run_not_matching_the_rebuilt_package_is_rejected(tmp_path, change):
+    composition = {'kind': 'quickstart-package', 'revision': PKG['revision'], 'declaredRelease': PKG['declaredRelease'],
+                   'packageSha256': dict(PKG_SHA), **change}
+    run(tmp_path, mods=modules(ops=Packaged('ops', package=True, composition=composition)))
+    with pytest.raises(ValueError):
+        _admit_packaged(tmp_path, '001')
+
+
+def test_the_expected_package_is_rebuilt_by_the_product_packager_for_the_candidate(tmp_path, monkeypatch):
+    import ai_arc_local
+    seen = {}
+    def build(source, pin, out, **lock):
+        seen.update(lock, source=source, out=out)
+        return {n: n.encode() for n in ai_arc_local.PACKAGE_FILES}
+    monkeypatch.setattr(ai_arc_local, 'build_quickstart_package', build)
+    cand = {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'a' * 64,
+            'executorImage': 'ghcr.io/honua-io/honua-compose-executor@sha256:' + 'b' * 64}
+    package = R.expected_package(ARC, cand, tmp_path / 'src')
+    assert seen['server'] == seen['worker'] == 'ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64
+    assert seen['executor'] == cand['executorImage'] and not Path(seen['out']).exists()
+    assert package['revision'] == ARC['quickstartPackage']['revision'] and package['declaredRelease'] == seen['server']
+    assert set(package['sha256']) == ai_arc_local.PACKAGE_FILES
+
+
+@pytest.mark.parametrize('composition', [
+    {'kind': 'quickstart-package', 'revision': 'f' * 40, 'packageSha256': {'compose.yaml': 'sha256:' + 'e' * 64}},
+    {'kind': 'quickstart-package', 'revision': ARC['quickstartPackage']['revision'],
+     'packageSha256': {'compose.yaml': 'sha256:' + '0' * 64}},
+    {'kind': 'harness-overlay', 'revision': ARC['quickstartPackage']['revision']}])
+def test_a_package_composition_not_bound_to_the_installed_package_is_not_admitted(tmp_path, composition):
+    run(tmp_path, mods=modules(ops=Packaged('ops', composition=composition)))
+    with pytest.raises(ValueError, match='ops composition'):
+        _admit(tmp_path, '001')
+
+
+def test_a_local_run_whose_setup_did_not_install_the_package_never_certifies(tmp_path):
+    """Laptop decision 11-01: admission accepts only the shipped quickstart package composition; a run that
+    set up without the package (or ran ops without an ops composition) is not on it."""
+    receipt, _ = run(tmp_path)
+    assert receipt['stages'][0]['outcome'] == 'pass' and not R.on_shipped_package(receipt)
+    aggregate, report = _admit_packaged(tmp_path, '001')
+    assert aggregate.get('certifying') is False and _package_reasons(report)
+    broken = json.loads(json.dumps(receipt))
+    broken['slotFacts'].setdefault('quickstart', {})['packageSha256'] = {'x': 'sha256:' + 'e' * 64}
+    broken['slotFacts'].pop('opsComposition', None)
+    assert not R.on_shipped_package(broken)      # ops ran (pass) with no ops composition recorded
+    broken['slotFacts']['opsComposition'] = {'kind': 'quickstart-package'}
+    assert R.on_shipped_package(broken)
 
 
 @pytest.mark.parametrize('change', [{'revision': 'f' * 40}, {'executorComposeSha256': 'sha256:' + '0' * 64}])
@@ -1723,8 +1829,20 @@ def test_pinned_inputs_are_fetched_at_the_pins_and_digest_checked(tmp_path):
     arc = json.loads(json.dumps(ARC))
     arc['quickstart']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('quickstart.md'))])
     arc['console']['compose']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('docker-compose.yml'))])
+    package = arc['quickstartPackage']
+    for rel in package['files']:
+        url = f"https://raw.githubusercontent.com/{package['repo']}/{package['revision']}/{rel}"
+        raw = pages.setdefault(url, b'package-' + rel.encode())    # the guide is the same file at the same pin
+        package['files'][rel] = R.sha256(raw)
     got = R.pinned_inputs(arc, tmp_path / 'in', fetch=pages.__getitem__)
-    assert set(got) == {'quickstart.md', 'docker-compose.yml'} and (tmp_path / 'in' / 'quickstart.md').is_file()
+    assert set(got) == {'quickstart.md', 'docker-compose.yml'} | {'quickstart-package/' + r for r in package['files']}
+    assert (tmp_path / 'in' / 'quickstart.md').is_file()
+    assert (tmp_path / 'in' / 'quickstart-package/scripts/docker/package_quickstart.py').read_bytes() == \
+        b'package-scripts/docker/package_quickstart.py'
+    bad = json.loads(json.dumps(arc))
+    bad['quickstartPackage']['files']['scripts/docker/compose_quickstart.py'] = 'sha256:' + '0' * 64
+    with pytest.raises(ValueError, match='package pin'):
+        R.pinned_inputs(bad, tmp_path / 'in3', fetch=pages.__getitem__)
     arc['quickstart']['sha256'] = 'sha256:' + '0' * 64
     with pytest.raises(ValueError):
         R.pinned_inputs(arc, tmp_path / 'in2', fetch=pages.__getitem__)
@@ -1734,6 +1852,7 @@ def test_the_workflow_has_no_free_quickstart_input_and_passes_the_console_compos
     workflow = (R.ROOT / '.github/workflows/ai-arc.yml').read_text()
     assert 'quickstart_revision' not in workflow and 'pinned-inputs' in workflow
     assert '--console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"' in workflow
+    assert '--quickstart-package-source "$RUNNER_TEMP/arc-inputs/quickstart-package"' in workflow
 
 
 def test_a_held_out_run_leaves_no_goal_text_on_disk(tmp_path, monkeypatch):
