@@ -485,7 +485,8 @@ def arc_partial_case(tmp_path, monkeypatch):
         old = [event(n, 3) for n in names[:count]]
         new = [event(n, 4) for n in names[count:] if n in state['published']]
         new += [dict(event(n, 4), auditId=90 + names.index(n), resourceId=f'op_9_{n}',
-                     details='operationId=admin.layer.publish;status=Completed') for n in state.get('dry_runs', ())]
+                     details=state.get('dry_run_details', 'operationId=admin.layer.publish;status=Completed'))
+                for n in state.get('dry_runs', ())]
         # Audit snapshot retains real raw bytes in the recorder/vault.
         original_factory = rec._http_factory
         def with_audit(recorder, principal, method, path, body, headers):
@@ -683,4 +684,14 @@ def test_a_malformed_admin_handle_still_fails(arc_partial_case):
     state['admin'] = {'parcels', 'flood_zones'}
     state['admin_table'] = {'parcels': 'Not A Table'}
     with pytest.raises(ValueError):
+        run(1)
+
+
+def test_a_dry_run_handle_under_a_service_publish_audit_is_inconsistent_evidence(arc_partial_case):
+    """Sol dryrun: the skip applies only when the audit event names admin.layer.publish too."""
+    run, state = arc_partial_case
+    state['admin'] = {'parcels', 'flood_zones'}
+    state['dry_runs'] = ('parcels',)
+    state['dry_run_details'] = 'operationId=service.publish;status=Completed'
+    with pytest.raises(ValueError, match='stage-four publish handle differs'):
         run(1)

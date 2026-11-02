@@ -185,8 +185,12 @@ def complete_sources(stack, seeded, body):
             identity = publication_handle_identity(handle)
         except ProjectionError:
             identity = None
-        if identity is None and answer.get('httpStatus') == 200 and admin_validation_handle(handle, operation):
-            continue   # a completed dry run (validation only) published nothing: not a source candidate
+        if (identity is None and answer.get('httpStatus') == 200 and admin_validation_handle(handle, operation)
+                and str(event.get('details', '')).split(';')[0] == 'operationId=admin.layer.publish'):
+            # A completed dry run (validation only) published nothing: not a source candidate. Only when the audit
+            # event names the same operation (Sol dryrun: a service.publish audit with an admin validation handle
+            # still fails as inconsistent evidence).
+            continue
         require(answer.get('httpStatus') == 200 and isinstance(handle, dict)
                 and handle.get('operationInstanceId') == operation and identity is not None
                 and str(event.get('details', '')).split(';')[0] == 'operationId=' + identity['operationId'],
