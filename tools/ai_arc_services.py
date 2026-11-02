@@ -50,6 +50,23 @@ def runtime_class():
             self.vm = vm
             self.shared_service = None
 
+        # Client-side MCP configuration, the same kind as the ops stage's workflow_view='full' (release session
+        # ruling, 2026-11-02 rehearsal of record r1). With no view the server serves its bounded 12-tool `default`
+        # discovery view (honua-server #3813), which holds no publish, access or Studio tool, and the recording
+        # proxy admits only listed tools, so no arm could publish. `configure` is the view the product's docs name
+        # for admin publish, access, style/render and Studio work. A view narrows discovery only: every call is
+        # still authenticated and authorized on its own. Disclosed: "the harness's MCP client requests the
+        # configure view for the services stage".
+        WORKFLOW_VIEW = 'configure'
+
+        def mcp_client(self, stack):
+            # The runtime's own client (endpoint, agent credential, deadline), plus the view; the client refuses a
+            # catalog whose _meta.view is not the one requested (workflow-view-not-observed).
+            client = super().mcp_client(stack)
+            client._validate_view(self.WORKFLOW_VIEW)
+            client.workflow_view = self.WORKFLOW_VIEW
+            return client
+
         def psql(self, stack, sql, *, read_only):
             """Run runner-generated structured SQL on the adopted slot's actual database container."""
             if self.vm is None or self.vm.project != self.arc['project']:

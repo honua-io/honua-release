@@ -29,6 +29,28 @@ CAND_IN = {'sourceRevision': 'c' * 40, 'imageDigest': 'sha256:' + 'd' * 64, 'pla
 INSTALL = ARC['versionPair']['install']
 
 
+@pytest.fixture(autouse=True)
+def _fake_candidate_echoes_the_requested_view(monkeypatch):
+    """The real server reports the served workflow view in tools/list ``_meta.view`` (honua-server
+    McpWorkflowViewWire), and the MCP client refuses a catalog that does not (``workflow-view-not-observed``). The
+    services runtime requests ``configure`` (ai_arc_services WORKFLOW_VIEW); the shared corpus fake predates views,
+    so it echoes the requested view here, as the server does."""
+    try:
+        import test_agent_e2e_local_runner as corpus
+    except Exception:  # noqa: BLE001  (tests that need the fake skip on their own)
+        return
+    original = corpus.Candidate.mcp
+
+    def mcp(self, message, principal):
+        result = original(self, message, principal)
+        params = message.get('params') or {}
+        view = params.get('view') or (params.get('_meta') or {}).get('honua.io/workflow-view')
+        if message.get('method') == 'tools/list' and view and isinstance(result, dict):
+            result = dict(result, _meta={'view': view})
+        return result
+    monkeypatch.setattr(corpus.Candidate, 'mcp', mcp)
+
+
 class CorpusServices(R.ServicesStage):
     """The services stage machinery (gate, deadline, revocation, custody) over the published-town corpus fake:
     the fixture path and the stage-four handoff are covered in test_ai_arc_studio_handoff.py."""
