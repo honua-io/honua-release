@@ -52,7 +52,7 @@ export function retainedHelperRefusal(message, name, result, { env = {}, credent
   for (const value of [...variants].sort((a, b) => b.length - a.length)) stderr = stderr.split(value).join("[REDACTED]");
   stderr = stderr
     .replace(/\bhnua(?:_|%5f)(?:[\w-]|%[0-9a-f]{2})+/gi, "[REDACTED]")
-    .replace(/\b(Bearer|Basic)(?:\s+|%20)+[^\s"'<>]+/gi, "$1 [REDACTED]")
+    .replace(/\b(Bearer|Basic)(?:\s|%20)+[^\s"'<>]+/gi, "$1 [REDACTED]")
     .replace(/\b(authorization|cookie|x-api-key)\s*[:=][^\r\n]*/gi, "$1: [REDACTED]")
     .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]*/g, "[REDACTED]")
     .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "[REDACTED]")

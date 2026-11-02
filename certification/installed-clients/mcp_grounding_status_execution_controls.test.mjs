@@ -91,7 +91,7 @@ async function setup(mode) {
       "    print('controlled observer diagnostic: '+values[0],file=sys.stderr)",
       "    for value in values:",
       "        print(value,file=sys.stderr); print(urllib.parse.quote(value,safe=''),file=sys.stderr); print(base64.b64encode(value.encode()).decode(),file=sys.stderr)",
-      "    for value in ['hnua_untracked_managed_key','Bearer untracked-bearer-value','Basic dXNlcjpwYXNz','authorization: untracked-auth-value','cookie=session=untracked-cookie-value','x-api-key: untracked-api-value','eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature','AKIAABCDEFGHIJKLMNOP','ASIAABCDEFGHIJKLMNOP','password=untracked-db-pass;','pwd=untracked-pwd;','postgres://somebody:untracked-url-pass@localhost/db']:",
+      "    for value in ['hnua_untracked_managed_key','Bearer   untracked-bearer-value','Bearer%20%20encoded-bearer-value','Basic dXNlcjpwYXNz','authorization: untracked-auth-value','cookie=session=untracked-cookie-value','x-api-key: untracked-api-value','eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature','AKIAABCDEFGHIJKLMNOP','ASIAABCDEFGHIJKLMNOP','password=untracked-db-pass;','pwd=untracked-pwd;','postgres://somebody:untracked-url-pass@localhost/db']:",
       "        print(value,file=sys.stderr)",
       "    sys.exit(7)",
       "if name=='mcp_grounding_status_state.py':",
@@ -155,7 +155,7 @@ for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"
             assert.ok(!failure.error.includes(form), "credential representation survived retained stderr redaction");
         }
         for (const value of ["-with-tail", "hnua_untracked_managed_key", "untracked-bearer-value", "dXNlcjpwYXNz",
-          "untracked-auth-value", "untracked-cookie-value", "untracked-api-value", "eyJhbGciOiJIUzI1NiJ9",
+          "encoded-bearer-value", "untracked-auth-value", "untracked-cookie-value", "untracked-api-value", "eyJhbGciOiJIUzI1NiJ9",
           "AKIAABCDEFGHIJKLMNOP", "ASIAABCDEFGHIJKLMNOP", "untracked-db-pass", "untracked-pwd", "untracked-url-pass"])
           assert.ok(!failure.error.includes(value), "credential shape survived retained stderr redaction");
       }
@@ -209,4 +209,15 @@ test("retained helper diagnostic bounds UTF-8 bytes after redaction without trun
   assert.ok(!retained.includes(encoded));
   assert.ok(!retained.includes("�"));
   assert.match(retained, /^\[REDACTED\]/);
+});
+
+test("retained helper diagnostic handles long whitespace without nested repetition", () => {
+  const url = pathToFileURL(join(source, "mcp_candidate_wire.mjs")).href;
+  const program = `import { retainedHelperRefusal } from ${JSON.stringify(url)};
+    const error = retainedHelperRefusal("controlled refusal", "controlled.py",
+      {status: 1, stderr: "Bearer" + " ".repeat(100_000) + "\\n"});
+    if (Buffer.byteLength(error.message.split("stderr=")[1]) > 16_384) process.exit(1);`;
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", program],
+    { encoding: "utf8", timeout: 2000 });
+  assert.equal(result.status, 0, "long-whitespace redaction exceeded its isolated control budget");
 });
