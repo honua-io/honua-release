@@ -3629,7 +3629,9 @@ def test_durable_control_plane_roster_is_the_24_redis_gated_admin_tools():
     # 24 durable-control-plane names (+honua_admin_import_upload_object).
     # RC re-pin #4 (53bb94a, unchanged at a4bde4b): 134 tools (+honua_get_job_results, honua_ingest_job_artifact);
     # durable set unchanged.
-    assert len(_FULL_ROSTER) == 134 and len(set(_FULL_ROSTER)) == 134
+    # 2026-11-02 rc.2 cut (daf56db2): 135 tools (+honua_admin_api_key_update_restrictions, read from the
+    # booted candidate's full view); durable set unchanged.
+    assert len(_FULL_ROSTER) == 135 and len(set(_FULL_ROSTER)) == 135
     assert len(_DURABLE_ONLY) == 24 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
                                       "honua_admin_import_")) for n in _DURABLE_ONLY)
@@ -3770,9 +3772,9 @@ def test_s2_redis_on_full_129_catalog_passes():
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
 
 
-def test_s2_redis_off_110_catalog_passes_with_topology_recorded():
+def test_s2_redis_off_111_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 110
+    assert len(catalog) == 111
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])

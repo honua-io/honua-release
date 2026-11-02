@@ -51,6 +51,7 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
+# Previous snapshotDate "2026-10-27": rc re-pin #4: honua-server 8cb074f -> a4bde4b (124 trunk commits; #6590, #6593, #6595, #6599, #6643, #6650, #6655, #6656, #6670, #6695, #6703, #6721, #6734)
 snapshotDate: "2026-11-02"             # 2026-11-02 rc.2 cut: honua-server a4bde4b -> daf56db (87 trunk commits, #3213 and #6561-#6864; migrations 141-143)
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
@@ -658,11 +659,12 @@ components:
       geoservices: "2.0.0"   # transports[].id=geoservices-rest contractVersion
       ogc: "1.0.0"           # transports[].id=ogc-http contractVersion
       stac: "1.0.0"          # transports[].id=stac contractVersion
-    # Copied from release/component-versions.json at the pinned sha daf56db2
-    # (2026-11-02 RC2 CUT; unchanged since a4bde4b8, honua-server#6530; it carries
-    # inspector-pagination-observer v2). The resolver copies that declaration and then sets
+    # Copied from release/component-versions.json at the pinned sha a4bde4b8
+    # (honua-server#6530). The resolver copies that declaration and then sets
     # schemaVersions.database to the migration floor (dbSchema). database is not
     # declared by the server. metadata is the graph schema, not the API id above.
+    # 2026-11-02 RC2 CUT: re-copied at the pinned sha daf56db2; the declaration is unchanged against
+    # a4bde4b8 (it carries inspector-pagination-observer v2), and database moves to the floor 143.
     schemaVersions:
       certification-evidence-receipt: "2.0"
       inspector-pagination-observer: "v2"
@@ -1838,6 +1840,10 @@ platformLockEvidence:
       revision: "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd"
       path: "spec/schemas/index.json"
       sha256: "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
+    # Pre-cut (until 2026-11-02):
+    # catalog: AT-CUT. The runtime capability/operation catalog digest is produced by the exact
+    #   candidate server image; no pre-cut file carries it.
+    # okf: AT-CUT. The OKF content digest is produced by the same candidate runtime.
     # 2026-11-02 RC2 CUT: catalog and OKF are declared at the candidate server revision
     # (resolve_trunk_candidate.content_digest_declaration); both move in lockstep with
     # components.honua-server.sha.

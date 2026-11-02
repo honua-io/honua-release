@@ -76,9 +76,11 @@ def test_fixture_is_the_s4_roster_shape():
     assert r['schemaVersion'] == 1
     # Re-copied verbatim at the a4bde4b re-pin #4, byte-identical to 53bb94a's (roster body last changed
     # at server b6c47e73); at 53bb94a static gained honua_get_job_results and honua_ingest_job_artifact.
-    assert len(r['static']) == 63 and len(r['projectedAdmin']) == 71
+    # Re-copied verbatim at the 2026-11-02 rc.2 cut (daf56db2; roster body last changed at a8b4541d):
+    # projectedAdmin gained honua_admin_api_key_update_restrictions and a `review` view was added.
+    assert len(r['static']) == 63 and len(r['projectedAdmin']) == 72
     assert len(r['requiresDurableControlPlane']) == 24
-    assert set(r['views']) == {'analyze', 'configure', 'default', 'operate', 'setup'}
+    assert set(r['views']) == {'analyze', 'configure', 'default', 'operate', 'review', 'setup'}
     assert r['retired'] == ['honua_propose_operation']
 
 
