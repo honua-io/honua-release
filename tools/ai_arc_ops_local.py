@@ -170,7 +170,16 @@ def live_approval(receipt) -> bool:
 
 
 def slot_compose(vm, *args: str) -> str:
+    if getattr(vm, 'packaged', False):
+        # The shipped package: its .env names COMPOSE_FILE (compose, executor and image override) itself.
+        return vm.compose(*args)
     return vm.compose('-f', 'compose.yaml', '-f', 'compose.executor.yaml', *args)
+
+
+def manager_key(ctx) -> str:
+    """The management API's administrator: the package generates its own (HONUA_MANAGER_ADMIN_PASSWORD); the
+    development overlay shares the serving administrator."""
+    return ctx.slot.controller.get('manager_admin_key') or ctx.slot.controller['admin_key']
 
 
 def read_state(vm) -> dict | None:
@@ -796,6 +805,28 @@ class LocalOps:
                 'note': 'the quickstart compose itself has no executor service yet; the harness applies the '
                         'documented optional overlay exactly as #6824 lifecycle proof does'}
 
+    def adopt_package(self, ctx) -> dict:
+        """The shipped quickstart package already runs the product's manager and executor (the agent installed it
+        in setup): verify them and adopt the manager; nothing is added to the customer's stack."""
+        vm = ctx.slot.vm
+        ps = vm.ssh(slot_compose(vm, 'ps', '--all', '--format', 'json'), 120)
+        text = ps.stdout.decode() if isinstance(ps.stdout, bytes) else str(ps.stdout or '')
+        rows = [json.loads(line) for line in text.splitlines() if line.strip().startswith('{')]
+        state = {r.get('Service'): (r.get('State'), r.get('Health')) for r in rows if isinstance(r, dict)}
+        for service in ('compose-manager', 'compose-executor'):
+            if state.get(service, (None,))[0] != 'running' or state[service][1] not in ('healthy', '', None):
+                raise RuntimeError(f'the installed package has no running {service}')
+        env = vm.ssh('set -eu\ncd -- ' + shlex.quote(vm.remote_dir) + "\ngrep -E '^HONUA_RELEASE_IMAGE=' .env\n", 60)
+        line = (env.stdout.decode() if isinstance(env.stdout, bytes) else str(env.stdout or '')).strip()
+        release = line.split('=', 1)[1] if line.startswith('HONUA_RELEASE_IMAGE=') else None
+        if not release:
+            raise RuntimeError('the installed package declares no release image')
+        return {'kind': 'quickstart-package', 'source': 'honua-server quickstart package (#6846)',
+                'revision': ctx.arc['quickstartPackage']['revision'], 'managerPort': vm.manager_port,
+                'declaredRelease': release,
+                'packageSha256': (ctx.slot.facts.get('quickstart') or {}).get('packageSha256'),
+                'note': 'installed by the agent in setup with python3 quickstart.py; the harness adds nothing'}
+
     @staticmethod
     def uncompose(vm, facts):
         d = shlex.quote(vm.remote_dir)
@@ -820,13 +851,13 @@ class LocalOps:
         if not run_sql(vm, f'CREATE TABLE IF NOT EXISTS {MARKER} (id integer PRIMARY KEY, value text NOT NULL); '
                            f"INSERT INTO {MARKER} VALUES (1, 'retained') ON CONFLICT (id) DO UPDATE SET value='retained'"):
             raise RuntimeError('the data marker could not be written')
-        composition = self.compose_executor(ctx)
+        composition = (self.adopt_package(ctx) if getattr(vm, 'packaged', False) else self.compose_executor(ctx))
         ctx.slot.facts['opsComposition'] = composition
         tunnel = ai_arc_local.Tunnel(vm, composition['managerPort'])
         ctx.slot.closers.append(tunnel.close)
         manager = ctx.options.get('ops_manager') or Manager(tunnel.base_url)
         self.manager = manager
-        self.keys = Keys(manager, ctx.slot.controller['admin_key'])
+        self.keys = Keys(manager, manager_key(ctx))
         live = Live(None, self.keys, None)
         ctx.live.append(live)                     # owned by finalize_stage before the first mint
         proposer = self.keys.mint('arc-ops-proposer', PROPOSER_PERMISSIONS)
@@ -841,7 +872,7 @@ class LocalOps:
                                  prior_refs=(f"{install['image']}@{install['imageDigest']}", install['imageDigest']),
                                  fault_r=True, fault_d='diagnosis.recovered' in self.scored(ctx),
                                  declared_release=composition['declaredRelease'],
-                                 observer_key=ctx.slot.controller['admin_key'])
+                                 observer_key=manager_key(ctx))
         live.scenario = self.scenario
         mcp = HttpMcpBackend(tunnel.base_url + '/mcp', header='X-API-Key', token=proposer['key'],
                              workflow_view='full').start()
@@ -958,7 +989,7 @@ class LocalOps:
         session (an approval path around the harness)."""
         if self.keys is None:
             return []
-        status, body = self.manager.request('GET', '/api/v1/admin/proposals/', ctx.slot.controller['admin_key'])
+        status, body = self.manager.request('GET', '/api/v1/admin/proposals/', manager_key(ctx))
         if status != 200 or not isinstance(body.get('proposals'), list):
             return ['inventory-unreadable']               # fail closed: separation is unproven
         listing = body['proposals']
@@ -977,13 +1008,13 @@ class LocalOps:
     def reconverge(self, ctx) -> dict:
         """Harness-owned slot preparation for stage 3: back to the candidate, with its own keys."""
         from agent_cli_backends import HttpMcpBackend
-        keys = Keys(self.manager, ctx.slot.controller['admin_key'])
+        keys = Keys(self.manager, manager_key(ctx))
         try:
             proposer, approver = keys.mint('arc-harness-proposer'), keys.mint('arc-harness-approver')
             ctx.slot.harness_secrets.extend(k['key'] for k in (proposer, approver))
             mcp = HttpMcpBackend(self.manager.base + '/mcp', header='X-API-Key', token=proposer['key'],
                                  workflow_view='full').start()
-            status, listing = self.manager.request('GET', '/api/v1/admin/proposals/', ctx.slot.controller['admin_key'])
+            status, listing = self.manager.request('GET', '/api/v1/admin/proposals/', manager_key(ctx))
             if status != 200 or not proposal_inventory(listing):
                 return {'status': 'failed', 'reason': 'the proposal inventory could not be read before preparation'}
             existing = {p.get('proposalId') for p in listing['proposals'] if isinstance(p, dict)}
@@ -1025,7 +1056,7 @@ class LocalOps:
                 # The product's own outcome: stop at a terminal proposal instead of waiting out the budget
                 # (rehearsal-7: Failed / restore-incomplete within 40 s; honua-server #6858).
                 code, detail = self.manager.request('GET', f'/api/v1/admin/proposals/{pids[0]}',
-                                                    ctx.slot.controller['admin_key'])
+                                                    manager_key(ctx))
                 detail = detail.get('data', detail) if isinstance(detail, dict) else {}
                 if code == 200 and str(detail.get('status', '')).lower() in ('failed', 'rejected', 'cancelled'):
                     return {'status': 'failed', 'reason': 'the product failed the re-convergence',

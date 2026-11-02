@@ -28,7 +28,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_OVERRIDES = ROOT / 'docs/2026.1-release-decision-overrides.json'
 RULING = 'sdk-attestation-exception-2026-10-27'
-EXCLUDED_KINDS = frozenset({'image', 'oci-chart'})
+EXCLUDED_KINDS = frozenset({'image', 'oci-chart', 'executor-image'})
 EXCLUDED_COMPONENTS = frozenset({'honua-server'})
 DIGEST = re.compile(r'(?:sha256:[0-9a-f]{64}|sha512:[0-9a-f]{128})\Z')
 REQUIRED = ('component', 'kind', 'coordinate', 'version', 'digest', 'owner', 'reason', 'expires', 'target')
