@@ -207,6 +207,9 @@ class VmSlot:
         if done.returncode:
             raise RuntimeError('could not stage the quickstart package on the VM')
         self.packaged = True
+        # The package documents the agent may read through the shell (cat AGENTS.md / README.md): their staged bytes.
+        self.package_documents = tuple('sha256:' + hashlib.sha256(raw).hexdigest() for name, raw in sorted(package.items())
+                                       if name in (AGENT_GUIDE, 'README.md'))
         return {'remoteDir': self.remote_dir, 'httpPort': self.http_port, 'grpcPort': self.grpc_port,
                 'managerPort': self.manager_port, 'composition': 'quickstart-package',
                 'packageSha256': {n: 'sha256:' + hashlib.sha256(r).hexdigest() for n, r in sorted(package.items())},
@@ -256,7 +259,8 @@ class VmSlot:
                 raise ValueError('stdin is only allowed for an approved inline compose file')
         shell = RemoteQuickstartShell(host=self.host, user=self.user, identity_file=self.identity_file,
                                      known_hosts=self.known_hosts, remote_dir=self.remote_dir, slot=self.project,
-                                     approved_compose_sha256=approved, executor=self.run)
+                                     approved_compose_sha256=approved, executor=self.run,
+                                     visible_document_sha256=getattr(self, 'package_documents', ()))
         shell.prevalidate = prevalidate
         return shell
 
