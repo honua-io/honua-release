@@ -458,8 +458,11 @@ def check_exact_candidate(
 ) -> None:
     """Reject placeholders/fallbacks that cannot certify exact published release bytes.
 
-    `ledger_produced_later` is only for the nightly resolver: its protocol-ledger job produces and
-    binds the ledger for this candidate and re-runs the full check before the candidate exists.
+    `ledger_produced_later` is only for runs that do not certify: the nightly resolver, whose
+    protocol-ledger job produces and binds the ledger for this candidate and re-runs the full check
+    before the candidate exists, and release-train's freeze_only qualification lock (CLI
+    `--protocol-ledger produce`), which authenticates candidate inputs and certifies nothing. It waives
+    only the bound-status requirement; check_structure still refuses a malformed ledger.
     """
     ledger = (manifest.get("protocolCertification") or {}).get("ledger") or {}
     if ledger.get("status") != "bound" and not ledger_produced_later:
@@ -900,6 +903,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--requirements", default=str(REQUIREMENTS_PATH))
     ap.add_argument("--exact-candidate", action="store_true",
                     help="reject unpublished/floating/local pins; use for release certification")
+    ap.add_argument("--protocol-ledger", choices=("require", "produce"), default="require",
+                    help="with --exact-candidate: 'require' (default) needs a bound protocol certification "
+                         "ledger; 'produce' is the resolver's protocol_ledger='produce' exemption for runs "
+                         "that certify nothing (release-train freeze_only); every other check still applies")
     ap.add_argument("--deployment-phase", choices=("ga", "candidate-precut"), default="ga",
                     help="GA remains strict; candidate-precut requires verified Lambda bill 1/2/5 proof")
     ap.add_argument("--deployment-qualification", type=Path,
@@ -942,6 +949,7 @@ def main(argv: list[str] | None = None) -> int:
         requirements=requirements,
         deployment_phase=args.deployment_phase,
         deployment_qualification=deployment_proof,
+        ledger_produced_later=args.protocol_ledger == "produce",
     )
     if args.exact_candidate:
         check_registry_platform_digests(manifest, f)
