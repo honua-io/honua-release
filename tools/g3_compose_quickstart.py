@@ -355,18 +355,40 @@ def default_runner(argv: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
     return completed.returncode, (completed.stdout or "") + (completed.stderr or "")
 
 
+SECRET_FILE_MAX_BYTES = 64 * 1024
+
+
 def secret_values(run_dir: Path) -> list[str]:
-    env_path = run_dir / ".env"
-    if not env_path.is_file():
-        return []
+    """Every generated secret value to redact, from whichever layout the install used.
+
+    rc.1 packages put the secrets in `.env` (SECRET_KEYS). From honua-server#6888 each secret is its own
+    file, `secrets/<lower-case former variable>`, and `.env` holds none. Both are read when present. Values
+    are only collected for redaction; nothing here prints them. The binary key ring (`*.pfx`) is not text.
+    """
     values: list[str] = []
-    for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key in SECRET_KEYS and len(value) >= 6:
+    env_path = run_dir / ".env"
+    if env_path.is_file():
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key in SECRET_KEYS and len(value) >= 6:
+                values.append(value)
+    for path in secret_files(run_dir):
+        value = path.read_text(encoding="utf-8", errors="replace").strip()
+        if len(value) >= 6:
             values.append(value)
     return values
+
+
+def secret_files(run_dir: Path) -> list[Path]:
+    """The per-secret text files of the files layout (not the binary key ring, links or oversized files)."""
+    secrets_dir = run_dir / "secrets"
+    if not secrets_dir.is_dir():
+        return []
+    return [path for path in sorted(secrets_dir.iterdir())
+            if path.is_file() and not path.is_symlink() and path.suffix.lower() not in (".pfx", ".p12")
+            and path.stat().st_size <= SECRET_FILE_MAX_BYTES]
 
 
 def redact(text: str, secrets: list[str]) -> str:
@@ -512,7 +534,8 @@ def _annotate_files(run_dir: Path, steps: list[Step]) -> None:
             if compose.is_file() and "platform: linux/amd64" in compose.read_text(encoding="utf-8"):
                 step.detail += " `platform: linux/amd64` is in the documented service."
         elif step.block_id == "install.secrets":
-            step.detail += " `.env` created. Secrets are not in this record."
+            layout = "`secrets/` files created" if secret_files(run_dir) else "`.env` created"
+            step.detail += f" {layout}. Secrets are not in this record."
         elif step.block_id == "install.keyring" and (run_dir / "secrets" / "keyring.pfx").is_file():
             step.detail += " `secrets/keyring.pfx` created."
 

@@ -433,3 +433,37 @@ def test_live_public_quickstart_when_the_server_checkout_is_present(tmp_path: Pa
     assert "${HONUA_IMAGE:?Set the server image}" in written
     assert "platform: linux/amd64" in written
     assert "docker" not in {call[0] for call in calls}
+
+
+def test_secret_values_reads_the_env_layout_and_the_secrets_files_layout(tmp_path: Path):
+    """rc.1 packages keep secrets in .env; from honua-server#6888 each is secrets/<lower-case key>."""
+    env_layout = tmp_path / "env"
+    env_layout.mkdir()
+    (env_layout / ".env").write_text(
+        "HONUA_IMAGE=ghcr.io/honua-io/honua-server:2026.1-rc\nHONUA_ADMIN_PASSWORD=Env-Secret-1\nHONUA_PORT=8080\n",
+        encoding="utf-8")
+    (env_layout / "secrets").mkdir()
+    (env_layout / "secrets" / "keyring.pfx").write_bytes(b"\x30\x82binary-key-ring")
+    assert g3.secret_values(env_layout) == ["Env-Secret-1"]
+    assert g3.secret_files(env_layout) == []
+
+    files_layout = tmp_path / "files"
+    (files_layout / "secrets").mkdir(parents=True)
+    (files_layout / ".env").write_text("HONUA_IMAGE=ghcr.io/honua-io/honua-server:2026.1-rc\nHONUA_PORT=8080\n",
+                                       encoding="utf-8")
+    for name, value in (("honua_admin_password", "File-Secret-1\n"), ("postgres_password", "File-Secret-2"),
+                        ("honua_audit_chain_key", "File-Secret-3\n"), ("short", "abc")):
+        (files_layout / "secrets" / name).write_text(value, encoding="utf-8")
+    (files_layout / "secrets" / "keyring.pfx").write_bytes(b"\x30\x82binary-key-ring")
+    (files_layout / "secrets" / "link").symlink_to(files_layout / ".env")
+    assert sorted(g3.secret_values(files_layout)) == ["File-Secret-1", "File-Secret-2", "File-Secret-3"]
+    text = "admin File-Secret-1 db File-Secret-2 chain File-Secret-3 image 2026.1-rc"
+    redacted = g3.redact(text, g3.secret_values(files_layout))
+    assert "File-Secret" not in redacted and redacted.count("[redacted]") == 3 and "2026.1-rc" in redacted
+
+    both = tmp_path / "both"
+    (both / "secrets").mkdir(parents=True)
+    (both / ".env").write_text("HONUA_MASTER_KEY=Env-Secret-2\n", encoding="utf-8")
+    (both / "secrets" / "honua_master_key").write_text("File-Secret-4", encoding="utf-8")
+    assert sorted(g3.secret_values(both)) == ["Env-Secret-2", "File-Secret-4"]
+    assert g3.secret_values(tmp_path / "missing") == []
