@@ -180,6 +180,13 @@ jobs:
             if [ "$NIGHTLY" = "true" ] || [ "${FREEZE_ONLY:-false}" = "true" ]; then
               ARGS+=(--deployment-phase candidate-precut --deployment-qualification certification/deployment-qualification.json)
             fi
+            # freeze_only authenticates candidate inputs and certifies nothing, so it takes the nightly
+            # resolver's protocol_ledger=produce exemption (the bound ledger is a certification/GA
+            # requirement; rc_gate_window and rc-release read no ledger). The nightly and the full train
+            # still require a bound ledger here.
+            if [ "${FREEZE_ONLY:-false}" = "true" ]; then
+              ARGS+=(--protocol-ledger produce)
+            fi
           fi
           python tools/validate_platform.py "${ARGS[@]}"
           if [ "$DRY_RUN" = "false" ]; then
