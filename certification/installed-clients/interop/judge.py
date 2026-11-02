@@ -228,6 +228,24 @@ def _auth_refusal(status: Any) -> bool:
     return status in REFUSED_STATUSES or status in MCP_REFUSALS
 
 
+def polygon_rings(geometry: Any) -> list[Any] | None:
+    """The ring list of one polygon read back as GeoJSON: a Polygon, or a MultiPolygon holding exactly one
+    polygon. honua-server #6850 stores homogeneous polygon imports in their declared geometry family, so the
+    read can be a single-part MultiPolygon; that is the same polygon. Anything else (more than one part, other
+    types, malformed coordinates) is not one polygon and returns None, so the oracles refuse it."""
+    if not isinstance(geometry, dict) or not isinstance(geometry.get("coordinates"), list):
+        return None
+    coordinates = geometry["coordinates"]
+    kind = geometry.get("type")
+    if kind == "MultiPolygon":
+        if len(coordinates) != 1 or not isinstance(coordinates[0], list):
+            return None
+        coordinates = coordinates[0]
+    elif kind not in ("Polygon", None):
+        return None
+    return coordinates if coordinates else None
+
+
 def polygon_wkb(rings: list[list[list[float]]]) -> str:
     """Little-endian WKB for a polygon, base64-encoded (the geometry.buffer input encoding)."""
     out = struct.pack("<BII", 1, 3, len(rings))

@@ -284,6 +284,21 @@ class OracleTests(unittest.TestCase):
         self.assertFalse(judge.oracle_area_features(observed(ring, [{"gid": feature["gid"], "name": "other"}]), FIXTURE)[0])
         self.assertFalse(judge.oracle_area_features({"rings": [ring + [ring[0]]]}, FIXTURE)[0])
 
+    def test_polygon_rings_accept_one_polygon_only(self):
+        ring = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]
+        self.assertEqual(judge.polygon_rings({"type": "Polygon", "coordinates": [ring]}), [ring])
+        # honua-server #6850: a homogeneous polygon import can read back as a single-part MultiPolygon.
+        self.assertEqual(judge.polygon_rings({"type": "MultiPolygon", "coordinates": [[ring]]}), [ring])
+        self.assertIsNone(judge.polygon_rings({"type": "MultiPolygon", "coordinates": [[ring], [ring]]}))
+        self.assertIsNone(judge.polygon_rings({"type": "MultiPolygon", "coordinates": []}))
+        self.assertIsNone(judge.polygon_rings({"type": "LineString", "coordinates": ring}))
+        self.assertIsNone(judge.polygon_rings({"type": "Polygon", "coordinates": []}))
+        self.assertIsNone(judge.polygon_rings(None))
+        # The unwrapped polygon is valid WKB input; the nested MultiPolygon coordinates were not.
+        judge.polygon_wkb(judge.polygon_rings({"type": "MultiPolygon", "coordinates": [[ring]]}))
+        with self.assertRaises(TypeError):
+            judge.polygon_wkb([[ring]])
+
     def test_render_oracle_reads_pixels_of_the_imported_polygon(self):
         spec_ = FIXTURE["area"]["render"]
         encode = lambda data: {"png": base64.b64encode(data).decode(), "mimeType": "image/png"}  # noqa: E731
