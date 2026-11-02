@@ -363,9 +363,9 @@ def test_slot_provision_keeps_the_packages_compose_files():
 
 
 def test_the_harness_sets_only_the_customer_identity_step_on_the_server():
-    """Release session 2026-11-02: the harness may not set server settings the customer does not set. With
-    honua-server #6896 in the package, the harness's honua change is exactly the doc's identity step (the synthetic
-    test IdP as the customer's IdP) plus the discovery-less test IdP's signing key."""
+    """Release session 2026-11-02: the harness may not set server settings the customer does not set. The harness's
+    honua change is exactly the doc's optional "Enable end-user Studio" step (the synthetic test IdP as the customer's
+    IdP, and Studio__EndUserAuthorization__Enabled) plus the discovery-less test IdP's signing key."""
     import re as _re
     import yaml
     from types import SimpleNamespace
@@ -391,7 +391,8 @@ def test_the_harness_sets_only_the_customer_identity_step_on_the_server():
     documented = set(yaml.safe_load(block)['services']['honua']['environment'])
     assert set(honua['environment']) == documented | set(TEST_IDP_ONLY)
     assert set(honua) == {'image', 'environment'} and honua['image'] == '${HONUA_STUDIO_ACTIVE_IMAGE}'
-    assert 'Studio__EndUserAuthorization__Enabled' not in honua['environment']      # the package's own (#6896)
+    # Part of the documented opt-in step (#6896 closed: the package keeps admin-only Studio).
+    assert honua['environment']['Studio__EndUserAuthorization__Enabled'] == 'true'
 
 
 def test_slot_provision_script_runs_on_a_fresh_slot(tmp_path):

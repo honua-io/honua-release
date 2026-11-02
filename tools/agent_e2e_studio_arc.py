@@ -495,12 +495,13 @@ def provision_local_server(slot, signing_key):
         raise ValueError('invalid slot directory')
     if not isinstance(signing_key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', signing_key):
         raise ValueError('invalid customer signing authority')
-    # Exactly the customer doc's identity step (docs/2026.1-add-console-to-compose-quickstart.md, step 2), with the
-    # harness's synthetic test IdP as the customer's IdP, plus the one setting a discovery-less test IdP needs (its
-    # symmetric signing key). Nothing else on the server: the package sets Studio__EndUserAuthorization__Enabled
-    # (honua-server #6896), the AI proxy is off by default (StudioAiProxy:Enabled defaults to false) and Studio
-    # without AI needs no AiExecutionAdmission (only the AI proxy and imagery inference use it). Release session
-    # 2026-11-02: the harness may not set server settings the customer does not set.
+    # Exactly the customer doc's optional "Enable end-user Studio" step (docs/2026.1-add-console-to-compose-quickstart.md,
+    # step 2: the customer's IdP plus Studio__EndUserAuthorization__Enabled, one opt-in), with the harness's synthetic
+    # test IdP as the customer's IdP, plus the one setting a discovery-less test IdP needs (its symmetric signing key,
+    # which validates the runner-minted sign-in token). Nothing else on the server: the package keeps admin-only
+    # Studio (honua-server #6896 closed), the AI proxy is off by default (StudioAiProxy:Enabled defaults to false) and
+    # Studio without AI needs no AiExecutionAdmission (only the AI proxy and imagery inference use it). Release
+    # session 2026-11-02: the harness may not set server settings the customer does not set.
     env = documented_identity({'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
                                'Oidc__Generic__ClientId': 'terminal-journey'})
     env['Oidc__TokenValidation__SymmetricSigningKey'] = signing_key
