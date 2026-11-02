@@ -1099,7 +1099,7 @@ class StudioStage(DelegatingStage):
                     raise ValueError('the Console compose is not the arc pin')
                 staged = ai_arc_local.stage_console(ctx.slot.vm, text, pin['revision'], ctx.arc['console'])
             except Exception as exc:  # noqa: BLE001
-                return f'Honua Console could not be added to the slot ({type(exc).__name__}): ' + gap
+                return f'Honua Console could not be added to the slot ({type(exc).__name__}: {str(exc)[:400]}): ' + gap
             tunnel = ai_arc_local.Tunnel(ctx.slot.vm, staged['port'])
             ctx.slot.closers.append(tunnel.close)
             ctx.slot.facts.update(consoleBaseUrl=tunnel.base_url, console=staged)

@@ -930,3 +930,72 @@ def test_an_unserved_stack_is_not_observed_serving_and_other_ports_are_not_probe
     ctx.slot.vm.packaged = False
     R.observe_local_handoff(ctx, 'Manager: http://localhost:18082/')
     assert _Tunnel.opened == []
+
+
+def _run_console_script(tmp_path, env_text, *, executor=True, honua_ids=('h1', 'h1')):
+    """Run stage_console's slot script for real, against a stub docker that logs each call and its COMPOSE_FILE."""
+    import os
+    import stat
+    import subprocess
+    import ai_arc_local as L
+    remote = tmp_path / 'slot'
+    remote.mkdir()
+    (remote / 'compose.yaml').write_text('services: {}\n')
+    if executor:
+        (remote / 'compose.executor.yaml').write_text('services: {}\n')
+    if env_text is not None:
+        (remote / '.env').write_text(env_text)
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    log, ids = tmp_path / 'docker.log', tmp_path / 'ids'
+    ids.write_text('\n'.join(honua_ids) + '\n')
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    f'echo "COMPOSE_FILE=$COMPOSE_FILE ARGS=$*" >> {log}\n'
+                    'case "$*" in\n'
+                    f'  *"ps -q honua"*) head -n 1 {ids}; tail -n +2 {ids} > {ids}.n; mv {ids}.n {ids} ;;\n'
+                    '  *"ps -q console"*) echo c1 ;;\n'
+                    '  "inspect --format {{.Image}} c1") echo img ;;\n'
+                    f'  *"image inspect"*) echo \'{json.dumps([CONSOLE_REF])}\' ;;\n'
+                    'esac\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+
+    class Slot(ConsoleSlot):
+        remote_dir = str(remote)
+
+        def ssh(self, script, timeout=300):
+            self.scripts.append(script)
+            return subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
+                                  env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
+    src = _console_compose(CONSOLE_REF)
+    slot = Slot([CONSOLE_REF])
+    try:
+        return L.stage_console(slot, src, REV, CONSOLE, source_at=lambda rev: src.encode()), log.read_text()
+    except RuntimeError as exc:
+        return exc, log.read_text()
+
+
+def test_console_staging_keeps_the_packages_compose_files_and_never_touches_honua(tmp_path):
+    """Studio DEV shakeout 11-02: "-f compose.yaml -f console.yaml" dropped the package's executor and image overrides
+    (its .env COMPOSE_FILE), so Compose recreated honua as console's dependency and stage 4 was unavailable."""
+    staged, log = _run_console_script(
+        tmp_path, 'HONUA_IMAGE=x\nCOMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml\n')
+    assert isinstance(staged, dict) and staged['observedRepoDigests'] == [CONSOLE_REF]
+    up = [line for line in log.splitlines() if ' up ' in line]
+    assert up == [line for line in up if 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml'
+                  ':console.yaml ' in line and '--no-deps' in line and line.rstrip().endswith(' console')]
+    assert len(up) == 1 and not any(' -f ' in line for line in log.splitlines())
+
+
+def test_console_staging_without_compose_file_uses_compose_and_executor(tmp_path):
+    staged, log = _run_console_script(tmp_path, 'HONUA_IMAGE=x\n')
+    assert isinstance(staged, dict)
+    assert 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:console.yaml ' in [l for l in log.splitlines() if ' up ' in l][0]
+    staged, log = _run_console_script(tmp_path / 'plain', None, executor=False) if (tmp_path / 'plain').mkdir() is None \
+        else (None, '')
+    assert 'COMPOSE_FILE=compose.yaml:console.yaml ' in [l for l in log.splitlines() if ' up ' in l][0]
+
+
+def test_console_staging_fails_closed_if_honua_changes(tmp_path):
+    staged, _ = _run_console_script(tmp_path, 'COMPOSE_FILE=compose.yaml\n', honua_ids=('h1', 'h2'))
+    assert isinstance(staged, RuntimeError) and 'changed the honua container' in str(staged)

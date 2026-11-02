@@ -291,16 +291,34 @@ def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, exp
     console.update(image=image, ports=[f'127.0.0.1:{port}:8080'])
     override = yaml.safe_dump({'services': {'console': console}}, sort_keys=True)
     fence = 'HONUA_CONSOLE_' + pysecrets.token_hex(6)
+    # The slot's own compose files plus the Console override. The shipped package's .env names its files in
+    # COMPOSE_FILE (compose.yaml, compose.executor.yaml, compose.executor.image.yaml): an explicit
+    # "-f compose.yaml -f console.yaml" dropped the executor and image overrides, so Compose saw a different honua
+    # service and recreated it as a dependency of console (Studio DEV shakeout 11-02: stage 4 unavailable,
+    # "Console did not start"). Console is started with --no-deps, and the honua container must be the same
+    # container before and after (the harness never changes the candidate deployment it is about to score).
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(slot.remote_dir) + '\n'
               + f"cat > console.yaml <<'{fence}'\n{override}{fence}\n"
-              + slot.compose('-f', 'compose.yaml', '-f', 'console.yaml', 'up', '-d', '--wait', '--wait-timeout', '240',
-                             'console') + '\n'
-              + 'id=$(' + slot.compose('-f', 'compose.yaml', '-f', 'console.yaml', 'ps', '-q', 'console') + ')\n'
+              + 'files="$(sed -n "s/^COMPOSE_FILE=//p" .env 2>/dev/null | tail -n 1)"\n'
+              + 'files="${files#\\"}"; files="${files%\\"}"\n'
+              + 'if [ -z "$files" ]; then files=compose.yaml; '
+                'if [ -f compose.executor.yaml ]; then files="$files:compose.executor.yaml"; fi; fi\n'
+              + 'export COMPOSE_FILE="$files:console.yaml" COMPOSE_PATH_SEPARATOR=:\n'
+              + 'before="$(' + slot.compose('ps', '-q', 'honua') + ')"\n'
+              + slot.compose('up', '-d', '--no-deps', '--wait', '--wait-timeout', '240', 'console') + '\n'
+              + 'after="$(' + slot.compose('ps', '-q', 'honua') + ')"\n'
+              + 'if [ "$before" != "$after" ]; then echo "staging Console changed the honua container" >&2; exit 3; fi\n'
+              + 'id=$(' + slot.compose('ps', '-q', 'console') + ')\n'
               + 'docker image inspect --format "{{json .RepoDigests}}" '
                 '"$(docker inspect --format "{{.Image}}" "$id")"\n')
     done = slot.ssh(script, 600)
     if done.returncode:
-        raise RuntimeError('Console did not start on the slot')
+        err = done.stderr.decode(errors='replace') if isinstance(done.stderr, bytes) else (done.stderr or '')
+        for value in sorted((getattr(slot, 'secrets', None) or {}).values(), key=len, reverse=True):
+            if isinstance(value, str) and len(value) >= 6:
+                err = err.replace(value, '[redacted]')
+        raise RuntimeError(f'Console did not start on the slot (exit {done.returncode}): '
+                           + ' '.join(err.split())[-400:])
     try:
         out = done.stdout.decode() if isinstance(done.stdout, bytes) else (done.stdout or '')
         digests = json.loads(out.strip().splitlines()[-1])
