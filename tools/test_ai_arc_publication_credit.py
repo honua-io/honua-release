@@ -136,3 +136,57 @@ def test_a_long_lived_token_session_records_its_preflight_in_provenance(tmp_path
                   execute=lambda *_: {'status': 'ok', 'result': {'content': []}}, log_dir=tmp_path / 'log')
     assert out['provenance'][0]['authPreflight'] == {'longLivedToken': True, 'expiryUnknown': False}
     assert 'long-lived-test-token' not in json.dumps(out['provenance'])
+
+
+def _fault():
+    from agent_e2e_local_faults import FaultInjector
+    from agent_e2e_local_scenarios.arc_p10 import ArcP10
+    return FaultInjector(ArcP10('http_503_once').fault_plan('A'))
+
+
+DONE = {'status': 'pass', 'result': {'isError': False, 'structuredContent': {'status': 'Completed'}}}
+
+
+def _call(tool, **arguments):
+    return {'kind': 'tool_call', 'tool': tool, 'arguments': arguments}
+
+
+@pytest.mark.parametrize('tool', ['honua_publish_service', 'honua_admin_layer_publish'])
+def test_either_publication_tool_arms_the_p10_query_503(tool):
+    fault = _fault()
+    query = _call('honua_query_features', serviceId='kestrel', layerId=1)
+    assert fault.intercept('tool_call', query) is None                 # not armed before a publication
+    fault.observe('tool_call', _call(tool, table=TABLE, dryRun=False), DONE)
+    event = fault.intercept('tool_call', query)
+    assert event is not None and event['id'] == 'arc-p10-query-503' and event['tool'] == 'honua_query_features'
+    assert fault.intercept('tool_call', query) is None                 # once
+
+
+def test_a_dry_run_failed_or_incomplete_publication_never_arms_the_503():
+    fault = _fault()
+    query = _call('honua_query_features', serviceId='kestrel', layerId=1)
+    fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE, dryRun=True), DONE)
+    fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE, dryRun='true'), DONE)
+    fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE), dict(DONE, status='fail'))
+    fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE),
+                  {'status': 'pass', 'result': {'isError': False, 'structuredContent': {'status': 'Failed'}}})
+    fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE),
+                  {'status': 'pass', 'result': {'isError': True, 'structuredContent': {'status': 'Completed'}}})
+    fault.observe('tool_call', _call('honua_list_layers'), DONE)
+    assert fault.intercept('tool_call', query) is None
+
+
+def test_only_the_reviewed_publication_trigger_is_accepted():
+    from agent_e2e_local_faults import PUBLISH_TRIGGER, validate_fault_plan
+    base = {'kind': 'http_503_once', 'id': 'x', 'match': {'tool': 'honua_query_features'}}
+    assert validate_fault_plan(dict(base, after=PUBLISH_TRIGGER))['after'] == PUBLISH_TRIGGER
+    for bad in ({'tools': ['honua_publish_service', 'honua_ingest_dataset'], 'skipDryRun': True},
+                {'tools': ['honua_publish_service', 'honua_admin_layer_publish']},
+                {'tools': ['honua_publish_service', 'honua_admin_layer_publish'], 'skipDryRun': False}):
+        with pytest.raises(ValueError):
+            validate_fault_plan(dict(base, after=bad))
+    with pytest.raises(ValueError):                                   # never for the lost-response fault
+        validate_fault_plan({'kind': 'response_lost_after_commit', 'id': 'x', 'after': PUBLISH_TRIGGER,
+                             'match': {'tool': 'honua_publish_service'},
+                             'commit': {'pointer': '/result/structuredContent/serviceName',
+                                        'confirm': {'path': '/api/v1/admin/services/{id}/settings'}}})

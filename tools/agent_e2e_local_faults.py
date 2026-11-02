@@ -34,6 +34,10 @@ import threading
 import time
 
 KINDS = ('http_503_once', 'response_lost_after_commit')
+# The one reviewed multi-tool trigger (release session 2026-11-02, rehearsal of record r3): a pre-forward 503 armed
+# by a successful, non-dry-run publication through either product publication tool. A call whose dryRun argument is
+# anything but absent or false never arms it.
+PUBLISH_TRIGGER = {'tools': ['honua_publish_service', 'honua_admin_layer_publish'], 'skipDryRun': True}
 UNAVAILABLE = b'{"error":{"code":503,"message":"Service Unavailable"}}'
 
 
@@ -44,8 +48,9 @@ def validate_fault_plan(plan):
         raise ValueError('unsupported fault plan')
     after, match = plan.get('after'), plan.get('match')
     lost = plan['kind'] == 'response_lost_after_commit'
-    if not (lost and after is None) and (not isinstance(after, dict) or set(after) != {'tool'}
-                                         or not isinstance(after['tool'], str) or not after['tool']):
+    if not (lost and after is None) and not (
+            (isinstance(after, dict) and set(after) == {'tool'} and isinstance(after['tool'], str) and after['tool'])
+            or (not lost and after == PUBLISH_TRIGGER)):
         raise ValueError('fault plan trigger must name one tool: {"after": {"tool": ...}}')
     if (match is None and lost) or (match is not None and (not isinstance(match, dict) or set(match) != {'tool'}
                                                             or not isinstance(match['tool'], str) or not match['tool'])):
@@ -85,9 +90,21 @@ class FaultInjector:
         self.skipped: list[dict] = []
         self._lock = threading.Lock()
 
+    def _completed(self, execution):
+        """The reviewed publication trigger also needs the call's own reply to report a completed operation."""
+        if 'tools' not in (self.plan['after'] or {}):
+            return True
+        result = execution.get('result') if isinstance(execution.get('result'), dict) else {}
+        payload = result.get('structuredContent') if isinstance(result.get('structuredContent'), dict) else {}
+        return result.get('isError', False) is False and payload.get('status') == 'Completed'
+
     def _matches(self, spec, kind, action):
         if kind != 'tool_call':
             return False
+        if spec is not None and 'tools' in spec:
+            arguments = action.get('arguments') if isinstance(action.get('arguments'), dict) else {}
+            return (action.get('tool') in spec['tools']
+                    and not (spec.get('skipDryRun') and arguments.get('dryRun', False) is not False))
         return spec is None or action.get('tool') == spec['tool']
 
     def intercept(self, kind, action):
@@ -171,7 +188,7 @@ class FaultInjector:
         """Arm the fault once the trigger action has succeeded."""
         with self._lock:
             if (not self.triggered and self._matches(self.plan['after'], kind, action)
-                    and execution.get('status') in ('ok', 'pass')):
+                    and execution.get('status') in ('ok', 'pass') and self._completed(execution)):
                 self.triggered = True
 
     def wrap(self, execute):

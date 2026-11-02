@@ -42,8 +42,11 @@ class ArcP10(P10):
                     'match': {'tool': 'honua_publish_service'}, 'commit': {
                         'pointer': '/result/structuredContent/serviceName',
                         'confirm': {'path': '/api/v1/admin/services/{id}/settings'}}}
+        # Either reviewed publication tool arms the 503 (a dry run does not); see agent_e2e_local_faults.
+        from agent_e2e_local_faults import PUBLISH_TRIGGER
         return {'kind': 'http_503_once', 'id': 'arc-p10-query-503',
-                'after': {'tool': 'honua_publish_service'}, 'match': {'tool': 'honua_query_features'}}
+                'after': dict(PUBLISH_TRIGGER, tools=list(PUBLISH_TRIGGER['tools'])),
+                'match': {'tool': 'honua_query_features'}}
 
     def observe(self, stack, seeded, variant, run=None):
         rec, state = stack.extra['recorder'], seeded.state
