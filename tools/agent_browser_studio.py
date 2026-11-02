@@ -974,8 +974,11 @@ def _rpc_error(message, code, text):
 
 
 def _tool_result(status, text, digest):
+    # The page text goes in structuredContent too: an MCP client that prefers structuredContent (Claude Code 2.1.316)
+    # otherwise shows the arm only the screenshot digest. Studio DEV shakeout run 10a: A1 reported "the page-reading
+    # tool gives me no text, only a screenshot hash" and could not find Studio's controls.
     return {'content': [{'type': 'text', 'text': text}], 'isError': status != 'ok',
-            'structuredContent': {'screenshotSha256': digest}}
+            'structuredContent': {'text': text, 'screenshotSha256': digest}}
 
 
 def open_studio_browser(stack, action_log, *, identity=None, scripted_customer=False):

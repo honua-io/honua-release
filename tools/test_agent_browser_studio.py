@@ -1259,3 +1259,12 @@ def test_viewless_catalog_map_keeps_layer_facts_for_failed_handoff():
     body['layers'][0]['styleRef'] = 'authored'
     with pytest.raises(ProjectionError, match='viewless catalog layer'):
         catalog_composition_without_view(body, ids)
+
+
+def test_browser_tool_results_carry_the_page_text_in_structured_content():
+    """Studio DEV shakeout run 10a: Claude Code shows the model structuredContent when present; with only the
+    screenshot digest there, A1 never saw the page ("no text, only a screenshot hash")."""
+    import agent_browser_studio as studio
+    result = studio._tool_result('ok', '- heading "Studio" [level=1]', 'a' * 64)
+    assert result['structuredContent'] == {'text': '- heading "Studio" [level=1]', 'screenshotSha256': 'a' * 64}
+    assert result['content'] == [{'type': 'text', 'text': '- heading "Studio" [level=1]'}]
