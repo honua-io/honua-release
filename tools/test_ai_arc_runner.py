@@ -2818,26 +2818,31 @@ def test_recorded_responses_with_hidden_data_are_counted_per_stage(tmp_path):
     assert R.mcp_channel_gaps(tmp_path / 'absent') == []
     receipt = {'stages': [{'stage': 'services', 'mcpChannelGaps': 2}, {'stage': 'studio', 'mcpChannelGaps': 0}]}
     assert R.mcp_channel_gap_stages(receipt) == ['services']
-    import inspect
-    source = inspect.getsource(R.verify_run)
-    # Recomputed from the verified evidence, never taken from the receipt; the receipt's count must agree.
-    assert "mcp_channel_gaps(Path(evidence) / name, coverage=channel_coverage(stage))" in source and "stage.get('mcpChannelGaps') != 0" in source
+    # verify_run recomputes from the evidence: test_admission_recomputes_the_channel_check_from_the_retained_evidence.
 
 
 def test_admission_recomputes_the_channel_check_from_the_retained_evidence(tmp_path):
-    """Sol console11 P2: verify_run never trusts the receipt's mcpChannelGaps; it recomputes from the evidence and
-    the receipt's count must agree."""
-    names, raws = campaign(tmp_path, [True])
-    assert agg(tmp_path, names, raws) is not None                                   # clean as recorded
-    receipt = json.loads(raws[0])
-    assert all(s.get('mcpChannelGaps') == 0 for s in receipt['stages'] if s['stage'] != 'studio' or True)
-    stripped = json.loads(raws[0])
-    stripped['stages'][0].pop('mcpChannelGaps')                                     # a missing check record
-    with pytest.raises(ValueError, match='MCP channel check'):
-        agg(tmp_path, names, [json.dumps(stripped).encode()])
-    cli = tmp_path / '001.evidence' / 'ops' / 'cli'
-    cli.mkdir(parents=True, exist_ok=True)
-    (cli / 'action-0900.json').write_text(json.dumps({'kind': 'tool_call', 'tool': 'honua_query_features'}))
-    (cli / 'action-0900.response').write_bytes(_sse(ELIDED))                       # an elided result in evidence
+    """Sol console11 P2: never trust the receipt's mcpChannelGaps; recompute from the evidence, and the receipt's
+    count must be present and agree. Synthetic evidence only (runs under the custody guard)."""
+    import inspect
+    source = inspect.getsource(R.verify_run)
+    assert 'verify_channel_check(receipt, Path(evidence))' in source
+    assert source.index('retained evidence file is missing or altered') < source.index('verify_channel_check(')
+    evidence = tmp_path / 'evidence'
+    cli = evidence / 'ops' / 'cli'
+    cli.mkdir(parents=True)
+    (cli / 'action-0001.json').write_text(json.dumps({'kind': 'tool_call', 'tool': 'honua_list_layers'}))
+    (cli / 'action-0001.response').write_text(json.dumps({'result': FULL}))
+    receipt = {'stages': [{'stage': 'ops', 'outcome': 'pass', 'mcpChannelGaps': 0}]}
+    R.verify_channel_check(receipt, evidence)                                       # clean evidence passes
+    for record in ({'stage': 'ops', 'outcome': 'pass'}, {'stage': 'ops', 'outcome': 'pass', 'mcpChannelGaps': 3}):
+        with pytest.raises(ValueError, match='lacks or contradicts'):
+            R.verify_channel_check({'stages': [record]}, evidence)                 # missing or wrong count
+    (cli / 'action-0002.json').write_text(json.dumps({'kind': 'tool_call', 'tool': 'honua_query_features'}))
+    (cli / 'action-0002.response').write_bytes(_sse(ELIDED))                       # an elided result in evidence
     with pytest.raises(ValueError, match='could not see recorded tool results in ops'):
-        agg(tmp_path, names, raws)
+        R.verify_channel_check(receipt, evidence)                                   # even with a zero in the receipt
+    (cli / 'action-0002.response').unlink()
+    with pytest.raises(ValueError, match='unrecorded'):
+        R.verify_channel_check(receipt, evidence)                                   # a completed stage needs coverage
+    R.verify_channel_check({'stages': [{'stage': 'ops', 'outcome': 'undetermined', 'mcpChannelGaps': 0}]}, evidence)

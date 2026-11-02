@@ -2895,6 +2895,21 @@ def channel_coverage(stage: dict) -> bool:
     return isinstance(stage, dict) and stage.get('outcome') in ('pass', 'fail')
 
 
+def verify_channel_check(receipt: dict, evidence: Path) -> None:
+    """PREREG A16 (Sol console11): recomputed from the run's verified evidence, never taken from the receipt; the
+    receipt's own per-stage count must be present and agree. Called by verify_run after the evidence hashes."""
+    for stage in receipt.get('stages') or []:
+        if not isinstance(stage, dict):
+            continue
+        name = str(stage.get('stage'))
+        recomputed = mcp_channel_gaps(Path(evidence) / name, coverage=channel_coverage(stage))
+        if recomputed:
+            raise ValueError(f'a CLI arm could not see recorded tool results in {name} (MCP result channels): '
+                             + ', '.join(recomputed[:3]))
+        if (Path(evidence) / name).is_dir() and stage.get('mcpChannelGaps') != 0:
+            raise ValueError(f'the {name} stage record lacks or contradicts its MCP channel check')
+
+
 def mcp_channel_gap_stages(receipt: dict) -> list[str]:
     return [str(s.get('stage')) for s in (receipt.get('stages') or [])
             if isinstance(s, dict) and int(s.get('mcpChannelGaps') or 0) > 0]
@@ -2948,18 +2963,7 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         path = Path(evidence) / item['path']
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
-    # PREREG A16 (Sol console11): recomputed from the verified evidence, never taken from the receipt; the
-    # receipt's own count must agree.
-    for stage in receipt.get('stages') or []:
-        if not isinstance(stage, dict):
-            continue
-        name = str(stage.get('stage'))
-        recomputed = mcp_channel_gaps(Path(evidence) / name, coverage=channel_coverage(stage))
-        if recomputed:
-            raise ValueError(f'a CLI arm could not see recorded tool results in {name} (MCP result channels): '
-                             + ', '.join(recomputed[:3]))
-        if (Path(evidence) / name).is_dir() and stage.get('mcpChannelGaps') != 0:
-            raise ValueError(f'the {name} stage record lacks or contradicts its MCP channel check')
+    verify_channel_check(receipt, Path(evidence))
     composition = (receipt.get('slotFacts') or {}).get('opsComposition')
     if composition is not None:
         kind = composition.get('kind') if isinstance(composition, dict) else None
