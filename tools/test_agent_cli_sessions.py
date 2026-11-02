@@ -1,8 +1,12 @@
 """Execute fake CLI binaries over the real loopback recording proxy. No model calls."""
+import base64
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shutil
 import textwrap
+import time
 
 import pytest
 
@@ -388,7 +392,7 @@ def test_claude_login_expiring_inside_the_session_fails_closed_before_the_cli(tm
     assert 'subscription-token' not in str(failure.value) and 'rotating-refresh' not in str(failure.value)
 
 
-def test_auth_window_shortfall_judges_only_a_rotating_claude_snapshot(tmp_path, monkeypatch):
+def test_auth_window_shortfall_judges_a_rotating_claude_snapshot(tmp_path, monkeypatch):
     from agent_cli_sessions import AUTH_MARGIN_SECONDS, auth_window_shortfall
     monkeypatch.delenv('CLAUDE_CODE_OAUTH_TOKEN', raising=False)
     home = tmp_path / 'home'; home.mkdir()
@@ -398,9 +402,87 @@ def test_auth_window_shortfall_judges_only_a_rotating_claude_snapshot(tmp_path, 
     assert auth_window_shortfall(env, 'claude-cli', 8 * 3600) is not None          # margin included
     assert auth_window_shortfall(env, 'claude-cli', 8 * 3600 - AUTH_MARGIN_SECONDS - 60) is None
     assert auth_window_shortfall(dict(env, CLAUDE_CODE_OAUTH_TOKEN='long-lived'), 'claude-cli', 10 ** 6) is None
+    # A Codex session never reads the Claude login: Codex is judged by its own auth.json (tests below).
     assert auth_window_shortfall(env, 'codex-cli', 10 ** 6) is None
     # Unknown shapes are not judged here (the CLI reports its own auth failure).
     (Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json').write_text('{"tokens":{"access_token":"x"}}')
     assert auth_window_shortfall(env, 'claude-cli', 10 ** 6) is None
     (Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json').write_text('{"claudeAiOauth":{"expiresAt":true}}')
     assert auth_window_shortfall(env, 'claude-cli', 10 ** 6) is None
+
+
+def _jwt(claims):
+    part = lambda value: base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b'=').decode()
+    return f"{part({'alg': 'RS256', 'typ': 'JWT'})}.{part(claims)}.synthetic-signature"
+
+
+def _codex_login(root, auth):
+    folder = root / '.codex'; folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'auth.json').write_text(json.dumps(auth))
+
+
+def _codex_chatgpt(expires_in=None, **tokens):
+    claims = {'sub': 'synthetic'} if expires_in is None else {'exp': int(time.time() + expires_in)}
+    return {'OPENAI_API_KEY': None, 'auth_mode': 'chatgpt', 'last_refresh': '2026-11-02T00:00:00Z',
+            'tokens': {'id_token': 'synthetic-id', 'access_token': _jwt(claims), 'refresh_token': 'synthetic-refresh',
+                       'account_id': 'synthetic-account', **tokens}}
+
+
+def test_codex_login_expiring_inside_the_session_fails_closed_before_the_cli(tmp_path):
+    marker = tmp_path / 'cli-started'
+    binary = tmp_path / 'codex'
+    binary.write_text(f'#!/bin/sh\ntouch {marker}\necho codex-cli 0.166.0\n'); binary.chmod(0o755)
+    auth = _codex_chatgpt(600)
+    _codex_login(tmp_path, auth)
+    cli = CliModelSession('codex-cli', 'gpt-6.1-sol', binary=str(binary), auth_root=tmp_path)
+    with pytest.raises(CliFailure, match='codex subscription login expires') as failure:
+        cli.run(prompt='Customer goal only', tool_view=TOOLS, execute=lambda *_: None, log_dir=tmp_path / 'log',
+                timeout=2700)
+    assert failure.value.category == 'infrastructure'
+    assert failure.value.progress['actions'] == []
+    assert failure.value.progress['authPreflight'] == {'longLivedToken': False, 'expiryUnknown': False}
+    assert not marker.exists()                       # not even `--version`: no CLI process started
+    text = str(failure.value) + json.dumps(failure.value.progress)
+    for secret in (auth['tokens']['access_token'], *auth['tokens']['access_token'].split('.'), 'synthetic-refresh',
+                   'synthetic-id'):
+        assert secret not in text
+
+
+def test_codex_login_expiry_shapes(tmp_path):
+    from agent_cli_sessions import AUTH_MARGIN_SECONDS, auth_window_check
+    home = tmp_path / 'home'; home.mkdir()
+
+    def check(auth, needed=2700, agent='codex-cli'):
+        (tmp_path / '.codex').mkdir(exist_ok=True)
+        (tmp_path / '.codex/auth.json').write_text(json.dumps(auth) if not isinstance(auth, str) else auth)
+        shutil.rmtree(home); home.mkdir()
+        return auth_window_check(cli_environment(home, agent, auth_root=tmp_path), agent, needed)
+
+    # Sufficient validity: allowed, expiry known.
+    assert check(_codex_chatgpt(8 * 3600)) == (None, {'longLivedToken': False, 'expiryUnknown': False})
+    reason, record = check(_codex_chatgpt(8 * 3600), needed=8 * 3600)                  # margin included
+    assert reason and 'codex' in reason and not record['expiryUnknown']
+    assert check(_codex_chatgpt(8 * 3600), needed=8 * 3600 - AUTH_MARGIN_SECONDS - 60)[0] is None
+    # An explicit expiry field binds when it is earlier than the JWT (seconds, milliseconds or ISO-8601).
+    soon = time.time() + 600
+    assert check(_codex_chatgpt(8 * 3600, expires_at=int(soon)))[0]
+    assert check(_codex_chatgpt(8 * 3600, expires_at=int(soon * 1000)))[0]
+    iso = datetime.fromtimestamp(soon, timezone.utc).isoformat().replace('+00:00', 'Z')
+    assert check(dict(_codex_chatgpt(8 * 3600), expires_at=iso))[0]
+    # Absent or unknown expiry: allowed and recorded as unknown.
+    unknown = (None, {'longLivedToken': False, 'expiryUnknown': True})
+    assert check(_codex_chatgpt()) == unknown                                           # JWT without exp
+    assert check({'auth_mode': 'chatgpt', 'tokens': {}}) == unknown
+    assert check({'auth_mode': 'chatgpt'}) == unknown
+    # Malformed JWTs and fields are unknown, never a crash.
+    for token in ('not-a-jwt', 'a.b.c', 'a.!!!.c', 'a..c', '...', 7, None, ['x'],
+                  _jwt({'exp': 'tomorrow'}), _jwt({'exp': True}), _jwt(['exp']),
+                  'h.' + base64.urlsafe_b64encode(b'\xff\xfe').decode() + '.s',
+                  'h.' + base64.urlsafe_b64encode(b'{"exp": NaN}').decode() + '.s'):
+        assert check({'auth_mode': 'chatgpt', 'tokens': {'access_token': token}}) == unknown, token
+    for field in ('soon', True, -5, 0, [1]):
+        assert check({'auth_mode': 'chatgpt', 'tokens': {'expires_at': field}}) == unknown, field
+    # No copied login at all: nothing to judge.
+    (tmp_path / '.codex/auth.json').unlink(); shutil.rmtree(home); home.mkdir()
+    assert auth_window_check(cli_environment(home, 'codex-cli', auth_root=tmp_path), 'codex-cli', 10 ** 6) == unknown
+

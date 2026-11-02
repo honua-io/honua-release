@@ -6,10 +6,12 @@ actions, resource hints, fault evidence, or oracle observations.
 """
 from __future__ import annotations
 
+import base64
 import copy
 from contextlib import ExitStack
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -20,6 +22,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Protocol
 
@@ -374,34 +377,101 @@ def cli_environment(home, agent, *, auth_root=None):
     return env
 
 
-# A Claude subscription login is copied into the session as a snapshot. It cannot be refreshed once any other
-# Claude process on the controller refreshes the shared login, because that rotates the refresh token. So a
-# session whose copied access token would expire inside its own wall clock ends mid-stage with "OAuth session
-# expired and could not be refreshed" (rehearsal 9 A1 ops, 2026-11-02). A session that starts with less
-# validity than it may need fails closed as infrastructure before the CLI starts, so the model never spends
-# a turn. CLAUDE_CODE_OAUTH_TOKEN (a long-lived `claude setup-token` token) is not a rotating snapshot.
+# A subscription login is copied into the session as a snapshot. It cannot be refreshed once any other process
+# on the controller refreshes the shared login, because that rotates the refresh token. So a session whose copied
+# access token would expire inside its own wall clock ends mid-stage with "OAuth session expired and could not be
+# refreshed" (rehearsal 9 A1 ops, 2026-11-02). A session that starts with less validity than it may need fails
+# closed as infrastructure before any CLI process starts, so the model never spends a turn. Claude's snapshot
+# carries ``claudeAiOauth.expiresAt`` (ms); Codex's ChatGPT login carries ``tokens.access_token``, a JWT whose
+# ``exp`` claim is read unverified, plus any explicit expiry field. CLAUDE_CODE_OAUTH_TOKEN (a long-lived
+# `claude setup-token` token) is not a rotating snapshot. Nothing here returns, logs or keeps credential material:
+# only durations and booleans leave these functions.
 AUTH_MARGIN_SECONDS = 300
+_EXPIRY_FIELDS = ('expires_at', 'expiresAt', 'expiry', 'expires')
+
+
+def _epoch_seconds(value):
+    """A finite epoch time in seconds from seconds, milliseconds or an ISO-8601 string; None otherwise."""
+    if isinstance(value, str):
+        try:
+            stamp = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+        except ValueError:
+            return None
+        return (stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).timestamp()
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return None
+    return value / 1000.0 if value > 1e11 else float(value)
+
+
+def _jwt_expiry(token):
+    """The unverified ``exp`` claim of a JWT, in epoch seconds; None for anything malformed. Only the payload
+    segment is base64url-decoded; the signature is never checked and no part of the token is kept."""
+    if not isinstance(token, str) or token.count('.') != 2:
+        return None
+    payload = token.split('.')[1]
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+    except (ValueError, TypeError):          # binascii.Error and UnicodeDecodeError are ValueErrors
+        return None
+    exp = claims.get('exp') if isinstance(claims, dict) else None
+    if isinstance(exp, bool) or not isinstance(exp, (int, float)) or not math.isfinite(exp):
+        return None
+    return float(exp)
+
+
+def _copied_login_expiry(env, agent):
+    """(kind, epoch seconds or None) for the session's copied subscription login. kind is 'long-lived' (not a
+    snapshot: not judged), 'none' (no copied login) or 'snapshot'."""
+    if agent == 'claude-cli':
+        if env.get('CLAUDE_CODE_OAUTH_TOKEN'):
+            return 'long-lived', None
+        path = Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json' if env.get('CLAUDE_CONFIG_DIR') else None
+    else:
+        path = Path(env['CODEX_HOME']) / 'auth.json' if env.get('CODEX_HOME') else None
+    if path is None or not path.is_file():
+        return 'none', None
+    try:
+        auth = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return 'snapshot', None
+    if not isinstance(auth, dict):
+        return 'snapshot', None
+    if agent == 'claude-cli':
+        oauth = auth.get('claudeAiOauth')
+        value = oauth.get('expiresAt') if isinstance(oauth, dict) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return 'snapshot', None
+        return 'snapshot', value / 1000.0
+    tokens = auth.get('tokens') if isinstance(auth.get('tokens'), dict) else {}
+    found = [_jwt_expiry(tokens.get('access_token'))]
+    found += [_epoch_seconds(scope.get(name)) for scope in (tokens, auth) for name in _EXPIRY_FIELDS]
+    found = [value for value in found if value is not None]
+    return 'snapshot', min(found) if found else None     # the earliest known expiry binds
+
+
+def auth_window_check(env, agent, needed_seconds, now=None):
+    """(reason or None, preflight record). The reason is set when the copied subscription login expires inside
+    ``needed_seconds`` plus a margin. An absent or unreadable expiry is allowed and recorded as ``expiryUnknown``
+    (the CLI reports its own auth failure). The reason and the record carry durations and booleans only."""
+    kind, expires = _copied_login_expiry(env, agent)
+    record = {'longLivedToken': kind == 'long-lived', 'expiryUnknown': kind != 'long-lived' and expires is None}
+    if expires is None:
+        return None, record
+    remaining = expires - (time.time() if now is None else now)
+    needed = int(needed_seconds) + AUTH_MARGIN_SECONDS
+    if remaining >= needed:
+        return None, record
+    provider, remedy = (('claude', 'refresh the controller login or set CLAUDE_CODE_OAUTH_TOKEN') if agent == 'claude-cli'
+                        else ('codex', 'refresh the controller login (codex login)'))
+    return (f'{provider} subscription login expires in {max(0, int(remaining))} s, inside this session\'s '
+            f'{needed} s window (wall clock plus margin); a copied login cannot refresh once the controller '
+            f'rotates it: {remedy}'), record
 
 
 def auth_window_shortfall(env, agent, needed_seconds, now=None):
     """None when the session's copied subscription auth outlives ``needed_seconds`` plus a margin (or can't be
     judged); otherwise the reason. The reason names times only, never a credential value."""
-    if agent != 'claude-cli' or env.get('CLAUDE_CODE_OAUTH_TOKEN') or not env.get('CLAUDE_CONFIG_DIR'):
-        return None
-    path = Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json'
-    try:
-        expires = json.loads(path.read_bytes())['claudeAiOauth']['expiresAt']
-    except (OSError, ValueError, KeyError, TypeError):
-        return None          # no copied login or an unknown shape: the CLI reports its own auth failure
-    if isinstance(expires, bool) or not isinstance(expires, (int, float)):
-        return None
-    remaining = expires / 1000.0 - (time.time() if now is None else now)
-    needed = int(needed_seconds) + AUTH_MARGIN_SECONDS
-    if remaining >= needed:
-        return None
-    return (f'claude subscription login expires in {max(0, int(remaining))} s, inside this session\'s '
-            f'{needed} s window (wall clock plus margin); a copied login cannot refresh once the controller '
-            'rotates it: refresh the controller login or set CLAUDE_CODE_OAUTH_TOKEN')
+    return auth_window_check(env, agent, needed_seconds, now)[0]
 
 
 def arm_budgets(agent: str, max_actions: int, max_turns: int, timeout: int) -> dict:
@@ -629,7 +699,7 @@ class CliModelSession:
                    for name in ('AGENTS.md', 'CLAUDE.md', '.git')):
                 raise ValueError('scratch directory has reachable repository instructions')
             env = cli_environment(home, self.agent, auth_root=self.auth_root)
-            shortfall = auth_window_shortfall(env, self.agent, timeout)
+            shortfall, out['authPreflight'] = auth_window_check(env, self.agent, timeout)
             if shortfall:
                 raise CliFailure(shortfall, out, 'infrastructure')
             tool_timeout = max(2700, int(timeout))
