@@ -1040,3 +1040,12 @@ def test_a_refused_curl_write_out_with_a_file_or_directive_stays_a_gap(value):
     S.detect_unsafe('setup', [_refused(f"curl -s -o /dev/null -w '{value}' http://localhost:18080/")], [],
                     binding=dict(BIND, ports=[18080]), unclassified=unclassified)
     assert unclassified == [1]
+
+
+@pytest.mark.parametrize('command', ['curl -L http://localhost:18080/', 'curl --location http://localhost:18080/',
+                                     "curl 'http://[::1'", 'curl http://localhost:notaport/'])
+def test_a_refused_redirect_following_or_malformed_curl_is_a_gap_never_a_crash(command):
+    """Sol 9de0449e: redirect targets are not modelled, and malformed URLs are coverage gaps, never exceptions."""
+    unclassified = []
+    S.detect_unsafe('setup', [_refused(command)], [], binding=dict(BIND, ports=[18080]), unclassified=unclassified)
+    assert unclassified == [1]

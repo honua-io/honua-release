@@ -583,15 +583,15 @@
   },
   "console": {
     "image": "ghcr.io/honua-io/honua-console",
-    "imageDigest": "sha256:8b81678ebddb3ccc2c0eeb0c196334733b3dc75ade8d91b7b5eb846d36c97b24",
-    "source": "Console 626c13cc (#515: the Studio assistant uses the supported Studio AI chat and MCP routes; includes #513 and #514); honua-server #6857 compose re-pin, honua-iac #370, honua-release #1190",
+    "imageDigest": "sha256:ab453db9b2a468a05e58ebc445569fd2df84908df91967ae8d31417d6e971358",
+    "source": "Console c63b37fd (the final rc.2 Console build); honua-server #6864 compose re-pin, honua-iac #372, honua-release #1213",
     "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed.",
     "compose": {
       "repo": "honua-io/honua-server",
-      "revision": "ea11c8601d6508ec936510217eb9d33c8cb2a37b",
+      "revision": "daf56db25c208765f5440e484a7c24fbc5ba81ab",
       "path": "docker-compose.yml",
-      "sha256": "sha256:c3f3ed29a5069f19cf13ec1621c253d6cbc44e887d841de584fedaa42868baed",
-      "rule": "Stage 4 adds Console from exactly this compose file (honua-server #6857, which selects the pinned Console digest); the workflow passes it, so stage 4 runs in CI (Fable B3)."
+      "sha256": "sha256:e6701f824316cf97c0dfa5067da9ae892385063ef51eb64fae05af674360a5b9",
+      "rule": "Stage 4 adds Console from exactly this compose file (honua-server #6864, which selects the pinned Console digest); the workflow passes it, so stage 4 runs in CI (Fable B3)."
     }
   },
   "opsComposition": {

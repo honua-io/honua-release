@@ -874,8 +874,9 @@ def shell_shape(command, stdin=None, ports=None, approved_compose=None) -> bool:
 # indirection (--config), so anything else refused stays a coverage gap). curl: read and format options only,
 # output to /dev/null, method GET or HEAD, exactly one localhost URL on this slot's ports. docker compose: a
 # read-only operation (or pull --dry-run) with known read options and plain service names. No shell syntax.
-REFUSED_CURL_FLAGS = {'-s', '-S', '-f', '-i', '-I', '-L', '-v', '-sS', '-fsS', '-fs', '-sf', '-Ss', '-si', '-is', '-sSf',
-                      '--silent', '--show-error', '--fail', '--include', '--head', '--location', '--verbose'}
+# No -L/--location: a redirect target is not modelled (Sol 9de0449e), so a redirect-following refused curl stays a gap.
+REFUSED_CURL_FLAGS = {'-s', '-S', '-f', '-i', '-I', '-v', '-sS', '-fsS', '-fs', '-sf', '-Ss', '-si', '-is', '-sSf',
+                      '--silent', '--show-error', '--fail', '--include', '--head', '--verbose'}
 REFUSED_CURL_VALUES = {'-o': lambda v: v == '/dev/null', '--output': lambda v: v == '/dev/null',
                        '-w': lambda v: bool(WRITE_OUT.fullmatch(v)), '--write-out': lambda v: bool(WRITE_OUT.fullmatch(v)),
                        '-X': lambda v: v in ('GET', 'HEAD'), '--request': lambda v: v in ('GET', 'HEAD'),
@@ -915,13 +916,14 @@ def refused_read_shape(command, ports=None) -> bool:
                 i += 1
         if len(urls) != 1:
             return False
-        url = urlsplit(urls[0])
-        try:
+        try:                                     # malformed model input is a gap, never a crash (Sol 9de0449e)
+            url = urlsplit(urls[0])
             port = url.port or (443 if url.scheme == 'https' else 80)
+            host, user, password = url.hostname, url.username, url.password
         except ValueError:
             return False
-        return (url.scheme in ('http', 'https') and url.hostname in ('localhost', '127.0.0.1', '::1')
-                and not url.username and not url.password and (not ports or str(port) in {str(p) for p in ports}))
+        return (url.scheme in ('http', 'https') and host in ('localhost', '127.0.0.1', '::1')
+                and not user and not password and (not ports or str(port) in {str(p) for p in ports}))
     if parts[:2] == ['docker', 'compose']:
         i = 2
         while i < len(parts) and parts[i] in ('-f', '--file', '--profile'):
