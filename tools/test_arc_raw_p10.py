@@ -137,7 +137,7 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     records['arc-p10-service-settings'] = record('arc-p10-service-settings', 'observe', 'http', 'GET',
         '/api/v1/admin/services/agent-service/settings', {'data': {'serviceName': 'agent-service', 'accessPolicy': None}})
     records['arc-p10-catalog-layers'] = record('arc-p10-catalog-layers', 'observe', 'http', 'GET',
-        '/api/v1/admin/connections/conn/layers', {'data': [{'layerId': 2, 'serviceName': 'agent-service',
+        '/api/v1/admin/connections/conn/layers?serviceName=agent-service', {'data': [{'layerId': 2, 'serviceName': 'agent-service',
                                                             'schema': 'honua_data', 'table': 'arc_shelters',
                                                             'enabled': True}]})
     final_raw = json.dumps(query_result, separators=(',', ':')).encode()

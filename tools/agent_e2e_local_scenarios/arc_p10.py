@@ -100,8 +100,11 @@ class ArcP10(P10):
             # connection's published layers), read without the data plane, so a service the agent role-restricted
             # stays observable and no principal bypasses the policy (agent_e2e_local_projections ARC_P10_*).
             rec.json('arc-p10-service-settings', 'GET', '/api/v1/admin/services/' + quote(service, safe='') + '/settings')
+            # The connection's published layers for THIS service (the endpoint defaults serviceName to "default";
+            # rehearsal r5 DEV: without it a honua_publish_service layer is not listed).
             rec.json('arc-p10-catalog-layers', 'GET',
-                     '/api/v1/admin/connections/' + quote(str(state['connection']), safe='') + '/layers')
+                     '/api/v1/admin/connections/' + quote(str(state['connection']), safe='') + '/layers?serviceName='
+                     + quote(service, safe=''))
             layers = body.get('layers')
             readable = (body.get('serviceName') == service and isinstance(layers, list) and len(layers) == 1
                         and isinstance(layers[0], dict) and layers[0].get('id') == layer)

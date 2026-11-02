@@ -1183,7 +1183,8 @@ def catalog_layer(record, service, connection, schema, table):
     """The one admin-catalog row binding the agent's service to the seeded table: its layer id, or raise."""
     require(record is not None and record.kind == 'http' and record.method == 'GET' and record.principal == 'controller'
             and record.phase == 'observe' and record.status == 200 and isinstance(record.json, dict)
-            and record.path == '/api/v1/admin/connections/' + _quote_segment(connection) + '/layers',
+            and record.path == ('/api/v1/admin/connections/' + _quote_segment(connection) + '/layers?serviceName='
+                                + _quote_segment(service)),
             'admin catalog read is missing or foreign')
     rows = record.json.get('data')
     require(isinstance(rows, list), 'admin catalog has an invalid shape')

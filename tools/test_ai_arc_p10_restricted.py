@@ -1,5 +1,6 @@
 """Founder decision 2026-11-02 (rehearsal of record r4): P10 observes a role-restricted service through the admin
 catalog and the table's SQL snapshot; no principal bypasses the access policy."""
+import dataclasses
 import copy
 import hashlib
 import json
@@ -76,7 +77,7 @@ def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_r
         'arc-p10-service-settings': _http('arc-p10-service-settings', f'/api/v1/admin/services/{SVC}/settings',
                                           {'success': True, 'data': {'serviceName': SVC, 'accessPolicy': {
                                               'allowAnonymous': not policy_roles, 'allowedRoles': list(policy_roles)}}}),
-        'arc-p10-catalog-layers': _http('arc-p10-catalog-layers', f'/api/v1/admin/connections/{CONN}/layers',
+        'arc-p10-catalog-layers': _http('arc-p10-catalog-layers', f'/api/v1/admin/connections/{CONN}/layers?serviceName={SVC}',
                                         {'success': True, 'data': [{'layerId': LAYER, 'serviceName': SVC,
                                                                     'schema': SCHEMA, 'table': TABLE,
                                                                     'enabled': enabled}]}),
@@ -256,3 +257,26 @@ def test_the_restricted_path_handoff_reads_the_agents_captured_list():
     records, actions = _case(restricted=False)
     stack = SimpleNamespace(extra={'recorder': SimpleNamespace(records=records)})
     assert 'p10-replay-query' in json.dumps(ArcP10().handoff(stack, None, 'A'))
+
+
+def test_the_catalog_read_must_name_the_agents_service():
+    # Rehearsal r5 DEV: the admin layer list defaults serviceName to "default", so a read without it lists none of
+    # the agent's layers. The harness asks for the agent's service, and the binding refuses any other read.
+    records, actions = _case()
+    rec = records['arc-p10-catalog-layers']
+    records['arc-p10-catalog-layers'] = dataclasses.replace(rec, path=f'/api/v1/admin/connections/{CONN}/layers')
+    with pytest.raises(ValueError, match='missing or foreign'):
+        _filter_exact(records, actions)
+    records['arc-p10-catalog-layers'] = dataclasses.replace(rec, path=f'/api/v1/admin/connections/{CONN}/layers?serviceName=default')
+    with pytest.raises(ValueError, match='missing or foreign'):
+        _filter_exact(records, actions)
+
+
+def test_the_frozen_catalog_read_binds_the_connection_and_the_service():
+    from agent_e2e_local_expectations import load_document
+    read = load_document('P10', 'arc')['projections']['filter.exact']['reads']['arc-p10-catalog-layers']
+    assert {(a['role'], next(iter(a['at']))) for a in read['addresses']} == {
+        ('seeded:connection:shelters', 'pathSegment'), ('created:service:shelters', 'query')}
+    import re
+    assert re.fullmatch(read['path'], f'/api/v1/admin/connections/{CONN}/layers?serviceName={SVC}')
+    assert not re.fullmatch(read['path'], f'/api/v1/admin/connections/{CONN}/layers')

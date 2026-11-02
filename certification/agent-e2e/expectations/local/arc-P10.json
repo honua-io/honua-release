@@ -158,7 +158,7 @@
         "arc-p10-catalog-layers": {
           "kind": "http",
           "method": "GET",
-          "path": "/api/v1/admin/connections/[A-Za-z0-9_-]{1,80}/layers",
+          "path": "/api/v1/admin/connections/[A-Za-z0-9_-]{1,80}/layers\\?serviceName=[A-Za-z0-9_-]{1,80}",
           "principal": "controller",
           "phase": "observe",
           "addresses": [
@@ -166,6 +166,12 @@
               "role": "seeded:connection:shelters",
               "at": {
                 "pathSegment": 4
+              }
+            },
+            {
+              "role": "created:service:shelters",
+              "at": {
+                "query": "serviceName"
               }
             }
           ]
