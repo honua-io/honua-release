@@ -112,7 +112,10 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
                  'geometryPrecision': -1}
     full_result = {'jsonrpc': '2.0', 'id': 2, 'result': {'structuredContent': {
         'serviceId': 'agent-service', 'layerId': 2, 'exceededTransferLimit': False, 'resultOffset': 0,
-        'returnedCount': len(rows), 'geojson': {'type': 'FeatureCollection', 'features': rows}}}}
+        'returnedCount': len(rows), 'geojson': {'type': 'FeatureCollection', 'features': [
+            # Published features carry no crs (the stored rows' EPSG:3857 crs is the SQL snapshot's own).
+            {'geometry': {k: v for k, v in r['geometry'].items() if k != 'crs'}, 'properties': dict(r['properties'])}
+            for r in rows]}}}}
     records = {
         'import-shelters': record('import-shelters', 'seed', 'http', 'POST', '/api/v1/admin/import/upload',
                                   {'physicalTableName': 'arc_shelters', 'schema': 'honua_data'}),

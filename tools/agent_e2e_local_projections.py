@@ -547,7 +547,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
             require(full.kind == 'mcp' and full.status == 200 and full.principal == 'controller'
                     and (full.request_arguments or {}).get('tool') == 'honua_query_features'
                     and request == {'serviceId': str(service), 'layerId': int(layer), 'where': '1=1',
-                        'outFields': ['source_id', 'name', 'capacity', 'is_open'], 'limit': 1000,
+                        'outFields': list(FULL_READ_FIELDS), 'limit': 1000,
                         'resultOffset': 0, 'returnGeometry': True,
                         'outSrid': 3857, 'geometryPrecision': -1}, 'full published query request differs')
             result = (full.json or {}).get('result') or {}
@@ -561,8 +561,23 @@ def evaluate(spec, ctx, *, item=None, step=None):
                     and collection.get('type') == 'FeatureCollection' and source.kind == 'sql'
                     and source.status == 200 and isinstance(source.json, list),
                     'full published query or source rows are incomplete')
-            observed = [{'geometry': f.get('geometry'), 'properties': f.get('properties')}
-                        for f in published if isinstance(f, dict)]
+            # Compare what the full read asked for (its outFields, in EPSG:3857) on both sides. The server adds its
+            # own objectid to published features; the importer stores the feature id as properties.id and the SQL
+            # snapshot's geometry carries the short EPSG:3857 crs (Studio DEV shakeout 7a/7b, guided A1: an
+            # untouched table failed this check). Any other crs, or any difference in the requested fields, fails.
+            fields = FULL_READ_FIELDS
+
+            def projected(row, side):
+                require(isinstance(row, dict) and isinstance(row.get('properties'), dict)
+                        and isinstance(row.get('geometry'), dict), 'invalid fixture or published row')
+                geometry = dict(row['geometry'])
+                if side == 'source' and 'crs' in geometry:
+                    require(geometry.pop('crs') == EPSG_3857_CRS, 'source geometry is not in EPSG:3857')
+                require(set(geometry) == {'type', 'coordinates'}, 'unexpected geometry members')
+                require(all(k in row['properties'] for k in fields), 'a requested field is missing')
+                return {'geometry': geometry, 'properties': {k: row['properties'][k] for k in fields}}
+            observed = [projected(f, 'published') for f in published]
+            source_rows = [projected(r, 'source') for r in source.json]
             from decimal import Decimal
 
             def equivalent(left, right):
@@ -587,7 +602,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
                             'fixture or published rows lack unique source ids')
                     out[identity] = row
                 return out
-            actual, wanted = by_source_id(observed), by_source_id(source.json)
+            actual, wanted = by_source_id(observed), by_source_id(source_rows)
             require(len(observed) == len(published) and actual.keys() == wanted.keys()
                     and all(equivalent(actual[key], wanted[key]) for key in wanted),
                     'published service contents differ from the raw fixture table')
@@ -1128,6 +1143,10 @@ def admin_layer_publication(result) -> str | None:
             or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', value)):
         return None
     return value
+
+
+FULL_READ_FIELDS = ('source_id', 'name', 'capacity', 'is_open')
+EPSG_3857_CRS = {'type': 'name', 'properties': {'name': 'EPSG:3857'}}
 
 
 PUBLICATION_OPERATIONS = ('service.publish', 'admin.layer.publish')

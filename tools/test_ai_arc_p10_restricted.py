@@ -35,7 +35,10 @@ def _mcp(step, principal, result, arguments, replay_of=None, origin='controller'
 
 
 def _sql():
-    raw = json.dumps([{'geometry': None, 'properties': r} for r in ROWS]).encode()
+    # The live SQL snapshot shape: the importer stores the feature id as properties.id, and st_asgeojson adds the
+    # short EPSG:3857 crs (Studio DEV shakeout 7a/7b).
+    raw = json.dumps([{'geometry': {'type': 'Point', 'crs': CRS_3857, 'coordinates': [COORDS[r['source_id']], -4700]},
+                       'properties': dict(r, id=r['source_id'])} for r in ROWS]).encode()
     path = f'BEGIN; LOCK TABLE ONLY "{SCHEMA}"."{TABLE}" IN ACCESS SHARE MODE; SELECT 1; COMMIT'
     args = {'op': 'table_rows', 'schema': SCHEMA, 'table': TABLE, 'columns': ['geometry', 'properties']}
     return Record('arc-p10-source-after', 'observe', 'sql', 'controller', None, 'SELECT', path, 200, raw,
@@ -93,7 +96,9 @@ def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_r
                  'geometryPrecision': -1}
     full = DENIED if restricted else {'isError': False, 'structuredContent': {
         'serviceId': echo, 'layerId': LAYER, 'exceededTransferLimit': False, 'resultOffset': 0, 'returnedCount': 5,
-        'geojson': {'type': 'FeatureCollection', 'features': [{'geometry': None, 'properties': r} for r in ROWS]}}}
+        'geojson': {'type': 'FeatureCollection', 'features': [
+            {'geometry': {'type': 'Point', 'coordinates': [float(COORDS[r['source_id']]), -4700.0]},
+             'properties': dict(r, objectid=i + 1)} for i, r in enumerate(ROWS)]}}}
     records['arc-p10-published-full'] = _mcp('arc-p10-published-full', 'controller', full,
                                              {'tool': 'honua_query_features', 'arguments': full_args})
     return records, model_actions
@@ -392,3 +397,38 @@ def test_restricting_before_publishing_the_list_still_fails_p10():
     # agent's own list exists locks the agent out; P10 fails, whatever the handoff can read.
     records, actions = _case(final_ok=False)
     assert _scored(records, actions)['status'] == 'fail'
+
+
+
+@pytest.mark.parametrize('change,expected', [
+    (None, 'pass'),
+    ('capacity', 'fail'),            # a published value differs from the table
+    ('missing-field', 'fail'),       # a requested field is absent from the published row
+    ('other-crs', 'fail'),           # the source snapshot is not in EPSG:3857
+    ('moved', 'fail')])              # a published geometry differs
+def test_the_full_published_read_compares_the_requested_fields_in_3857(change, expected):
+    """Studio DEV shakeout 7a/7b (guided A1, correct list): an untouched table failed "published service contents
+    differ from the raw fixture table" because the server adds objectid, and the stored rows carry properties.id and
+    the EPSG:3857 crs. Only the requested outFields and the geometry are compared; anything else still fails."""
+    records, actions = _case(restricted=False)
+    if change in ('capacity', 'missing-field', 'moved'):
+        record = records['arc-p10-published-full']
+        message = json.loads(record.raw)
+        feature = message['result']['structuredContent']['geojson']['features'][2]
+        if change == 'capacity':
+            feature['properties']['capacity'] = 999
+        elif change == 'missing-field':
+            del feature['properties']['name']
+        else:
+            feature['geometry']['coordinates'][0] += 1
+        raw = json.dumps(message).encode()
+        records['arc-p10-published-full'] = dataclasses.replace(record, raw=raw,
+                                                                sha256='sha256:' + hashlib.sha256(raw).hexdigest())
+    if change == 'other-crs':
+        record = records['arc-p10-source-after']
+        rows = json.loads(record.raw)
+        rows[0]['geometry']['crs'] = {'type': 'name', 'properties': {'name': 'EPSG:4326'}}
+        raw = json.dumps(rows).encode()
+        records['arc-p10-source-after'] = dataclasses.replace(record, raw=raw,
+                                                              sha256='sha256:' + hashlib.sha256(raw).hexdigest())
+    assert _scored(records, actions)['status'] == expected
