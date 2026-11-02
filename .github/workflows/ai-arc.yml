@@ -15,16 +15,13 @@ on:
   workflow_dispatch:
     inputs:
       arm:
-        description: Arc arm per the prereg (A1 Claude Code + Opus 5.5, A2 Codex + GPT-6.1 Sol; C1-C3 comparison)
+        description: Arc arm per the prereg (A1 Claude Code + Opus 5.5, A2 Codex + GPT-6.1 Sol; ARC v2 has no other arm and no Studio assistant)
         required: true
         type: choice
         default: A1
         options:
           - A1
           - A2
-          - C1
-          - C2
-          - C3
       targets:
         description: Comma-separated targets (local-docker, aws-ecs, aws-eks, aws-lambda)
         required: true

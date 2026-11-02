@@ -7,7 +7,6 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agent_e2e_studio_customer_session import MODEL
 
 CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/manifest.v1.json'
 CORPUS_MANIFEST_SHA256 = '166fad2a58cdfb5560882181a1c0afe04b81442401a1b465d28d6dc9710f846e'
@@ -410,14 +409,14 @@ def select_arc_case(context, prompt=None):
     if prompt is not None:
         if not isinstance(prompt, str) or goal not in prompt:
             raise ValueError('held-out Studio prompt is not bound to the sealed goal')
-        # The assistant's customer turn is exactly the sealed request; do not
-        # turn a previous model's handoff into extra customer instructions.
+        # The customer turn is exactly the sealed request; do not turn a
+        # previous model's handoff into extra customer instructions.
         case = {**case, 'prompts': {**case['prompts'], variant: goal}}
     return variant, _with_status_request(case, variant)
 
 
 def _with_status_request(case, variant):
-    """ARC v2: both drivers (the CLI arm and the built-in assistant) receive the same closing checklist."""
+    """ARC v2: the arm's Studio case closes with the same checklist as every other stage."""
     from ai_arc_safety import with_status_request
     return {**case, 'prompts': {**case['prompts'], variant: with_status_request(case['prompts'][variant], 'P08')}}
 
@@ -443,21 +442,6 @@ def load_development_case(path, digest, scenario, variant):
     return case
 
 
-def studio_provider_environment():
-    """Customer's explicit Bedrock provider and disclosure approval; no credentials."""
-    prefix = 'StudioAiProxy__'
-    return {prefix + key: value for key, value in {
-        'Enabled': 'true', 'DefaultProvider': 'bedrock',
-        'Providers__bedrock__Kind': 'bedrock', 'Providers__bedrock__Model': MODEL,
-        'Providers__bedrock__Region': 'us-east-1', 'Providers__bedrock__SupportsTools': 'true',
-        'Disclosure__WorkloadDataClassification': 'unclassified',
-        'Disclosure__Approvals__0__Provider': 'bedrock', 'Disclosure__Approvals__0__Kind': 'bedrock',
-        'Disclosure__Approvals__0__Destination': 'aws-bedrock:us-east-1',
-        'Disclosure__Approvals__0__Model': MODEL, 'Disclosure__Approvals__0__UseCase': 'studio-chat',
-        'Disclosure__Approvals__0__DataClassification': 'unclassified',
-    }.items()}
-
-
 def initialize_admission(recorder):
     """Use the documented operator operations; do not bypass pending approval."""
     policy = {'windowSeconds': 60, 'maxOperationSeconds': 300, 'deploymentAttempts': 120,
@@ -474,11 +458,12 @@ def initialize_admission(recorder):
             raise ValueError('Studio admission ' + action + ' was not completed')
 
 
-def provision_local_server(slot, signing_key, *, enable_assistant=False):
-    """Configure the existing local stack for a customer identity and Bedrock provider.
+def provision_local_server(slot, signing_key):
+    """Configure the existing local stack for a customer identity (Studio end-user authorization).
 
-    The slot's published Compose stays intact; the private override is applied to
-    the same server and network. No cloud credentials are read or passed here.
+    ARC v2 (founder 2026-11-01): the Studio AI proxy stays disabled. Stage 4 has no built-in assistant, so no
+    model provider, Bedrock region or cloud credential is configured. The slot's published Compose stays intact;
+    the private override is applied to the same server and network.
     """
     import re
     import secrets
@@ -490,14 +475,13 @@ def provision_local_server(slot, signing_key, *, enable_assistant=False):
         raise ValueError('invalid slot directory')
     if not isinstance(signing_key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', signing_key):
         raise ValueError('invalid customer signing authority')
-    env = {**(studio_provider_environment() if enable_assistant else {'StudioAiProxy__Enabled': 'false'}),
+    env = {'StudioAiProxy__Enabled': 'false',
            'Oidc__Enabled': 'true',
            'Oidc__Generic__Enabled': 'true', 'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
            'Oidc__Generic__ClientId': 'terminal-journey',
            'Oidc__TokenValidation__SymmetricSigningKey': signing_key,
            'Studio__EndUserAuthorization__Enabled': 'true',
-           'AiExecutionAdmission__Backend': 'postgres', 'AiExecutionAdmission__DeploymentId': slot.project,
-           'AWS_REGION': 'us-east-1'}
+           'AiExecutionAdmission__Backend': 'postgres', 'AiExecutionAdmission__DeploymentId': slot.project}
     override = yaml.safe_dump({'services': {'honua': {'image': '${HONUA_STUDIO_ACTIVE_IMAGE}',
                                                         'environment': env}}}, sort_keys=True)
     fence = 'HONUA_STUDIO_' + secrets.token_hex(12)
@@ -512,7 +496,7 @@ def provision_local_server(slot, signing_key, *, enable_assistant=False):
                              '--wait', '--wait-timeout', '240', 'honua') + '\n')
     if slot.ssh(script, timeout=300).returncode:
         raise RuntimeError('could not configure the local Studio server')
-    return {'provider': 'bedrock', 'region': 'us-east-1', 'model': MODEL}
+    return {'studioAiProxy': 'disabled'}
 
 
 def studio_runtime_class():
@@ -535,7 +519,6 @@ def studio_runtime_class():
             self.pack_sha256 = pack_digest
             self._secrets.extend((signing_key, database_password))
             self.extra_secrets.extend((signing_key, database_password))
-            self.assistant_actors = set()
             self.customer_subjects = set()
             self.customer_keys = set()
 
@@ -585,21 +568,12 @@ def studio_runtime_class():
             return token
 
         def mint_console_identity(self, stack, agent_key_id, minted_by, subject):
-            if (subject in getattr(self, 'disallowed_subjects', set())
-                    or agent_key_id in getattr(self, 'disallowed_keys', set())):
-                raise ValueError('Studio assistant and CLI customers are not distinct')
             super().mint_console_identity(stack, agent_key_id, minted_by, subject)
             self.customer_subjects.add(subject)
             self.customer_keys.add(agent_key_id)
 
         def tool_view(self, stack):
-            view = super().tool_view(stack)
-            return view if self.agent == 'console-assistant' else studio_cli_tool_view(view)
-
-        def register_assistant_actors(self, actors):
-            if self.agent != 'console-assistant' or not actors or any(not isinstance(a, str) or not a for a in actors):
-                raise ValueError('invalid assistant audit actors')
-            self.assistant_actors.update(actors)
+            return studio_cli_tool_view(super().tool_view(stack))
 
         def register_studio_browser(self, browser):
             register = getattr(self, 'browser_register', None)
@@ -694,14 +668,15 @@ def close_browser_on_gate(browser):
 def driver_assertions(driver, cases):
     """Retain the corpus runner's independent scores and false-success finding."""
     from ai_arc_services import case_assertions
-    if driver not in ('console-assistant', 'arm-browser'):
+    if driver != 'arm-browser':
         raise ValueError('invalid Studio driver')
     return [{**row, 'assertion': driver + ':' + row['assertion']} for row in case_assertions(cases)]
 
 
 def scored_actions(driver, actions, receipts):
     """Join private requests to their runner-recorded outcomes before filtering."""
-    from agent_browser_studio import TOOLS
+    if driver != 'arm-browser':
+        raise ValueError('invalid Studio driver')
     if len(actions) != len(receipts):
         raise ValueError('Studio action evidence is incomplete')
     joined = []
@@ -710,9 +685,6 @@ def scored_actions(driver, actions, receipts):
             raise ValueError('Studio action evidence has an invalid outcome')
         if action.get('tool') in ('studio_ui_create', 'studio_ui_save'):
             continue  # runner observations, not additional model tool calls
-        if driver == 'console-assistant' and action.get('tool') in (*TOOLS, 'studio_chat_observe',
-                                                                     'studio_customer_type'):
-            continue
         joined.append({**action, 'status': receipt['status'],
                        **({'errorCode': receipt['errorCode']} if 'errorCode' in receipt else {}),
                        **({'refusal': 'out-of-scope'} if receipt.get('refusal') == 'out-of-scope' else {})})
@@ -741,7 +713,6 @@ def arc_stage(ctx):
             self.cases = {}
             self.signing = None
             self.runtimes = []
-            self.assistant_actors = set()
             self.integrity = {}
 
         def unavailable(self, context):
@@ -756,8 +727,10 @@ def arc_stage(ctx):
             return None
 
         def _runtime(self, context, driver):
-            agent = 'console-assistant' if driver == 'console-assistant' else context.arm['agent']
-            model = MODEL if driver == 'console-assistant' else context.arm['model']
+            # ARC v2: the only driver is the arm itself (its own agent and model) in Studio in Console.
+            if driver != 'arm-browser' or context.arm.get('agent') not in ('claude-cli', 'codex-cli'):
+                raise ValueError('stage 4 runs only the CLI arm in Studio in Console')
+            agent, model = context.arm['agent'], context.arm['model']
             root = context.private_dir / 'studio' / driver / 'cases'
             root.mkdir(mode=0o700, parents=True, exist_ok=True)
             runtime = studio_runtime_class()(
@@ -766,7 +739,6 @@ def arc_stage(ctx):
                 model=model, limits=context.limits, private_root=root, extra_secrets=context.slot.harness_secrets,
                 signing_key=self.signing, database_password=context.slot.vm.secrets['POSTGRES_PASSWORD'],
                 pack_digest=RESTORED_PACK_DIGEST)
-            runtime.studio_customer_script = context.arc['studioAssistant']['customerScript']
             runtime.gate = context.gate
             runtime.browser_register = context.live.append
             context.live.append(services.Canceller(runtime))
@@ -811,19 +783,13 @@ def arc_stage(ctx):
             from ai_arc_runner import redact_bytes
             actions, answers, provenance, records, visible, failure = [], [], [], [], [], None
             nudges = 0
-            cli_subjects = set()
-            cli_keys = set()
-            for driver in ('arm-browser', 'console-assistant'):
+            for driver in ('arm-browser',):
                 if context.remaining() <= 0:
                     failure = {'category': 'model', 'reason': 'Studio stage time limit reached'}
                     break
                 runtime = self._runtime(context, driver)
-                if driver == 'console-assistant':
-                    runtime.disallowed_subjects = frozenset(cli_subjects)
-                    runtime.disallowed_keys = frozenset(cli_keys)
-                runtime.initialize_studio_admission = driver == 'console-assistant'
                 runtime.timeout = min(2700, max(1, int(context.remaining())))
-                if driver == 'arm-browser' and getattr(session, 'cli', None) is not None:
+                if getattr(session, 'cli', None) is not None:
                     runtime.cli = session.cli
                 fixture, case = select_arc_case(context, prompt)
                 services_handoff = getattr(context.slot, 'facts', {}).get('studioServices')
@@ -864,15 +830,9 @@ def arc_stage(ctx):
                             'P24' if 'filter' in requirements else 'P09', variant)['render.actual']
                         return expected
                 scenario = ArcStudioScenario()
-                try:
-                    if driver == 'console-assistant':
-                        provision_local_server(context.slot.vm, self.signing, enable_assistant=True)
-                    receipt = runner.execute_case(case_id='P08:' + fixture + ':local-docker',
-                        scenario=scenario, variant=fixture, case=case,
-                        candidate_digest=context.candidate['imageDigest'], runtime=runtime)
-                finally:
-                    if driver == 'console-assistant':
-                        provision_local_server(context.slot.vm, self.signing)
+                receipt = runner.execute_case(case_id='P08:' + fixture + ':local-docker',
+                    scenario=scenario, variant=fixture, case=case,
+                    candidate_digest=context.candidate['imageDigest'], runtime=runtime)
                 stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
                 if stack and stack.extra.get('arcLineageVerified') is True:
                     receipt['studioServicesHandoff'] = stack.extra['arcServicesHandoff']
@@ -895,30 +855,29 @@ def arc_stage(ctx):
                 lineage = bool(stack and stack.extra.get('arcLineageVerified') is True)
                 checks.append({'assertion': 'goal.services-lineage', 'status': 'pass' if lineage else 'fail',
                                **({} if lineage else {'reason': 'map sources lack verified stage-three or stage-four publication lineage'})})
-                if driver == 'arm-browser':
-                    try:
-                        evidence = []
-                        for entry in receipt.get('sessions', []):
-                            for action in entry.get('actions', []):
-                                directory = Path(stack.workdir) / ('session-' + str(action['session']))
-                                stem = 'action-' + format(action['sequence'], '04d')
-                                evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
-                                                 'resultRawPath': str(directory / (stem + '.response'))})
-                        recorder = stack.extra['recorder']
-                        for action in recorder.actions():
-                            if action.tool in ('studio_ui_create', 'studio_ui_save') and action.status == 'pass':
-                                recorder.action_result(f'studio-ui-response-{action.session}-{action.sequence}', action)
-                        def handle_lookup(operation_id):
-                            step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
-                            if step not in recorder.records:
-                                recorder.json(step, 'GET', '/api/v1/operations/handles/' + operation_id)
-                            return _record(recorder.records, step).get('data')
-                        ui_provenance(recorder.records, evidence, stack.extra.get('consoleUserId'), handle_lookup)
-                        receipt['controllerRecords'] = recorder.index()
-                        checks.append({'assertion': 'goal.studio-ui', 'status': 'pass'})
-                    except Exception as exc:
-                        checks.append({'assertion': 'goal.studio-ui', 'status': 'fail',
-                                       'reason': 'Studio browser creation/save evidence unavailable: ' + str(exc)[:150]})
+                try:
+                    evidence = []
+                    for entry in receipt.get('sessions', []):
+                        for action in entry.get('actions', []):
+                            directory = Path(stack.workdir) / ('session-' + str(action['session']))
+                            stem = 'action-' + format(action['sequence'], '04d')
+                            evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
+                                             'resultRawPath': str(directory / (stem + '.response'))})
+                    recorder = stack.extra['recorder']
+                    for action in recorder.actions():
+                        if action.tool in ('studio_ui_create', 'studio_ui_save') and action.status == 'pass':
+                            recorder.action_result(f'studio-ui-response-{action.session}-{action.sequence}', action)
+                    def handle_lookup(operation_id):
+                        step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
+                        if step not in recorder.records:
+                            recorder.json(step, 'GET', '/api/v1/operations/handles/' + operation_id)
+                        return _record(recorder.records, step).get('data')
+                    ui_provenance(recorder.records, evidence, stack.extra.get('consoleUserId'), handle_lookup)
+                    receipt['controllerRecords'] = recorder.index()
+                    checks.append({'assertion': 'goal.studio-ui', 'status': 'pass'})
+                except Exception as exc:
+                    checks.append({'assertion': 'goal.studio-ui', 'status': 'fail',
+                                   'reason': 'Studio browser creation/save evidence unavailable: ' + str(exc)[:150]})
                 # ARC v2 (prereg change 7): false success is judged only from the driver's closing checklist
                 # against readback (the arc re-scores each :finalAnswerCheck row); prose is never scored here.
                 self.integrity[driver] = checks
@@ -927,13 +886,6 @@ def arc_stage(ctx):
                                for digest in item.get('modelVisibleDigests', []))
                 if len(runtime.customer_subjects) != 1 or len(runtime.customer_keys) != 1:
                     raise ValueError('Studio customer identity evidence is unavailable')
-                if driver == 'console-assistant':
-                    if cli_subjects & runtime.customer_subjects or cli_keys & runtime.customer_keys:
-                        raise ValueError('Studio assistant and CLI customers are not distinct')
-                    self.assistant_actors.update(runtime.assistant_actors)
-                else:
-                    cli_subjects.update(runtime.customer_subjects)
-                    cli_keys.update(runtime.customer_keys)
                 target = context.private_dir / 'studio' / driver
                 target.mkdir(mode=0o700, parents=True, exist_ok=True)
                 (target / 'case-receipt.json').write_bytes(redact_bytes(
@@ -960,9 +912,8 @@ def arc_stage(ctx):
                     answers.append(answer)
                 self.cases[driver][0]['answer'] = answer if isinstance(answer, str) else None
                 nudges += int(receipt.get('nudges') or 0)
-                if driver == 'arm-browser':
-                    provenance.extend(p for item in receipt.get('sessions', []) for p in item.get('provenance', []))
-                    records.extend(arc.session_record(item) for item in receipt.get('sessions', []))
+                provenance.extend(p for item in receipt.get('sessions', []) for p in item.get('provenance', []))
+                records.extend(arc.session_record(item) for item in receipt.get('sessions', []))
                 # ARC v2: the corpus receipt's own verdict folds in its legacy prose answer check; the arc scores the
                 # answer itself (status checklist), so a case whose live assertions all passed is not a model failure.
                 live = [a for a in receipt.get('assertions') or [] if isinstance(a, dict)]
@@ -971,19 +922,13 @@ def arc_stage(ctx):
                 if receipt.get('status') != 'pass' and failure is None and not answer_only:
                     failure = {'category': 'model' if receipt.get('status') == 'fail' else 'harness-error',
                                'reason': driver + ': case did not pass'}
-            assistant = (self.cases.get('console-assistant') or [{}])[0].get('receipt', {}).get('studioAssistant', {})
             return {'actions': actions, 'finalAnswer': answers[-1] if answers else None, 'utterances': answers,
                     'nudges': nudges, 'failure': failure, 'nestedAnswerChecks': True,
-                    'provenance': provenance, 'sessionRecords': records, 'assistantModel': assistant.get('model'),
-                    'assistantRegion': assistant.get('region'), 'assistantUsage': assistant.get('usage'),
-                    'modelVisibleDigests': visible}
+                    'provenance': provenance, 'sessionRecords': records, 'modelVisibleDigests': visible}
 
         def observe(self, context, row):
             return ([item for driver, cases in self.cases.items() for item in driver_assertions(driver, cases)]
                     + [{**item, 'assertion': driver + ':' + item['assertion']}
                        for driver, checks in self.integrity.items() for item in checks])
-
-        def assistant_principals(self, context):
-            return frozenset(self.assistant_actors)
 
     return StudioStage()
