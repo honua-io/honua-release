@@ -517,7 +517,7 @@ def test_structure_keeps_evidence_sources_out_of_components():
 def test_structure_rejects_floating_evidence_producer_ref():
     manifest, matrix = _real_files()
     manifest = copy.deepcopy(manifest)
-    # esri-compat was retired 2026-11-02 (its producer repository is gone); cite is a live source.
+    # The GeoServices compatibility source was retired 2026-11-02; cite is a live source.
     manifest["evidenceSources"]["cite"]["producerSha"] = "trunk"
     f = vp.validate(manifest, matrix, None)
     assert not f.ok and any("evidenceSources.cite.producerSha" in e for e in f.errors)
@@ -583,7 +583,7 @@ def test_exact_candidate_rejects_a_bound_image_with_no_platform_stamp():
 
 def test_legacy_evidence_pin_cannot_drift_from_manifest():
     manifest, _ = _real_files()
-    # demos is the legacy mirror pair still pinned (esri-compat was retired 2026-11-02).
+    # demos is the legacy mirror pair still pinned (the GeoServices compatibility pair was retired 2026-11-02).
     config = {"demos": {"sourceRef": "f" * 40}}
     f = vp.Findings()
     vp.check_legacy_evidence_pin_coherence(manifest, config, f)

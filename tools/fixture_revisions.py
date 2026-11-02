@@ -27,8 +27,8 @@ REPOSITORY = re.compile(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z')
 
 # Every gate job of the nightly train that checks out a fixture repository. A job missing here
 # would let its fixture revision escape the lock; a record from a job not listed here is refused.
-# certification/conformance-esri-geoservices left this set on 2026-11-02 when its producer
-# (evidenceSources.esri-compat) was retired: with no pinned producer it checks out nothing.
+# The certification GeoServices conformance job left this set on 2026-11-02 when its evidence
+# producer was retired: with no pinned producer it checks out nothing.
 FIXTURE_GATES = {
     'certification': ('conformance-mcp',),
     'e2e-local-docker': ('seam', 'slice1'),
