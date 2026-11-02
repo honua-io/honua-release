@@ -76,6 +76,12 @@
       "gsrSectionTitle": "GPLinearUnit Input Parameter"
     },
     {
+      "identifier": "esriDUDecimalDegrees",
+      "family": "angular unit",
+      "field": "angularUnit",
+      "listedVerbatim": true
+    },
+    {
       "identifier": "esriExecutionTypeSynchronous",
       "family": "GP execution type",
       "field": "executionType",
@@ -375,6 +381,30 @@
       "identifier": "esriMapCacheStorageModeCompactV2",
       "family": "tile cache storage format",
       "field": "storageFormatType",
+      "listedVerbatim": true
+    },
+    {
+      "identifier": "esriMensurationAreaAndPerimeter",
+      "family": "image measurement operation",
+      "field": "measureOperation",
+      "listedVerbatim": true
+    },
+    {
+      "identifier": "esriMensurationCentroid",
+      "family": "image measurement operation",
+      "field": "measureOperation",
+      "listedVerbatim": true
+    },
+    {
+      "identifier": "esriMensurationDistanceAndAngle",
+      "family": "image measurement operation",
+      "field": "measureOperation",
+      "listedVerbatim": true
+    },
+    {
+      "identifier": "esriMensurationPoint",
+      "family": "image measurement operation",
+      "field": "measureOperation",
       "listedVerbatim": true
     },
     {
