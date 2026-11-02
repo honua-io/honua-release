@@ -289,8 +289,11 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             if not adjudicate_false_success(run_id, flagged):
                 return False
         if flagged is not None and flagged.get('status') != 'undetermined' and not suspected_harness_fault(flagged) \
+                and not arc_runner.agent_guide_gaps(flagged) \
                 and not (out / 'holds' / (run_id.replace(':', '-') + '.hold')).is_file():
             return True       # paused only for its false-success flags, now adjudicated
+        # A run whose sessions did not load the shipped agent guide (Sol guide3) waits, like a suspected harness
+        # fault, for a recorded adjudication; it is never resumed on its own.
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
         if not path.is_file():
             return False
