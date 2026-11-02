@@ -33,7 +33,14 @@ export function createOpsHealthValidation({ directory, sourceSha, sha256, bootst
     const result = spawnSync("python3", ["-I", "-B", join(directory, name), ...args],
       { encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024 });
     verifyBytes();
-    if (result.error || result.signal || result.status !== 0) throw new Error("authored live health observer/oracle refused evidence");
+    if (result.error || result.signal || result.status !== 0) {
+        let stderr = String(result.stderr ?? "");
+        for (const [key, value] of Object.entries(process.env))
+          if (/key|token|password|secret|credential/i.test(key) && typeof value === "string" && value.length >= 4)
+            stderr = stderr.split(value).join("[REDACTED]");
+        throw new Error(`authored live health observer/oracle refused evidence: ${name}; status=${result.status}; `
+          + `signal=${result.signal ?? "none"}; error=${result.error?.code ?? "none"}; stderr=${stderr.slice(0, 16_384)}`);
+      }
     return JSON.parse(result.stdout);
   };
   const python = (values = {}, extra = []) => {

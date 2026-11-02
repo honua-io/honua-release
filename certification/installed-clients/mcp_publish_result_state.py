@@ -158,7 +158,7 @@ def database_snapshot(authored, password):
         "AND pub->>'storageBindingId'=binding#>>'{metadata,id}' AND pub->>'resourceId'=binding->>'resourceId'), "
         f'source_rows AS (SELECT id,attributes AS properties,ST_AsGeoJSON(geom)::json AS geometry,ST_SRID(geom) AS srid FROM public."{table}" ORDER BY id LIMIT 3), '
         "features AS (SELECT objectid AS id,layer_id AS \"layerId\",attributes,ST_AsGeoJSON(geometry)::json AS geometry,"
-        "ST_SRID(geometry) AS srid,row_to_json(f) AS raw FROM public.features f ORDER BY objectid LIMIT 10001) "
+        "ST_SRID(geometry) AS srid,row_to_json(f) AS raw FROM honua.features f ORDER BY objectid LIMIT 10001) "
         "SELECT json_build_object("
         "'rows',COALESCE((SELECT json_agg(row_to_json(source_rows) ORDER BY id) FROM source_rows),'[]'::json),"
         "'mappings',COALESCE((SELECT json_agg(row_to_json(mappings)) FROM mappings),'[]'::json),"

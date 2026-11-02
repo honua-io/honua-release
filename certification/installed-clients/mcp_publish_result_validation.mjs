@@ -39,7 +39,14 @@ export function createPublishResultValidation({ directory, sourceSha, sha256, bo
       }
       const result = spawnSync("python3", args, { encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ...privateEnv } });
       verifyBytes();
-      if (result.error || result.signal || result.status !== 0) throw new Error("genuine publication setup/state/oracle refused evidence");
+      if (result.error || result.signal || result.status !== 0) {
+        let stderr = String(result.stderr ?? "");
+        for (const [key, value] of Object.entries({ ...process.env, ...privateEnv }))
+          if (/key|token|password|secret|credential/i.test(key) && typeof value === "string" && value.length >= 4)
+            stderr = stderr.split(value).join("[REDACTED]");
+        throw new Error(`genuine publication setup/state/oracle refused evidence: ${name}; status=${result.status}; `
+          + `signal=${result.signal ?? "none"}; error=${result.error?.code ?? "none"}; stderr=${stderr.slice(0, 16_384)}`);
+      }
       return JSON.parse(result.stdout);
     } finally { rmSync(work, { recursive: true, force: true }); }
   };
