@@ -272,7 +272,10 @@ def test_raw_p10_fault_fires_once_after_publication():
     publish = {'tool': 'honua_publish_service', 'arguments': {}}
     query = {'tool': 'honua_query_features', 'arguments': {}}
     assert injector.intercept('tool_call', query) is None
-    injector.observe('tool_call', publish, {'status': 'ok'})
+    # The real execution shape (execute_customer_action): the tool's MCP result, which reports a completed
+    # operation; the reviewed publication trigger arms only on that.
+    injector.observe('tool_call', publish, {'status': 'ok', 'result': {'isError': False,
+                                                                       'structuredContent': {'status': 'Completed'}}})
     event = injector.intercept('tool_call', query)
     assert event and event['kind'] == 'http_503_once' and event['httpStatus'] == 503
     assert injector.intercept('tool_call', query) is None

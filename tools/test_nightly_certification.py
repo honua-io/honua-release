@@ -244,14 +244,21 @@ def test_nightly_and_candidate_ref_are_call_only_inputs():
     assert evaluate(bind['if'], {'inputs.dry_run': False})
 
 
-@pytest.mark.parametrize(('dry_run', 'nightly', 'expected'), [
-    ('false', '', ['--exact-candidate']),
-    ('false', 'false', ['--exact-candidate']),
-    ('false', 'true', ['--exact-candidate', '--deployment-phase', 'candidate-precut',
-                       '--deployment-qualification', 'certification/deployment-qualification.json']),
-    ('true', 'true', []),
+PRECUT = ['--deployment-phase', 'candidate-precut', '--deployment-qualification',
+          'certification/deployment-qualification.json']
+
+
+@pytest.mark.parametrize(('dry_run', 'nightly', 'freeze_only', 'expected'), [
+    ('false', '', '', ['--exact-candidate']),
+    ('false', 'false', 'false', ['--exact-candidate']),
+    # The nightly binds its own ledger before the train: it never takes the produce exemption.
+    ('false', 'true', 'false', ['--exact-candidate', *PRECUT]),
+    # freeze_only certifies nothing: only it takes the resolver's protocol_ledger=produce exemption.
+    ('false', 'false', 'true', ['--exact-candidate', *PRECUT, '--protocol-ledger', 'produce']),
+    ('true', 'true', 'false', []),
+    ('true', 'false', 'true', []),
 ])
-def test_only_the_live_nightly_selects_precut_qualification(tmp_path, dry_run, nightly, expected):
+def test_only_the_live_nightly_selects_precut_qualification(tmp_path, dry_run, nightly, freeze_only, expected):
     candidate = step(workflow('release-train.yml')['jobs']['freeze'], 'Validate + publish the candidate manifest')
     invocation = 'python tools/validate_platform.py "${ARGS[@]}"'
     script = candidate['run'].split(invocation, 1)[0] + invocation
@@ -263,7 +270,8 @@ def test_only_the_live_nightly_selects_precut_qualification(tmp_path, dry_run, n
                     f'open({str(log)!r},"w").write(json.dumps(sys.argv[1:]))\n')
     shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
     subprocess.run(['bash', '-c', script], cwd=tmp_path, check=True,
-                   env={'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'DRY_RUN': dry_run, 'NIGHTLY': nightly})
+                   env={'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'DRY_RUN': dry_run, 'NIGHTLY': nightly,
+                        'FREEZE_ONLY': freeze_only})
     assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]
 
 

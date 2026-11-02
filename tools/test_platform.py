@@ -1083,3 +1083,67 @@ def test_nightly_staged_requirements_revision_refuses_anything_else(change):
     staged, parent = "1" * 40, "2" * 40
     with pytest.raises(tr.ReachabilityError, match="requirementsSourceRevision"):
         tr.verify_manifest_pins(_staged_manifest(staged), StagedRequirementsClient(staged, parent, **change))
+
+
+# ---- release-train freeze_only: the resolver's protocol_ledger=produce exemption, nothing wider ----
+
+def _exact_candidate_cli(tmp_path, monkeypatch, capsys, *extra, ledger=None):
+    """Run the validator CLI offline (no reachability client) on the committed manifest, optionally
+    with a replaced protocolCertification.ledger, and return (exit code, output)."""
+    import yaml
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    manifest = yaml.safe_load(vp.MANIFEST_PATH.read_text(encoding="utf-8"))
+    if ledger is not None:
+        manifest["protocolCertification"]["ledger"] = ledger
+    path = tmp_path / "platform-manifest.yaml"
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    code = vp.main(["--manifest", str(path), "--exact-candidate", *extra])
+    return code, capsys.readouterr().out
+
+
+PENDING_LEDGER = {"status": "pending", "repository": "honua-io/honua-evidence", "commit": "pending",
+                  "requirementsSourceRevision": "pending", "path": "data/protocol-certification.v1.json",
+                  "sha256": "pending"}
+
+
+def test_exact_candidate_requires_a_bound_ledger_by_default(tmp_path, monkeypatch, capsys):
+    code, out = _exact_candidate_cli(tmp_path, monkeypatch, capsys, ledger=PENDING_LEDGER)
+    assert code == 1 and "protocol certification ledger must be bound before certification" in out
+    code, out = _exact_candidate_cli(tmp_path, monkeypatch, capsys, "--protocol-ledger", "require",
+                                     ledger=PENDING_LEDGER)
+    assert code == 1 and "protocol certification ledger must be bound before certification" in out
+
+
+def test_freeze_only_produce_waives_only_the_bound_status(tmp_path, monkeypatch, capsys):
+    code, out = _exact_candidate_cli(tmp_path, monkeypatch, capsys, "--protocol-ledger", "produce",
+                                     ledger=PENDING_LEDGER)
+    assert "ledger must be bound" not in out
+    assert code == 0, out
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("status", "waived", "ledger.status must be 'pending' or 'bound'"),
+    ("repository", "honua-io/other", "must be owned by honua-io/honua-evidence"),
+    ("path", "../escape.json", "safe repository-relative path"),
+    ("commit", "0" * 40, "pending protocol certification ledger must use explicit pending"),
+    ("sha256", "sha256:" + "0" * 64, "pending protocol certification ledger must use explicit pending"),
+])
+def test_freeze_only_produce_still_refuses_a_malformed_ledger(tmp_path, monkeypatch, capsys, field, value, message):
+    code, out = _exact_candidate_cli(tmp_path, monkeypatch, capsys, "--protocol-ledger", "produce",
+                                     ledger={**PENDING_LEDGER, field: value})
+    assert code == 1 and message in out
+
+
+def test_freeze_only_produce_keeps_every_other_exact_candidate_check(tmp_path, monkeypatch, capsys):
+    import yaml
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    manifest = yaml.safe_load(vp.MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest["protocolCertification"]["ledger"] = PENDING_LEDGER
+    manifest["candidate"]["refSource"] = "feature/branch"
+    path = tmp_path / "platform-manifest.yaml"
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    code = vp.main(["--manifest", str(path), "--exact-candidate", "--protocol-ledger", "produce"])
+    out = capsys.readouterr().out
+    assert code == 1 and "candidate.refSource must be 'trunk'" in out

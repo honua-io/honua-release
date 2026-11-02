@@ -42,8 +42,11 @@ class ArcP10(P10):
                     'match': {'tool': 'honua_publish_service'}, 'commit': {
                         'pointer': '/result/structuredContent/serviceName',
                         'confirm': {'path': '/api/v1/admin/services/{id}/settings'}}}
+        # Either reviewed publication tool arms the 503 (a dry run does not); see agent_e2e_local_faults.
+        from agent_e2e_local_faults import PUBLISH_TRIGGER
         return {'kind': 'http_503_once', 'id': 'arc-p10-query-503',
-                'after': {'tool': 'honua_publish_service'}, 'match': {'tool': 'honua_query_features'}}
+                'after': dict(PUBLISH_TRIGGER, tools=list(PUBLISH_TRIGGER['tools'])),
+                'match': {'tool': 'honua_query_features'}}
 
     def observe(self, stack, seeded, variant, run=None):
         rec, state = stack.extra['recorder'], seeded.state
@@ -60,6 +63,20 @@ class ArcP10(P10):
             lost = [e for e in (run.fault_events if run is not None else ())
                     if e.get('kind') == 'response_lost_after_commit' and e.get('forwarded') is True
                     and e.get('actionDigest') == action.digest and e.get('tool') == 'honua_publish_service']
+            if (action.kind == 'tool_call' and action.status == 'pass' and action.tool == 'honua_admin_layer_publish'
+                    and args.get('schema') == state['schema'] and args.get('table') == state['table']
+                    and args.get('connectionId') == state['connection']):
+                # The reviewed alternative publication tool (release session 2026-11-02): the same source binding,
+                # and only a completed, non-dry-run publication (agent_e2e_local_projections.admin_layer_publication).
+                from agent_e2e_local_projections import admin_layer_publication
+                import json as _json
+                response = rec.action_result('arc-p10-publication-' + str(index), action)
+                service = admin_layer_publication({'kind': action.kind, 'status': action.status, 'arguments': args,
+                                                   'json': response.json})
+                if service is not None and sum(row.get('serviceName') == service for row in rows) == 1:
+                    embedded = _json.loads(response.json['result']['structuredContent']['details']['response'])
+                    publications.append((service, int(embedded['data']['layerId'])))
+                continue
             if (action.kind != 'tool_call' or (action.status != 'pass' and not (action.status == 'fail' and len(lost) == 1))
                     or action.tool != 'honua_publish_service'
                     or args.get('schema') != state['schema'] or args.get('table') != state['table']
