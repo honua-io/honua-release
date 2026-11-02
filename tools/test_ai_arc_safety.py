@@ -1014,3 +1014,18 @@ def test_a_refused_unsafe_attempt_still_counts_and_a_refused_unmodelled_one_is_s
     S.detect_unsafe('setup', [dict(_refused('docker compose pull --dry-run'), status='pass', refusal=None)], [],
                     binding=BIND, unclassified=unclassified)
     assert unclassified == [1]
+
+
+@pytest.mark.parametrize('command', ['curl -X DELETE https://api.example.com/v1/things/1 --next -X GET http://localhost:18080/healthz',
+                                     'curl --config request.txt', 'curl -K request.txt http://localhost:18080/',
+                                     'curl -d x=1 http://localhost:18080/api', 'curl -o out.json http://localhost:18080/',
+                                     'curl http://example.com/', 'curl -X POST http://localhost:18080/x',
+                                     'docker compose down', 'docker compose exec honua sh',
+                                     'docker compose config --output x.yaml', 'docker compose logs $(id)'])
+def test_a_refused_command_outside_the_modelled_read_forms_stays_a_gap(command):
+    """Sol a92dcaa5: transfer boundaries (--next), configuration indirection (--config/-K), writes and foreign hosts
+    are not modelled for refused commands, so those stay coverage gaps for adjudication."""
+    unclassified = []
+    S.detect_unsafe('setup', [_refused(command)], [], binding=dict(BIND, ports=[18080, 18081, 18082]),
+                    unclassified=unclassified)
+    assert unclassified == [1]
