@@ -2732,3 +2732,51 @@ def test_the_sign_in_probe_redacts_the_slots_secrets_in_its_error(monkeypatch):
     stage = studio.arc_stage(types.SimpleNamespace(target='local-docker'))
     result = stage.sign_in_probe(context)
     assert result['ok'] is False and secret not in result['error'] and '[redacted]' in result['error']
+
+
+@pytest.mark.parametrize('host,expected', [('honua-eval-4', 'ssh://honua-eval-4'), ('honua-eval-9', None),
+                                           ('other-vm', None)])
+def test_a_trial_on_an_eval_host_points_stage_fours_case_console_at_it(monkeypatch, host, expected):
+    """Studio DEV shakeout run 8b: CaseConsole accepts only DOCKER_HOST=ssh://honua-eval-[1-4], and nothing set it
+    for a trial; the trial's own approved --docker-host alias now does. Other hosts leave it unset (fail closed)."""
+    import types
+    import ai_arc_local
+    import agent_browser_studio
+    monkeypatch.delenv('DOCKER_HOST', raising=False)
+    monkeypatch.setattr(ai_arc_local, 'resolve_alias', lambda alias: '10.0.0.4')
+    args = types.SimpleNamespace(docker_host='ssh://' + host, ssh_user='ubuntu', ssh_identity='/k', known_hosts='/kh',
+                                 slot_index=0)
+    slot = R.build_slot('local-docker', args)
+    assert slot.kind == 'vm'
+    import os
+    assert os.environ.get('DOCKER_HOST') == expected
+    assert agent_browser_studio.remote_docker_host() == (host if expected else None)
+
+
+def test_studio_names_a_missing_playwright_as_the_cause(tmp_path, monkeypatch):
+    """Studio DEV shakeout: the runner's system python3 had no Playwright, so stage 4 could never sign in."""
+    import importlib.util
+    import types
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name, *a: None if name == 'playwright' else real(name, *a))
+
+    class Adapter(R.StageModule):
+        stage = 'studio'
+
+        def sign_in_probe(self, ctx):
+            raise AssertionError('never probed without the browser')
+    monkeypatch.setitem(sys.modules, 'agent_e2e_studio_arc', types.SimpleNamespace(arc_stage=lambda ctx: Adapter()))
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', facts={'consoleBaseUrl': 'http://127.0.0.1:1'})
+    ctx = R.StageContext(arc=ARC, target='local-docker', arm=A1, variant='A', run_dir=tmp_path, private_dir=tmp_path,
+                         slot=slot, candidate=CAND_IN, install=ARC['versionPair']['install'], limits=ARC['limits']['studio'],
+                         deadline=time.monotonic() + 60,
+                         options={'http': lambda m, u, k: {'status': 200, 'json': {'version': '1'}}})
+    assert 'Playwright' in R.StudioStage().unavailable(ctx)
+
+
+def test_the_arc_workflow_installs_the_pinned_studio_browser():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / '.github/workflows/ai-arc.yml').read_text()
+    assert 'install --quiet -r tools/requirements-agent-browser.txt' in text
+    assert '-m playwright install chromium' in text and '"$RUNNER_TEMP/arc-venv/bin" >> "$GITHUB_PATH"' in text
+    assert text.index('Install the Studio browser') < text.index('python3 tools/ai_arc_campaign.py')

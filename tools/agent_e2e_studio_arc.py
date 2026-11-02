@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -382,6 +383,27 @@ def fixture_variant(fixture_id, scenario_id, *, manifest_path=CORPUS_MANIFEST):
     if not set(case['assertions']) <= set(expected) or not set(case['assertions']) <= set(projections):
         raise ValueError('fixture lacks frozen Studio expectations or projections')
     return variant, case
+
+
+STUDIO_READY_MARKS = ('heading "Studio" [level=1]', 'status: Connected to ', 'button "New map"')
+
+
+def studio_workspace_ready(*, invoke, deadline, clock=time.monotonic, sleep=time.sleep):
+    """The signed-in customer's Studio workspace in Console, without the built-in assistant (ARC v2: there is none).
+
+    The sign-in probe used to wait for the assistant chat to become ready (agent_e2e_studio_customer_session.
+    prepare_conversation), which never happens with the Studio AI proxy off (Studio DEV shakeout on eval-3,
+    2026-11-02: the customer was signed in, Studio said "Connected to Local honua-server", and the chat stayed
+    not ready). Ready means the Studio page itself: its heading, the server connection and the New map control,
+    read from the page's accessible text; any other page (a sign-in or error page) fails."""
+    invoke('studio_navigate', {'url': '/studio'})
+    while True:
+        text = str(invoke('studio_snapshot', {}))
+        if all(mark in text for mark in STUDIO_READY_MARKS):
+            return text
+        if clock() >= deadline:
+            raise ValueError('the signed-in Studio workspace did not load')
+        sleep(0.5)
 
 
 def select_arc_case(context, prompt=None):
@@ -776,7 +798,7 @@ def arc_stage(ctx):
 
         def sign_in_probe(self, context):
             from agent_browser_studio import open_studio_browser
-            from agent_e2e_studio_customer_session import prepare_conversation, rpc
+            from agent_e2e_studio_customer_session import rpc
             self.signing = secrets.token_urlsafe(48)
             context.slot.harness_secrets.append(self.signing)
             try:
@@ -790,8 +812,8 @@ def arc_stage(ctx):
                     log = runner.ActionLog(Path(stack.workdir) / 'sign-in-probe', 1, set(), 200)
                     browser = open_studio_browser(stack, log, identity=runtime._console_identities[stack.compose_project],
                                                   scripted_customer=True)
-                    prepare_conversation(invoke=lambda name, args: rpc(browser.endpoint, name, args),
-                                         deadline=time.monotonic() + 30)
+                    studio_workspace_ready(invoke=lambda name, args: rpc(browser.endpoint, name, args),
+                                           deadline=time.monotonic() + 30)
                     # The slot health Console and the isolated per-customer
                     # CaseConsole are two containers, both pinned to the arc image.
                     facts = getattr(context.slot, 'facts', None)

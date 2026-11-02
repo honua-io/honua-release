@@ -1115,6 +1115,11 @@ class StudioStage(DelegatingStage):
         reason = super().unavailable(ctx)
         if reason:
             return reason
+        # The arm drives Studio through Playwright; without it the sign-in can never run (a harness cause, named).
+        import importlib.util
+        if importlib.util.find_spec('playwright') is None:
+            return ('the Studio browser (Playwright, tools/requirements-agent-browser.txt) is not installed for the '
+                    "runner's Python")
         # The customer principal must actually sign in to this Console before the stage can run.
         probe = getattr(self._inner, 'sign_in_probe', None)
         signed = probe(ctx) if callable(probe) else None
@@ -3425,6 +3430,12 @@ def build_slot(target: str, args, run_index: int = 0) -> Slot:
     resolved = ai_arc_local.resolve_alias(match.group(1))
     vm = ai_arc_local.VmSlot(host=resolved, user=args.ssh_user, identity_file=args.ssh_identity,
                              known_hosts=args.known_hosts, project=project, index=args.slot_index)
+    # Stage four's per-customer CaseConsole (agent_browser_studio.CaseConsole) runs its pinned Console container on
+    # the slot's own engine and accepts only an approved eval host in DOCKER_HOST. Nothing set it for a trial, so
+    # stage 4 could never start its Console (Studio DEV shakeout run 8b: "Console requires an approved remote eval
+    # Docker host"). The trial's own --docker-host alias is that engine; anything else is left unset (fail closed).
+    if re.fullmatch(r'honua-eval-[1-4]', match.group(1)):
+        os.environ['DOCKER_HOST'] = 'ssh://' + match.group(1)
     return Slot(target=target, kind='vm', project=project, vm=vm)
 
 

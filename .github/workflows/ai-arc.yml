@@ -114,6 +114,17 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/arc-inputs"
           python3 tools/ai_arc_runner.py pinned-inputs --out "$RUNNER_TEMP/arc-inputs"
+      - name: Install the Studio browser for the arm (Playwright, pinned)
+        # Stage 4 drives Studio in Console through Playwright (tools/requirements-agent-browser.txt). The runner's
+        # system python3 has none, so stage 4 could never sign in (Studio DEV shakeout, 2026-11-02). A venv that keeps
+        # the system packages, first on PATH for the campaign and the runner it launches.
+        run: |
+          set -euo pipefail
+          python3 -m venv --system-site-packages "$RUNNER_TEMP/arc-venv"
+          "$RUNNER_TEMP/arc-venv/bin/pip" install --quiet -r tools/requirements-agent-browser.txt
+          "$RUNNER_TEMP/arc-venv/bin/python" -m playwright install chromium
+          "$RUNNER_TEMP/arc-venv/bin/python" -c 'import playwright.sync_api'
+          echo "$RUNNER_TEMP/arc-venv/bin" >> "$GITHUB_PATH"
       - name: Run the campaign (first attempts; pauses for adjudication after an undetermined run)
         env:
           TARGET: ${{ matrix.target }}

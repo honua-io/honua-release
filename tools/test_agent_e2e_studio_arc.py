@@ -443,3 +443,29 @@ def test_slot_provision_script_runs_on_a_fresh_slot(tmp_path):
         request_cleanup(base, ignore_errors=True)
     up = [line for line in log.read_text().splitlines() if ' up ' in line]
     assert len(up) == 1 and 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:studio-customer.yaml ' in up[0]
+
+
+SIGNED_IN = ('- main:\n  - heading "Studio" [level=1]\n  - status: Connected to Local honua-server\n'
+             '  - textbox "New map package key"\n  - button "New map"\n')
+
+
+def test_the_sign_in_probe_waits_for_the_studio_workspace_not_the_assistant():
+    """Studio DEV shakeout (eval-3): signed in, Studio connected, the assistant chat (absent in ARC v2) never ready."""
+    from agent_e2e_studio_arc import studio_workspace_ready
+    calls, pages = [], iter(['- main:\n  - heading "Loading"\n', SIGNED_IN])
+
+    def invoke(name, args):
+        calls.append(name)
+        return next(pages) if name == 'studio_snapshot' else 'ok'
+    assert studio_workspace_ready(invoke=invoke, deadline=10, clock=lambda: 0, sleep=lambda _: None) == SIGNED_IN
+    assert calls == ['studio_navigate', 'studio_snapshot', 'studio_snapshot'] and 'studio_chat_observe' not in calls
+
+
+@pytest.mark.parametrize('page', ['- main:\n  - heading "Sign in" [level=1]\n  - button "Continue"\n',
+                                  SIGNED_IN.replace('status: Connected to Local honua-server', 'status: Disconnected')])
+def test_the_sign_in_probe_fails_on_any_other_page(page):
+    from agent_e2e_studio_arc import studio_workspace_ready
+    clock = iter([0, 0, 5, 50, 50, 50])
+    with pytest.raises(ValueError, match='did not load'):
+        studio_workspace_ready(invoke=lambda name, args: page if name == 'studio_snapshot' else 'ok', deadline=30,
+                               clock=lambda: next(clock), sleep=lambda _: None)
