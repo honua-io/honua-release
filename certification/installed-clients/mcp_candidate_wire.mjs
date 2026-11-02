@@ -37,7 +37,7 @@ export function retainedHelperRefusal(message, name, result, { env = {}, credent
       if (/key|token|pass|pwd|auth|jwt|cookie|session|dsn|connection|secret|credential/i.test(key)) values.push(value);
   const variants = new Set();
   for (const value of values) {
-    if (typeof value !== "string" || !value) continue;
+    if (typeof value !== "string" || value.length < 8) continue;
     const normalized = value.toWellFormed();
     const encoded = encodeURIComponent(normalized);
     const strict = encoded.replace(/[!'()*]/g, char => "%" + char.charCodeAt(0).toString(16).toUpperCase());
@@ -49,7 +49,6 @@ export function retainedHelperRefusal(message, name, result, { env = {}, credent
     }
   }
   let stderr = String(result.stderr ?? "");
-  for (const value of [...variants].sort((a, b) => b.length - a.length)) stderr = stderr.split(value).join("[REDACTED]");
   stderr = stderr
     .replace(/\bhnua(?:_|%5f)(?:[\w-]|%[0-9a-f]{2})+/gi, "[REDACTED]")
     .replace(/\b(Bearer|Basic)(?:\s|%20)+[^\s"'<>]+/gi, "$1 [REDACTED]")
@@ -58,6 +57,8 @@ export function retainedHelperRefusal(message, name, result, { env = {}, credent
     .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "[REDACTED]")
     .replace(/\b(password|pwd|token|secret|session(?:id)?)\s*=\s*(?:"[^"]*"|'[^']*'|[^;\s]+)/gi, "$1=[REDACTED]")
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^:/@\s]+:[^@\s]+@/gi, "$1[REDACTED]@");
+  // Shape matching must precede values: short ambient strings must not split a token.
+  for (const value of [...variants].sort((a, b) => b.length - a.length)) stderr = stderr.split(value).join("[REDACTED]");
   const bytes = Buffer.from(stderr);
   let end = Math.min(bytes.length, 16_384);
   while (end < bytes.length && end > 0 && (bytes[end] & 0xC0) === 0x80) end--;

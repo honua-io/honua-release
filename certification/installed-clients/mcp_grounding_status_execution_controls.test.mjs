@@ -91,7 +91,7 @@ async function setup(mode) {
       "    print('controlled observer diagnostic: '+values[0],file=sys.stderr)",
       "    for value in values:",
       "        print(value,file=sys.stderr); print(urllib.parse.quote(value,safe=''),file=sys.stderr); print(base64.b64encode(value.encode()).decode(),file=sys.stderr)",
-      "    for value in ['hnua_untracked_managed_key','Bearer   untracked-bearer-value','Bearer%20%20encoded-bearer-value','Basic dXNlcjpwYXNz','authorization: untracked-auth-value','cookie=session=untracked-cookie-value','x-api-key: untracked-api-value','eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature','AKIAABCDEFGHIJKLMNOP','ASIAABCDEFGHIJKLMNOP','password=untracked-db-pass;','pwd=untracked-pwd;','postgres://somebody:untracked-url-pass@localhost/db']:",
+      "    for value in ['hnua_untracked_managed_key','hnua_seed_private_tail_to_remove','Bearer   untracked-bearer-value','Bearer%20%20encoded-bearer-value','Basic dXNlcjpwYXNz','authorization: untracked-auth-value','cookie=session=untracked-cookie-value','x-api-key: untracked-api-value','eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature','AKIAABCDEFGHIJKLMNOP','ASIAABCDEFGHIJKLMNOP','password=untracked-db-pass;','pwd=untracked-pwd;','postgres://somebody:untracked-url-pass@localhost/db']:",
       "        print(value,file=sys.stderr)",
       "    sys.exit(7)",
       "if name=='mcp_grounding_status_state.py':",
@@ -128,7 +128,7 @@ async function setup(mode) {
 for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure", "observer-refusal"]) {
   test(`offline full grounding/status producer ${mode}`, async () => {
     const control = await setup(mode), oldPath = process.env.PATH;
-    const diagnosticEnv = { HONUA_MCP_API_KEY: "inherited-bootstrap-key", CONTROL_DB_PASS: "overlap-secret-with-tail", CONTROL_PWD: "overlap-secret" };
+    const diagnosticEnv = { HONUA_MCP_API_KEY: "inherited-bootstrap-key", CONTROL_DB_PASS: "overlap-secret-with-tail", CONTROL_PWD: "overlap-secret", CONTROL_SESSION_MARKER: "seed" };
     const beforeEnv = Object.fromEntries(Object.keys(diagnosticEnv).map(key => [key, process.env[key]]));
     if (mode === "observer-refusal") Object.assign(process.env, diagnosticEnv);
     process.env.PATH = control.directory + delimiter + oldPath;
@@ -150,12 +150,12 @@ for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"
         assert.match(failure.error, /mcp_grounding_status_state.py; status=7/);
         assert.match(failure.error, /stderr=controlled observer diagnostic: \[REDACTED\]/);
         for (const value of ["controlled-full-key", "controlled-limited-read-key", "caller secret/with+symbols",
-          ...Object.values(diagnosticEnv)]) {
+          ...Object.values(diagnosticEnv).filter(value => value.length >= 8)]) {
           for (const form of [value, encodeURIComponent(value), Buffer.from(value).toString("base64")])
             assert.ok(!failure.error.includes(form), "credential representation survived retained stderr redaction");
         }
         for (const value of ["-with-tail", "hnua_untracked_managed_key", "untracked-bearer-value", "dXNlcjpwYXNz",
-          "encoded-bearer-value", "untracked-auth-value", "untracked-cookie-value", "untracked-api-value", "eyJhbGciOiJIUzI1NiJ9",
+          "private_tail_to_remove", "encoded-bearer-value", "untracked-auth-value", "untracked-cookie-value", "untracked-api-value", "eyJhbGciOiJIUzI1NiJ9",
           "AKIAABCDEFGHIJKLMNOP", "ASIAABCDEFGHIJKLMNOP", "untracked-db-pass", "untracked-pwd", "untracked-url-pass"])
           assert.ok(!failure.error.includes(value), "credential shape survived retained stderr redaction");
       }
