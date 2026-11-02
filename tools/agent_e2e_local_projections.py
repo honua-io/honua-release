@@ -1158,6 +1158,24 @@ def publication_audit_prefix(event) -> bool:
     return isinstance(event, dict) and str(event.get('details', '')).split(';')[:2] in PUBLICATION_AUDIT_PREFIXES
 
 
+def admin_validation_handle(handle, operation) -> bool:
+    """A completed admin.layer.publish handle whose embedded admin response is a validation (a dry run: success,
+    data.isValid present, no layerId). It published nothing, so it is not a publication candidate; anything else
+    that fails publication_handle_identity is still a failure (Studio DEV shakeout run 11b)."""
+    import json as _json
+    if not (isinstance(handle, dict) and handle.get('operationId') == 'admin.layer.publish'
+            and handle.get('status') == 'Completed' and handle.get('operationInstanceId') == operation):
+        return False
+    details = (handle.get('result') or {}).get('details') if isinstance(handle.get('result'), dict) else None
+    try:
+        embedded = _json.loads(details.get('response')) if isinstance(details, dict) else None
+    except (TypeError, ValueError):
+        return False
+    data = embedded.get('data') if isinstance(embedded, dict) else None
+    return (isinstance(embedded, dict) and embedded.get('success') is True and isinstance(data, dict)
+            and 'isValid' in data and 'layerId' not in data)
+
+
 def publication_handle_identity(handle) -> dict:
     """The layer a completed publication operation handle names (``data`` of GET /api/v1/operations/handles/{id}):
     {"operationId", "service", "layerId", "schema", "table"}; raises ProjectionError on anything missing or malformed.

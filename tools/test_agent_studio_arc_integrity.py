@@ -401,6 +401,11 @@ def arc_partial_case(tmp_path, monkeypatch):
                 value = {'data': {'operationInstanceId': op, 'operationId': 'admin.layer.publish', 'status': 'Completed',
                                   'resourceIds': {}, 'result': {'summary': 'Publish layer completed.',
                                                                 'details': {'response': admin_response(name)}}}}
+            if stage == '9':   # a completed dry run of honua_admin_layer_publish: a validation, nothing published
+                value = {'data': {'operationInstanceId': op, 'operationId': 'admin.layer.publish', 'status': 'Completed',
+                                  'resourceIds': {}, 'result': {'summary': 'Validated.', 'details': {'response': json.dumps(
+                                      {'success': True, 'data': {'isValid': True, 'status': 'valid',
+                                                                 'serviceName': sources[name]['service']}})}}}}
         elif '/FeatureServer/' in path:
             name = path.split('/')[3].removeprefix('svc_')
             query = parse_qs(urlsplit(path).query)
@@ -479,6 +484,8 @@ def arc_partial_case(tmp_path, monkeypatch):
         rec.set_phase('observe')
         old = [event(n, 3) for n in names[:count]]
         new = [event(n, 4) for n in names[count:] if n in state['published']]
+        new += [dict(event(n, 4), auditId=90 + names.index(n), resourceId=f'op_9_{n}',
+                     details='operationId=admin.layer.publish;status=Completed') for n in state.get('dry_runs', ())]
         # Audit snapshot retains real raw bytes in the recorder/vault.
         original_factory = rec._http_factory
         def with_audit(recorder, principal, method, path, body, headers):
@@ -659,3 +666,21 @@ def test_a_tampered_admin_publication_is_refused_in_stage_four(arc_partial_case,
         state['wrong_handle'] = True
     with pytest.raises(ValueError):
         run(0)
+
+
+def test_a_stage_four_dry_run_is_not_a_publication_candidate(arc_partial_case):
+    """Studio DEV shakeout run 11b: A1's dry-run honua_admin_layer_publish left a completed admin.layer.publish audit
+    event whose handle holds a validation; the candidate loop failed "stage-four publish handle differs"."""
+    run, state = arc_partial_case
+    state['admin'] = {'parcels', 'flood_zones'}
+    state['dry_runs'] = ('parcels',)
+    stack, seeded, rec = run(1)
+    assert stack.extra['arcLineageVerified']
+
+
+def test_a_malformed_admin_handle_still_fails(arc_partial_case):
+    run, state = arc_partial_case
+    state['admin'] = {'parcels', 'flood_zones'}
+    state['admin_table'] = {'parcels': 'Not A Table'}
+    with pytest.raises(ValueError):
+        run(1)
