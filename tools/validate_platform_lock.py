@@ -213,12 +213,12 @@ def validate(lock: dict[str, Any]) -> Findings:
                 f.error(f"{apath}.integrity", "npm artifacts require an sha512 integrity value")
             if kind in ("nuget", "wheel", "terraform", "spec", "archive") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
                 f.error(f"{apath}.sha256", f"{kind} artifacts require a sha256 hash")
-            if kind in ("image", "oci-chart"):
+            if kind in ("image", "oci-chart", "executor-image"):
                 if not DIGEST_RE.fullmatch(str(artifact.get("digest", ""))):
                     f.error(f"{apath}.digest", f"{kind} artifacts require an immutable sha256 digest")
                 if not artifact.get("architectures"):
                     f.error(f"{apath}.architectures", f"{kind} artifacts require an architecture set")
-            if kind == "image":
+            if kind in ("image", "executor-image"):
                 platform_digests = artifact.get("platformDigests") or {}
                 for architecture in artifact.get("architectures") or []:
                     if not DIGEST_RE.fullmatch(str(platform_digests.get(architecture, ""))):

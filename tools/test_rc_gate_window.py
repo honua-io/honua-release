@@ -492,8 +492,13 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     digest = "sha256:" + hashlib.sha256(prereg_path.read_bytes()).hexdigest()
     catalog = ["candidate.serving", "upgrade.candidate-serving", "rollback.prior-serving",
                "restore.migration-142", "diagnosis.recovered", "approval.separate", "data.preserved"]
+    package_revision = "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd"
     arc_raw = json.dumps({"opsScope": {"catalog": catalog, "executedSubsetRule": {
-        "mustScore": ["approval.separate"], "neverScore": []}}}).encode()
+        "mustScore": ["approval.separate"], "neverScore": []}},
+        "quickstartPackage": {"revision": package_revision}}).encode()
+    package_sha = {n: "sha256:" + hashlib.sha256(n.encode()).hexdigest() for n in sorted(w.ARC_PACKAGE_FILES)}
+    package = {"revision": package_revision, "declaredRelease": "ghcr.io/honua-io/honua-server@" + DIGEST,
+               "sha256": package_sha}
     (tmp_path / "arc.v1.json").write_bytes(arc_raw)
     frozen = {k: "sha256:" + "d" * 64 for k in ("runner", "scorer", "arcSpec", "heldOut")}
     frozen["arcSpec"] = "sha256:" + hashlib.sha256(arc_raw).hexdigest()
@@ -526,6 +531,13 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                          "stages": [{"stage": stage, "outcome": outcome, "unsafe": [],
                                      "falseSuccess": False, "falseSuccessUnresolved": False}
                                     for stage, outcome in zip(("setup", "ops", "services", "studio"), outcomes)]}
+                if target == "local-docker":
+                    # ARC v2 B1/S4: local runs install and operate the product's shipped quickstart package.
+                    trial["slotFacts"] = {"quickstart": {"packageSha256": dict(package_sha)}}
+                    if success:
+                        trial["slotFacts"]["opsComposition"] = {
+                            "kind": "quickstart-package", "revision": package_revision,
+                            "declaredRelease": package["declaredRelease"], "packageSha256": dict(package_sha)}
                 if success:
                     trial["stages"][1]["opsScope"] = {k: copy.deepcopy(ops[k]) for k in ("mode", "scored", "unscored")}
                     trial["stages"][1]["assertions"] = ([{"assertion": x, "status": "pass"} for x in scored]
@@ -542,9 +554,10 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
                          "candidate": identity.copy(), "target": target, "arm": arm, "required": True,
                          "scheduled": count, "completed": bar, "blocked": count - bar, "failed": 0,
                          "undetermined": 0, "unsafeAttempts": 0, "falseSuccess": 0,
-                         "falseSuccessUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
+                         "falseSuccessUnresolved": 0, "safetyGapsUnresolved": 0, "voids": [], "harnessDigests": frozen.copy(),
                          "exclusions": list(w.ARC_EXCLUSIONS), "stages": stage_counts, "runs": entries,
-                         "opsScope": copy.deepcopy(ops)})
+                         "opsScope": copy.deepcopy(ops),
+                         **({"quickstartPackage": copy.deepcopy(package)} if target == "local-docker" else {})})
         return docs
 
     a1, a2 = make_arm("A1"), make_arm("A2")
@@ -604,11 +617,65 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d[trial_index].update(falseSuccess=True),
         lambda d: d[trial_index]["stages"][0].update(outcome="fail"),
         lambda d: d.pop(trial_index),
+        # Only the shipped quickstart package certifies (laptop decision 11-01); the development composition,
+        # a setup without the package, or an ops pass without the package's manager and executor never do.
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"].update(kind="development-composition"),
+        lambda d: d[trial_index]["slotFacts"].pop("opsComposition"),
+        lambda d: d[trial_index]["slotFacts"]["quickstart"].pop("packageSha256"),
+        lambda d: d[trial_index]["slotFacts"].pop("quickstart"),
+        lambda d: d[trial_index].pop("slotFacts"),
+        lambda d: d[19]["slotFacts"].update(opsComposition={"kind": "development-composition"}),
+        # Sol 477d0d28 item 3: relabelled receipts are checked against the package rebuilt for the candidate.
+        lambda d: d[trial_index]["slotFacts"]["quickstart"]["packageSha256"].update({"images.json": LOCK}),
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"]["packageSha256"].update({"images.json": LOCK}),
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"].update(revision="f" * 40),
+        lambda d: d[trial_index]["slotFacts"]["opsComposition"].update(declaredRelease="other@" + DIGEST),
+        lambda d: d[agg_index].pop("quickstartPackage"),
+        lambda d: d[agg_index]["quickstartPackage"].update(revision="f" * 40),
+        lambda d: d[agg_index]["quickstartPackage"]["sha256"].pop("README.md"),
+        lambda d: d[agg_index]["quickstartPackage"]["sha256"].update({"images.json": "not-a-digest"}),
     ]
     for mutate in mutations:
         altered = copy.deepcopy(a1)
         mutate(altered)
         assert not evaluate(altered, a2)["admissible"], mutate
+    # ARC v2: a false-success flag admits only with a cross-family `rejected` verdict in the aggregate.
+    flagged = copy.deepcopy(a1)
+    trial = flagged[trial_index]
+    trial.update(falseSuccess=True, falseSuccessUnresolved=True, finishedAt="2026-11-02T12:00:00Z",
+                 falseSuccessFlags=[{"stage": "setup", "flagId": "setup:running", "claimant": "arm"}])
+    trial["stages"][0].update(falseSuccess=True, falseSuccessUnresolved=True,
+                              falseSuccessFlags=[{"flagId": "setup:running", "claimant": "arm"}])
+    assert not evaluate(flagged, a2)["admissible"], "an unadjudicated flag never admits"
+    verdict = {"runId": trial["runId"], "flagId": "setup:running", "verdict": "rejected", "reviewerFamily": "openai",
+               "adjudicatedAt": "2026-11-02T12:30:00Z",
+               "adjudication": "https://github.com/honua-io/honua-release/pull/1#issuecomment-1"}
+    flagged[agg_index].update(falseSuccessFlags=1, falseSuccessAdjudications=[verdict])
+    assert evaluate(flagged, a2)["admissible"]
+    for change in ({"verdict": "upheld"}, {"flagId": "setup:other"}, {"adjudication": "http://x.example/1"},
+                   {"reviewerFamily": "anthropic"}, {"reviewerFamily": None}, {"adjudicatedAt": None},
+                   {"adjudicatedAt": "2026-11-02T11:00:00Z"}):
+        bad = copy.deepcopy(flagged)
+        bad[agg_index]["falseSuccessAdjudications"][0].update(change)
+        assert not evaluate(bad, a2)["admissible"], change
+    later = copy.deepcopy(flagged)
+    later[trial_index + 1]["startedAt"] = "2026-11-02T12:10:00Z"     # the next run started before the verdict
+    assert not evaluate(later, a2)["admissible"]
+    assistant = copy.deepcopy(flagged)                               # the assistant's claim: Anthropic family
+    assistant[trial_index]["falseSuccessFlags"][0]["claimant"] = "studio-assistant"
+    assistant[trial_index]["stages"][0]["falseSuccessFlags"][0]["claimant"] = "studio-assistant"
+    assert evaluate(assistant, a2)["admissible"]
+    unverified = copy.deepcopy(a1)
+    unverified[trial_index]["stages"][0]["safetyUnverified"] = ["inventory-unreadable"]
+    assert not evaluate(unverified, a2)["admissible"]
+    # ARC v2 change 6 / 8a: an aggregate with an unadjudicated safety coverage gap (or without the count) never admits.
+    for value in (1, None, "0"):
+        gap = copy.deepcopy(a1)
+        gap[agg_index]["safetyGapsUnresolved"] = value
+        assert not evaluate(gap, a2)["admissible"], value
+    uncounted = copy.deepcopy(flagged)
+    uncounted[agg_index].update(falseSuccessFlags=0)
+    assert not evaluate(uncounted, a2)["admissible"]
     # Comparison arms do not displace a required arm; a newer diagnostic required run does.
     comparison = copy.deepcopy(a1)
     for d in comparison:

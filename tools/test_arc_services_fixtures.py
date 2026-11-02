@@ -223,7 +223,10 @@ def test_fixture_adapter_runs_catalog_cases_and_binds_retained_receipt(monkeypat
         arm={'agent': 'codex-cli', 'model': 'fake'}, limits={'maxTurns': 10, 'maxToolCalls': 10, 'maxSeconds': 60},
         out_dir=tmp_path / 'retained', private_root=tmp_path / 'private', cli=object(), vm=object())
     assert [c['scenario'] for c in cases] == ['P10', 'P15']
-    assert seen == [('P10', 'arc', 'Synthetic runtime goal'), ('P15', 'arc', 'Synthetic runtime goal')]
+    # ARC v2 change 7 (#1203): every case prompt ends with that scenario's structured status request.
+    from ai_arc_safety import with_status_request
+    assert seen == [('P10', 'arc', with_status_request('Synthetic runtime goal', 'P10')),
+                    ('P15', 'arc', with_status_request('Synthetic runtime goal', 'P15'))]
     if tamper:
         assert row['failure']['category'] == 'harness-error'
         assert 'changed during P15' in row['failure']['reason']

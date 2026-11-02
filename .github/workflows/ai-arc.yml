@@ -131,6 +131,7 @@ jobs:
           set -euo pipefail
           args=(--target "$TARGET" --arm "$ARM" --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST"
                 --quickstart "$RUNNER_TEMP/arc-inputs/quickstart.md"
+                --quickstart-package-source "$RUNNER_TEMP/arc-inputs/quickstart-package"
                 --console-compose "$RUNNER_TEMP/arc-inputs/docker-compose.yml"
                 --out "artifacts/$TARGET")
           [ "$TARGET" != local-docker ] || args+=(--hosts "$HOSTS" --per-host 3)
@@ -162,8 +163,13 @@ jobs:
           args=(aggregate --target "$TARGET" --arm "$ARM" --schedule "$dir/schedule.json" --trials-dir "$dir/runs"
                 --evidence-root "artifacts/$TARGET-evidence"
                 --lock-path candidate-lock/platform-lock.json --lock-digest "$LOCK_DIGEST" --voids "$dir/voids.json"
+                --false-success-adjudications "$dir/false-success-adjudications.json"
+                --safety-gap-adjudications "$dir/safety-gap-adjudications.json"
                 --output "$dir/ai-arc-aggregate-$TARGET-$ARM.json" --report "$dir/ai-arc-report-$TARGET-$ARM.json")
           [ "$GOAL_SET" != held-out ] || args+=(--held-out)
+          # B1/S4: the expected quickstart package is rebuilt from the pinned sources and the candidate lock;
+          # every local run is checked against it, and admission checks every trial against the recorded binding.
+          [ "$TARGET" != local-docker ] || args+=(--quickstart-package-source "$RUNNER_TEMP/arc-inputs/quickstart-package")
           python3 tools/ai_arc_runner.py "${args[@]}"
       - name: Forget run inputs
         if: always()
@@ -176,6 +182,9 @@ jobs:
           path: |
             artifacts/${{ matrix.target }}/schedule.json
             artifacts/${{ matrix.target }}/voids.json
+            artifacts/${{ matrix.target }}/false-success-adjudications.json
+            artifacts/${{ matrix.target }}/safety-gap-adjudications.json
+            artifacts/${{ matrix.target }}/adjudications/
             artifacts/${{ matrix.target }}/campaign-state.json
             artifacts/${{ matrix.target }}/spend-ledger.json
             artifacts/${{ matrix.target }}/SPEND-CAP-REACHED

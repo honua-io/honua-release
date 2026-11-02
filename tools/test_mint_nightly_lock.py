@@ -1700,3 +1700,50 @@ def test_post_gate_regeneration_keeps_the_frozen_artifact_order(inputs, tmp_path
     scratch.mkdir()
     source = nightly.attach_post_gate(paths[0], references, {}, scratch)
     nightly.regenerate_post_gate(source, paths[1], frozen, references)
+
+
+def _as_executor(monkeypatch, index):
+    """The fixture's OCI component re-typed as the Compose executor row the generator emits for honua-server."""
+    real = nightly.generate
+
+    def generate(*args, **kwargs):
+        draft = real(*args, **kwargs)
+        for artifact in draft.lock['components']['sdk']['artifacts']:
+            if artifact.get('digest') == index:
+                artifact['kind'] = 'executor-image'
+        return draft
+    monkeypatch.setattr(nightly, 'generate', generate)
+
+
+def test_embedded_buildkit_evidence_alone_never_admits_a_compose_executor(inputs, candidate, tmp_path, monkeypatch):
+    """Sol 796a8b80 (P1): complete embedded SBOM/provenance covers a foreign image as well as the product's, so the
+    executor needs a GitHub provenance attestation verified against the source revision and signer workflow."""
+    report, paths = inputs
+    registry, index, _ = oci_candidate(report, paths)
+    _as_executor(monkeypatch, index)
+    verified = []
+    with pytest.raises(ValueError, match='Compose executor has no GitHub provenance attestation verified'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=registry,
+            attestations=lambda repo, digest: [] if digest == index else publisher_bundles(repo, digest),
+            artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: verified.append(args))
+    assert not (tmp_path / 'collected').exists()
+
+    def refuse(uri, bundle, expected, *rest):
+        if isinstance(uri, str) and uri.endswith(index):
+            raise ValueError('signer workflow differs')
+    with pytest.raises(ValueError, match='publisher attestations unavailable or unverified'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected2', registry=registry,
+            attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2], verifier=refuse)
+
+
+def test_a_verified_executor_provenance_is_checked_against_its_source_revision(inputs, candidate, tmp_path, monkeypatch):
+    report, paths = inputs
+    registry, index, _ = oci_candidate(report, paths)
+    _as_executor(monkeypatch, index)
+    verified = []
+    nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=registry,
+        attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+        verifier=lambda *args: verified.append(args))
+    executor = [args for args in verified if args[0] == f'oci://ghcr.io/honua-io/sdk@{index}']
+    assert executor and all('sourceRevision' in args[2] and 'signerWorkflow' in args[2] for args in executor)
+    assert {args[4] for args in executor} >= {'https://slsa.dev/provenance/v1'}

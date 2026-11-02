@@ -33,7 +33,9 @@ def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectation
     context = SimpleNamespace(case=json.loads(cipher.decrypt(sealed)), variant='H', target='local-docker',
                               candidate={'development': False})
     fixture, case = select_arc_case(context, context.case['goals']['studio'] + '\nPrevious model handoff')
-    assert fixture == 'B' and case['prompts']['B'] == context.case['goals']['studio']
+    # ARC v2: the sealed goal plus the customer's closing status checklist (identical for both drivers).
+    from ai_arc_safety import with_status_request
+    assert fixture == 'B' and case['prompts']['B'] == with_status_request(context.case['goals']['studio'], 'P08')
     assert 'sharing' in __import__('agent_e2e_studio_arc').fixture_requirements(context.case['fixtures'], 'P08')
     with pytest.raises(ValueError, match='not bound'):
         select_arc_case(context, 'unrelated request')
@@ -150,14 +152,17 @@ def test_driver_assertions_keep_independent_fail_and_false_success():
     assert rows[0]['assertion'] == 'console-assistant:P08:render.actual'
     assert rows[0]['status'] == 'fail'
     assert rows[1]['assertion'] == 'console-assistant:P08:finalAnswerCheck'
-    assert rows[1]['falseSuccess'] is True
+    # ARC v2: the corpus verdict is kept for reference; the arc re-scores the row from the case's own answer.
+    assert rows[1]['corpusAnswerCheck'] == {'status': 'fail', 'false_success': True} and 'answer' in rows[1]
     with pytest.raises(ValueError):
         driver_assertions('unapproved', cases)
 
 
+@pytest.mark.parametrize('legacy_only', [False, True])
 @pytest.mark.parametrize('same_customer', ['none', 'subject', 'key'])
 @pytest.mark.parametrize('sealed', [False, True])
-def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer, sealed):
+def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer, sealed,
+                                                               legacy_only):
     from types import SimpleNamespace
     import agent_e2e_local_runner as runner
     import agent_e2e_studio_arc as studio
@@ -192,11 +197,13 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
         timeline.append(('case', agent))
         if sealed:
             assert kwargs['variant'] == 'B'
-            assert kwargs['case']['prompts']['B'] == 'synthetic held-out request'
+            from ai_arc_safety import with_status_request
+            assert kwargs['case']['prompts']['B'] == with_status_request('synthetic held-out request', 'P08')
         seen.append(agent)
         ok = agent != 'console-assistant'
+        # legacy_only: live state passed and only the corpus prose answer check failed (Sol 1203 item 9).
         return {'status': 'pass' if ok else 'fail', 'assertions': [{'assertion': 'render.actual',
-                'status': 'pass' if ok else 'fail'}], 'finalAnswerCheck': {'status': 'pass' if ok else 'fail',
+                'status': 'pass' if ok or legacy_only else 'fail'}], 'finalAnswerCheck': {'status': 'pass' if ok else 'fail',
                 'false_success': not ok}, 'sessions': [], 'studioAssistant': {'model': studio.MODEL}}
     monkeypatch.setattr(runner, 'execute_case', execute_case)
     context = SimpleNamespace(target='local-docker', case=None, variant='A', private_dir=tmp_path,
@@ -224,10 +231,17 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     assert timeline == [('case', 'codex-cli'), ('provider', True),
                         ('case', 'console-assistant'), ('provider', False)]
     assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
-    assert result['assistantModel'] == studio.MODEL and result['failure'] is not None
-    assert any(row.get('falseSuccess') for row in scores)
-    assert {r['assertion'] for r in scores if r['assertion'].endswith(':goal.services-lineage') and r['status'] == 'fail'} == {
-        'arm-browser:goal.services-lineage', 'console-assistant:goal.services-lineage'}
+    # ARC v2: only live-state failure is a model failure; the corpus prose check is kept for reference only
+    # (corpusAnswerCheck). legacy_only: live state passed and only that prose check failed.
+    assert result['assistantModel'] == studio.MODEL
+    assert (result['failure'] is None) is legacy_only, 'only live-state failure is a model failure in ARC v2'
+    assert any(row.get('corpusAnswerCheck', {}).get('false_success') for row in scores)
+    assert [row['assertion'] for row in scores if 'answer' in row] == ['arm-browser:P08:finalAnswerCheck',
+                                                                        'console-assistant:P08:finalAnswerCheck']
+    if not legacy_only:
+        assert {r['assertion'] for r in scores
+                if r['assertion'].endswith(':goal.services-lineage') and r['status'] == 'fail'} == {
+            'arm-browser:goal.services-lineage', 'console-assistant:goal.services-lineage'}
 
 
 def test_shared_project_drivers_get_distinct_fixture_names():
