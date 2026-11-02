@@ -41,60 +41,8 @@
       "family": "openai",
       "required": true,
       "cliVersion": "codex-cli 0.166.0"
-    },
-    {
-      "id": "C1",
-      "name": "claude-code-sonnet-5-5",
-      "agent": "claude-cli",
-      "model": "claude-sonnet-5-5",
-      "family": "anthropic",
-      "required": false,
-      "cliVersion": "2.1.316 (Claude Code)"
-    },
-    {
-      "id": "C2",
-      "name": "claude-code-sonnet-4-6",
-      "agent": "claude-cli",
-      "model": "claude-sonnet-4-6",
-      "family": "anthropic",
-      "required": false,
-      "cliVersion": "2.1.316 (Claude Code)"
-    },
-    {
-      "id": "C3",
-      "name": "codex-gpt-6.1-terra",
-      "agent": "codex-cli",
-      "model": "gpt-6.1-terra",
-      "family": "openai",
-      "required": false,
-      "cliVersion": "codex-cli 0.166.0"
     }
   ],
-  "studioAssistant": {
-    "id": "studio-assistant-sonnet-4-6",
-    "model": "us.anthropic.claude-sonnet-4-6",
-    "family": "anthropic",
-    "required": true,
-    "customerScript": [
-      {
-        "after": "first-reply",
-        "say": "Yes, use the three layers you just loaded."
-      },
-      {
-        "after": "question",
-        "say": "Shelters on top, parcels at the bottom."
-      },
-      {
-        "after": "question",
-        "say": "Name it Flood planning and share it with the operators only."
-      }
-    ],
-    "drivers": [
-      "assistant",
-      "arm-browser"
-    ],
-    "surface": "Honua Console built-in AI assistant (Studio AI proxy)"
-  },
   "stages": [
     {
       "id": "setup",
@@ -288,16 +236,11 @@
       ],
       "versionRole": "candidate",
       "drivers": [
-        "console-assistant",
         "arm-browser"
       ],
       "required": {
         "local-docker": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -305,10 +248,6 @@
         ],
         "aws-ecs": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -316,10 +255,6 @@
         ],
         "aws-eks": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -327,10 +262,6 @@
         ],
         "aws-lambda": [
           "candidate.serving",
-          "console-assistant:P08:map.composition",
-          "console-assistant:P08:render.actual",
-          "console-assistant:P08:source-content.unchanged",
-          "console-assistant:P08:finalAnswerCheck",
           "arm-browser:P08:map.composition",
           "arm-browser:P08:render.actual",
           "arm-browser:P08:source-content.unchanged",
@@ -340,7 +271,7 @@
       "scenarios": [
         "P08"
       ],
-      "scenarioNote": "Studio is the map editor embedded in Honua Console (GA; honua-console, with the honua-studio editor runtime). Required path: Console's built-in AI assistant (calls the server's Studio AI proxy on Bedrock Sonnet 4.6), driven by a scripted customer turn-taker signed in to Console as the customer principal. CLI arms reach Console through #1162's origin-locked browser with real sign-in. Scoring: saved map and style documents via controller reads, plus an independent render through the server's map rendering API (never DOM markers). stages.studio.assistant is the model the Console assistant was observed to use (AI proxy response/audit).",
+      "scenarioNote": "Studio is the map editor embedded in Honua Console (GA; honua-console, with the honua-studio editor runtime). ARC v2 (founder 2026-11-01): the arm itself makes and saves the map through Studio in Console, reached through #1162's origin-locked browser with real sign-in. There is no built-in assistant sub-stage: the Studio AI proxy stays disabled on the slot, any studio_ai.chat audit event during the stage fails it, and no Studio-assistant result is claimed. Scoring: saved map and style documents via controller reads, plus an independent render through the server's map rendering API (never DOM markers), with the S12 requirements (UI-made map, layers, style, labels, filter, team/org sharing).",
       "requiresConsole": true
     }
   ],
@@ -627,21 +558,16 @@
     "capUsd": 2500,
     "perRunEstimateUsd": 25,
     "rates": {
-      "bedrock": {
-        "model": "us.anthropic.claude-sonnet-4-6 (Studio built-in assistant)",
-        "region": "us-east-1",
-        "inputPerMTok": 3.3,
-        "outputPerMTok": 16.5,
-        "cacheReadPerMTok": 0.33,
-        "cacheWritePerMTok": 4.125,
-        "basis": "verified: AWS public price list, offer AmazonBedrockFoundationModels us-east-1 (publicationDate 2026-10-12T08:40:08Z), Claude Sonnet 4.6 (Amazon Bedrock Edition), On-demand Inference, Regional CRIS (the us. cross-region inference profile): USE1_InputTokenCount, USE1_OutputTokenCount, USE1_CacheReadInputTokenCount, USE1_CacheWriteInputTokenCount (5-minute) per 1M tokens. The Global profile is cheaper ($3/$15/$0.30/$3.75) and is not the profile the product calls."
-      },
       "vmHourUsd": 0.68,
       "vmBasis": "ESTIMATE (not verified against the price list): c6i.4xlarge on-demand us-east-1 (honua-iac aws-eval-docker-hosts default), charged per run-hour as if the whole host (conservative)",
       "awsCellHourUsd": 1.5,
       "awsCellBasis": "ESTIMATE (not verified against the price list): one release cell slot (ECS, RDS share, ALB share) per run-hour"
     },
     "cliSubscription": "unknown: the CLI arms run on flat subscriptions; recorded as unknown, never priced",
-    "rule": "Astra S4: the campaign stops scheduling when spent plus the per-run estimate (the larger of perRunEstimateUsd and the most expensive observed run) for every open run and the next one would exceed capUsd; running runs finish and the stop is reported (SPEND-CAP-REACHED, exit 3). One ledger per gate campaign (--spend-ledger) is shared by every target and arm."
+    "rule": "Astra S4: the campaign stops scheduling when spent plus the per-run estimate (the larger of perRunEstimateUsd and the most expensive observed run) for every open run and the next one would exceed capUsd; running runs finish and the stop is reported (SPEND-CAP-REACHED, exit 3). One ledger per gate campaign (--spend-ledger) is shared by every target and arm.",
+    "pricedComponents": [
+      "compute"
+    ],
+    "note": "ARC v2 runs no model behind a per-token price (no Studio built-in assistant): the CLI arms are flat subscriptions (unknown, never priced) and compute is the only priced component."
   }
 }

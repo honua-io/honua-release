@@ -419,20 +419,20 @@ def spend(cap, estimate=25):
     return doc
 
 
-def test_run_cost_prices_bedrock_tokens_and_compute_and_leaves_the_subscription_unknown():
+def test_run_cost_prices_compute_only_and_leaves_the_subscription_unknown():
+    """ARC v2 (founder 2026-11-01): no Studio built-in assistant and no Bedrock, so compute is the only priced
+    component. Token counters a stage might still carry are never priced, and no row names Bedrock."""
     receipt = {'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T11:00:00Z',
-               'stages': [{'stage': 'studio', 'assistantUsage': [{'inputTokens': 1_000_000, 'outputTokens': 100_000,
-                                                                  'cacheReadInputTokens': 2_000_000}]},
-                          {'stage': 'setup', 'assistantUsage': None}]}
+               'stages': [{'stage': 'studio', 'assistantUsage': [{'inputTokens': 1_000_000, 'outputTokens': 100_000}]},
+                          {'stage': 'setup'}]}
     cost = C.run_cost(receipt, 'local-docker', spend(2500))
     rates = spend(2500)['rates']
-    bedrock = rates['bedrock']
-    assert cost['bedrockUsd'] == round(bedrock['inputPerMTok'] + 0.1 * bedrock['outputPerMTok']
-                                       + 2 * bedrock['cacheReadPerMTok'], 4) and cost['cliSubscriptionUsd'] == 'unknown'
-    assert cost['rateBasis']['compute'].startswith('estimate') and 'price list' in cost['rateBasis']['bedrock']
-    assert cost['computeUsd'] == round(2 * rates['vmHourUsd'], 4)
+    assert cost['computeUsd'] == round(2 * rates['vmHourUsd'], 4) == cost['totalUsd']
+    assert cost['cliSubscriptionUsd'] == 'unknown' and cost['rateBasis']['compute'].startswith('estimate')
+    assert 'bedrock' not in json.dumps(cost).lower()
     assert C.run_cost(receipt, 'aws-ecs', spend(2500))['computeUsd'] == round(2 * rates['awsCellHourUsd'], 4)
     assert C.run_cost(None, 'local-docker', spend(2500, 40))['totalUsd'] == 40
+    assert 'bedrock' not in json.dumps(C.run_cost(None, 'local-docker', spend(2500))).lower()
 
 
 def test_the_campaign_stops_scheduling_before_the_spend_cap_and_reports_it(tmp_path):
@@ -467,16 +467,12 @@ def test_campaigns_sharing_a_ledger_share_one_cap(tmp_path):
     assert len(first) == 1 and len(second) == 1 and (tmp_path / 'b' / 'SPEND-CAP-REACHED').is_file()
 
 
-def test_the_bedrock_rates_are_the_us_profile_price_list_rates_and_compute_is_labelled_an_estimate():
-    """Laptop decision 11-01: the us. cross-region profile bills at the Regional CRIS on-demand rates
-    (AmazonBedrockFoundationModels us-east-1); VM and cell rates are labelled estimates."""
+def test_the_spend_cap_prices_no_bedrock_and_compute_is_labelled_an_estimate():
+    """ARC v2: the spend cap has no Bedrock rate (no Studio built-in assistant); VM and cell rates are estimates."""
     import ai_arc_runner as R
-    doc = R.load_arc()['spendCap']['rates']
-    bedrock = doc['bedrock']
-    assert (bedrock['inputPerMTok'], bedrock['outputPerMTok'], bedrock['cacheReadPerMTok'],
-            bedrock['cacheWritePerMTok']) == (3.3, 16.5, 0.33, 4.125)
-    assert bedrock['model'].startswith('us.anthropic.claude-sonnet-4-6') and 'Regional CRIS' in bedrock['basis']
-    assert doc['vmBasis'].startswith('ESTIMATE') and doc['awsCellBasis'].startswith('ESTIMATE')
+    doc = R.load_arc()['spendCap']
+    assert 'bedrock' not in doc['rates'] and doc['pricedComponents'] == ['compute']
+    assert doc['rates']['vmBasis'].startswith('ESTIMATE') and doc['rates']['awsCellBasis'].startswith('ESTIMATE')
 
 
 def test_the_workflow_passes_one_shared_spend_ledger_per_gate_campaign():
@@ -487,19 +483,6 @@ def test_the_workflow_passes_one_shared_spend_ledger_per_gate_campaign():
     assert 'args+=(--spend-ledger "$ledger")' in text
     assert 'artifacts/${{ matrix.target }}/spend-ledger.json' in text
     assert 'artifacts/${{ matrix.target }}/SPEND-CAP-REACHED' in text
-
-
-def test_studio_audit_usage_reaches_the_ledger_priced_as_input_and_output():
-    """Sol d7af7588 item 1: the Studio audit projection's prompt_tokens / completion_tokens survive the
-    receipt projection (usage_record) and are priced, so a real run never records zero Bedrock spend."""
-    import ai_arc_runner as R
-    audit = [{'prompt_tokens': 1_000_000, 'completion_tokens': 100_000}, {'prompt_tokens': 500_000, 'completion_tokens': 0}]
-    receipt = {'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:00:00Z',
-               'stages': [{'stage': 'studio', 'assistantUsage': R.usage_record(audit)}]}
-    bedrock = spend(2500)['rates']['bedrock']
-    cost = C.run_cost(receipt, 'local-docker', spend(2500))
-    assert cost['bedrockTokens']['input'] == 1_500_000 and cost['bedrockTokens']['output'] == 100_000
-    assert cost['bedrockUsd'] == round(1.5 * bedrock['inputPerMTok'] + 0.1 * bedrock['outputPerMTok'], 4) > 0
 
 
 def test_a_reused_run_id_keeps_its_own_live_reservation(tmp_path):
@@ -615,3 +598,43 @@ def test_a_safety_gap_writes_a_packet_and_waits_for_a_cross_family_verdict(tmp_p
                    common=[], wait_poll=0.01, launch=gap_launch(out3, log3))
     assert len(log3) == 2
     assert json.loads((out3 / 'safety-gap-adjudications.json').read_text())[0]['verdict'] == 'not-unsafe'
+
+
+def provisional_gap_launch(out, log):
+    """Run 001 COMPLETES with a provisional setup (pendingSafetyAdjudication): ARC v2 lets the run go on."""
+    def launch(row, slot):
+        log.append((row, slot, time.monotonic()))
+        path = Path(out) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        gap = ['unclassified-command@1'] if row['runId'].endswith('001') else []
+        path.write_text(json.dumps({'runId': row['runId'], 'status': 'completed',
+                                    'stages': [{'stage': 'setup', 'outcome': 'pass', 'safetyUnverified': gap,
+                                                'pendingSafetyAdjudication': gap}],
+                                    'pendingSafetyAdjudication': ['setup:' + g for g in gap],
+                                    'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:30:00Z'}))
+        return 0
+    return launch
+
+
+def test_a_completed_run_with_a_provisional_gap_still_waits_for_its_verdict(tmp_path):
+    """The gap no longer stops the run, but its cross-family verdict still comes before any later run starts (the
+    aggregate rejects a verdict dated after a later run started)."""
+    log = []
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=tmp_path, hosts=['h1'], per_host=1,
+                       common=[], wait_poll=0.01, max_wait=0.3, launch=provisional_gap_launch(tmp_path, log))
+    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001'], 'nothing else started'
+    assert (tmp_path / 'PENDING-ADJUDICATION').read_text().split() == ['local-docker:A1:001']
+    packet = json.loads((tmp_path / 'adjudications' / 'local-docker-A1-001.safety-gaps.packet.json').read_text())
+    assert [p['gapId'] for p in packet] == ['setup:unclassified-command@1']
+    out2 = tmp_path / 'again'
+    (out2 / 'adjudications').mkdir(parents=True)
+    (out2 / 'adjudications' / 'local-docker-A1-001.safety-gaps.json').write_text(json.dumps([
+        {'runId': 'local-docker:A1:001', 'gapId': 'setup:unclassified-command@1', 'verdict': 'not-unsafe',
+         'reviewerFamily': 'openai', 'adjudication': 'https://github.com/honua-io/honua-release/issues/8',
+         'adjudicatedAt': '2026-11-02T10:00:00Z'}]))
+    log2 = []
+    C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(2), out=out2, hosts=['h1'], per_host=1,
+                   common=[], wait_poll=0.01, launch=provisional_gap_launch(out2, log2))
+    assert len(log2) == 2 and not (out2 / 'PENDING-ADJUDICATION').exists()
