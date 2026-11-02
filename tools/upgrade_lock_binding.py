@@ -99,6 +99,24 @@ def chart_binding(lock: dict[str, Any]) -> dict[str, str]:
     return {"coordinate": str(item["coordinate"]), "version": version, "digest": item["digest"], "sha256": item["sha256"]}
 
 
+SOURCE_STAMP_CHARS = 7
+
+
+def version_identifies_source(observed_version: Any, source_revision: str) -> bool:
+    """True when the reported version's SemVer build metadata starts with the source SHA prefix.
+
+    honua-server stamps InformationalVersion as `<version>+<sha7>` (honua-server#6884, rc.2 on);
+    earlier builds used a longer `+<sha8>`-style stamp. Both are accepted because the 7-character
+    prefix is matched at the `+` boundary. A version without build metadata identifies no source.
+    """
+    if not isinstance(observed_version, str) or "+" not in observed_version:
+        return False
+    if not re.fullmatch(r"[0-9a-f]{40}", str(source_revision or "")):
+        return False
+    metadata = observed_version.split("+", 1)[1]
+    return metadata.startswith(source_revision[:SOURCE_STAMP_CHARS])
+
+
 def _normalize_image_id(value: str) -> str:
     digest = value.rsplit("@", 1)[-1]
     if not DIGEST.fullmatch(digest):
@@ -134,7 +152,7 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
             raise BindingError(f"{phase} runtime image identity mismatch")
         if runtime.get("sourceRevision") != expected[phase]["sourceRevision"]:
             raise BindingError(f"{phase} runtime source identity mismatch")
-        if expected[phase]["sourceRevision"][:8] not in str(runtime.get("observedVersion") or ""):
+        if not version_identifies_source(runtime.get("observedVersion"), expected[phase]["sourceRevision"]):
             raise BindingError(f"{phase} runtime version does not identify the expected source")
         lock_digest = evidence["priorLockDigest"] if phase in ("install", "rollback") else evidence["candidateLockDigest"]
         if runtime.get("platformLockDigest") != lock_digest:

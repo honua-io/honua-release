@@ -209,3 +209,33 @@ def test_gate_upgrade_hashes_the_canonical_journal_not_psql_output():
     assert ("python tools/upgrade_lock_binding.py journal-digest /tmp/migration-journal.json \\\n"
             "                 --canonical-output /tmp/upg/migration-journal.canonical.json") in workflow
     assert "journal:$journalNames[0],journalSha256:$journal" in workflow
+
+
+def test_rc2_seven_char_stamp_and_longer_prior_stamp_both_bind(tmp_path):
+    """honua-server#6884 stamps `<version>+<sha7>` (rc.2 on); the prior's longer stamp still binds."""
+    prior, candidate, evidence = _case(tmp_path)
+    evidence["phases"]["candidate"]["runtimeIdentity"]["observedVersion"] = "2026.1.0-rc.2+bbbbbbb"
+    evidence["phases"]["install"]["runtimeIdentity"]["observedVersion"] = "2026.1.0-rc.1+aaaaaaaa"
+    evidence["phases"]["rollback"]["runtimeIdentity"]["observedVersion"] = "2026.1.0-rc.1+aaaaaaaa"
+    assert binding.verify(prior, candidate, evidence)["classification"] == "exact-lock-upgrade-rollback-certified"
+
+
+@pytest.mark.parametrize("version", [
+    "2026.1.1",                 # no build metadata: names no source
+    "2026.1.0-rc.2+bbbbbb",     # 6 characters is not a source stamp
+    "2026.1.0-rc.2+cbbbbbbb",   # another source
+    "bbbbbbb-2026.1.0",         # the SHA outside the build metadata
+    "2026.1.0-rc.2+x.bbbbbbb",  # metadata that does not start with the SHA
+    "",
+])
+def test_a_version_that_does_not_stamp_the_candidate_source_fails(tmp_path, version):
+    prior, candidate, evidence = _case(tmp_path)
+    evidence["phases"]["candidate"]["runtimeIdentity"]["observedVersion"] = version
+    with pytest.raises(binding.BindingError, match="candidate runtime version"):
+        binding.verify(prior, candidate, evidence)
+
+
+def test_version_identifies_source_rejects_malformed_revisions():
+    assert binding.version_identifies_source("1.0.0+abcdef1", "abcdef1" + "0" * 33)
+    assert not binding.version_identifies_source("1.0.0+abcdef1", "abcdef1")
+    assert not binding.version_identifies_source(None, "a" * 40)
