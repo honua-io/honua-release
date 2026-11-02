@@ -1120,7 +1120,9 @@ class StudioStage(DelegatingStage):
         signed = probe(ctx) if callable(probe) else None
         ctx.slot.facts['consoleSignIn'] = signed if isinstance(signed, dict) else {'ok': bool(signed)}
         if not (signed.get('ok') if isinstance(signed, dict) else signed):
-            return 'the customer principal could not sign in to Honua Console (adapter sign_in_probe)'
+            error = signed.get('error') if isinstance(signed, dict) else None
+            return ('the customer principal could not sign in to Honua Console (adapter sign_in_probe'
+                    + (': ' + str(error)[:300] if error else '') + ')')
         return None
     def run(self, ctx, session, prompt):
         self._started = datetime.now(timezone.utc)

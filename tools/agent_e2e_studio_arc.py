@@ -805,8 +805,15 @@ def arc_stage(ctx):
                     if browser is not None:
                         browser.stop()
                     runtime.teardown(stack)
-            except Exception:
-                return {'ok': False}
+            except Exception as exc:  # noqa: BLE001
+                # The failing step's own error (exception type and message, the slot's harness secrets redacted) is
+                # the stage cause: a sign-in failure must be classifiable as product, harness or model from the
+                # receipt (Studio DEV shakeout 7a/7b, release session 2026-11-02).
+                text = ' '.join(str(exc).split())
+                for value in sorted((getattr(context.slot, 'harness_secrets', None) or []), key=len, reverse=True):
+                    if isinstance(value, str) and len(value) >= 6:
+                        text = text.replace(value, '[redacted]')
+                return {'ok': False, 'error': type(exc).__name__ + ': ' + text[:300]}
 
         def run(self, context, session, prompt):
             from ai_arc_runner import redact_bytes

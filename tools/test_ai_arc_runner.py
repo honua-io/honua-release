@@ -2698,3 +2698,37 @@ def test_the_arc_spec_names_no_assistant_sonnet_or_bedrock():
         with pytest.raises(ValueError):
             R.validate_arc(doc)
     R.validate_arc(copy.deepcopy(base))
+
+
+def test_a_failed_sign_in_names_its_error_in_the_stage_cause(tmp_path, monkeypatch):
+    """Studio DEV shakeout 7a/7b: the probe returned only {'ok': False}; the failing step's error is now the cause."""
+    import types
+
+    class Adapter(R.StageModule):
+        stage = 'studio'
+
+        def sign_in_probe(self, ctx):
+            return {'ok': False, 'error': 'RuntimeError: CaseConsole did not answer /version.json'}
+    monkeypatch.setitem(sys.modules, 'agent_e2e_studio_arc', types.SimpleNamespace(arc_stage=lambda ctx: Adapter()))
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', facts={'consoleBaseUrl': 'http://127.0.0.1:1'})
+    ctx = R.StageContext(arc=ARC, target='local-docker', arm=A1, variant='A', run_dir=tmp_path, private_dir=tmp_path,
+                         slot=slot, candidate=CAND_IN, install=ARC['versionPair']['install'], limits=ARC['limits']['studio'],
+                         deadline=time.monotonic() + 60,
+                         options={'http': lambda m, u, k: {'status': 200, 'json': {'version': '1'}}})
+    reason = R.StudioStage().unavailable(ctx)
+    assert 'could not sign in' in reason and 'CaseConsole did not answer /version.json' in reason
+
+
+def test_the_sign_in_probe_redacts_the_slots_secrets_in_its_error(monkeypatch):
+    import types
+    import agent_e2e_studio_arc as studio
+    secret = 'S3cr3t-' + 'x' * 20
+    slot = types.SimpleNamespace(harness_secrets=[secret], vm=object())
+    context = types.SimpleNamespace(slot=slot)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('compose failed with key ' + secret)
+    monkeypatch.setattr(studio, 'provision_local_server', explode)
+    stage = studio.arc_stage(types.SimpleNamespace(target='local-docker'))
+    result = stage.sign_in_probe(context)
+    assert result['ok'] is False and secret not in result['error'] and '[redacted]' in result['error']
