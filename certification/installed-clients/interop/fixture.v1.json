@@ -24,6 +24,7 @@
     "servicePrefix": "sdkreg-interop-area-",
     "layerName": "area",
     "geometryType": "Polygon",
+    "publishedGeometryType": "MultiPolygon",
     "fileName": "sdkreg-interop-area.geojson",
     "features": [
       {"gid": 1, "name": "block", "envelope": [-90.0, 0.0, -45.0, 60.0]}

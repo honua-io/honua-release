@@ -447,15 +447,14 @@ class Interop:
                         rings.append(None)
                         attributes.append(None)
                         continue
-                    geometry = feature.get("geometry") if isinstance(feature.get("geometry"), dict) else {}
-                    coordinates = geometry.get("coordinates") if isinstance(geometry.get("coordinates"), list) else []
+                    coordinates = judge.polygon_rings(feature.get("geometry"))
                     rings.append(coordinates[0] if coordinates else None)
                     raw = feature.get("attributes")
                     if not isinstance(raw, dict):
                         raw = feature.get("properties")
                     attributes.append(imported_attributes(raw))
-                if len(rings) == 1 and isinstance(rings[0], list) and isinstance(features[0].get("geometry"), dict):
-                    state["polygon"] = features[0]["geometry"].get("coordinates")
+                if len(rings) == 1 and isinstance(rings[0], list):
+                    state["polygon"] = judge.polygon_rings(features[0].get("geometry"))
                 return {"rings": rings, "attributes": attributes}
             step(scenario, "read", read, state, ("layer",))
 

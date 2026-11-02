@@ -1073,6 +1073,10 @@ def test_the_real_generator_clears_exactly_the_okf_and_catalog_rows(monkeypatch,
     matrix = yaml.safe_load((resolver.ROOT / 'compatibility-matrix.yaml').read_text())
     # A bound ledger keeps resolve on its success path; the generator does not read it.
     manifest['protocolCertification']['ledger']['status'] = 'bound'
+    # The committed manifest declares catalog/OKF since the rc.2 cut; drop them so the control run
+    # models a pre-cut manifest and the step under test is the only source of the two declarations.
+    for name in resolver.CONTENT_DIGEST_SOURCES:
+        manifest['platformLockEvidence']['contentDigests'].pop(name, None)
     server = manifest['components']['honua-server']
     repository, sha = server['repository'].removeprefix('https://github.com/'), server['sha']
     rows = {**manifest['components'], **(manifest.get('experimental') or {})}

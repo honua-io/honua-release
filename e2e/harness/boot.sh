@@ -101,8 +101,10 @@ resolve_image() {
     awk '
       $0 ~ /^  honua-server:/ {inblk=1; next}
       inblk && $0 ~ /^  [a-zA-Z]/ {exit}
-      inblk && $1=="image:" {gsub(/"/,"",$2); image=$2}
-      inblk && $1=="digest:" {gsub(/"/,"",$2); digest=$2}
+      # Only the component own 4-space keys: nested blocks (composeExecutor) carry their own
+      # image/digest, and the last match would otherwise boot the executor as the server.
+      inblk && /^    image:/ {gsub(/"/,"",$2); image=$2}
+      inblk && /^    digest:/ {gsub(/"/,"",$2); digest=$2}
       END {
         if (image != "") {
           if (digest != "" && image !~ /@sha256:/) print image "@" digest

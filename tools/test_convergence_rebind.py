@@ -132,7 +132,7 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e", "manifest/frozen")
+    assert pins["server-certification"] == ("daf56db25c208765f5440e484a7c24fbc5ba81ab", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"
@@ -562,7 +562,7 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"  # the last verified_server_commits entry
+VERIFIED = "daf56db25c208765f5440e484a7c24fbc5ba81ab"  # the last verified_server_commits entry
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
@@ -1101,7 +1101,9 @@ def test_grpc_ruling_is_rechecked_at_the_2026_1_rc_candidate_server():
     candidate = "53bb94a3fe1d7a66640e213de289b8f8bc4ffd2e"
     document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
     ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
-    assert ruling["verified_server_commits"][-3:-1] == ["8cb074f77d01c0a00617ebe426460aa24c7d890b", candidate]
+    verified = ruling["verified_server_commits"]
+    assert verified[verified.index(candidate) - 1:verified.index(candidate) + 1] == [
+        "8cb074f77d01c0a00617ebe426460aa24c7d890b", candidate]
     assert "Re-checked at 53bb94a" in ruling["evidence"]
     assert "No RPC was added or removed" in ruling["evidence"].split("Re-checked at 53bb94a", 1)[1]
 
@@ -1111,5 +1113,21 @@ def test_grpc_ruling_is_rechecked_at_the_rc_repin_4_candidate_server():
     candidate = "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"
     document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
     ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
-    assert ruling["verified_server_commits"][-2:] == ["53bb94a3fe1d7a66640e213de289b8f8bc4ffd2e", candidate]
+    verified = ruling["verified_server_commits"]
+    assert verified[verified.index(candidate) - 1:verified.index(candidate) + 1] == [
+        "53bb94a3fe1d7a66640e213de289b8f8bc4ffd2e", candidate]
     assert "No RPC was added or removed" in ruling["evidence"].split("Re-checked at a4bde4b8", 1)[1]
+
+
+def test_grpc_ruling_is_rechecked_at_the_rc2_cut_candidate_server():
+    """The 2026-11-02 rc.2 cut moves the server to daf56db2; its grpc_surface equals a4bde4b8's.
+
+    The generator refuses a pinned server commit the ruling was not verified at, so the cut that
+    freezes daf56db2 as the server-certification pin must record it here."""
+    candidate = "daf56db25c208765f5440e484a7c24fbc5ba81ab"
+    document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
+    ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    assert ruling["verified_server_commits"][-2:] == ["a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e", candidate]
+    manifest = yaml.safe_load((MODULE.ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
+    assert manifest["protocolCertification"]["serverCertificationProducerSha"] == candidate
+    assert "No RPC was added or removed" in ruling["evidence"].split("Re-checked at daf56db2", 1)[1]
