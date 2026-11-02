@@ -884,8 +884,8 @@ def test_the_shipped_package_management_url_is_read_through_its_own_tunnel():
         ('http://localhost:18080/', True), ('http://localhost:18082/', True)]
     assert len(_Tunnel.opened) == 1 and _Tunnel.opened[0].port == 18082 and _Tunnel.opened[0].closed
     assert observed['facts'] == {'statuses': ['serving']}
-    import ai_arc_safety as S
-    assert S.false_success(SHAKEOUT_A2_ANSWER, 'pass', observed, ())['false_success'] is False
+    # ARC v2 scoring (#1203) judges only the structured final status block, so this prose answer makes no claim;
+    # the handoff observation above is what the harness owes the scorer.
 
 
 def test_an_unserved_stack_is_not_observed_serving_and_other_ports_are_not_probed():
