@@ -265,6 +265,37 @@ COMPOSE_SUBCOMMANDS = {'attach','build','commit','config','cp','create','down','
 VISIBLE_NAMES = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,255}\Z')
 
 
+# Read-only curl a customer's shell allows against this host's loopback (rehearsal 9: ordinary health and read checks
+# such as `curl -sf <url>` and `curl -s -o /dev/null -w '%{http_code}' <url>` were refused). GET or HEAD only; output
+# to the terminal or /dev/null only; headers without credentials and never read from a file. Not admitted: -L /
+# --location (a redirect target is not bounded to this host: Sol 9de0449e), -o/--output to a path, -d/--data*, -F,
+# -T, -X other than GET/HEAD, -c/-b cookies, -K/--config, -u/--user and every other option.
+CURL_FLAGS = {'-s','-S','-f','-i','-I','-v','-sS','-fsS','-fs','-sf','-Ss','-si','-is','-sSf','-sfS','-Sfs','-fSs',
+              '-sI','-Is','-sSI','-sv','-vs','--silent','--show-error','--fail','--include','--head','--verbose'}
+CREDENTIAL_HEADER = re.compile(r'AUTH|COOKIE|TOKEN|KEY|SECRET|PASS|SESSION|CREDENTIAL|SIGNATURE|PRIVATE', re.I)
+CURL_WRITE_OUT = re.compile(r'(?:[A-Za-z0-9 _:./,=+-]|\\n|\\t|%\{(?:http_code|response_code|time_total|time_connect|'
+                            r'size_download|size_header|content_type|url_effective|remote_ip|remote_port|'
+                            r'num_redirects)\})*')
+
+
+def _plain_header(value):
+    name, sep, rest = value.partition(':')
+    return (bool(sep) and bool(re.fullmatch(r'[A-Za-z0-9-]{1,64}', name)) and not CREDENTIAL_HEADER.search(name)
+            and not value.startswith('@') and len(value) <= 256 and value.isprintable())
+
+
+def _bounded(high):
+    return lambda v: v.isdigit() and 0 <= int(v) <= high
+
+
+CURL_VALUES = {'-o': lambda v: v == '/dev/null', '--output': lambda v: v == '/dev/null',
+               '-w': lambda v: bool(CURL_WRITE_OUT.fullmatch(v)), '--write-out': lambda v: bool(CURL_WRITE_OUT.fullmatch(v)),
+               '-X': lambda v: v in ('GET','HEAD'), '--request': lambda v: v in ('GET','HEAD'),
+               '-H': _plain_header, '--header': _plain_header,
+               '-m': _bounded(30), '--max-time': _bounded(30), '--connect-timeout': _bounded(30),
+               '--retry': _bounded(5)}
+
+
 def parse_quickstart(command):
     if not isinstance(command, str) or not command or len(command) > 2048 or any(c in command for c in '\n\r\x00'):
         raise ValueError('invalid quickstart command')
@@ -319,8 +350,12 @@ def parse_quickstart(command):
         opts, urls, position = [], [], 1
         while position < len(parts):
             token = parts[position]
-            if token in ('-f','-s','-S','-sS','-fsS','--fail','--silent','--show-error','-i','--include'):
+            if token in CURL_FLAGS:
                 opts.append(token)
+            elif token in CURL_VALUES:
+                if position + 1 >= len(parts) or not CURL_VALUES[token](parts[position+1]):
+                    raise ValueError('curl option value is not admitted')
+                opts += parts[position:position+2]; position += 1
             elif token.startswith('-'): raise ValueError('curl option is not admitted')
             else: urls.append(token)
             position += 1

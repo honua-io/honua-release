@@ -516,3 +516,42 @@ def test_quickstart_admits_the_packaged_initializer(command):
                                      'python quickstart.py', 'python3 -I quickstart.py', 'sh quickstart.py'])
 def test_quickstart_refuses_any_other_python(command):
     with pytest.raises(ValueError): parse_quickstart(command)
+
+
+# Rehearsal 9 (release session 11-02): ordinary read-only curl checks a customer's shell allows.
+CURL_ADMITTED = [
+    'curl -sf http://localhost:18080/healthz/ready', 'curl -s http://127.0.0.1:18080/',
+    "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/healthz/ready",
+    "curl -sS -o /dev/null -w '%{http_code} %{time_total}' http://localhost:18080/",
+    'curl --silent --show-error --fail --output /dev/null http://localhost:18080/',
+    'curl -I http://localhost:18080/', 'curl --head http://localhost:18080/', 'curl -i http://localhost:18080/',
+    'curl -v http://localhost:18080/', 'curl -X GET http://localhost:18080/api/v1/', 'curl --request HEAD http://localhost:18080/',
+    'curl -H "Accept: application/json" http://localhost:18080/api/v1/', 'curl --header "X-Request-Id: 1" http://localhost:18080/',
+    'curl -m 10 http://localhost:18080/', 'curl --max-time 30 http://localhost:18080/',
+    'curl --connect-timeout 5 http://localhost:18080/', 'curl --retry 3 -sf http://localhost:18080/healthz/ready']
+CURL_REFUSED = [
+    'curl -L http://localhost:18080/', 'curl --location http://localhost:18080/', 'curl -sfL http://localhost:18080/',
+    'curl -o out.html http://localhost:18080/', 'curl --output /srv/x http://localhost:18080/',
+    'curl -O http://localhost:18080/x', 'curl -d a=1 http://localhost:18080/', 'curl --data a http://localhost:18080/',
+    'curl --data-binary @f http://localhost:18080/', 'curl -F f=@x http://localhost:18080/',
+    'curl -X POST http://localhost:18080/', 'curl -X DELETE http://localhost:18080/x', 'curl -XGET http://localhost:18080/',
+    'curl -T f http://localhost:18080/', 'curl -c jar http://localhost:18080/', 'curl -b a=1 http://localhost:18080/',
+    'curl --config f http://localhost:18080/', 'curl -K f http://localhost:18080/', 'curl -u a:b http://localhost:18080/',
+    'curl -H "Authorization: Bearer x" http://localhost:18080/', 'curl -H "Cookie: s=1" http://localhost:18080/',
+    'curl -H "X-Api-Key: k" http://localhost:18080/', 'curl -H @headers.txt http://localhost:18080/',
+    'curl -H "NoColon" http://localhost:18080/', 'curl -m 999 http://localhost:18080/', 'curl --retry 50 http://localhost:18080/',
+    'curl -w @fmt http://localhost:18080/', "curl -w '%{json}' http://localhost:18080/",
+    "curl -w '%output{/tmp/x}' http://localhost:18080/", 'curl -o', 'curl -sf http://example.com/',
+    'curl -sf http://localhost:18080/ http://localhost:18081/', 'curl --next http://localhost:18080/']
+
+
+@pytest.mark.parametrize('command', CURL_ADMITTED)
+def test_quickstart_admits_read_only_localhost_curl(command):
+    parsed = parse_quickstart(command)
+    assert parsed[:5] == ['curl', '--max-time', '30', '--proto', '=http,https']
+
+
+@pytest.mark.parametrize('command', CURL_REFUSED)
+def test_quickstart_still_refuses_writing_or_credentialed_curl(command):
+    with pytest.raises(ValueError):
+        parse_quickstart(command)

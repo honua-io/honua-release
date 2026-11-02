@@ -138,12 +138,44 @@ def test_studio_requires_candidate_and_fixture_authority(tmp_path):
     assert 'candidate and controller' in stage.unavailable(ctx)
     ctx.slot.vm = types.SimpleNamespace(secrets={})
     assert 'database fixture authority' in stage.unavailable(ctx)
-    assert stage.assistant_principals(ctx) == frozenset()
+    assert not hasattr(stage, 'assistant_principals'), 'ARC v2: stage 4 has no built-in assistant'
+
+
+def test_stage_four_runs_only_the_arm_and_keeps_the_studio_ai_proxy_off(tmp_path):
+    """Founder 2026-11-01: no Studio built-in assistant, no Sonnet, no Bedrock. The adapter configures the slot with
+    the Studio AI proxy disabled and no AWS region or provider, and refuses any driver but the CLI arm."""
+    import agent_e2e_studio_arc as studio
+    import inspect
+    source = inspect.getsource(studio)
+    assert 'bedrock' not in source.lower().replace('bedrock region', '') and 'console-assistant' not in source
+    assert not hasattr(studio, 'studio_provider_environment')
+    with pytest.raises(ValueError):
+        studio.driver_assertions('console-assistant', [])
+    with pytest.raises(ValueError):
+        studio.scored_actions('console-assistant', [], [])
+    ctx = ctx_for(tmp_path, 'local-docker', 'studio')
+    stage = studio.arc_stage(ctx)
+    for driver, arm in (('console-assistant', ctx.arm), ('arm-browser', dict(ctx.arm, agent='console-assistant'))):
+        with pytest.raises(ValueError, match='only the CLI arm'):
+            stage._runtime(types.SimpleNamespace(arm=arm), driver)
+    scripts = []
+
+    class Slot:
+        remote_dir, project = '/srv/arc/slot-0', 'arc-abcdef1234'
+
+        def compose(self, *args):
+            return 'docker compose ' + ' '.join(args)
+
+        def ssh(self, script, timeout):
+            scripts.append(script)
+            return types.SimpleNamespace(returncode=0)
+    assert studio.provision_local_server(Slot(), 'k' * 48) == {'studioAiProxy': 'disabled'}
+    assert 'StudioAiProxy__Enabled: \'false\'' in scripts[0] and 'AWS_REGION' not in scripts[0]
+    assert 'bedrock' not in scripts[0].lower()
 
 
 def test_studio_stage_is_unavailable_without_console_even_with_drivers(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, 'agent_browser_studio', types.SimpleNamespace())
-    monkeypatch.setitem(sys.modules, 'agent_e2e_console_assistant', types.SimpleNamespace())
     reason = R.StudioStage().unavailable(ctx_for(tmp_path, 'local-docker', 'studio'))
     assert reason and 'Console is not serving' in reason
 

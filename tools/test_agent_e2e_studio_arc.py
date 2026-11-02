@@ -3,7 +3,8 @@ import json
 
 import pytest
 
-from agent_e2e_studio_arc import load_development_case, studio_provider_environment
+import agent_e2e_studio_arc
+from agent_e2e_studio_arc import load_development_case
 
 
 def test_development_pack_matches_arc_assertion_source():
@@ -18,8 +19,9 @@ def test_arc_stage_exposes_the_runner_contract():
     from agent_e2e_studio_arc import arc_stage
     stage = arc_stage(SimpleNamespace(target='local-docker'))
     for name in ('unavailable', 'sign_in_probe', 'prepare', 'notes', 'attachment', 'run', 'observe',
-                 'handoff_observations', 'deployment_hosts', 'approvals', 'scope', 'assistant_principals'):
+                 'handoff_observations', 'deployment_hosts', 'approvals', 'scope'):
         assert callable(getattr(stage, name, None))
+    assert not hasattr(stage, 'assistant_principals'), 'ARC v2: stage 4 has no built-in assistant'
 
 
 def test_synthetic_sealed_case_resolves_committed_fixture_and_frozen_expectations(monkeypatch, tmp_path):
@@ -75,12 +77,10 @@ def test_pack_is_digest_bound_and_only_accepts_ab(tmp_path):
         load_development_case(path, digest, 'P08', 'A')
 
 
-def test_bedrock_provider_config_is_scoped_and_has_no_credentials():
-    env = studio_provider_environment()
-    assert env['StudioAiProxy__Providers__bedrock__Model'] == 'us.anthropic.claude-sonnet-4-6'
-    assert env['StudioAiProxy__Providers__bedrock__Region'] == 'us-east-1'
-    assert env['StudioAiProxy__Disclosure__Approvals__0__Destination'] == 'aws-bedrock:us-east-1'
-    assert not any('AWS_' in k or 'ApiKey' in k for k in env)
+def test_no_studio_model_provider_is_configured():
+    """Founder 2026-11-01: ARC v2 has no Studio built-in assistant, no Sonnet and no Bedrock."""
+    assert not hasattr(agent_e2e_studio_arc, 'studio_provider_environment')
+    assert not hasattr(agent_e2e_studio_arc, 'MODEL')
 
 
 def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
@@ -99,13 +99,14 @@ def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
         provision_local_server(slot, 'x' * 48)
     slot.remote_dir = '/home/eval/arc-owned'
     result = provision_local_server(slot, 'x' * 48)
-    assert result == {'provider': 'bedrock', 'region': 'us-east-1', 'model': 'us.anthropic.claude-sonnet-4-6'}
+    assert result == {'studioAiProxy': 'disabled'}
     assert 'x' * 48 not in str(result)
     assert 'Oidc__TokenValidation__SymmetricSigningKey' in slot.script
     assert 'AWS_ACCESS_KEY' not in slot.script
     assert "StudioAiProxy__Enabled: 'false'" in slot.script
-    provision_local_server(slot, 'x' * 48, enable_assistant=True)
-    assert "StudioAiProxy__Enabled: 'true'" in slot.script
+    assert 'AWS_REGION' not in slot.script and 'bedrock' not in slot.script.lower()
+    with pytest.raises(TypeError):
+        provision_local_server(slot, 'x' * 48, enable_assistant=True)
 
 
 def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_path):
@@ -117,7 +118,7 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
     monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: base)
     monkeypatch.setattr(base, '_prepare', lambda self, stack, permissions: calls.append((stack, permissions)))
     runtime = studio_runtime_class()(base_url='http://localhost:1234', admin_key='controller',
-        project='arc-12345678', candidate_digest='sha256:' + 'a' * 64, agent='console-assistant', model='m',
+        project='arc-12345678', candidate_digest='sha256:' + 'a' * 64, agent='codex-cli', model='m',
         limits={'maxTurns': 60, 'maxToolCalls': 60, 'maxSeconds': 2700}, private_root=tmp_path,
         signing_key='x' * 48, database_password='db-secret', pack_digest='sha256:' + 'b' * 64)
     stack = runtime.setup('P08:A:local-docker', 'sha256:' + 'a' * 64, False, ['admin:write'])
@@ -136,11 +137,7 @@ def test_adopted_stack_uses_real_project_and_mints_customer(monkeypatch, tmp_pat
     assert callable(stack.extra['startConsole']) and callable(stack.extra['ensureConnection'])
     assert calls[0][1] == ['admin:write']
     assert runtime.pack_sha256 == 'sha256:' + 'b' * 64
-    runtime.register_assistant_actors({'bearer:verified-customer'})
-    assert runtime.assistant_actors == {'bearer:verified-customer'}
-    runtime.agent = 'codex-cli'
-    with pytest.raises(ValueError, match='invalid assistant audit actors'):
-        runtime.register_assistant_actors({'cli-actor'})
+    assert not hasattr(runtime, 'register_assistant_actors') and not hasattr(runtime, 'assistant_actors')
 
 
 def test_driver_assertions_keep_independent_fail_and_false_success():
@@ -148,21 +145,22 @@ def test_driver_assertions_keep_independent_fail_and_false_success():
     cases = [{'scenario': 'P08', 'receipt': {'status': 'fail', 'assertions': [
         {'assertion': 'render.actual', 'status': 'fail'}],
         'finalAnswerCheck': {'status': 'fail', 'false_success': True}}}]
-    rows = driver_assertions('console-assistant', cases)
-    assert rows[0]['assertion'] == 'console-assistant:P08:render.actual'
+    rows = driver_assertions('arm-browser', cases)
+    assert rows[0]['assertion'] == 'arm-browser:P08:render.actual'
     assert rows[0]['status'] == 'fail'
-    assert rows[1]['assertion'] == 'console-assistant:P08:finalAnswerCheck'
+    assert rows[1]['assertion'] == 'arm-browser:P08:finalAnswerCheck'
     # ARC v2: the corpus verdict is kept for reference; the arc re-scores the row from the case's own answer.
     assert rows[1]['corpusAnswerCheck'] == {'status': 'fail', 'false_success': True} and 'answer' in rows[1]
-    with pytest.raises(ValueError):
-        driver_assertions('unapproved', cases)
+    for driver in ('unapproved', 'console-assistant'):
+        with pytest.raises(ValueError):
+            driver_assertions(driver, cases)
 
 
 @pytest.mark.parametrize('legacy_only', [False, True])
-@pytest.mark.parametrize('same_customer', ['none', 'subject', 'key'])
 @pytest.mark.parametrize('sealed', [False, True])
-def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp_path, same_customer, sealed,
-                                                               legacy_only):
+def test_arc_runs_only_the_arm_in_studio_and_keeps_its_failed_score(monkeypatch, tmp_path, sealed, legacy_only):
+    """ARC v2 (founder 2026-11-01): stage 4 runs the CLI arm itself in Studio in Console, once; no built-in
+    assistant case, no model provider provisioning, no assistant model, region or usage in the stage row."""
     from types import SimpleNamespace
     import agent_e2e_local_runner as runner
     import agent_e2e_studio_arc as studio
@@ -172,46 +170,42 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
     path.write_text(json.dumps(data))
     monkeypatch.setattr(studio, 'RESTORED_PACK', path)
     monkeypatch.setattr(studio, 'RESTORED_PACK_DIGEST', 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest())
-    seen, timeline = [], []
+    seen, provisioned = [], []
+
     class Runtime:
         def __init__(self, *, agent, project, **kwargs):
             self.agent = agent
             self.workdirs = []
             self.answers = {project: 'saved'}
             self._secrets = []
-            self.assistant_actors = {'assistant-actor'} if agent == 'console-assistant' else set()
-            self.customer_subjects = {'same-customer' if same_customer == 'subject' else agent + '-customer'}
-            self.customer_keys = {'same-key' if same_customer == 'key' else agent + '-key'}
+            self.customer_subjects = {agent + '-customer'}
+            self.customer_keys = {agent + '-key'}
+
         def cancel(self): return []
+
         def probe(self): return []
     monkeypatch.setattr(studio, 'studio_runtime_class', lambda: Runtime)
-    provisioned = []
-    def provision(*args, **kwargs):
-        enabled = kwargs.get('enable_assistant', False)
-        provisioned.append(enabled)
-        timeline.append(('provider', enabled))
-    monkeypatch.setattr(studio, 'provision_local_server', provision)
+    monkeypatch.setattr(studio, 'provision_local_server', lambda *a, **k: provisioned.append((a, k)))
     monkeypatch.setattr(runner, 'load_scenario', lambda name: object())
+
     def execute_case(**kwargs):
-        agent = kwargs['runtime'].agent
-        timeline.append(('case', agent))
         if sealed:
             assert kwargs['variant'] == 'B'
             from ai_arc_safety import with_status_request
             assert kwargs['case']['prompts']['B'] == with_status_request('synthetic held-out request', 'P08')
-        seen.append(agent)
-        ok = agent != 'console-assistant'
+        seen.append(kwargs['runtime'].agent)
         # legacy_only: live state passed and only the corpus prose answer check failed (Sol 1203 item 9).
-        return {'status': 'pass' if ok else 'fail', 'assertions': [{'assertion': 'render.actual',
-                'status': 'pass' if ok or legacy_only else 'fail'}], 'finalAnswerCheck': {'status': 'pass' if ok else 'fail',
-                'false_success': not ok}, 'sessions': [], 'studioAssistant': {'model': studio.MODEL}}
+        return {'status': 'fail', 'assertions': [{'assertion': 'render.actual',
+                'status': 'pass' if legacy_only else 'fail'}], 'finalAnswerCheck': {'status': 'fail',
+                'false_success': True}, 'sessions': []}
     monkeypatch.setattr(runner, 'execute_case', execute_case)
     context = SimpleNamespace(target='local-docker', case=None, variant='A', private_dir=tmp_path,
         slot=SimpleNamespace(controller={'base_url': 'http://localhost', 'admin_key': 'admin'}, project='arc-test',
             vm=SimpleNamespace(secrets={'POSTGRES_PASSWORD': 'secret'}), harness_secrets=[]),
         candidate={'imageDigest': 'sha256:' + 'a' * 64}, arm={'agent': 'codex-cli', 'model': 'model'},
         limits={'maxTurns': 60, 'maxToolCalls': 60, 'maxSeconds': 2700},
-        arc={'studioAssistant': {'customerScript': []}, 'targets': {'local-docker': {'goals': {'studio': {'A': 'ignored'}}}}}, gate=None, live=[], remaining=lambda: 100)
+        arc={'targets': {'local-docker': {'goals': {'studio': {'A': 'ignored'}}}}}, gate=None, live=[],
+        remaining=lambda: 100)
     stage = studio.arc_stage(context)
     stage.signing = 'x' * 48
     if sealed:
@@ -219,29 +213,16 @@ def test_arc_runs_both_drivers_and_keeps_failed_assistant_score(monkeypatch, tmp
         context.case = {'target': 'local-docker', 'fixtures': 'town-B',
                         'goals': {'studio': 'synthetic held-out request'}}
     request = 'synthetic held-out request' if sealed else 'ignored'
-    if same_customer != 'none':
-        with pytest.raises(ValueError, match='not distinct'):
-            stage.run(context, SimpleNamespace(), request)
-        assert stage.assistant_principals(context) == frozenset()
-        return
     result = stage.run(context, SimpleNamespace(), request)
     scores = stage.observe(context, result)
-    assert seen == ['codex-cli', 'console-assistant']
-    assert provisioned == [True, False]
-    assert timeline == [('case', 'codex-cli'), ('provider', True),
-                        ('case', 'console-assistant'), ('provider', False)]
-    assert stage.assistant_principals(context) == frozenset({'assistant-actor'})
-    # ARC v2: only live-state failure is a model failure; the corpus prose check is kept for reference only
-    # (corpusAnswerCheck). legacy_only: live state passed and only that prose check failed.
-    assert result['assistantModel'] == studio.MODEL
+    assert seen == ['codex-cli'] and provisioned == []
+    assert not any(k.startswith('assistant') for k in result)
     assert (result['failure'] is None) is legacy_only, 'only live-state failure is a model failure in ARC v2'
     assert any(row.get('corpusAnswerCheck', {}).get('false_success') for row in scores)
-    assert [row['assertion'] for row in scores if 'answer' in row] == ['arm-browser:P08:finalAnswerCheck',
-                                                                        'console-assistant:P08:finalAnswerCheck']
-    if not legacy_only:
-        assert {r['assertion'] for r in scores
-                if r['assertion'].endswith(':goal.services-lineage') and r['status'] == 'fail'} == {
-            'arm-browser:goal.services-lineage', 'console-assistant:goal.services-lineage'}
+    assert [row['assertion'] for row in scores if 'answer' in row] == ['arm-browser:P08:finalAnswerCheck']
+    assert all(row['assertion'].startswith('arm-browser:') for row in scores)
+    assert {r['assertion'] for r in scores if r['assertion'].endswith(':goal.services-lineage')
+            and r['status'] == 'fail'} == {'arm-browser:goal.services-lineage'}
 
 
 def test_shared_project_drivers_get_distinct_fixture_names():
@@ -254,12 +235,14 @@ def test_shared_project_drivers_get_distinct_fixture_names():
 
 def test_action_rows_retain_recorded_outcomes_and_exclude_customer_polling():
     from agent_e2e_studio_arc import scored_actions
-    rows = [{'kind': 'tool_call', 'tool': 'studio_chat_observe', 'arguments': {}},
+    rows = [{'kind': 'tool_call', 'tool': 'studio_ui_save', 'arguments': {}},
             {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}}]
-    result = scored_actions('console-assistant', rows, [{'status': 'pass'}, {'status': 'fail'}])
+    result = scored_actions('arm-browser', rows, [{'status': 'pass'}, {'status': 'fail'}])
     assert result == [{'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': {}, 'status': 'fail'}]
-    assert scored_actions('console-assistant', [{'tool': 'studio_product_action'}],
+    assert scored_actions('arm-browser', [{'tool': 'studio_product_action'}],
                           [{'status': 'pass'}])[0]['tool'] == 'studio_product_action'
+    with pytest.raises(ValueError, match='driver'):
+        scored_actions('console-assistant', rows, [{'status': 'pass'}, {'status': 'pass'}])
     with pytest.raises(ValueError, match='action evidence'):
         scored_actions('arm-browser', rows, [{'status': 'pass'}])
 
