@@ -12,6 +12,23 @@ from agent_e2e_local_scenarios.P10 import P10
 class ArcP10(P10):
     expectation_profile = 'arc'
 
+    @staticmethod
+    def selected_query(actions, seeded):
+        """P10's rule unchanged (only the agent's last query is eligible, failures and other layers included), except
+        that the service may be addressed by the metadata id the server gives a service published under that name
+        (agent_e2e_local_projections.echoes_service). Studio DEV shakeout 11-02: A1's last query was the filtered list
+        on "svc-publish-kestrel", the id honua_list_layers and every query response report, and was never replayed."""
+        from agent_e2e_local_projections import echoes_service
+        queries = [a for a in actions if a.kind == 'tool_call' and a.tool == 'honua_query_features']
+        if not queries:
+            return None
+        action = queries[-1]
+        arguments = action.arguments if isinstance(action.arguments, dict) else {}
+        if (action.status == 'pass' and echoes_service(arguments.get('serviceId'), seeded.state['service'])
+                and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
+            return action
+        return None
+
     def __init__(self, fault='http_503_once'):
         if fault not in ('http_503_once', 'response_lost_after_commit'):
             raise ValueError('unsupported P10 fault')

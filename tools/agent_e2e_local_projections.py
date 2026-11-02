@@ -1374,7 +1374,7 @@ def restricted_feature_query_ids(spec, ctx, sub):
             and record.request_arguments == {'tool': final.get('tool'), 'arguments': final.get('arguments')},
             "the restricted-service list is not the agent's own final query response")
     arguments = final.get('arguments') if isinstance(final.get('arguments'), dict) else {}
-    require(str(arguments.get('serviceId')) == str(service) and str(arguments.get('layerId')) == str(layer),
+    require(echoes_service(arguments.get('serviceId'), service) and str(arguments.get('layerId')) == str(layer),
             'the final agent query addresses another service or layer')
     require(arguments.get('returnCountOnly', False) is False, 'feature query is count-only')
     if set(arguments) - _QUERY_ARGUMENTS or arguments.get('resultOffset', 0) != 0 \

@@ -361,3 +361,27 @@ def test_the_frozen_source_rows_are_the_fixture_with_the_stored_id_and_crs(varia
     want = [{'geometry': {**f['geometry'], 'crs': fixture['crs']}, 'properties': {**f['properties'], 'id': f['id']}}
             for f in fixture['features']]
     assert sorted(rows, key=P.canonical) == rows and sorted(want, key=P.canonical) == rows
+
+
+def test_the_final_query_may_address_the_service_by_its_published_id():
+    # Studio DEV shakeout 11-02: A1's last query was the filtered list on "svc-publish-kestrel" (the id the server
+    # reports); it was never replayed, so filter.exact read an unrecorded step. The frozen final-query rule is unchanged.
+    from types import SimpleNamespace
+    from agent_e2e_local_scenarios.arc_p10 import ArcP10
+    seeded = SimpleNamespace(state={'service': SVC, 'layerId': LAYER})
+
+    def query(service, status='pass', layer=LAYER):
+        return SimpleNamespace(kind='tool_call', tool='honua_query_features', status=status,
+                               arguments={'serviceId': service, 'layerId': layer, 'where': GOOD_WHERE})
+    last = query('svc-publish-' + SVC)
+    assert ArcP10.selected_query([query(SVC), last], seeded) is last
+    assert ArcP10.selected_query([query(SVC)], seeded) is not None
+    for bad in (query('svc-publish-other'), query('svc-publish-' + SVC, status='fail'), query(SVC, layer=LAYER + 1)):
+        assert ArcP10.selected_query([query(SVC), bad], seeded) is None      # only the last query is eligible
+
+
+def test_the_restricted_path_accepts_the_published_id_in_the_final_query():
+    records, actions = _case(extra_args={'serviceId': 'svc-publish-' + SVC}, echo='svc-publish-' + SVC)
+    assert _scored(records, actions)['status'] == 'pass'
+    records, actions = _case(extra_args={'serviceId': 'svc-publish-other'}, echo='svc-publish-other')
+    assert _scored(records, actions)['status'] == 'fail'
