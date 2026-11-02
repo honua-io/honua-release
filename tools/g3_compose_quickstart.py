@@ -42,11 +42,18 @@ COMPOSE_VERSION = re.compile(r"v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
 COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 RUN_NUMBER = re.compile(r"\d+\Z")
 STARTED = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+# Every secret the quickstart generates (scripts/docker/compose_quickstart.py SECRET_KEYS + AUDIT_KEYS; the test
+# reads the pinned package's generator and fails if one is missing here).
 SECRET_KEYS = (
     "POSTGRES_PASSWORD",
     "HONUA_ADMIN_PASSWORD",
     "HONUA_MASTER_KEY",
     "HONUA_KEYRING_PASSWORD",
+    "HONUA_AUDIT_CHAIN_KEY",
+    "HONUA_MANAGER_AUDIT_CHAIN_KEY",
+    "HONUA_MANAGER_ADMIN_PASSWORD",
+    "HONUA_MANAGER_POSTGRES_PASSWORD",
+    "HONUA_MANAGER_MASTER_KEY",
 )
 QUERY_WORDS = ("west", "east")
 MIN_COMPOSE = (2, 23, 1)
