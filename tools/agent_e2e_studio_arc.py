@@ -458,6 +458,25 @@ def initialize_admission(recorder):
             raise ValueError('Studio admission ' + action + ' was not completed')
 
 
+TEST_IDP_ONLY = ('Oidc__TokenValidation__SymmetricSigningKey',)
+
+
+def documented_identity(values: dict) -> dict:
+    """The customer doc's Server identity settings (the docs-validation:identity.override block), with the customer's
+    own values for the issuer and client id. Every other documented value is used verbatim."""
+    import yaml
+    from ai_arc_local import CONSOLE_DOC
+    text = CONSOLE_DOC.read_text(encoding='utf-8')
+    block = re.search(r'<!-- docs-validation:identity\.override -->\s*```yaml\n(.*?)\n```', text, re.S)
+    if block is None:
+        raise ValueError('the Console doc lacks its identity step')
+    services = (yaml.safe_load(block.group(1)) or {}).get('services') or {}
+    env = (services.get('honua') or {}).get('environment')
+    if set(services) != {'honua'} or not isinstance(env, dict) or not set(values) <= set(env):
+        raise ValueError('the documented identity step is not a honua environment override')
+    return {k: str(values.get(k, v)) for k, v in env.items()}
+
+
 def provision_local_server(slot, signing_key):
     """Configure the existing local stack for a customer identity (Studio end-user authorization).
 
@@ -476,13 +495,15 @@ def provision_local_server(slot, signing_key):
         raise ValueError('invalid slot directory')
     if not isinstance(signing_key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', signing_key):
         raise ValueError('invalid customer signing authority')
-    env = {'StudioAiProxy__Enabled': 'false',
-           'Oidc__Enabled': 'true',
-           'Oidc__Generic__Enabled': 'true', 'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
-           'Oidc__Generic__ClientId': 'terminal-journey',
-           'Oidc__TokenValidation__SymmetricSigningKey': signing_key,
-           'Studio__EndUserAuthorization__Enabled': 'true',
-           'AiExecutionAdmission__Backend': 'postgres', 'AiExecutionAdmission__DeploymentId': slot.project}
+    # Exactly the customer doc's identity step (docs/2026.1-add-console-to-compose-quickstart.md, step 2), with the
+    # harness's synthetic test IdP as the customer's IdP, plus the one setting a discovery-less test IdP needs (its
+    # symmetric signing key). Nothing else on the server: the package sets Studio__EndUserAuthorization__Enabled
+    # (honua-server #6896), the AI proxy is off by default (StudioAiProxy:Enabled defaults to false) and Studio
+    # without AI needs no AiExecutionAdmission (only the AI proxy and imagery inference use it). Release session
+    # 2026-11-02: the harness may not set server settings the customer does not set.
+    env = documented_identity({'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
+                               'Oidc__Generic__ClientId': 'terminal-journey'})
+    env['Oidc__TokenValidation__SymmetricSigningKey'] = signing_key
     override = yaml.safe_dump({'services': {'honua': {'image': '${HONUA_STUDIO_ACTIVE_IMAGE}',
                                                         'environment': env}}}, sort_keys=True)
     fence = 'HONUA_STUDIO_' + secrets.token_hex(12)

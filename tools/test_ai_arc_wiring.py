@@ -170,7 +170,8 @@ def test_stage_four_runs_only_the_arm_and_keeps_the_studio_ai_proxy_off(tmp_path
             scripts.append(script)
             return types.SimpleNamespace(returncode=0)
     assert studio.provision_local_server(Slot(), 'k' * 48) == {'studioAiProxy': 'disabled'}
-    assert 'StudioAiProxy__Enabled: \'false\'' in scripts[0] and 'AWS_REGION' not in scripts[0]
+    # The proxy is off by the server's default (StudioAiProxy:Enabled = false); the harness sets no AI setting.
+    assert 'StudioAiProxy' not in scripts[0] and 'AiExecutionAdmission' not in scripts[0] and 'AWS_REGION' not in scripts[0]
     assert 'bedrock' not in scripts[0].lower()
 
 
@@ -999,3 +1000,74 @@ def test_console_staging_without_compose_file_uses_compose_and_executor(tmp_path
 def test_console_staging_fails_closed_if_honua_changes(tmp_path):
     staged, _ = _run_console_script(tmp_path, 'COMPOSE_FILE=compose.yaml\n', honua_ids=('h1', 'h2'))
     assert isinstance(staged, RuntimeError) and 'changed the honua container' in str(staged)
+
+
+def _run_documented_console(tmp_path, env_text, *, honua_ids=('h1', 'h1'), doc=None):
+    """stage_documented_console's script for real (sh), against a stub docker logging each call and COMPOSE_FILE."""
+    import os
+    import stat
+    import subprocess
+    import ai_arc_local as L
+    remote = tmp_path / 'slot'
+    remote.mkdir()
+    (remote / '.env').write_text(env_text)
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    log, ids = tmp_path / 'docker.log', tmp_path / 'ids'
+    ids.write_text('\n'.join(honua_ids) + '\n')
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    f'echo "COMPOSE_FILE=$COMPOSE_FILE HONUA_CONSOLE_PORT=$HONUA_CONSOLE_PORT ARGS=$*" >> {log}\n'
+                    'case "$*" in\n'
+                    f'  *"service=honua"*) head -n 1 {ids}; tail -n +2 {ids} > {ids}.n; mv {ids}.n {ids} ;;\n'
+                    '  *"service=console"*) echo c1 ;;\n'
+                    '  "inspect --format {{.Image}} c1") echo img ;;\n'
+                    f'  *"image inspect"*) echo \'{json.dumps([CONSOLE_REF])}\' ;;\n'
+                    'esac\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+
+    class Slot(ConsoleSlot):
+        remote_dir = str(remote)
+
+        def ssh(self, script, timeout=300):
+            self.scripts.append(script)
+            return subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
+                                  env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
+    slot = Slot([CONSOLE_REF])
+    try:
+        result = L.stage_documented_console(slot, CONSOLE, doc=doc)
+    except (RuntimeError, ValueError) as exc:
+        result = exc
+    return result, (log.read_text() if log.exists() else ''), slot
+
+
+def test_studio_stage_adds_console_exactly_as_the_customer_doc_says(tmp_path):
+    import ai_arc_local as L
+    override, command = L.documented_console()
+    staged, log, slot = _run_documented_console(
+        tmp_path, 'COMPOSE_PROJECT_NAME=honua-abc\nCOMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml\n')
+    assert isinstance(staged, dict) and staged['image'] == CONSOLE_REF and staged['port'] == 18184
+    script = slot.scripts[0]
+    assert command.strip() in script                                      # the doc's command, verbatim
+    assert override.replace(L.CONSOLE_DIGEST_PLACEHOLDER, '@' + CONSOLE['imageDigest']) in script
+    up = [line for line in log.splitlines() if ' up ' in line]
+    assert len(up) == 1 and 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml:console.yaml ' \
+        'HONUA_CONSOLE_PORT=18184 ARGS=compose up -d --no-deps --wait console' in up[0]
+    assert (tmp_path / 'slot' / 'console.yaml').read_text().count(CONSOLE['imageDigest']) == 1
+
+
+@pytest.mark.parametrize('case', ['honua-changed', 'no-project', 'other-image', 'tag'])
+def test_documented_console_fails_closed(tmp_path, case):
+    import ai_arc_local as L
+    env, ids, doc = 'COMPOSE_PROJECT_NAME=honua-abc\nCOMPOSE_FILE=compose.yaml\n', ('h1', 'h1'), None
+    if case == 'honua-changed':
+        ids = ('h1', 'h2')
+    elif case == 'no-project':
+        env = 'COMPOSE_FILE=compose.yaml\n'
+    elif case == 'other-image':
+        doc = L.CONSOLE_DOC.read_text().replace('ghcr.io/honua-io/honua-console@sha256:<digest',
+                                               'ghcr.io/other/console@sha256:<digest')
+    else:
+        doc = L.CONSOLE_DOC.read_text().replace('@sha256:<digest from the release lock>', ':latest')
+    staged, _, _ = _run_documented_console(tmp_path, env, honua_ids=ids, doc=doc)
+    assert isinstance(staged, (RuntimeError, ValueError)), staged

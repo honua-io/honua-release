@@ -272,6 +272,74 @@ def slot_compose_files(override: str) -> str:
             f'export COMPOSE_FILE="$files:{override}" COMPOSE_PATH_SEPARATOR=:\n')
 
 
+CONSOLE_DOC = Path(__file__).resolve().parents[1] / 'docs/2026.1-add-console-to-compose-quickstart.md'
+CONSOLE_DIGEST_PLACEHOLDER = '@sha256:<digest from the release lock>'
+
+
+def documented_console(text: str | None = None) -> tuple[str, str]:
+    """The customer doc's Console override file and start command (docs/2026.1-add-console-to-compose-quickstart.md,
+    the docs-validation blocks), verbatim. The arc's Studio stage adds Console exactly as a customer would."""
+    text = CONSOLE_DOC.read_text(encoding='utf-8') if text is None else text
+    override = re.search(r'<!-- docs-validation:console\.override -->\s*```yaml\n(.*?)\n```', text, re.S)
+    start = re.search(r'<!-- docs-validation:console\.start -->\s*```bash\n(.*?)\n```', text, re.S)
+    if override is None or start is None:
+        raise ValueError('the Console doc lacks its override file or start command')
+    return override.group(1) + '\n', start.group(1) + '\n'
+
+
+def stage_documented_console(slot: 'VmSlot', expected: dict, doc: str | None = None) -> dict:
+    """Add Console to the slot exactly as the customer doc says (release session 2026-11-02): its console.yaml with
+    the release lock's Console digest, and its start command (the install's COMPOSE_FILE plus console.yaml,
+    --no-deps). HONUA_CONSOLE_PORT is the only customer variable set (the slot's port). Fail closed: the file must
+    select exactly the arc's Console, the honua container must be the same container before and after, and the
+    running Console container must report the arc's digest."""
+    import hashlib
+    import yaml
+    override, command = documented_console(doc)
+    want = f"{expected['image']}@{expected['imageDigest']}"
+    if (override.count(CONSOLE_DIGEST_PLACEHOLDER) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', expected['imageDigest'])
+            or expected['image'] + CONSOLE_DIGEST_PLACEHOLDER not in override):
+        raise ValueError('the Console doc does not name the Console image by the release-lock digest')
+    override = override.replace(CONSOLE_DIGEST_PLACEHOLDER, '@' + expected['imageDigest'])
+    service = ((yaml.safe_load(override) or {}).get('services') or {}).get('console')
+    if not isinstance(service, dict) or service.get('image') != want or set(yaml.safe_load(override)['services']) != {'console'}:
+        raise ValueError('the documented override must define only the arc Console service')
+    port = slot.http_port + CONSOLE_PORT_OFFSET
+    fence = 'HONUA_CONSOLE_' + pysecrets.token_hex(6)
+    ps = lambda name: ('docker ps -q --filter label=com.docker.compose.project="$project" '  # noqa: E731
+                       f'--filter label=com.docker.compose.service={name}')
+    script = ('set -eu\numask 077\ncd -- ' + shlex.quote(slot.remote_dir) + '\n'
+              + f"cat > console.yaml <<'{fence}'\n{override}{fence}\n"
+              + f'export HONUA_CONSOLE_PORT={int(port)}\n'
+              + 'project="$(sed -n "s/^COMPOSE_PROJECT_NAME=//p" .env | tail -n 1)"\n'
+              + 'project="${project#\\"}"; project="${project%\\"}"\n'
+              + '[ -n "$project" ] || { echo "the install names no COMPOSE_PROJECT_NAME" >&2; exit 3; }\n'
+              + 'before="$(' + ps('honua') + ')"\n'
+              + '[ -n "$before" ] || { echo "no honua container before staging Console" >&2; exit 3; }\n'
+              + '(\n' + command + ')\n'          # the customer doc's command, verbatim, in a subshell
+              + 'after="$(' + ps('honua') + ')"\n'
+              + 'if [ "$before" != "$after" ]; then echo "staging Console changed the honua container" >&2; exit 3; fi\n'
+              + 'id="$(' + ps('console') + ')"\n'
+              + 'docker image inspect --format "{{json .RepoDigests}}" "$(docker inspect --format "{{.Image}}" "$id")"\n')
+    done = slot.ssh(script, 600)
+    if done.returncode:
+        err = done.stderr.decode(errors='replace') if isinstance(done.stderr, bytes) else (done.stderr or '')
+        for value in sorted((getattr(slot, 'secrets', None) or {}).values(), key=len, reverse=True):
+            if isinstance(value, str) and len(value) >= 6:
+                err = err.replace(value, '[redacted]')
+        raise RuntimeError(f'Console did not start on the slot (exit {done.returncode}): ' + ' '.join(err.split())[-400:])
+    try:
+        out = done.stdout.decode() if isinstance(done.stdout, bytes) else (done.stdout or '')
+        digests = json.loads(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        digests = None
+    if not isinstance(digests, list) or want not in digests:
+        raise RuntimeError('the running Console container does not report the arc Console digest')
+    return {'image': want, 'port': port, 'source': 'customer doc: Add Console to a Compose quickstart install',
+            'docSha256': 'sha256:' + hashlib.sha256(CONSOLE_DOC.read_bytes() if doc is None else doc.encode()).hexdigest(),
+            'observedRepoDigests': digests, 'deployedBy': 'harness, as the customer doc says (stage-4 slot preparation)'}
+
+
 def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, expected: dict,
                   source_at=honua_server_file) -> dict:
     """Add Console to the slot the way honua-server's own compose does (its 'console' profile service),

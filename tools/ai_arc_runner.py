@@ -60,7 +60,8 @@ SHA = re.compile(r'\A[0-9a-f]{40}\Z')
 FAMILIES = ('anthropic', 'openai')
 
 # Everything whose bytes change behavior. Absent files contribute 'absent' (so landing a lane changes it).
-RUNNER_FILES = ('certification/ai-arc/studio-arc-expectations.json', 'certification/ai-arc/studio-fixture-requirements.json', 'tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
+RUNNER_FILES = ('docs/2026.1-add-console-to-compose-quickstart.md',
+                'certification/ai-arc/studio-arc-expectations.json', 'certification/ai-arc/studio-fixture-requirements.json', 'tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
                 'tools/agent_e2e_aws_install.py', 'tools/agent_e2e_aws_controller.py',
                 'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
                 'tools/agent_browser_studio.py',
@@ -1087,17 +1088,13 @@ class StudioStage(DelegatingStage):
         if ctx.slot.facts.get('consoleRejected'):
             return ('the Console on this slot is not the arc Console release '
                     f"({ctx.arc['console']['imageDigest'][:19]}...)")
-        if not ctx.slot.facts.get('consoleBaseUrl') and ctx.slot.vm is not None and ctx.options.get('console_compose'):
-            # The published package quickstart composes no Console: add it as honua-server's own compose
-            # does (pinned image, #6828), as harness slot preparation for this stage.
+        if not ctx.slot.facts.get('consoleBaseUrl') and ctx.slot.vm is not None:
+            # The published package quickstart composes no Console: add it exactly as the customer doc says
+            # (docs/2026.1-add-console-to-compose-quickstart.md; release session 2026-11-02), as harness slot
+            # preparation for this stage, so the arc validates the documented customer path.
             import ai_arc_local
             try:
-                pin = ctx.arc['console']['compose']
-                text = Path(ctx.options['console_compose']).read_text()
-                given = ctx.options.get('console_compose_revision')
-                if sha256(text) != pin['sha256'] or (given and given != pin['revision']):
-                    raise ValueError('the Console compose is not the arc pin')
-                staged = ai_arc_local.stage_console(ctx.slot.vm, text, pin['revision'], ctx.arc['console'])
+                staged = ai_arc_local.stage_documented_console(ctx.slot.vm, ctx.arc['console'])
             except Exception as exc:  # noqa: BLE001
                 return f'Honua Console could not be added to the slot ({type(exc).__name__}: {str(exc)[:400]}): ' + gap
             tunnel = ai_arc_local.Tunnel(ctx.slot.vm, staged['port'])

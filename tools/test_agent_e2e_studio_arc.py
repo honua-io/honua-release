@@ -103,7 +103,7 @@ def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
     assert 'x' * 48 not in str(result)
     assert 'Oidc__TokenValidation__SymmetricSigningKey' in slot.script
     assert 'AWS_ACCESS_KEY' not in slot.script
-    assert "StudioAiProxy__Enabled: 'false'" in slot.script
+    assert 'StudioAiProxy' not in slot.script
     assert 'AWS_REGION' not in slot.script and 'bedrock' not in slot.script.lower()
     with pytest.raises(TypeError):
         provision_local_server(slot, 'x' * 48, enable_assistant=True)
@@ -354,3 +354,35 @@ def test_slot_provision_keeps_the_packages_compose_files():
     assert 'sed -n "s/^COMPOSE_FILE=//p" .env' in slot.script
     assert 'export COMPOSE_FILE="$files:studio-customer.yaml"' in slot.script
     assert 'docker compose -f' not in slot.script and 'up -d --no-deps --wait --wait-timeout 240 honua' in slot.script
+
+
+def test_the_harness_sets_only_the_customer_identity_step_on_the_server():
+    """Release session 2026-11-02: the harness may not set server settings the customer does not set. With
+    honua-server #6896 in the package, the harness's honua change is exactly the doc's identity step (the synthetic
+    test IdP as the customer's IdP) plus the discovery-less test IdP's signing key."""
+    import re as _re
+    import yaml
+    from types import SimpleNamespace
+    from ai_arc_local import CONSOLE_DOC
+    from agent_e2e_studio_arc import TEST_IDP_ONLY, provision_local_server
+
+    class Slot:
+        remote_dir = '/home/eval/arc-owned'
+        project = 'arc-12345678'
+
+        def compose(self, *args):
+            return 'docker compose ' + ' '.join(args)
+
+        def ssh(self, script, timeout):
+            self.script = script
+            return SimpleNamespace(returncode=0)
+    slot = Slot()
+    provision_local_server(slot, 'x' * 48)
+    override = _re.search(r"cat > studio-customer.yaml <<'(HONUA_STUDIO_[0-9a-f]+)'\n(.*?)\n\1\n", slot.script, _re.S)
+    honua = yaml.safe_load(override.group(2))['services']['honua']
+    block = _re.search(r'<!-- docs-validation:identity\.override -->\s*```yaml\n(.*?)\n```',
+                       CONSOLE_DOC.read_text(), _re.S).group(1)
+    documented = set(yaml.safe_load(block)['services']['honua']['environment'])
+    assert set(honua['environment']) == documented | set(TEST_IDP_ONLY)
+    assert set(honua) == {'image', 'environment'} and honua['image'] == '${HONUA_STUDIO_ACTIVE_IMAGE}'
+    assert 'Studio__EndUserAuthorization__Enabled' not in honua['environment']      # the package's own (#6896)
