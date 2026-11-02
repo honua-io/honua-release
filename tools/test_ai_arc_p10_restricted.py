@@ -46,16 +46,16 @@ DENIED = {'isError': True, 'structuredContent': {'status': 'error', 'error': {'k
                                                                              'message': 'You do not have permission.'}}}
 
 
-def _query_result(ids):
+def _query_result(ids, echo=SVC):
     names = {r['source_id']: r['name'] for r in ROWS}
     feats = [{'type': 'Feature', 'properties': {'source_id': i, 'name': names.get(i, i)}, 'geometry': None} for i in ids]
-    return {'isError': False, 'structuredContent': {'serviceId': SVC, 'layerId': LAYER, 'exceededTransferLimit': False,
+    return {'isError': False, 'structuredContent': {'serviceId': echo, 'layerId': LAYER, 'exceededTransferLimit': False,
                                                     'resultOffset': 0, 'returnedCount': len(feats),
                                                     'geojson': {'type': 'FeatureCollection', 'features': feats}}}
 
 
 def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_roles=('operators',), extra_args=None,
-          final_ok=True, enabled=True):
+          final_ok=True, enabled=True, echo=SVC):
     args = {'serviceId': SVC, 'layerId': LAYER, 'where': where, 'returnGeometry': False}
     args.update(extra_args or {})
     call = {'tool': 'honua_query_features', 'arguments': args}
@@ -82,9 +82,9 @@ def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_r
                                                                     'schema': SCHEMA, 'table': TABLE,
                                                                     'enabled': enabled}]}),
         'p10-replay-query': _mcp('p10-replay-query', 'controller',
-                                 DENIED if restricted else _query_result(agent_ids), call, replay_of=OCC),
+                                 DENIED if restricted else _query_result(agent_ids, echo), call, replay_of=OCC),
         'arc-p10-final-query': _mcp('arc-p10-final-query', 'agent',
-                                    _query_result(agent_ids) if final_ok else DENIED, call, replay_of=OCC,
+                                    _query_result(agent_ids, echo) if final_ok else DENIED, call, replay_of=OCC,
                                     origin='session-result'),
         'arc-p10-source-after': _sql(),
     }
@@ -92,7 +92,7 @@ def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_r
                  'is_open'], 'limit': 1000, 'resultOffset': 0, 'returnGeometry': True, 'outSrid': 3857,
                  'geometryPrecision': -1}
     full = DENIED if restricted else {'isError': False, 'structuredContent': {
-        'serviceId': SVC, 'layerId': LAYER, 'exceededTransferLimit': False, 'resultOffset': 0, 'returnedCount': 5,
+        'serviceId': echo, 'layerId': LAYER, 'exceededTransferLimit': False, 'resultOffset': 0, 'returnedCount': 5,
         'geojson': {'type': 'FeatureCollection', 'features': [{'geometry': None, 'properties': r} for r in ROWS]}}}
     records['arc-p10-published-full'] = _mcp('arc-p10-published-full', 'controller', full,
                                              {'tool': 'honua_query_features', 'arguments': full_args})
@@ -280,3 +280,84 @@ def test_the_frozen_catalog_read_binds_the_connection_and_the_service():
     import re
     assert re.fullmatch(read['path'], f'/api/v1/admin/connections/{CONN}/layers?serviceName={SVC}')
     assert not re.fullmatch(read['path'], f'/api/v1/admin/connections/{CONN}/layers')
+
+
+def test_a_published_service_echoes_its_metadata_id():
+    # Rehearsal r5 DEV (guide loaded): honua_publish_service "kestrel" answered every query as "svc-publish-kestrel"
+    # (honua-server BuildNewPublishedServiceId); the id is collision-checked, so it names exactly that service.
+    assert P.echoes_service('kestrel', 'kestrel') and P.echoes_service('svc-publish-kestrel', 'kestrel')
+    assert P.echoes_service('svc-publish-default', 'default') and P.echoes_service('svc-publish-a.b_c-d', 'a.b_c-d')
+    for echoed, service in (('svc-publish-other', 'kestrel'), ('svc-publish-kestrel', 'Kestrel'),
+                            ('svc-publish-Roads-A', 'Roads A'), ('svc-publish-x', '-x'), ('svc-publish-x', 'x-'),
+                            ('publish-kestrel', 'kestrel'), (None, 'kestrel'), ('kestrel', None), ('kestrel', 'kestrel ')):
+        assert not P.echoes_service(echoed, service), (echoed, service)
+
+
+@pytest.mark.parametrize('restricted', [False, True])
+def test_the_published_service_id_echo_scores_like_the_name(restricted):
+    records, actions = _case(restricted=restricted, echo='svc-publish-' + SVC)
+    assert _scored(records, actions)['status'] == 'pass'
+    records, actions = _case(restricted=restricted, echo='svc-publish-elsewhere')
+    assert _scored(records, actions)['status'] == 'fail'
+
+
+CRS_3857 = {'type': 'name', 'properties': {'name': 'EPSG:3857'}}
+COORDS = {'s1': -19400, 's2': -18800, 's3': -19100, 's4': -19700, 's5': -20000}
+
+
+def _source_snapshot(step, phase, *, stored=True):
+    """The SQL snapshot as the live importer stores town-A shelters: the feature id is a property, and
+    st_asgeojson adds the short EPSG:3857 crs (rehearsal r5 DEV, guide loaded)."""
+    rows = []
+    for r in ROWS:
+        geometry = {'type': 'Point', 'coordinates': [COORDS[r['source_id']], -4700]}
+        properties = dict(r)
+        if stored:
+            geometry['crs'] = CRS_3857
+            properties['id'] = r['source_id']
+        rows.append({'geometry': geometry, 'properties': properties})
+    raw = json.dumps(rows).encode()
+    path = f'BEGIN; LOCK TABLE ONLY "{SCHEMA}"."{TABLE}" IN ACCESS SHARE MODE; SELECT 1; COMMIT'
+    args = {'op': 'table_rows', 'schema': SCHEMA, 'table': TABLE, 'columns': ['geometry', 'properties']}
+    return Record(step, phase, 'sql', 'controller', None, 'SELECT', path, 200, raw,
+                  'sha256:' + hashlib.sha256(raw).hexdigest(), None, action_bytes(args))
+
+
+def _scored_source(records, actions):
+    from agent_e2e_local_api import Observation
+    from agent_e2e_local_expectations import load_expected, load_projections
+    from agent_e2e_local_runner import score_assertions
+    name = 'source-content.unchanged'
+    return score_assertions([name], [Observation(name, None, {'projection': 'extract/v1'})],
+                            {name: load_expected('P10', 'A', 'arc')[name]}, records=records, roles=_roles(records),
+                            scenario_id='P10', model_actions=actions,
+                            frozen={name: load_projections('P10', 'A', 'arc')[name]})[0]
+
+
+def test_the_source_baseline_is_the_table_as_the_importer_stores_it():
+    # Rehearsal r5 DEV (guide loaded) was the first run to reach this assertion with every role resolved: the frozen
+    # rows lacked properties.id and geometry.crs, so an untouched table failed "object fields differ".
+    records, actions = _case(restricted=False)
+    records['arc-p10-source-before'] = _source_snapshot('arc-p10-source-before', 'seed')
+    records['arc-p10-source-after'] = _source_snapshot('arc-p10-source-after', 'observe')
+    assert _scored_source(records, actions)['status'] == 'pass'
+    changed = json.loads(records['arc-p10-source-after'].raw)
+    changed[0]['properties']['capacity'] = 999
+    raw = json.dumps(changed).encode()
+    records['arc-p10-source-after'] = dataclasses.replace(records['arc-p10-source-after'], raw=raw,
+                                                          sha256='sha256:' + hashlib.sha256(raw).hexdigest())
+    assert _scored_source(records, actions)['status'] == 'fail'
+    records['arc-p10-source-after'] = _source_snapshot('arc-p10-source-after', 'observe', stored=False)
+    assert _scored_source(records, actions)['status'] == 'fail'
+
+
+@pytest.mark.parametrize('variant', ['A', 'B'])
+def test_the_frozen_source_rows_are_the_fixture_with_the_stored_id_and_crs(variant):
+    from agent_e2e_local_expectations import load_expected
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    fixture = json.loads((root / f'certification/agent-e2e/corpus/town-{variant}/shelters.3857.geojson').read_text())
+    rows = load_expected('P10', variant, 'arc')['source-content.unchanged']['resources'][0]['content']['rows']
+    want = [{'geometry': {**f['geometry'], 'crs': fixture['crs']}, 'properties': {**f['properties'], 'id': f['id']}}
+            for f in fixture['features']]
+    assert sorted(rows, key=P.canonical) == rows and sorted(want, key=P.canonical) == rows

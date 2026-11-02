@@ -526,7 +526,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
         value = result.get('structuredContent')
         service, layer = sub(spec['service']), sub(spec['layer'])
-        require(isinstance(value, dict) and str(value.get('serviceId')) == str(service)
+        require(isinstance(value, dict) and echoes_service(value.get('serviceId'), service)
                 and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
                 and value.get('resultOffset') == 0, 'feature query is foreign or incomplete')
         arguments = (record.request_arguments or {}).get('arguments') or {}
@@ -554,7 +554,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
             value = result.get('structuredContent') or {}
             collection = value.get('geojson') or {}
             published = collection.get('features')
-            require(result.get('isError', False) is False and str(value.get('serviceId')) == str(service)
+            require(result.get('isError', False) is False and echoes_service(value.get('serviceId'), service)
                     and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
                     and value.get('resultOffset') == 0 and isinstance(published, list)
                     and type(value.get('returnedCount')) is int and value['returnedCount'] == len(published)
@@ -1164,6 +1164,23 @@ def role_restricted_policy(record, service) -> bool:
             and bool(roles) and all(isinstance(r, str) and r.strip() for r in roles))
 
 
+_PUBLISHED_SERVICE_NAME = re.compile(r'[A-Za-z0-9_.](?:[A-Za-z0-9_.-]{0,78}[A-Za-z0-9_.])?')
+
+
+def echoes_service(echoed, service) -> bool:
+    """A query response's structuredContent.serviceId names the queried service: its name, or the metadata id the
+    server gives a service created by publishing under that name ("svc-publish-" + the name; honua-server
+    PostgreSqlLayerPublishingService.BuildNewPublishedServiceId). The server refuses a new service whose id collides
+    with an existing one, so the id names exactly one service. Only names the server's sanitisation leaves unchanged
+    (letters, digits, "_", "." and inner "-") map to an id; anything else must echo verbatim. Rehearsal r5 DEV
+    (guide loaded): honua_publish_service "kestrel" answered queries as "svc-publish-kestrel"."""
+    if echoed is None or service is None:
+        return False
+    echoed, service = str(echoed), str(service)
+    return echoed == service or (_PUBLISHED_SERVICE_NAME.fullmatch(service) is not None
+                                 and echoed == 'svc-publish-' + service)
+
+
 def data_plane_denied(record) -> bool:
     """The controller's data-plane read was refused by the access policy (GeoServices 403 body, or an MCP
     AuthorizationDenied tool error), not by a missing or broken resource."""
@@ -1367,7 +1384,7 @@ def restricted_feature_query_ids(spec, ctx, sub):
     result = record.json.get('result')
     require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
     value = result.get('structuredContent')
-    require(isinstance(value, dict) and str(value.get('serviceId')) == str(service)
+    require(isinstance(value, dict) and echoes_service(value.get('serviceId'), service)
             and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
             and value.get('resultOffset') == 0, 'feature query is foreign or incomplete')
     collection = value.get('geojson')
