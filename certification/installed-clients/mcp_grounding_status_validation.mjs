@@ -8,7 +8,7 @@ import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
-import { observeCandidateRequest, observedResponse } from "./mcp_candidate_wire.mjs";
+import { observeCandidateRequest, observedResponse, retainedHelperRefusal } from "./mcp_candidate_wire.mjs";
 
 export const groundingStatusDependencies = Object.freeze([
   "mcp_grounding_status_validation.py", "mcp_grounding_status_state.py", "mcp_ops_events_config.py",
@@ -34,6 +34,7 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
       || !/^[a-f0-9]{64}$/.test(platformManifestSha256 ?? ""))
     throw new Error("grounding/status requires complete immutable source and manifest bindings");
   sha256 = Object.freeze({ ...sha256 });
+  const diagnosticSecrets = new Set();
   const bootstrapSha256 = digest(readFileSync(bootstrapPath));
   const verifyBytes = () => {
     for (const name of groundingStatusDependencies)
@@ -50,18 +51,10 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
       encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ...env },
     });
     verifyBytes();
-    if (result.error || result.signal || result.status !== 0) {
-      // The caller retains this message in its result evidence. Keep the original
-      // diagnostic, but redact credentials passed to the independent observer.
-      let stderr = String(result.stderr ?? "");
-      for (const [key, value] of Object.entries({ ...process.env, ...env }))
-        if (/key|token|password|secret|credential/i.test(key) && typeof value === "string" && value.length >= 4)
-          stderr = stderr.split(value).join("[REDACTED]");
-      throw new Error(`independent grounding/status source observer or judge refused: ${name}; `
-        + `status=${result.status}; signal=${result.signal ?? "none"}; `
-        + `error=${result.error?.code ?? "none"}; stderr=${stderr.slice(0, 16_384)}`);
-    }
-    return JSON.parse(result.stdout);
+    if (result.error || result.signal || result.status !== 0)
+      throw retainedHelperRefusal("independent grounding/status source observer or judge refused", name, result, { env, credentials: [...diagnosticSecrets] });
+    try { return JSON.parse(result.stdout); }
+    catch { throw new Error("independent helper returned malformed JSON"); }
   };
   const inspect = (source, selectedImage) => launch("mcp_render_validation.py", [
     "--inspect-runtime", "--candidate-source-sha", source, "--candidate-image", selectedImage]);
@@ -97,6 +90,7 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
           || typeof installationRoot !== "string" || !installationRoot || !/^\d+\.\d+\.\d+$/.test(clientVersion ?? "")
           || typeof credential !== "string" || !credential || credential.length > 8192)
         throw new Error("grounding/status requires an owned exact candidate and installed client");
+      diagnosticSecrets.add(credential);
       const setup = authored(), declaration = config(candidateSourceSha, candidateImage);
       if (setup.candidateSourceSha !== candidateSourceSha || setup.candidateImage !== candidateImage)
         throw new Error("grounding bootstrap differs from selected candidate");
@@ -135,6 +129,7 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
           managedKeys[profile] = JSON.parse(readFileSync(privatePath, "utf8")).key;
           if (typeof managedKeys[profile] !== "string" || !managedKeys[profile] || managedKeys[profile].length > 8192)
             throw new Error("normal managed caller credential is missing");
+          diagnosticSecrets.add(managedKeys[profile]);
         }
         observed.graphObservation = sourceRead("graph", managedKeys.admin, observed.credentialSalt);
         observed.preflightBefore = sourceRead("preflight", managedKeys.admin, observed.credentialSalt);

@@ -28,6 +28,43 @@ const session = (value) => typeof value === "string" && value ? hash(value) : nu
 export const ANONYMOUS_UNLISTED_REFUSAL_TOOLS = Object.freeze(["honua_geocode_addresses", "honua_solve_route"]);
 export const ANONYMOUS_UNLISTED_REFUSAL = "inspector-anonymous-unlisted";
 
+// Public certification artifacts retain helper stderr, never caller credentials.
+// Keep this in the already-bound wire dependency so every producer shares it.
+export function retainedHelperRefusal(message, name, result, { env = {}, credentials = [] } = {}) {
+  const values = [...credentials];
+  for (const source of [process.env, env])
+    for (const [key, value] of Object.entries(source))
+      if (/key|token|pass|pwd|auth|jwt|cookie|session|dsn|connection|secret|credential/i.test(key)) values.push(value);
+  const variants = new Set();
+  for (const value of values) {
+    if (typeof value !== "string" || !value) continue;
+    const normalized = value.toWellFormed();
+    const encoded = encodeURIComponent(normalized);
+    const strict = encoded.replace(/[!'()*]/g, char => "%" + char.charCodeAt(0).toString(16).toUpperCase());
+    const forms = [value, normalized, encoded, strict, encodeURI(normalized), encoded.replace(/%20/g, "+"),
+      Buffer.from(value).toString("base64"), Buffer.from(value).toString("base64url")];
+    for (const form of forms) {
+      if (form) variants.add(form);
+      variants.add(form.replace(/%[0-9A-F]{2}/g, part => part.toLowerCase()));
+    }
+  }
+  let stderr = String(result.stderr ?? "");
+  for (const value of [...variants].sort((a, b) => b.length - a.length)) stderr = stderr.split(value).join("[REDACTED]");
+  stderr = stderr
+    .replace(/\bhnua(?:_|%5f)(?:[\w-]|%[0-9a-f]{2})+/gi, "[REDACTED]")
+    .replace(/\b(Bearer|Basic)(?:\s+|%20)+[^\s"'<>]+/gi, "$1 [REDACTED]")
+    .replace(/\b(authorization|cookie|x-api-key)\s*[:=][^\r\n]*/gi, "$1: [REDACTED]")
+    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]*/g, "[REDACTED]")
+    .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "[REDACTED]")
+    .replace(/\b(password|pwd|token|secret|session(?:id)?)\s*=\s*(?:"[^"]*"|'[^']*'|[^;\s]+)/gi, "$1=[REDACTED]")
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^:/@\s]+:[^@\s]+@/gi, "$1[REDACTED]@");
+  const bytes = Buffer.from(stderr);
+  let end = Math.min(bytes.length, 16_384);
+  while (end < bytes.length && end > 0 && (bytes[end] & 0xC0) === 0x80) end--;
+  return new Error(`${message}: ${name}; status=${result.status}; signal=${result.signal ?? "none"}; `
+    + `error=${result.error?.code ?? "none"}; stderr=${bytes.subarray(0, end).toString("utf8")}`);
+}
+
 export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient, observeDiscovery = false, tenantId, anonymousUnlistedRefusal = false }) {
   if (!["tools/call", "resources/read"].includes(method) || !params || typeof params !== "object"
       || typeof authenticated !== "boolean" || typeof credential !== "string" || !credential || typeof invoke !== "function"

@@ -6,7 +6,7 @@ import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
-import { observeCandidateRequest, observedResponse } from "./mcp_candidate_wire.mjs";
+import { observeCandidateRequest, observedResponse, retainedHelperRefusal } from "./mcp_candidate_wire.mjs";
 
 export const opsHealthDependencies = Object.freeze(["mcp_ops_health_validation.py", "mcp_ops_health_state.py",
   "mcp_execute_plan_state.py", "mcp_execute_plan_validation.py", "mcp_plan_validation.py", "mcp_style_validation.py",
@@ -23,6 +23,7 @@ export function createOpsHealthValidation({ directory, sourceSha, sha256, bootst
       || opsHealthDependencies.toSorted().join() !== Object.keys(sha256).toSorted().join()
       || typeof bootstrapPath !== "string" || !bootstrapPath) throw new Error("health requires complete protected source/bootstrap");
   sha256 = Object.freeze({ ...sha256 });
+  const diagnosticSecrets = new Set();
   const verifyBytes = () => {
     for (const name of opsHealthDependencies) if (!/^[a-f0-9]{64}$/.test(sha256[name] ?? "")
         || digest(readFileSync(join(directory, name))) !== sha256[name]) throw new Error("health source dependency changed");
@@ -33,15 +34,10 @@ export function createOpsHealthValidation({ directory, sourceSha, sha256, bootst
     const result = spawnSync("python3", ["-I", "-B", join(directory, name), ...args],
       { encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024 });
     verifyBytes();
-    if (result.error || result.signal || result.status !== 0) {
-        let stderr = String(result.stderr ?? "");
-        for (const [key, value] of Object.entries(process.env))
-          if (/key|token|password|secret|credential/i.test(key) && typeof value === "string" && value.length >= 4)
-            stderr = stderr.split(value).join("[REDACTED]");
-        throw new Error(`authored live health observer/oracle refused evidence: ${name}; status=${result.status}; `
-          + `signal=${result.signal ?? "none"}; error=${result.error?.code ?? "none"}; stderr=${stderr.slice(0, 16_384)}`);
-      }
-    return JSON.parse(result.stdout);
+    if (result.error || result.signal || result.status !== 0)
+      throw retainedHelperRefusal("authored live health observer/oracle refused evidence", name, result, { credentials: [...diagnosticSecrets] });
+    try { return JSON.parse(result.stdout); }
+    catch { throw new Error("independent helper returned malformed JSON"); }
   };
   const python = (values = {}, extra = []) => {
     const work = mkdtempSync(join(tmpdir(), "mcp-health-"));
@@ -64,6 +60,7 @@ export function createOpsHealthValidation({ directory, sourceSha, sha256, bootst
           || !["Official MCP TypeScript SDK", "MCP Inspector"].includes(canonicalClient)
           || typeof installationRoot !== "string" || !installationRoot || !/^\d+\.\d+\.\d+$/.test(clientVersion ?? "")
           || typeof credential !== "string" || !credential || credential.length > 8192) throw new Error("health requires exact actual client/candidate and private credential");
+      diagnosticSecrets.add(credential);
       const nonce = randomBytes(12).toString("hex");
       const authored = python({}, ["--nonce", nonce, "--canonical-client", canonicalClient]);
       if (authored.candidateSourceSha !== candidateSourceSha || authored.candidateImage !== candidateImage) throw new Error("health bootstrap selected another candidate");

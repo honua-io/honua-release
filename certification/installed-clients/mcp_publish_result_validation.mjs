@@ -6,7 +6,7 @@ import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
-import { observeCandidateRequest, observedResponse } from "./mcp_candidate_wire.mjs";
+import { observeCandidateRequest, observedResponse, retainedHelperRefusal } from "./mcp_candidate_wire.mjs";
 
 const required = ["fixture.v1.json", "mcp_candidate_wire.mjs", "mcp_execute_plan_state.py", "mcp_execute_plan_validation.mjs", "mcp_execute_plan_validation.py",
   "mcp_fixed_client_launcher.mjs", "mcp_fixed_client_manifest.v1.json", "mcp_fixed_sdk_runner.mjs", "mcp_ingest_publish_state.py",
@@ -24,6 +24,7 @@ export function createPublishResultValidation({ directory, sourceSha, sha256, bo
       || required.toSorted().join() !== Object.keys(sha256).toSorted().join()
       || typeof bootstrapPath !== "string" || !bootstrapPath) throw new Error("publication requires complete immutable source/bootstrap");
   sha256 = Object.freeze({ ...sha256 });
+  const diagnosticSecrets = new Set();
   const verifyBytes = () => {
     for (const name of required) if (!/^[a-f0-9]{64}$/.test(sha256[name] ?? "")
         || digest(readFileSync(join(directory, name))) !== sha256[name]) throw new Error("publication source dependency changed");
@@ -39,15 +40,11 @@ export function createPublishResultValidation({ directory, sourceSha, sha256, bo
       }
       const result = spawnSync("python3", args, { encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ...privateEnv } });
       verifyBytes();
-      if (result.error || result.signal || result.status !== 0) {
-        let stderr = String(result.stderr ?? "");
-        for (const [key, value] of Object.entries({ ...process.env, ...privateEnv }))
-          if (/key|token|password|secret|credential/i.test(key) && typeof value === "string" && value.length >= 4)
-            stderr = stderr.split(value).join("[REDACTED]");
-        throw new Error(`genuine publication setup/state/oracle refused evidence: ${name}; status=${result.status}; `
-          + `signal=${result.signal ?? "none"}; error=${result.error?.code ?? "none"}; stderr=${stderr.slice(0, 16_384)}`);
-      }
-      return JSON.parse(result.stdout);
+      if (result.error || result.signal || result.status !== 0)
+        throw retainedHelperRefusal("genuine publication setup/state/oracle refused evidence", name, result,
+          { env: privateEnv, credentials: [...diagnosticSecrets] });
+      try { return JSON.parse(result.stdout); }
+      catch { throw new Error("independent helper returned malformed JSON"); }
     } finally { rmSync(work, { recursive: true, force: true }); }
   };
   const inspect = (source, selectedImage) => {
@@ -55,8 +52,11 @@ export function createPublishResultValidation({ directory, sourceSha, sha256, bo
     const result = spawnSync("python3", ["-I", "-B", join(directory, "mcp_render_validation.py"), "--inspect-runtime",
       "--candidate-source-sha", source, "--candidate-image", selectedImage], { encoding: "utf8", timeout: 65_000, maxBuffer: 1024 * 1024 });
     verifyBytes();
-    if (result.error || result.signal || result.status !== 0) throw new Error("publication actual candidate identity inspection refused");
-    return JSON.parse(result.stdout);
+    if (result.error || result.signal || result.status !== 0)
+      throw retainedHelperRefusal("publication actual candidate identity inspection refused", "mcp_render_validation.py", result,
+        { credentials: [...diagnosticSecrets] });
+    try { return JSON.parse(result.stdout); }
+    catch { throw new Error("independent helper returned malformed JSON"); }
   };
   async function publishResultScenarios(record, { candidateSourceSha, candidateImage, canonicalClient, clientVersion,
     installationRoot, credential, ownedDisposableCandidate, results = "results.json" }) {
@@ -65,6 +65,7 @@ export function createPublishResultValidation({ directory, sourceSha, sha256, bo
           || !["Official MCP TypeScript SDK", "MCP Inspector"].includes(canonicalClient)
           || typeof installationRoot !== "string" || !installationRoot || !/^\d+\.\d+\.\d+$/.test(clientVersion ?? "")
           || typeof credential !== "string" || !credential || credential.length > 8192) throw new Error("publication requires actual installed client and explicitly owned disposable candidate");
+      diagnosticSecrets.add(credential);
       const authored = python("mcp_publish_result_validation.py", ["--nonce", randomBytes(6).toString("hex"), "--canonical-client", canonicalClient]);
       if (authored.candidateSourceSha !== candidateSourceSha || authored.candidateImage !== candidateImage) throw new Error("publication bootstrap belongs to another candidate");
       const observed = { schema: authored.schema, nonce: authored.nonce, canonicalClient, clientVersion, candidateSourceSha, candidateImage,
