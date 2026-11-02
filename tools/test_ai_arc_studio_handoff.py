@@ -69,7 +69,10 @@ def ctx_for(tmp_path, http, variant='A'):
 
 
 def cases(roles=None, status='pass', principal=KEY):
-    return [{'scenario': 'P10', 'receipt': {'status': status, 'roles': dict(ROLES if roles is None else roles)},
+    verdict = 'pass' if status == 'pass' else 'fail'
+    return [{'scenario': 'P10', 'receipt': {'status': status, 'roles': dict(ROLES if roles is None else roles),
+                                            'assertions': [{'assertion': 'filter.exact', 'status': verdict},
+                                                           {'assertion': 'source-content.unchanged', 'status': verdict}]},
              'agentPrincipal': principal},
             {'scenario': 'P15', 'receipt': {'status': 'pass', 'roles': {}}, 'agentPrincipal': 'k-agent-2'}]
 
@@ -453,3 +456,22 @@ def test_a_refused_layer_without_a_completed_agent_publication_still_fails(tmp_p
     http, _ = restricted_controller([event(actor='api-key:someone-else')])
     with pytest.raises(ValueError, match='no unique completed agent publication'):
         R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+
+def test_a_passing_p10_publication_hands_off_even_when_the_corpus_answer_check_failed(tmp_path):
+    """Studio DEV shakeout run 11b: every P10 projection passed, but the corpus answer checker (kept for reference
+    only by the arc) failed the composite services answer; P15 and Studio never ran."""
+    import ai_arc_services as S
+    http, _ = controller([event()])
+    run_cases = cases()
+    run_cases[0]['receipt']['status'] = 'fail'                    # the corpus verdict alone
+    handoff = R.studio_services_handoff(ctx_for(tmp_path, http), run_cases, 'town-A', START, END)
+    assert handoff['layers']['shelters']['service'] == 'kestrel-shelters'
+    assert S.publication_proven({'status': 'fail', 'failure': None, 'assertions': [{'assertion': 'x', 'status': 'pass'}]})
+    for receipt in ({'status': 'fail', 'assertions': [{'assertion': 'filter.exact', 'status': 'fail'}]},
+                    {'status': 'infrastructure', 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {'status': 'excluded', 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {'status': 'fail', 'failure': {'category': 'model'}, 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {'status': 'fail', 'assertions': []}):
+        assert not S.publication_proven(receipt)

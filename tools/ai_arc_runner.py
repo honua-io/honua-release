@@ -990,7 +990,8 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
         return got['json']
 
     first = next((c for c in cases if c.get('scenario') == 'P10'), None)
-    if first is None or (first.get('receipt') or {}).get('status') != 'pass':
+    from ai_arc_services import publication_proven
+    if first is None or not publication_proven(first.get('receipt') or {}):
         raise ValueError('the publishing case did not pass')
     roles = first['receipt'].get('roles') or {}
     key = first.get('agentPrincipal')

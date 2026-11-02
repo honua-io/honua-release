@@ -333,6 +333,23 @@ class Canceller:
         return self.runtime.probe()
 
 
+def publication_proven(receipt) -> bool:
+    """The P10 case proved the agent's publication and list: every projection assertion passed and the case was
+    neither infrastructure nor excluded. Its corpus answer check is not part of this: the arc keeps that verdict for
+    reference only and re-scores the answer itself (case_assertions; ai_arc_runner.safety_status_checks). Gating on
+    the corpus verdict kept P15 and Studio from running after a passing P10 (Studio DEV shakeout run 11b: every P10
+    projection passed, but the corpus checker read the composite services answer, sharing included, against P10's
+    facts alone)."""
+    if not isinstance(receipt, dict):
+        return False
+    if receipt.get('status') == 'pass':
+        return True
+    assertions = receipt.get('assertions')
+    return (receipt.get('status') == 'fail' and receipt.get('failure') is None
+            and isinstance(assertions, list) and bool(assertions)
+            and all(isinstance(a, dict) and a.get('status') == 'pass' for a in assertions))
+
+
 def shared_publication(receipt, retained_bytes, variant, fault='http_503_once'):
     """Bind the next case to the prior passing P10 receipt and its fired fault."""
     roles = receipt.get('roles') or {}
@@ -340,7 +357,7 @@ def shared_publication(receipt, retained_bytes, variant, fault='http_503_once'):
     events = receipt.get('faultEvents') or []
     expected_id = {'http_503_once': 'arc-p10-query-503',
                    'response_lost_after_commit': 'arc-p10-publish-lost'}.get(fault)
-    if (receipt.get('status') != 'pass' or not isinstance(service, str)
+    if (not publication_proven(receipt) or not isinstance(service, str)
             or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', service)
             or type(layer) is not int or layer < 0 or len(events) != 1
             or expected_id is None or events[0].get('kind') != fault or events[0].get('id') != expected_id
