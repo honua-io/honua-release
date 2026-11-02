@@ -270,11 +270,18 @@ def qualification_lock(manifest_raw):
                 "platformDigests": {"amd64": AMD64, "arm64": "sha256:" + "3" * 64}}]}}}
 
 
+def harness_identity(image, digest):
+    """The exact shape e2e/harness/upgrade-chaos.sh cu_identity writes to compose-candidate-identity.json."""
+    return {"imageID": "sha256:" + "7" * 64, "expectedImageID": "sha256:" + "7" * 64, "platform": "linux/amd64",
+            "runtimeIdentity": {"imageReference": image, "imageDigest": digest, "observedVersion": "2026.1.1"},
+            "databaseSchema": "143"}
+
+
 def ran_receipt(status="pass", image=f"{REPO}@{AMD64}", observed=AMD64):
     return cu.build_receipt({"prior_source": "published-rc", "prior": f"{REPO}@sha256:{'9' * 64}", "candidate": image,
                              "candidate_source_revision": LOCK_SHA},
                             scenario="normal", status=status, why="", observed={},
-                            phases={"candidate": {"imageDigest": observed, "imageReference": image}},
+                            phases={"candidate": harness_identity(image, observed)},
                             harness={}, run="r", commit="c")
 
 
@@ -293,8 +300,8 @@ def admitted(receipt, digest):
 def test_a_verified_lock_binds_the_candidate_phase_for_rc_admission():
     receipt, digest = bind(ran_receipt(), qualification_lock(bound_manifest()))
     assert receipt["status"] == "pass" and receipt["candidateLockDigest"] == digest
-    assert receipt["phases"]["candidate"]["sourceRevision"] == LOCK_SHA
-    assert receipt["phases"]["candidate"]["serverDigest"] == INDEX
+    assert receipt["phases"]["candidate"]["runtimeIdentity"]["sourceRevision"] == LOCK_SHA
+    assert receipt["phases"]["candidate"]["runtimeIdentity"]["serverDigest"] == INDEX
     assert admitted(receipt, digest)
     # The install and rollback phases never certify; another lock never matches.
     assert not admitted(receipt, "sha256:" + "f" * 64)
@@ -318,7 +325,7 @@ def test_a_plain_dispatch_without_a_lock_can_never_be_candidate_bound():
 def assert_refused(receipt, digest):
     assert receipt["status"] == "fail" and receipt["why"].startswith("candidate lock binding refused")
     assert "candidateLockDigest" not in receipt and "candidateBinding" not in receipt
-    assert "sourceRevision" not in receipt["phases"]["candidate"]
+    assert "sourceRevision" not in receipt["phases"]["candidate"].get("runtimeIdentity", {})
     assert not admitted(receipt, digest)
 
 
@@ -409,3 +416,33 @@ def test_the_receipt_binds_only_a_verified_lock_and_fails_an_unverified_one():
         assert inputs["lock_artifact"]["default"] == "candidate-manifest"
     permissions = _upgrade_workflow()["jobs"]["compose-upgrade"]["permissions"]
     assert permissions["actions"] == "read"
+
+
+def test_the_harness_identity_shape_is_what_the_binding_reads():
+    """Guards the fixture: cu_identity nests the digest under runtimeIdentity (chatgpt-codex P1 on #1229)."""
+    script = Path("e2e/harness/upgrade-chaos.sh").read_text()
+    assert "runtimeIdentity:{imageReference:$ref,imageDigest:$digest,observedVersion:$version}" in script
+    flat = ran_receipt()
+    flat["phases"]["candidate"] = {"imageDigest": AMD64, "imageReference": f"{REPO}@{AMD64}"}
+    receipt, digest = bind(flat, qualification_lock(bound_manifest()))
+    assert receipt["status"] == "fail" and not admitted(receipt, digest)
+
+
+def test_the_cli_binds_a_real_harness_phase_dir(tmp_path):
+    manifest_raw = bound_manifest()
+    lock_raw = json.dumps(qualification_lock(manifest_raw)).encode()
+    (tmp_path / "platform-manifest.yaml").write_bytes(manifest_raw)
+    (tmp_path / "platform-lock.json").write_bytes(lock_raw)
+    (tmp_path / "pair.json").write_text(json.dumps({"prior_source": "published-rc", "candidate": f"{REPO}@{AMD64}"}))
+    (tmp_path / "compose-candidate-identity.json").write_text(json.dumps(harness_identity(f"{REPO}@{AMD64}", AMD64)))
+    digest = "sha256:" + hashlib.sha256(lock_raw).hexdigest()
+    out = tmp_path / "receipt.json"
+    assert cu.main(["receipt", "--pair", str(tmp_path / "pair.json"), "--scenario", "normal", "--status", "pass",
+                    "--phase-dir", str(tmp_path), "--output", str(out),
+                    "--candidate-lock", str(tmp_path / "platform-lock.json"), "--candidate-lock-digest", digest,
+                    "--candidate-manifest", str(tmp_path / "platform-manifest.yaml"),
+                    "--candidate-revision-label", LOCK_SHA]) == 0
+    receipt = json.loads(out.read_text())
+    assert receipt["status"] == "pass" and admitted(receipt, digest)
+    run = {"status": "completed", "conclusion": "success", "reports": [receipt]}
+    assert window._classify(run, window.Candidate(LOCK_SHA, INDEX, digest), "gate-upgrade.yml") == "qualifying"

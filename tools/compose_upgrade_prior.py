@@ -374,12 +374,16 @@ def bind_candidate_lock(receipt: dict, *, lock_raw: bytes, lock_digest: str, man
     candidate_phase = (receipt.get("phases") or {}).get("candidate")
     if (receipt.get("candidate") or {}).get("image") != expected:
         return refuse(f"the harness candidate {(receipt.get('candidate') or {}).get('image')!r} is not {expected}")
-    if not isinstance(candidate_phase, dict) or candidate_phase.get("imageDigest") != amd64:
+    # e2e/harness/upgrade-chaos.sh cu_identity: {imageID, ..., runtimeIdentity: {imageReference, imageDigest, ...}}.
+    identity = candidate_phase.get("runtimeIdentity") if isinstance(candidate_phase, dict) else None
+    if (not isinstance(identity, dict) or identity.get("imageDigest") != amd64
+            or identity.get("imageReference") != expected):
         return refuse("the observed candidate phase did not run the lock's amd64 image")
     if revision_label != source:
         return refuse(f"the candidate image revision label {revision_label!r} is not the lock's {source}")
-    candidate_phase["sourceRevision"] = source
-    candidate_phase["serverDigest"] = index
+    # rc_gate_window reads the SHA and digest from this nested object and the lock from candidateLockDigest.
+    identity["sourceRevision"] = source
+    identity["serverDigest"] = index
     receipt["candidateLockDigest"] = lock_digest
     receipt["candidateBinding"] = {"lockDigest": lock_digest, "lockRun": lock_run, "sourceRevision": source,
                                    "serverDigest": index, "amd64Digest": amd64, "revisionLabel": revision_label,
