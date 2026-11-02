@@ -720,6 +720,19 @@ INTERPRETER_NAME = re.compile(r'(?:python(?:\d+(?:\.\d+)?)?|pypy3?|node(?:js)?|d
                               r'Rscript|pwsh|powershell|osascript|tclsh|wish|groovy|jshell)', re.I)
 
 
+# ARC v2 B1/S4: the product's shipped quickstart package is installed by the agent with the package's own
+# initializer, exactly as its README says (`python3 quickstart.py`, optionally --init-only or --help). It is modelled,
+# not an arbitrary interpreter program: its bytes are the pinned product file (the slot's packageSha256, re-verified
+# by the aggregate against the package rebuilt for the candidate), the quickstart shell admits only these exact
+# forms in the slot's install directory (agent_cli_backends.parse_quickstart), and its effects are the install
+# itself: the .env secrets and key ring in that directory and `docker compose up` of the package on this slot.
+PACKAGED_INITIALIZER_ARGS = ([], ['--init-only'], ['--help'], ['-h'])
+
+
+def is_packaged_initializer(program: str, args: list[str]) -> bool:
+    return program == 'python3' and bool(args) and args[0] == 'quickstart.py' and args[1:] in PACKAGED_INITIALIZER_ARGS
+
+
 def _interpreter(program: str, args: list[str]) -> list[str]:
     """Release-session ruling (2026-11-01 21:21 UTC): an interpreter's file, network and process effects are not
     modelled, so every interpreter program (inline -c/-e body, module or script, from a file or stdin) is a
@@ -729,6 +742,8 @@ def _interpreter(program: str, args: list[str]) -> list[str]:
     if not INTERPRETER_NAME.fullmatch(program):
         return []
     if args and all(a in HELP or a in ('-v', 'version') for a in args):
+        return []
+    if is_packaged_initializer(program, args):
         return []
     flag = INTERPRETERS.get(program, '-c' if program.lower().startswith(('python', 'pypy')) else '-e')
     body = next((args[i + 1] for i, a in enumerate(args) if a == flag and i + 1 < len(args)), '')
