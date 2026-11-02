@@ -2299,7 +2299,13 @@ def test_a_voided_flagged_runs_exported_verdict_is_accepted_by_the_aggregate(tmp
     exported = [verdict(raws, delta=0, run_index=0)]
     result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets, voids=[void('local-docker:A1:h00', original)],
                     false_success_adjudications=exported)
-    assert (result['falseSuccess'], result['falseSuccessUnresolved'], result['falseSuccessAdjudications']) == (0, 0, [])
+    # The verdict is checked and resolves the voided run's flag. The aggregate lists every observed flag's verdict
+    # (voided runs included, matching falseSuccessFlags, which rc admission compares against this list), and the
+    # voided run is never a counted run's incident.
+    assert (result['falseSuccess'], result['falseSuccessUnresolved']) == (0, 0)
+    assert [(r['runId'], r['flagId'], r['verdict']) for r in result['falseSuccessAdjudications']] == [
+        ('local-docker:A1:h00', 'setup:installed', 'rejected')]
+    assert result['falseSuccessFlags'] == 1 and result['countedIncidents']['falseSuccess'] == 0
     # Without the exported verdict the voided run's flag stays unresolved: a void never hides a claim.
     result, _ = agg(tmp_path, None, raws, rows=rows, goal_sets=sets, voids=[void('local-docker:A1:h00', original)])
     assert result['falseSuccessUnresolved'] == 1
