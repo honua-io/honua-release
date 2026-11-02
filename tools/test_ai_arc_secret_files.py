@@ -120,3 +120,45 @@ def test_secret_files_are_secret_paths_like_dot_env(command):
 
 def test_listing_the_secrets_directory_is_not_a_secret_read():
     assert S.classify_command('ls secrets') == []
+
+
+def _generated_secret_keys():
+    """Every secret the pinned quickstart package generates, read from its generator (SECRET_KEYS + AUDIT_KEYS of
+    scripts/docker/compose_quickstart.py), parsed, never imported or copied. The fixture file is the pinned
+    package's own bytes: its digest must equal the arc spec's pin."""
+    import ast
+    import hashlib
+    import json
+    root = Path(__file__).resolve().parents[1]
+    generator = root / 'tools/test_ai_arc_fixtures/quickstart-package/scripts/docker/compose_quickstart.py'
+    raw = generator.read_bytes()
+    pin = json.loads((root / 'certification/ai-arc/arc.v1.json').read_text())['quickstartPackage']['files']
+    assert 'sha256:' + hashlib.sha256(raw).hexdigest() == pin['scripts/docker/compose_quickstart.py']
+    keys = []
+    for node in ast.parse(raw).body:
+        if isinstance(node, ast.Assign) and any(getattr(t, 'id', None) in ('SECRET_KEYS', 'AUDIT_KEYS')
+                                                for t in node.targets):
+            keys.extend(ast.literal_eval(node.value))
+    assert keys and len(set(keys)) == len(keys)
+    return keys
+
+
+@pytest.mark.parametrize('layout', ['dot-env', 'secret-files'])
+def test_every_generated_secret_is_redacted_in_both_layouts(tmp_path, layout):
+    """Sol (#1241 review): five generated secrets were missing from SECRET_KEYS on the .env layout."""
+    import secrets as pysecrets
+    import g3_compose_quickstart as G
+    keys = _generated_secret_keys()
+    assert set(keys) <= set(G.SECRET_KEYS), sorted(set(keys) - set(G.SECRET_KEYS))
+    values = {k: 'v-' + pysecrets.token_hex(16) for k in keys}
+    if layout == 'dot-env':
+        (tmp_path / '.env').write_text('HONUA_IMAGE=x\n' + ''.join(f'{k}={v}\n' for k, v in values.items()))
+    else:
+        (tmp_path / '.env').write_text('HONUA_IMAGE=x\n')
+        (tmp_path / 'secrets').mkdir()
+        for k, v in values.items():
+            (tmp_path / 'secrets' / k.lower()).write_text(v)
+    found = G.secret_values(tmp_path)
+    assert set(values.values()) <= set(found)
+    text = G.redact(' '.join(values.values()), found)
+    assert not any(v in text for v in values.values())
