@@ -90,13 +90,21 @@ class FaultInjector:
         self.skipped: list[dict] = []
         self._lock = threading.Lock()
 
-    def _completed(self, execution):
-        """The reviewed publication trigger also needs the call's own reply to report a completed operation."""
+    def _completed(self, action, execution):
+        """The reviewed publication trigger also needs the call's own reply to report a completed operation, and
+        for honua_admin_layer_publish a real publication: the same rule that credits it (Sol h13b: a validation-only
+        reply must never consume the fault)."""
         if 'tools' not in (self.plan['after'] or {}):
             return True
         result = execution.get('result') if isinstance(execution.get('result'), dict) else {}
         payload = result.get('structuredContent') if isinstance(result.get('structuredContent'), dict) else {}
-        return result.get('isError', False) is False and payload.get('status') == 'Completed'
+        if result.get('isError', False) is not False or payload.get('status') != 'Completed':
+            return False
+        if action.get('tool') == 'honua_admin_layer_publish':
+            from agent_e2e_local_projections import admin_layer_publication
+            return admin_layer_publication({'kind': 'tool_call', 'status': 'pass', 'arguments': action.get('arguments'),
+                                            'json': {'result': result}}) is not None
+        return True
 
     def _matches(self, spec, kind, action):
         if kind != 'tool_call':
@@ -188,7 +196,7 @@ class FaultInjector:
         """Arm the fault once the trigger action has succeeded."""
         with self._lock:
             if (not self.triggered and self._matches(self.plan['after'], kind, action)
-                    and execution.get('status') in ('ok', 'pass') and self._completed(execution)):
+                    and execution.get('status') in ('ok', 'pass') and self._completed(action, execution)):
                 self.triggered = True
 
     def wrap(self, execute):

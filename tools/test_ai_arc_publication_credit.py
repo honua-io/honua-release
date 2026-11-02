@@ -156,7 +156,11 @@ def test_either_publication_tool_arms_the_p10_query_503(tool):
     fault = _fault()
     query = _call('honua_query_features', serviceId='kestrel', layerId=1)
     assert fault.intercept('tool_call', query) is None                 # not armed before a publication
-    fault.observe('tool_call', _call(tool, table=TABLE, dryRun=False), DONE)
+    if tool == 'honua_admin_layer_publish':
+        real = _admin_publish(dry_run=False)
+        fault.observe('tool_call', _call(tool, **real['arguments']), {'status': 'ok', 'result': real['json']['result']})
+    else:
+        fault.observe('tool_call', _call(tool, table=TABLE, dryRun=False), DONE)
     event = fault.intercept('tool_call', query)
     assert event is not None and event['id'] == 'arc-p10-query-503' and event['tool'] == 'honua_query_features'
     assert fault.intercept('tool_call', query) is None                 # once
@@ -173,6 +177,12 @@ def test_a_dry_run_failed_or_incomplete_publication_never_arms_the_503():
     fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE),
                   {'status': 'pass', 'result': {'isError': True, 'structuredContent': {'status': 'Completed'}}})
     fault.observe('tool_call', _call('honua_list_layers'), DONE)
+    # Sol h13b: a completed validation-only admin reply (isValid, no layerId) never consumes the fault.
+    validation = _admin_publish(validation=True)
+    fault.observe('tool_call', _call('honua_admin_layer_publish', **validation['arguments']),
+                  {'status': 'ok', 'result': validation['json']['result']})
+    # A completed admin reply without a real publication body never arms it either.
+    fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE), DONE)
     assert fault.intercept('tool_call', query) is None
 
 
