@@ -376,18 +376,59 @@ def effective_flags(args, contract) -> list[str]:
     return out
 
 
-def guide_scratch_root() -> Path:
-    """Where a session that loads the shipped agent guide runs: a real-disk directory OUTSIDE any home directory
+GUIDE_SCRATCH_FILESYSTEMS = ('ext4', 'ext3', 'xfs', 'btrfs', 'zfs')
+GUIDE_SCRATCH_REFUSED = ('/tmp', '/var/tmp', '/dev/shm', '/run', '/home', '/root', '/Users')
+# User and global instruction sources a CLI reads from its own configuration directory (Claude Code: CLAUDE.md,
+# CLAUDE.local.md and rules/; Codex: AGENTS.md, AGENTS.override.md and the legacy instructions.md).
+CONFIG_INSTRUCTION_NAMES = ('CLAUDE.md', 'CLAUDE.local.md', 'rules', 'AGENTS.md', 'AGENTS.override.md',
+                            'instructions.md')
+
+
+def _mount_fstype(path: Path, mountinfo: str | None = None) -> str:
+    """The filesystem type of the mount holding ``path`` (longest mount-point prefix in /proc/self/mountinfo)."""
+    text = mountinfo if mountinfo is not None else Path('/proc/self/mountinfo').read_text()
+    best, fstype = '', None
+    for line in text.splitlines():
+        left, sep, right = line.partition(' - ')
+        fields = left.split()
+        if not sep or len(fields) < 5 or not right.split():
+            continue
+        point = re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), fields[4])
+        inside = str(path) == point or point == '/' or str(path).startswith(point.rstrip('/') + '/')
+        if inside and len(point) >= len(best):
+            best, fstype = point, right.split()[0]
+    if fstype is None:
+        raise ValueError('cannot determine the filesystem of ' + str(path))
+    return fstype
+
+
+def _home_directories() -> set[str]:
+    """Every account's home directory (passwd), plus this process's HOME; "/" and /nonexistent are not homes."""
+    import pwd
+    homes = {e.pw_dir for e in pwd.getpwall()} | {os.environ.get('HOME') or '', str(Path.home())}
+    return {os.path.realpath(h) for h in homes if h and h not in ('/', '/nonexistent')}
+
+
+def guide_scratch_root(*, mountinfo: str | None = None, homes: set[str] | None = None) -> Path:
+    """Where a session that loads the shipped agent guide runs: a real-disk directory OUTSIDE every home directory
     (an operator's ~/.claude/CLAUDE.md would otherwise be an ancestor project memory). HONUA_ARC_GUIDE_SCRATCH,
-    default /var/lib/honua-arc-cli; it must already exist, be owned by this user and be private (fail closed)."""
+    default /var/lib/honua-arc-cli; it must already exist, be owned by this user and be private (fail closed).
+    "Real disk" is checked on the mount (ext4, ext3, xfs, btrfs or zfs; tmpfs such as /run/user/<uid> is refused),
+    and "outside every home" against every passwd home directory, not a fixed list of prefixes."""
     root = Path(os.environ.get('HONUA_ARC_GUIDE_SCRATCH') or '/var/lib/honua-arc-cli').resolve()
-    if any(str(root) == t or str(root).startswith(t + '/') for t in ('/tmp', '/var/tmp', '/dev/shm', '/home', '/root')):
+    if any(str(root) == t or str(root).startswith(t + '/') for t in GUIDE_SCRATCH_REFUSED):
         raise ValueError('the agent-guide scratch root must be on real disk outside any home directory: ' + str(root))
+    for home in (_home_directories() if homes is None else homes):
+        if str(root) == home or str(root).startswith(home.rstrip('/') + '/') or home.startswith(str(root) + '/'):
+            raise ValueError('the agent-guide scratch root overlaps a home directory: ' + str(root) + ' / ' + home)
     info = root.stat() if root.is_dir() else None
     if info is None or info.st_uid != os.getuid() or info.st_mode & 0o077:
         raise ValueError('the agent-guide scratch root is missing, foreign or not private: ' + str(root) + ' (create it '
                          'on the machine that runs the arm CLIs: sudo install -d -m 700 -o "$USER" -g "$USER" ' + str(root)
                          + '; the ai-arc workflow does this on the honua-arc controller runner)')
+    fstype = _mount_fstype(root, mountinfo)
+    if fstype not in GUIDE_SCRATCH_FILESYSTEMS:
+        raise ValueError('the agent-guide scratch root must be on a real-disk filesystem, not ' + fstype + ': ' + str(root))
     return root
 
 
@@ -404,29 +445,57 @@ def agent_guide():
 def stage_agent_guide(scratch: Path, guide: bytes, agent: str, env: dict) -> Path:
     """The CLI's working directory: scratch/install holding only the package's AGENTS.md (byte-identical), a sibling of
     the CLI's HOME (scratch/home) so no config directory sits in its ancestry. Refuses if any other instruction source
-    is reachable: AGENTS.md, CLAUDE.md, .git or .claude in the directory's ancestors, a user CLAUDE.md in
-    CLAUDE_CONFIG_DIR, or a global AGENTS.md in CODEX_HOME (Codex loads that even with --ignore-user-config)."""
+    is reachable (verify_guide_isolation); the same check runs again immediately before the CLI starts."""
     work = scratch / 'install'
     work.mkdir(mode=0o700)
-    # Release session 2026-11-02 (condition a): nothing in the working directory or any ancestor may carry
-    # instructions, settings, hooks, commands, agents, skills or MCP configuration (.claude/ in any form, .mcp.json,
-    # CLAUDE.md variants, another AGENTS.md, .git); the working directory holds exactly the guide.
-    if any((p / name).exists() for p in work.parents for name in INSTRUCTION_NAMES):
-        raise ValueError('an instruction source other than the shipped agent guide is reachable')
-    config = Path(env['CLAUDE_CONFIG_DIR'] if agent == 'claude-cli' else env['CODEX_HOME'])
-    if any((config / name).exists() for name in ('CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', 'AGENTS.override.md',
-                                                 'instructions.md')):
-        raise ValueError('a user or global instruction file is present in the CLI configuration directory')
     write_private(work / 'AGENTS.md', guide)
-    verify_agent_guide_dir(work, guide)
+    verify_guide_isolation(work, guide, agent, env)
     return work
 
 
+def _physical(path: Path) -> Path:
+    """``path`` made absolute, refusing any symlinked component: a substituted directory would move the CLI's real
+    ancestry (and its cwd discovery) somewhere the lexical checks never looked."""
+    absolute = Path(os.path.abspath(path))
+    if Path(os.path.realpath(absolute)) != absolute:
+        raise ValueError('a symlinked directory is in the agent-guide path: ' + str(path))
+    return absolute
+
+
+def _present(directory: Path, names) -> bool:
+    """Any of ``names`` in ``directory``, counting dangling or looping symlinks (lexists, not exists)."""
+    return any(os.path.lexists(directory / name) for name in names)
+
+
+def verify_guide_isolation(work: Path, guide: bytes, agent: str, env: dict):
+    """Release session 2026-11-02 (condition a), checked at staging AND at launch: the working directory is a real
+    (non-symlinked) directory under the private scratch root holding exactly the guide; nothing in it or any physical
+    ancestor carries instructions, settings, hooks, commands, agents, skills or MCP configuration (.claude/ in any
+    form, .mcp.json, CLAUDE.md variants, another AGENTS.md, .git, .codex); and the CLI's configuration directory
+    (CLAUDE_CONFIG_DIR, or CODEX_HOME, whose global AGENTS.md Codex loads even with --ignore-user-config) is a real
+    directory with no user or global instruction file in it."""
+    root = guide_scratch_root()
+    work = _physical(work)
+    if root not in work.parents:
+        raise ValueError('the agent-guide working directory is outside the scratch root')
+    verify_agent_guide_dir(work, guide)
+    if any(_present(p, INSTRUCTION_NAMES) for p in work.parents):
+        raise ValueError('an instruction source other than the shipped agent guide is reachable')
+    config = _physical(Path(env['CLAUDE_CONFIG_DIR'] if agent == 'claude-cli' else env['CODEX_HOME']))
+    if _present(config, CONFIG_INSTRUCTION_NAMES):
+        raise ValueError('a user or global instruction file is present in the CLI configuration directory')
+
+
 def verify_agent_guide_dir(work: Path, guide: bytes):
-    """Exactly one entry, AGENTS.md, byte-identical to the package's (checked again just before the CLI starts)."""
-    if sorted(p.name for p in work.iterdir()) != ['AGENTS.md'] or (work / 'AGENTS.md').is_symlink() \
-            or digest((work / 'AGENTS.md').read_bytes()) != digest(guide):
+    """Exactly one entry, AGENTS.md, a regular file (not a symlink) byte-identical to the package's."""
+    import stat
+    entry = work / 'AGENTS.md'
+    if sorted(p.name for p in work.iterdir()) != ['AGENTS.md'] or not stat.S_ISREG(entry.lstat().st_mode):
         raise ValueError('the staged agent guide is not the package file, or the directory holds anything else')
+    fd = os.open(entry, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as handle:
+        if digest(handle.read()) != digest(guide):
+            raise ValueError('the staged agent guide is not the package file, or the directory holds anything else')
 
 
 def cli_environment(home, agent, *, auth_root=None):
@@ -854,9 +923,7 @@ class CliModelSession:
                     if self.agent == 'claude-cli': write_private(debug_path, b'')
                     if guide is not None:
                         # Checked again at launch: exactly the shipped guide, and nothing else reachable.
-                        verify_agent_guide_dir(work, guide)
-                        if any((d / name).exists() for d in work.parents for name in INSTRUCTION_NAMES):
-                            raise ValueError('an instruction source other than the shipped agent guide is reachable')
+                        verify_guide_isolation(work, guide, self.agent, env)
                     started = time.monotonic()
                     process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                                cwd=work, env=env, start_new_session=True)
