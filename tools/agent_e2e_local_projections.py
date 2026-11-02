@@ -1130,6 +1130,53 @@ def admin_layer_publication(result) -> str | None:
     return value
 
 
+PUBLICATION_OPERATIONS = ('service.publish', 'admin.layer.publish')
+PUBLICATION_AUDIT_PREFIXES = tuple(['operationId=' + op, 'status=Completed'] for op in PUBLICATION_OPERATIONS)
+
+
+def publication_audit_prefix(event) -> bool:
+    """A completed publication's operation.completed audit details: service.publish or admin.layer.publish."""
+    return isinstance(event, dict) and str(event.get('details', '')).split(';')[:2] in PUBLICATION_AUDIT_PREFIXES
+
+
+def publication_handle_identity(handle) -> dict:
+    """The layer a completed publication operation handle names (``data`` of GET /api/v1/operations/handles/{id}):
+    {"operationId", "service", "layerId", "schema", "table"}; raises ProjectionError on anything missing or malformed.
+
+    service.publish names it in ``resourceIds`` (serviceName, layerId; schema and table are not in the handle).
+    admin.layer.publish leaves ``resourceIds`` empty on rc.2 (honua-server #6895, tracked for GA; release session
+    2026-11-02: harness-only for rc.2), so it is read from the admin REST layer-publish response the handle embeds at
+    ``result.details.response``: a real publication (success, data.layerId an integer, no validation ``isValid``)
+    with data.serviceName, data.schema and data.table. Callers still verify the audit event and actor, the layer
+    metadata and the table binding independently; the response alone is never trusted."""
+    import json as _json
+    require(isinstance(handle, dict) and handle.get('status') == 'Completed'
+            and handle.get('operationId') in PUBLICATION_OPERATIONS, 'not a completed publication handle')
+    if handle['operationId'] == 'service.publish':
+        ids = handle.get('resourceIds')
+        require(isinstance(ids, dict) and isinstance(ids.get('serviceName'), str)
+                and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', ids['serviceName'])
+                and re.fullmatch(r'0|[1-9][0-9]*', str(ids.get('layerId'))), 'publication handle lacks its resource ids')
+        return {'operationId': 'service.publish', 'service': ids['serviceName'], 'layerId': int(ids['layerId']),
+                'schema': None, 'table': None}
+    details = (handle.get('result') or {}).get('details') if isinstance(handle.get('result'), dict) else None
+    raw = details.get('response') if isinstance(details, dict) else None
+    require(isinstance(raw, str) and raw, 'admin publication handle lacks its response')
+    try:
+        embedded = _json.loads(raw)
+    except ValueError as exc:
+        raise ProjectionError('admin publication response is not JSON') from exc
+    data = embedded.get('data') if isinstance(embedded, dict) else None
+    require(isinstance(data, dict) and embedded.get('success') is True and 'isValid' not in data
+            and type(data.get('layerId')) is int and data['layerId'] >= 0
+            and isinstance(data.get('serviceName'), str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', data['serviceName'])
+            and all(isinstance(data.get(k), str) and re.fullmatch(r'[a-z_][a-z0-9_]{0,62}', data[k])
+                    for k in ('schema', 'table')),
+            'admin publication response is not a completed layer publication')
+    return {'operationId': 'admin.layer.publish', 'service': data['serviceName'], 'layerId': data['layerId'],
+            'schema': data['schema'], 'table': data['table']}
+
+
 # =========================================================================== P10 on a role-restricted service
 # Founder decision 2026-11-02 (rehearsal of record r4): when the agent role-restricts the service it published, P10 is
 # still observed WITHOUT any principal bypassing the access policy: existence, metadata and the layer binding through
@@ -1440,14 +1487,23 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                     and record.kind == 'http' and record.method == 'GET' and record.intact(),
                     'invalid arc publication role')
             handle = record.json.get('data', {})
-            ids = handle.get('resourceIds', {})
-            require(handle.get('operationId') == 'service.publish' and handle.get('status') == 'Completed'
+            ids = handle.get('resourceIds', {}) if isinstance(handle, dict) else {}
+            try:
+                identity = publication_handle_identity(handle)
+            except ProjectionError:
+                identity = None
+            require(identity is not None
                     and record.path == '/api/v1/operations/handles/' + str(handle.get('operationInstanceId')),
                     'arc role lacks a completed controller publication handle')
             field = 'serviceName' if parts[1] == 'service' else 'layerId'
-            require(binding.pointer == '/data/resourceIds/' + field and ids.get(field) is not None,
-                    'invalid arc role pointer')
-            roles[name] = ids[field]
+            require(binding.pointer == '/data/resourceIds/' + field, 'invalid arc role pointer')
+            if identity['operationId'] == 'service.publish':
+                require(ids.get(field) is not None, 'invalid arc role pointer')
+                roles[name] = ids[field]
+            else:
+                # admin.layer.publish (#6895): the same identity, read from the embedded admin response, in the
+                # resourceIds form (layerId as a string), and bound to the stage-three handoff by the caller.
+                roles[name] = identity['service'] if field == 'serviceName' else str(identity['layerId'])
             continue
         if name.startswith('audited:'):
             parts = name.split(':')

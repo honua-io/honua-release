@@ -973,6 +973,8 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
     stage-three outcome as undetermined (a harness readback failure, never the arm's) and stage four is not run
     with a partial handoff."""
     from agent_e2e_local_expectations import fixture_scenarios
+    from agent_e2e_local_projections import publication_audit_prefix, publication_handle_identity
+    from agent_e2e_local_recorder import ProjectionError
     from urllib.parse import quote
     http, base = ctx.options.get('http'), (ctx.slot.controller or {}).get('base_url')
     admin = (ctx.slot.controller or {}).get('admin_key')
@@ -1030,17 +1032,25 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
                   if e.get('actor') in principals and e.get('outcome') == 'Success'
                   and e.get('action') in (None, 'operation.completed')
                   and e.get('resourceType') in (None, 'operation_instance')
-                  and str(e.get('details', '')).split(';')[:2] == ['operationId=service.publish', 'status=Completed']
+                  and publication_audit_prefix(e)
                   and type(e.get('auditId')) is int and isinstance(e.get('resourceId'), str)
                   and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', e['resourceId'])
                   and start <= instant(e.get('timestamp')) <= end]
-    handles = {}
+    handles, identities = {}, {}
     for event in candidates:
         data = read('/api/v1/operations/handles/' + quote(event['resourceId'], safe='')).get('data') or {}
-        resources = data.get('resourceIds') if isinstance(data, dict) else None
-        if (isinstance(resources, dict) and data.get('operationInstanceId') == event['resourceId']
-                and data.get('operationId') == 'service.publish' and data.get('status') == 'Completed'):
-            handles.setdefault((resources.get('serviceName'), str(resources.get('layerId'))), []).append(event)
+        if not isinstance(data, dict) or data.get('operationInstanceId') != event['resourceId']:
+            continue
+        try:
+            # service.publish (resourceIds) or admin.layer.publish (the embedded admin response; #6895); the audit
+            # event's operation must be the handle's.
+            identity = publication_handle_identity(data)
+        except ProjectionError:
+            continue
+        if str(event.get('details', '')).split(';')[0] != 'operationId=' + identity['operationId']:
+            continue
+        identities[event['resourceId']] = identity
+        handles.setdefault((identity['service'], str(identity['layerId'])), []).append(event)
     layers = {}
     for name, (service, layer) in published.items():
         matched = handles.get((service, str(layer))) or []
@@ -1067,6 +1077,10 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
         if (roles.get('seeded:table:' + name), roles.get('seeded:schema:' + name)) != \
                 (tables[name]['table'], tables[name]['schema']):
             raise ValueError(name + ': published table differs from the imported fixture table')
+        identity = identities[layers[name]['operationInstanceId']]
+        if identity['operationId'] == 'admin.layer.publish' and \
+                (identity['table'], identity['schema']) != (tables[name]['table'], tables[name]['schema']):
+            raise ValueError(name + ': the admin publication names another table than the imported fixture table')
     connection = roles.get('seeded:connection:shelters')
     if not isinstance(connection, str) or not connection:
         raise ValueError('the fixture connection is unknown')

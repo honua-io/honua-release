@@ -308,3 +308,90 @@ def test_a_readback_that_succeeds_after_its_timeout_never_turns_the_failure_into
     assert receipt['stages'][2]['outcome'] == 'undetermined' and studio.seen == 'unset'
     assert services.studio_handoff['status'] == 'failed'
 
+
+
+# Release session 2026-11-02 (bug 4, harness-only for rc.2; honua-server #6895 for GA): P10 credits a completed
+# honua_admin_layer_publish (PREREG A8), whose admin.layer.publish handle has empty resourceIds; the handoff reads the
+# service and layer from the embedded admin REST response and verifies them independently (audit event and actor,
+# layer metadata, table binding), never from the response alone.
+ADMIN_DETAILS = 'operationId=admin.layer.publish;status=Completed;x=1'
+
+
+def admin_response(service='kestrel-shelters', layer=0, table='arc10_x_shelters', schema='honua_data', **extra):
+    data = {'layerId': layer, 'layerName': 'Kestrel Shelters', 'schema': schema, 'table': table, 'enabled': True,
+            'serviceName': service, 'storageMode': 'source', **extra}
+    return json.dumps({'success': True, 'data': data, 'message': None})
+
+
+def admin_controller(events, response, *, operation_id='admin.layer.publish', resource_ids=None):
+    inner, calls = controller(events)
+
+    def http(method, url, key):
+        path = url.split('http://c', 1)[1]
+        if path.startswith('/api/v1/operations/handles/'):
+            op = path.rsplit('/', 1)[1]
+            calls.append(url)
+            if op != 'op-1':
+                return {'status': 404, 'json': {}}
+            return {'status': 200, 'json': {'data': {
+                'operationInstanceId': op, 'operationId': operation_id, 'status': 'Completed',
+                'resourceIds': resource_ids or {}, 'result': {'summary': 'Publish layer completed.',
+                                                              'details': {'response': response}}}}}
+        return inner(method, url, key)
+    return http, calls
+
+
+def test_an_admin_layer_publication_reaches_stage_four_with_the_same_checks(tmp_path):
+    http, _ = admin_controller([event(details=ADMIN_DETAILS)], admin_response())
+    handoff = R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+    assert handoff['layers']['shelters']['service'] == 'kestrel-shelters'
+    assert handoff['layers']['shelters']['layerId'] == 0 and handoff['layers']['shelters']['operationInstanceId'] == 'op-1'
+
+
+@pytest.mark.parametrize('response,events,why', [
+    (admin_response(service='elsewhere'), None, 'no unique completed agent publication'),         # tampered service
+    (admin_response(layer=3), None, 'no unique completed agent publication'),                    # tampered layer
+    (admin_response(table='arc10_x_parcels'), None, 'another table'),                            # tampered table
+    (admin_response(isValid=True), None, 'no unique completed agent publication'),               # a validation
+    (json.dumps({'success': False, 'data': None}), None, 'no unique completed agent publication'),
+    ('not json', None, 'no unique completed agent publication'),
+    (admin_response(), [event(actor='api-key:someone-else', details=ADMIN_DETAILS)],
+     'no unique completed agent publication'),                                                   # another actor
+    (admin_response(), [event(details='operationId=service.publish;status=Completed')],
+     'no unique completed agent publication'),                                                   # audit op differs
+    (admin_response(), [event(details=ADMIN_DETAILS, ts='2026-11-01T21:10:00Z')],
+     'no unique completed agent publication')])                                                  # outside the window
+def test_an_admin_publication_fails_closed(tmp_path, response, events, why):
+    http, _ = admin_controller(events or [event(details=ADMIN_DETAILS)], response)
+    with pytest.raises(ValueError, match=why):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+def test_an_admin_publication_still_needs_the_layer_metadata(tmp_path):
+    inner, _ = admin_controller([event(details=ADMIN_DETAILS)], admin_response())
+
+    def http(method, url, key):
+        if '/rest/services/' in url:
+            return {'status': 200, 'json': {'error': {'code': 404}}}
+        return inner(method, url, key)
+    with pytest.raises(ValueError, match='layer fields or geometry type'):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+def test_the_publication_handle_identity_for_both_routes():
+    from agent_e2e_local_projections import publication_handle_identity
+    from agent_e2e_local_recorder import ProjectionError
+    assert publication_handle_identity({'operationId': 'service.publish', 'status': 'Completed',
+                                        'resourceIds': {'serviceName': 'kestrel', 'layerId': '1'}}) == {
+        'operationId': 'service.publish', 'service': 'kestrel', 'layerId': 1, 'schema': None, 'table': None}
+    admin = {'operationId': 'admin.layer.publish', 'status': 'Completed', 'resourceIds': {},
+             'result': {'details': {'response': admin_response(service='kestrel', layer=1)}}}
+    assert publication_handle_identity(admin) == {'operationId': 'admin.layer.publish', 'service': 'kestrel',
+                                                  'layerId': 1, 'schema': 'honua_data', 'table': 'arc10_x_shelters'}
+    for bad in ({**admin, 'status': 'Failed'}, {**admin, 'operationId': 'admin.layer.delete'},
+                {**admin, 'result': {'details': {}}}, {**admin, 'result': {'details': {'response': '{}'}}},
+                {**admin, 'result': {'details': {'response': admin_response(layer='1')}}},
+                {**admin, 'result': {'details': {'response': admin_response(service='a b')}}},
+                {'operationId': 'service.publish', 'status': 'Completed', 'resourceIds': {}}):
+        with pytest.raises(ProjectionError):
+            publication_handle_identity(bad)
