@@ -1388,12 +1388,17 @@ components:
     # 2026-11-02 RELEASE v0.6.1 -> v0.6.2 at trunk 2ea185dc (honua-iac#372 merge commit): the AWS example
     # pins the final rc.2 Console image (c63b37fd). Annotated tag object a1ee2813; commit archive attested
     # (2 attestations, attest-source-archive.yml push run at 2ea185dc).
-    version: "0.6.2"                   # annotated v0.6.2; Git-source distribution
-    sha: "2ea185dc90e55d3b65118f6be475b647d4094e7a"   # v0.6.2^{}
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/2ea185dc90e55d3b65118f6be475b647d4094e7a.tar.gz"
-    artifactSourceRevision: "2ea185dc90e55d3b65118f6be475b647d4094e7a"   # the tarball's pax comment (git get-tar-commit-id)
-    artifactSha256: "sha256:b2b9fc4dec5fdc3d3bb2d5861bb99d05918baddba1caf8c598d67e94fdb6936e"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
+    # 2026-11-02 RC2 CUT: RELEASE v0.6.2 -> v0.6.3 at trunk fa76b1dd (honua-iac#373 merge commit): the
+    # aws-ecs task health check uses the server image's bash /dev/tcp probe, because honua-server #6798
+    # (in the daf56db2 candidate) dropped wget from the runtime image. Annotated tag object 8322d291;
+    # commit archive attested (1 attestation, attest-source-archive.yml push run 41406038001 at fa76b1dd).
+    version: "0.6.3"                   # annotated v0.6.3; Git-source distribution
+    sha: "fa76b1dd050e068547b312004ea7008a9379c9a7"   # v0.6.3^{}
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/fa76b1dd050e068547b312004ea7008a9379c9a7.tar.gz"
+    artifactSourceRevision: "fa76b1dd050e068547b312004ea7008a9379c9a7"   # the tarball's pax comment (git get-tar-commit-id)
+    artifactSha256: "sha256:13dea5f4ca0a6d94292997f77f8f495e899264ca0b6d6a4a7e7d16c1cb0f4858"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
     # Version maps: release/component-versions.json at v0.6.2 (2ea185dc; unchanged from v0.6.1).
+    # 2026-11-02 RC2 CUT: release/component-versions.json at v0.6.3 (fa76b1dd) is unchanged from v0.6.2.
     contractVersions:
       operator-contract: "honua.operator-contract/v2"
       runtime-binding: "honua.runtime-binding/v1"
